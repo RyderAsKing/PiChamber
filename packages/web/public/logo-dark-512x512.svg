@@ -1,16 +1,13 @@
-<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-  <!-- OpenChamber logo - simplified, no background (for dark backgrounds) -->
-  <g transform="translate(256, 256) scale(4)">
-    <!-- Left face - simplified, no grid cells -->
-    <path d="M0 0 L-41.568 -24 L-41.568 24 L0 48 Z" fill="white" fill-opacity="0.2" stroke="white" stroke-width="3" stroke-linejoin="round"/>
-    <!-- Right face - simplified, no grid cells -->
-    <path d="M0 0 L41.568 -24 L41.568 24 L0 48 Z" fill="white" fill-opacity="0.35" stroke="white" stroke-width="3" stroke-linejoin="round"/>
-    <!-- Top face - open -->
-    <path d="M0 -48 L-41.568 -24 L0 0 L41.568 -24 Z" fill="none" stroke="white" stroke-width="3" stroke-linejoin="round"/>
-    <!-- OpenCode logo on top face -->
-    <g transform="matrix(0.866, 0.5, -0.866, 0.5, 0, -24) scale(0.75)">
-      <path fill-rule="evenodd" clip-rule="evenodd" d="M-16 -20 L16 -20 L16 20 L-16 20 Z M-8 -12 L-8 12 L8 12 L8 -12 Z" fill="white"/>
-      <path d="M-8 -4 L8 -4 L8 12 L-8 12 Z" fill="white" fill-opacity="0.4"/>
-    </g>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="PiChamber">
+  <title>PiChamber</title>
+  <desc>A pi symbol inside a faceted hexagonal chamber (for dark backgrounds)</desc>
+  <g transform="translate(256 256) scale(4) translate(-50 -50)" color="white">
+    <!-- Chamber (hex prism facets) -->
+    <path d="M50 3 91 27 50 51 9 27Z" fill="white" fill-opacity="0.05"/>
+    <path d="M9 27 50 51V97L9 73Z" fill="white" fill-opacity="0.1"/>
+    <path d="M50 51 91 27V73L50 97Z" fill="white" fill-opacity="0.18"/>
+    <path d="M50 3 91 27V73L50 97 9 73V27Z" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Pi glyph -->
+    <path d="M28 31H72 M38 31V68 M62 31V55C62 64 67 68 75 68" fill="none" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 </svg>
