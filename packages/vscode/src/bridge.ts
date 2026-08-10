@@ -56,7 +56,9 @@ export interface BridgeContext {
 
 const CLIENT_RELOAD_DELAY_MS = 800;
 
-const UPDATE_CHECK_URL = process.env.OPENCHAMBER_UPDATE_API_URL || 'https://api.pichamber.dev/v1/update/check';
+const UPDATE_CHECK_URL = (typeof process.env.OPENCHAMBER_UPDATE_API_URL === 'string' && process.env.OPENCHAMBER_UPDATE_API_URL.trim().length > 0)
+  ? process.env.OPENCHAMBER_UPDATE_API_URL.trim()
+  : null;
 const GITHUB_BACKEND_DISABLED_ERROR = 'PiChamber VS Code backend GitHub integration is disabled. Use native VS Code GitHub integrations.';
 
 

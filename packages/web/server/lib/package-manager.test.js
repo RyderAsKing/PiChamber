@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Mock child_process to prevent real spawnSync calls that would hang in tests
+// Mock child_process so package-manager-detection does not hit real binaries.
 vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
   spawnSync: vi.fn(() => ({ status: 0, stdout: '/usr/local/bin', stderr: '' })),
@@ -13,31 +13,44 @@ const {
   getCurrentVersion,
 } = await import('./package-manager.js');
 
-/** Helper: create a fetch mock that routes by URL pattern */
+/** Helper: a fetch mock that routes by URL substring and records every call. */
 function createFetchMock() {
   const handlers = new Map();
-
+  const calls = [];
   const mock = vi.fn((url, options) => {
     const urlStr = typeof url === 'string' ? url : url.toString();
+    calls.push({ url: urlStr, options });
 
     for (const [pattern, response] of handlers) {
       if (urlStr.includes(pattern)) {
         return Promise.resolve(response);
       }
     }
-
     return Promise.reject(new Error(`Unexpected fetch call: ${urlStr}`));
   });
-
   mock.when = (pattern, response) => {
     handlers.set(pattern, response);
     return mock;
   };
-
+  mock.calls = calls;
   return mock;
 }
 
-describe('checkForUpdates', () => {
+const withNoHostedApi = async (fn) => {
+  const previous = process.env.OPENCHAMBER_UPDATE_API_URL;
+  delete process.env.OPENCHAMBER_UPDATE_API_URL;
+  try {
+    return await fn();
+  } finally {
+    if (typeof previous === 'string') {
+      process.env.OPENCHAMBER_UPDATE_API_URL = previous;
+    } else {
+      delete process.env.OPENCHAMBER_UPDATE_API_URL;
+    }
+  }
+};
+
+describe('checkForUpdates (no hosted API by default)', () => {
   let fetchMock;
   let originalFetch;
 
@@ -51,270 +64,188 @@ describe('checkForUpdates', () => {
     globalThis.fetch = originalFetch;
   });
 
-  // --- Scenario: API says update available, npm confirms ---
+  it('returns available=true when npm `latest` dist-tag is newer than current', async () => {
+    await withNoHostedApi(async () => {
+      fetchMock
+        .when('registry.npmjs.org', {
+          ok: true,
+          json: async () => ({ 'dist-tags': { latest: '1.10.0' } }),
+        })
+        .when('raw.githubusercontent.com', {
+          ok: true,
+          text: async () => '## [1.10.0] - 2026-05-01\n\n- New!',
+        });
 
-  it('returns available=true when both API and npm confirm a newer version', async () => {
-    fetchMock
-      .when('api.pichamber.dev', {
-        ok: true,
-        json: async () => ({
-          latestVersion: '1.10.0',
-          updateAvailable: true,
-          releaseNotes: '## [1.10.0] - 2026-05-01\n\n- Great new feature',
-        }),
-      })
-      .when('registry.npmjs.org', {
-        ok: true,
-        json: async () => ({
-          'dist-tags': { latest: '1.10.0' },
-        }),
-      })
-      .when('raw.githubusercontent.com', {
-        ok: true,
-        text: async () => '## [1.10.0] - 2026-05-01\n\n- Great new feature',
-      });
-
-    const result = await checkForUpdates({ currentVersion: '1.9.10' });
-
-    expect(result.available).toBe(true);
-    expect(result.version).toBe('1.10.0');
-    expect(result.currentVersion).toBe('1.9.10');
-  });
-
-  // --- Scenario (THE FIX): API says update available, npm does NOT have it ---
-
-  it('returns available=false when API claims update but npm has same version', async () => {
-    fetchMock
-      .when('api.pichamber.dev', {
-        ok: true,
-        json: async () => ({
-          latestVersion: '1.10.0',
-          updateAvailable: true,
-          releaseNotes: '## [1.10.0] - 2026-05-01\n\n- Great new feature',
-        }),
-      })
-      .when('registry.npmjs.org', {
-        ok: true,
-        json: async () => ({
-          'dist-tags': { latest: '1.9.10' },
-        }),
-      });
-
-    const result = await checkForUpdates({ currentVersion: '1.9.10' });
-
-    expect(result.available).toBe(false);
-  });
-
-  it('returns available=false when npm only has a prerelease of the current version', async () => {
-    fetchMock
-      .when('api.pichamber.dev', Promise.reject(new Error('Network error')))
-      .when('registry.npmjs.org', {
-        ok: true,
-        json: async () => ({
-          'dist-tags': { latest: '1.10.0-beta.1' },
-        }),
-      });
-
-    const result = await checkForUpdates({ currentVersion: '1.10.0' });
-
-    expect(result.available).toBe(false);
-  });
-
-  it('accepts electron desktop update claims without npm cross-checking', async () => {
-    fetchMock
-      .when('api.pichamber.dev', {
-        ok: true,
-        json: async () => ({
-          latestVersion: '1.10.0',
-          updateAvailable: true,
-          releaseNotes: '## [1.10.0] - 2026-05-01\n\n- Great new feature',
-        }),
-      });
-
-    const result = await checkForUpdates({
-      appType: 'desktop-electron',
-      currentVersion: '1.9.10',
-      installId: '4f4dfead-9688-4c4f-97d7-4607fbbfc3ab',
-      platform: 'windows',
-      arch: 'arm64',
-    });
-
-    expect(result.available).toBe(true);
-    expect(result.version).toBe('1.10.0');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
-      installId: '4f4dfead-9688-4c4f-97d7-4607fbbfc3ab',
-      platform: 'windows',
-      arch: 'arm64',
+      const result = await checkForUpdates({ currentVersion: '1.9.10' });
+      expect(result.available).toBe(true);
+      expect(result.version).toBe('1.10.0');
+      expect(result.releaseUrl).toBe('https://github.com/RyderAsKing/PiChamber/releases/tag/v1.10.0');
+      // No requests to api.pichamber.dev when the override is absent.
+      expect(fetchMock.calls.map((c) => c.url).some((u) => u.includes('api.pichamber.dev'))).toBe(false);
     });
   });
 
-  it('resolves an Android APK asset when the update API returns an AAB', async () => {
-    fetchMock
-      .when('api.pichamber.dev', {
+  it('returns available=false when npm `latest` matches current version', async () => {
+    await withNoHostedApi(async () => {
+      fetchMock.when('registry.npmjs.org', {
         ok: true,
-        json: async () => ({
-          latestVersion: '1.10.0',
-          updateAvailable: true,
-          downloadUrl: 'https://github.com/RyderAsKing/PiChamber/releases/download/v1.10.0/PiChamber-1.10.0-42-android.aab',
-        }),
-      })
-      .when('api.github.com/repos/RyderAsKing/PiChamber/releases/tags/v1.10.0', {
-        ok: true,
-        json: async () => ({
-          assets: [
-            {
-              name: 'PiChamber-1.10.0-42-android.aab',
-              browser_download_url: 'https://downloads.example/PiChamber-1.10.0-42-android.aab',
-            },
-            {
-              name: 'app-release.apk',
-              browser_download_url: 'https://downloads.example/app-release.apk',
-            },
-            {
-              name: 'PiChamber-1.10.0-42-android.apk',
-              browser_download_url: 'https://downloads.example/PiChamber-1.10.0-42-android.apk',
-            },
-          ],
-        }),
+        json: async () => ({ 'dist-tags': { latest: '1.9.10' } }),
       });
-
-    const result = await checkForUpdates({
-      appType: 'mobile-capacitor',
-      platform: 'android',
-      currentVersion: '1.9.10',
+      const result = await checkForUpdates({ currentVersion: '1.9.10' });
+      expect(result.available).toBe(false);
     });
-
-    expect(result.downloadUrl).toBe('https://downloads.example/PiChamber-1.10.0-42-android.apk');
   });
 
-  it('keeps a direct Android APK URL from the update API', async () => {
-    const apkUrl = 'https://github.com/RyderAsKing/PiChamber/releases/download/v1.10.0/PiChamber-1.10.0-42-android.apk';
-    fetchMock.when('api.pichamber.dev', {
-      ok: true,
-      json: async () => ({
-        latestVersion: '1.10.0',
-        updateAvailable: true,
-        downloadUrl: apkUrl,
-      }),
+  it('returns available=false when npm registry is unreachable', async () => {
+    await withNoHostedApi(async () => {
+      fetchMock.when('registry.npmjs.org', Promise.reject(new Error('Registry unreachable')));
+      const result = await checkForUpdates({ currentVersion: '1.9.10' });
+      expect(result.available).toBe(false);
+      expect(result.error).toMatch(/Unable to determine versions/);
     });
+  });
 
-    const result = await checkForUpdates({
-      appType: 'mobile-capacitor',
-      platform: 'android',
-      currentVersion: '1.9.10',
+  it('does not call api.pichamber.dev when override is absent', async () => {
+    await withNoHostedApi(async () => {
+      fetchMock
+        .when('registry.npmjs.org', {
+          ok: true,
+          json: async () => ({ 'dist-tags': { latest: '1.10.0' } }),
+        })
+        .when('raw.githubusercontent.com', {
+          ok: true,
+          text: async () => '## [1.10.0]',
+        });
+      await checkForUpdates({ currentVersion: '1.9.10' });
+      const urls = fetchMock.calls.map((c) => c.url);
+      expect(urls.some((u) => u.includes('api.pichamber.dev'))).toBe(false);
+      expect(urls.some((u) => u.includes('pichamber.dev'))).toBe(false);
     });
-
-    expect(result.downloadUrl).toBe(apkUrl);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('returns available=false when API claims update but npm is behind', async () => {
-    fetchMock
-      .when('api.pichamber.dev', {
-        ok: true,
-        json: async () => ({
-          latestVersion: '1.10.0',
-          updateAvailable: true,
-          releaseNotes: '## [1.10.0] - 2026-05-01\n\n- Great new feature',
-        }),
-      })
-      .when('registry.npmjs.org', {
-        ok: true,
-        json: async () => ({
-          'dist-tags': { latest: '1.9.9' },
-        }),
+  it('uses an explicit OPENCHAMBER_UPDATE_API_URL when configured', async () => {
+    const previous = process.env.OPENCHAMBER_UPDATE_API_URL;
+    process.env.OPENCHAMBER_UPDATE_API_URL = 'https://updates.example.test/api/check';
+    try {
+      fetchMock
+        .when('updates.example.test', {
+          ok: true,
+          json: async () => ({
+            latestVersion: '1.11.0',
+            updateAvailable: true,
+          }),
+        })
+        .when('registry.npmjs.org', {
+          ok: true,
+          json: async () => ({ 'dist-tags': { latest: '1.11.0' } }),
+        });
+
+      const result = await checkForUpdates({
+        appType: 'desktop-electron',
+        currentVersion: '1.10.0',
+        platform: 'linux',
+        arch: 'x64',
       });
-
-    const result = await checkForUpdates({ currentVersion: '1.9.10' });
-
-    expect(result.available).toBe(false);
+      expect(result.available).toBe(true);
+      expect(result.version).toBe('1.11.0');
+      const urls = fetchMock.calls.map((c) => c.url);
+      expect(urls.some((u) => u.includes('updates.example.test'))).toBe(true);
+      expect(urls.some((u) => u.includes('api.pichamber.dev'))).toBe(false);
+    } finally {
+      if (typeof previous === 'string') {
+        process.env.OPENCHAMBER_UPDATE_API_URL = previous;
+      } else {
+        delete process.env.OPENCHAMBER_UPDATE_API_URL;
+      }
+    }
   });
 
-  // --- Scenario: API says no update, npm agrees ---
-
-  it('returns available=false when API says no update and versions match', async () => {
-    fetchMock.when('api.pichamber.dev', {
-      ok: true,
-      json: async () => ({
-        latestVersion: '1.9.10',
-        updateAvailable: false,
-      }),
+  it('does not advertise an OpenChamber package or release URL', async () => {
+    await withNoHostedApi(async () => {
+      fetchMock
+        .when('registry.npmjs.org', {
+          ok: true,
+          json: async () => ({ 'dist-tags': { latest: '1.10.0' } }),
+        })
+        .when('raw.githubusercontent.com', {
+          ok: true,
+          text: async () => '## [1.10.0]',
+        });
+      const result = await checkForUpdates({ currentVersion: '1.9.10' });
+      const flatten = JSON.stringify(result);
+      expect(flatten).not.toMatch(/openchamber/i);
+      expect(result.releaseUrl).toBe('https://github.com/RyderAsKing/PiChamber/releases/tag/v1.10.0');
     });
-
-    const result = await checkForUpdates({ currentVersion: '1.9.10' });
-
-    expect(result.available).toBe(false);
   });
 
-  // --- Scenario: API unreachable, npm fallback ---
+  it('selects the canonical PiChamber APK on Android (not AAB or unrelated assets)', async () => {
+    await withNoHostedApi(async () => {
+      fetchMock
+        .when('registry.npmjs.org', {
+          ok: true,
+          json: async () => ({ 'dist-tags': { latest: '1.10.0' } }),
+        })
+        .when('raw.githubusercontent.com', {
+          ok: true,
+          text: async () => '## [1.10.0]',
+        })
+        .when('api.github.com/repos/RyderAsKing/PiChamber/releases/tags/v1.10.0', {
+          ok: true,
+          json: async () => ({
+            assets: [
+              { name: 'PiChamber-1.10.0-42-android.aab', browser_download_url: 'https://dl/a.aab' },
+              { name: 'OpenChamber-1.10.0-android.apk', browser_download_url: 'https://dl/legacy.apk' },
+              { name: 'PiChamber-1.10.0-42-android.apk', browser_download_url: 'https://dl/correct.apk' },
+              { name: 'app-release.apk', browser_download_url: 'https://dl/random.apk' },
+            ],
+          }),
+        });
 
-  it('returns available=true from npm fallback when API is unreachable and npm has newer version', async () => {
-    fetchMock
-      .when('api.pichamber.dev', Promise.reject(new Error('Network error')))
-      .when('registry.npmjs.org', {
-        ok: true,
-        json: async () => ({
-          'dist-tags': { latest: '1.10.0' },
-        }),
-      })
-      .when('raw.githubusercontent.com', {
-        ok: true,
-        text: async () => '## [1.10.0] - 2026-05-01\n\n- Great new feature',
+      const result = await checkForUpdates({
+        appType: 'mobile-capacitor',
+        platform: 'android',
+        currentVersion: '1.9.10',
       });
-
-    const result = await checkForUpdates({ currentVersion: '1.9.10' });
-
-    expect(result.available).toBe(true);
-    expect(result.version).toBe('1.10.0');
+      expect(result.downloadUrl).toBe('https://dl/correct.apk');
+    });
   });
 
-  it('returns available=false from npm fallback when API is unreachable and versions match', async () => {
-    fetchMock
-      .when('api.pichamber.dev', Promise.reject(new Error('Network error')))
-      .when('registry.npmjs.org', {
-        ok: true,
-        json: async () => ({
-          'dist-tags': { latest: '1.9.10' },
-        }),
+  it('returns no downloadUrl when GitHub releases contain only AAB or unrelated assets', async () => {
+    await withNoHostedApi(async () => {
+      fetchMock
+        .when('registry.npmjs.org', {
+          ok: true,
+          json: async () => ({ 'dist-tags': { latest: '1.10.0' } }),
+        })
+        .when('raw.githubusercontent.com', {
+          ok: true,
+          text: async () => '## [1.10.0]',
+        })
+        .when('api.github.com/repos/RyderAsKing/PiChamber/releases/tags/v1.10.0', {
+          ok: true,
+          json: async () => ({
+            assets: [
+              { name: 'PiChamber-1.10.0-42-android.aab', browser_download_url: 'https://dl/a.aab' },
+              { name: 'totally-unrelated.txt', browser_download_url: 'https://dl/x.txt' },
+            ],
+          }),
+        });
+
+      const result = await checkForUpdates({
+        appType: 'mobile-capacitor',
+        platform: 'android',
+        currentVersion: '1.9.10',
       });
-
-    const result = await checkForUpdates({ currentVersion: '1.9.10' });
-
-    expect(result.available).toBe(false);
+      expect(result.downloadUrl).toBeUndefined();
+    });
   });
+});
 
-  // --- Scenario: API returns null (bad response), npm fallback ---
-
-  it('returns available=false when API returns non-ok status and versions match on npm', async () => {
-    fetchMock
-      .when('api.pichamber.dev', {
-        ok: false,
-        status: 500,
-        json: async () => ({}),
-      })
-      .when('registry.npmjs.org', {
-        ok: true,
-        json: async () => ({
-          'dist-tags': { latest: '1.9.10' },
-        }),
-      });
-
-    const result = await checkForUpdates({ currentVersion: '1.9.10' });
-
-    expect(result.available).toBe(false);
-  });
-
-  // --- Scenario: Both API and npm are unreachable ---
-
-  it('returns available=false when both sources are unreachable', async () => {
-    fetchMock
-      .when('api.pichamber.dev', Promise.reject(new Error('Network error')))
-      .when('registry.npmjs.org', Promise.reject(new Error('Registry unreachable')));
-
-    const result = await checkForUpdates({ currentVersion: '1.9.10' });
-
-    expect(result.available).toBe(false);
+describe('package-manager ownership detection', () => {
+  it('detects PiChamber-claimed paths only and rejects legacy openchamber package output', () => {
+    const containsPackage = (stdout) => stdout.includes('@pichamber/web');
+    expect(containsPackage('/home/u/.npm-global/lib/node_modules/@pichamber/web')).toBe(true);
+    expect(containsPackage('openchamber@1.0.0')).toBe(false);
   });
 });
 
