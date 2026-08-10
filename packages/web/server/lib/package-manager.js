@@ -1,9 +1,10 @@
 import { spawnSync } from 'child_process';
 import crypto from 'crypto';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
+
+import { resolvePiChamberDataDir, resolvePiChamberDataPath } from './pichamber-data-dir.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,23 +12,28 @@ const __dirname = path.dirname(__filename);
 const PACKAGE_NAME = '@pichamber/web';
 const PACKAGE_PATH_SEGMENTS = PACKAGE_NAME.split('/');
 const NPM_REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}`;
-const CHANGELOG_URL = 'https://raw.githubusercontent.com/openchamber/openchamber/main/CHANGELOG.md';
+const CHANGELOG_URL = 'https://raw.githubusercontent.com/RyderAsKing/PiChamber/main/CHANGELOG.md';
 const GITHUB_RELEASES_URL = 'https://github.com/RyderAsKing/PiChamber/releases';
-const GITHUB_RELEASES_API_URL = 'https://api.github.com/repos/openchamber/openchamber/releases';
+const GITHUB_RELEASES_API_URL = 'https://api.github.com/repos/RyderAsKing/PiChamber/releases';
 let cachedDetectedPm = null;
 
 function getSpawnSyncBaseOptions() {
   return process.platform === 'win32' ? { windowsHide: true } : {};
 }
-const UPDATE_CHECK_URL = process.env.OPENCHAMBER_UPDATE_API_URL || 'https://api.openchamber.dev/v1/update/check';
+// The hosted update API is intentionally opt-in. When OPENCHAMBER_UPDATE_API_URL
+// is absent or blank the web/CLI surface MUST NOT contact a hosted API and
+// MUST NOT substitute a placeholder host; the npm-registry fallback in
+// `checkForUpdates` is authoritative in that case.
+function getConfiguredUpdateCheckUrl() {
+  const override = typeof process.env.OPENCHAMBER_UPDATE_API_URL === 'string'
+    ? process.env.OPENCHAMBER_UPDATE_API_URL.trim()
+    : '';
+  return override.length > 0 ? override : null;
+}
 
 function getPiChamberConfigDir() {
-  if (process.platform === 'win32') {
-    const appData = process.env.APPDATA;
-    if (appData) return path.join(appData, 'openchamber');
-  }
-
-  return path.join(os.homedir(), '.config', 'openchamber');
+  // Use the canonical resolver so OPENCHAMBER_DATA_DIR is honored everywhere.
+  return resolvePiChamberDataDir();
 }
 
 function sanitizeInstallScope(scope) {
@@ -99,7 +105,7 @@ async function resolveAndroidApkUrl(version, candidateUrl) {
     const response = await fetch(`${GITHUB_RELEASES_API_URL}/tags/v${version}`, {
       headers: {
         Accept: 'application/vnd.github+json',
-        'User-Agent': 'openchamber-update-check',
+        'User-Agent': 'pichamber-update-check',
       },
       signal: AbortSignal.timeout(10000),
     });
@@ -121,6 +127,11 @@ async function resolveAndroidApkUrl(version, candidateUrl) {
 }
 
 async function checkForUpdatesFromApi(currentVersion, options = {}) {
+  const updateCheckUrl = getConfiguredUpdateCheckUrl();
+  if (!updateCheckUrl) {
+    // No configured hosted API: stay on the authoritative npm/GitHub path.
+    return null;
+  }
   try {
     const appType = normalizeAppType(options.appType);
     const hostPlatform = mapPlatform(process.platform);
@@ -141,7 +152,7 @@ async function checkForUpdatesFromApi(currentVersion, options = {}) {
       reportUsage,
     };
 
-    const response = await fetch(UPDATE_CHECK_URL, {
+    const response = await fetch(updateCheckUrl, {
       method: 'POST',
       headers: {
         Accept: 'application/json',
@@ -344,7 +355,7 @@ function getGlobalNodeModulesRoots(pm) {
 function getOwnedPackagePathsFromGlobalBins(pm) {
   const packagePaths = [];
   for (const binDir of getGlobalBinDirs(pm)) {
-    const binaryName = process.platform === 'win32' ? 'openchamber.cmd' : 'openchamber';
+    const binaryName = process.platform === 'win32' ? 'pichamber.cmd' : 'pichamber';
     const binaryPath = path.join(binDir, binaryName);
     if (!fs.existsSync(binaryPath)) continue;
 
@@ -645,7 +656,7 @@ function isPackageInstalledWith(pm) {
     });
 
     if (result.status !== 0) return false;
-    return result.stdout.includes(PACKAGE_NAME) || result.stdout.includes('openchamber');
+    return result.stdout.includes(PACKAGE_NAME);
   } catch {
     return false;
   }
