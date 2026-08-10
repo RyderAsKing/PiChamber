@@ -20,7 +20,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 const TEMP_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-home-2607-'));
 process.env.HOME = TEMP_HOME;
-process.env.OPENCHAMBER_DATA_DIR = path.join(TEMP_HOME, '.config', 'openchamber');
+process.env.OPENCHAMBER_DATA_DIR = path.join(TEMP_HOME, '.config', 'pichamber');
 
 const CATALOG = {
   deepseek: {
