@@ -16,6 +16,7 @@ import { loadAppearancePreferences, applyAppearancePreferences } from '@/lib/app
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { sanitizeStarterRefs } from '@/lib/draftStarters';
 import { normalizeMobileKeyboardMode, setStoredMobileKeyboardMode } from '@/lib/mobileKeyboardMode';
+import { PWA_NAME_STORAGE_KEY, normalizePwaName } from '@/lib/pwaKeys';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isTerminalShell } from '@/lib/terminalShell';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged, subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
@@ -158,14 +159,14 @@ const persistToLocalStorage = (settings: DesktopSettings) => {
   }
   setOrRemoveLocalStorage('openInAppId', typeof settings.openInAppId === 'string' && settings.openInAppId.length > 0 ? settings.openInAppId : null);
   if (typeof settings.pwaAppName === 'string') {
-    const normalized = settings.pwaAppName.trim().replace(/\s+/g, ' ').slice(0, 64);
+    const normalized = normalizePwaName(settings.pwaAppName, '');
     if (normalized.length > 0) {
-      localStorage.setItem('openchamber.pwaName', normalized);
+      localStorage.setItem(PWA_NAME_STORAGE_KEY, normalized);
     } else {
-      localStorage.removeItem('openchamber.pwaName');
+      localStorage.removeItem(PWA_NAME_STORAGE_KEY);
     }
   } else {
-    localStorage.removeItem('openchamber.pwaName');
+    localStorage.removeItem(PWA_NAME_STORAGE_KEY);
   }
   setStoredMobileKeyboardMode(settings.mobileKeyboardMode);
   if (typeof settings.openCodeUpdateToastDismissedVersion === 'string') {
@@ -1557,7 +1558,7 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
     result.openInAppId = candidate.openInAppId;
   }
   if (typeof candidate.pwaAppName === 'string') {
-    const normalized = candidate.pwaAppName.trim().replace(/\s+/g, ' ').slice(0, 64);
+    const normalized = normalizePwaName(candidate.pwaAppName, '');
     result.pwaAppName = normalized.length > 0 ? normalized : '';
   }
 

@@ -1,6 +1,7 @@
-export type MobileKeyboardMode = 'native' | 'resize-content';
+import { MOBILE_KEYBOARD_MODE_STORAGE_KEY, normalizeMobileKeyboardMode as normalizeMobileKeyboardModeShared, type MobileKeyboardMode as SharedMobileKeyboardMode } from './pwaKeys';
 
-const MOBILE_KEYBOARD_MODE_STORAGE_KEY = 'openchamber.mobileKeyboardMode';
+export type MobileKeyboardMode = SharedMobileKeyboardMode;
+
 const VIEWPORT_META_SELECTOR = 'meta[name="viewport"]';
 const VIEWPORT_CONTENT_BASE = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover';
 
@@ -15,10 +16,7 @@ export function normalizeMobileKeyboardMode(
   value: unknown,
   fallback: MobileKeyboardMode | undefined = 'resize-content',
 ): MobileKeyboardMode | undefined {
-  if (value === 'native' || value === 'resize-content') {
-    return value;
-  }
-  return fallback;
+  return normalizeMobileKeyboardModeShared(value, fallback) ?? undefined;
 }
 
 const getViewportContentForMobileKeyboardMode = (value: unknown): string => {

@@ -1,3 +1,9 @@
+export {
+  PWA_RECENT_SESSIONS_STORAGE_KEY,
+} from './pwaKeys';
+
+import { PWA_RECENT_SESSIONS_STORAGE_KEY as PWA_RECENT_SESSIONS_STORAGE_KEY_VALUE } from './pwaKeys';
+
 export type PWADisplayMode =
   | 'browser'
   | 'standalone'
@@ -8,7 +14,10 @@ export type PWADisplayMode =
 
 const DISPLAY_MODES: Array<Exclude<PWADisplayMode, 'browser' | 'twa'>> = ['standalone', 'minimal-ui', 'fullscreen', 'window-controls-overlay'];
 
-export const PWA_RECENT_SESSIONS_STORAGE_KEY = 'openchamber.pwaRecentSessions';
+// Re-exporting with the original identifier keeps the import surface stable
+// for the few remaining in-package readers while the constant value comes
+// from the shared PWA keys module.
+void PWA_RECENT_SESSIONS_STORAGE_KEY_VALUE;
 
 const matchesDisplayMode = (mode: Exclude<PWADisplayMode, 'browser' | 'twa'>): boolean => {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
