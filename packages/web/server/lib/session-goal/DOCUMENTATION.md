@@ -46,7 +46,7 @@ session and drops the write when the stored goal id no longer matches.
 ## File-backed objectives
 
 The objective TEXT lives in `<data-dir>/goals/<sessionId>.md` (data dir =
-`OPENCHAMBER_DATA_DIR` or `~/.config/openchamber`), keyed by the SESSION ID:
+`OPENCHAMBER_DATA_DIR` or `~/.config/pichamber`), keyed by the SESSION ID:
 sessions are globally unique and carry one goal at a time, so the mapping is
 deterministic and a new goal simply overwrites the file. Metadata carries
 only `objectiveFile: true` — never a path — so user-writable metadata cannot

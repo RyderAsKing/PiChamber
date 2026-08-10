@@ -40,8 +40,8 @@ const createApp = ({ environment = {}, storedOptions = {} } = {}) => {
     server: {
       address: () => ({ port: 7897 }),
     },
-    __dirname: '/opt/openchamber/server',
-    pichamberDataDir: '/tmp/openchamber',
+    __dirname: '/opt/pichamber/server',
+    pichamberDataDir: '/tmp/pichamber',
     modelsDevApiUrl: 'https://models.example.test',
     modelsMetadataCacheTtl: 0,
     readSettingsFromDiskMigrated: vi.fn(),
@@ -76,7 +76,7 @@ describe('PiChamber foreground update route', () => {
     await request(app)
       .post('/api/openchamber/update-install')
       .expect(409, {
-        error: 'Foreground servers must be updated by their service manager. Set OPENCHAMBER_SYSTEMD_UNIT when running under systemd, or run openchamber update and restart the service.',
+        error: 'Foreground servers must be updated by their service manager. Set OPENCHAMBER_SYSTEMD_UNIT when running under systemd, or run pichamber update and restart the service.',
       });
 
     expect(childProcess.spawnSync).not.toHaveBeenCalled();
@@ -93,7 +93,7 @@ describe('PiChamber foreground update route', () => {
     await request(app)
       .post('/api/openchamber/update-install')
       .expect(409, {
-        error: 'Foreground servers must be updated by their service manager. Set OPENCHAMBER_SYSTEMD_UNIT when running under systemd, or run openchamber update and restart the service.',
+        error: 'Foreground servers must be updated by their service manager. Set OPENCHAMBER_SYSTEMD_UNIT when running under systemd, or run pichamber update and restart the service.',
       });
 
     expect(childProcess.spawnSync).not.toHaveBeenCalled();
@@ -119,13 +119,13 @@ describe('PiChamber foreground update route', () => {
         packageManager: 'npm',
         autoRestart: true,
         restartManager: 'systemd',
-        jobId: 'openchamber-update-1700000000000',
-        logPath: 'journalctl --user-unit openchamber-update-1700000000000.service',
+        jobId: 'pichamber-update-1700000000000',
+        logPath: 'journalctl --user-unit pichamber-update-1700000000000.service',
       });
 
     expect(childProcess.spawnSync).toHaveBeenCalledWith('systemd-run', [
       '--user',
-      '--unit=openchamber-update-1700000000000',
+      '--unit=pichamber-update-1700000000000',
       '--collect',
       '--service-type=exec',
       '--setenv=PATH=/home/syu/.npm-global/bin:/usr/bin:/bin',
