@@ -90,7 +90,7 @@ location = /api/event/ws {
     proxy_send_timeout 3600s;
 }
 
-location ~ ^/api/(event|global/event|notifications/stream|pichamber/events)$ {
+location ~ ^/api/(event|global/event|notifications/stream|openchamber/events)$ {
     proxy_pass http://127.0.0.1:3000;
     proxy_set_header Accept "text/event-stream";
     proxy_set_header Cache-Control "no-cache";

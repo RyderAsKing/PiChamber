@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# OpenChamber Install Script
-# Usage: curl -fsSL https://raw.githubusercontent.com/btriapitsyn/openchamber/main/scripts/install.sh | bash
+# PiChamber Install Script
+# Usage: curl -fsSL https://raw.githubusercontent.com/RyderAsKing/PiChamber/main/scripts/install.sh | bash
 
 set -euo pipefail
 
 PACKAGE_NAME="@pichamber/web"
-BIN_NAME="openchamber"
+BIN_NAME="pichamber"
 MIN_NODE_VERSION=22
 
 # Colors
@@ -156,8 +156,8 @@ main() {
   echo ""
   echo "  ╭───────────────────────────────────╮"
   echo "  │                                   │"
-  echo "  │   OpenChamber Installer           │"
-  echo "  │   Web interface for OpenCode      │"
+  echo "  │   PiChamber Installer             │"
+  echo "  │   Community PiChamber build       │"
   echo "  │                                   │"
   echo "  ╰───────────────────────────────────╯"
   echo ""
@@ -176,23 +176,23 @@ main() {
   fi
   success "Node.js v$NODE_VERSION found"
 
-  # If OpenChamber is already installed, hand off to its own updater instead
-  # of guessing a package manager. `openchamber update` detects which manager
+  # If PiChamber is already installed, hand off to its own updater instead
+  # of guessing a package manager. `pichamber update` detects which manager
   # actually owns the existing global install and reinstalls with that one —
   # reinstalling with a different manager here would orphan files and break PATH.
   if command_exists "$BIN_NAME"; then
-    info "OpenChamber is already installed — updating via 'openchamber update'..."
+    info "PiChamber is already installed — updating via 'pichamber update'..."
     echo ""
-    if openchamber update; then
+    if pichamber update; then
       echo ""
-      success "OpenChamber is up to date!"
+      success "PiChamber is up to date!"
       exit 0
     fi
     echo ""
     error "Update failed."
     echo ""
     echo "  Try running it manually:"
-    echo "    openchamber update"
+    echo "    pichamber update"
     echo ""
     exit 1
   fi
@@ -216,25 +216,24 @@ main() {
 
   # Install
   echo ""
-  info "Installing OpenChamber..."
+  info "Installing PiChamber..."
   echo "  Running: $INSTALL_CMD"
   echo ""
   
   if eval "$INSTALL_CMD"; then
     echo ""
-    # Wordmark (toilet "pagga", "Open"/"Chamber" stacked).
-    # Hardcoded so the user needs no extra tools.
+    # PiChamber wordmark. Hardcoded so the user needs no extra tools.
     printf '%b' "$BLUE"
     cat <<'EOF'
-  ░█▀█░█▀█░█▀▀░█▀█
-  ░█░█░█▀▀░█▀▀░█░█
-  ░▀▀▀░▀░░░▀▀▀░▀░▀
-  ░█▀▀░█░█░█▀█░█▄█░█▀▄░█▀▀░█▀▄
-  ░█░░░█▀█░█▀█░█░█░█▀▄░█▀▀░█▀▄
-  ░▀▀▀░▀░▀░▀░▀░▀░▀░▀▀░░▀▀▀░▀░▀
+  ░█▀▀░█▀█░█▀█░█▀▀░█▀▀░█▀▀
+  ░█▀▀░█▀█░█▀█░█▀▀░█░█░█▀▀
+  ░▀▀▀░▀░▀░▀░▀░▀▀▀░▀▀▀░▀▀▀
+  ░█▀▀░█░█░█▀█░█▄█░█▀▄░█▀▀
+  ░█░░░█▀█░█▀█░█░█░█▀▄░█▀▀
+  ░▀▀▀░▀░▀░▀░▀░▀░▀░▀▀░░▀▀▀
 EOF
     printf '%b\n' "$NC"
-    success "OpenChamber installed successfully!"
+    success "PiChamber installed successfully!"
     echo ""
 
     # Verify the binary is actually reachable. Global installs frequently
@@ -242,8 +241,8 @@ EOF
     # letting the user hit a confusing "command not found".
     if command_exists "$BIN_NAME"; then
       echo "  Get started:"
-      echo "    openchamber              # Start server on port 3000"
-      echo "    openchamber --help       # Show all options"
+      echo "    pichamber                # Start server on port 3000"
+      echo "    pichamber --help         # Show all options"
     else
       warn "'$BIN_NAME' was installed but isn't on your PATH yet."
       echo ""
@@ -259,12 +258,13 @@ EOF
         echo "    export PATH=\"$bin_dir:\$PATH\""
       else
         echo "  Add your package manager's global bin directory to PATH,"
-        echo "  then restart your terminal and run: openchamber"
+        echo "  then restart your terminal and run: pichamber"
       fi
     fi
     echo ""
-    echo "  Prerequisites:"
-    echo "    Make sure OpenCode is running: opencode serve"
+    echo "  Phase 1 note:"
+    echo "    PiChamber is a metadata-only rebrand; the runtime still targets the OpenCode SDK."
+    echo "    Make sure your OpenCode-side runtime is reachable (for example: opencode serve)."
     echo ""
   else
     echo ""

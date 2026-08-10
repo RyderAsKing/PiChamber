@@ -11,7 +11,7 @@ Full project overview, screenshots, and all features: [github.com/RyderAsKing/Pi
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/openchamber/openchamber/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/RyderAsKing/PiChamber/main/scripts/install.sh | bash
 ```
 
 Or install manually: `bun add -g @pichamber/web` (or npm, pnpm, yarn).
