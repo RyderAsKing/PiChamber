@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { SignJWT, jwtVerify } from 'jose';
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
+import { resolvePiChamberDataDir, resolvePiChamberDataPath } from '../pichamber-data-dir.js';
 import { createUiPasskeys } from './ui-passkeys.js';
 
 const SESSION_COOKIE_NAME = 'oc_ui_session';
@@ -361,10 +361,8 @@ const normalizePassword = (candidate) => {
 
 const isTrustedDeviceRequest = (value) => value === true;
 
-const OPENCHAMBER_DATA_DIR = process.env.OPENCHAMBER_DATA_DIR
-  ? path.resolve(process.env.OPENCHAMBER_DATA_DIR)
-  : path.join(os.homedir(), '.config', 'openchamber');
-const JWT_SECRET_FILE = path.join(OPENCHAMBER_DATA_DIR, 'jwt-secret');
+const OPENCHAMBER_DATA_DIR = resolvePiChamberDataDir();
+const JWT_SECRET_FILE = resolvePiChamberDataPath('jwt-secret');
 
 function getOrCreateJwtSecret() {
   const envSecret = process.env.OPENCODE_JWT_SECRET;

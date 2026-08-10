@@ -36,14 +36,15 @@
 // package); it carries a parity implementation that reads/writes the SAME dir.
 
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+
+import { resolvePiChamberDataPath } from '../pichamber-data-dir.js';
 
 const resolveRegistryDir = () => {
   const override = process.env.OPENCHAMBER_MANAGED_PROCESS_REGISTRY;
   if (override && override.trim()) return override.trim();
-  return path.join(os.homedir(), '.config', 'openchamber', 'managed-opencode');
+  return resolvePiChamberDataPath(['managed-opencode']);
 };
 
 const entryFilePath = (pid) => path.join(resolveRegistryDir(), `${pid}.json`);

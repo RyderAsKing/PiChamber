@@ -6,8 +6,9 @@
 // never a path, and user-writable metadata cannot become a file-read vector.
 
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
+
+import { resolvePiChamberDataPath } from '../pichamber-data-dir.js';
 
 export const GOAL_OBJECTIVE_CHAR_LIMIT = 5_000;
 
@@ -15,12 +16,7 @@ export const GOAL_OBJECTIVE_CHAR_LIMIT = 5_000;
 // touching the filesystem.
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{4,128}$/;
 
-const goalsDir = () => path.join(
-  process.env.OPENCHAMBER_DATA_DIR
-    ? path.resolve(process.env.OPENCHAMBER_DATA_DIR)
-    : path.join(os.homedir(), '.config', 'openchamber'),
-  'goals',
-);
+const goalsDir = () => resolvePiChamberDataPath(['goals']);
 
 const objectiveFilePath = (sessionId) => path.join(goalsDir(), `${sessionId}.md`);
 

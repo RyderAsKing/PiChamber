@@ -1,8 +1,9 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
-import os from 'os';
 import path from 'path';
+
+import { resolvePiChamberDataDir } from '../pichamber-data-dir.js';
 import { PROMPT_VERSION, WALKTHROUGH_VERSION } from './schema.js';
 
 // Two artifacts with two different jobs.
@@ -17,9 +18,7 @@ import { PROMPT_VERSION, WALKTHROUGH_VERSION } from './schema.js';
 // it written about, and has the code moved since. It is also what feeds the
 // previous walkthrough into a regeneration.
 
-const DATA_DIR = process.env.OPENCHAMBER_DATA_DIR
-  ? path.resolve(process.env.OPENCHAMBER_DATA_DIR)
-  : path.join(os.homedir(), '.config', 'openchamber');
+const DATA_DIR = resolvePiChamberDataDir();
 
 const WALKTHROUGH_DIR = path.join(DATA_DIR, 'walkthroughs');
 const ENTRIES_DIR = path.join(WALKTHROUGH_DIR, 'entries');

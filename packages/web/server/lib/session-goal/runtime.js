@@ -15,17 +15,12 @@
 // scans. Only sessions that emit events while the server runs ever tick.
 
 import fs from 'fs';
-import os from 'os';
-import path from 'path';
+
+import { resolvePiChamberDataPath } from '../pichamber-data-dir.js';
 
 import { GOAL_OBJECTIVE_CHAR_LIMIT, readObjective } from './objectives.js';
 
-const OPENCHAMBER_SETTINGS_FILE = path.join(
-  process.env.OPENCHAMBER_DATA_DIR
-    ? path.resolve(process.env.OPENCHAMBER_DATA_DIR)
-    : path.join(os.homedir(), '.config', 'openchamber'),
-  'settings.json',
-);
+const OPENCHAMBER_SETTINGS_FILE = resolvePiChamberDataPath('settings.json');
 
 const isSessionGoalEnabled = () => {
   try {

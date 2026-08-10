@@ -1,15 +1,11 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+
+import { resolvePiChamberDataPath } from '../../pichamber-data-dir.js';
 
 const MANAGED_QUOTA_PROVIDERS = new Set(['opencode-go', 'ollama-cloud', 'cursor']);
 
-const credentialsDirectory = () => path.join(
-  process.env.OPENCHAMBER_DATA_DIR
-    ? path.resolve(process.env.OPENCHAMBER_DATA_DIR)
-    : path.join(os.homedir(), '.config', 'openchamber'),
-  'quota',
-);
+const credentialsDirectory = () => resolvePiChamberDataPath(['quota']);
 
 const credentialPath = (providerId) => {
   if (!MANAGED_QUOTA_PROVIDERS.has(providerId)) throw new Error('Unsupported credential provider');

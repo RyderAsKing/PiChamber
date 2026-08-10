@@ -1,18 +1,14 @@
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
+
+import { resolvePiChamberDataPath } from '../pichamber-data-dir.js';
 
 // The walkthrough may run on a different model than the rest of the small-model
 // callers. Those callers want cheap and fast; this one needs structured output
 // and enough context for a whole diff, and forcing one setting to serve both
 // means the user has to degrade one feature to fix the other.
 
-const SETTINGS_FILE = path.join(
-  process.env.OPENCHAMBER_DATA_DIR
-    ? path.resolve(process.env.OPENCHAMBER_DATA_DIR)
-    : path.join(os.homedir(), '.config', 'openchamber'),
-  'settings.json',
-);
+const SETTINGS_FILE = resolvePiChamberDataPath('settings.json');
 
 /**
  * The explicit walkthrough model, or `null` to fall back to normal small-model

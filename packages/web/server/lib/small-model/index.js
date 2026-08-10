@@ -1,18 +1,13 @@
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { readAuthFile } from '../opencode/auth.js';
 import { readConfigLayers } from '../opencode/shared.js';
+import { resolvePiChamberDataPath } from '../pichamber-data-dir.js';
 import { getModelCatalog } from './catalog.js';
 import { resolveSmallModel, parseModelRef, isUsableAuthEntry, getAuthEntryForProvider } from './resolve.js';
 import { callSmallModel, resolveProviderLogin } from './call.js';
 
-const OPENCHAMBER_SETTINGS_FILE = path.join(
-  process.env.OPENCHAMBER_DATA_DIR
-    ? path.resolve(process.env.OPENCHAMBER_DATA_DIR)
-    : path.join(os.homedir(), '.config', 'openchamber'),
-  'settings.json',
-);
+const OPENCHAMBER_SETTINGS_FILE = resolvePiChamberDataPath('settings.json');
 
 // PiChamber's own settings: when the user unchecks "use default small model"
 // their explicit override outranks every other resolution step.

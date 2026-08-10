@@ -1,8 +1,9 @@
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 
-const STORAGE_DIR = path.join(os.homedir(), '.config', 'openchamber');
+import { resolvePiChamberDataPath } from '../pichamber-data-dir.js';
+
+const STORAGE_DIR = resolvePiChamberDataPath();
 const STORAGE_FILE = path.join(STORAGE_DIR, 'git-identities.json');
 
 function ensureStorageDir() {
