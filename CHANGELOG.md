@@ -4,14 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Project rebrand: OpenChamber → PiChamber (metadata only)
+### Project rebrand: OpenChamber → PiChamber (Phase 1 stabilization)
 
-This is a metadata-only rebrand of [OpenChamber](https://github.com/openchamber/openchamber). Runtime behavior, the OpenCode SDK integration, and shared contracts are unchanged. Future phases will introduce a [pi](https://pi.dev) integration alongside the current OpenCode integration.
+This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.com/openchamber/openchamber). It makes the PiChamber identity coherent across every owned runtime (web, CLI, Electron, VS Code) before Phase 2 introduces the [pi](https://pi.dev) integration. Runtime behavior, the OpenCode SDK integration, and the still-active OpenChamber protocol namespaces (HTTP routes, custom events, bridge/IPC commands, window globals, URL schemes) remain unchanged unless explicitly named below.
 
-- **Project identity:** repo name, package names, README, logos, CLI binary (`openchamber` → `pichamber`), VS Code extension id, product chrome, and dev-time docs rebranded.
-- **License:** joint copyright (Bohdan Triapitsyn / RyderAsKing) with a "forked from OpenChamber" notice in [`LICENSE`](./LICENSE).
-- **Description:** added a "Roadmap" paragraph to the README noting that Phase 1 is metadata-only and that Phase 2 will target [pi](https://pi.dev).
-- **Removed:** the upstream Discord and Ko-Fi badges (no PiChamber equivalents exist yet); the old `openchamber-ui://` protocol is preserved for now and will be renamed with a deprecation alias in a later phase.
+**Phase 1 scope (shipped in this stabilization pass):**
+
+- **VS Code command namespace:** the extension command namespace was renamed to `pichamber.*` and matches the rest of the PiChamber identifiers.
+- **PWA-specific localStorage keys:** the four PWA keys were renamed to `pichamber.*` (`pichamber.pwaName`, `pichamber.pwaOrientation`, `pichamber.mobileKeyboardMode`, `pichamber.pwaRecentSessions`) in this stabilization pass. The shared UI constants and the literal `<script>` strings in `packages/web/index.html` are now locked by a focused contract test.
+- **Application data root:** every PiChamber-owned file (settings, themes, projects, walkthroughs, goals, quota credentials, passkeys, managed-process records, install IDs) resolves through one canonical resolver at `~/.config/pichamber`, overridable by `OPENCHAMBER_DATA_DIR`. Web, CLI, Electron, and VS Code share the same default and the same override semantics. Web `GET /api/fs/home` and the VS Code `api:fs/home` bridge now both expose `pichamberDataDir` so the shared UI can resolve `projects/` beneath the authoritative root rather than reconstructing `<home>/.config/pichamber` on its own.
+- **Package ownership detection:** global-bin detection in `package-manager.js` now probes only `pichamber` / `pichamber.cmd`, and `isPackageInstalledWith()` validates `@pichamber/web` rather than a generic `openchamber` substring.
+- **Default update checks:** the hosted update check no longer defaults to a placeholder host. Web/CLI versions come from the authoritative npm `@pichamber/web` `dist-tags.latest`, release notes from the PiChamber changelog after the npm cross-check, GitHub assets from `RyderAsKing/PiChamber`, and Android selects the canonical PiChamber APK and refuses AAB-only/unrelated releases. `OPENCHAMBER_UPDATE_API_URL` remains an opt-in override for deployment integrations; the VS Code bridge follows the same opt-in rule.
+- **Process identity:** `cli-process.js` now recognizes only the `pichamber` / `pichamber.cmd` / `pichamber.exe` executable tokens and the `@pichamber/web/bin/cli.js`, `@pichamber/web/server/index.js`, `PiChamber/packages/web/bin/cli.js`, and `PiChamber/packages/web/server/index.js` entrypoints. OpenChamber-only paths, `pichamber` appearing in usernames, hostnames, project files, or unrelated package names, and generic `cli.js` / `server/index.js` paths are no longer accepted.
+
+**Phase 1 non-goals (intentionally deferred to later phases):**
+
+- `/api/openchamber/*` remains the sole active HTTP route prefix.
+- `openchamber:*` custom events, `api:openchamber:*` bridge commands, `__openchamber*` window globals, and `openchamber-ui://` / `openchamber://` URL schemes are unchanged.
+- `OPENCHAMBER_*` environment variables are unchanged.
+- No automatic import or fallback read of legacy `~/.config/openchamber` data is provided. Legacy-data migration is out of scope.
+- OpenCode runtime behavior (SDK calls, proxy, SSE) is unchanged.
 
 ### Deferred to later phases (intentional, to keep upgrades non-breaking)
 
@@ -19,11 +31,11 @@ This is a metadata-only rebrand of [OpenChamber](https://github.com/openchamber/
 - URL scheme rename: `openchamber-ui://` → `pichamber-ui://`.
 - Electron `appId` / bundle id rename (`dev.openchamber.desktop` → `dev.pichamber.desktop`).
 - Mobile `capacitor.config.ts` `appId` (`com.openchamber.app` → `com.pichamber.app`).
-- VS Code command namespace rename (`openchamber.*` → `pichamber.*`).
-- Workspace localStorage key rename (`openchamber_*` → `pichamber_*`).
-- HTTP route prefix rename (`/api/openchamber/*` → `/api/pichamber/*`).
-- Custom event / bridge command / window-global namespaces (`openchamber:*`, `api:openchamber:*`, `__openchamberVsCodeStreamPerfState__`).
+- Workspace localStorage key rename (`openchamber_*` → `pichamber_*`) for keys outside the four PWA keys above.
+- HTTP route rename: `/api/openchamber/*` → `/api/pichamber/*`.
+- Custom-event / bridge / window-global renames (`openchamber:*`, `api:openchamber:*`, `__openchamber*`).
 - `.agents/skills/openchamber-change-discipline/` directory rename (kept as-is to preserve skill loaders and references).
+- SSH secret name migration (`openchamberPassword` / `openchamber_password` → `pichamberPassword`) continues to be served as a read fallback to `pichamberPassword` for backwards compatibility.
 
 
 - **Observability panel:** a new panel near to the chat brings the active goal, tasks, subagents, pinned context, MCP servers, and context usage into one live view. The session list also shows how long an agent has been working.
@@ -1060,7 +1072,7 @@ This is a metadata-only rebrand of [OpenChamber](https://github.com/openchamber/
 - Settings: now opens in a windowed dialog on desktop with backdrop blur.
 - Terminal: added tabbed interface to manage multiple terminal sessions per directory.
 - Files: added multi-file tabs on desktop and dropdown selector on mobile (thanks to @nelsonPires5).
-- UI: introduced a token-based theming system, 18 themes with light/dark variants, and custom user themes from `~/.config/openchamber/themes`.
+- UI: introduced a token-based theming system, 18 themes with light/dark variants, and custom user themes from `~/.config/pichamber/themes`.
 - Diff: optimized stacked view with worker-pool processing and lazy DOM rendering for smooth scrolling.
 - Worktrees: workspace path now resolves correctly when using git worktrees (thanks to @nelsonPires5).
 - Projects: fixed directory creation outside workspace in the Add Project modal (thanks to @nelsonPires5).
