@@ -12,6 +12,7 @@ import {
 } from './cli-network.js';
 import { discoverRunningInstances } from './cli-lifecycle.js';
 import { getInstanceFilePath, readInstanceOptions } from './cli-process.js';
+import { resolvePiChamberDataDir } from '../../server/lib/pichamber-data-dir.js';
 import { createRemoteClientAuthRuntime } from '../../server/lib/client-auth/remote-clients.js';
 import { createClientPairingRuntime } from '../../server/lib/client-auth/pairing.js';
 import { createRelayIdentityRuntime } from '../../server/lib/relay/identity.js';
@@ -207,9 +208,7 @@ function normalizeServerUrlForConnection(value) {
 }
 
 function getPiChamberDataDir() {
-  return process.env.OPENCHAMBER_DATA_DIR
-    ? path.resolve(process.env.OPENCHAMBER_DATA_DIR)
-    : path.join(os.homedir(), '.config', 'openchamber');
+  return resolvePiChamberDataDir();
 }
 
 async function displayTunnelQrCode(url) {

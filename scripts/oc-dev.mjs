@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * OpenChamber local development helper.
+ * PiChamber local development helper.
  *
  * This script owns the interactive `bun run oc-dev` menu and the equivalent
  * non-interactive commands for common local workflows: web deploys, mobile
@@ -9,7 +9,7 @@
  * Personal or machine-specific options are intentionally kept out of git.
  * The only supported user config is:
  *
- *   ~/.config/openchamber/oc-dev.json
+ *   ~/.config/pichamber/oc-dev.json
  *
  * See `scripts/oc-dev.config.example.json` for the shape. The config can set
  * local device/app preferences such as `ios.deviceName`, `ios.useXcodeBeta`,
@@ -31,7 +31,7 @@ import { cancel, intro, isCancel, log, outro, select, text } from '@clack/prompt
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
-const configPath = path.join(os.homedir(), '.config', 'openchamber', 'oc-dev.json');
+const configPath = path.join(os.homedir(), '.config', 'pichamber', 'oc-dev.json');
 
 const GLOBAL_PORT = '2606';
 const TESTING_PORT = '1202';
