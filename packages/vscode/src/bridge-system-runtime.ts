@@ -11,6 +11,7 @@ import { credentialStatus, deleteCredential, importCursorCredential, normalizeCr
 import { getSessionActivitySnapshot } from './sessionActivityWatcher';
 import { getOpenCodeUpgradeStatus, upgradeManagedOpenCode } from './opencode-upgrade-runtime';
 import { buildDeferredRestartResponse } from './config-mutation-response';
+import { resolvePiChamberDataDir } from './pichamberDataDir';
 import type { BridgeContext, BridgeResponse } from './bridge';
 
 type BridgeMessageInput = {
@@ -22,7 +23,7 @@ type BridgeMessageInput = {
 type SystemRuntimeDeps = {
   resolveUserPath: (value: string, baseDirectory: string) => string;
   fetchModelsMetadata: () => Promise<unknown>;
-  updateCheckUrl: string;
+  updateCheckUrl: string | null;
   clientReloadDelayMs: number;
 };
 
@@ -48,11 +49,7 @@ const claimNotification = (key: string): boolean => {
 
 
 const getPiChamberConfigDir = (): string => {
-  if (process.platform === 'win32') {
-    const appData = process.env.APPDATA;
-    if (appData) return path.join(appData, 'pichamber');
-  }
-  return path.join(os.homedir(), '.config', 'pichamber');
+  return resolvePiChamberDataDir();
 };
 
 const sanitizeInstallScope = (scope: string): 'vscode' | 'web' => {
@@ -330,6 +327,19 @@ export async function handleSystemBridgeMessage(
           instanceMode,
           reportUsage,
         };
+
+        // The hosted update API is intentionally opt-in. When
+        // OPENCHAMBER_UPDATE_API_URL is unset the VS Code surface must NOT
+        // contact a hosted API nor substitute a placeholder host; the
+        // authoritative npm/GitHub sources are used by other surfaces.
+        if (typeof deps.updateCheckUrl !== 'string' || deps.updateCheckUrl.length === 0) {
+          return {
+            id,
+            type,
+            success: false,
+            error: 'No hosted update API configured. Set OPENCHAMBER_UPDATE_API_URL to enable hosted update checks.',
+          };
+        }
 
         const response = await fetch(deps.updateCheckUrl, {
           method: 'POST',

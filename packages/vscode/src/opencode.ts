@@ -8,6 +8,7 @@ import { spawnSync } from 'child_process';
 import { spawn } from 'child_process';
 import { randomBytes } from 'crypto';
 import { normalizeWindowsDriveLetter } from './pathUtils';
+import { resolvePiChamberDataPath } from './pichamberDataDir';
 import { resolveWorkingDirectoryChange } from './workingDirectoryChange';
 import { registerManagedProcess, unregisterManagedProcess, reapOrphanedProcesses } from './opencodeProcessRegistry';
 import { applyProviderEnvAliases } from './provider-env-aliases';
@@ -84,7 +85,7 @@ function isValidOpenCodePassword(password: string): boolean {
 }
 
 function readOpenChamberSettings(): Record<string, unknown> {
-  const settingsPath = path.join(os.homedir(), '.config', 'openchamber', 'settings.json');
+  const settingsPath = resolvePiChamberDataPath('settings.json');
   try {
     const raw = fs.readFileSync(settingsPath, 'utf8');
     const parsed = JSON.parse(raw) as unknown;

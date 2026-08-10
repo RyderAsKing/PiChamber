@@ -3,10 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
+import { resolvePiChamberDataPath } from './pichamberDataDir';
+
 export type ManagedProvider = 'opencode-go' | 'ollama-cloud' | 'cursor';
 export type ManagedCredential = Record<string, string>;
 const providers = new Set<ManagedProvider>(['opencode-go', 'ollama-cloud', 'cursor']);
-const directory = () => path.join(process.env.OPENCHAMBER_DATA_DIR ? path.resolve(process.env.OPENCHAMBER_DATA_DIR) : path.join(os.homedir(), '.config', 'pichamber'), 'quota');
+const directory = () => resolvePiChamberDataPath(['quota']);
 const target = (provider: ManagedProvider) => {
   if (!providers.has(provider)) throw new Error('Unsupported credential provider');
   return path.join(directory(), `${provider}.json`);
