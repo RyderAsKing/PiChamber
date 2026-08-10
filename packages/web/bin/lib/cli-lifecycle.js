@@ -22,8 +22,8 @@ function createLivePortInstance(port, info, host) {
   return {
     port,
     pid: Number.isFinite(info.pid) ? info.pid : null,
-    pidFilePath: path.join(getRunDir(), `openchamber-${port}.pid`),
-    instanceFilePath: path.join(getRunDir(), `openchamber-${port}.json`),
+    pidFilePath: path.join(getRunDir(), `pichamber-${port}.pid`),
+    instanceFilePath: path.join(getRunDir(), `pichamber-${port}.json`),
     mtime: 0,
     startedAt: 0,
     launchMode: 'daemon',
@@ -169,19 +169,19 @@ async function discoverRunningInstances(options = {}) {
     : (pid) => getOpenchamberProcessState(pid, options);
   try {
     const files = fs.readdirSync(runDir);
-    const pidFiles = files.filter((file) => file.startsWith('openchamber-') && file.endsWith('.pid'));
+    const pidFiles = files.filter((file) => file.startsWith('pichamber-') && file.endsWith('.pid'));
     for (const file of pidFiles) {
-      const port = parseInt(file.replace('openchamber-', '').replace('.pid', ''), 10);
+      const port = parseInt(file.replace('pichamber-', '').replace('.pid', ''), 10);
       if (!Number.isFinite(port) || port <= 0) continue;
       const pidFilePath = path.join(runDir, file);
       const pid = readPidFile(pidFilePath);
       if (!pid) {
         removePidFile(pidFilePath);
-        removeInstanceFile(path.join(runDir, `openchamber-${port}.json`));
+        removeInstanceFile(path.join(runDir, `pichamber-${port}.json`));
         continue;
       }
 
-      const instanceFilePath = path.join(runDir, `openchamber-${port}.json`);
+      const instanceFilePath = path.join(runDir, `pichamber-${port}.json`);
       const storedOptions = readInstanceOptions(instanceFilePath);
       const processState = getProcessState(pid);
       if (processState === 'dead') {
