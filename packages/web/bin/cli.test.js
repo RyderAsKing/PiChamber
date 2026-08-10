@@ -39,6 +39,7 @@ import {
   getPidFilePath,
   isOpenchamberCmdline,
   isOpenchamberProcessRunning,
+  isPiChamberCmdline,
   parseArgs,
   resolveServeHost,
   resolveServeUiPassword,
@@ -172,22 +173,71 @@ async function waitForTcpPort(port, timeoutMs = 3000) {
   return false;
 }
 
-function spawnPiChamberLikeIdleProcess() {
-  return spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', 'openchamber-idle'], { stdio: 'ignore' });
+// Spawn a long-lived child whose argv[1] is a recognizable PiChamber
+// entrypoint path so /proc-style cmdline readers can confirm PiChamber
+// identity. We persist a tiny `pichamber`-named script file under a temp dir
+// and invoke it through node so the cmdline carries the canonical
+// `/pichamber <token>` shape the strict matcher accepts.
+function writePiChamberLikeScript(name, extraCode = '') {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `pichamber-cli-fixture-${name}-`));
+  const filePath = path.join(dir, 'pichamber');
+  fs.writeFileSync(filePath, `#!/usr/bin/env node\nsetInterval(() => {}, 1000);\n${extraCode}`);
+  fs.chmodSync(filePath, 0o755);
+  return { dir, filePath };
 }
 
+let idleFixture = null;
+function spawnPiChamberLikeIdleProcess() {
+  if (!idleFixture) idleFixture = writePiChamberLikeScript('idle');
+  const { filePath } = idleFixture;
+  const child = spawn(process.execPath, [filePath, 'serve', '--idle'], { stdio: 'ignore' });
+  const originalKill = child.kill.bind(child);
+  child.kill = (signal) => {
+    try { fs.rmSync(path.dirname(filePath), { recursive: true, force: true }); } catch { /* ignore */ }
+    idleFixture = null;
+    return originalKill(signal);
+  };
+  return child;
+}
+
+let hungFixture = null;
 function spawnPiChamberLikeHungServer(port) {
-  const script = `
-    const net = require('net');
-    const sockets = new Set();
-    const server = net.createServer((socket) => {
-      sockets.add(socket);
-      socket.on('close', () => sockets.delete(socket));
-    });
-    server.listen(${port}, '127.0.0.1');
-    setInterval(() => {}, 1000);
-  `;
-  return spawn(process.execPath, ['-e', script, 'openchamber-hung-server'], { stdio: 'ignore' });
+  if (!hungFixture) {
+    hungFixture = writePiChamberLikeScript('hung', `
+      const net = require('net');
+      const sockets = new Set();
+      const server = net.createServer((socket) => {
+        sockets.add(socket);
+        socket.on('close', () => sockets.delete(socket));
+      });
+      server.listen(${port}, '127.0.0.1');
+      setInterval(() => {}, 1000);
+    `);
+  } else if (hungFixture.dir) {
+    // Port may differ across tests; rewrite the listen port on the existing
+    // fixture. The script is a no-op until the listen line executes, so a
+    // fresh spawn per port keeps the test deterministic.
+    try { fs.rmSync(hungFixture.dir, { recursive: true, force: true }); } catch { /* ignore */ }
+    hungFixture = writePiChamberLikeScript('hung', `
+      const net = require('net');
+      const sockets = new Set();
+      const server = net.createServer((socket) => {
+        sockets.add(socket);
+        socket.on('close', () => sockets.delete(socket));
+      });
+      server.listen(${port}, '127.0.0.1');
+      setInterval(() => {}, 1000);
+    `);
+  }
+  const { filePath } = hungFixture;
+  const child = spawn(process.execPath, [filePath, 'serve', '--hung'], { stdio: 'ignore' });
+  const originalKill = child.kill.bind(child);
+  child.kill = (signal) => {
+    try { fs.rmSync(path.dirname(filePath), { recursive: true, force: true }); } catch { /* ignore */ }
+    hungFixture = null;
+    return originalKill(signal);
+  };
+  return child;
 }
 
 describe('cli args', () => {
@@ -994,18 +1044,42 @@ describe('cli entry detection', () => {
   });
 });
 
-describe('isOpenchamberCmdline', () => {
-  it('accepts PiChamber CLI and daemon cmdlines', () => {
-    expect(isOpenchamberCmdline('node /x/@pichamber/web/bin/cli.js serve')).toBe(true);
-    expect(isOpenchamberCmdline('node /x/@pichamber/web/server/index.js --port 9090')).toBe(true);
-    expect(isOpenchamberCmdline('bun /home/u/projects/openchamber/packages/web/server/index.js --port 3001')).toBe(true);
+describe('isPiChamberCmdline (and legacy isOpenchamberCmdline alias)', () => {
+  it('accepts PiChamber package entrypoints (Unix + Windows paths)', () => {
+    expect(isPiChamberCmdline('node /usr/local/lib/node_modules/@pichamber/web/bin/cli.js serve')).toBe(true);
+    expect(isPiChamberCmdline('node /usr/local/lib/node_modules/@pichamber/web/server/index.js --port 9090')).toBe(true);
+    // Quoted Windows path with spaces in the install location.
+    expect(isPiChamberCmdline('"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\@pichamber\\web\\server\\index.js" --port 9090')).toBe(true);
+    // Direct executable invocation on unix / windows.
+    expect(isPiChamberCmdline('/usr/local/bin/pichamber serve --port 3000')).toBe(true);
+    expect(isPiChamberCmdline('node /usr/local/bin/pichamber.cmd serve')).toBe(true);
+  });
+
+  it('accepts PiChamber source-checkout entrypoints', () => {
+    expect(isPiChamberCmdline('bun /home/u/projects/PiChamber/packages/web/bin/cli.js serve')).toBe(true);
+    expect(isPiChamberCmdline('node /home/u/projects/PiChamber/packages/web/server/index.js --port 3001')).toBe(true);
   });
 
   it('rejects recycled and unrelated processes (issue #1721)', () => {
+    expect(isPiChamberCmdline('node /home/herjarsa/npm-global/bin/agentmemory')).toBe(false);
+    expect(isPiChamberCmdline('node /usr/lib/node_modules/npm/bin/npm-cli.js install')).toBe(false);
+    expect(isPiChamberCmdline('vi /tmp/pichamber-notes.md')).toBe(false);
+    expect(isPiChamberCmdline('ssh pichamber@example.com')).toBe(false);
+    expect(isPiChamberCmdline('node /home/u/.npm-global/lib/node_modules/some-pichamber-helper/index.js')).toBe(false);
+    expect(isPiChamberCmdline('node ./cli.js serve')).toBe(false);
+    expect(isPiChamberCmdline('node ./server/index.js')).toBe(false);
+    expect(isPiChamberCmdline('')).toBe(false);
+    expect(isPiChamberCmdline(null)).toBe(false);
+  });
+
+  it('no longer accepts legacy openchamber-checkout package paths', () => {
+    expect(isPiChamberCmdline('bun /home/u/projects/openchamber/packages/web/server/index.js --port 3001')).toBe(false);
+    expect(isPiChamberCmdline('node /home/u/.npm-global/lib/node_modules/openchamber/server/index.js')).toBe(false);
+  });
+
+  it('keeps the legacy alias compatible with current PiChamber callers', () => {
+    expect(isOpenchamberCmdline('node /usr/local/lib/node_modules/@pichamber/web/bin/cli.js serve')).toBe(true);
     expect(isOpenchamberCmdline('node /home/herjarsa/npm-global/bin/agentmemory')).toBe(false);
-    expect(isOpenchamberCmdline('node /usr/lib/node_modules/npm/bin/npm-cli.js install')).toBe(false);
-    expect(isOpenchamberCmdline('')).toBe(false);
-    expect(isOpenchamberCmdline(null)).toBe(false);
   });
 });
 

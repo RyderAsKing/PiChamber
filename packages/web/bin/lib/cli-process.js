@@ -4,11 +4,11 @@ import { spawnSync } from 'child_process';
 import { getRunDir } from './cli-paths.js';
 
 async function getPidFilePath(port) {
-  return path.join(getRunDir(), `openchamber-${port}.pid`);
+  return path.join(getRunDir(), `pichamber-${port}.pid`);
 }
 
 async function getInstanceFilePath(port) {
-  return path.join(getRunDir(), `openchamber-${port}.json`);
+  return path.join(getRunDir(), `pichamber-${port}.json`);
 }
 
 function readPidFile(pidFilePath) {
@@ -123,16 +123,60 @@ function readProcessCmdline(pid) {
   return null;
 }
 
-function isOpenchamberCmdline(cmdline) {
+// Recognized PiChamber identity tokens. We only accept command lines that
+// reference one of the published entrypoints or the `pichamber` executable.
+// Argv substrings, usernames, hostnames, project files, or unrelated packages
+// that merely contain "pichamber" are deliberately rejected so a recycled PID
+// from a stranger process can never authorize termination.
+//
+// Identity recognition proceeds as follows:
+//   1. If the command line contains the `@pichamber/web/...` install path
+//      or the source-checkout `PiChamber/packages/web/...` path, accept it.
+//   2. Otherwise, accept if any whitespace-separated token's basename equals
+//      `pichamber`, `pichamber.cmd`, or `pichamber.exe`.
+function normalisePathSeparators(cmdline) {
+  return cmdline.replace(/[\\\/]+/g, '/');
+}
+
+function matchesInstallPath(cmdline) {
+  if (/(?:^|[^A-Za-z0-9_-])@pichamber\/web\/(?:bin\/cli\.js|server\/index\.js)(?:$|[^A-Za-z0-9._-])/.test(cmdline)) {
+    return true;
+  }
+  if (/(?:^|[^A-Za-z0-9_-])PiChamber\/packages\/web\/(?:bin\/cli\.js|server\/index\.js)(?:$|[^A-Za-z0-9._-])/.test(cmdline)) {
+    return true;
+  }
+  return false;
+}
+
+function matchesExecutableToken(cmdline) {
+  for (const rawToken of cmdline.split(/\s+/)) {
+    const token = rawToken.replace(/^["']+|["']+$/g, '');
+    if (!token) continue;
+    const basename = token.split('/').pop();
+    if (!basename) continue;
+    if (/^pichamber(?:\.cmd|\.exe)?$/i.test(basename)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isPiChamberCmdline(cmdline) {
   if (typeof cmdline !== 'string' || cmdline.length === 0) {
     return false;
   }
-  // Every install path contains the "openchamber" segment — the npm package
-  // (@pichamber/web) and the source checkout both do, for the foreground
-  // (bin/cli.js) and daemon (server/index.js) entrypoints alike. Matching the
-  // path segment (not a generic "cli.js") keeps a recycled stranger such as
-  // "npm-cli.js" or "agentmemory" from being mistaken for us.
-  return cmdline.toLowerCase().includes('openchamber');
+  const normalised = normalisePathSeparators(cmdline);
+  if (matchesInstallPath(normalised)) {
+    return true;
+  }
+  return matchesExecutableToken(normalised);
+}
+
+// Compatibility alias kept for in-process callers (the OpenChamber
+// accept-fallback was removed for Phase 1 stabilization — only an explicit
+// PiChamber executable or package/checkout entrypoint is recognized).
+function isOpenchamberCmdline(cmdline) {
+  return isPiChamberCmdline(cmdline);
 }
 
 // Liveness + identity — "is the PiChamber instance recorded in a pid file
@@ -284,6 +328,7 @@ export {
   removeInstanceFile,
   isProcessRunning,
   isOpenchamberCmdline,
+  isPiChamberCmdline,
   isOpenchamberProcessRunning,
   getOpenchamberProcessState,
   hasOpenchamberRuntimeInfo,

@@ -63,6 +63,7 @@ import {
   isProcessRunning,
   isOpenchamberCmdline,
   isOpenchamberProcessRunning,
+  isPiChamberCmdline,
   getOpenchamberProcessState,
 } from './lib/cli-process.js';
 import {
@@ -345,7 +346,7 @@ async function main() {
   await commands[command](options);
 }
 
-const isCliExecution = isModuleCliExecution(process.argv[1], import.meta.url, fs.realpathSync, 'openchamber');
+const isCliExecution = isModuleCliExecution(process.argv[1], import.meta.url, fs.realpathSync, 'pichamber');
 
 if (isCliExecution) {
   let isHandlingSigint = false;
@@ -440,6 +441,7 @@ export {
   isProcessRunning,
   isOpenchamberProcessRunning,
   isOpenchamberCmdline,
+  isPiChamberCmdline,
   getOpenchamberProcessState,
   resolveTunnelProviders,
   fetchTunnelProvidersFromPort,
