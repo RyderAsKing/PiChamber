@@ -18,12 +18,12 @@
     <!-- Web app manifest (endpoint-first with data URL fallback) -->
     <script>
       const baseUrl = location.origin;
-      const defaultAppName = 'OpenChamber - AI Coding Assistant';
-      const defaultShortName = 'OpenChamber';
-      const pwaNameStorageKey = 'openchamber.pwaName';
-      const pwaOrientationStorageKey = 'openchamber.pwaOrientation';
-      const mobileKeyboardModeStorageKey = 'openchamber.mobileKeyboardMode';
-      const pwaRecentSessionsStorageKey = 'openchamber.pwaRecentSessions';
+      const defaultAppName = 'PiChamber - AI Coding Assistant';
+      const defaultShortName = 'PiChamber';
+      const pwaNameStorageKey = 'pichamber.pwaName';
+      const pwaOrientationStorageKey = 'pichamber.pwaOrientation';
+      const mobileKeyboardModeStorageKey = 'pichamber.mobileKeyboardMode';
+      const pwaRecentSessionsStorageKey = 'pichamber.pwaRecentSessions';
       const viewportBaseContent = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover';
 
       const normalizePwaName = (value, fallback) => {
@@ -600,7 +600,7 @@
     <script>
       (function() {
         let nerdFontsPromise = null;
-        window.__openchamberEnsureNerdFonts = function() {
+        window.__pichamberEnsureNerdFonts = function() {
           if (nerdFontsPromise) {
             return nerdFontsPromise;
           }
