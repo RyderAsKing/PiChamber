@@ -4,6 +4,6 @@
   <path d="M50 3 91 27 50 51 9 27Z" fill="#fff" fill-opacity=".05"/>
   <path d="M9 27 50 51V97L9 73Z" fill="#fff" fill-opacity=".1"/>
   <path d="M50 51 91 27V73L50 97Z" fill="#fff" fill-opacity=".16"/>
-  <path d="M50 3 91 27V73L50 97 9 73V27Z M9 27 50 51 91 27 M50 51V97" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M50 3 91 27V73L50 97 9 73V27Z" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M28 31H72 M38 31V68 M62 31V55C62 64 67 68 75 68" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

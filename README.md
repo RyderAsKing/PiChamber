@@ -1,4 +1,4 @@
-# <picture><source media="(prefers-color-scheme: dark)" srcset="docs/references/badges/pichamber-logo-dark.svg"><img src="docs/references/badges/pichamber-logo-light.svg" width="32" height="32" align="absmiddle" /></picture> PiChamber
+# <img src="docs/references/badges/pichamber-logo.svg" width="32" height="32" align="absmiddle" /> PiChamber
 
 [![GitHub stars](https://img.shields.io/github/stars/RyderAsKing/PiChamber?style=flat&labelColor=100F0F&color=66800B)](https://github.com/RyderAsKing/PiChamber/stargazers)
 [![GitHub release](https://img.shields.io/github/v/release/RyderAsKing/PiChamber?style=flat&labelColor=100F0F&color=205EA6)](https://github.com/RyderAsKing/PiChamber/releases/latest)

@@ -53,7 +53,7 @@ export const PiChamberLogo: React.FC<PiChamberLogoProps> = ({
       <path d="M50 51 91 27V73L50 97Z" fill={foregroundColor} opacity="0.16" />
 
       <path
-        d="M50 3 91 27V73L50 97 9 73V27Z M9 27 50 51 91 27 M50 51V97"
+        d="M50 3 91 27V73L50 97 9 73V27Z"
         stroke={foregroundColor}
         strokeWidth="2.5"
         strokeLinecap="round"
