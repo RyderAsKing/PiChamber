@@ -823,3 +823,37 @@ describe('fs list symlink path space (issue 2627)', () => {
     });
   }
 });
+
+describe('/api/fs/home', () => {
+  const registerHome = ({ env = {}, homedir = () => '/home/user' } = {}) => {
+    const { app, getRoute } = createRouteRegistry();
+    registerFsRoutes(app, {
+      os: { homedir },
+      path,
+      fsPromises: {
+        realpath: async (targetPath) => targetPath,
+        stat: async () => ({ isDirectory: () => true }),
+      },
+      spawn: vi.fn(),
+      crypto: { randomUUID: () => 'job-0' },
+      normalizeDirectoryPath: (p) => p,
+      resolveProjectDirectory: async () => ({ directory: '/repo' }),
+      buildAugmentedPath: () => '/usr/bin',
+      resolveGitBinaryForSpawn: () => 'git',
+      pichamberUserConfigRoot: '/home/user/.config',
+      resolvePiChamberDataDir: () => require('os').platform ? path.join(homedir(), '.config', 'pichamber') : '/home/user/.config/pichamber',
+    });
+    return getRoute('GET', '/api/fs/home');
+  };
+
+  it('returns both home and pichamberDataDir with the default data root', async () => {
+    const handler = registerHome();
+    const res = createMockResponse();
+    await handler({}, res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      home: '/home/user',
+      pichamberDataDir: path.join('/home/user', '.config', 'pichamber'),
+    });
+  });
+});

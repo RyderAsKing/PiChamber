@@ -1,6 +1,7 @@
 import { createRealpathCache } from '../path-realpath-cache.js';
 import nodeFsPromises from 'node:fs/promises';
 import nodePath from 'node:path';
+import { resolvePiChamberDataDir } from '../pichamber-data-dir.js';
 
 const EXEC_JOB_TTL_MS = 30 * 60 * 1000;
 const OUTSIDE_FILE_GRANT_TTL_MS = 10 * 60 * 1000;
@@ -578,7 +579,10 @@ export const registerFsRoutes = (app, dependencies) => {
       if (!home || typeof home !== 'string' || home.length === 0) {
         return res.status(500).json({ error: 'Failed to resolve home directory' });
       }
-      return res.json({ home });
+      const pichamberDataDir = typeof dependencies?.resolvePiChamberDataDir === 'function'
+        ? dependencies.resolvePiChamberDataDir()
+        : resolvePiChamberDataDir();
+      return res.json({ home, pichamberDataDir });
     } catch (error) {
       console.error('Failed to resolve home directory:', error);
       return res.status(500).json({ error: (error && error.message) || 'Failed to resolve home directory' });

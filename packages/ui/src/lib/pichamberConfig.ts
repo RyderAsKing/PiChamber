@@ -1,7 +1,9 @@
 /**
  * PiChamber project-level configuration service.
- * Stores per-project settings in ~/.config/openchamber/<projectId>.json.
- * Migrates from legacy <project>/.openchamber/openchamber.json.
+ * Stores per-project settings in the PiChamber data root's projects directory
+ * (default `~/.config/pichamber/projects/<projectId>.json`, overridable via
+ * `OPENCHAMBER_DATA_DIR`). Migrates from legacy
+ * `<project>/.openchamber/openchamber.json`.
  */
 
 import type { FilesAPI } from './api/types';
@@ -17,7 +19,7 @@ type ProjectRef = { id: string; path: string };
 const CONFIG_FILENAME = 'openchamber.json';
 // LEGACY_PROJECT_CONFIG: legacy per-project config root inside repo.
 const LEGACY_CONFIG_DIR = '.openchamber';
-const USER_PROJECTS_DIR_SEGMENTS = ['.config', 'openchamber', 'projects'];
+const USER_PROJECTS_DIR_SEGMENTS = ['.config', 'pichamber', 'projects'];
 
 /**
  * Get the runtime Files API if available (Desktop/VSCode).
@@ -205,7 +207,19 @@ const writeTextFile = async (path: string, content: string): Promise<boolean> =>
   return Boolean(res.ok);
 };
 
-const resolveHomeDirectory = async (): Promise<string | null> => {
+type ResolvedServerHome = {
+  home: string | null;
+  pichamberDataDir: string | null;
+};
+
+let cachedResolvedHome: ResolvedServerHome | null = null;
+
+const resolveServerHome = async (): Promise<ResolvedServerHome> => {
+  if (cachedResolvedHome) {
+    return cachedResolvedHome;
+  }
+  let home: string | null = null;
+  let pichamberDataDir: string | null = null;
   // Use server-reported home as the source of truth for user config paths.
   // In some runtimes, window.__OPENCHAMBER_HOME__ can be workspace/project-root
   // scoped, which would incorrectly route writes into the project directory.
@@ -214,30 +228,54 @@ const resolveHomeDirectory = async (): Promise<string | null> => {
       // Avoid conditional requests (304 + empty body).
       cache: 'no-store',
     });
-    if (!response.ok) {
-      throw new Error('Failed to resolve home directory from API');
-    }
-    const payload = await response.json().catch(() => null) as { home?: unknown } | null;
-    const home = typeof payload?.home === 'string' ? payload.home.trim() : '';
-    if (home) {
-      return normalize(home);
+    if (response.ok) {
+      const payload = await response.json().catch(() => null) as { home?: unknown; pichamberDataDir?: unknown } | null;
+      if (typeof payload?.home === 'string') {
+        home = normalize(payload.home);
+      }
+      if (typeof payload?.pichamberDataDir === 'string') {
+        pichamberDataDir = normalize(payload.pichamberDataDir);
+      }
     }
   } catch {
-    // fall through
+    // fall through to desktop fallback below
   }
 
   // Fallback for environments where /api/fs/home is unavailable.
   // VSCode intentionally avoids this because embedded home equals workspace path.
-  if (!isVSCodeRuntime()) {
-    const desktopHome = await getDesktopHomeDirectory().catch(() => null);
-    if (desktopHome && desktopHome.trim().length > 0) {
-      return normalize(desktopHome);
+  if (!home && !isVSCodeRuntime()) {
+    try {
+      const desktopHome = await getDesktopHomeDirectory();
+      if (desktopHome && desktopHome.trim().length > 0) {
+        home = normalize(desktopHome);
+      }
+    } catch {
+      // ignore
     }
   }
-  return null;
+
+  cachedResolvedHome = { home, pichamberDataDir };
+  return cachedResolvedHome;
+};
+
+const resolveHomeDirectory = async (): Promise<string | null> => {
+  const resolved = await resolveServerHome();
+  return resolved.home;
+};
+
+const resolvePiChamberDataDirectory = async (): Promise<string | null> => {
+  const resolved = await resolveServerHome();
+  return resolved.pichamberDataDir;
 };
 
 const getUserProjectsDirectory = async (): Promise<string | null> => {
+  const pichamberDataDir = await resolvePiChamberDataDirectory();
+  if (pichamberDataDir) {
+    return joinPath(pichamberDataDir, 'projects');
+  }
+  // Narrow compatibility fallback for a PiChamber runtime too old to return
+  // pichamberDataDir: honor OPENCHAMBER_DATA_DIR fallback relative to home.
+  // Not an OpenChamber-data fallback.
   const home = await resolveHomeDirectory();
   if (!home) {
     return null;
@@ -597,7 +635,7 @@ async function readPiChamberConfig(project: ProjectRef): Promise<PiChamberConfig
   }
 
   // 2) Migrate legacy <project>/.openchamber/openchamber.json.
-  // LEGACY_PROJECT_CONFIG: migrate project-local openchamber.json -> ~/.config/openchamber/projects/<projectId>.json
+  // LEGACY_PROJECT_CONFIG: migrate project-local openchamber.json -> ~/.config/pichamber/projects/<projectId>.json
   const legacyPath = getLegacyConfigPath(projectDirectory);
   const legacyConfig = parseConfig(await readText(legacyPath));
   if (!legacyConfig) {

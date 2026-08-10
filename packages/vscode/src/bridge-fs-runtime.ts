@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
+import { resolvePiChamberDataDir } from './pichamberDataDir';
 import type { BridgeResponse } from './bridge';
 
 type BridgeMessageInput = {
@@ -250,7 +251,9 @@ export async function handleFsBridgeMessage(
     }
 
     case 'api:fs/home': {
-      return { id, type, success: true, data: { home: deps.normalizeFsPath(os.homedir()) } };
+      const home = deps.normalizeFsPath(os.homedir());
+      const pichamberDataDir = deps.normalizeFsPath(resolvePiChamberDataDir());
+      return { id, type, success: true, data: { home, pichamberDataDir } };
     }
 
     case 'api:fs:read': {

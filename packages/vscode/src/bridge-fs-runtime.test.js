@@ -86,3 +86,24 @@ describe('bridge fs exec git read cache', () => {
     expect(execCalls).toHaveLength(2);
   });
 });
+
+describe('bridge api:fs/home', () => {
+  it('returns both home and pichamberDataDir', async () => {
+    const previous = process.env.OPENCHAMBER_DATA_DIR;
+    process.env.OPENCHAMBER_DATA_DIR = '/tmp/pichamber-bridge-home';
+    try {
+      const res = await handleFsBridgeMessage({ id: '1', type: 'api:fs/home' }, {
+        ...deps,
+        normalizeFsPath: (value) => value,
+      });
+      expect(res?.success).toBe(true);
+      expect(res?.data?.pichamberDataDir).toBe('/tmp/pichamber-bridge-home');
+    } finally {
+      if (typeof previous === 'string') {
+        process.env.OPENCHAMBER_DATA_DIR = previous;
+      } else {
+        delete process.env.OPENCHAMBER_DATA_DIR;
+      }
+    }
+  });
+});
