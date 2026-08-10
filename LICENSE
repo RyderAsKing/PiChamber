@@ -1,6 +1,11 @@
 MIT License
 
-Copyright (c) 2025 Bohdan Triapitsyn
+Copyright (c) 2025 Bohdan Triapitsyn (OpenChamber)
+Copyright (c) 2026 RyderAsKing (PiChamber)
+
+PiChamber is a fork of OpenChamber, originally developed by Bohdan Triapitsyn
+and contributors. PiChamber is distributed under the same MIT License terms
+as the original OpenChamber project.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

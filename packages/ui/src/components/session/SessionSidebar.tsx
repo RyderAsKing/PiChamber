@@ -94,7 +94,7 @@ import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
 import { useNotificationStore } from '@/sync/notification-store';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { getGitHubPrStatusKey, useGitHubPrStatusStore } from '@/stores/useGitHubPrStatusStore';
-import { subscribeOpenchamberEvents } from '@/lib/openchamberEvents';
+import { subscribeOpenchamberEvents } from '@/lib/pichamberEvents';
 import { buildSessionBootstrapDemands } from './sidebar/sessionBootstrapDemands';
 import { recordWorktreesSeen } from './sidebar/worktreeFirstSeen';
 import { getRuntimeKey } from '@/lib/runtime-switch';

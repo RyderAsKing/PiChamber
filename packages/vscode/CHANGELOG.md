@@ -1,5 +1,6 @@
 ## [Unreleased]
 
+- **Project rebrand:** extension ID, command namespace (`pichamber.*`), configuration keys (`pichamber.apiUrl`, `pichamber.opencodeBinary`), and display strings rebranded from OpenChamber to PiChamber (metadata only). Internal `@opencode-ai/sdk` integration and runtime behavior are unchanged.
 - **Settings:** OpenCode configuration changes now accumulate behind a single Apply & Restart action instead of restarting OpenCode after every edit; the confirmation warns when active chats will be stopped (thanks to @makeittech).
 - Git/Worktrees: prompts now wait for a new worktree to finish checkout before sending, and sessions resolve to the worktree that owns them instead of occasionally opening or sending against the parent workspace (thanks to @ftzi).
 - Git/Worktrees: setup now runs the repository's `post-checkout` hook after creating a worktree, and deeply nested worktrees no longer fail with “Filename too long” on Windows (thanks to @ftzi, @makeittech).

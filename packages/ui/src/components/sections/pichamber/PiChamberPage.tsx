@@ -1,5 +1,5 @@
 import React from 'react';
-import { OpenChamberVisualSettings } from './OpenChamberVisualSettings';
+import { PiChamberVisualSettings } from './PiChamberVisualSettings';
 import { AboutSettings } from './AboutSettings';
 import { SessionRetentionSettings } from './SessionRetentionSettings';
 import { PasskeySettings } from './PasskeySettings';
@@ -18,7 +18,7 @@ import { isDesktopLocalOriginActive, isDesktopShell, isVSCodeRuntime, isWebRunti
 import { isCapacitorApp } from '@/lib/platform';
 import { useI18n } from '@/lib/i18n';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
-import type { OpenChamberSection } from './types';
+import type { PiChamberSection } from './types';
 
 const useRuntimeEndpointEpoch = (): number => {
     const [epoch, setEpoch] = React.useState(0);
@@ -30,12 +30,12 @@ const useRuntimeEndpointEpoch = (): number => {
     return epoch;
 };
 
-interface OpenChamberPageProps {
+interface PiChamberPageProps {
     /** Which section to display. If undefined, shows all sections (mobile/legacy behavior) */
-    section?: OpenChamberSection;
+    section?: PiChamberSection;
 }
 
-export const OpenChamberPage: React.FC<OpenChamberPageProps> = ({ section }) => {
+export const PiChamberPage: React.FC<PiChamberPageProps> = ({ section }) => {
     const { t } = useI18n();
     const { isMobile } = useDeviceInfo();
     const runtimeEndpointEpoch = useRuntimeEndpointEpoch();
@@ -48,7 +48,7 @@ export const OpenChamberPage: React.FC<OpenChamberPageProps> = ({ section }) => 
     if (!section) {
         return (
             <SettingsPageLayout showSaveStatus className="openchamber-page-body space-y-3 sm:space-y-6">
-                <OpenChamberVisualSettings />
+                <PiChamberVisualSettings />
                 <DefaultsSettings />
                 {showDesktopNetworkSettings && <DesktopNetworkSettings />}
                 {!isVSCode && <OpenCodeCliSettings />}
@@ -144,7 +144,7 @@ const GeneralSectionContent: React.FC = () => {
             {showDesktopNetworkSettings && <DesktopNetworkSettings />}
             {showPasskeySettings && <PasskeySettings />}
             {!isVSCode && <OpenCodeCliSettings />}
-            <OpenChamberVisualSettings visibleSettings={[
+            <PiChamberVisualSettings visibleSettings={[
                 'fileEditorKeymap',
                 'autoSaveEnabled',
                 'expandedEditorToolbar',
@@ -161,7 +161,7 @@ const GeneralSectionContent: React.FC = () => {
 // Visual section: Theme Mode, Font Size, Spacing, Input Bar Offset (mobile), Nav Rail
 const VisualSectionContent: React.FC = () => {
     const isVSCode = isVSCodeRuntime();
-    return <OpenChamberVisualSettings visibleSettings={[
+    return <PiChamberVisualSettings visibleSettings={[
         'theme',
         'windowControlsPosition',
         'pwaInstallName',
@@ -181,7 +181,7 @@ const VisualSectionContent: React.FC = () => {
 const ChatSectionContent: React.FC = () => {
     const isVSCode = isVSCodeRuntime();
     return (
-        <OpenChamberVisualSettings
+        <PiChamberVisualSettings
             visibleSettings={[
                 'sessionGoal',
                 'sessionAssist',

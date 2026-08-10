@@ -12,11 +12,11 @@ import {
 } from './service.js';
 
 // ---------------------------------------------------------------------------
-// Regression for https://github.com/openchamber/openchamber/issues/2746
+// Regression for https://github.com/RyderAsKing/PiChamber/issues/2746
 //
 // "[Bug] new worktree， Filename too long"
 //
-// OpenChamber places worktrees under:
+// PiChamber places worktrees under:
 //   <XDG_DATA_HOME>/opencode/worktree/<40-char root commit hash>/<worktree name>
 // and populates them with `git reset --hard`. On Windows, that deep prefix plus
 // a deeply nested repo file (e.g. yudao ~173 chars) exceeds MAX_PATH (260) and

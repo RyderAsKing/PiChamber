@@ -1,9 +1,9 @@
-import * as gitApiHttp from '@openchamber/ui/lib/gitApiHttp';
+import * as gitApiHttp from '@pichamber/ui/lib/gitApiHttp';
 import type {
   GitAPI,
   CreateGitCommitOptions,
   GitLogOptions,
-} from '@openchamber/ui/lib/api/types';
+} from '@pichamber/ui/lib/api/types';
 
 export const createWebGitAPI = (): GitAPI => ({
   checkIsGitRepository: gitApiHttp.checkIsGitRepository,

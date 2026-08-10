@@ -459,7 +459,7 @@ export const createSessionGoalRuntime = ({
     if (!goal || goal.status !== 'active') return;
 
     // File-backed objectives: the metadata carries only a flag; the objective
-    // TEXT lives under the OpenChamber data dir keyed by session id and is
+    // TEXT lives under the PiChamber data dir keyed by session id and is
     // read fresh on every tick (live-editable). A missing file falls back to
     // whatever inline objective the metadata still has — the goal must never
     // die just because a file went away.

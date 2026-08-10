@@ -2,19 +2,19 @@ import { createVSCodeAPIs } from './api';
 import { onCommand, onThemeChange, proxyApiRequest, proxySessionMessageRequest, sendBridgeMessage, startSseProxy, stopSseProxy } from './api/bridge';
 import { vscodeStreamPerfCount, vscodeStreamPerfMeasure, vscodeStreamPerfObserve } from './api/streamPerf';
 import { extractBodyBase64, extractBodyText, extractJsonBody, hasInitBody } from './requestBodyTransport';
-import type { RuntimeAPIs } from '@openchamber/ui/lib/api/types';
-import { opencodeClient } from '@openchamber/ui/lib/opencode/client';
-import { sanitizeHeadersForBrowser } from '@openchamber/ui/lib/runtime-fetch';
+import type { RuntimeAPIs } from '@pichamber/ui/lib/api/types';
+import { opencodeClient } from '@pichamber/ui/lib/opencode/client';
+import { sanitizeHeadersForBrowser } from '@pichamber/ui/lib/runtime-fetch';
 import {
   buildVSCodeThemeFromPalette,
   readVSCodeThemePalette,
   type VSCodeThemeKind,
   type VSCodeThemePayload,
-} from '@openchamber/ui/lib/theme/vscode/adapter';
-import { getBootstrapMessages, readStoredLocaleForBootstrap } from '@openchamber/ui/lib/i18n';
+} from '@pichamber/ui/lib/theme/vscode/adapter';
+import { getBootstrapMessages, readStoredLocaleForBootstrap } from '@pichamber/ui/lib/i18n';
 import type { VSCodeActiveEditorFile } from '@/sync/input-store';
-import { usePermissionStore } from '@openchamber/ui/stores/permissionStore';
-import { processVSCodePermissionAutoAccept } from '@openchamber/ui/sync/vscode-permission-auto-accept';
+import { usePermissionStore } from '@pichamber/ui/stores/permissionStore';
+import { processVSCodePermissionAutoAccept } from '@pichamber/ui/sync/vscode-permission-auto-accept';
 import type { PermissionRequest } from '@opencode-ai/sdk/v2/client';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'error' | 'disconnected';
@@ -1459,7 +1459,7 @@ onCommand('showSettings', () => {
 // reload overlay, restarts the managed OpenCode (via the bridge's /api/config/reload),
 // and refreshes config/data. Triggered by the "Restart API Connection" command.
 onCommand('reloadOpenCode', () => {
-  void import('@openchamber/ui/stores/useAgentsStore').then(({ reloadOpenCodeConfiguration }) => {
+  void import('@pichamber/ui/stores/useAgentsStore').then(({ reloadOpenCodeConfiguration }) => {
     void reloadOpenCodeConfiguration().catch(() => undefined);
   });
 });
@@ -1847,7 +1847,7 @@ window.addEventListener('openchamber:vscode-notification-event', (event) => {
 
 // Listen for settings sync command from extension (broadcast to all VS Code webviews)
 onCommand('settingsSynced', () => {
-  import('@openchamber/ui/lib/persistence').then(({ syncDesktopSettings }) => {
+  import('@pichamber/ui/lib/persistence').then(({ syncDesktopSettings }) => {
     void syncDesktopSettings();
   });
 });
@@ -1870,7 +1870,7 @@ onCommand('activeEditorFile', (payload) => {
   });
 });
 
-import('@openchamber/ui/apps/renderVSCodeApp')
+import('@pichamber/ui/apps/renderVSCodeApp')
   .then(async ({ renderVSCodeApp }) => {
     renderVSCodeApp(window.__OPENCHAMBER_RUNTIME_APIS__ ?? createVSCodeAPIs());
     await waitForUiMount();

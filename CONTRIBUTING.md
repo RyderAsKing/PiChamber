@@ -1,10 +1,12 @@
-# Contributing to OpenChamber
+# Contributing to PiChamber
+
+PiChamber is a community fork of [OpenChamber](https://github.com/openchamber/openchamber). Development setup and contribution guidelines are largely the same as upstream; this guide focuses on the PiChamber-specific changes.
 
 ## Getting Started
 
 ```bash
-git clone https://github.com/openchamber/openchamber.git
-cd openchamber
+git clone https://github.com/RyderAsKing/PiChamber.git
+cd PiChamber
 bun install
 ```
 
@@ -76,7 +78,7 @@ bun run lint:ui
 | `bun run electron:build` | Build packaged desktop app for the current OS |
 | `bun run vscode:build` | Build the VS Code extension |
 | `bun run vscode:package` | Package the VS Code extension as `.vsix` |
-| `bun run pack:web` | Create a package archive for `@openchamber/web` |
+| `bun run pack:web` | Create a package archive for `@pichamber/web` |
 
 ## Platform Build Notes
 
@@ -254,4 +256,4 @@ You can still help:
 
 ## Questions?
 
-Open an [issue](https://github.com/openchamber/openchamber/issues) or ask in [Discord](https://discord.gg/ZYRSdnwwKA).
+Open an [issue](https://github.com/RyderAsKing/PiChamber/issues) or start a [discussion](https://github.com/RyderAsKing/PiChamber/discussions). For upstream OpenChamber questions, the original project maintains its own community channels.

@@ -1,6 +1,6 @@
 // File-backed goal objectives. Session metadata must stay light (it rides
 // every session.updated event), so the objective TEXT lives in a file under
-// the OpenChamber data dir, keyed by the SESSION ID: sessions are globally
+// the PiChamber data dir, keyed by the SESSION ID: sessions are globally
 // unique and carry at most one goal at a time, so the mapping is fully
 // deterministic — the metadata only carries an `objectiveFile: true` flag,
 // never a path, and user-writable metadata cannot become a file-read vector.

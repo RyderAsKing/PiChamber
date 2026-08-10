@@ -82,7 +82,7 @@ describe('ElectronSshManager', () => {
   });
 
   test('creates a PowerShell-backed askpass helper on Windows', async () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openchamber-ssh-askpass-test-'));
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pichamber-ssh-askpass-test-'));
     tempDirs.push(tempDir);
     const manager = new ElectronSshManager({
       settingsFilePath: path.join(tempDir, 'settings.json'),
@@ -113,7 +113,7 @@ describe('ElectronSshManager', () => {
     });
     const parsed = { destination: 'user@example.test', args: [] };
     manager.sshAuth.set(parsed, {
-      askpassPath: 'C:\\OpenChamber\\askpass.cmd',
+      askpassPath: 'C:\\PiChamber\\askpass.cmd',
       sshPassword: 'secret-value',
       children: new Set(),
     });
@@ -132,7 +132,7 @@ describe('ElectronSshManager', () => {
       expect(call.args).toContain('ControlPath=none');
       expect(call.args).toContain('-N');
       expect(call.options.windowsHide).toBe(true);
-      expect(call.options.env.SSH_ASKPASS).toBe('C:\\OpenChamber\\askpass.cmd');
+      expect(call.options.env.SSH_ASKPASS).toBe('C:\\PiChamber\\askpass.cmd');
       expect(call.options.env.OPENCHAMBER_SSH_ASKPASS_VALUE).toBe('secret-value');
     }
     expect(calls[0].args).toContain('-L');
@@ -192,7 +192,7 @@ describe('ElectronSshManager', () => {
       };
     }
     manager.sshAuth.set(parsed, {
-      askpassPath: 'C:\\OpenChamber\\askpass.cmd',
+      askpassPath: 'C:\\PiChamber\\askpass.cmd',
       sshPassword: null,
       children: new Set(),
     });
@@ -257,7 +257,7 @@ describe('ElectronSshManager', () => {
     }
   });
 
-  test('stores a client token for forwarded OpenChamber hosts when UI password is configured', async () => {
+  test('stores a client token for forwarded PiChamber hosts when UI password is configured', async () => {
     let loginPayload = null;
     const server = http.createServer(async (req, res) => {
       if (req.method === 'POST' && req.url === '/auth/session') {
@@ -269,7 +269,7 @@ describe('ElectronSshManager', () => {
       res.writeHead(404).end();
     });
     const localUrl = await listen(server);
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openchamber-ssh-manager-test-'));
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pichamber-ssh-manager-test-'));
     tempDirs.push(tempDir);
     const settingsFilePath = path.join(tempDir, 'settings.json');
     const manager = new ElectronSshManager({

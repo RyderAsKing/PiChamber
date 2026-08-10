@@ -1,7 +1,7 @@
 import { createConfiguredWebAPIs } from './runtimeConfig';
-import type { RuntimeAPIs } from '@openchamber/ui/lib/api/types';
-import '@openchamber/ui/index.css';
-import '@openchamber/ui/styles/fonts';
+import type { RuntimeAPIs } from '@pichamber/ui/lib/api/types';
+import '@pichamber/ui/index.css';
+import '@pichamber/ui/styles/fonts';
 
 declare global {
   interface Window {
@@ -11,7 +11,7 @@ declare global {
 
 window.__OPENCHAMBER_RUNTIME_APIS__ = createConfiguredWebAPIs();
 
-void import('@openchamber/ui/apps/renderElectronMiniChatApp')
+void import('@pichamber/ui/apps/renderElectronMiniChatApp')
   .then(({ renderElectronMiniChatApp }) => {
     renderElectronMiniChatApp(window.__OPENCHAMBER_RUNTIME_APIS__ ?? createConfiguredWebAPIs());
   });

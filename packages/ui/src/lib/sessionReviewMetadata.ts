@@ -2,7 +2,7 @@ import type { Session } from '@opencode-ai/sdk/v2';
 
 export type SessionMetadataRecord = Record<string, unknown>;
 
-type OpenChamberMetadata = {
+type PiChamberMetadata = {
   kind?: 'review';
   originalSessionID?: string;
   reviewSessionID?: string;
@@ -16,29 +16,29 @@ export const getSessionMetadata = (session: Session | null | undefined): Session
   return isRecord(metadata) ? metadata : {};
 };
 
-const getOpenChamberMetadata = (metadata: SessionMetadataRecord): OpenChamberMetadata => {
+const getPiChamberMetadata = (metadata: SessionMetadataRecord): PiChamberMetadata => {
   const value = metadata.openchamber;
-  return isRecord(value) ? value as OpenChamberMetadata : {};
+  return isRecord(value) ? value as PiChamberMetadata : {};
 };
 
 export const getReviewSessionID = (session: Session | null | undefined): string | null => {
-  const value = getOpenChamberMetadata(getSessionMetadata(session)).reviewSessionID;
+  const value = getPiChamberMetadata(getSessionMetadata(session)).reviewSessionID;
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
 };
 
 export const getOriginalSessionID = (session: Session | null | undefined): string | null => {
-  const value = getOpenChamberMetadata(getSessionMetadata(session)).originalSessionID;
+  const value = getPiChamberMetadata(getSessionMetadata(session)).originalSessionID;
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
 };
 
 export const isReviewSession = (session: Session | null | undefined): boolean =>
-  getOpenChamberMetadata(getSessionMetadata(session)).kind === 'review' && Boolean(getOriginalSessionID(session));
+  getPiChamberMetadata(getSessionMetadata(session)).kind === 'review' && Boolean(getOriginalSessionID(session));
 
 export const withReviewSessionLink = (
   metadata: SessionMetadataRecord,
   reviewSessionID: string,
 ): SessionMetadataRecord => {
-  const current = getOpenChamberMetadata(metadata);
+  const current = getPiChamberMetadata(metadata);
   return {
     ...metadata,
     openchamber: {
@@ -52,7 +52,7 @@ export const withReviewSessionMarker = (
   metadata: SessionMetadataRecord,
   originalSessionID: string,
 ): SessionMetadataRecord => {
-  const current = getOpenChamberMetadata(metadata);
+  const current = getPiChamberMetadata(metadata);
   return {
     ...metadata,
     openchamber: {
@@ -67,14 +67,14 @@ export const withoutReviewSessionLink = (
   metadata: SessionMetadataRecord,
   reviewSessionID: string,
 ): SessionMetadataRecord => {
-  const current = getOpenChamberMetadata(metadata);
+  const current = getPiChamberMetadata(metadata);
   if (current.reviewSessionID !== reviewSessionID) return metadata;
 
-  const restOpenChamber = { ...current };
-  delete restOpenChamber.reviewSessionID;
+  const restPiChamber = { ...current };
+  delete restPiChamber.reviewSessionID;
   const next: SessionMetadataRecord = { ...metadata };
-  if (Object.keys(restOpenChamber).length > 0) {
-    next.openchamber = restOpenChamber;
+  if (Object.keys(restPiChamber).length > 0) {
+    next.openchamber = restPiChamber;
   } else {
     delete next.openchamber;
   }

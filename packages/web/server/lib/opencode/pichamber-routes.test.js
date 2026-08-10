@@ -16,7 +16,7 @@ vi.mock('../package-manager.js', () => ({
 
 const childProcess = await import('child_process');
 const packageManager = await import('../package-manager.js');
-const { registerOpenChamberRoutes } = await import('./openchamber-routes.js');
+const { registerPiChamberRoutes } = await import('./pichamber-routes.js');
 
 const createApp = ({ environment = {}, storedOptions = {} } = {}) => {
   const app = express();
@@ -41,7 +41,7 @@ const createApp = ({ environment = {}, storedOptions = {} } = {}) => {
       address: () => ({ port: 7897 }),
     },
     __dirname: '/opt/openchamber/server',
-    openchamberDataDir: '/tmp/openchamber',
+    pichamberDataDir: '/tmp/openchamber',
     modelsDevApiUrl: 'https://models.example.test',
     modelsMetadataCacheTtl: 0,
     readSettingsFromDiskMigrated: vi.fn(),
@@ -49,7 +49,7 @@ const createApp = ({ environment = {}, storedOptions = {} } = {}) => {
     getCachedZenModels: vi.fn(),
   };
 
-  registerOpenChamberRoutes(app, dependencies);
+  registerPiChamberRoutes(app, dependencies);
   return { app, dependencies };
 };
 
@@ -61,7 +61,7 @@ beforeEach(() => {
   packageManager.detectPackageManagerDetails.mockReturnValue({
     packageManager: 'npm',
   });
-  packageManager.getUpdateCommand.mockReturnValue('npm install -g @openchamber/web@latest');
+  packageManager.getUpdateCommand.mockReturnValue('npm install -g @pichamber/web@latest');
 });
 
 afterEach(() => {
@@ -69,7 +69,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('OpenChamber foreground update route', () => {
+describe('PiChamber foreground update route', () => {
   it('rejects a foreground update when the server is not owned by systemd', async () => {
     const { app } = createApp();
 
@@ -114,7 +114,7 @@ describe('OpenChamber foreground update route', () => {
       .post('/api/openchamber/update-install')
       .expect(200, {
         success: true,
-        message: 'Update queued; OpenChamber will restart after installation completes',
+        message: 'Update queued; PiChamber will restart after installation completes',
         version: '1.17.1',
         packageManager: 'npm',
         autoRestart: true,
@@ -131,7 +131,7 @@ describe('OpenChamber foreground update route', () => {
       '--setenv=PATH=/home/syu/.npm-global/bin:/usr/bin:/bin',
       '/bin/sh',
       '-c',
-      "set -eu\nnpm install -g @openchamber/web@latest\nsystemctl --user restart 'openchamber@wsl.service'",
+      "set -eu\nnpm install -g @pichamber/web@latest\nsystemctl --user restart 'openchamber@wsl.service'",
     ], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],

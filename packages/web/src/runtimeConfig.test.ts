@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest';
 
-vi.mock('@openchamber/ui/lib/runtime-auth', () => ({
+vi.mock('@pichamber/ui/lib/runtime-auth', () => ({
   getRuntimeBearerTokenSync: vi.fn(() => ''),
   getRuntimeExtraHeadersSync: vi.fn(() => ({})),
   refreshLocalRuntimeUrlAuthToken: vi.fn(() => Promise.resolve()),
@@ -8,22 +8,22 @@ vi.mock('@openchamber/ui/lib/runtime-auth', () => ({
   setRuntimeBearerToken: vi.fn(),
   setRuntimeExtraHeaders: vi.fn(),
 }));
-vi.mock('@openchamber/ui/lib/runtime-fetch', () => ({ installRuntimeFetchBridge: vi.fn() }));
-vi.mock('@openchamber/ui/lib/runtime-switch', () => ({
+vi.mock('@pichamber/ui/lib/runtime-fetch', () => ({ installRuntimeFetchBridge: vi.fn() }));
+vi.mock('@pichamber/ui/lib/runtime-switch', () => ({
   getRuntimeApiBaseUrl: vi.fn(() => ''),
   getRuntimeKey: vi.fn(() => 'local'),
   initializeRuntimeEndpoint: vi.fn(),
   switchRuntimeEndpoint: vi.fn(),
 }));
-vi.mock('@openchamber/ui/lib/desktopRelayRestore', () => ({ restoreDesktopRelayRuntime: vi.fn(() => Promise.resolve()) }));
-vi.mock('@openchamber/ui/lib/runtime-url', () => ({ configureRuntimeUrlResolver: vi.fn(() => ({})) }));
-vi.mock('@openchamber/ui/lib/opencode/client', () => ({ opencodeClient: { reconnectToRuntimeBaseUrl: vi.fn() } }));
+vi.mock('@pichamber/ui/lib/desktopRelayRestore', () => ({ restoreDesktopRelayRuntime: vi.fn(() => Promise.resolve()) }));
+vi.mock('@pichamber/ui/lib/runtime-url', () => ({ configureRuntimeUrlResolver: vi.fn(() => ({})) }));
+vi.mock('@pichamber/ui/lib/opencode/client', () => ({ opencodeClient: { reconnectToRuntimeBaseUrl: vi.fn() } }));
 vi.mock('./api', () => ({ createWebAPIs: vi.fn() }));
 
-import { setRuntimeBearerToken, setRuntimeExtraHeaders } from '@openchamber/ui/lib/runtime-auth';
-import { initializeRuntimeEndpoint, switchRuntimeEndpoint } from '@openchamber/ui/lib/runtime-switch';
-import { restoreDesktopRelayRuntime } from '@openchamber/ui/lib/desktopRelayRestore';
-import { opencodeClient } from '@openchamber/ui/lib/opencode/client';
+import { setRuntimeBearerToken, setRuntimeExtraHeaders } from '@pichamber/ui/lib/runtime-auth';
+import { initializeRuntimeEndpoint, switchRuntimeEndpoint } from '@pichamber/ui/lib/runtime-switch';
+import { restoreDesktopRelayRuntime } from '@pichamber/ui/lib/desktopRelayRestore';
+import { opencodeClient } from '@pichamber/ui/lib/opencode/client';
 import { createConfiguredWebAPIs, readRuntimeBootstrapConfig } from './runtimeConfig';
 
 const originalWindow = globalThis.window;

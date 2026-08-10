@@ -4,7 +4,7 @@ import { createWorktree, getWorktreeBootstrapStatus } from '../git/index.js';
 import { expandSnippets } from '../opencode/snippets.js';
 import { expandCommandGoalObjective, parseScheduledCommandPrompt } from '../scheduled-tasks/runtime.js';
 import { buildGoalIntroText, createSessionGoal } from '../session-goal/create.js';
-import { OpenChamberControlError, asControlError } from '../openchamber-control/error.js';
+import { PiChamberControlError, asControlError } from '../openchamber-control/error.js';
 
 const asNonEmptyString = (value) => {
   if (typeof value !== 'string') return null;
@@ -289,12 +289,12 @@ const waitForWorktreeBootstrapReady = async ({ directory }) => {
   for (;;) {
     const status = await getWorktreeBootstrapStatus(directory);
     if (status?.status === 'failed') {
-      throw new OpenChamberControlError(`Worktree bootstrap failed: ${status.error || 'unknown error'}`, 500);
+      throw new PiChamberControlError(`Worktree bootstrap failed: ${status.error || 'unknown error'}`, 500);
     }
     const phase = status?.phase;
     if (status?.status === 'ready' || phase === 'git-ready' || phase === 'setup-ready') return;
     if (Date.now() >= deadline) {
-      throw new OpenChamberControlError('Timed out waiting for the worktree bootstrap', 500);
+      throw new PiChamberControlError('Timed out waiting for the worktree bootstrap', 500);
     }
     await new Promise((resolve) => setTimeout(resolve, WORKTREE_BOOTSTRAP_POLL_MS));
   }
@@ -347,7 +347,7 @@ const resolveWorktreeInput = (payload) => {
   };
 };
 
-export const createOpenChamberSessionService = (dependencies) => {
+export const createPiChamberSessionService = (dependencies) => {
   const {
     readSettingsFromDiskMigrated,
     sanitizeProjects,
@@ -400,23 +400,23 @@ export const createOpenChamberSessionService = (dependencies) => {
     if (requestedAgent && agents.length > 0) {
       const agent = agents.find((entry) => entry?.name === requestedAgent) || null;
       if (!agent) {
-        throw new OpenChamberControlError(`Unknown agent '${requestedAgent}' for ${directory}`, 400);
+        throw new PiChamberControlError(`Unknown agent '${requestedAgent}' for ${directory}`, 400);
       }
       if (!isPrimaryAgentMode(agent.mode)) {
-        throw new OpenChamberControlError(`Agent '${requestedAgent}' is a subagent and cannot receive a prompt directly`, 400);
+        throw new PiChamberControlError(`Agent '${requestedAgent}' is a subagent and cannot receive a prompt directly`, 400);
       }
     }
 
     if (requestedModel && providers.length > 0) {
       if (!hasProviderModel(providers, requestedModel.providerID, requestedModel.modelID)) {
-        throw new OpenChamberControlError(
+        throw new PiChamberControlError(
           `Unknown model '${requestedModel.providerID}/${requestedModel.modelID}' for ${directory}`,
           400,
         );
       }
       if (requestedVariant
         && !resolveVariant(providers, requestedModel.providerID, requestedModel.modelID, requestedVariant)) {
-        throw new OpenChamberControlError(
+        throw new PiChamberControlError(
           `Unknown variant '${requestedVariant}' for model '${requestedModel.providerID}/${requestedModel.modelID}'`,
           400,
         );
@@ -495,7 +495,7 @@ export const createOpenChamberSessionService = (dependencies) => {
         tokenBudget: goalInput.tokenBudget,
         providerID: model.providerID,
         modelID: model.modelID,
-        onWarning: (message, error) => console.warn(`[OpenChamberSessions] ${message}:`, error?.message || error),
+        onWarning: (message, error) => console.warn(`[PiChamberSessions] ${message}:`, error?.message || error),
       });
     }
 
@@ -567,7 +567,7 @@ export const createOpenChamberSessionService = (dependencies) => {
     const prompt = asNonEmptyString(payload.prompt);
     const goalInput = resolveGoalInput(payload, prompt);
     if (!goalInput.ok) {
-      throw new OpenChamberControlError(goalInput.error, 400);
+      throw new PiChamberControlError(goalInput.error, 400);
     }
     const model = resolveRequestedModel(payload);
     const agent = asNonEmptyString(payload.agent);
@@ -580,14 +580,14 @@ export const createOpenChamberSessionService = (dependencies) => {
       validateDirectoryPath,
     });
     if (!resolvedDirectory.ok) {
-      throw new OpenChamberControlError(resolvedDirectory.error, resolvedDirectory.status || 400);
+      throw new PiChamberControlError(resolvedDirectory.error, resolvedDirectory.status || 400);
     }
 
     const worktreeInput = resolveWorktreeInput(payload);
     let worktree = null;
     let sessionDirectory = resolvedDirectory.directory;
     if (payload?.worktree && !worktreeInput) {
-      throw new OpenChamberControlError('worktree.name is required when worktree is provided', 400);
+      throw new PiChamberControlError('worktree.name is required when worktree is provided', 400);
     }
 
     if (typeof waitForOpenCodeReady === 'function') await waitForOpenCodeReady(10_000, 250);
@@ -675,10 +675,10 @@ export const createOpenChamberSessionService = (dependencies) => {
   const runExisting = async (action, sourceSessionId, payload = {}) => {
     const sourceSessionID = asNonEmptyString(sourceSessionId);
     const prompt = asNonEmptyString(payload.prompt);
-    if (!sourceSessionID) throw new OpenChamberControlError('sessionId is required', 400);
-    if (!prompt) throw new OpenChamberControlError('prompt is required', 400);
+    if (!sourceSessionID) throw new PiChamberControlError('sessionId is required', 400);
+    if (!prompt) throw new PiChamberControlError('prompt is required', 400);
     const goalInput = resolveGoalInput(payload, prompt);
-    if (!goalInput.ok) throw new OpenChamberControlError(goalInput.error, 400);
+    if (!goalInput.ok) throw new PiChamberControlError(goalInput.error, 400);
     const requestedModel = resolveRequestedModel(payload);
 
     let targetSessionID = sourceSessionID;
@@ -692,7 +692,7 @@ export const createOpenChamberSessionService = (dependencies) => {
         validateDirectoryPath,
       });
       if (!resolvedDirectory.ok) {
-        throw new OpenChamberControlError(resolvedDirectory.error, resolvedDirectory.status || 400);
+        throw new PiChamberControlError(resolvedDirectory.error, resolvedDirectory.status || 400);
       }
       directory = resolvedDirectory.directory;
       if (typeof waitForOpenCodeReady === 'function') await waitForOpenCodeReady(10_000, 250);
@@ -777,7 +777,7 @@ export const createOpenChamberSessionService = (dependencies) => {
       const statusCode = Number(error?.statusCode) || 500;
       const forkCreated = action === 'fork' && targetSessionID !== sourceSessionID;
       const goalConfigured = error?.goalConfigured === true;
-      throw new OpenChamberControlError(
+      throw new PiChamberControlError(
         error instanceof Error ? error.message : `Failed to ${action} session`,
         statusCode,
         {
@@ -814,14 +814,14 @@ const sendServiceError = (res, error, fallback) => {
   });
 };
 
-export const registerOpenChamberSessionRoutes = (app, dependencies) => {
-  const service = dependencies.sessionService || createOpenChamberSessionService(dependencies);
+export const registerPiChamberSessionRoutes = (app, dependencies) => {
+  const service = dependencies.sessionService || createPiChamberSessionService(dependencies);
 
   app.post('/api/openchamber/sessions', express.json({ limit: '1mb' }), async (req, res) => {
     try {
       return res.json(await service.create(req.body && typeof req.body === 'object' ? req.body : {}));
     } catch (error) {
-      console.error('[OpenChamberSessions] failed to create session:', error);
+      console.error('[PiChamberSessions] failed to create session:', error);
       return sendServiceError(res, error, 'Failed to create session');
     }
   });
@@ -833,7 +833,7 @@ export const registerOpenChamberSessionRoutes = (app, dependencies) => {
       try {
         return res.json(await service.send(req.params.sessionId, req.body));
       } catch (error) {
-        console.error('[OpenChamberSessions] failed to send session:', error);
+        console.error('[PiChamberSessions] failed to send session:', error);
         return sendServiceError(res, error, 'Failed to send session');
       }
     },
@@ -845,7 +845,7 @@ export const registerOpenChamberSessionRoutes = (app, dependencies) => {
       try {
         return res.json(await service.fork(req.params.sessionId, req.body));
       } catch (error) {
-        console.error('[OpenChamberSessions] failed to fork session:', error);
+        console.error('[PiChamberSessions] failed to fork session:', error);
         return sendServiceError(res, error, 'Failed to fork session');
       }
     },

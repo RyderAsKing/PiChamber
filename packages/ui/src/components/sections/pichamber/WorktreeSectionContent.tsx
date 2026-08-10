@@ -18,7 +18,7 @@ import {
   getWorktreeSetupWaitEnabled,
   saveWorktreeSetupCommands,
   saveWorktreeSetupWaitEnabled,
-} from '@/lib/openchamberConfig';
+} from '@/lib/pichamberConfig';
 import { listProjectWorktrees } from '@/lib/worktrees/worktreeManager';
 import { sessionEvents } from '@/lib/sessionEvents';
 import type { WorktreeMetadata } from '@/types/worktree';
@@ -184,13 +184,13 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
     try {
       const ok = await saveWorktreeSetupCommands(projectRef, filtered);
       if (!ok) {
-        toast.error(t('settings.openchamber.worktrees.setup.toast.saveFailed'));
+        toast.error(t('settings.pichamber.worktrees.setup.toast.saveFailed'));
         return false;
       }
       setCommandsSnapshot(JSON.stringify(commands));
       return true;
     } catch {
-      toast.error(t('settings.openchamber.worktrees.setup.toast.saveFailed'));
+      toast.error(t('settings.pichamber.worktrees.setup.toast.saveFailed'));
       return false;
     }
   }, [projectRef, t]);
@@ -333,17 +333,17 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
 
   const setupTooltip = (
     <SettingsInfoHint>
-      {t('settings.openchamber.worktrees.setup.tooltipPrefix')}
+      {t('settings.pichamber.worktrees.setup.tooltipPrefix')}
       {' '}
       <code className="font-mono text-xs bg-sidebar-accent/50 px-1 rounded">$ROOT_PROJECT_PATH</code>
       {' '}
-      {t('settings.openchamber.worktrees.setup.tooltipSuffix')}
+      {t('settings.pichamber.worktrees.setup.tooltipSuffix')}
     </SettingsInfoHint>
   );
 
   const listTooltip = (
     <SettingsInfoHint>
-      {t('settings.openchamber.worktrees.list.tooltip')}
+      {t('settings.pichamber.worktrees.list.tooltip')}
     </SettingsInfoHint>
   );
 
@@ -354,7 +354,7 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
         settingsItem="projects.worktree"
       >
         <p className="typography-meta text-muted-foreground">
-          {t('settings.openchamber.worktrees.state.selectProject')}
+          {t('settings.pichamber.worktrees.state.selectProject')}
         </p>
       </ProjectSettingsSubsection>
     );
@@ -367,7 +367,7 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
         settingsItem="projects.worktree"
       >
         <p className="typography-meta text-muted-foreground">
-          {t('settings.openchamber.worktrees.state.gitOnly')}
+          {t('settings.pichamber.worktrees.state.gitOnly')}
         </p>
       </ProjectSettingsSubsection>
     );
@@ -382,7 +382,7 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
         titleAccessory={setupTooltip}
       >
         {isLoadingCommands ? (
-          <p className="typography-meta text-muted-foreground">{t('settings.openchamber.worktrees.setup.loading')}</p>
+          <p className="typography-meta text-muted-foreground">{t('settings.pichamber.worktrees.setup.loading')}</p>
         ) : (
           <div className={cn('space-y-2', PROJECT_SETTINGS_CONTROL_WIDTH)}>
             {setupCommands.map((command, index) => (
@@ -391,7 +391,7 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
                   value={command}
                   onChange={(e) => handleSetupCommandChange(index, e.target.value)}
                   onBlur={handleCommandBlur}
-                  placeholder={t('settings.openchamber.worktrees.setup.commandPlaceholder')}
+                  placeholder={t('settings.pichamber.worktrees.setup.commandPlaceholder')}
                   className="h-7 min-w-0 flex-1 font-mono text-xs"
                 />
                 <Button
@@ -400,7 +400,7 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
                   size="icon"
                   onClick={() => handleRemoveCommand(index)}
                   className="h-7 w-7 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  aria-label={t('settings.openchamber.worktrees.setup.removeCommandAria')}
+                  aria-label={t('settings.pichamber.worktrees.setup.removeCommandAria')}
                 >
                   <Icon name="close" className="h-4 w-4" />
                 </Button>
@@ -414,7 +414,7 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
               onClick={handleAddCommand}
             >
               <Icon name="add" className="h-3.5 w-3.5" />
-              {t('settings.openchamber.worktrees.setup.addCommand')}
+              {t('settings.pichamber.worktrees.setup.addCommand')}
             </Button>
             <label
               data-settings-item="projects.worktree.setup.wait"
@@ -423,13 +423,13 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
               <Checkbox
                 checked={waitForSetupCommands}
                 onChange={handleWaitForSetupCommandsChange}
-                ariaLabel={t('settings.openchamber.worktrees.setup.waitForCommandsAria')}
+                ariaLabel={t('settings.pichamber.worktrees.setup.waitForCommandsAria')}
               />
               <span className={cn(
                 'typography-ui-label font-normal',
                 waitForSetupCommands ? 'text-foreground' : 'text-foreground/60'
               )}>
-                {t('settings.openchamber.worktrees.setup.waitForCommands')}
+                {t('settings.pichamber.worktrees.setup.waitForCommands')}
               </span>
             </label>
           </div>
@@ -438,14 +438,14 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
       ) : null}
 
       <ProjectSettingsSubsection
-        title={t('settings.openchamber.worktrees.list.title')}
+        title={t('settings.pichamber.worktrees.list.title')}
         titleAccessory={listTooltip}
       >
         {isLoadingWorktrees ? (
-          <p className="typography-meta text-muted-foreground">{t('settings.openchamber.worktrees.list.loading')}</p>
+          <p className="typography-meta text-muted-foreground">{t('settings.pichamber.worktrees.list.loading')}</p>
         ) : availableWorktrees.length === 0 ? (
           <p className="typography-meta text-muted-foreground/70">
-            {t('settings.openchamber.worktrees.list.empty')}
+            {t('settings.pichamber.worktrees.list.empty')}
           </p>
         ) : (
           // The settings panel keeps its narrow control column; the full-page
@@ -459,7 +459,7 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
                 <div className="min-w-0 flex-1">
                   <div className="flex min-w-0 items-center gap-2">
                     <p className="typography-meta min-w-0 truncate text-foreground">
-                      {worktree.label || worktree.branch || t('settings.openchamber.worktrees.list.detachedHead')}
+                      {worktree.label || worktree.branch || t('settings.pichamber.worktrees.list.detachedHead')}
                     </p>
                   </div>
                   <p className="typography-micro truncate text-muted-foreground/60">
@@ -473,7 +473,7 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
                     'flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground/50 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
                     alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                   )}
-                  aria-label={t('settings.openchamber.worktrees.list.deleteWorktreeAria', { name: worktree.branch || worktree.label || worktree.path })}
+                  aria-label={t('settings.pichamber.worktrees.list.deleteWorktreeAria', { name: worktree.branch || worktree.label || worktree.path })}
                 >
                   <Icon name="delete-bin" className="h-4 w-4" />
                 </button>

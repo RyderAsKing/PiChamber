@@ -128,14 +128,14 @@ function isOpenchamberCmdline(cmdline) {
     return false;
   }
   // Every install path contains the "openchamber" segment — the npm package
-  // (@openchamber/web) and the source checkout both do, for the foreground
+  // (@pichamber/web) and the source checkout both do, for the foreground
   // (bin/cli.js) and daemon (server/index.js) entrypoints alike. Matching the
   // path segment (not a generic "cli.js") keeps a recycled stranger such as
   // "npm-cli.js" or "agentmemory" from being mistaken for us.
   return cmdline.toLowerCase().includes('openchamber');
 }
 
-// Liveness + identity — "is the OpenChamber instance recorded in a pid file
+// Liveness + identity — "is the PiChamber instance recorded in a pid file
 // still the process running under this PID". Use this (not isProcessRunning)
 // when validating a PID read from a pid file. After an ungraceful shutdown
 // removePidFile never runs, so the stale PID can be recycled to an unrelated

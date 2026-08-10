@@ -1,5 +1,5 @@
 ---
-description: Review an OpenChamber pull request interactively with repository-aware correctness and contribution analysis
+description: Review a PiChamber pull request interactively with repository-aware correctness and contribution analysis
 ---
 
 Review this pull request: $ARGUMENTS

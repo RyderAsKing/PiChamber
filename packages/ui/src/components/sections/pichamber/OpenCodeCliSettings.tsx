@@ -108,18 +108,18 @@ export const OpenCodeCliSettings: React.FC = () => {
   }, [setAgentControlToolEnabled]);
 
   return (
-    <SettingsSection title={t('settings.openchamber.opencodeCli.title')}>
+    <SettingsSection title={t('settings.pichamber.opencodeCli.title')}>
       <div className="space-y-0.5">
         <SettingsFieldRow
           settingsItem="sessions.opencode-binary"
-          label={t('settings.openchamber.opencodeCli.field.binaryPath')}
+          label={t('settings.pichamber.opencodeCli.field.binaryPath')}
           info={(
             <>
-              {t('settings.openchamber.opencodeCli.tipPrefix')}
+              {t('settings.pichamber.opencodeCli.tipPrefix')}
               {' '}
               <span className="font-mono">OPENCODE_BINARY</span>
               {' '}
-              {t('settings.openchamber.opencodeCli.tipMiddle')}
+              {t('settings.pichamber.opencodeCli.tipMiddle')}
               {' '}
               <span className="font-mono">~/.config/openchamber/settings.json</span>
               {'.'}
@@ -131,7 +131,7 @@ export const OpenCodeCliSettings: React.FC = () => {
           <Input
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            placeholder={t('settings.openchamber.opencodeCli.field.binaryPathPlaceholder')}
+            placeholder={t('settings.pichamber.opencodeCli.field.binaryPathPlaceholder')}
             disabled={isLoading || isSaving}
             className="h-8 min-w-0 flex-1 font-mono text-xs"
           />
@@ -142,8 +142,8 @@ export const OpenCodeCliSettings: React.FC = () => {
             onClick={handleBrowse}
             disabled={isLoading || isSaving || !isDesktopShell()}
             className={SETTINGS_ICON_BUTTON_CLASS}
-            aria-label={t('settings.openchamber.opencodeCli.actions.browseAria')}
-            title={t('settings.openchamber.opencodeCli.actions.browse')}
+            aria-label={t('settings.pichamber.opencodeCli.actions.browseAria')}
+            title={t('settings.pichamber.opencodeCli.actions.browse')}
           >
             <Icon name="folder" className="h-4 w-4" />
           </Button>
@@ -155,8 +155,8 @@ export const OpenCodeCliSettings: React.FC = () => {
               settingsItem="sessions.opencode-update-notifications"
               checked={showOpenCodeUpdateNotifications}
               onChange={handleShowUpdateNotificationsChange}
-              label={t('settings.openchamber.opencodeCli.field.showUpdateNotifications')}
-              ariaLabel={t('settings.openchamber.opencodeCli.field.showUpdateNotificationsAria')}
+              label={t('settings.pichamber.opencodeCli.field.showUpdateNotifications')}
+              ariaLabel={t('settings.pichamber.opencodeCli.field.showUpdateNotificationsAria')}
             />
           )}
 
@@ -164,9 +164,9 @@ export const OpenCodeCliSettings: React.FC = () => {
             settingsItem="sessions.agent-control-tool"
             checked={agentControlToolEnabled}
             onChange={handleAgentControlToolChange}
-            label={t('settings.openchamber.opencodeCli.field.agentControlTool')}
-            ariaLabel={t('settings.openchamber.opencodeCli.field.agentControlToolAria')}
-            info={t('settings.openchamber.opencodeCli.field.agentControlToolInfo')}
+            label={t('settings.pichamber.opencodeCli.field.agentControlTool')}
+            ariaLabel={t('settings.pichamber.opencodeCli.field.agentControlToolAria')}
+            info={t('settings.pichamber.opencodeCli.field.agentControlToolInfo')}
           />
 
           <div className="flex justify-start py-1.5">

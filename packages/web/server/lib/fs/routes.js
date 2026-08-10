@@ -169,7 +169,7 @@ const isPathWithinRoot = (resolvedPath, rootPath, path, os) => {
   return true;
 };
 
-const resolveWorkspacePath = ({ targetPath, baseDirectory, path, os, normalizeDirectoryPath, openchamberUserConfigRoot }) => {
+const resolveWorkspacePath = ({ targetPath, baseDirectory, path, os, normalizeDirectoryPath, pichamberUserConfigRoot }) => {
   const normalized = normalizeDirectoryPath(targetPath);
   if (!normalized || typeof normalized !== 'string') {
     return { ok: false, error: 'Path is required' };
@@ -182,8 +182,8 @@ const resolveWorkspacePath = ({ targetPath, baseDirectory, path, os, normalizeDi
     return { ok: true, base: resolvedBase, resolved };
   }
 
-  if (isPathWithinRoot(resolved, openchamberUserConfigRoot, path, os)) {
-    return { ok: true, base: path.resolve(openchamberUserConfigRoot), resolved };
+  if (isPathWithinRoot(resolved, pichamberUserConfigRoot, path, os)) {
+    return { ok: true, base: path.resolve(pichamberUserConfigRoot), resolved };
   }
 
   return { ok: false, error: 'Path is outside of active workspace' };
@@ -222,7 +222,7 @@ const resolveWorkspacePathFromWorktrees = async ({ targetPath, baseDirectory, pa
   return { ok: false, error: 'Path is outside of active workspace' };
 };
 
-const resolveWorkspacePathFromContext = async ({ req, targetPath, resolveProjectDirectory, path, os, normalizeDirectoryPath, openchamberUserConfigRoot }) => {
+const resolveWorkspacePathFromContext = async ({ req, targetPath, resolveProjectDirectory, path, os, normalizeDirectoryPath, pichamberUserConfigRoot }) => {
   const resolvedProject = await resolveProjectDirectory(req);
   if (!resolvedProject.directory) {
     return { ok: false, error: resolvedProject.error || 'Active workspace is required' };
@@ -234,7 +234,7 @@ const resolveWorkspacePathFromContext = async ({ req, targetPath, resolveProject
     path,
     os,
     normalizeDirectoryPath,
-    openchamberUserConfigRoot,
+    pichamberUserConfigRoot,
   });
   if (resolved.ok || resolved.error !== 'Path is outside of active workspace') {
     return resolved;
@@ -291,7 +291,7 @@ const escapeCloneSshKeyPath = (sshKeyPath) => {
   return `'${normalized.replace(/'/g, "'\\''")}'`;
 };
 
-const resolveReadPathFromContext = async ({ req, targetPath, scope, resolveProjectDirectory, path, os, fsPromises, normalizeDirectoryPath, openchamberUserConfigRoot }) => {
+const resolveReadPathFromContext = async ({ req, targetPath, scope, resolveProjectDirectory, path, os, fsPromises, normalizeDirectoryPath, pichamberUserConfigRoot }) => {
   if (req.query?.allowOutsideWorkspace === 'true') {
     const normalized = normalizeDirectoryPath(targetPath);
     if (!normalized || typeof normalized !== 'string') {
@@ -313,7 +313,7 @@ const resolveReadPathFromContext = async ({ req, targetPath, scope, resolveProje
     path,
     os,
     normalizeDirectoryPath,
-    openchamberUserConfigRoot,
+    pichamberUserConfigRoot,
   });
 };
 
@@ -398,7 +398,7 @@ export const registerFsRoutes = (app, dependencies) => {
     resolveProjectDirectory,
     buildAugmentedPath,
     resolveGitBinaryForSpawn,
-    openchamberUserConfigRoot,
+    pichamberUserConfigRoot,
   } = dependencies;
   const realpathCache = createRealpathCache({
     realpath: fsPromises.realpath.bind(fsPromises),
@@ -604,7 +604,7 @@ export const registerFsRoutes = (app, dependencies) => {
           path,
           os,
           normalizeDirectoryPath,
-          openchamberUserConfigRoot,
+          pichamberUserConfigRoot,
         });
         if (!resolved.ok) {
           return res.status(400).json({ error: resolved.error });
@@ -749,7 +749,7 @@ export const registerFsRoutes = (app, dependencies) => {
         os,
         fsPromises,
         normalizeDirectoryPath,
-        openchamberUserConfigRoot,
+        pichamberUserConfigRoot,
       });
       if (!resolved.ok) {
         if (req.query?.allowOutsideWorkspace === 'true') {
@@ -806,7 +806,7 @@ export const registerFsRoutes = (app, dependencies) => {
         os,
         fsPromises,
         normalizeDirectoryPath,
-        openchamberUserConfigRoot,
+        pichamberUserConfigRoot,
       });
       if (!resolved.ok) {
         if (req.query?.allowOutsideWorkspace === 'true') {
@@ -877,7 +877,7 @@ export const registerFsRoutes = (app, dependencies) => {
         os,
         fsPromises,
         normalizeDirectoryPath,
-        openchamberUserConfigRoot,
+        pichamberUserConfigRoot,
       });
       if (!resolved.ok) {
         if (req.query?.allowOutsideWorkspace === 'true') {
@@ -965,7 +965,7 @@ export const registerFsRoutes = (app, dependencies) => {
         path,
         os,
         normalizeDirectoryPath,
-        openchamberUserConfigRoot,
+        pichamberUserConfigRoot,
       });
       if (!resolved.ok) {
         return res.status(400).json({ error: resolved.error });
@@ -1024,7 +1024,7 @@ export const registerFsRoutes = (app, dependencies) => {
         path,
         os,
         normalizeDirectoryPath,
-        openchamberUserConfigRoot,
+        pichamberUserConfigRoot,
       });
       if (!resolved.ok) {
         return res.status(400).json({ error: resolved.error });
@@ -1083,7 +1083,7 @@ export const registerFsRoutes = (app, dependencies) => {
         path,
         os,
         normalizeDirectoryPath,
-        openchamberUserConfigRoot,
+        pichamberUserConfigRoot,
       });
       if (!resolved.ok) {
         return res.status(400).json({ error: resolved.error });
@@ -1121,7 +1121,7 @@ export const registerFsRoutes = (app, dependencies) => {
         path,
         os,
         normalizeDirectoryPath,
-        openchamberUserConfigRoot,
+        pichamberUserConfigRoot,
       });
       if (!resolvedOld.ok) {
         return res.status(400).json({ error: resolvedOld.error });
@@ -1134,7 +1134,7 @@ export const registerFsRoutes = (app, dependencies) => {
         path,
         os,
         normalizeDirectoryPath,
-        openchamberUserConfigRoot,
+        pichamberUserConfigRoot,
       });
       if (!resolvedNew.ok) {
         return res.status(400).json({ error: resolvedNew.error });
@@ -1240,7 +1240,7 @@ export const registerFsRoutes = (app, dependencies) => {
         path,
         os,
         normalizeDirectoryPath,
-        openchamberUserConfigRoot,
+        pichamberUserConfigRoot,
       });
       if (!resolvedForWorkspace.ok) {
         console.warn(`Rejected /api/fs/exec outside workspace: ${resolvedForWorkspace.error}`);

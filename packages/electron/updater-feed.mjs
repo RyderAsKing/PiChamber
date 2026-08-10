@@ -2,8 +2,8 @@ import fs from 'node:fs';
 
 export const PRODUCTION_UPDATER_FEED = Object.freeze({
   provider: 'github',
-  owner: 'openchamber',
-  repo: 'openchamber',
+  owner: 'RyderAsKing',
+  repo: 'PiChamber',
 });
 
 const isLoopbackHostname = (hostname) => {

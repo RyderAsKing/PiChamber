@@ -64,12 +64,12 @@ export const registerServerStatusRoutes = (app, dependencies) => {
   const {
     express,
     process,
-    openchamberVersion,
+    pichamberVersion,
     runtimeName,
     serverStartedAt,
     gracefulShutdown,
     getHealthSnapshot,
-    // Port this OpenChamber instance serves on and the tunnel public URL (if
+    // Port this PiChamber instance serves on and the tunnel public URL (if
     // a tunnel is active). Exposed on /api/system/info so the UI can surface
     // the active instance's service URLs. Optional: older wiring omits them
     // and the endpoint reports null.
@@ -245,7 +245,7 @@ export const registerServerStatusRoutes = (app, dependencies) => {
     res.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
-      openchamberVersion,
+      pichamberVersion,
       runtime: runtimeName,
       compatibility,
       ...(serverId ? { serverId } : {}),
@@ -257,7 +257,7 @@ export const registerServerStatusRoutes = (app, dependencies) => {
     const serverId = await resolveServerId();
     res.json({
       status: 'ok',
-      openchamberVersion,
+      pichamberVersion,
       runtime: runtimeName,
       startedAt: serverStartedAt,
       compatibility,
@@ -360,7 +360,7 @@ export const registerServerStatusRoutes = (app, dependencies) => {
 
   app.get('/api/system/info', (_req, res) => {
     res.json({
-      openchamberVersion,
+      pichamberVersion,
       runtime: runtimeName,
       pid: process.pid,
       startedAt: serverStartedAt,
@@ -412,7 +412,7 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
     getServerId = async () => null,
     // Display name a paired device shows for THIS server (issuing machine's
     // hostname), distinct from the per-device pairing label typed by the operator.
-    getServerLabel = () => 'OpenChamber',
+    getServerLabel = () => 'PiChamber',
   } = dependencies;
   const PAIRING_REDEEM_RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
   const PAIRING_REDEEM_RATE_LIMIT_MAX_ATTEMPTS = 10;

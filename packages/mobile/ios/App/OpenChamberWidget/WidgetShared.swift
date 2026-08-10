@@ -84,9 +84,9 @@ struct OverviewProvider: TimelineProvider {
     }
 }
 
-// MARK: - Logo (full OpenChamber mark drawn from the SVG)
+// MARK: - Logo (full PiChamber mark drawn from the SVG)
 
-/// The OpenChamber logo, drawn to match packages/web/public/logo-dark-512x512.svg: an
+/// The PiChamber logo, drawn to match packages/web/public/logo-dark-512x512.svg: an
 /// isometric cube with translucent face fills, stroked edges, and the OpenCode mark on the
 /// top face. Faces use low-opacity `.primary` so the system tint on the Lock Screen / Control
 /// Center reads as a translucent fill (no colour) rather than a flat wireframe. Coordinates are

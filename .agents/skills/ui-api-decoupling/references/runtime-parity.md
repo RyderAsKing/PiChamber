@@ -15,13 +15,13 @@ React components use `useRuntimeAPIs()` or `useRuntimeAPI()`. Non-React modules 
 
 | Route type | VS Code behavior |
 |---|---|
-| OpenChamber local route | Handle in the webview and bridge to extension host when needed |
+| PiChamber local route | Handle in the webview and bridge to extension host when needed |
 | Official OpenCode route | Forward through the generic OpenCode proxy |
 | SSE | Use the dedicated SSE bridge, never generic proxy |
 | Session message POST | Use the dedicated session-message path |
 | Unsupported native feature | Return stable explicit unsupported behavior, normally 501 JSON |
 
-Register explicit OpenChamber handling before generic proxy fallback. Silent empty fallback is not parity.
+Register explicit PiChamber handling before generic proxy fallback. Silent empty fallback is not parity.
 
 ## Electron Boundary
 

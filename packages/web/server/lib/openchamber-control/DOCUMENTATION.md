@@ -1,10 +1,10 @@
-# OpenChamber Control Service
+# PiChamber Control Service
 
 ## Purpose
 
-This module owns the typed control contract shared by the OpenChamber CLI and
+This module owns the typed control contract shared by the PiChamber CLI and
 the managed OpenCode `openchamber` tool. Both adapters delegate to
-`createOpenChamberControlService()`; neither adapter may call or spawn the
+`createPiChamberControlService()`; neither adapter may call or spawn the
 other.
 
 ## Boundaries

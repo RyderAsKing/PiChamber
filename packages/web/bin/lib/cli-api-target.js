@@ -56,7 +56,7 @@ async function resolveTargetPort(options = {}, deps = {}) {
       return DEFAULT_PORT;
     }
     throw new TunnelCliError(
-      `Multiple OpenChamber instances are running (ports: ${ports.join(', ')}). Choose one with --port <port>.`,
+      `Multiple PiChamber instances are running (ports: ${ports.join(', ')}). Choose one with --port <port>.`,
       EXIT_CODE.USAGE_ERROR,
     );
   }
@@ -66,7 +66,7 @@ async function resolveTargetPort(options = {}, deps = {}) {
   }
 
   throw new TunnelCliError(
-    'No running OpenChamber server found. Start one with `openchamber serve`, or pass --port <port>.',
+    'No running PiChamber server found. Start one with `pichamber serve`, or pass --port <port>.',
     EXIT_CODE.GENERAL_ERROR,
   );
 }

@@ -1,5 +1,5 @@
 /**
- * WebSocket client for the OpenChamber dictation endpoint (/api/dictation/ws).
+ * WebSocket client for the PiChamber dictation endpoint (/api/dictation/ws).
  *
  * One shared client per app. The socket is opened lazily when a dictation
  * starts and closed after an idle delay. URLs are resolved at connect time via

@@ -95,7 +95,7 @@ export const KeyboardShortcutsSettings: React.FC = () => {
     return all.filter((action) => action.id !== 'toggle_prompt_navigator');
   }, []);
   const actionLabel = React.useCallback((id: string, fallbackLabel: string): string => {
-    const key = `settings.openchamber.keyboardShortcuts.action.${id}.label`;
+    const key = `settings.pichamber.keyboardShortcuts.action.${id}.label`;
     const translated = tUnsafe(key);
     return translated === key ? fallbackLabel : translated;
   }, [tUnsafe]);
@@ -142,7 +142,7 @@ export const KeyboardShortcutsSettings: React.FC = () => {
     persistShortcutOverrides(nextOverrides);
     setPendingOverwrite(null);
     setErrorText('');
-    setWarningText(isRiskyBrowserShortcut(normalized) ? t('settings.openchamber.keyboardShortcuts.warning.riskyBrowserShortcut') : '');
+    setWarningText(isRiskyBrowserShortcut(normalized) ? t('settings.pichamber.keyboardShortcuts.warning.riskyBrowserShortcut') : '');
     setDraftByAction((current) => {
       const rest = { ...current };
       delete rest[actionId];
@@ -165,7 +165,7 @@ export const KeyboardShortcutsSettings: React.FC = () => {
     persistShortcutOverrides(nextOverrides);
     setPendingOverwrite(null);
     setErrorText('');
-    setWarningText(isRiskyBrowserShortcut(pendingOverwrite.combo) ? t('settings.openchamber.keyboardShortcuts.warning.riskyBrowserShortcut') : '');
+    setWarningText(isRiskyBrowserShortcut(pendingOverwrite.combo) ? t('settings.pichamber.keyboardShortcuts.warning.riskyBrowserShortcut') : '');
     setDraftByAction((current) => {
       const rest = { ...current };
       delete rest[pendingOverwrite.actionId];
@@ -191,9 +191,9 @@ export const KeyboardShortcutsSettings: React.FC = () => {
   return (
     <SettingsSection
       settingsItem="shortcuts.keyboard-shortcuts"
-      title={t('settings.openchamber.keyboardShortcuts.title')}
+      title={t('settings.pichamber.keyboardShortcuts.title')}
       divider={false}
-      info={t('settings.openchamber.keyboardShortcuts.tooltip')}
+      info={t('settings.pichamber.keyboardShortcuts.tooltip')}
       headerAction={(
         <Button
           type="button"
@@ -209,7 +209,7 @@ export const KeyboardShortcutsSettings: React.FC = () => {
             setWarningText('');
           }}
         >
-          {t('settings.openchamber.keyboardShortcuts.actions.resetAll')}
+          {t('settings.pichamber.keyboardShortcuts.actions.resetAll')}
         </Button>
       )}
     >
@@ -218,10 +218,10 @@ export const KeyboardShortcutsSettings: React.FC = () => {
           {pendingOverwrite && (
             <div className="rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-background)] p-3 flex flex-col @xl:flex-row @xl:items-center justify-between gap-3">
               <span className="typography-meta text-foreground">
-                {t('settings.openchamber.keyboardShortcuts.overwritePrompt')}
+                {t('settings.pichamber.keyboardShortcuts.overwritePrompt')}
               </span>
               <div className="flex gap-2 shrink-0">
-                <Button type="button" size="xs" className="!font-normal" onClick={confirmOverwrite}>{t('settings.openchamber.keyboardShortcuts.actions.overwrite')}</Button>
+                <Button type="button" size="xs" className="!font-normal" onClick={confirmOverwrite}>{t('settings.pichamber.keyboardShortcuts.actions.overwrite')}</Button>
                 <Button type="button" size="xs" className="!font-normal" variant="ghost" onClick={() => setPendingOverwrite(null)}>{t('settings.common.actions.cancel')}</Button>
               </div>
             </div>
@@ -250,9 +250,9 @@ export const KeyboardShortcutsSettings: React.FC = () => {
           const hasDraft = typeof draft === 'string' && normalizeCombo(draft) !== normalizeCombo(effective);
           const isUnassignedDisplay = displayCombo === '' || normalizeCombo(displayCombo) === UNASSIGNED_SHORTCUT;
           const displayValue = capturingActionId === action.id
-            ? t('settings.openchamber.keyboardShortcuts.field.pressKeys')
+            ? t('settings.pichamber.keyboardShortcuts.field.pressKeys')
             : isSurfaceSwitch && !isUnassignedDisplay
-              ? `${formatShortcutForDisplay(displayCombo)}${t('settings.openchamber.keyboardShortcuts.action.switch_context_surface.suffix')}`
+              ? `${formatShortcutForDisplay(displayCombo)}${t('settings.pichamber.keyboardShortcuts.action.switch_context_surface.suffix')}`
               : formatShortcutForDisplay(displayCombo);
 
           return (
@@ -305,7 +305,7 @@ export const KeyboardShortcutsSettings: React.FC = () => {
                   onClick={() => {
                     const next = draftByAction[action.id];
                     if (!next) {
-                      setErrorText(t('settings.openchamber.keyboardShortcuts.error.captureFirst'));
+                      setErrorText(t('settings.pichamber.keyboardShortcuts.error.captureFirst'));
                       return;
                     }
                     saveCombo(action.id, next);

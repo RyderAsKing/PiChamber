@@ -18,7 +18,7 @@ import type {
   GitHubDeviceFlowStart,
   GitHubRepoUpstreamResult,
   GitHubUserSummary,
-} from '@openchamber/ui/lib/api/types';
+} from '@pichamber/ui/lib/api/types';
 
 import { sendBridgeMessage } from './bridge';
 

@@ -124,7 +124,7 @@ describe('parsePairingConnectionPayloadString (Android WebView fallback)', () =>
   });
 
   test('recovers a link whose scheme/host case the URL parser would reject', () => {
-    const mixedCase = encoded.replace('openchamber://connect', 'OpenChamber://CONNECT');
+    const mixedCase = encoded.replace('openchamber://connect', 'PiChamber://CONNECT');
     expect(parsePairingConnectionPayload(mixedCase)).toBeNull();
     expect(parsePairingConnectionPayloadString(mixedCase)).toEqual(parsePairingConnectionPayload(encoded));
   });

@@ -40,7 +40,7 @@ import { getRuntimeApiBaseUrl, getRuntimeKey } from '@/lib/runtime-switch';
 import { getActiveRelayDescriptor } from '@/lib/relay/runtime-tunnel';
 import { getPreviewTargetRecoveryAction } from '@/lib/preview/proxy-response';
 import { Icon } from "@/components/icon/Icon";
-import { OpenChamberLogo } from "@/components/ui/OpenChamberLogo";
+import { PiChamberLogo } from "@/components/ui/PiChamberLogo";
 import { invokeDesktopCommand } from '@/lib/desktopNative';
 import {
   EMBEDDED_RUNTIME_BOOTSTRAP_REQUEST,
@@ -1955,7 +1955,7 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
           </div>
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-background p-6 text-center">
-            <OpenChamberLogo width={140} height={140} className="opacity-20" />
+            <PiChamberLogo width={140} height={140} className="opacity-20" />
             <span className="typography-ui-header text-muted-foreground">{t('contextPanel.browser.empty')}</span>
             <span className="max-w-sm typography-micro text-muted-foreground">{t('contextPanel.browser.emptyHint')}</span>
             <span className="max-w-md typography-micro leading-relaxed text-status-warning/70">{t('contextPanel.browser.trustNotice')}</span>
@@ -2223,7 +2223,7 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
         />
         {(!currentUrl || currentUrl === 'about:blank') && !isLoading ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-background p-6 text-center">
-            <OpenChamberLogo width={140} height={140} className="opacity-20" />
+            <PiChamberLogo width={140} height={140} className="opacity-20" />
             <span className="typography-ui-header text-muted-foreground">{t('contextPanel.browser.empty')}</span>
           </div>
         ) : null}

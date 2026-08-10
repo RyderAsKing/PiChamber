@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Project rebrand: OpenChamber → PiChamber (metadata only)
+
+This is a metadata-only rebrand of [OpenChamber](https://github.com/openchamber/openchamber). Runtime behavior, the OpenCode SDK integration, and shared contracts are unchanged. Future phases will introduce a [pi](https://pi.dev) integration alongside the current OpenCode integration.
+
+- **Project identity:** repo name, package names, README, logos, CLI binary (`openchamber` → `pichamber`), VS Code extension id, product chrome, and dev-time docs rebranded.
+- **License:** joint copyright (Bohdan Triapitsyn / RyderAsKing) with a "forked from OpenChamber" notice in [`LICENSE`](./LICENSE).
+- **Description:** added a "Roadmap" paragraph to the README noting that Phase 1 is metadata-only and that Phase 2 will target [pi](https://pi.dev).
+- **Removed:** the upstream Discord and Ko-Fi badges (no PiChamber equivalents exist yet); the old `openchamber-ui://` protocol is preserved for now and will be renamed with a deprecation alias in a later phase.
+
+### Deferred to later phases (intentional, to keep upgrades non-breaking)
+
+- Env var rename: `OPENCHAMBER_*` → `PICHAMBER_*` (and aliases).
+- URL scheme rename: `openchamber-ui://` → `pichamber-ui://`.
+- Electron `appId` / bundle id rename (`dev.openchamber.desktop` → `dev.pichamber.desktop`).
+- Mobile `capacitor.config.ts` `appId` (`com.openchamber.app` → `com.pichamber.app`).
+- VS Code command namespace rename (`openchamber.*` → `pichamber.*`).
+- Workspace localStorage key rename (`openchamber_*` → `pichamber_*`).
+- HTTP route prefix rename (`/api/openchamber/*` → `/api/pichamber/*`).
+- Custom event / bridge command / window-global namespaces (`openchamber:*`, `api:openchamber:*`, `__openchamberVsCodeStreamPerfState__`).
+- `.agents/skills/openchamber-change-discipline/` directory rename (kept as-is to preserve skill loaders and references).
+
+
 - **Observability panel:** a new panel near to the chat brings the active goal, tasks, subagents, pinned context, MCP servers, and context usage into one live view. The session list also shows how long an agent has been working.
 - **Scheduled Tasks:** projects can now define recurring tasks as Markdown files in `.agents/loops`; opening the task list discovers file changes without a restart, and loop tasks can be edited, enabled, disabled, deleted, or run from the app (thanks to @makeittech).
 - **Settings:** OpenCode configuration changes now accumulate behind a single Apply & Restart action instead of restarting OpenCode after every edit; the confirmation warns when active chats will be stopped (thanks to @makeittech).

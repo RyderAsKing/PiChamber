@@ -3,7 +3,7 @@ export const registerProjectIconRoutes = (app, dependencies) => {
     fsPromises,
     path,
     crypto,
-    openchamberDataDir,
+    pichamberDataDir,
     sanitizeProjects,
     readSettingsFromDiskMigrated,
     persistSettings,
@@ -12,7 +12,7 @@ export const registerProjectIconRoutes = (app, dependencies) => {
     resolveGitBinaryForSpawn,
   } = dependencies;
 
-  const projectIconsDirPath = path.join(openchamberDataDir, 'project-icons');
+  const projectIconsDirPath = path.join(pichamberDataDir, 'project-icons');
   const projectIconMimeToExtension = {
     'image/png': 'png',
     'image/jpeg': 'jpg',

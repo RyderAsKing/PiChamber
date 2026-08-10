@@ -8,7 +8,7 @@ import { invokeDesktop, isDesktopShell, isVSCodeRuntime } from '@/lib/desktop';
 import { syncDesktopSettings, initializeAppearancePreferences } from '@/lib/persistence';
 import { applyPersistedDirectoryPreferences } from '@/lib/directoryPersistence';
 import { DesktopHostSwitcherInline } from '@/components/desktop/DesktopHostSwitcher';
-import { OpenChamberLogo } from '@/components/ui/OpenChamberLogo';
+import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
 import { Icon } from "@/components/icon/Icon";
 import { useI18n } from '@/lib/i18n';
 import { runtimeFetch } from '@/lib/runtime-fetch';
@@ -127,7 +127,7 @@ const submitPassword = async (password: string, trustDevice: boolean): Promise<R
       password,
       trustDevice,
       issueClientToken,
-      clientLabel: 'OpenChamber Desktop',
+      clientLabel: 'PiChamber Desktop',
       ...desktopClientAuthMetadata(),
     }),
   });
@@ -146,7 +146,7 @@ const issueDesktopClientToken = async (): Promise<string> => {
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
-    body: JSON.stringify({ label: 'OpenChamber Desktop', ...desktopClientAuthMetadata() }),
+    body: JSON.stringify({ label: 'PiChamber Desktop', ...desktopClientAuthMetadata() }),
   }).catch(() => null);
   if (!response?.ok) {
     return '';
@@ -287,7 +287,7 @@ const AuthShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
 const LoadingScreen: React.FC = () => (
   <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
-    <OpenChamberLogo width={120} height={120} />
+    <PiChamberLogo width={120} height={120} />
   </div>
 );
 
@@ -765,7 +765,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
     try {
       const payload = await authenticateWithPasskey(trustDevice, {
         issueClientToken: shouldIssueDesktopClientToken(),
-        clientLabel: 'OpenChamber Desktop',
+        clientLabel: 'PiChamber Desktop',
         ...desktopClientAuthMetadata(),
       }) as { clientToken?: unknown } | null;
       const clientToken = shouldIssueDesktopClientToken() && typeof payload?.clientToken === 'string' && payload.clientToken.trim()

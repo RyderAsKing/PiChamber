@@ -1,7 +1,7 @@
 import express from 'express';
 import { asControlError } from './error.js';
 
-export const registerOpenChamberControlRoutes = (app, { controlService }) => {
+export const registerPiChamberControlRoutes = (app, { controlService }) => {
   app.post('/api/openchamber/control', express.json({ limit: '1mb' }), async (req, res) => {
     const controller = new AbortController();
     const abortOnDisconnect = () => {
@@ -18,7 +18,7 @@ export const registerOpenChamberControlRoutes = (app, { controlService }) => {
       const data = await controlService.execute(action, input, req.body?.contextDirectory, { signal: controller.signal });
       return res.json(data);
     } catch (error) {
-      const controlError = asControlError(error, 'OpenChamber control action failed');
+      const controlError = asControlError(error, 'PiChamber control action failed');
       return res.status(controlError.statusCode).json({
         error: controlError.message,
         ...(controlError.partial === true ? {

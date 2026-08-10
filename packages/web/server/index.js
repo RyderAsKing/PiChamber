@@ -64,7 +64,7 @@ import {
   registerCommonRequestMiddleware,
   registerServerStatusRoutes,
 } from './lib/opencode/core-routes.js';
-import { registerOpenChamberRoutes } from './lib/opencode/openchamber-routes.js';
+import { registerPiChamberRoutes } from './lib/opencode/pichamber-routes.js';
 import { createServerUtilsRuntime } from './lib/opencode/server-utils-runtime.js';
 import { createStaticRoutesRuntime } from './lib/opencode/static-routes-runtime.js';
 import { createSettingsRuntime } from './lib/opencode/settings-runtime.js';
@@ -98,9 +98,9 @@ import { createRelayService } from './lib/relay/service.js';
 import { createRelayHostLock } from './lib/relay/host-lock.js';
 import { createAgentToolRuntime } from './lib/agent-tool/runtime.js';
 import { createSystemPromptRuntime } from './lib/system-prompt/runtime.js';
-import { createOpenChamberSessionService } from './lib/openchamber-sessions/routes.js';
+import { createPiChamberSessionService } from './lib/openchamber-sessions/routes.js';
 import { createScheduledTaskService } from './lib/scheduled-tasks/service.js';
-import { createOpenChamberControlService } from './lib/openchamber-control/service.js';
+import { createPiChamberControlService } from './lib/openchamber-control/service.js';
 import { createProxyMiddleware, responseInterceptor } from 'http-proxy-middleware';
 import webPush from 'web-push';
 
@@ -108,10 +108,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const DEFAULT_PORT = 3000;
-const DESKTOP_NOTIFY_PREFIX = '[OpenChamberDesktopNotify] ';
+const DESKTOP_NOTIFY_PREFIX = '[PiChamberDesktopNotify] ';
 const uiNotificationClients = new Set();
 const uiNotificationWsClients = new Set();
-const uiOpenChamberEventClients = new Set();
+const uiPiChamberEventClients = new Set();
 const HEALTH_CHECK_INTERVAL = 15000;
 const SHUTDOWN_TIMEOUT = 10000;
 const MODELS_DEV_API_URL = 'https://models.dev/api.json';
@@ -961,7 +961,7 @@ const bootstrapRuntime = createBootstrapRuntime({
   registerAuthAndAccessRoutes,
   registerTtsRoutes,
   registerNotificationRoutes,
-  registerOpenChamberRoutes,
+  registerPiChamberRoutes,
   registerAgentToolRoutes: (app, options) => options.agentToolRuntime.registerRoutes(app, options.express),
   express,
 });
@@ -1134,7 +1134,7 @@ const scheduledTasksRuntime = createScheduledTasksRuntime({
   waitForOpenCodeReady,
   setSessionAutoAccept: (sessionId, enabled, directory) => permissionAutoAcceptRuntime.setSessionPolicy(sessionId, enabled, directory),
   emitTaskRunEvent: (event) => {
-    for (const client of uiOpenChamberEventClients) {
+    for (const client of uiPiChamberEventClients) {
       try {
         writeSseEvent(client, {
           type: 'openchamber:scheduled-task-ran',
@@ -1147,14 +1147,14 @@ const scheduledTasksRuntime = createScheduledTasksRuntime({
           },
         });
       } catch {
-        uiOpenChamberEventClients.delete(client);
+        uiPiChamberEventClients.delete(client);
       }
     }
   },
   logger: console,
 });
 const emitSessionCreatedEvent = (event) => {
-  for (const client of uiOpenChamberEventClients) {
+  for (const client of uiPiChamberEventClients) {
     try {
       writeSseEvent(client, {
         type: 'openchamber:session-created',
@@ -1169,7 +1169,7 @@ const emitSessionCreatedEvent = (event) => {
         },
       });
     } catch {
-      uiOpenChamberEventClients.delete(client);
+      uiPiChamberEventClients.delete(client);
     }
   }
 };
@@ -1179,7 +1179,7 @@ const scheduledTaskService = createScheduledTaskService({
   projectConfigRuntime,
   scheduledTasksRuntime,
 });
-const openChamberSessionService = createOpenChamberSessionService({
+const openChamberSessionService = createPiChamberSessionService({
   readSettingsFromDiskMigrated,
   sanitizeProjects,
   validateDirectoryPath,
@@ -1188,7 +1188,7 @@ const openChamberSessionService = createOpenChamberSessionService({
   waitForOpenCodeReady,
   emitSessionCreatedEvent,
 });
-const openChamberControlService = createOpenChamberControlService({
+const openChamberControlService = createPiChamberControlService({
   readSettingsFromDiskMigrated,
   sanitizeProjects,
   buildOpenCodeUrl,
@@ -1428,7 +1428,7 @@ async function main(options = {}) {
     ? options.getDesktopRuntimeConfig
     : null;
 
-  console.log(`Starting OpenChamber on port ${port === 0 ? 'auto' : port}`);
+  console.log(`Starting PiChamber on port ${port === 0 ? 'auto' : port}`);
 
   // Voice enumeration is independent from route registration. Start it now,
   // but do not hold server listen or managed OpenCode startup on `say -v "?"`.
@@ -1493,7 +1493,7 @@ async function main(options = {}) {
 
   const bootstrapResult = bootstrapRuntime.setupBaseRoutes(app, {
     process,
-    openchamberVersion: OPENCHAMBER_VERSION,
+    pichamberVersion: OPENCHAMBER_VERSION,
     runtimeName: process.env.OPENCHAMBER_RUNTIME || 'web',
     serverStartedAt,
     gracefulShutdown,
@@ -1563,9 +1563,9 @@ async function main(options = {}) {
     getServerLabel: () => {
       try {
         const name = os.hostname();
-        return typeof name === 'string' && name.trim().length > 0 ? name.trim() : 'OpenChamber';
+        return typeof name === 'string' && name.trim().length > 0 ? name.trim() : 'PiChamber';
       } catch {
-        return 'OpenChamber';
+        return 'PiChamber';
       }
     },
     readSettingsFromDiskMigrated,
@@ -1592,7 +1592,7 @@ async function main(options = {}) {
     path,
     server,
     __dirname,
-    openchamberDataDir: OPENCHAMBER_DATA_DIR,
+    pichamberDataDir: OPENCHAMBER_DATA_DIR,
     modelsDevApiUrl: MODELS_DEV_API_URL,
     modelsMetadataCacheTtl: MODELS_METADATA_CACHE_TTL,
     fetchFreeZenModels,
@@ -1662,8 +1662,8 @@ async function main(options = {}) {
     spawn,
     resolveGitBinaryForSpawn,
     createFsSearchRuntime: createFsSearchRuntimeFactory,
-    openchamberDataDir: OPENCHAMBER_DATA_DIR,
-    openchamberUserConfigRoot: OPENCHAMBER_USER_CONFIG_ROOT,
+    pichamberDataDir: OPENCHAMBER_DATA_DIR,
+    pichamberUserConfigRoot: OPENCHAMBER_USER_CONFIG_ROOT,
     normalizeDirectoryPath,
     resolveProjectDirectory,
     resolveOptionalProjectDirectory,
@@ -1690,7 +1690,7 @@ async function main(options = {}) {
     openChamberControlService,
     waitForOpenCodeReady,
     emitSessionCreatedEvent,
-    getOpenChamberEventClients: () => uiOpenChamberEventClients,
+    getPiChamberEventClients: () => uiPiChamberEventClients,
     writeSseEvent,
     permissionAutoAcceptRuntime,
   });

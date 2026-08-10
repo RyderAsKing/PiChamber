@@ -20,8 +20,8 @@ type SessionCreatedEvent = {
   dispatchedAsCommand: boolean;
 };
 
-type OpenChamberEvent = ScheduledTaskRanEvent | SessionCreatedEvent;
-type Listener = (event: OpenChamberEvent) => void;
+type PiChamberEvent = ScheduledTaskRanEvent | SessionCreatedEvent;
+type Listener = (event: PiChamberEvent) => void;
 
 let eventSource: EventSource | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;

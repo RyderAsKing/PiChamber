@@ -1,15 +1,15 @@
 {
-  "name": "openchamber",
-  "displayName": "OpenChamber",
+  "name": "pichamber",
+  "displayName": "PiChamber",
   "description": "%extension.description%",
   "version": "1.18.1",
   "publisher": "fedaykindev",
   "private": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/openchamber/openchamber.git"
+    "url": "https://github.com/RyderAsKing/PiChamber.git"
   },
-  "qna": "https://discord.gg/ZYRSdnwwKA",
+  "qna": "https://github.com/RyderAsKing/PiChamber/discussions",
   "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
@@ -29,39 +29,40 @@
     "groq",
     "assistant",
     "opencode",
-    "openchamber"
+    "pi",
+    "pichamber"
   ],
   "icon": "assets/app-icon.png",
   "main": "./dist/extension.js",
   "l10n": "./l10n",
   "activationEvents": [
-    "onCommand:openchamber.openSidebar",
-    "onCommand:openchamber.attachExplorerToChat",
-    "onView:openchamber.chatView"
+    "onCommand:pichamber.openSidebar",
+    "onCommand:pichamber.attachExplorerToChat",
+    "onView:pichamber.chatView"
   ],
   "contributes": {
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "openchamber",
-          "title": "OpenChamber",
+          "id": "pichamber",
+          "title": "PiChamber",
           "icon": "assets/icon.svg"
         }
       ]
     },
     "views": {
-      "openchamber": [
+      "pichamber": [
         {
           "type": "webview",
-          "id": "openchamber.chatView",
+          "id": "pichamber.chatView",
           "name": "%views.chat.name%"
         }
       ]
     },
     "commands": [
       {
-        "command": "openchamber.openSidebar",
-        "category": "OpenChamber",
+        "command": "pichamber.openSidebar",
+        "category": "PiChamber",
         "title": "%command.openSidebar.title%",
         "icon": {
           "light": "assets/icon.svg",
@@ -69,35 +70,35 @@
         }
       },
       {
-        "command": "openchamber.focusChat",
-        "category": "OpenChamber",
+        "command": "pichamber.focusChat",
+        "category": "PiChamber",
         "title": "%command.focusChat.title%"
       },
       {
-        "command": "openchamber.restartApi",
-        "category": "OpenChamber",
+        "command": "pichamber.restartApi",
+        "category": "PiChamber",
         "title": "%command.restartApi.title%"
       },
       {
-        "command": "openchamber.showOpenCodeStatus",
-        "category": "OpenChamber",
+        "command": "pichamber.showOpenCodeStatus",
+        "category": "PiChamber",
         "title": "%command.showOpenCodeStatus.title%"
       },
       {
-        "command": "openchamber.openAgentManager",
-        "category": "OpenChamber",
+        "command": "pichamber.openAgentManager",
+        "category": "PiChamber",
         "title": "%command.openAgentManager.title%",
         "icon": "$(circuit-board)"
       },
       {
-        "command": "openchamber.openActiveSessionInEditor",
-        "category": "OpenChamber",
+        "command": "pichamber.openActiveSessionInEditor",
+        "category": "PiChamber",
         "title": "%command.openActiveSessionInEditor.title%",
         "icon": "$(link-external)"
       },
       {
-        "command": "openchamber.openNewSessionInEditor",
-        "category": "OpenChamber",
+        "command": "pichamber.openNewSessionInEditor",
+        "category": "PiChamber",
         "title": "%command.openNewSessionInEditor.title%",
         "icon": {
           "light": "assets/icon.svg",
@@ -105,113 +106,113 @@
         }
       },
       {
-        "command": "openchamber.openCurrentOrNewSessionInEditor",
-        "category": "OpenChamber",
+        "command": "pichamber.openCurrentOrNewSessionInEditor",
+        "category": "PiChamber",
         "title": "%command.openCurrentOrNewSessionInEditor.title%",
         "icon": "$(link-external)"
       },
       {
-        "command": "openchamber.addToContext",
-        "category": "OpenChamber",
+        "command": "pichamber.addToContext",
+        "category": "PiChamber",
         "title": "%command.addToContext.title%"
       },
       {
-        "command": "openchamber.explain",
-        "category": "OpenChamber",
+        "command": "pichamber.explain",
+        "category": "PiChamber",
         "title": "%command.explain.title%"
       },
       {
-        "command": "openchamber.improveCode",
-        "category": "OpenChamber",
+        "command": "pichamber.improveCode",
+        "category": "PiChamber",
         "title": "%command.improveCode.title%"
       },
       {
-        "command": "openchamber.newSession",
-        "category": "OpenChamber",
+        "command": "pichamber.newSession",
+        "category": "PiChamber",
         "title": "%command.newSession.title%",
         "icon": "$(add)"
       },
       {
-        "command": "openchamber.showSettings",
-        "category": "OpenChamber",
+        "command": "pichamber.showSettings",
+        "category": "PiChamber",
         "title": "%command.showSettings.title%",
         "icon": "$(settings-gear)"
       },
       {
-        "command": "openchamber.attachExplorerToChat",
-        "category": "OpenChamber",
+        "command": "pichamber.attachExplorerToChat",
+        "category": "PiChamber",
         "title": "%command.attachExplorerToChat.title%"
       }
     ],
     "submenus": [
       {
-        "id": "openchamber.submenu",
-        "label": "OpenChamber"
+        "id": "pichamber.submenu",
+        "label": "PiChamber"
       }
     ],
     "menus": {
       "editor/context": [
         {
-          "submenu": "openchamber.submenu",
+          "submenu": "pichamber.submenu",
           "group": "navigation"
         }
       ],
       "explorer/context": [
         {
-          "command": "openchamber.attachExplorerToChat",
+          "command": "pichamber.attachExplorerToChat",
           "when": "resourceScheme == file && explorerResourceIsFolder == false",
           "group": "navigation@50"
         }
       ],
       "editor/title": [
         {
-          "command": "openchamber.openNewSessionInEditor",
+          "command": "pichamber.openNewSessionInEditor",
           "group": "navigation@1"
         }
       ],
       "view/title": [
         {
-          "command": "openchamber.newSession",
-          "when": "view == openchamber.chatView",
+          "command": "pichamber.newSession",
+          "when": "view == pichamber.chatView",
           "group": "navigation@1"
         },
         {
-          "command": "openchamber.openCurrentOrNewSessionInEditor",
-          "when": "view == openchamber.chatView",
+          "command": "pichamber.openCurrentOrNewSessionInEditor",
+          "when": "view == pichamber.chatView",
           "group": "navigation@2"
         },
         {
-          "command": "openchamber.openAgentManager",
-          "when": "view == openchamber.chatView",
+          "command": "pichamber.openAgentManager",
+          "when": "view == pichamber.chatView",
           "group": "navigation@3"
         },
         {
-          "command": "openchamber.showSettings",
-          "when": "view == openchamber.chatView",
+          "command": "pichamber.showSettings",
+          "when": "view == pichamber.chatView",
           "group": "navigation@4"
         }
       ],
-      "openchamber.submenu": [
+      "pichamber.submenu": [
         {
-          "command": "openchamber.explain"
+          "command": "pichamber.explain"
         },
         {
-          "command": "openchamber.improveCode"
+          "command": "pichamber.improveCode"
         },
         {
-          "command": "openchamber.addToContext"
+          "command": "pichamber.addToContext"
         }
       ]
     },
     "configuration": {
-      "title": "OpenChamber",
+      "title": "PiChamber",
       "properties": {
-        "openchamber.apiUrl": {
+        "pichamber.apiUrl": {
           "type": "string",
           "default": "",
           "description": "%configuration.apiUrl.description%"
         },
-        "openchamber.opencodeBinary": {
+        "pichamber.opencodeBinary": {
           "type": "string",
           "default": "",
           "description": "%configuration.opencodeBinary.description%"
@@ -243,7 +244,7 @@
     "vite": "^7.1.2"
   },
   "dependencies": {
-    "@openchamber/ui": "workspace:*",
+    "@pichamber/ui": "workspace:*",
     "@opencode-ai/sdk": "1.18.15",
     "adm-zip": "^0.6.0",
     "jsonc-parser": "^3.3.1",

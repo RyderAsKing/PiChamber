@@ -19,8 +19,8 @@ const MIN_DAYS = 1;
 const MAX_DAYS = 365;
 const DEFAULT_RETENTION_DAYS = 30;
 const RETENTION_ACTION_OPTIONS: Array<{ value: 'archive' | 'delete'; labelKey: I18nKey }> = [
-  { value: 'archive', labelKey: 'settings.openchamber.sessionRetention.action.archive' },
-  { value: 'delete', labelKey: 'settings.openchamber.sessionRetention.action.delete' },
+  { value: 'archive', labelKey: 'settings.pichamber.sessionRetention.action.archive' },
+  { value: 'delete', labelKey: 'settings.pichamber.sessionRetention.action.delete' },
 ];
 
 export const SessionRetentionSettings: React.FC = () => {
@@ -41,44 +41,44 @@ export const SessionRetentionSettings: React.FC = () => {
     if (result.completedIds.length === 0 && result.failedIds.length === 0) {
       toast.message(
         result.action === 'archive'
-          ? t('settings.openchamber.sessionRetention.toast.noneEligibleArchive')
-          : t('settings.openchamber.sessionRetention.toast.noneEligibleDelete')
+          ? t('settings.pichamber.sessionRetention.toast.noneEligibleArchive')
+          : t('settings.pichamber.sessionRetention.toast.noneEligibleDelete')
       );
       return;
     }
     if (result.completedIds.length > 0) {
       toast.success(
         result.action === 'archive'
-          ? t('settings.openchamber.sessionRetention.toast.archivedCount', { count: result.completedIds.length })
-          : t('settings.openchamber.sessionRetention.toast.deletedCount', { count: result.completedIds.length })
+          ? t('settings.pichamber.sessionRetention.toast.archivedCount', { count: result.completedIds.length })
+          : t('settings.pichamber.sessionRetention.toast.deletedCount', { count: result.completedIds.length })
       );
     }
     if (result.failedIds.length > 0) {
       toast.error(
         result.action === 'archive'
-          ? t('settings.openchamber.sessionRetention.toast.failedArchiveCount', { count: result.failedIds.length })
-          : t('settings.openchamber.sessionRetention.toast.failedDeleteCount', { count: result.failedIds.length })
+          ? t('settings.pichamber.sessionRetention.toast.failedArchiveCount', { count: result.failedIds.length })
+          : t('settings.pichamber.sessionRetention.toast.failedDeleteCount', { count: result.failedIds.length })
       );
     }
   }, [runCleanup, t]);
 
   return (
     <SettingsSection
-      title={t('settings.openchamber.sessionRetention.title')}
-      info={t('settings.openchamber.sessionRetention.tooltip')}
+      title={t('settings.pichamber.sessionRetention.title')}
+      info={t('settings.pichamber.sessionRetention.tooltip')}
     >
       <SettingsCheckboxRow
         settingsItem="sessions.auto-cleanup"
         checked={autoDeleteEnabled}
         onChange={setAutoDeleteEnabled}
-        label={t('settings.openchamber.sessionRetention.field.enableAutoCleanup')}
-        ariaLabel={t('settings.openchamber.sessionRetention.field.enableAutoCleanupAria')}
+        label={t('settings.pichamber.sessionRetention.field.enableAutoCleanup')}
+        ariaLabel={t('settings.pichamber.sessionRetention.field.enableAutoCleanupAria')}
       />
 
       <SettingsInset className="space-y-0">
         <SettingsFieldRow
           settingsItem="sessions.retention-period"
-          label={t('settings.openchamber.sessionRetention.field.retentionPeriod')}
+          label={t('settings.pichamber.sessionRetention.field.retentionPeriod')}
         >
           <NumberInput
             value={autoDeleteAfterDays}
@@ -86,10 +86,10 @@ export const SessionRetentionSettings: React.FC = () => {
             min={MIN_DAYS}
             max={MAX_DAYS}
             step={1}
-            aria-label={t('settings.openchamber.sessionRetention.field.retentionPeriodAria')}
+            aria-label={t('settings.pichamber.sessionRetention.field.retentionPeriodAria')}
             className="w-20 tabular-nums"
           />
-          <span className="typography-ui-label text-muted-foreground">{t('settings.openchamber.sessionRetention.field.days')}</span>
+          <span className="typography-ui-label text-muted-foreground">{t('settings.pichamber.sessionRetention.field.days')}</span>
           <Button
             size="sm"
             type="button"
@@ -97,7 +97,7 @@ export const SessionRetentionSettings: React.FC = () => {
             onClick={() => setAutoDeleteAfterDays(DEFAULT_RETENTION_DAYS)}
             disabled={autoDeleteAfterDays === DEFAULT_RETENTION_DAYS}
             className={SETTINGS_ICON_BUTTON_CLASS}
-            aria-label={t('settings.openchamber.sessionRetention.actions.resetRetentionAria')}
+            aria-label={t('settings.pichamber.sessionRetention.actions.resetRetentionAria')}
             title={t('settings.common.actions.reset')}
           >
             <Icon name="restart" className="h-3.5 w-3.5" />
@@ -106,7 +106,7 @@ export const SessionRetentionSettings: React.FC = () => {
 
         <SettingsFieldRow
           settingsItem="sessions.retention-action"
-          label={t('settings.openchamber.sessionRetention.field.whenSessionsExpire')}
+          label={t('settings.pichamber.sessionRetention.field.whenSessionsExpire')}
         >
           <SettingsChipGroup
             value={sessionRetentionAction}
@@ -121,7 +121,7 @@ export const SessionRetentionSettings: React.FC = () => {
 
       <div className="mt-1 py-1.5 space-y-1">
         <SettingsFieldRow
-          label={t('settings.openchamber.sessionRetention.manualCleanup.title')}
+          label={t('settings.pichamber.sessionRetention.manualCleanup.title')}
         >
           <Button
             type="button"
@@ -131,13 +131,13 @@ export const SessionRetentionSettings: React.FC = () => {
             disabled={isRunning}
             className="!font-normal"
           >
-            {isRunning ? t('settings.openchamber.sessionRetention.actions.cleaningUp') : t('settings.openchamber.sessionRetention.actions.runCleanupNow')}
+            {isRunning ? t('settings.pichamber.sessionRetention.actions.cleaningUp') : t('settings.pichamber.sessionRetention.actions.runCleanupNow')}
           </Button>
         </SettingsFieldRow>
         <p className="typography-meta text-muted-foreground">
           {action === 'archive'
-            ? t('settings.openchamber.sessionRetention.manualCleanup.eligibleArchiveNow', { count: pendingCount })
-            : t('settings.openchamber.sessionRetention.manualCleanup.eligibleDeleteNow', { count: pendingCount })}
+            ? t('settings.pichamber.sessionRetention.manualCleanup.eligibleArchiveNow', { count: pendingCount })
+            : t('settings.pichamber.sessionRetention.manualCleanup.eligibleDeleteNow', { count: pendingCount })}
         </p>
       </div>
     </SettingsSection>

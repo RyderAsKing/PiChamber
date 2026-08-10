@@ -3,12 +3,12 @@ import type {
   FileSearchQuery,
   FileSearchResult,
   FilesAPI,
-} from '@openchamber/ui/lib/api/types';
+} from '@pichamber/ui/lib/api/types';
 import {
   FilesystemError,
   parseFilesystemErrorReason,
-} from '@openchamber/ui/lib/api/files-errors';
-import { runtimeFetch } from '@openchamber/ui/lib/runtime-fetch';
+} from '@pichamber/ui/lib/api/files-errors';
+import { runtimeFetch } from '@pichamber/ui/lib/runtime-fetch';
 
 const normalizePath = (path: string): string => path.replace(/\\/g, '/');
 

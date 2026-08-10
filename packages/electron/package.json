@@ -1,13 +1,13 @@
 {
-  "name": "@openchamber/electron",
+  "name": "@pichamber/electron",
   "version": "1.18.1",
   "private": true,
-  "description": "Electron desktop runtime for OpenChamber",
-  "author": "OpenChamber",
+  "description": "Electron desktop runtime for PiChamber",
+  "author": "PiChamber",
   "type": "module",
   "main": "./dist-bundle/main.mjs",
   "dependencies": {
-    "@openchamber/web": "workspace:*",
+    "@pichamber/web": "workspace:*",
     "electron-context-menu": "^4.1.2",
     "electron-log": "^5.4.3",
     "electron-updater": "^6.8.3"
@@ -50,8 +50,8 @@
     "lint": "node -e \"process.exit(0)\""
   },
   "build": {
-    "appId": "dev.openchamber.desktop",
-    "productName": "OpenChamber",
+    "appId": "dev.pichamber.desktop",
+    "productName": "PiChamber",
     "files": [
       "dist-bundle/main.mjs",
       "preload.mjs"
@@ -116,14 +116,14 @@
       ],
       "category": "Development",
       "icon": "resources/icons/icon.png",
-      "executableName": "openchamber",
+      "executableName": "pichamber",
       "artifactName": "${productName}-${version}-linux-${arch}.${ext}",
       "desktop": {
         "entry": {
-          "Name": "OpenChamber",
-          "Comment": "Desktop runtime for OpenChamber",
-          "Icon": "openchamber",
-          "StartupWMClass": "openchamber"
+          "Name": "PiChamber",
+          "Comment": "Desktop runtime for PiChamber",
+          "Icon": "pichamber",
+          "StartupWMClass": "pichamber"
         }
       }
     },
@@ -160,8 +160,8 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "openchamber",
-      "repo": "openchamber"
+      "owner": "RyderAsKing",
+      "repo": "PiChamber"
     }
   }
 }

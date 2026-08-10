@@ -53,7 +53,7 @@ export type DesktopSshInstance = {
   };
   auth: {
     sshPassword?: DesktopSshStoredSecret;
-    openchamberPassword?: DesktopSshStoredSecret;
+    pichamberPassword?: DesktopSshStoredSecret;
   };
   portForwards: DesktopSshPortForward[];
 };
@@ -225,7 +225,7 @@ const parseInstance = (value: unknown): DesktopSshInstance | null => {
   const preferredLocalPort =
     readNumber(localRaw, 'preferredLocalPort') ?? readNumber(localRaw, 'preferred_local_port');
   const sshPassword = parseStoredSecret(authRaw.sshPassword || authRaw.ssh_password);
-  const openchamberPassword = parseStoredSecret(authRaw.openchamberPassword || authRaw.openchamber_password);
+  const pichamberPassword = parseStoredSecret(authRaw.pichamberPassword || authRaw.openchamber_password);
 
   return {
     id,
@@ -252,7 +252,7 @@ const parseInstance = (value: unknown): DesktopSshInstance | null => {
     },
     auth: {
       ...(sshPassword ? { sshPassword } : {}),
-      ...(openchamberPassword ? { openchamberPassword } : {}),
+      ...(pichamberPassword ? { pichamberPassword } : {}),
     },
     portForwards,
   };

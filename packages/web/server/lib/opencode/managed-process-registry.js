@@ -1,6 +1,6 @@
 // Managed OpenCode process registry + orphan reaper.
 //
-// OpenChamber spawns the OpenCode server as an EXTERNAL child binary (on Unix
+// PiChamber spawns the OpenCode server as an EXTERNAL child binary (on Unix
 // with `detached: true`, so it leads its own process group). That binary can
 // therefore outlive its parent if the parent is hard-killed/crashes/`Ctrl+C`ed
 // before graceful teardown runs — leaving an orphaned `opencode serve` that

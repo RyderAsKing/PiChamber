@@ -355,7 +355,7 @@ const waitLocalForwardReady = async (localPort) => {
     await new Promise((resolve) => setTimeout(resolve, pollMs));
     pollMs = Math.min(pollMs * 2, 2000);
   }
-  throw new Error('Timed out waiting for forwarded OpenChamber health');
+  throw new Error('Timed out waiting for forwarded PiChamber health');
 };
 
 const parseVersionToken = (raw) => {
@@ -815,7 +815,7 @@ export class ElectronSshManager {
       },
       auth: {
         ...(this.sanitizeStoredSecret(instance?.auth?.sshPassword) ? { sshPassword: this.sanitizeStoredSecret(instance.auth.sshPassword) } : {}),
-        ...(this.sanitizeStoredSecret(instance?.auth?.openchamberPassword) ? { openchamberPassword: this.sanitizeStoredSecret(instance.auth.openchamberPassword) } : {}),
+        ...(this.sanitizeStoredSecret(instance?.auth?.pichamberPassword) ? { pichamberPassword: this.sanitizeStoredSecret(instance.auth.pichamberPassword) } : {}),
       },
       portForwards,
     };
@@ -842,8 +842,8 @@ export class ElectronSshManager {
     await writeJsonRoot(this.settingsFilePath, root);
   }
 
-  async issueClientToken(localUrl, openchamberPassword) {
-    const password = typeof openchamberPassword === 'string' ? openchamberPassword.trim() : '';
+  async issueClientToken(localUrl, pichamberPassword) {
+    const password = typeof pichamberPassword === 'string' ? pichamberPassword.trim() : '';
     if (!password) return '';
 
     const loginResponse = await fetch(new URL('/auth/session', `${localUrl}/`).toString(), {
@@ -857,11 +857,11 @@ export class ElectronSshManager {
         password,
         trustDevice: true,
         issueClientToken: true,
-        clientLabel: 'OpenChamber Desktop SSH',
+        clientLabel: 'PiChamber Desktop SSH',
       }),
     });
     if (!loginResponse.ok) {
-      throw new Error(`Configured OpenChamber UI password was rejected by forwarded server (status ${loginResponse.status})`);
+      throw new Error(`Configured PiChamber UI password was rejected by forwarded server (status ${loginResponse.status})`);
     }
 
     const payload = await loginResponse.json().catch(() => null);
@@ -879,7 +879,7 @@ export class ElectronSshManager {
         'Content-Type': 'application/json',
         Cookie: cookie,
       },
-      body: JSON.stringify({ label: 'OpenChamber Desktop SSH' }),
+      body: JSON.stringify({ label: 'PiChamber Desktop SSH' }),
     });
     if (!tokenResponse.ok) return '';
     const tokenPayload = await tokenResponse.json().catch(() => null);
@@ -976,8 +976,8 @@ export class ElectronSshManager {
     throw new Error('SSH ControlMaster connection timed out');
   }
 
-  configuredOpenChamberPassword(instance) {
-    const secret = instance?.auth?.openchamberPassword;
+  configuredPiChamberPassword(instance) {
+    const secret = instance?.auth?.pichamberPassword;
     return secret?.enabled && typeof secret.value === 'string' && secret.value.trim() ? secret.value.trim() : null;
   }
 
@@ -990,29 +990,29 @@ export class ElectronSshManager {
     }
   }
 
-  async currentRemoteOpenChamberVersion(parsed, controlPath) {
+  async currentRemotePiChamberVersion(parsed, controlPath) {
     try {
-      const output = await this.runRemoteCommand(parsed, controlPath, 'openchamber --version 2>/dev/null || true');
+      const output = await this.runRemoteCommand(parsed, controlPath, 'pichamber --version 2>/dev/null || true');
       return parseVersionToken(output);
     } catch {
       return null;
     }
   }
 
-  async installOpenChamberManaged(parsed, controlPath, version, preferred) {
+  async installPiChamberManaged(parsed, controlPath, version, preferred) {
     const hasBun = await this.remoteCommandExists(parsed, controlPath, 'bun');
     const hasNpm = await this.remoteCommandExists(parsed, controlPath, 'npm');
     const commands = [];
 
     if (preferred === 'bun') {
-      if (hasBun) commands.push(`bun add -g @openchamber/web@${version}`);
-      if (hasNpm) commands.push(`npm install -g @openchamber/web@${version}`);
+      if (hasBun) commands.push(`bun add -g @pichamber/web@${version}`);
+      if (hasNpm) commands.push(`npm install -g @pichamber/web@${version}`);
     } else if (preferred === 'npm') {
-      if (hasNpm) commands.push(`npm install -g @openchamber/web@${version}`);
-      if (hasBun) commands.push(`bun add -g @openchamber/web@${version}`);
+      if (hasNpm) commands.push(`npm install -g @pichamber/web@${version}`);
+      if (hasBun) commands.push(`bun add -g @pichamber/web@${version}`);
     } else {
-      if (hasBun) commands.push(`bun add -g @openchamber/web@${version}`);
-      if (hasNpm) commands.push(`npm install -g @openchamber/web@${version}`);
+      if (hasBun) commands.push(`bun add -g @pichamber/web@${version}`);
+      if (hasNpm) commands.push(`npm install -g @pichamber/web@${version}`);
     }
 
     if (commands.length === 0) {
@@ -1028,12 +1028,12 @@ export class ElectronSshManager {
         lastError = error;
       }
     }
-    throw lastError || new Error('Failed to install OpenChamber on remote host');
+    throw lastError || new Error('Failed to install PiChamber on remote host');
   }
 
-  async probeRemoteSystemInfo(parsed, controlPath, port, openchamberPassword) {
-    const authPayload = openchamberPassword ? JSON.stringify({ password: openchamberPassword }) : '{}';
-    const authEnabled = openchamberPassword ? '1' : '0';
+  async probeRemoteSystemInfo(parsed, controlPath, port, pichamberPassword) {
+    const authPayload = pichamberPassword ? JSON.stringify({ password: pichamberPassword }) : '{}';
+    const authEnabled = pichamberPassword ? '1' : '0';
     const script = `AUTH_STATUS=0; INFO_STATUS=0; HEALTH_STATUS=0; BODY_FILE="$(mktemp)"; COOKIE_FILE="$(mktemp)"; cleanup(){ rm -f "$BODY_FILE" "$COOKIE_FILE"; }; trap cleanup EXIT; if command -v curl >/dev/null 2>&1; then if [ "${authEnabled}" = "1" ]; then AUTH_STATUS="$(curl -sS --max-time 3 -o /dev/null -w '%{http_code}' -c "$COOKIE_FILE" -H 'content-type: application/json' --data ${shellQuote(authPayload)} http://127.0.0.1:${port}/auth/session || true)"; if [ "$AUTH_STATUS" = "200" ]; then INFO_STATUS="$(curl -sS --max-time 3 -b "$COOKIE_FILE" -o "$BODY_FILE" -w '%{http_code}' http://127.0.0.1:${port}/api/system/info || true)"; else INFO_STATUS="$(curl -sS --max-time 3 -o "$BODY_FILE" -w '%{http_code}' http://127.0.0.1:${port}/api/system/info || true)"; fi; else INFO_STATUS="$(curl -sS --max-time 3 -o "$BODY_FILE" -w '%{http_code}' http://127.0.0.1:${port}/api/system/info || true)"; fi; HEALTH_STATUS="$(curl -sS --max-time 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:${port}/health || true)"; elif command -v wget >/dev/null 2>&1; then wget -qO "$BODY_FILE" http://127.0.0.1:${port}/api/system/info >/dev/null 2>&1; if [ $? -eq 0 ]; then INFO_STATUS=200; fi; wget -qO- http://127.0.0.1:${port}/health >/dev/null 2>&1; if [ $? -eq 0 ]; then HEALTH_STATUS=200; fi; else exit 127; fi; printf 'INFO_STATUS=%s\\nAUTH_STATUS=%s\\nHEALTH_STATUS=%s\\n' "$INFO_STATUS" "$AUTH_STATUS" "$HEALTH_STATUS"; cat "$BODY_FILE" 2>/dev/null || true`;
     const output = await this.runRemoteCommand(parsed, controlPath, script);
     const lines = output.split(/\r?\n/);
@@ -1044,16 +1044,16 @@ export class ElectronSshManager {
 
     if (isLivenessHttpStatus(infoStatus)) {
       if (isAuthHttpStatus(infoStatus)) {
-        if (openchamberPassword && authStatus !== 200) {
-          throw new Error(`Remote OpenChamber requires UI authentication and configured password was rejected (auth status ${authStatus})`);
+        if (pichamberPassword && authStatus !== 200) {
+          throw new Error(`Remote PiChamber requires UI authentication and configured password was rejected (auth status ${authStatus})`);
         }
         if (isLivenessHttpStatus(healthStatus)) return {};
-        throw new Error('Remote OpenChamber requires UI authentication on /api/system/info; configure OpenChamber UI password');
+        throw new Error('Remote PiChamber requires UI authentication on /api/system/info; configure PiChamber UI password');
       }
     } else if (isLivenessHttpStatus(healthStatus)) {
       return {};
     } else {
-      throw new Error(`Remote OpenChamber probe failed (info status ${infoStatus}, health status ${healthStatus})`);
+      throw new Error(`Remote PiChamber probe failed (info status ${infoStatus}, health status ${healthStatus})`);
     }
 
     try {
@@ -1063,9 +1063,9 @@ export class ElectronSshManager {
     }
   }
 
-  async remoteServerRunning(parsed, controlPath, port, openchamberPassword) {
+  async remoteServerRunning(parsed, controlPath, port, pichamberPassword) {
     try {
-      await this.probeRemoteSystemInfo(parsed, controlPath, port, openchamberPassword);
+      await this.probeRemoteSystemInfo(parsed, controlPath, port, pichamberPassword);
       return true;
     } catch {
       return false;
@@ -1074,11 +1074,11 @@ export class ElectronSshManager {
 
   async startRemoteServerManaged(parsed, controlPath, instance, desiredPort) {
     let envPrefix = 'OPENCHAMBER_RUNTIME=ssh-remote';
-    const secret = this.configuredOpenChamberPassword(instance);
+    const secret = this.configuredPiChamberPassword(instance);
     if (secret) {
       envPrefix += ` OPENCHAMBER_UI_PASSWORD=${shellQuote(secret)}`;
     }
-    const output = await this.runRemoteCommand(parsed, controlPath, `${envPrefix} openchamber serve --hostname 127.0.0.1 --port ${desiredPort}`);
+    const output = await this.runRemoteCommand(parsed, controlPath, `${envPrefix} pichamber serve --hostname 127.0.0.1 --port ${desiredPort}`);
     const port = output.split(/\s+/).map((token) => Number.parseInt(token, 10)).find((value) => Number.isFinite(value));
     return port || desiredPort;
   }
@@ -1138,38 +1138,38 @@ export class ElectronSshManager {
   async ensureRemoteServer(instance, parsed, controlPath) {
     if (instance.remoteOpenchamber.mode === 'external') {
       if (!instance.remoteOpenchamber.preferredPort) {
-        throw new Error('External mode requires a preferred remote OpenChamber port');
+        throw new Error('External mode requires a preferred remote PiChamber port');
       }
       const port = instance.remoteOpenchamber.preferredPort;
-      this.setStatus(instance.id, 'server_detecting', 'Probing external OpenChamber server', null, null, port, false, 0, false);
-      await this.probeRemoteSystemInfo(parsed, controlPath, port, this.configuredOpenChamberPassword(instance));
+      this.setStatus(instance.id, 'server_detecting', 'Probing external PiChamber server', null, null, port, false, 0, false);
+      await this.probeRemoteSystemInfo(parsed, controlPath, port, this.configuredPiChamberPassword(instance));
       return { remotePort: port, startedByUs: false };
     }
 
-    this.setStatus(instance.id, 'remote_probe', 'Checking remote OpenChamber installation');
-    const installedVersion = await this.currentRemoteOpenChamberVersion(parsed, controlPath);
+    this.setStatus(instance.id, 'remote_probe', 'Checking remote PiChamber installation');
+    const installedVersion = await this.currentRemotePiChamberVersion(parsed, controlPath);
     if (!installedVersion) {
-      this.setStatus(instance.id, 'installing', 'Installing OpenChamber on remote host');
-      await this.installOpenChamberManaged(parsed, controlPath, this.appVersion, instance.remoteOpenchamber.installMethod);
+      this.setStatus(instance.id, 'installing', 'Installing PiChamber on remote host');
+      await this.installPiChamberManaged(parsed, controlPath, this.appVersion, instance.remoteOpenchamber.installMethod);
     } else if (installedVersion !== this.appVersion) {
-      this.setStatus(instance.id, 'updating', `Updating remote OpenChamber from ${installedVersion} to ${this.appVersion}`);
-      await this.installOpenChamberManaged(parsed, controlPath, this.appVersion, instance.remoteOpenchamber.installMethod);
+      this.setStatus(instance.id, 'updating', `Updating remote PiChamber from ${installedVersion} to ${this.appVersion}`);
+      await this.installPiChamberManaged(parsed, controlPath, this.appVersion, instance.remoteOpenchamber.installMethod);
     }
 
-    this.setStatus(instance.id, 'server_detecting', 'Detecting managed OpenChamber server');
+    this.setStatus(instance.id, 'server_detecting', 'Detecting managed PiChamber server');
     let remotePort = instance.remoteOpenchamber.preferredPort || null;
     let startedByUs = false;
-    if (remotePort && !(await this.remoteServerRunning(parsed, controlPath, remotePort, this.configuredOpenChamberPassword(instance)))) {
+    if (remotePort && !(await this.remoteServerRunning(parsed, controlPath, remotePort, this.configuredPiChamberPassword(instance)))) {
       remotePort = null;
     }
     if (!remotePort) {
-      this.setStatus(instance.id, 'server_starting', 'Starting managed OpenChamber server');
+      this.setStatus(instance.id, 'server_starting', 'Starting managed PiChamber server');
       const desiredPort = instance.remoteOpenchamber.preferredPort || randomPortCandidate(instance.id);
       remotePort = await this.startRemoteServerManaged(parsed, controlPath, instance, desiredPort);
       startedByUs = true;
     }
-    if (!(await this.remoteServerRunning(parsed, controlPath, remotePort, this.configuredOpenChamberPassword(instance)))) {
-      throw new Error('Managed OpenChamber server failed to become reachable');
+    if (!(await this.remoteServerRunning(parsed, controlPath, remotePort, this.configuredPiChamberPassword(instance)))) {
+      throw new Error('Managed PiChamber server failed to become reachable');
     }
     return { remotePort, startedByUs };
   }
@@ -1310,7 +1310,7 @@ export class ElectronSshManager {
 
     const localUrl = `http://127.0.0.1:${localPort}`;
     const label = instance.nickname?.trim() || parsed.destination || id;
-    const clientToken = await this.issueClientToken(localUrl, this.configuredOpenChamberPassword(instance));
+    const clientToken = await this.issueClientToken(localUrl, this.configuredPiChamberPassword(instance));
     await this.updateHostRuntime(id, label, localUrl, clientToken);
     if (instance.localForward?.preferredLocalPort !== localPort) {
       await this.persistLocalPort(id, localPort);

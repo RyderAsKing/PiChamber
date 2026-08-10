@@ -307,7 +307,7 @@ export const registerOpenCodeProxy = (app, deps) => {
   };
 
   const PROXY_REQUEST_TIMEOUT_MS = normalizeProxyTimeout(LONG_REQUEST_TIMEOUT_MS);
-  const PROXY_TIMEOUT_MARKER = Symbol('openchamberProxyTimedOut');
+  const PROXY_TIMEOUT_MARKER = Symbol('pichamberProxyTimedOut');
 
   // A provider OAuth callback blocks upstream for as long as the user takes to
   // sign in in their browser (device-code polling, or a loopback redirect), so

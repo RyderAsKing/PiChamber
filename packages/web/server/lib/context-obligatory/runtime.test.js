@@ -58,7 +58,7 @@ describe('context obligatory runtime', () => {
     expect(payload.parts[0].text).toContain('Only if no tasks or next steps remain');
     expect(payload.parts[0].text).toContain('no more than one short paragraph');
     const patch = requests.find((request) => request.method === 'PATCH');
-    expect(JSON.parse(patch.body).metadata.openchamber.context_obligatory_last_compaction_message_id).toBe('msg_summary');
+    expect(JSON.parse(patch.body).metadata.pichamber.context_obligatory_last_compaction_message_id).toBe('msg_summary');
     expect(sessionReads).toBe(2);
     runtime.stop();
   });

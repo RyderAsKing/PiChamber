@@ -6,7 +6,7 @@ import express from 'express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Regression for https://github.com/openchamber/openchamber/issues/2607
+// Regression for https://github.com/RyderAsKing/PiChamber/issues/2607
 // "[Bug] Why say so?" (walkthrough panel)
 //
 // Before the fix, a walkthrough small model whose provider had no usable login

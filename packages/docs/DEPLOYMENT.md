@@ -32,7 +32,7 @@ Required secret in this repo:
 
 - `OPENCHAMBER_WEBSITE_REPO_TOKEN` — a token with `contents: write` (classic
   `repo` scope, or fine-grained with Contents: read & write) on
-  `openchamber/openchamber-website`. **Without it the dispatch step is skipped**
+  `pichamber/openchamber-website`. **Without it the dispatch step is skipped**
   (it logs "not set" and exits cleanly), so the site will never auto-update.
   This is the most common reason the pipeline silently does nothing.
 
@@ -43,12 +43,12 @@ Event sent:
 Payload includes:
 
 - `source_repo`
-- `source_ref` — the ref the website checks out from `openchamber` (`main` on a
+- `source_ref` — the ref the website checks out from `pichamber` (`main` on a
   push, the tag on a release)
 - `archive_name`
 
 `openchamber-website`'s `deploy-docs.yml` listens for this event
 (`repository_dispatch: types: [docs_source_updated]`), checks out
-`openchamber` at `source_ref`, runs `docs:sync`, builds `apps/docs`, and deploys
+`pichamber` at `source_ref`, runs `docs:sync`, builds `apps/docs`, and deploys
 to Cloudflare Pages. That repo needs its own secrets: `OPENCHAMBER_REPO_TOKEN`
 (read access to this repo), `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_ACCOUNT_ID`.

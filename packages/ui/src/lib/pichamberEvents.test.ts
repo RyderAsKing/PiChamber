@@ -26,7 +26,7 @@ class MockEventSource {
   }
 }
 
-describe('openchamber events', () => {
+describe('PiChamber events', () => {
   beforeEach(() => {
     MockEventSource.instances = [];
     globalThis.window = {} as Window & typeof globalThis;
@@ -39,7 +39,7 @@ describe('openchamber events', () => {
   });
 
   test('dispatches externally created session events', async () => {
-    const { subscribeOpenchamberEvents } = await import('./openchamberEvents');
+    const { subscribeOpenchamberEvents } = await import('./pichamberEvents');
     const events: unknown[] = [];
     const listener = (event: unknown) => events.push(event);
     const unsubscribe = subscribeOpenchamberEvents(listener);

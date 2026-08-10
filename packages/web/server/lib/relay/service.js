@@ -3,7 +3,7 @@
 //
 // Config lives in the server settings file as `settings.privateRelay =
 // { enabled, relayUrl }` (same storage precedent as tunnels/notifications).
-// Routes are registered with the other OpenChamber feature routes, before the
+// Routes are registered with the other PiChamber feature routes, before the
 // generic OpenCode proxy, and are covered by the same global UI auth gate.
 //
 // Cross-runtime parity note: relay host mode intentionally targets the web
@@ -110,7 +110,7 @@ export const createRelayService = ({
 
   const standbyStatus = (holderPid) => ({
     state: 'standby',
-    lastError: `relay host is owned by another local OpenChamber process (pid ${holderPid})`,
+    lastError: `relay host is owned by another local PiChamber process (pid ${holderPid})`,
     connectedClients: 0,
   });
 

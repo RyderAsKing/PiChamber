@@ -1472,9 +1472,9 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
       const redeemBody = JSON.stringify({
         pairingId: payload.pairingId,
         secret: payload.secret,
-        clientLabel: 'OpenChamber Mobile',
+        clientLabel: 'PiChamber Mobile',
         clientKind: 'mobile',
-        deviceName: 'OpenChamber Mobile',
+        deviceName: 'PiChamber Mobile',
         devicePlatform: mobileDevicePlatform(),
         // Re-pairing this same phone reuses its one device record instead of
         // adding a duplicate row on the server.
@@ -1560,7 +1560,7 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         // Same dedupe key as pairing: re-authenticating after a token expires
         // reuses this phone's existing device record instead of duplicating it.
-        body: JSON.stringify({ password, trustDevice: true, issueClientToken: true, clientLabel: 'OpenChamber Mobile', clientKind: 'mobile', devicePlatform: mobileDevicePlatform(), dedupeKey: mobileClientDedupeKey() }),
+        body: JSON.stringify({ password, trustDevice: true, issueClientToken: true, clientLabel: 'PiChamber Mobile', clientKind: 'mobile', devicePlatform: mobileDevicePlatform(), dedupeKey: mobileClientDedupeKey() }),
       };
       logConnect('password:start', { transport: chosen.kind });
       const response = chosen.kind === 'relay'

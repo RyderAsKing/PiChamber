@@ -6,7 +6,7 @@ export const createBootstrapRuntime = (dependencies) => {
     registerAuthAndAccessRoutes,
     registerTtsRoutes,
     registerNotificationRoutes,
-    registerOpenChamberRoutes,
+    registerPiChamberRoutes,
     registerAgentToolRoutes = () => {},
     express,
   } = dependencies;
@@ -14,7 +14,7 @@ export const createBootstrapRuntime = (dependencies) => {
   const setupBaseRoutes = (app, options) => {
     const {
       process,
-      openchamberVersion,
+      pichamberVersion,
       runtimeName,
       serverStartedAt,
       gracefulShutdown,
@@ -56,7 +56,7 @@ export const createBootstrapRuntime = (dependencies) => {
       path,
       server,
       __dirname,
-      openchamberDataDir,
+      pichamberDataDir,
       modelsDevApiUrl,
       modelsMetadataCacheTtl,
       fetchFreeZenModels,
@@ -77,7 +77,7 @@ export const createBootstrapRuntime = (dependencies) => {
     registerServerStatusRoutes(app, {
       express,
       process,
-      openchamberVersion,
+      pichamberVersion,
       runtimeName,
       serverStartedAt,
       gracefulShutdown,
@@ -140,14 +140,14 @@ export const createBootstrapRuntime = (dependencies) => {
       setAutoAcceptSession,
     });
 
-    registerOpenChamberRoutes(app, {
+    registerPiChamberRoutes(app, {
       fs,
       os,
       path,
       process,
       server,
       __dirname,
-      openchamberDataDir,
+      pichamberDataDir,
       modelsDevApiUrl,
       modelsMetadataCacheTtl,
       readSettingsFromDiskMigrated,

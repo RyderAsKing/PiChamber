@@ -93,7 +93,7 @@ describe('scanConnectionQr on Android', () => {
       secret: 'one-time',
       candidates: [{ type: 'lan', url: 'http://192.168.1.20:4096', priority: 10 }],
     }));
-    const mixedCase = url.replace('openchamber://connect', 'OpenChamber://CONNECT');
+    const mixedCase = url.replace('openchamber://connect', 'PiChamber://CONNECT');
     const listeners = new Map<string, (event: { barcodes?: Array<{ rawValue?: string }> }) => void>();
     const plugin = {
       requestPermissions: mock(async () => ({ camera: 'granted' })),

@@ -15,7 +15,7 @@ export const registerScheduledTaskRoutes = (app, dependencies) => {
     sanitizeProjects,
     projectConfigRuntime,
     scheduledTasksRuntime,
-    getOpenChamberEventClients,
+    getPiChamberEventClients,
     writeSseEvent,
     scheduledTaskService = createScheduledTaskService(dependencies),
   } = dependencies;
@@ -145,7 +145,7 @@ export const registerScheduledTaskRoutes = (app, dependencies) => {
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders?.();
 
-    const clients = getOpenChamberEventClients();
+    const clients = getPiChamberEventClients();
     clients.add(res);
 
     try {

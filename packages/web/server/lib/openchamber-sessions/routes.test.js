@@ -69,7 +69,7 @@ const commandListMock = vi.fn(async () => ({ data: [] }));
 globalThis.__openchamberCreateWorktreeMock = createWorktreeMock;
 globalThis.__openchamberGetWorktreeBootstrapStatusMock = getWorktreeBootstrapStatusMock;
 
-let registerOpenChamberSessionRoutes;
+let registerPiChamberSessionRoutes;
 
 vi.mock('@opencode-ai/sdk/v2', () => ({
   createOpencodeClient: () => ({
@@ -96,7 +96,7 @@ const createApp = (overrides = {}, options = {}) => {
     app.use(express.json());
   }
   const calls = [];
-  registerOpenChamberSessionRoutes(app, {
+  registerPiChamberSessionRoutes(app, {
     readSettingsFromDiskMigrated: async () => ({ projects: [{ id: 'proj_1', path: '/repo/app' }] }),
     sanitizeProjects: (projects) => projects,
     validateDirectoryPath: async (directory) => ({ ok: true, directory }),
@@ -110,7 +110,7 @@ const createApp = (overrides = {}, options = {}) => {
 
 describe('openchamber session routes', () => {
   beforeAll(async () => {
-    ({ registerOpenChamberSessionRoutes } = await import('./routes.js'));
+    ({ registerPiChamberSessionRoutes } = await import('./routes.js'));
   });
 
   beforeEach(() => {

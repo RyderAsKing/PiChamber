@@ -1,13 +1,13 @@
 ---
 name: serve-sim
-description: Use when working with the OpenChamber iOS Simulator app without opening Xcode - boot/install/launch the Capacitor iOS app, start a browser stream, tap/type/gesture/rotate, inspect accessibility, or hand a simulator URL to the user.
+description: Use when working with the PiChamber iOS Simulator app without opening Xcode - boot/install/launch the Capacitor iOS app, start a browser stream, tap/type/gesture/rotate, inspect accessibility, or hand a simulator URL to the user.
 ---
 
 # serve-sim
 
 Use `serve-sim` to stream and control a booted Apple Simulator from the terminal. It captures the simulator framebuffer, serves a browser preview, and exposes CLI controls for taps, typing, gestures, hardware buttons, rotation, memory warnings, permissions, camera injection, and accessibility inspection.
 
-## OpenChamber Defaults
+## PiChamber Defaults
 
 - Mobile package: `packages/mobile`
 - iOS bundle id: `com.openchamber.app`

@@ -1,12 +1,12 @@
 {
-  "name": "@openchamber/web",
+  "name": "@pichamber/web",
   "version": "1.18.1",
   "private": false,
   "type": "module",
   "main": "./server/index.js",
   "types": "./server/index.d.ts",
   "bin": {
-    "openchamber": "./bin/cli.js"
+    "pichamber": "./bin/cli.js"
   },
   "publishConfig": {
     "access": "public"

@@ -1,6 +1,6 @@
-# OpenChamber Docs Source
+# PiChamber Docs Source
 
-This package is the source-of-truth for OpenChamber public docs content.
+This package is the source-of-truth for PiChamber public docs content.
 
 ## Layout
 

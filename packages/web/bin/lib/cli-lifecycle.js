@@ -112,7 +112,7 @@ async function resolveDoctorPortStatuses(options = {}) {
         available: false,
         status: 'warning',
         line: `port ${requestedPort} not available (desktop runtime)`,
-        detail: 'Use a CLI instance port from `openchamber serve` for tunneling.',
+        detail: 'Use a CLI instance port from `pichamber serve` for tunneling.',
       });
       return { statuses, availableEntries: [] };
     }
@@ -143,7 +143,7 @@ async function resolveDoctorPortStatuses(options = {}) {
       available: false,
       status: 'warning',
       line: `port ${desktopEntry.port} not available (desktop runtime)`,
-      detail: 'Use a CLI instance port from `openchamber serve` for tunneling.',
+      detail: 'Use a CLI instance port from `pichamber serve` for tunneling.',
     });
   }
 
@@ -153,7 +153,7 @@ async function resolveDoctorPortStatuses(options = {}) {
       available: false,
       status: 'warning',
       line: 'no CLI ports available for tunneling',
-      detail: 'Start one with `openchamber serve`.',
+      detail: 'Start one with `pichamber serve`.',
     });
   }
 
@@ -191,8 +191,8 @@ async function discoverRunningInstances(options = {}) {
       }
 
       // A live PID-file is only the right instance if the recorded port also
-      // confirms OpenChamber. Cmdline identity alone can match a recycled PID
-      // from another OpenChamber process on a different port. Try all plausible
+      // confirms PiChamber. Cmdline identity alone can match a recycled PID
+      // from another PiChamber process on a different port. Try all plausible
       // hosts first; if matched/unknown identity still can't be confirmed, keep
       // the registry files but don't claim the instance is running.
       const { info: liveInfo, host: confirmedHost } = await fetchSystemInfoFromPortCandidates(
@@ -247,7 +247,7 @@ async function discoverRunningInstances(options = {}) {
   return instances;
 }
 
-async function discoverOpenChamberInstanceOnPort(port, options = {}) {
+async function discoverPiChamberInstanceOnPort(port, options = {}) {
   if (!Number.isFinite(port) || port <= 0) return null;
   const runningInstances = Array.isArray(options.runningInstances)
     ? options.runningInstances
@@ -273,7 +273,7 @@ async function discoverLifecycleInstances(options = {}, deps = {}) {
   }
   const found = runningInstances.find((entry) => entry.port === options.port);
   if (found) return [found];
-  const liveInstance = await discoverOpenChamberInstanceOnPort(options.port, {
+  const liveInstance = await discoverPiChamberInstanceOnPort(options.port, {
     ...deps,
     host: options.host,
     runningInstances,
@@ -410,7 +410,7 @@ async function resolveTunnelProviders(options = {}, deps = {}) {
 export {
   resolveDoctorPortStatuses,
   discoverRunningInstances,
-  discoverOpenChamberInstanceOnPort,
+  discoverPiChamberInstanceOnPort,
   discoverLifecycleInstances,
   discoverUnconfirmedRegistryInstanceOnPort,
   getLatestInstance,

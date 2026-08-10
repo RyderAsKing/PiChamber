@@ -15,7 +15,7 @@ const LOOPBACK_HOSTS = new Set([
   '0.0.0.0',
 ]);
 
-const PREVIEW_BRIDGE_SCRIPT_ID = 'openchamber-preview-bridge';
+const PREVIEW_BRIDGE_SCRIPT_ID = 'pichamber-preview-bridge';
 
 const parsePreviewResourcePath = (url) => {
   try {
@@ -199,7 +199,7 @@ const PREVIEW_BRIDGE_SCRIPT = String.raw`(() => {
   if (window.__openchamberPreviewBridgeInstalled) return;
   window.__openchamberPreviewBridgeInstalled = true;
 
-  const SOURCE = 'openchamber-preview-bridge';
+  const SOURCE = 'pichamber-preview-bridge';
   const VERSION = 1;
   const MAX_TEXT = 500;
   const MAX_ARG = 1000;
@@ -327,7 +327,7 @@ const PREVIEW_BRIDGE_SCRIPT = String.raw`(() => {
     try {
       const root = document.documentElement;
       root.style.colorScheme = next;
-      root.dataset.openchamberPreviewColorScheme = next;
+      root.dataset.pichamberPreviewColorScheme = next;
       if (shouldSyncDataTheme()) {
         root.dataset.theme = next;
       }
@@ -514,7 +514,7 @@ const PREVIEW_BRIDGE_SCRIPT = String.raw`(() => {
       }
     };
 
-    function OpenChamberPreviewWebSocket(url, protocols) {
+    function PiChamberPreviewWebSocket(url, protocols) {
       const protocolList = Array.isArray(protocols) ? protocols : [protocols];
       const isViteSocket = protocolList.indexOf('vite-hmr') >= 0;
       const nextUrl = rewriteUrl(url, protocols);
@@ -536,10 +536,10 @@ const PREVIEW_BRIDGE_SCRIPT = String.raw`(() => {
       return socket;
     }
 
-    OpenChamberPreviewWebSocket.prototype = NativeWebSocket.prototype;
-    Object.setPrototypeOf(OpenChamberPreviewWebSocket, NativeWebSocket);
-    Object.defineProperty(OpenChamberPreviewWebSocket, 'name', { value: 'WebSocket' });
-    window.WebSocket = OpenChamberPreviewWebSocket;
+    PiChamberPreviewWebSocket.prototype = NativeWebSocket.prototype;
+    Object.setPrototypeOf(PiChamberPreviewWebSocket, NativeWebSocket);
+    Object.defineProperty(PiChamberPreviewWebSocket, 'name', { value: 'WebSocket' });
+    window.WebSocket = PiChamberPreviewWebSocket;
   };
 
   const installAppRequestProxyPatch = () => {
@@ -672,27 +672,27 @@ const PREVIEW_BRIDGE_SCRIPT = String.raw`(() => {
 
     if (typeof window.EventSource === 'function') {
       const NativeEventSource = window.EventSource;
-      function OpenChamberPreviewEventSource(url, eventSourceInitDict) {
+      function PiChamberPreviewEventSource(url, eventSourceInitDict) {
         return new NativeEventSource(proxiedUrl(String(url)), eventSourceInitDict);
       }
-      OpenChamberPreviewEventSource.prototype = NativeEventSource.prototype;
-      Object.setPrototypeOf(OpenChamberPreviewEventSource, NativeEventSource);
-      Object.defineProperty(OpenChamberPreviewEventSource, 'name', { value: 'EventSource' });
-      window.EventSource = OpenChamberPreviewEventSource;
+      PiChamberPreviewEventSource.prototype = NativeEventSource.prototype;
+      Object.setPrototypeOf(PiChamberPreviewEventSource, NativeEventSource);
+      Object.defineProperty(PiChamberPreviewEventSource, 'name', { value: 'EventSource' });
+      window.EventSource = PiChamberPreviewEventSource;
     }
 
     if (typeof window.WebSocket === 'function') {
       const NativeWebSocket = window.WebSocket;
-      function OpenChamberPreviewAppWebSocket(url, protocols) {
+      function PiChamberPreviewAppWebSocket(url, protocols) {
         const nextUrl = proxiedWebSocketUrl(String(url));
         return arguments.length === 1
           ? new NativeWebSocket(nextUrl)
           : new NativeWebSocket(nextUrl, protocols);
       }
-      OpenChamberPreviewAppWebSocket.prototype = NativeWebSocket.prototype;
-      Object.setPrototypeOf(OpenChamberPreviewAppWebSocket, NativeWebSocket);
-      Object.defineProperty(OpenChamberPreviewAppWebSocket, 'name', { value: 'WebSocket' });
-      window.WebSocket = OpenChamberPreviewAppWebSocket;
+      PiChamberPreviewAppWebSocket.prototype = NativeWebSocket.prototype;
+      Object.setPrototypeOf(PiChamberPreviewAppWebSocket, NativeWebSocket);
+      Object.defineProperty(PiChamberPreviewAppWebSocket, 'name', { value: 'WebSocket' });
+      window.WebSocket = PiChamberPreviewAppWebSocket;
     }
   };
 
@@ -861,7 +861,7 @@ const PREVIEW_BRIDGE_SCRIPT = String.raw`(() => {
   window.addEventListener('message', (event) => {
     if (event.source !== window.parent) return;
     const data = event.data;
-    if (!data || data.source !== 'openchamber-preview-parent' || data.version !== VERSION) return;
+    if (!data || data.source !== 'pichamber-preview-parent' || data.version !== VERSION) return;
     if (data.type === 'set-inspect-mode') {
       setInspectMode(data.enabled === true);
     }
@@ -1013,7 +1013,7 @@ export const normalizeProxyTargetUrl = (rawUrl, { allowExternal = false } = {}) 
     url.hostname = '127.0.0.1';
   }
 
-  // Only keep origin here; the proxy path is preserved on the OpenChamber side.
+  // Only keep origin here; the proxy path is preserved on the PiChamber side.
   return { ok: true, origin: url.origin };
 };
 
@@ -1025,7 +1025,7 @@ const appendProxyAuthToProxyUrl = (value, { previewToken = '', urlAuthToken = ''
     || value.includes(URL_AUTH_TOKEN_QUERY_PARAM);
   if (!needsQueryRewrite) return value;
   try {
-    const parsed = new URL(value, 'http://openchamber-preview.local');
+    const parsed = new URL(value, 'http://pichamber-preview.local');
     parsed.searchParams.delete(CLIENT_TOKEN_QUERY_PARAM);
     parsed.searchParams.delete(URL_AUTH_TOKEN_QUERY_PARAM);
     if (previewToken) parsed.searchParams.set(TOKEN_QUERY_PARAM, previewToken);
@@ -1445,7 +1445,7 @@ export const createPreviewProxyRuntime = ({
       on: {
         proxyReq: (proxyReq, req) => {
           applyPreviewPassthroughRequestHeaders(req, proxyReq);
-          // Keep local dev servers from receiving OpenChamber credentials.
+          // Keep local dev servers from receiving PiChamber credentials.
           proxyReq.removeHeader('cookie');
           proxyReq.removeHeader('authorization');
           proxyReq.removeHeader('x-openchamber-ui-session');
@@ -1459,7 +1459,7 @@ export const createPreviewProxyRuntime = ({
           // Per-response nonce lets the injected bridge run under the dev
           // server's CSP without dropping its script restrictions wholesale.
           const bridgeNonce = crypto.randomBytes(16).toString('base64');
-          // Allow the dev server response to be framed inside OpenChamber even
+          // Allow the dev server response to be framed inside PiChamber even
           // if it normally sets X-Frame-Options or a CSP frame-ancestors rule.
           // The proxy is same-origin so embedding is otherwise safe.
           stripFrameBustingHeaders(proxyRes.headers, bridgeNonce);

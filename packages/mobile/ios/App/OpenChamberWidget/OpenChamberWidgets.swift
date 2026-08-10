@@ -83,14 +83,14 @@ struct OverviewWidgetView: View {
 }
 
 struct OverviewWidget: Widget {
-    let kind = "OpenChamberOverview"
+    let kind = "PiChamberOverview"
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: OverviewProvider()) { entry in
             OverviewWidgetView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
-        .configurationDisplayName("OpenChamber")
+        .configurationDisplayName("PiChamber")
         .description("Recent sessions and quick actions.")
         .supportedFamilies([.systemMedium])
     }
@@ -139,7 +139,7 @@ struct QuickActionsWidgetView: View {
 }
 
 struct QuickActionsWidget: Widget {
-    let kind = "OpenChamberQuickActions"
+    let kind = "PiChamberQuickActions"
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: OverviewProvider()) { _ in
@@ -231,7 +231,7 @@ struct SessionsWidgetView: View {
 }
 
 struct SessionsWidget: Widget {
-    let kind = "OpenChamberSessions"
+    let kind = "PiChamberSessions"
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: OverviewProvider()) { entry in
@@ -258,7 +258,7 @@ struct LockNewSessionView: View {
 }
 
 struct LockNewSessionWidget: Widget {
-    let kind = "OpenChamberLockNew"
+    let kind = "PiChamberLockNew"
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: OverviewProvider()) { _ in
@@ -266,7 +266,7 @@ struct LockNewSessionWidget: Widget {
                 .containerBackground(.clear, for: .widget)
         }
         .configurationDisplayName("New Session")
-        .description("Start a new OpenChamber session.")
+        .description("Start a new PiChamber session.")
         .supportedFamilies([.accessoryCircular])
     }
 }
@@ -291,7 +291,7 @@ struct LockAttentionView: View {
 }
 
 struct LockAttentionWidget: Widget {
-    let kind = "OpenChamberLockAttention"
+    let kind = "PiChamberLockAttention"
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: OverviewProvider()) { entry in
@@ -307,7 +307,7 @@ struct LockAttentionWidget: Widget {
 // MARK: - Bundle
 
 @main
-struct OpenChamberWidgetBundle: WidgetBundle {
+struct PiChamberWidgetBundle: WidgetBundle {
     var body: some Widget {
         OverviewWidget()
         SessionsWidget()
@@ -315,7 +315,7 @@ struct OpenChamberWidgetBundle: WidgetBundle {
         LockNewSessionWidget()
         LockAttentionWidget()
         if #available(iOS 18.0, *) {
-            OpenChamberNewSessionControl()
+            PiChamberNewSessionControl()
         }
     }
 }

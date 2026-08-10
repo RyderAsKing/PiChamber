@@ -1,9 +1,9 @@
 ---
 name: openchamber-change-discipline
-description: Use when implementing, fixing, refactoring, or otherwise modifying OpenChamber source code, dependencies, exports, build configuration, generated assets, package contracts, or module ownership.
+description: Use when implementing, fixing, refactoring, or otherwise modifying PiChamber source code, dependencies, exports, build configuration, generated assets, package contracts, or module ownership.
 ---
 
-# OpenChamber Change Discipline
+# PiChamber Change Discipline
 
 ## Core Principle
 

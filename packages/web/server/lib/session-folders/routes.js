@@ -32,10 +32,10 @@ export const registerSessionFoldersRoutes = (app, dependencies) => {
   const {
     fsPromises,
     path,
-    openchamberDataDir,
+    pichamberDataDir,
   } = dependencies;
 
-  const filePath = path.join(openchamberDataDir, 'sessions-directories.json');
+  const filePath = path.join(pichamberDataDir, 'sessions-directories.json');
   let saveQueue = Promise.resolve();
 
   const ensureDir = async () => {

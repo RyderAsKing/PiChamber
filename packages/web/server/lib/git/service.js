@@ -364,7 +364,7 @@ const createGit = async (directory, { allowUnsafeSshCommand = false } = {}) => {
     }
     : undefined;
   // Always pin simple-git to an explicit working directory. Omitting baseDir
-  // makes simple-git use process.cwd(), which breaks when the OpenChamber
+  // makes simple-git use process.cwd(), which breaks when the PiChamber
   // server was launched from a neutral directory (e.g. $HOME) and the opened
   // project lives elsewhere — session/project discovery then sees spurious
   // "not a git repository" errors and can abort enumeration.
@@ -991,7 +991,7 @@ const getFileIdentity = async (filePath) => {
   }
 };
 
-// OpenChamber places managed worktrees under a deep data-dir path
+// PiChamber places managed worktrees under a deep data-dir path
 // (`<XDG_DATA_HOME>/opencode/worktree/<40-char project id>/<name>/`). On
 // Windows that prefix plus a deeply nested repo file routinely exceeds
 // MAX_PATH (260). Git can check those paths out when core.longpaths is
@@ -1009,7 +1009,7 @@ const formatWorktreePopulateError = (message) => {
   return [
     text,
     'The worktree checkout path exceeds this system\'s path-length limit.',
-    'OpenChamber enables Git `core.longpaths` for worktree population; if this still fails on Windows, enable OS long paths (LongPathsEnabled) or open the repository from a shorter absolute path.',
+    'PiChamber enables Git `core.longpaths` for worktree population; if this still fails on Windows, enable OS long paths (LongPathsEnabled) or open the repository from a shorter absolute path.',
   ].join('\n');
 };
 
@@ -1019,7 +1019,7 @@ export const ensureWorktreeLongpaths = async (directory) => {
     return;
   }
   // Local config is shared across linked worktrees via the common git dir, so
-  // subsequent OpenChamber and CLI git operations in this repo also get long
+  // subsequent PiChamber and CLI git operations in this repo also get long
   // path support. Failures here are non-fatal: populate still passes
   // `-c core.longpaths=true` on reset.
   await runGitCommand(directory, ['config', 'core.longpaths', 'true']);
@@ -1742,7 +1742,7 @@ const loadProjectStartCommand = async (projectID) => {
 
 // OpenCode owns its own project/sandbox registry. It records a worktree as a
 // sandbox itself when an instance boots for that directory, and filters entries
-// whose directory no longer exists when reading them back. OpenChamber used to
+// whose directory no longer exists when reading them back. PiChamber used to
 // write that state directly into OpenCode's storage JSON and SQLite database,
 // behind the back of the running process: the row changed but the server was
 // never told, so a worktree created while OpenCode was running stayed unknown
@@ -3065,7 +3065,7 @@ export async function stashPush(directory, options = {}) {
   const { git } = await createRepositoryGitContext(directory);
   const message = typeof options.message === 'string' && options.message.trim()
     ? options.message.trim()
-    : `OpenChamber stash ${new Date().toISOString()}`;
+    : `PiChamber stash ${new Date().toISOString()}`;
   const output = await git.raw(['stash', 'push', '--include-untracked', '-m', message]);
   return {
     success: true,

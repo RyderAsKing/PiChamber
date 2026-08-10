@@ -69,7 +69,7 @@ export const DesktopNetworkSettings: React.FC = () => {
           headers: { Accept: 'application/json' },
         });
         if (!response.ok) {
-          throw new Error(t('settings.openchamber.desktopNetwork.error.loadFailed'));
+          throw new Error(t('settings.pichamber.desktopNetwork.error.loadFailed'));
         }
 
         const data = (await response.json().catch(() => null)) as null | {
@@ -99,7 +99,7 @@ export const DesktopNetworkSettings: React.FC = () => {
         setError(null);
       } catch (cause) {
         if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : t('settings.openchamber.desktopNetwork.error.loadFailed'));
+          setError(cause instanceof Error ? cause.message : t('settings.pichamber.desktopNetwork.error.loadFailed'));
         }
       } finally {
         if (!cancelled) {
@@ -239,12 +239,12 @@ export const DesktopNetworkSettings: React.FC = () => {
     try {
       const status = await setDesktopLaunchAtLogin(nextValue);
       if (!status?.supported) {
-        throw new Error(t('settings.openchamber.desktopNetwork.error.launchAtLoginUnsupported'));
+        throw new Error(t('settings.pichamber.desktopNetwork.error.launchAtLoginUnsupported'));
       }
       setLaunchAtLoginEnabled(status.enabled);
     } catch (cause) {
       setLaunchAtLoginEnabled(!nextValue);
-      setError(cause instanceof Error ? cause.message : t('settings.openchamber.desktopNetwork.error.launchAtLoginSaveFailed'));
+      setError(cause instanceof Error ? cause.message : t('settings.pichamber.desktopNetwork.error.launchAtLoginSaveFailed'));
     } finally {
       setIsSavingLaunchAtLogin(false);
     }
@@ -263,15 +263,15 @@ export const DesktopNetworkSettings: React.FC = () => {
     try {
       const status = await setDesktopMinimizeToTray(nextValue);
       if (!status) {
-        throw new Error(t('settings.openchamber.desktopNetwork.error.minimizeToTraySaveFailed'));
+        throw new Error(t('settings.pichamber.desktopNetwork.error.minimizeToTraySaveFailed'));
       }
       if (!status.supported) {
-        throw new Error(t('settings.openchamber.desktopNetwork.error.minimizeToTrayUnsupported'));
+        throw new Error(t('settings.pichamber.desktopNetwork.error.minimizeToTrayUnsupported'));
       }
       setMinimizeToTrayEnabled(status.enabled);
     } catch (cause) {
       setMinimizeToTrayEnabled(!nextValue);
-      setError(cause instanceof Error ? cause.message : t('settings.openchamber.desktopNetwork.error.minimizeToTraySaveFailed'));
+      setError(cause instanceof Error ? cause.message : t('settings.pichamber.desktopNetwork.error.minimizeToTraySaveFailed'));
     } finally {
       setIsSavingMinimizeToTray(false);
     }
@@ -290,12 +290,12 @@ export const DesktopNetworkSettings: React.FC = () => {
     try {
       const status = await setDesktopKeepAwake(nextValue);
       if (!status?.supported) {
-        throw new Error(t('settings.openchamber.desktopNetwork.error.keepAwakeUnsupported'));
+        throw new Error(t('settings.pichamber.desktopNetwork.error.keepAwakeUnsupported'));
       }
       setKeepAwakeEnabled(status.enabled);
     } catch (cause) {
       setKeepAwakeEnabled(!nextValue);
-      setError(cause instanceof Error ? cause.message : t('settings.openchamber.desktopNetwork.error.keepAwakeSaveFailed'));
+      setError(cause instanceof Error ? cause.message : t('settings.pichamber.desktopNetwork.error.keepAwakeSaveFailed'));
     } finally {
       setIsSavingKeepAwake(false);
     }
@@ -324,7 +324,7 @@ export const DesktopNetworkSettings: React.FC = () => {
       });
 
       if (!response.ok) {
-        throw new Error(t('settings.openchamber.desktopNetwork.error.saveFailed'));
+        throw new Error(t('settings.pichamber.desktopNetwork.error.saveFailed'));
       }
 
       setSavedValue(draftValue);
@@ -333,10 +333,10 @@ export const DesktopNetworkSettings: React.FC = () => {
 
       const restarted = await restartDesktopApp();
       if (!restarted) {
-        throw new Error(t('settings.openchamber.desktopNetwork.error.savedRestartFailed'));
+        throw new Error(t('settings.pichamber.desktopNetwork.error.savedRestartFailed'));
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('settings.openchamber.desktopNetwork.error.saveFailed'));
+      setError(cause instanceof Error ? cause.message : t('settings.pichamber.desktopNetwork.error.saveFailed'));
       setIsSaving(false);
     }
   }, [draftMacMenuBarEnabled, draftPassword, draftValue, isDirty, t]);
@@ -346,7 +346,7 @@ export const DesktopNetworkSettings: React.FC = () => {
   }
 
   return (
-    <SettingsSection title={t('settings.openchamber.desktopNetwork.title')}>
+    <SettingsSection title={t('settings.pichamber.desktopNetwork.title')}>
       <div className="space-y-3">
         {(launchAtLoginSupported || isMacDesktop || minimizeToTraySupported || keepAwakeSupported) ? (
           <div className={SETTINGS_OPTION_STACK_CLASS}>
@@ -359,9 +359,9 @@ export const DesktopNetworkSettings: React.FC = () => {
                   void handleLaunchAtLoginToggle();
                 }}
                 disabled={isSavingLaunchAtLogin}
-                label={t('settings.openchamber.desktopNetwork.field.launchAtLogin')}
-                info={t('settings.openchamber.desktopNetwork.field.launchAtLoginDescription')}
-                ariaLabel={t('settings.openchamber.desktopNetwork.field.launchAtLoginAria')}
+                label={t('settings.pichamber.desktopNetwork.field.launchAtLogin')}
+                info={t('settings.pichamber.desktopNetwork.field.launchAtLoginDescription')}
+                ariaLabel={t('settings.pichamber.desktopNetwork.field.launchAtLoginAria')}
               />
             ) : null}
 
@@ -371,9 +371,9 @@ export const DesktopNetworkSettings: React.FC = () => {
                 checked={draftMacMenuBarEnabled}
                 onChange={setDraftMacMenuBarEnabled}
                 disabled={isLoading || isSaving}
-                label={t('settings.openchamber.desktopNetwork.field.macMenuBar')}
-                info={t('settings.openchamber.desktopNetwork.field.macMenuBarDescription')}
-                ariaLabel={t('settings.openchamber.desktopNetwork.field.macMenuBarAria')}
+                label={t('settings.pichamber.desktopNetwork.field.macMenuBar')}
+                info={t('settings.pichamber.desktopNetwork.field.macMenuBarDescription')}
+                ariaLabel={t('settings.pichamber.desktopNetwork.field.macMenuBarAria')}
               />
             ) : null}
 
@@ -386,9 +386,9 @@ export const DesktopNetworkSettings: React.FC = () => {
                   void handleMinimizeToTrayToggle();
                 }}
                 disabled={isSavingMinimizeToTray}
-                label={t('settings.openchamber.desktopNetwork.field.minimizeToTray')}
-                info={t('settings.openchamber.desktopNetwork.field.minimizeToTrayDescription')}
-                ariaLabel={t('settings.openchamber.desktopNetwork.field.minimizeToTrayAria')}
+                label={t('settings.pichamber.desktopNetwork.field.minimizeToTray')}
+                info={t('settings.pichamber.desktopNetwork.field.minimizeToTrayDescription')}
+                ariaLabel={t('settings.pichamber.desktopNetwork.field.minimizeToTrayAria')}
               />
             ) : null}
 
@@ -401,9 +401,9 @@ export const DesktopNetworkSettings: React.FC = () => {
                   void handleKeepAwakeToggle();
                 }}
                 disabled={isSavingKeepAwake}
-                label={t('settings.openchamber.desktopNetwork.field.keepAwake')}
-                info={t('settings.openchamber.desktopNetwork.field.keepAwakeDescription')}
-                ariaLabel={t('settings.openchamber.desktopNetwork.field.keepAwakeAria')}
+                label={t('settings.pichamber.desktopNetwork.field.keepAwake')}
+                info={t('settings.pichamber.desktopNetwork.field.keepAwakeDescription')}
+                ariaLabel={t('settings.pichamber.desktopNetwork.field.keepAwakeAria')}
               />
             ) : null}
           </div>
@@ -413,10 +413,10 @@ export const DesktopNetworkSettings: React.FC = () => {
           settingsItem="sessions.desktop-ui-password"
           label={(
             <label htmlFor="desktop-ui-password">
-              {t('settings.openchamber.desktopPassword.field.password')}
+              {t('settings.pichamber.desktopPassword.field.password')}
             </label>
           )}
-          info={t('settings.openchamber.desktopPassword.field.passwordDescription')}
+          info={t('settings.pichamber.desktopPassword.field.passwordDescription')}
         >
           <Input
             id="desktop-ui-password"
@@ -424,7 +424,7 @@ export const DesktopNetworkSettings: React.FC = () => {
             className="h-8 min-w-0 flex-1"
             value={draftPassword}
             onChange={(event) => handlePasswordChange(event.target.value)}
-            placeholder={t('settings.openchamber.desktopPassword.field.passwordPlaceholder')}
+            placeholder={t('settings.pichamber.desktopPassword.field.passwordPlaceholder')}
             disabled={isLoading || isSaving}
             required={draftValue}
             aria-invalid={lanRequiresPassword}
@@ -435,7 +435,7 @@ export const DesktopNetworkSettings: React.FC = () => {
             size="xs"
             onClick={() => setShowPassword((current: boolean) => !current)}
             className={SETTINGS_ICON_BUTTON_CLASS}
-            aria-label={t(showPassword ? 'settings.openchamber.desktopPassword.actions.hidePassword' : 'settings.openchamber.desktopPassword.actions.showPassword')}
+            aria-label={t(showPassword ? 'settings.pichamber.desktopPassword.actions.hidePassword' : 'settings.pichamber.desktopPassword.actions.showPassword')}
             aria-pressed={showPassword}
           >
             <Icon name={showPassword ? 'eye-off' : 'eye'} className="h-4 w-4" />
@@ -448,21 +448,21 @@ export const DesktopNetworkSettings: React.FC = () => {
             checked={draftValue}
             onChange={setDraftValue}
             disabled={isLoading || isSaving}
-            label={t('settings.openchamber.desktopNetwork.field.allowLanAccess')}
-            info={t('settings.openchamber.desktopNetwork.field.allowLanAccessDescription')}
+            label={t('settings.pichamber.desktopNetwork.field.allowLanAccess')}
+            info={t('settings.pichamber.desktopNetwork.field.allowLanAccessDescription')}
             description={(
               <>
                 <span className="block text-[var(--status-warning)]/85">
-                  {t('settings.openchamber.desktopNetwork.field.warning')}
+                  {t('settings.pichamber.desktopNetwork.field.warning')}
                 </span>
                 {lanRequiresPassword || lanBlockedByMissingPassword ? (
                   <span className="block text-[var(--status-warning)]/85">
-                    {t('settings.openchamber.desktopNetwork.field.passwordRequiredWarning')}
+                    {t('settings.pichamber.desktopNetwork.field.passwordRequiredWarning')}
                   </span>
                 ) : null}
               </>
             )}
-            ariaLabel={t('settings.openchamber.desktopNetwork.field.allowLanAccessAria')}
+            ariaLabel={t('settings.pichamber.desktopNetwork.field.allowLanAccessAria')}
           />
         </div>
 
@@ -473,8 +473,8 @@ export const DesktopNetworkSettings: React.FC = () => {
         {lanUrl ? (
           <div className="typography-micro text-muted-foreground/80">
             {isDirty && !savedValue
-              ? t('settings.openchamber.desktopNetwork.hint.openAfterRestart')
-              : t('settings.openchamber.desktopNetwork.hint.openNow')}
+              ? t('settings.pichamber.desktopNetwork.hint.openAfterRestart')
+              : t('settings.pichamber.desktopNetwork.hint.openNow')}
             <span className="font-mono text-foreground">{lanUrl}</span>
           </div>
         ) : null}
@@ -487,7 +487,7 @@ export const DesktopNetworkSettings: React.FC = () => {
             disabled={saveDisabled}
             className="shrink-0 !font-normal"
           >
-            {isSaving ? t('settings.common.actions.saving') : t('settings.openchamber.desktopNetwork.actions.saveAndRestart')}
+            {isSaving ? t('settings.common.actions.saving') : t('settings.pichamber.desktopNetwork.actions.saveAndRestart')}
           </Button>
         </div>
       </div>

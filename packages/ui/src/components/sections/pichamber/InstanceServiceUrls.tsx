@@ -67,14 +67,14 @@ export const InstanceServiceUrls: React.FC = () => {
   if (info?.port !== null && info?.port !== undefined) {
     services.push({
       key: 'application',
-      label: t('settings.openchamber.about.field.applicationUrl'),
+      label: t('settings.pichamber.about.field.applicationUrl'),
       url: `http://localhost:${info.port}/`,
     });
   }
   if (info?.tunnelUrl) {
     services.push({
       key: 'tunnel',
-      label: t('settings.openchamber.about.field.tunnelUrl'),
+      label: t('settings.pichamber.about.field.tunnelUrl'),
       url: info.tunnelUrl,
     });
   }
