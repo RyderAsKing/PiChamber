@@ -225,7 +225,17 @@ const parseInstance = (value: unknown): DesktopSshInstance | null => {
   const preferredLocalPort =
     readNumber(localRaw, 'preferredLocalPort') ?? readNumber(localRaw, 'preferred_local_port');
   const sshPassword = parseStoredSecret(authRaw.sshPassword || authRaw.ssh_password);
-  const pichamberPassword = parseStoredSecret(authRaw.pichamberPassword || authRaw.openchamber_password);
+  // Accept the historical `openchamberPassword` (camelCase legacy from
+  // OpenChamber pre-rebrand) and the snake_case `openchamber_password`
+  // (intermediate shape written by older macOS-only SSH managers) alongside
+  // the canonical `pichamberPassword` so existing remote instances keep
+  // authenticating after the rebrand without forcing the user to re-enter
+  // their remote PI server password.
+  const pichamberPassword = parseStoredSecret(
+    authRaw.pichamberPassword
+      || authRaw.openchamberPassword
+      || authRaw.openchamber_password
+  );
 
   return {
     id,
