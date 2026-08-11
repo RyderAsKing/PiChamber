@@ -4,7 +4,7 @@
 
 Approved design plan. This document records the agreed migration from the current OpenCode-backed product to a Pi-native PiChamber. It is a planning artifact only; it does not authorize a partial dual-runtime release or imply that implementation has begun.
 
-Phase 1 stabilization remains the predecessor. Its explicit rule not to mix Pi SDK work into Phase 1 still applies: this is the separately scoped Phase 2 follow-on.
+This document is the approved plan for the Pi-native migration and is intentionally scoped separately from the completed identity-stabilization work recorded in the changelog.
 
 ## Purpose
 
