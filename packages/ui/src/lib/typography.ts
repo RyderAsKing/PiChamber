@@ -9,17 +9,6 @@ export const SEMANTIC_TYPOGRAPHY = {
   settingsPageTitle: '1.125rem',
 } as const;
 
-export const VSCODE_TYPOGRAPHY = {
-  // Keep VS Code webview typography slightly tighter; VS Code UI chrome already provides density.
-  markdown: '0.9063rem',
-  code: '0.8750rem',
-  uiHeader: '0.9063rem',
-  uiLabel: '0.8438rem',
-  meta: '0.8438rem',
-  micro: '0.7813rem',
-  settingsPageTitle: '1.0625rem',
-} as const;
-
 export type SemanticTypographyKey = keyof typeof SEMANTIC_TYPOGRAPHY;
 
 export function getTypographyVariable(key: SemanticTypographyKey): string {

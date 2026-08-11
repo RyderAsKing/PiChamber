@@ -8,7 +8,7 @@ import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useCurrentSessionActivity } from '@/hooks/useSessionActivity';
 import { createWorktreeSession } from '@/lib/worktreeSessionCreator';
 import { useConfigStore } from '@/stores/useConfigStore';
-import { canUseElectronDesktopIPC, invokeDesktop, isVSCodeRuntime } from '@/lib/desktop';
+import { canUseElectronDesktopIPC, invokeDesktop } from '@/lib/desktop';
 import { showOpenCodeStatus } from '@/lib/openCodeStatus';
 import {
   eventMatchesShortcut,
@@ -257,7 +257,7 @@ export const useKeyboardShortcuts = () => {
           isImagePreviewOpen,
         } = useUIStore.getState();
 
-        if (!promptNavigatorEnabled || isMobile || isVSCodeRuntime() || activeMainTab !== 'chat') {
+        if (!promptNavigatorEnabled || isMobile || activeMainTab !== 'chat') {
           return;
         }
 
@@ -311,7 +311,7 @@ export const useKeyboardShortcuts = () => {
         setActiveMainTab('chat');
         setSessionSwitcherOpen(false);
 
-        if (!isVSCodeRuntime() && matchedWorktreeShortcut) {
+        if (matchedWorktreeShortcut) {
           createWorktreeSession();
           return;
         }
@@ -502,7 +502,6 @@ export const useKeyboardShortcuts = () => {
         const visibleSurfaces = getVisibleContextRailSurfaces({
           railOrder: state.contextRailOrder,
           planModeEnabled: useFeatureFlagsStore.getState().planModeEnabled,
-          isVSCode: isVSCodeRuntime(),
           screenWidth: window.innerWidth,
           tabs: panelState?.tabs ?? [],
         });

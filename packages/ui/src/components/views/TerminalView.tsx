@@ -41,8 +41,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
     const { isMobile, isTablet, hasTouchOnlyPointer } = useDeviceInfo();
     const isTouchTerminal = isMobile || isTablet;
     const useTouchTerminalInput = (isTouchTerminal || hasTouchOnlyPointer) && runtime.platform === 'web';
-    // Tabs are supported for web + desktop runtimes, including mobile (not VSCode).
-    const enableTabs = runtime.platform !== 'vscode';
+    const enableTabs = true;
     const showTerminalQuickKeysOnDesktop = useUIStore((state) => state.showTerminalQuickKeysOnDesktop);
     const showQuickKeys = isTouchTerminal || showTerminalQuickKeysOnDesktop;
 

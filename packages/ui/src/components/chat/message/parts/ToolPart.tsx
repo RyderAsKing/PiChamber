@@ -58,7 +58,6 @@ import {
     getFirstChangedLineFromMetadata,
     getMutatedToolPaths,
     getPatchText,
-    getPrimaryDiffFromMetadata,
     getPrimaryToolPath,
     type DiffPatchEntry,
 } from './toolDiffUtils';
@@ -998,8 +997,6 @@ const TaskToolSummary: React.FC<{
     const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
     const openContextPanelTab = useUIStore((state) => state.openContextPanelTab);
     const showToolFileIcons = useUIStore((state) => state.showToolFileIcons);
-    const runtime = React.useContext(RuntimeAPIContext);
-
     const trimmedOutput = typeof output === 'string'
         ? stripTaskMetadataFromOutput(output)
         : '';
@@ -1010,9 +1007,9 @@ const TaskToolSummary: React.FC<{
         event.stopPropagation();
         if (sessionId && currentDirectory) {
             // In contexts with no ContextPanel (embedded session-chat iframe)
-            // or single-surface layouts (mobile, VS Code), navigate in place.
-            // Otherwise open a new side-panel tab.
-            if (isEmbeddedSessionChat() || isMobile || runtime?.runtime.isVSCode) {
+            // or single-surface layouts (mobile), navigate in place. Otherwise
+            // open a new side-panel tab.
+            if (isEmbeddedSessionChat() || isMobile) {
                 setCurrentSession(sessionId, currentDirectory);
                 return;
             }
@@ -1228,7 +1225,6 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
     onShowPopup,
 }) => {
     const { t } = useI18n();
-    const runtime = React.useContext(RuntimeAPIContext);
     const mobileActions = useMobileAppActions();
     const [diffViewMode, setDiffViewMode] = React.useState<DiffViewMode>('unified');
     const stateWithData = state as ToolStateWithMetadata;
@@ -1329,10 +1325,6 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
             event.stopPropagation();
             const line = extractFirstChangedLineFromDiff(entry.patch);
             const absolutePath = getEntryAbsolutePath(entry);
-            if (runtime?.editor && runtime.runtime.isVSCode) {
-                void runtime.editor.openFile(absolutePath, line);
-                return;
-            }
             useUIStore.getState().openContextFileAtLine(currentDirectory, absolutePath, line ?? 1, 1);
             // Dedicated mobile app: the pending file navigation is consumed by
             // the FilesView pane — surface it (workspace drawer Files tab).
@@ -1340,12 +1332,7 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
         };
         const openEntryDiff = (entry: DiffPatchEntry, event: React.MouseEvent<HTMLButtonElement>) => {
             event.stopPropagation();
-            const line = extractFirstChangedLineFromDiff(entry.patch);
             const absolutePath = getEntryAbsolutePath(entry);
-            if (runtime?.editor && runtime.runtime.isVSCode) {
-                void runtime.editor.openDiff('', absolutePath, `${getRelativePath(absolutePath, currentDirectory)} (changes)`, { line, patch: entry.patch });
-                return;
-            }
             const store = useUIStore.getState();
             const relativePath = getRelativePath(absolutePath, currentDirectory);
             if (store.isMobile) {
@@ -2001,17 +1988,10 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
         }
 
         event.stopPropagation();
-        const displayPath = typeof file.relativePath === 'string'
-            ? file.relativePath
-            : typeof file.filePath === 'string'
-                ? getRelativePath(file.filePath, currentDirectory)
-                : '';
         openApplyPatchFileInEditor({
             currentDirectory,
-            diffLabel: `${displayPath} (changes)`,
             editor: runtime.editor,
             file,
-            isVSCode: runtime.runtime.isVSCode,
         });
     };
 
@@ -2023,17 +2003,14 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
 
         let filePath: unknown;
         let targetLine: number | undefined;
-        let toolDiff: string | undefined;
         if (normalizedPartTool === 'edit' || normalizedPartTool === 'multiedit') {
             filePath = input?.filePath || input?.file_path || input?.path || metadata?.filePath || metadata?.file_path || metadata?.path;
             if (typeof filePath === 'string') {
-                toolDiff = getPrimaryDiffFromMetadata(normalizedPartTool, metadata, filePath);
                 targetLine = getFirstChangedLineFromMetadata(normalizedPartTool, metadata, filePath);
             }
         } else if (normalizedPartTool === 'apply_patch') {
             filePath = getPrimaryToolPath(normalizedPartTool, input, metadata);
             if (typeof filePath === 'string') {
-                toolDiff = getPrimaryDiffFromMetadata(normalizedPartTool, metadata, filePath);
                 targetLine = getFirstChangedLineFromMetadata(normalizedPartTool, metadata, filePath);
             }
         } else if (['write', 'create', 'file_write'].includes(normalizedPartTool)) {
@@ -2047,11 +2024,6 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
         if (typeof filePath === 'string') {
             e.stopPropagation();
             const absolutePath = toAbsoluteFilePath(currentDirectory, filePath);
-            if (runtime.runtime.isVSCode && toolDiff && (normalizedPartTool === 'edit' || normalizedPartTool === 'multiedit' || normalizedPartTool === 'apply_patch')) {
-                const label = `${getRelativePath(absolutePath, currentDirectory)} (changes)`;
-                void runtime.editor.openDiff('', absolutePath, label, { line: targetLine, patch: toolDiff });
-                return;
-            }
             runtime.editor.openFile(absolutePath, targetLine);
         } else {
             onToggle(part.id);

@@ -1,9 +1,7 @@
 import type { ChatMessageEntry, TurnProjectionResult } from './types';
-import { isVSCodeRuntime } from '@/lib/desktop';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 
 const TURN_PROJECTION_CACHE_MAX = 30;
-const VSCODE_TURN_PROJECTION_CACHE_MAX = 4;
 const MOBILE_TURN_PROJECTION_CACHE_MAX = 4;
 
 const projectionCache = new Map<string, TurnProjectionResult>();
@@ -11,7 +9,6 @@ const objectVersionByRef = new WeakMap<object, number>();
 let nextObjectVersion = 1;
 
 const getProjectionCacheMax = () => {
-  if (isVSCodeRuntime()) return VSCODE_TURN_PROJECTION_CACHE_MAX;
   if (isMobileSurfaceRuntime()) return MOBILE_TURN_PROJECTION_CACHE_MAX;
   return TURN_PROJECTION_CACHE_MAX;
 };

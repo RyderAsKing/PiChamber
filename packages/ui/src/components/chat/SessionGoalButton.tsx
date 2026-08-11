@@ -6,7 +6,6 @@ import { useSessionGoalArmStore } from '@/stores/useSessionGoalArmStore';
 import { SESSION_GOAL_OBJECTIVE_CHAR_LIMIT } from '@/lib/sessionGoalMetadata';
 import { sessionGoalStatusColor } from '@/lib/sessionGoalPresentation';
 import { SessionGoalDialog } from '@/components/chat/SessionGoalDialog';
-import { isVSCodeRuntime } from '@/lib/desktop';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
@@ -39,10 +38,10 @@ export const SessionGoalButton: React.FC<SessionGoalButtonProps> = React.memo(({
   const setArmed = useSessionGoalArmStore((state) => state.setArmed);
   const [dialogOpen, setDialogOpen] = React.useState(false);
 
-  // The goal loop runs in the web server; the VS Code extension only renders
-  // goal state. Arming a goal there would create one nothing drives, so the
-  // entry point is hidden entirely.
-  if (isVSCodeRuntime() || !enabled || (!sessionId && !draftOpen)) {
+  // The goal loop runs in the web server. Arming a goal on a surface that
+  // cannot drive it would create one nothing drives, so the entry point is
+  // hidden unless the runtime supports the loop.
+  if (!enabled || (!sessionId && !draftOpen)) {
     return null;
   }
 

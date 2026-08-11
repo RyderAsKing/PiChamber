@@ -567,22 +567,17 @@ export const startDesktopWindowDrag = async (): Promise<boolean> => {
   }
 };
 
-export const isVSCodeRuntime = (): boolean => {
-  const apis = getRegisteredRuntimeAPIs();
-  return apis?.runtime?.isVSCode === true;
-};
-
 export const isWebRuntime = (): boolean => {
   const apis = getRegisteredRuntimeAPIs();
   const platform = apis?.runtime?.platform;
   if (platform === 'web') {
     return true;
   }
-  if (platform === 'desktop' || platform === 'vscode') {
+  if (platform === 'desktop') {
     return false;
   }
-  // Default: anything that's not VSCode behaves like web (HTTP UI).
-  return !isVSCodeRuntime();
+  // Default: anything that's not a desktop shell behaves like web (HTTP UI).
+  return true;
 };
 
 /**

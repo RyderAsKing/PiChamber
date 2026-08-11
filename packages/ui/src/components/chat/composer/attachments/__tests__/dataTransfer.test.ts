@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
-    collectDroppedFileUris,
     collectDroppedFiles,
     hasDraggedFiles,
     INTERNAL_FILE_PATH_TYPE,
@@ -108,30 +107,5 @@ describe('collectDroppedFiles', () => {
     test('an empty or missing transfer yields nothing', () => {
         expect(collectDroppedFiles(fakeTransfer({}))).toEqual([]);
         expect(collectDroppedFiles(null)).toEqual([]);
-    });
-});
-
-describe('collectDroppedFileUris', () => {
-    test('reads paths out of a VS Code payload', () => {
-        expect(collectDroppedFileUris(fakeTransfer({
-            data: { 'text/uri-list': 'file:///repo/a.ts' },
-        }))).toEqual(['file:///repo/a.ts']);
-    });
-
-    test('the same path across several types is returned once', () => {
-        expect(collectDroppedFileUris(fakeTransfer({
-            data: { 'text/uri-list': '/repo/a.ts', 'text/plain': '/repo/a.ts' },
-        }))).toEqual(['/repo/a.ts']);
-    });
-
-    test('a payload with no paths yields nothing', () => {
-        expect(collectDroppedFileUris(fakeTransfer({
-            data: { 'text/plain': 'words' },
-        }))).toEqual([]);
-    });
-
-    test('a transfer without getData yields nothing', () => {
-        expect(collectDroppedFileUris({} as DataTransfer)).toEqual([]);
-        expect(collectDroppedFileUris(null)).toEqual([]);
     });
 });

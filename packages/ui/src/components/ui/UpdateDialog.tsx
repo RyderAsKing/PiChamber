@@ -28,7 +28,7 @@ interface UpdateDialogProps {
   onDownload: () => void;
   onRestart: () => void;
   /** Runtime type to show different UI for desktop vs web */
-  runtimeType?: 'desktop' | 'web' | 'vscode' | 'mobile' | null;
+  runtimeType?: 'desktop' | 'web' | 'mobile' | null;
 }
 
 const GITHUB_RELEASES_URL = 'https://github.com/RyderAsKing/PiChamber/releases';

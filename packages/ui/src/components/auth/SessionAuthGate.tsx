@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui';
-import { invokeDesktop, isDesktopShell, isVSCodeRuntime } from '@/lib/desktop';
+import { invokeDesktop, isDesktopShell } from '@/lib/desktop';
 import { syncDesktopSettings, initializeAppearancePreferences } from '@/lib/persistence';
 import { applyPersistedDirectoryPreferences } from '@/lib/directoryPersistence';
 import { DesktopHostSwitcherInline } from '@/components/desktop/DesktopHostSwitcher';
@@ -335,9 +335,8 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
   children,
 }) => {
   const { t } = useI18n();
-  const vscodeRuntime = React.useMemo(() => isVSCodeRuntime(), []);
-  const skipAuth = vscodeRuntime;
-  const showHostSwitcher = React.useMemo(() => isDesktopShell() && !vscodeRuntime, [vscodeRuntime]);
+  const skipAuth = false;
+  const showHostSwitcher = React.useMemo(() => isDesktopShell(), []);
   const [state, setState] = React.useState<GateState>(() => (skipAuth ? 'authenticated' : 'pending'));
   const [password, setPassword] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);

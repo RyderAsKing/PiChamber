@@ -4,7 +4,6 @@ import type { Session } from "@opencode-ai/sdk/v2/client";
 import { autoRespondsPermission, type PermissionAutoAcceptMap } from "./utils/permissionAutoAccept";
 import { getAllSyncSessionMap } from "@/sync/sync-refs";
 import { runtimeFetch } from "@/lib/runtime-fetch";
-import { isVSCodeRuntime } from "@/lib/desktop";
 import { createDeferredSafeJSONStorage } from "./utils/safeStorage";
 import { useSessionUIStore } from "@/sync/session-ui-store";
 import { opencodeClient } from "@/lib/opencode/client";
@@ -171,12 +170,6 @@ export const usePermissionStore = create<PermissionStore>()(persist((set, get) =
             if (!isCurrentOperation(operation)) return;
             if (snapshot.revision === undefined && operation.sequence !== latestStartedSequence) return;
             get().applySnapshot(snapshot, operation.runtimeKey);
-            if (isCurrentOperation(operation) && isVSCodeRuntime() && enabled) {
-                const { reconcileVSCodePendingPermissions } = await import("@/sync/vscode-permission-auto-accept");
-                if (isCurrentOperation(operation)) {
-                    void reconcileVSCodePendingPermissions(directory).catch(() => undefined);
-                }
-            }
         } finally {
             if (isCurrentOperation(operation)) {
                 pendingSavingOperations.delete(operation.sequence);

@@ -8,8 +8,7 @@ describe('browser client runtime', () => {
     expect(isBrowserClientRuntime('web', true)).toBe(false);
   });
 
-  test('keeps desktop and VS Code runtime behavior out of browser-only flows', () => {
+  test('keeps desktop runtime behavior out of browser-only flows', () => {
     expect(isBrowserClientRuntime('desktop', false)).toBe(false);
-    expect(isBrowserClientRuntime('vscode', false)).toBe(false);
   });
 });

@@ -72,13 +72,11 @@ const sessionState = (sessionId: string): AppRouteState => ({
 });
 
 describe('updateBrowserURL embedded-session-chat guard', () => {
-  test('is a no-op in the embedded session-chat iframe (mirrors isVSCodeContext)', () => {
+  test('is a no-op in the embedded session-chat iframe', () => {
     // The embedded iframe's URL identity (ocPanel/sessionId/directory/
     // readOnly) must never be rewritten. updateBrowserURL rebuilds the
     // query string from scratch using only session/tab/settings/file —
     // which would strip ocPanel and break isEmbeddedSessionChat().
-    // The guard prevents this, exactly like isVSCodeContext() does for
-    // VS Code webviews.
     const history = installWindow(
       'http://127.0.0.1:5173/app?ocPanel=session-chat&sessionId=ses_child&directory=%2Frepo&readOnly=1',
     );
@@ -100,11 +98,10 @@ describe('updateBrowserURL embedded-session-chat guard', () => {
 });
 
 describe('isEmbeddedSessionChat caching', () => {
-  test('caches the first result so URL rewrites cannot flip it (mirrors VS Code stable global)', () => {
-    // VS Code detects its webview via the stable `window.__VSCODE_CONFIG__`
-    // global — it never changes. The embedded iframe's identity is equally
-    // fixed at mount (the parent builds the src); caching the first read
-    // makes detection just as stable, surviving any URL rewrite.
+  test('caches the first result so URL rewrites cannot flip it', () => {
+    // The embedded iframe's identity is fixed at mount (the parent builds
+    // the src); caching the first read makes detection just as stable,
+    // surviving any URL rewrite.
     //
     // We need a fresh module cache for this test. Since the cache is
     // module-level, we test the invariant: once true, always true.

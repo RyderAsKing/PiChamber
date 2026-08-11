@@ -14,8 +14,8 @@ const canPostMessageToParentFrame = (win: { parent?: unknown } | undefined): boo
 
 describe('parent-frame postMessage guard (VS Code webview)', () => {
   test('rejects when parent was deleted (VS Code webview injector behavior)', () => {
-    const vscodeLikeWindow = { parent: undefined };
-    expect(canPostMessageToParentFrame(vscodeLikeWindow)).toBe(false);
+    const windowlessWindow = { parent: undefined };
+    expect(canPostMessageToParentFrame(windowlessWindow)).toBe(false);
   });
 
   test('rejects when parent is null', () => {
@@ -35,8 +35,8 @@ describe('parent-frame postMessage guard (VS Code webview)', () => {
   });
 
   test('old guard incorrectly allows deleted parent', () => {
-    const vscodeLikeWindow = { parent: undefined as unknown };
-    const oldGuardWouldSkip = vscodeLikeWindow.parent === vscodeLikeWindow;
-    expect(oldGuardWouldSkip).toBe(false);
+    const windowlessWindow = { parent: undefined as unknown };
+    const legacyGuardWouldSkip = windowlessWindow.parent === windowlessWindow;
+    expect(legacyGuardWouldSkip).toBe(false);
   });
 });

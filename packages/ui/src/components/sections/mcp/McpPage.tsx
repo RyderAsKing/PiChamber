@@ -5,7 +5,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { openExternalUrl } from '@/lib/url';
-import { isVSCodeRuntime } from '@/lib/desktop';
 import {
   useMcpConfigStore,
   envRecordToArray,
@@ -575,7 +574,6 @@ export const McpPage: React.FC = () => {
   })));
 
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
-  const isVSCodeAuthRuntime = React.useMemo(() => isVSCodeRuntime(), []);
   const mcpStatus = useMcpStore((state) => state.getStatusForDirectory(currentDirectory ?? null));
   const mcpDiagnostics = useMcpStore((state) => state.getDiagnosticForDirectory(currentDirectory ?? null));
   const refreshStatus = useMcpStore((state) => state.refresh);
@@ -1035,11 +1033,7 @@ export const McpPage: React.FC = () => {
       const { authorizationUrl: nextAuthUrl, opened } = await startMcpAuthorization({
         name: selectedMcpName,
         directory: currentDirectory,
-        // Only VS Code keeps OpenCode's own redirect. Skipping whenever some
-        // value was stored left a stale one — a dead loopback port from an
-        // earlier launch — unrepairable from this page; the bootstrap already
-        // rewrites nothing when the stored value is right.
-        skipRedirectUriBootstrap: isVSCodeAuthRuntime,
+        skipRedirectUriBootstrap: false,
       });
       const stateKey = parseMcpOAuthCallbackStateKey(new URL(nextAuthUrl).searchParams);
       queuedStateKey = stateKey;
@@ -1059,9 +1053,7 @@ export const McpPage: React.FC = () => {
 
       if (opened) {
         toast.message(
-          isVSCodeAuthRuntime
-            ? t('settings.mcp.page.toast.completeAuthorizationInBrowserWithPaste')
-            : t('settings.mcp.page.toast.completeAuthorizationInBrowser'),
+          t('settings.mcp.page.toast.completeAuthorizationInBrowser'),
         );
       } else {
         toast.error(t('settings.mcp.page.toast.openAuthorizationUrlFailed'));
@@ -1076,7 +1068,7 @@ export const McpPage: React.FC = () => {
         setIsAuthorizing(false);
       }
     }
-  }, [currentDirectory, isVSCodeAuthRuntime, mcpType, requireSavedConfig, runtimeActionKey, selectedMcpName, t, tUnsafe]);
+  }, [currentDirectory, mcpType, requireSavedConfig, runtimeActionKey, selectedMcpName, t, tUnsafe]);
 
   const handleClearAuthorization = React.useCallback(async () => {
     if (!selectedMcpName || !requireSavedConfig()) return;
@@ -1275,7 +1267,7 @@ export const McpPage: React.FC = () => {
   // second construction of it. The page used to suggest a directory-bearing
   // address while the flow sent a directory-less one, so a provider enforcing
   // exact redirect matching rejected a registration copied from right here.
-  const suggestedRedirectUri = isVSCodeAuthRuntime || !selectedMcpName
+  const suggestedRedirectUri = !selectedMcpName
     ? null
     : buildMcpAuthorizationRedirectUri(selectedMcpName);
 
@@ -1489,11 +1481,7 @@ export const McpPage: React.FC = () => {
                   </div>
                 )}
 
-                {/* VS Code only. Everywhere else the callback returns into the
-                    app on its own, so the paste box was a second, confusing way
-                    to do what already happened. VS Code cannot receive that
-                    redirect, so there it remains the only way to finish. */}
-                {isVSCodeAuthRuntime && mcpType === 'remote' && (needsAuthorization || isAuthPolling || authUrl) && (
+                {mcpType === 'remote' && (needsAuthorization || isAuthPolling || authUrl) && (
                   <div className="rounded-md border border-[var(--interactive-border)] bg-[var(--surface-background)] px-3 py-3">
                     <div className="space-y-2">
                       <div>

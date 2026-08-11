@@ -101,8 +101,8 @@ function routeMatchesURL(state: AppRouteState): boolean {
 
 /**
  * Update the browser URL using pushState or replaceState.
- * Does nothing if URL already matches, in VS Code context, or in the
- * embedded session-chat iframe (whose URL identity is fixed at mount).
+ * Does nothing if URL already matches, or in the embedded session-chat
+ * iframe (whose URL identity is fixed at mount).
  */
 export function updateBrowserURL(
   state: AppRouteState,
@@ -112,10 +112,10 @@ export function updateBrowserURL(
     return;
   }
 
-  // Both VS Code webviews and embedded session-chat iframes carry session
-  // identity outside the route params (`__VSCODE_CONFIG__` / `?ocPanel=…`).
-  // Rebuilding the URL here would strip those params, so skip entirely.
-  if (isVSCodeContext() || isEmbeddedSessionChat()) {
+  // Embedded session-chat iframes carry session identity outside the route
+  // params (`?ocPanel=…`). Rebuilding the URL here would strip those params,
+  // so skip entirely.
+  if (isEmbeddedSessionChat()) {
     return;
   }
 
@@ -136,17 +136,4 @@ export function updateBrowserURL(
   } catch {
     // Silently fail - URL updates are non-critical
   }
-}
-
-/**
- * Check if running in VS Code webview context.
- */
-function isVSCodeContext(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  // Check for VS Code config object
-  const win = window as { __VSCODE_CONFIG__?: unknown };
-  return win.__VSCODE_CONFIG__ !== undefined;
 }

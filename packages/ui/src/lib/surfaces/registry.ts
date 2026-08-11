@@ -195,7 +195,6 @@ export const sortContextSurfaces = (railOrder: readonly string[]): ContextSurfac
 type VisibleRailSurfacesOptions = {
   railOrder: readonly string[];
   planModeEnabled: boolean;
-  isVSCode: boolean;
   screenWidth: number;
   tabs: readonly { mode: ContextPanelMode }[];
 };
@@ -213,9 +212,8 @@ export const getVisibleContextRailSurfaces = (options: VisibleRailSurfacesOption
     if (surface.id === 'plan' && !options.planModeEnabled) {
       return false;
     }
-    // The walkthrough needs room for a stop list beside real code, and its
-    // diffs come from PiChamber's Git routes, which VS Code does not serve.
-    if (surface.id === 'walkthrough' && (options.isVSCode || options.screenWidth < WALKTHROUGH_MIN_WIDTH)) {
+    // The walkthrough needs room for a stop list beside real code.
+    if (surface.id === 'walkthrough' && options.screenWidth < WALKTHROUGH_MIN_WIDTH) {
       return false;
     }
     if (surface.availability === 'has-content') {

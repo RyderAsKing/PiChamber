@@ -50,7 +50,6 @@ import { useSync } from '@/sync/use-sync';
 import { usePlanDetection } from '@/hooks/usePlanDetection';
 import { useI18n } from '@/lib/i18n';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
-import { isVSCodeRuntime } from '@/lib/desktop';
 import { WorkStatusPanel } from './work-status/WorkStatusPanel';
 import { useWorkStatusVisibility } from './work-status/useWorkStatusVisibility';
 import { getEmbeddedSessionChatOriginSessionId } from '@/components/layout/contextPanelEmbeddedChat';
@@ -709,14 +708,13 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     }, [currentSessionId, sessionMessageLoadState.complete, sessionMessageLoadState.cursor, sessionMessageLoadState.status, sessionMessages.length]);
 
     const { isMobile } = useDeviceInfo();
-    const isVSCode = isVSCodeRuntime();
     const chatSurfaceMode = useChatSurfaceMode();
     const draftOpen = Boolean(newSessionDraft?.open);
     const initError = useGlobalSyncStore((s) => s.error);
     // Despite the historical name, this now covers mobile too: the mobile
     // composer enters the same fullscreen-input mode via its drag handle.
     const isDesktopExpandedInput = isExpandedInput;
-    const useCompactDraftLayout = isMobile || isVSCode || chatSurfaceMode === 'mini-chat';
+    const useCompactDraftLayout = isMobile || chatSurfaceMode === 'mini-chat';
     // Work-status panel: a borderless column to the right of the transcript.
     // It yields to the context panel and to a narrow chat; `rowRef` goes on the
     // row that holds both columns, so its width never depends on the panel's
@@ -724,14 +722,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     const { rowRef: workStatusRowRef, visible: workStatusVisible, fits: workStatusFits } = useWorkStatusVisibility({
         directory: effectiveSessionDirectory,
         isMobile,
-        isVSCode,
     });
     // Session view only. The draft branch returns its own layout before this
     // one, so the panel has no place there yet.
     // Surfaces that never host the panel skip it entirely; the rest keep it
     // mounted so its visibility can animate rather than snap.
     const workStatusPanelMountable = !isMobile
-        && !isVSCode
         && chatSurfaceMode !== 'mini-chat'
         && !isDesktopExpandedInput;
     const showWorkStatusPanel = workStatusPanelMountable && workStatusVisible;
@@ -919,7 +915,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     }, [navigation]);
     const canLoadEarlierPrompts = timelineController.historySignals.canLoadEarlier;
     const showPromptNavigator = !isMobile
-        && !isVSCode
         && !isDesktopExpandedInput
         && promptNavigatorEnabled
         && timelineController.turnIds.length >= 2;

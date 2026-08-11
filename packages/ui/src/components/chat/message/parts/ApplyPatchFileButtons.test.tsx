@@ -49,11 +49,11 @@ describe('ApplyPatchFileButtons', () => {
         expect(markup).toContain('aria-label="Open file diff: src/second.ts"');
     });
 
-    test('opens each clicked file with its own authoritative path, patch, and line', () => {
-        const openDiffCalls: Parameters<EditorAPI['openDiff']>[] = [];
+    test('opens each clicked file with its own authoritative path and line', () => {
+        const openFileCalls: Parameters<EditorAPI['openFile']>[] = [];
         const editor: EditorAPI = {
-            openDiff: async (...args) => { openDiffCalls.push(args); },
-            openFile: async () => undefined,
+            openDiff: async () => undefined,
+            openFile: async (...args) => { openFileCalls.push(args); },
         };
         let propagationStops = 0;
         const stopPropagation = () => { propagationStops += 1; };
@@ -62,13 +62,10 @@ describe('ApplyPatchFileButtons', () => {
             openDiffLabel: 'Open file diff',
             onFileClick: (file, event) => {
                 event.stopPropagation();
-                const targetPath = typeof file.relativePath === 'string' ? file.relativePath : '';
                 openApplyPatchFileInEditor({
                     currentDirectory: '/workspace/project',
-                    diffLabel: `${targetPath} (changes)`,
                     editor,
                     file,
-                    isVSCode: true,
                 });
             },
         }) as React.ReactElement<{ children: React.ReactNode }>;
@@ -80,15 +77,9 @@ describe('ApplyPatchFileButtons', () => {
         buttons[1]?.props.onClick({ stopPropagation });
 
         expect(propagationStops).toBe(2);
-        expect(openDiffCalls).toEqual([
-            ['', '/workspace/project/src/first.ts', 'src/first.ts (changes)', {
-                line: 4,
-                patch: files[0]?.patch,
-            }],
-            ['', '/workspace/project/src/second.ts', 'src/second.ts (changes)', {
-                line: 12,
-                patch: files[1]?.patch,
-            }],
+        expect(openFileCalls).toEqual([
+            ['/workspace/project/src/first.ts', 4],
+            ['/workspace/project/src/second.ts', 12],
         ]);
     });
 });

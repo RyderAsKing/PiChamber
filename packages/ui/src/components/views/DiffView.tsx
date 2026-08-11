@@ -38,7 +38,6 @@ import { findDiffScrollAnchor, getRestoredDiffScrollTop, type DiffScrollAnchor }
 import { useI18n } from '@/lib/i18n';
 import type { I18nKey } from '@/lib/i18n/store';
 import { fileDiffFromPatch } from '@/lib/diff/patchFileDiff';
-import { isVSCodeRuntime } from '@/lib/desktop';
 import { startReviewFlow } from '@/lib/reviewFlow';
 import { WALKTHROUGH_ACTION_CLASS } from '@/components/views/walkthrough/walkthroughAction';
 import { useWalkthroughStore } from '@/stores/useWalkthroughStore';
@@ -1009,10 +1008,10 @@ export const DiffView: React.FC<DiffViewProps> = ({
     const activeDiffStaged = forcedStaged ?? displayFileStaged;
 
     const isMobileLayout = isMobile || screenWidth <= 768;
-    const showReviewAction = Boolean(currentSessionId) && activeDiffScope !== 'turn' && !isMobileLayout && !isVSCodeRuntime();
-    // Same runtime and width rules as the rail surface: no point offering an
-    // entry point to a surface that cannot open here.
-    const showWalkthroughAction = activeDiffScope !== 'turn' && !isMobileLayout && !isVSCodeRuntime();
+    const showReviewAction = Boolean(currentSessionId) && activeDiffScope !== 'turn' && !isMobileLayout;
+    // Same width rules as the rail surface: no point offering an entry point
+    // to a surface that cannot open here.
+    const showWalkthroughAction = activeDiffScope !== 'turn' && !isMobileLayout;
     const showFileSidebar = !hideStackedFileSidebar && !isMobileLayout && screenWidth >= 1024;
     const diffScrollRef = React.useRef<HTMLElement | null>(null);
     const fileSectionRefs = React.useRef(new Map<string, HTMLDivElement | null>());

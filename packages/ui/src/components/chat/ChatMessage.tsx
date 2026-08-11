@@ -36,7 +36,6 @@ import { useI18n } from '@/lib/i18n';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { getContextObligatoryMessages } from '@/lib/contextObligatoryMessages';
 import { setContextObligatoryMessage } from '@/sync/session-actions';
-import { isVSCodeRuntime } from '@/lib/desktop';
 import { focusChatInput } from './composer/editor/dom';
 
 const ToolOutputDialog = lazyWithChunkRecovery(() => import('./message/ToolOutputDialog'));
@@ -160,7 +159,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     const { t } = useI18n();
     const { isMobile, isTablet, hasTouchInput } = useDeviceInfo();
     const alwaysShowMessageActions = isMobile || isTablet;
-    const canPinIntoContext = !isVSCodeRuntime();
+    const canPinIntoContext = true;
     const { currentTheme } = useThemeSystem();
     const messageContainerRef = React.useRef<HTMLDivElement | null>(null);
 

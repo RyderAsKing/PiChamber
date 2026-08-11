@@ -3,7 +3,6 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { ProviderResult, QuotaProviderId } from '@/types';
 import { QUOTA_PROVIDERS } from '@/lib/quota';
-import { isVSCodeRuntime } from '@/lib/desktop';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { getDefaultModels } from '@/lib/quota/model-families';
 import { updateDesktopSettings } from '@/lib/persistence';
@@ -113,15 +112,13 @@ const loadSettingsFromRuntime = async (): Promise<QuotaSettingsState> => {
     }
   }
 
-  if (!isVSCodeRuntime()) {
-    const response = await runtimeFetch('/api/config/settings', {
-      method: 'GET',
-      headers: { Accept: 'application/json' }
-    });
-    if (response.ok) {
-      const data = await response.json().catch(() => null);
-      return parseSettings(data as Record<string, unknown> | null);
-    }
+  const response = await runtimeFetch('/api/config/settings', {
+    method: 'GET',
+    headers: { Accept: 'application/json' }
+  });
+  if (response.ok) {
+    const data = await response.json().catch(() => null);
+    return parseSettings(data as Record<string, unknown> | null);
   }
 
   return {

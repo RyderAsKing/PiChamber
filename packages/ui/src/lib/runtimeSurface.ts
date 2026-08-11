@@ -1,4 +1,4 @@
-import { isDesktopShell, isVSCodeRuntime } from '@/lib/desktop';
+import { isDesktopShell } from '@/lib/desktop';
 import { isCapacitorApp } from '@/lib/platform';
 import { getStoredMobileLayoutPreference } from '@/lib/mobileLayoutPreference';
 
@@ -43,7 +43,7 @@ export const detectHostedSurface = (): HostedSurface => {
   }
 
   if (isCapacitorApp()) return 'mobile';
-  if (isDesktopShell() || isVSCodeRuntime()) return 'desktop';
+  if (isDesktopShell()) return 'desktop';
 
   const width = Math.min(
     window.innerWidth || Number.POSITIVE_INFINITY,

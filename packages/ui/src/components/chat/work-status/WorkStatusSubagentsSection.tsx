@@ -3,7 +3,6 @@ import { useI18n } from '@/lib/i18n';
 import { useAllLiveSessions, useAllSessionStatuses, useDirectorySync } from '@/sync/sync-context';
 import { useUIStore } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { isVSCodeRuntime } from '@/lib/desktop';
 import { isEmbeddedSessionChat } from '@/components/layout/contextPanelEmbeddedChat';
 import { WorkStatusCollapsibleSection, WorkStatusRow, WorkStatusValue } from './WorkStatusPrimitives';
 import { useReportWorkStatusPresence } from './presenceContext';
@@ -56,7 +55,7 @@ export const WorkStatusSubagentsSection: React.FC<Props> = ({ sessionId, directo
   // embedded panel navigate to the child session instead of opening a tab.
   const openChildSession = React.useCallback((childId: string, label: string) => {
     if (!directory) return;
-    if (isEmbeddedSessionChat() || isMobile || isVSCodeRuntime()) {
+    if (isEmbeddedSessionChat() || isMobile) {
       setCurrentSession(childId, directory);
       return;
     }

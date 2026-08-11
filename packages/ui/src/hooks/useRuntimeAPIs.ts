@@ -1,5 +1,5 @@
 import React from 'react';
-import type { RuntimeAPISelector, RuntimeAPIs } from '@/lib/api/types';
+import type { RuntimeAPIs } from '@/lib/api/types';
 import { RuntimeAPIContext } from '@/contexts/runtimeAPIContext';
 
 export const useRuntimeAPIs = (): RuntimeAPIs => {
@@ -9,10 +9,3 @@ export const useRuntimeAPIs = (): RuntimeAPIs => {
   }
   return apis;
 };
-
-const useRuntimeAPI = <TValue,>(selector: RuntimeAPISelector<TValue>): TValue => {
-  const apis = useRuntimeAPIs();
-  return selector(apis);
-};
-
-export const useIsVSCodeRuntime = (): boolean => useRuntimeAPI((api) => api.runtime.isVSCode);

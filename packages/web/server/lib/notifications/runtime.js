@@ -78,7 +78,7 @@ export const createNotificationTriggerRuntime = (deps) => {
   // payload) and native iOS APNs (generic model-based text). Both share the dedup tag and
   // `requireNoSse` focus gate; a failure in one channel must not block the other.
   const fanoutPush = (payload, options) => {
-    // Presence-aware routing: if any interactive (non-mobile) client — desktop/web/vscode — is
+    // Presence-aware routing: if any interactive (non-mobile) client — desktop/web — is
     // currently visible, it already shows the in-app notification, so skip the native push to the
     // phone. Gated on the desktop's visibility (reliable), never the phone's own. When we skip we
     // also skip toApnsGenericPayload, so the badge isn't incremented for an undelivered push.

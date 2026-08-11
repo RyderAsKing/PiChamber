@@ -37,7 +37,7 @@ function getPiChamberConfigDir() {
 }
 
 function sanitizeInstallScope(scope) {
-  if (scope === 'desktop-electron' || scope === 'vscode' || scope === 'web' || scope === 'mobile-capacitor') return scope;
+  if (scope === 'desktop-electron' || scope === 'web' || scope === 'mobile-capacitor') return scope;
   return 'web';
 }
 
@@ -73,7 +73,7 @@ function mapArch(value) {
 }
 
 function normalizeAppType(value) {
-  if (value === 'web' || value === 'desktop-electron' || value === 'vscode' || value === 'mobile-capacitor') return value;
+  if (value === 'web' || value === 'desktop-electron' || value === 'mobile-capacitor') return value;
   return 'web';
 }
 
@@ -128,7 +128,7 @@ async function checkForUpdatesFromApi(currentVersion, options = {}) {
     const appType = normalizeAppType(options.appType);
     const hostPlatform = mapPlatform(process.platform);
     const hostArch = mapArch(process.arch);
-    const shouldTrustClientPlatform = appType === 'desktop-electron' || appType === 'vscode' || appType === 'mobile-capacitor';
+    const shouldTrustClientPlatform = appType === 'desktop-electron' || appType === 'mobile-capacitor';
     const platform = shouldTrustClientPlatform ? normalizePlatform(options.platform) : hostPlatform;
     const arch = shouldTrustClientPlatform ? normalizeArch(options.arch) : hostArch;
     const reportUsage = options.reportUsage !== false;

@@ -8,7 +8,6 @@ import {
 import { useUIStore } from '@/stores/useUIStore';
 import { cn } from '@/lib/utils';
 import { updateDesktopSettings } from '@/lib/persistence';
-import { isVSCodeRuntime } from '@/lib/desktop';
 import {
   formatShortcutForDisplay,
   getCustomizableShortcutActions,
@@ -88,11 +87,7 @@ export const KeyboardShortcutsSettings: React.FC = () => {
   const resetAllShortcutOverrides = useUIStore((state) => state.resetAllShortcutOverrides);
 
   const actions = React.useMemo(() => {
-    const all = getCustomizableShortcutActions();
-    if (!isVSCodeRuntime()) {
-      return all;
-    }
-    return all.filter((action) => action.id !== 'toggle_prompt_navigator');
+    return getCustomizableShortcutActions();
   }, []);
   const actionLabel = React.useCallback((id: string, fallbackLabel: string): string => {
     const key = `settings.pichamber.keyboardShortcuts.action.${id}.label`;

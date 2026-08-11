@@ -37,7 +37,7 @@ import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import type { Session } from '@opencode-ai/sdk/v2';
 import { createWorktreeSession } from '@/lib/worktreeSessionCreator';
 import { formatShortcutForDisplay, getEffectiveShortcutCombo } from '@/lib/shortcuts';
-import { canUseElectronDesktopIPC, invokeDesktop, isDesktopShell, isVSCodeRuntime, isWebRuntime } from '@/lib/desktop';
+import { canUseElectronDesktopIPC, invokeDesktop, isDesktopShell, isWebRuntime } from '@/lib/desktop';
 import { SETTINGS_PAGE_METADATA, type SettingsRuntimeContext } from '@/lib/settings/metadata';
 
 const EMPTY_PINNED_SESSION_IDS = new Set<string>();
@@ -279,7 +279,7 @@ export const CommandPalette: React.FC = () => {
   // ---------------------------------------------------------------------------
   const settingsRuntimeCtx = React.useMemo<SettingsRuntimeContext>(() => {
     const isDesktop = isDesktopShell();
-    return { isVSCode: isVSCodeRuntime(), isWeb: !isDesktop && isWebRuntime(), isDesktop, isMobile };
+    return { isWeb: !isDesktop && isWebRuntime(), isDesktop, isMobile };
   }, [isMobile]);
 
   const settingsEntries = React.useMemo<CommandEntry[]>(() => {

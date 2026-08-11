@@ -21,7 +21,6 @@ import { DiffViewIcon } from '@/components/icons/DiffIcon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useDeviceInfo } from '@/lib/device';
-import { isVSCodeRuntime } from '@/lib/desktop';
 import { useI18n } from '@/lib/i18n';
 import {
   getVisibleContextRailSurfaces,
@@ -257,7 +256,6 @@ export const ContextPanelRail: React.FC = () => {
     return getVisibleContextRailSurfaces({
       railOrder: contextRailOrder,
       planModeEnabled,
-      isVSCode: isVSCodeRuntime(),
       screenWidth,
       tabs,
     });

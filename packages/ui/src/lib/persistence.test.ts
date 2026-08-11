@@ -90,10 +90,10 @@ const deferred = <T>() => {
 
 const registerSettingsApi = (
   save: (changes: Partial<SettingsPayload>) => Promise<SettingsPayload>,
-  load: () => Promise<{ settings: SettingsPayload; source: 'web' | 'vscode' }> = async () => ({ settings: {}, source: 'web' }),
+  load: () => Promise<{ settings: SettingsPayload; source: 'web' }> = async () => ({ settings: {}, source: 'web' }),
 ): void => {
   registerRuntimeAPIs({
-    runtime: { platform: 'web', isDesktop: false, isVSCode: false },
+    runtime: { platform: 'web', isDesktop: false },
     settings: {
       load,
       save,
@@ -288,7 +288,7 @@ describe('updateDesktopSettings', () => {
   });
 
   test('rejects stale loads by generation across an A to B to A switch', async () => {
-    const originalLoad = deferred<{ settings: SettingsPayload; source: 'web' | 'vscode' }>();
+    const originalLoad = deferred<{ settings: SettingsPayload; source: 'web' }>();
     switchRuntimeEndpoint({ apiBaseUrl: 'https://load-a.example', runtimeKey: 'load-a' });
     registerSettingsApi(async () => ({}), () => originalLoad.promise);
     const firstSync = syncDesktopSettings();

@@ -8,7 +8,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Icon } from "@/components/icon/Icon";
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { isVSCodeRuntime } from '@/lib/desktop';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
 
@@ -22,7 +21,6 @@ export const SettingsProjectSelector: React.FC<{ className?: string }> = ({ clas
   const activeProjectId = useProjectsStore((state) => state.activeProjectId);
   const setActiveProject = useProjectsStore((state) => state.setActiveProject);
 
-  const isVSCode = React.useMemo(() => isVSCodeRuntime(), []);
 
   const sortedProjects = React.useMemo(() => {
     return [...projects].sort((a, b) => (a.label || a.path).localeCompare(b.label || b.path));
@@ -35,7 +33,7 @@ export const SettingsProjectSelector: React.FC<{ className?: string }> = ({ clas
     return sortedProjects.find((p) => p.id === activeProjectId) ?? sortedProjects[0];
   }, [activeProjectId, sortedProjects]);
 
-  if (isVSCode || sortedProjects.length === 0) {
+  if (sortedProjects.length === 0) {
     return null;
   }
 

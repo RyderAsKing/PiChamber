@@ -12,7 +12,6 @@ import {
   getSessionPrefetch,
   setSessionPrefetch,
 } from "./session-prefetch-cache"
-import { isVSCodeRuntime } from "@/lib/desktop"
 import { isMobileSurfaceRuntime } from "@/lib/runtimeSurface"
 import { normalizePath } from "@/lib/pathNormalization"
 import { startSessionLoadPerformanceEvent } from "./session-load-performance"
@@ -71,7 +70,7 @@ type LoaderConfiguration = {
   runtimeKey: string
 }
 
-const isConstrainedRuntime = () => isVSCodeRuntime() || isMobileSurfaceRuntime()
+const isConstrainedRuntime = () => isMobileSurfaceRuntime()
 const getInitialPageSize = () => isConstrainedRuntime()
   ? CONSTRAINED_INITIAL_MESSAGE_PAGE_SIZE
   : INITIAL_MESSAGE_PAGE_SIZE

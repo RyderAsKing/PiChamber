@@ -25,7 +25,6 @@ export const WORK_STATUS_REQUIRED_ROW_WIDTH =
 type Options = {
   directory: string | null | undefined;
   isMobile: boolean;
-  isVSCode: boolean;
 };
 
 type Result = {
@@ -52,7 +51,7 @@ type Result = {
  * panel, oscillating forever. The row width is independent of the panel, so it
  * is the only stable input.
  */
-export const useWorkStatusVisibility = ({ directory, isMobile, isVSCode }: Options): Result => {
+export const useWorkStatusVisibility = ({ directory, isMobile }: Options): Result => {
   const [rowNode, setRowNode] = React.useState<HTMLDivElement | null>(null);
   const [rowWidth, setRowWidth] = React.useState<number | null>(null);
   const rowRef = React.useCallback((node: HTMLDivElement | null) => { setRowNode(node); }, []);
@@ -81,7 +80,7 @@ export const useWorkStatusVisibility = ({ directory, isMobile, isVSCode }: Optio
 
   // Split from the switch: a narrow chat is a layout fact, and the header needs
   // it to offer the panel as an overlay instead of pretending it is off.
-  const layoutAllows = !isMobile && !isVSCode && !contextPanelOpen;
+  const layoutAllows = !isMobile && !contextPanelOpen;
 
   // Measures the chat AREA — the container holding the chat and the context
   // panel together — not the chat row inside it.

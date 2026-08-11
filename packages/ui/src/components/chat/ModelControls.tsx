@@ -18,7 +18,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Icon } from "@/components/icon/Icon";
 import type { IconName } from "@/components/icon/icons";
 import { ModelPickerList, type ModelPickerEntry, type ModelPickerProvider } from '@/components/model-picker/ModelPickerList';
-import { useIsVSCodeRuntime } from '@/hooks/useRuntimeAPIs';
 import { isDesktopShell } from '@/lib/desktop';
 import { getAgentColor } from '@/lib/agentColors';
 import { useDeviceInfo } from '@/lib/device';
@@ -401,8 +400,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const uiIsMobile = useUIStore((state) => state.isMobile);
     const isMobile = deviceIsMobile || uiIsMobile;
     const isDesktop = React.useMemo(() => isDesktopShell(), []);
-    const isVSCodeRuntime = useIsVSCodeRuntime();
-    // Only use mobile panels on actual mobile devices, VSCode uses desktop dropdowns
+    // Only use mobile panels on actual mobile devices; desktop surfaces use dropdowns.
     const isCompact = isMobile;
     const [localMobilePanel, setLocalMobilePanel] = React.useState<MobileControlsPanel>(null);
     const usingExternalMobilePanel = mobilePanel !== undefined && typeof onMobilePanelChange === 'function';
@@ -532,11 +530,11 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         return getCurrentAgent?.();
     }, [agents, getCurrentAgent, uiAgentName]);
 
-    const sizeVariant: 'mobile' | 'vscode' | 'default' = isMobile ? 'mobile' : isVSCodeRuntime ? 'vscode' : 'default';
-    const buttonHeight = sizeVariant === 'mobile' ? 'h-9' : sizeVariant === 'vscode' ? 'h-6' : 'h-8';
-    const controlIconSize = sizeVariant === 'mobile' ? 'size-5' : sizeVariant === 'vscode' ? 'size-4' : 'size-4';
+    const sizeVariant: 'mobile' | 'default' = isMobile ? 'mobile' : 'default';
+    const buttonHeight = sizeVariant === 'mobile' ? 'h-9' : 'h-8';
+    const controlIconSize = 'size-4';
     const controlTextSize = isCompact ? 'typography-micro' : 'typography-meta';
-    const inlineGapClass = sizeVariant === 'mobile' ? 'gap-x-1' : sizeVariant === 'vscode' ? 'gap-x-2' : 'gap-x-3';
+    const inlineGapClass = sizeVariant === 'mobile' ? 'gap-x-1' : 'gap-x-3';
 
     const currentProvider = getCurrentProvider();
     const models = Array.isArray(currentProvider?.models) ? currentProvider.models : [];

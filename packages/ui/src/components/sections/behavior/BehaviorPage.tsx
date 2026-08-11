@@ -4,7 +4,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui';
 import { useI18n, type I18nKey } from '@/lib/i18n';
 import { reportSettingsSaveState } from '@/lib/persistence';
-import { useIsVSCodeRuntime } from '@/hooks/useRuntimeAPIs';
 import {
   Select,
   SelectContent,
@@ -102,7 +101,6 @@ const saveBehaviorSetting = async (settings: Partial<DesktopSettings>, fallbackE
 
 export const BehaviorPage: React.FC = () => {
   const { t } = useI18n();
-  const isVSCode = useIsVSCodeRuntime();
   const [prompt, setPrompt] = React.useState('');
   const [optimizeSystemPrompt, setOptimizeSystemPrompt] = React.useState(false);
   const [responseStyleEnabled, setResponseStyleEnabled] = React.useState(DEFAULT_BEHAVIOR_SETTINGS.responseStyleEnabled);
@@ -289,13 +287,12 @@ export const BehaviorPage: React.FC = () => {
       description={t('settings.page.behavior.description')}
       showSaveStatus
     >
-      {!isVSCode && (
-        <SettingsSection
-          title={t('settings.behavior.page.section.systemPromptOptimization')}
-          divider={false}
-          settingsItem="behavior.system-prompt-optimization"
-          contentClassName="space-y-3"
-        >
+      <SettingsSection
+        title={t('settings.behavior.page.section.systemPromptOptimization')}
+        divider={false}
+        settingsItem="behavior.system-prompt-optimization"
+        contentClassName="space-y-3"
+      >
           <SettingsCheckboxRow
             checked={optimizeSystemPrompt}
             onChange={setOptimizeSystemPrompt}
@@ -315,8 +312,8 @@ export const BehaviorPage: React.FC = () => {
               ? t('settings.common.actions.saving')
               : t('settings.common.actions.saveChanges')}
           </Button>
-        </SettingsSection>
-      )}
+      </SettingsSection>
+
 
       <SettingsSection
         title={t('settings.behavior.page.section.systemPrompt')}

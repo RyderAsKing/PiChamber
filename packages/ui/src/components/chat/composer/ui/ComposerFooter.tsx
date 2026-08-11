@@ -29,7 +29,6 @@ const MemoComposerDictation = React.memo(ComposerDictation);
 
 export interface ComposerFooterProps {
     isMobile: boolean;
-    isVSCode: boolean;
     sessionId: string | null;
     directory?: string;
     newSessionDraftOpen: boolean;
@@ -71,7 +70,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
     const { t } = useI18n();
     const {
         isMobile,
-        isVSCode,
         sessionId: currentSessionId,
         directory,
         newSessionDraftOpen,
@@ -124,7 +122,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
                     <div className="flex w-full items-center justify-between gap-x-1.5">
                         <div className="composer-mobile-actions flex items-center gap-x-2 pl-1">
                             <ComposerAttachmentControls
-                                isVSCode={isVSCode}
                                 footerIconButtonClass={footerIconButtonClass}
                                 iconSizeClass={iconSizeClass}
                                 handlePickLocalFiles={onPickLocalFiles}
@@ -193,7 +190,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
                 <>
                     <div className={cn("flex items-center flex-shrink-0", footerGapClass)}>
                         <ComposerAttachmentControls
-                            isVSCode={isVSCode}
                             footerIconButtonClass={footerIconButtonClass}
                             iconSizeClass={iconSizeClass}
                             handlePickLocalFiles={onPickLocalFiles}

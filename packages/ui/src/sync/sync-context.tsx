@@ -6,7 +6,6 @@ import type { StoreApi } from "zustand"
 import { useStore } from "zustand"
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { createEventPipeline } from "./event-pipeline"
-import { isVSCodeRuntime } from "@/lib/desktop"
 import { isMobileSurfaceRuntime } from "@/lib/runtimeSurface"
 import { reduceGlobalEvent, applyGlobalProject, applyDirectoryEvent, type SessionMaterializationReason } from "./event-reducer"
 import { useGlobalSyncStore } from "./global-sync-store"
@@ -42,10 +41,6 @@ import { syncDebug } from "./debug"
 import { getReconnectCandidateSessionIds, mergeBootstrapSessions } from "./reconnect-recovery"
 import { opencodeClient } from "@/lib/opencode/client"
 import { usePermissionStore } from "@/stores/permissionStore"
-import {
-  processVSCodePermissionAutoAccept,
-  processVSCodeReconciledPermissionAutoAccept,
-} from "./vscode-permission-auto-accept"
 import { useConfigStore } from "@/stores/useConfigStore"
 import { useTodosPersistStore } from "@/stores/useTodosPersistStore"
 import { cleanupPersistedSessionState } from "./session-deletion-cleanup"
@@ -409,17 +404,6 @@ function pruneExternallyViewedSessions(now = Date.now()) {
 }
 const pendingQuestionToastIds = new Set<string>()
 const pendingPermissionToastIds = new Set<string>()
-const pendingVSCodePermissionEvents = new Map<string, symbol>()
-
-const getVSCodePermissionEventKey = (
-  runtimeKey: string,
-  directory: string,
-  sessionID?: string,
-  requestID?: string,
-): string | null => {
-  const requestKey = getPermissionToastKey(sessionID, requestID)
-  return requestKey ? JSON.stringify([runtimeKey, directory, requestKey]) : null
-}
 
 const getQuestionToastKey = (sessionID?: string, requestID?: string) => {
   if (!sessionID || !requestID) return null
@@ -687,15 +671,6 @@ type EventRoutingIndex = {
   sessionDirectoryById: Map<string, string>
   messageSessionById: Map<string, string>
   sessionMessageIdsById: Map<string, Set<string>>
-}
-
-const SHOULD_DISPATCH_VSCODE_NOTIFICATIONS = isVSCodeRuntime()
-
-const dispatchVSCodeRuntimeNotificationEvent = (directory: string, payload: Event) => {
-  if (!SHOULD_DISPATCH_VSCODE_NOTIFICATIONS || typeof window === "undefined") return
-  window.dispatchEvent(new CustomEvent("openchamber:vscode-notification-event", {
-    detail: { directory, payload },
-  }))
 }
 
 export const createEventRoutingIndex = (): EventRoutingIndex => ({
@@ -1277,26 +1252,6 @@ export async function resyncBlockingRequestsForDirectory(
       grouped[sessionId].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     }
 
-    if (isVSCodeRuntime()) {
-      const acceptedIdsBySession = new Map<string, Set<string>>()
-      await Promise.all(Object.entries(grouped).flatMap(([sessionId, permissions]) =>
-        permissions.map(async (permission) => {
-          if (!(await processVSCodeReconciledPermissionAutoAccept(permission, directory))) return
-          const accepted = acceptedIdsBySession.get(sessionId) ?? new Set<string>()
-          accepted.add(permission.id)
-          acceptedIdsBySession.set(sessionId, accepted)
-        }),
-      ))
-
-      for (const sessionId of Object.keys(grouped)) {
-        const acceptedIds = acceptedIdsBySession.get(sessionId)
-        if (!acceptedIds) continue
-        const remaining = (grouped[sessionId] ?? []).filter((permission) => !acceptedIds.has(permission.id))
-        if (remaining.length > 0) grouped[sessionId] = remaining
-        else delete grouped[sessionId]
-      }
-    }
-
     for (const [sessionId, permissions] of Object.entries(grouped)) {
       const knownIds = new Set((before.permission[sessionId] ?? []).map((item) => item.id))
       const isViewed = isViewedInCurrentSession(directory, sessionId)
@@ -1415,7 +1370,6 @@ export function handleEvent(
   childStores: ChildStoreManager,
   routingIndex: EventRoutingIndex,
   expectedRuntimeKey: string,
-  skipVSCodeAutoAccept = false,
   streamingDirectory?: string,
   batch?: DirectoryEventBatch,
 ) {
@@ -1525,24 +1479,7 @@ export function handleEvent(
 
   if (payload.type === "permission.asked") {
     const permission = payload.properties as PermissionRequest
-    if (isVSCodeRuntime() && !skipVSCodeAutoAccept) {
-      const eventKey = getVSCodePermissionEventKey(expectedRuntimeKey, resolvedDirectory, permission.sessionID, permission.id)
-      const eventToken = Symbol(eventKey ?? permission.id)
-      if (eventKey) pendingVSCodePermissionEvents.set(eventKey, eventToken)
-      updateRoutingIndexFromEvent(routingIndex, resolvedDirectory, payload)
-      const completePermissionCheck = (accepted: boolean) => {
-        if (eventKey && pendingVSCodePermissionEvents.get(eventKey) !== eventToken) return
-        if (eventKey) pendingVSCodePermissionEvents.delete(eventKey)
-        if (expectedRuntimeKey !== getRuntimeKey()) return
-        if (!accepted) handleEvent(rawDirectory, payload, childStores, routingIndex, expectedRuntimeKey, true, streamingDirectory)
-      }
-      void processVSCodePermissionAutoAccept(permission, resolvedDirectory).then(
-        completePermissionCheck,
-        () => completePermissionCheck(false),
-      )
-      return
-    }
-    if (!isVSCodeRuntime() && usePermissionStore.getState().isSessionAutoAccepting(permission.sessionID)) {
+    if (usePermissionStore.getState().isSessionAutoAccepting(permission.sessionID)) {
       updateRoutingIndexFromEvent(routingIndex, resolvedDirectory, payload)
       return
     }
@@ -1561,8 +1498,6 @@ export function handleEvent(
   if (payload.type === "permission.replied") {
     const props = payload.properties as { sessionID?: string; requestID?: string }
     const toastKey = getPermissionToastKey(props.sessionID, props.requestID)
-    const eventKey = getVSCodePermissionEventKey(expectedRuntimeKey, resolvedDirectory, props.sessionID, props.requestID)
-    if (eventKey) pendingVSCodePermissionEvents.delete(eventKey)
     if (toastKey) {
       pendingPermissionToastIds.delete(toastKey)
       toast.dismiss(`permission-${toastKey}`)
@@ -2005,7 +1940,7 @@ export function SyncProvider(props: {
         const store = childStores.getChild(directory)
         if (!store || !context.isCurrent()) return
 
-        const runBootstrap = async (attempt: number): Promise<"complete" | "failed" | "stale"> => {
+        const runBootstrap = async (): Promise<"complete" | "failed" | "stale"> => {
           if (!context.isCurrent()) return "stale"
           const globalState = useGlobalSyncStore.getState()
           const result = await bootstrapDirectory({
@@ -2073,33 +2008,10 @@ export function SyncProvider(props: {
             }),
           })
           if (result !== "complete" || !context.isCurrent()) return result
-
-          // VS Code-only race: the bridge can answer with an empty 200 (instead
-          // of a retryable 503) while OpenCode is still warming up, which the two
-          // retry layers inside loadSessions can't catch. Re-run a few times there.
-          //
-          // On web/desktop this retry is both redundant and harmful: loadSessions
-          // already retries transient failures (listGlobalSessionPages throws on
-          // 5xx and retries internally), so an empty result here is AUTHORITATIVE —
-          // the directory genuinely has no sessions (e.g. a deleted worktree only
-          // referenced by archived sessions). Re-running the full bootstrap 6×2s
-          // per such directory is the startup log storm.
-          if (isVSCodeRuntime() && context.isCurrent()) {
-            const state = store.getState()
-            if (state.session.length === 0 && attempt < 5) {
-              console.warn(`[bootstrap] sessions empty for ${directory} after attempt ${attempt + 1}; retrying in 2s`)
-              await new Promise((r) => setTimeout(r, 2000))
-              if (!context.isCurrent()) return "stale"
-              store.setState({ status: "loading" as const })
-              return runBootstrap(attempt + 1)
-            } else if (state.session.length === 0) {
-              console.warn(`[bootstrap] sessions empty for ${directory} after ${attempt + 1} attempts; giving up`)
-            }
-          }
           return "complete"
         }
 
-        const result = await runBootstrap(0)
+        const result = await runBootstrap()
         if (result === "failed") {
           // OpenCode can mask the underlying errno while initializing an
           // inaccessible workspace. Probe the exact directory through the
@@ -2184,7 +2096,6 @@ export function SyncProvider(props: {
         const batch = createDirectoryEventBatch()
         try {
           for (const payload of payloads) {
-            dispatchVSCodeRuntimeNotificationEvent(directory, payload)
             if (payload.type === "installation.update-available") {
               const version = typeof (payload.properties as { version?: unknown })?.version === "string"
                 ? (payload.properties as { version: string }).version
@@ -2193,7 +2104,7 @@ export function SyncProvider(props: {
                 dispatchOpenCodeUpdateAvailable({ version })
               }
             }
-            handleEvent(directory, payload, childStores, routingIndex, runtimeKey, false, currentDirectoryRef.current, batch)
+            handleEvent(directory, payload, childStores, routingIndex, runtimeKey, currentDirectoryRef.current, batch)
           }
         } finally {
           publishDirectoryEventBatch(batch)
@@ -2804,8 +2715,6 @@ type SessionMessageRecordsSnapshot = {
 }
 
 const SESSION_MESSAGE_RECORDS_CACHE_MAX = 40
-const VSCODE_SESSION_MESSAGE_RECORDS_CACHE_MAX = 4
-const VSCODE_SESSION_MESSAGE_RECORDS_CACHE_MAX_MESSAGES = 30
 const MOBILE_SESSION_MESSAGE_RECORDS_CACHE_MAX = 4
 const MOBILE_SESSION_MESSAGE_RECORDS_CACHE_MAX_MESSAGES = 30
 const sessionMessageRecordsCache = new WeakMap<StoreApi<DirectoryStore>, Map<string, SessionMessageRecordsSnapshot>>()
@@ -2854,22 +2763,18 @@ const rememberSessionMessageRecordsSnapshot = (
     snapshot.suspendPartUpdates,
     snapshot.suspendedPartUpdatesMessageID,
   )
-  const constrainedMaxMessages = isVSCodeRuntime()
-    ? VSCODE_SESSION_MESSAGE_RECORDS_CACHE_MAX_MESSAGES
-    : isMobileSurfaceRuntime()
-      ? MOBILE_SESSION_MESSAGE_RECORDS_CACHE_MAX_MESSAGES
-      : null
+  const constrainedMaxMessages = isMobileSurfaceRuntime()
+    ? MOBILE_SESSION_MESSAGE_RECORDS_CACHE_MAX_MESSAGES
+    : null
   if (constrainedMaxMessages !== null && snapshot.list.length > constrainedMaxMessages) {
     cache.delete(key)
     return
   }
   cache.delete(key)
   cache.set(key, snapshot)
-  const max = isVSCodeRuntime()
-    ? VSCODE_SESSION_MESSAGE_RECORDS_CACHE_MAX
-    : isMobileSurfaceRuntime()
-      ? MOBILE_SESSION_MESSAGE_RECORDS_CACHE_MAX
-      : SESSION_MESSAGE_RECORDS_CACHE_MAX
+  const max = isMobileSurfaceRuntime()
+    ? MOBILE_SESSION_MESSAGE_RECORDS_CACHE_MAX
+    : SESSION_MESSAGE_RECORDS_CACHE_MAX
   while (cache.size > max) {
     const oldest = cache.keys().next().value
     if (typeof oldest !== "string") break

@@ -16,7 +16,6 @@ import { useAgentsStore } from '@/stores/useAgentsStore';
 import { isPrimaryMode } from '@/components/chat/mobileControlsUtils';
 import { EXECUTION_FORK_DEFAULT_INSTRUCTIONS, EXECUTION_FORK_GOAL_INSTRUCTIONS } from '@/lib/messages/executionMeta';
 import { useI18n } from '@/lib/i18n';
-import { isVSCodeRuntime } from '@/lib/desktop';
 
 export type ForkSessionExecution = {
   providerID: string;
@@ -56,9 +55,9 @@ export function ForkSessionDialog(props: ForkSessionDialogProps) {
   const [instructions, setInstructions] = React.useState(EXECUTION_FORK_DEFAULT_INSTRUCTIONS);
   const [createWorktree, setCreateWorktree] = React.useState(false);
   const [runAsGoal, setRunAsGoal] = React.useState(false);
-  const showCreateWorktree = React.useMemo(() => !isVSCodeRuntime(), []);
+  const showCreateWorktree = true;
   // The goal loop lives in the web server; VS Code only renders goal state.
-  const showRunAsGoal = React.useMemo(() => !isVSCodeRuntime(), []);
+  const showRunAsGoal = true;
 
   // Toggling goal mode swaps the prefilled instructions between the
   // report-back default and the assertive execute-to-completion variant —

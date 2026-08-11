@@ -78,7 +78,7 @@ In 2025/2026 MiniMax rebranded "Coding Plan" to "Token Plan" alongside the M3 mo
 - The weekly `usage` block returns `used` (consumed) with no `remaining` field.
 - Each `limits[].detail` rate-limit block returns `remaining` (available) with no `used` field.
 
-The provider computes `usedPercent` from whichever of `used`/`remaining` is present (`used` takes precedence when both exist) rather than assuming one field name. Both `packages/web/server/lib/quota/providers/kimi.js` and `packages/vscode/src/quotaProviders.ts` (`fetchKimiQuota`) must stay in sync — the VS Code extension duplicates this parsing logic rather than importing it.
+The provider computes `usedPercent` from whichever of `used`/`remaining` is present (`used` takes precedence when both exist) rather than assuming one field name.
 
 ## Notes for contributors
 - Keep provider IDs stable; clients use them directly.

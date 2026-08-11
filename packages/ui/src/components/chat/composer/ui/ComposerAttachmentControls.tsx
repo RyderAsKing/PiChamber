@@ -20,7 +20,6 @@ import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 type ComposerAttachmentControlsProps = {
-    isVSCode: boolean;
     footerIconButtonClass: string;
     iconSizeClass: string;
     handlePickLocalFiles: () => void;
@@ -35,7 +34,6 @@ type ComposerAttachmentControlsProps = {
 export const ComposerAttachmentControls = React.memo(function ComposerAttachmentControls(props: ComposerAttachmentControlsProps) {
     const { t } = useI18n();
     const {
-        isVSCode,
         footerIconButtonClass,
         iconSizeClass,
         handlePickLocalFiles,
@@ -66,16 +64,6 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                         aria-label={t('chat.chatInput.actions.addAttachment')}
                     >
                         <Icon name="add-circle" className={cn(iconSizeClass, 'text-current')} />
-                    </button>
-                ) : isVSCode ? (
-                    <button
-                        type="button"
-                        className={footerIconButtonClass}
-                        onClick={handlePickLocalFiles}
-                        title={t('chat.chatInput.actions.attachFiles')}
-                        aria-label={t('chat.chatInput.actions.attachFiles')}
-                    >
-                        <Icon name="attachment-2" className={cn(iconSizeClass, 'text-current')} />
                     </button>
                 ) : (
                     <DropdownMenu onOpenChange={props.onMenuOpenChange}>
@@ -133,8 +121,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
         </div>
     );
 }, (prev, next) => (
-    prev.isVSCode === next.isVSCode
-    && prev.footerIconButtonClass === next.footerIconButtonClass
+    prev.footerIconButtonClass === next.footerIconButtonClass
     && prev.iconSizeClass === next.iconSizeClass
     && prev.onOpenSettings === next.onOpenSettings
     && prev.onMenuOpenChange === next.onMenuOpenChange

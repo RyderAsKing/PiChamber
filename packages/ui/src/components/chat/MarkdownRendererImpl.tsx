@@ -15,7 +15,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import type { EditorAPI } from '@/lib/api/types';
-import { isDesktopLocalOriginActive, isDesktopShell, isVSCodeRuntime } from '@/lib/desktop';
+import { isDesktopLocalOriginActive, isDesktopShell } from '@/lib/desktop';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import { ensureOutsideFileGrantForDesktop } from '@/lib/outsideFileGrants';
 import { getDirectoryForFilePath, isFilePathWithinDirectory, toAbsoluteFilePath } from '@/lib/path-utils';
@@ -152,20 +152,18 @@ const CODE_BLOCK_PATH_SCANNED_ATTR = 'data-openchamber-block-paths-scanned';
 const MAX_BLOCK_CODE_SCAN_LENGTH = 200_000;
 const FILE_REFERENCE_STAT_CONCURRENCY = 4;
 const FILE_REFERENCE_STAT_CACHE_MAX = 1000;
-const VSCODE_FILE_REFERENCE_STAT_CACHE_MAX = 200;
 const FILE_REFERENCE_LINK_LIMIT = 80;
-const VSCODE_FILE_REFERENCE_LINK_LIMIT = 40;
 const FILE_REFERENCE_ANNOTATION_DELAY_MS = 160;
 const FILE_REFERENCE_STAT_CACHE = new Map<string, Promise<boolean>>();
 let activeFileReferenceStatCount = 0;
 const pendingFileReferenceStats: Array<() => void> = [];
 
 const getFileReferenceStatCacheMax = (): number => (
-  isVSCodeRuntime() ? VSCODE_FILE_REFERENCE_STAT_CACHE_MAX : FILE_REFERENCE_STAT_CACHE_MAX
+  FILE_REFERENCE_STAT_CACHE_MAX
 );
 
 const getFileReferenceLinkLimit = (): number => (
-  isVSCodeRuntime() ? VSCODE_FILE_REFERENCE_LINK_LIMIT : FILE_REFERENCE_LINK_LIMIT
+  FILE_REFERENCE_LINK_LIMIT
 );
 
 const KNOWN_FILE_BASENAMES = new Set([
@@ -1004,7 +1002,7 @@ const MarkdownRendererImpl: React.FC<MarkdownRendererProps> = ({
   if (isStreaming) streamPerfCount('ui.markdown_renderer.render.streaming');
   streamPerfObserve('ui.markdown_renderer.content_len', content.length);
   const currentTheme = useCurrentMermaidTheme();
-  const { editor, runtime } = useRuntimeAPIs();
+  const { editor } = useRuntimeAPIs();
   const containerRef = React.useRef<HTMLDivElement>(null);
   const effectiveDirectory = useEffectiveDirectory() ?? '';
   const openContextPreview = useUIStore((state) => state.openContextPreview);
@@ -1026,7 +1024,7 @@ const MarkdownRendererImpl: React.FC<MarkdownRendererProps> = ({
     containerRef,
     effectiveDirectory,
     editor,
-    preferRuntimeEditor: runtime.isVSCode,
+    preferRuntimeEditor: false,
     enabled: enableFileReferences && !isStreaming,
   });
   useExternalLinkInteractions({ containerRef });
@@ -1089,7 +1087,7 @@ const SimpleMarkdownRendererImpl: React.FC<{
   allowMermaidWheelEvents = false,
   enableFileReferences = true,
 }) => {
-  const { editor, runtime } = useRuntimeAPIs();
+  const { editor } = useRuntimeAPIs();
   const currentTheme = useCurrentMermaidTheme();
   const containerRef = React.useRef<HTMLDivElement>(null);
   const effectiveDirectory = useEffectiveDirectory() ?? '';
@@ -1110,7 +1108,7 @@ const SimpleMarkdownRendererImpl: React.FC<{
     containerRef,
     effectiveDirectory,
     editor,
-    preferRuntimeEditor: runtime.isVSCode,
+    preferRuntimeEditor: false,
     enabled: enableFileReferences,
   });
   useExternalLinkInteractions({ containerRef, enabled: !disableLinkSafety });

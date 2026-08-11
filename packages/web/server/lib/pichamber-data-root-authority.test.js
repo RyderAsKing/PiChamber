@@ -9,10 +9,6 @@ import {
   resolvePiChamberDataPath,
 } from './pichamber-data-dir.js';
 
-import {
-  resolvePiChamberDataDir as resolveVsCodeDataDir,
-} from '../../../vscode/src/pichamberDataDir.ts';
-
 const withTempDir = (label, fn) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `pichamber-${label}-`));
   try {
@@ -23,15 +19,13 @@ const withTempDir = (label, fn) => {
 };
 
 describe('data root authority', () => {
-  it('electron-style OPENCHAMBER_DATA_DIR override is honored by both web and VS Code resolvers', () => {
+  it('electron-style OPENCHAMBER_DATA_DIR override is honored by the canonical resolver', () => {
     withTempDir('override', (dir) => {
       const previous = process.env.OPENCHAMBER_DATA_DIR;
       process.env.OPENCHAMBER_DATA_DIR = dir;
       try {
         const web = resolvePiChamberDataDir({ env: process.env, homedir: () => '/home/u', path });
-        const vscode = resolveVsCodeDataDir({ env: process.env, homedir: () => '/home/u', path });
         expect(web).toBe(path.resolve(dir));
-        expect(vscode).toBe(web);
       } finally {
         if (typeof previous === 'string') {
           process.env.OPENCHAMBER_DATA_DIR = previous;
@@ -76,7 +70,6 @@ describe('data root authority', () => {
       'packages/web/server',
       'packages/web/bin',
       'packages/electron',
-      'packages/vscode/src',
     ];
     for (const root of productionRoots) {
       const absolute = path.resolve('/root/Development/PiChamber', root);

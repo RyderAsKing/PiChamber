@@ -7,7 +7,6 @@ import { cn } from '@/lib/utils';
 import { openExternalUrl } from '@/lib/url';
 import { isDrawioFile } from '@/lib/toolHelpers';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { Icon } from "@/components/icon/Icon";
 import { useI18n } from '@/lib/i18n';
@@ -20,8 +19,6 @@ const FileAttachmentButton = memo(() => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const addAttachedFile = useInputStore((state) => state.addAttachedFile);
   const isMobile = useUIStore((state) => state.isMobile);
-  const runtimeApis = useRuntimeAPIs();
-  const isVSCodeRuntime = runtimeApis.runtime.isVSCode;
   const buttonSizeClass = isMobile ? 'h-9 w-9' : 'h-7 w-7';
   const iconSizeClass = isMobile ? 'h-5 w-5' : 'h-[18px] w-[18px]';
 
@@ -47,50 +44,6 @@ const FileAttachmentButton = memo(() => {
     }
   };
 
-  const handleVSCodePick = async () => {
-    try {
-      const data = (await runtimeApis.vscode?.pickFiles?.()) as {
-        files?: Array<{ name: string; mimeType?: string; dataUrl?: string }>;
-        skipped?: Array<{ name?: string; reason?: string }>;
-      } | undefined;
-      const picked = Array.isArray(data?.files) ? data.files : [];
-      const skipped = Array.isArray(data?.skipped) ? data.skipped : [];
-
-      if (skipped.length > 0) {
-        const summary = skipped.map((s: { name?: string; reason?: string }) => `${s?.name || t('chat.fileAttachment.fileFallback')}: ${s?.reason || t('chat.fileAttachment.skippedFallback')}`).join('\n');
-        toast.error(t('chat.fileAttachment.toast.someFilesSkipped', { summary }));
-      }
-
-      const asFiles = picked
-        .map((file: { name: string; mimeType?: string; dataUrl?: string }) => {
-          if (!file?.dataUrl) return null;
-          try {
-            const [meta, base64] = file.dataUrl.split(',');
-            const mime = file.mimeType || (meta?.match(/data:(.*);base64/)?.[1] || 'application/octet-stream');
-            if (!base64) return null;
-            const binary = atob(base64);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) {
-              bytes[i] = binary.charCodeAt(i);
-            }
-            const blob = new Blob([bytes], { type: mime });
-            return new File([blob], file.name || t('chat.fileAttachment.fileFallback'), { type: mime });
-          } catch (err) {
-            console.error('Failed to decode VS Code picked file', err);
-            return null;
-          }
-        })
-        .filter(Boolean) as File[];
-
-      if (asFiles.length > 0) {
-        await attachFiles(asFiles);
-      }
-    } catch (error) {
-      console.error('VS Code file pick failed', error);
-      toast.error(error instanceof Error ? error.message : t('chat.fileAttachment.toast.vscodePickFailed'));
-    }
-  };
-
   return (
     <>
       <input
@@ -104,7 +57,7 @@ const FileAttachmentButton = memo(() => {
         <TooltipTrigger asChild>
           <button
             type="button"
-            onClick={isVSCodeRuntime ? handleVSCodePick : () => fileInputRef.current?.click()}
+            onClick={() => fileInputRef.current?.click()}
             className={cn(
               'flex items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
               'hover:bg-muted text-muted-foreground',
@@ -317,88 +270,15 @@ const FileChip = memo(({ file, onRemove }: FileChipProps) => {
 
 FileChip.displayName = 'FileChip';
 
-const VSCodeFileChip = memo(({ file, onRemove }: FileChipProps) => {
-  const { t } = useI18n();
-  const { displayName, extension } = useFileDetails(file);
-
-  // Detect selection-style attachments: ends with ":N" or ":N-M"
-  const isSelectionAttachment = /:\d+(?:-\d+)?$/.test(displayName);
-
-  return (
-    <button
-      type="button"
-      onClick={(e) => {
-        // Prevent click from bubbling if clicking the remove button
-        if ((e.target as HTMLElement).closest('[data-remove-button]')) {
-          return;
-        }
-      }}
-      className="inline-flex items-center gap-1 text-xs pr-1 rounded-sm border border-solid bg-transparent text-foreground not-italic hover:opacity-90 transition-colors text-left"
-      style={{ borderColor: 'var(--syntax-punctuation)' }}
-      title={file.vscodePath}
-    >
-      <span
-        data-remove-button
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemove();
-        }}
-        className="flex items-center justify-center h-5 w-5 flex-shrink-0 hover:bg-[var(--interactive-hover)] rounded-full transition-colors cursor-pointer"
-        aria-label={t('chat.fileAttachment.activeEditor.remove')}
-        title={t('chat.fileAttachment.activeEditor.remove')}
-      >
-        <Icon name="close" className="h-4 w-4 text-muted-foreground" />
-      </span>
-        <FileTypeIcon filePath={file.filename} extension={extension} className="h-4 w-4" />
-        <span className={cn('text-foreground', isSelectionAttachment ? 'whitespace-nowrap' : 'truncate max-w-[200px]')}>
-          {displayName}
-        </span>
-    </button>
-  );
-});
-
-VSCodeFileChip.displayName = 'VSCodeFileChip';
-
 interface AttachedFilesListProps {
   onShowPopup?: (content: ToolPopupContent) => void;
 }
-
-export const AttachedVSCodeFileChips = memo(({ onShowPopup }: AttachedFilesListProps) => {
-  const attachedFiles = useInputStore((state) => state.attachedFiles);
-  const removeAttachedFile = useInputStore((state) => state.removeAttachedFile);
-
-  const vscodeFiles = attachedFiles.filter((file) => file.source === 'vscode');
-
-  if (vscodeFiles.length === 0) return null;
-
-  const images = vscodeFiles.filter((f) => f.mimeType.startsWith('image/'));
-  const otherFiles = vscodeFiles.filter((f) => !f.mimeType.startsWith('image/'));
-  const imageGallery = images.map((file) => ({
-    url: file.dataUrl || file.serverPath || '',
-    mimeType: file.mimeType,
-    filename: file.filename,
-    size: file.size,
-  })).filter((image) => image.url);
-
-  return (
-    <div className="flex items-center gap-2 flex-wrap">
-      {images.map((file, index) => (
-        <ImagePreview key={file.id} file={file} onRemove={() => removeAttachedFile(file.id)} onShowPopup={onShowPopup} gallery={imageGallery} index={index} />
-      ))}
-      {otherFiles.map((file) => (
-        <VSCodeFileChip key={file.id} file={file} onRemove={() => removeAttachedFile(file.id)} />
-      ))}
-    </div>
-  );
-});
-
-AttachedVSCodeFileChips.displayName = 'AttachedVSCodeFileChips';
 
 export const AttachedFilesList = memo(({ onShowPopup }: AttachedFilesListProps) => {
   const attachedFiles = useInputStore((state) => state.attachedFiles);
   const removeAttachedFile = useInputStore((state) => state.removeAttachedFile);
 
-  const localFiles = attachedFiles.filter((file) => file.source !== 'server' && file.source !== 'vscode');
+  const localFiles = attachedFiles.filter((file) => file.source !== 'server');
 
   if (localFiles.length === 0) return null;
 
@@ -446,105 +326,6 @@ export const AttachedFilesList = memo(({ onShowPopup }: AttachedFilesListProps) 
 });
 
 AttachedFilesList.displayName = 'AttachedFilesList';
-
-export const ActiveEditorFileSuggestion = memo(() => {
-  const { t } = useI18n();
-  const activeEditorFile = useInputStore((s) => s.activeEditorFile);
-  const attachedFiles = useInputStore((s) => s.attachedFiles)
-  const addVSCodeFileAttachment = useInputStore((s) => s.addVSCodeFileAttachment)
-  const addVSCodeSelectionAttachment = useInputStore((s) => s.addVSCodeSelectionAttachment)
-  const isVSCodeRuntime = useRuntimeAPIs().runtime.isVSCode;
-
-  if (!isVSCodeRuntime || !activeEditorFile) return null;
-
-  const { filePath, fileName, relativePath, selection, fileSize } = activeEditorFile;
-
-  // Normalize to forward slashes for comparison
-  const isFileAttached = attachedFiles.some(
-    (f) => f.source === 'vscode' && f.vscodeSource === 'file' && (f.vscodePath || '') === filePath
-  )
-
-  // Compute selection label using a compact range (single line shown as "N" not "N-N")
-  let selectionRange = ''
-  if (selection) {
-    selectionRange = selection.startLine === selection.endLine
-      ? `${selection.startLine}`
-      : `${selection.startLine}-${selection.endLine}`
-  }
-  const selectionLabel = selection ? `${relativePath}:${selectionRange}` : ''
-  const isSelectionAttached = !!selectionLabel && attachedFiles.some(
-    (f) => f.source === 'vscode' && f.vscodeSource === 'selection' && f.filename === selectionLabel && f.vscodePath === filePath
-  )
-
-  // Nothing to show — file is already attached and there's no (or already-attached) selection
-  if (isFileAttached && (!selection || isSelectionAttached)) return null;
-
-  const ext = fileName.split('.').pop() || '';
-  // Always show only the filename in the suggestion UI
-  const displayName = fileName;
-
-  const handleAddFile = () => {
-    addVSCodeFileAttachment(filePath, fileName, fileSize);
-  };
-
-  const handlePinSelection = async () => {
-    if (!selection) return;
-    const blob = new Blob([selection.text], { type: 'text/plain' });
-    const file = new File([blob], selectionLabel, { type: 'text/plain' });
-    await addVSCodeSelectionAttachment(filePath, file);
-  };
-
-  // If there is a selection, prefer showing the pin-selection UI only.
-  const showSelectionPin = !!selection && !isSelectionAttached;
-  const showFileAdd = !showSelectionPin && !isFileAttached;
-
-  if (!showSelectionPin && !showFileAdd) return null;
-
-  return (
-    <div className="inline-flex items-center">
-      {showSelectionPin && (
-        <div
-          className="inline-flex items-center gap-1 text-xs pr-1 rounded-sm italic text-muted-foreground border border-dashed bg-transparent"
-          style={{ borderColor: 'var(--syntax-punctuation)' }}
-          title={relativePath}
-        >
-          <button
-            type="button"
-            title={t('chat.fileAttachment.activeEditor.pinSelection')}
-            aria-label={t('chat.fileAttachment.activeEditor.pinSelection')}
-            onClick={() => { void handlePinSelection(); }}
-            className="flex items-center justify-center h-5 w-5 flex-shrink-0 hover:bg-[var(--interactive-hover)] rounded-full transition-colors cursor-pointer"
-          >
-            <Icon name="pushpin-2" className="h-4 w-4" />
-          </button>
-          <FileTypeIcon filePath={fileName} extension={ext} className="h-4 w-4 flex-shrink-0" />
-          <span className="text-xs whitespace-nowrap">{`${displayName}:${selectionRange}`}</span>
-        </div>
-      )}
-      {showFileAdd && (
-        <div
-          className="inline-flex items-center gap-1 text-xs pr-1 rounded-sm italic text-muted-foreground border border-dashed bg-transparent"
-          style={{ borderColor: 'var(--syntax-punctuation)' }}
-          title={relativePath}
-        >
-          <button
-            type="button"
-            title={t('chat.fileAttachment.activeEditor.addFile', { name: displayName })}
-            aria-label={t('chat.fileAttachment.activeEditor.addFile', { name: displayName })}
-            onClick={handleAddFile}
-            className="flex items-center justify-center h-5 w-5 flex-shrink-0 hover:bg-[var(--interactive-hover)] rounded-full transition-colors cursor-pointer"
-          >
-            <Icon name="add" className="h-4 w-4" />
-          </button>
-          <FileTypeIcon filePath={fileName} extension={ext} className="h-4 w-4 flex-shrink-0" />
-          <span className="text-xs truncate max-w-[220px]">{displayName}</span>
-        </div>
-      )}
-    </div>
-  );
-});
-
-ActiveEditorFileSuggestion.displayName = 'ActiveEditorFileSuggestion';
 
 interface FilePart {
   type: string;

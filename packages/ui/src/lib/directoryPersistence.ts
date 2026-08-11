@@ -1,4 +1,3 @@
-import { isVSCodeRuntime } from '@/lib/desktop';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 
 export const applyPersistedDirectoryPreferences = async (): Promise<void> => {
@@ -21,7 +20,7 @@ export const applyPersistedDirectoryPreferences = async (): Promise<void> => {
   // desktop settings, overriding the authoritative resolution
   // (initializeHomeDirectory → /api/fs/home) that runs on every startup.
 
-  if (savedDirectory && !isVSCodeRuntime()) {
+  if (savedDirectory) {
     useDirectoryStore.getState().setDirectory(savedDirectory, { showOverlay: false });
   }
 };

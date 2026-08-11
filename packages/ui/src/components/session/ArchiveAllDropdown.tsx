@@ -23,19 +23,19 @@ const ArchiveAllDropdown: React.FC<ArchiveAllDropdownProps> = ({ onArchiveAll })
             <button
               type="button"
               className="inline-flex h-8 w-8 items-center justify-center p-2 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              aria-label={t('vscodeLayout.actions.archiveAllAria')}
+              aria-label={t('sessions.sidebar.bulkActions.archiveAllAria')}
             >
               <Icon name="archive" className="h-5 w-5" />
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
-        <TooltipContent side="bottom" sideOffset={4}><p>{t('vscodeLayout.actions.archiveAllAria')}</p></TooltipContent>
+        <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.bulkActions.archiveAllAria')}</p></TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="end" className="min-w-[160px]">
         <DropdownMenuItem onSelect={onArchiveAll}>
-          {t('vscodeLayout.actions.archiveAllConfirm')}
+          {t('sessions.sidebar.bulkActions.archiveAll')}
         </DropdownMenuItem>
-        <DropdownMenuItem>{t('vscodeLayout.actions.cancel')}</DropdownMenuItem>
+        <DropdownMenuItem>{t('sessions.sidebar.bulkActions.cancel')}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

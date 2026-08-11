@@ -65,7 +65,6 @@ export const createSessionOwnershipIndex = (
   sessions: Session[],
   projects: Project[],
   availableWorktreesByProject: Map<string, Worktree[]>,
-  isVSCode: boolean,
   archivedSessions: Session[] = [],
 ): SessionOwnershipIndex => {
   const ownerByDirectory = new Map<string, DirectoryOwner>();
@@ -86,21 +85,19 @@ export const createSessionOwnershipIndex = (
     });
   }
 
-  if (!isVSCode) {
-    for (const [projectPath, worktrees] of availableWorktreesByProject) {
-      const projectRoot = normalizePath(projectPath);
-      const project = projectRoot ? projectByRoot.get(projectRoot) : undefined;
-      if (!project || !projectRoot) continue;
-      for (const worktree of worktrees) {
-        const directory = normalizePath(worktree.path);
-        if (!directory) continue;
-        setOwner(ownerByDirectory, directory, {
-          projectId: project.id,
-          projectRoot,
-          scopeDirectory: directory,
-          kind: 'worktree',
-        });
-      }
+  for (const [projectPath, worktrees] of availableWorktreesByProject) {
+    const projectRoot = normalizePath(projectPath);
+    const project = projectRoot ? projectByRoot.get(projectRoot) : undefined;
+    if (!project || !projectRoot) continue;
+    for (const worktree of worktrees) {
+      const directory = normalizePath(worktree.path);
+      if (!directory) continue;
+      setOwner(ownerByDirectory, directory, {
+        projectId: project.id,
+        projectRoot,
+        scopeDirectory: directory,
+        kind: 'worktree',
+      });
     }
   }
 
@@ -114,12 +111,6 @@ export const createSessionOwnershipIndex = (
     if (!directory) return null;
     if (resolvedOwners.has(directory)) {
       return resolvedOwners.get(directory) ?? null;
-    }
-
-    if (isVSCode) {
-      const owner = ownerByDirectory.get(directory) ?? null;
-      resolvedOwners.set(directory, owner);
-      return owner;
     }
 
     const visited: string[] = [];

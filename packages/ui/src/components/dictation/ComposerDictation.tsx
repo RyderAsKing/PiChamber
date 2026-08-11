@@ -16,7 +16,6 @@ import { cn } from '@/lib/utils';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { useDictation } from '@/hooks/useDictation';
 import { isDictationCaptureSupported } from '@/lib/dictation/use-dictation-audio-source';
-import { isVSCodeRuntime } from '@/lib/desktop';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { formatShortcutForDisplay, getEffectiveShortcutCombo } from '@/lib/shortcuts';
@@ -137,7 +136,7 @@ export const ComposerDictation: React.FC<ComposerDictationProps> = ({
     const dictationShortcut = formatShortcutForDisplay(getEffectiveShortcutCombo('toggle_dictation', shortcutOverrides));
     // The dictation server (WebSocket + STT worker) lives in the PiChamber
     // web server; the VS Code bridge has no server process for it.
-    const [supported] = React.useState(() => !isVSCodeRuntime() && isDictationCaptureSupported());
+    const [supported] = React.useState(() => isDictationCaptureSupported());
 
     const pendingActionRef = React.useRef<'insert' | 'send' | null>(null);
     const onInsertRef = React.useRef(onInsert);

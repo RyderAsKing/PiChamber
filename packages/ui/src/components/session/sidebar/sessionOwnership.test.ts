@@ -22,7 +22,7 @@ describe('createSessionOwnershipIndex', () => {
       ['/projects/app', [{ path: '/worktrees/app-feature' }]],
     ]);
 
-    const ownership = createSessionOwnershipIndex(sessions, projects, worktrees, false);
+    const ownership = createSessionOwnershipIndex(sessions, projects, worktrees);
 
     expect(ownership.bySessionId.get('nested')?.projectId).toBe('admin');
     expect(ownership.bySessionId.get('external-worktree')).toEqual({
@@ -53,7 +53,6 @@ describe('createSessionOwnershipIndex', () => {
         { id: 'admin', normalizedPath: '/projects/app/packages/admin' },
       ],
       new Map([['/projects/app', [{ path: '/projects/app/packages/admin' }]]]),
-      false,
     );
 
     expect(ownership.bySessionId.get('nested')?.projectId).toBe('admin');
@@ -65,7 +64,6 @@ describe('createSessionOwnershipIndex', () => {
       [],
       [{ id: 'app', normalizedPath: '/projects/app' }],
       new Map([['/projects/app', [{ path: '/worktrees/app-feature' }]]]),
-      false,
       [
         { id: 'archived-child', directory: '/worktrees/app-feature/src', time: { archived: 1 } },
         { id: 'archived-fallback', project: { worktree: '/worktrees/app-feature' }, time: { archived: 1 } },
@@ -78,27 +76,11 @@ describe('createSessionOwnershipIndex', () => {
     ]);
   });
 
-  test('requires exact workspace directories in VS Code', () => {
-    const ownership = createSessionOwnershipIndex(
-      [
-        { id: 'workspace', directory: '/projects/app' },
-        { id: 'nested', directory: '/projects/app/packages/ui' },
-      ] as Session[],
-      [{ id: 'app', normalizedPath: '/projects/app' }],
-      new Map(),
-      true,
-    );
-
-    expect(ownership.bySessionId.get('workspace')?.projectId).toBe('app');
-    expect(ownership.bySessionId.has('nested')).toBe(false);
-  });
-
   test('supports a Windows drive root project', () => {
     const ownership = createSessionOwnershipIndex(
       [{ id: 'windows-root', directory: 'c:\\Users\\name\\project' } as Session],
       [{ id: 'drive', normalizedPath: 'C:/' }],
       new Map(),
-      false,
     );
 
     expect(ownership.bySessionId.get('windows-root')?.projectId).toBe('drive');
@@ -120,7 +102,7 @@ describe('createSessionOwnershipIndex', () => {
       directory: `/worktrees/${index % 15}/${index % 4}/session/${index}`,
     })) as unknown as Session[];
 
-    const ownership = createSessionOwnershipIndex(sessions, projects, worktrees, false);
+    const ownership = createSessionOwnershipIndex(sessions, projects, worktrees);
 
     expect(ownership.bySessionId.size).toBe(14_561);
     expect(ownership.directoryResolutions).toBeLessThan(14_561 * 2);

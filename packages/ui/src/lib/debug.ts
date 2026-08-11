@@ -335,7 +335,6 @@ export const debugUtils = {
       runtime: {
         platform: runtimeApis?.runtime?.platform ?? null,
         isDesktop: isDesktopRuntime,
-        isVSCode: Boolean(runtimeApis?.runtime?.isVSCode),
         hasRuntimeApis: Boolean(runtimeApis),
         desktopServerOrigin: null,
       },

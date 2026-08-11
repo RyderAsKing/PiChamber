@@ -88,7 +88,7 @@ const installMinimalDom = () => {
   };
 };
 
-type Args = { directory: string | null; isMobile: boolean; isVSCode: boolean };
+type Args = { directory: string | null; isMobile: boolean };
 
 /**
  * Renders the hook with a stand-in row node, attached through the returned
@@ -142,7 +142,7 @@ afterEach(() => {
 describe('useWorkStatusVisibility', () => {
   test('shows the panel when the row can afford both columns', () => {
     const { result, teardown } = renderVisibility(
-      { directory: '/repo', isMobile: false, isVSCode: false },
+      { directory: '/repo', isMobile: false },
       REQUIRED,
     );
     expect(result.visible).toBe(true);
@@ -151,7 +151,7 @@ describe('useWorkStatusVisibility', () => {
 
   test('hides the panel when the row cannot afford both columns', () => {
     const { result, teardown } = renderVisibility(
-      { directory: '/repo', isMobile: false, isVSCode: false },
+      { directory: '/repo', isMobile: false },
       REQUIRED - 1,
     );
     expect(result.visible).toBe(false);
@@ -175,7 +175,6 @@ describe('useWorkStatusVisibility', () => {
       const { rowRef, visible } = useWorkStatusVisibility({
         directory: '/repo',
         isMobile: false,
-        isVSCode: false,
       });
       result.visible = visible;
       React.useLayoutEffect(() => {
@@ -199,7 +198,7 @@ describe('useWorkStatusVisibility', () => {
     // In the app this is the chat area (chat + context panel); here `closest`
     // finds nothing, so the hook falls back to the row it was given.
     const { rowNode, teardown } = renderVisibility(
-      { directory: '/repo', isMobile: false, isVSCode: false },
+      { directory: '/repo', isMobile: false },
       REQUIRED,
     );
     expect(observed).toHaveLength(1);
@@ -209,7 +208,7 @@ describe('useWorkStatusVisibility', () => {
 
   test('reacts to a live resize across the threshold', () => {
     const { result, teardown } = renderVisibility(
-      { directory: '/repo', isMobile: false, isVSCode: false },
+      { directory: '/repo', isMobile: false },
       REQUIRED,
     );
     expect(result.visible).toBe(true);
@@ -228,7 +227,7 @@ describe('useWorkStatusVisibility', () => {
       '/repo': { isOpen: true, tabs: [{ id: 'tab-1', mode: 'git' }], activeTabId: 'tab-1' },
     };
     const { result, rowNode, teardown } = renderVisibility(
-      { directory: '/repo', isMobile: false, isVSCode: false },
+      { directory: '/repo', isMobile: false },
       REQUIRED,
     );
     expect(result.visible).toBe(false);
@@ -240,7 +239,7 @@ describe('useWorkStatusVisibility', () => {
     // ContextPanel renders nothing in that state, so it displaces nothing.
     panelByDirectory = { '/repo': { isOpen: true, tabs: [], activeTabId: null } };
     const { result, teardown } = renderVisibility(
-      { directory: '/repo', isMobile: false, isVSCode: false },
+      { directory: '/repo', isMobile: false },
       REQUIRED,
     );
     expect(result.visible).toBe(true);
@@ -266,7 +265,6 @@ describe('useWorkStatusVisibility', () => {
       const { rowRef, visible } = useWorkStatusVisibility({
         directory: '/repo',
         isMobile: false,
-        isVSCode: false,
       });
       result.visible = visible;
       attach = setAttached;
@@ -292,7 +290,7 @@ describe('useWorkStatusVisibility', () => {
     // there is room for it.
     panelEnabled = false;
     const { result, teardown } = renderVisibility(
-      { directory: '/repo', isMobile: false, isVSCode: false },
+      { directory: '/repo', isMobile: false },
       REQUIRED * 2,
     );
     expect(result.visible).toBe(false);
@@ -302,7 +300,7 @@ describe('useWorkStatusVisibility', () => {
 
   test('reports no fit when the row is too narrow, whatever the switch says', () => {
     const { result, teardown } = renderVisibility(
-      { directory: '/repo', isMobile: false, isVSCode: false },
+      { directory: '/repo', isMobile: false },
       REQUIRED - 1,
     );
     expect(result.fits).toBe(false);
@@ -312,18 +310,12 @@ describe('useWorkStatusVisibility', () => {
 
   test('stays hidden on mobile and in VS Code regardless of width', () => {
     const mobile = renderVisibility(
-      { directory: '/repo', isMobile: true, isVSCode: false },
+      { directory: '/repo', isMobile: true },
       REQUIRED * 2,
     );
     expect(mobile.result.visible).toBe(false);
     mobile.teardown();
 
     observed = [];
-    const vscode = renderVisibility(
-      { directory: '/repo', isMobile: false, isVSCode: true },
-      REQUIRED * 2,
-    );
-    expect(vscode.result.visible).toBe(false);
-    vscode.teardown();
   });
 });

@@ -1,4 +1,4 @@
-import { isDesktopShell, isVSCodeRuntime } from '@/lib/desktop';
+import { isDesktopShell } from '@/lib/desktop';
 
 /** True when running inside the native Capacitor shell (iOS/Android app), not the web/PWA. */
 export const isCapacitorApp = (): boolean => {
@@ -16,12 +16,6 @@ export const isWindowsArm64 = (): boolean => {
 
   const electronArch = window.__OPENCHAMBER_ELECTRON__?.arch?.toLowerCase?.();
   if (electronArch === 'arm64' || electronArch === 'aarch64') {
-    const platform = (navigator.platform || '').toLowerCase();
-    return platform.includes('win');
-  }
-
-  const vscodeArch = (window as { __VSCODE_CONFIG__?: { arch?: string } }).__VSCODE_CONFIG__?.arch?.toLowerCase?.();
-  if (vscodeArch === 'arm64' || vscodeArch === 'aarch64') {
     const platform = (navigator.platform || '').toLowerCase();
     return platform.includes('win');
   }
@@ -55,7 +49,7 @@ export const isIPadApp = (): boolean => {
     || (/Macintosh|MacIntel/i.test(userAgent) && maxTouchPoints > 1);
 };
 
-export type ClientPlatform = 'ios' | 'android' | 'vscode' | 'desktop' | 'web';
+export type ClientPlatform = 'ios' | 'android' | 'desktop' | 'web';
 
 /**
  * The runtime surface this client is. Used by the push presence model: only 'ios'/'android'
@@ -68,7 +62,6 @@ export const getClientPlatform = (): ClientPlatform => {
     const native = capacitor?.getPlatform?.();
     if (native === 'ios' || native === 'android') return native;
   }
-  if (isVSCodeRuntime()) return 'vscode';
   if (isDesktopShell()) return 'desktop';
   return 'web';
 };

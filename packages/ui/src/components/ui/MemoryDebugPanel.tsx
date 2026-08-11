@@ -6,7 +6,7 @@ import { useSessions, useDirectorySync } from '@/sync/sync-context';
 import { MEMORY_LIMITS } from '@/stores/types/sessionTypes';
 import { useGitHubPrStatusStore } from '@/stores/useGitHubPrStatusStore';
 import { getBackgroundTrimLimit } from '@/stores/types/sessionTypes';
-import { getStreamPerfSnapshot, getVsCodeStreamPerfSnapshot, resetStreamPerf, type StreamPerfSnapshot } from '@/stores/utils/streamDebug';
+import { getStreamPerfSnapshot, resetStreamPerf, type StreamPerfSnapshot } from '@/stores/utils/streamDebug';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
@@ -109,7 +109,6 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ onClose }) => {
   const messageRecord = useDirectorySync((state) => state.message);
   const totalGitHubRequests = useGitHubPrStatusStore((state) => state.totalRequestCount);
   const [streamSnapshot, setStreamSnapshot] = React.useState<StreamPerfSnapshot>(() => getStreamPerfSnapshot());
-  const [vscodeStreamSnapshot, setVsCodeStreamSnapshot] = React.useState<StreamPerfSnapshot>(() => getVsCodeStreamPerfSnapshot());
   const streamMetricCounts = React.useMemo(() => {
     const counts = new Map<string, number>();
     streamSnapshot.entries.forEach((entry) => {
@@ -129,7 +128,6 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ onClose }) => {
   React.useEffect(() => {
     const refresh = () => {
       setStreamSnapshot(getStreamPerfSnapshot());
-      setVsCodeStreamSnapshot(getVsCodeStreamPerfSnapshot());
     };
 
     refresh();
@@ -202,7 +200,6 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ onClose }) => {
       const payload = {
         generatedAt: new Date().toISOString(),
         ui: getStreamPerfSnapshot(),
-        vscode: getVsCodeStreamPerfSnapshot(),
       };
       await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
       setCopyState('copied');
@@ -237,7 +234,6 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ onClose }) => {
                 onClick={() => {
                   resetStreamPerf();
                   setStreamSnapshot(getStreamPerfSnapshot());
-                  setVsCodeStreamSnapshot(getVsCodeStreamPerfSnapshot());
                 }}
               >
                 <Icon name="refresh" className="h-3.5 w-3.5" />
@@ -383,7 +379,6 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ onClose }) => {
 
           <div className="grid grid-cols-2 gap-2">
             <MetricCard label={t('memoryDebugPanel.metric.uiMetrics')} value={streamSnapshot.entries.length} />
-            <MetricCard label={t('memoryDebugPanel.metric.vscodeMetrics')} value={vscodeStreamSnapshot.entries.length} />
             <MetricCard label={t('memoryDebugPanel.metric.messageListRenders')} value={streamMetricCounts.messageListRender} />
             <MetricCard label={t('memoryDebugPanel.metric.messageListStreamRenders')} value={streamMetricCounts.messageListRenderStreaming} />
             <MetricCard label={t('memoryDebugPanel.metric.chatMessageRenders')} value={streamMetricCounts.chatMessageRender} />
@@ -400,14 +395,6 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ onClose }) => {
             snapshot={streamSnapshot}
             emptyLabel={t('memoryDebugPanel.section.noUiSamples')}
           />
-
-          {vscodeStreamSnapshot.entries.length > 0 ? (
-            <PerfSection
-              title={t('memoryDebugPanel.section.vscodeBridgeMetrics')}
-              snapshot={vscodeStreamSnapshot}
-              emptyLabel={t('memoryDebugPanel.section.noVscodeSamples')}
-            />
-          ) : null}
         </div>
       )}
     </Card>

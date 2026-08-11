@@ -19,7 +19,6 @@ import {
 import { Icon } from "@/components/icon/Icon";
 import {
     isDesktopShell,
-    isVSCodeRuntime,
     isWebRuntime,
     usesFramelessElectronChrome,
     type DesktopWindowControlsPosition,
@@ -444,7 +443,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
         void updateDesktopSettings({ desktopWindowControlsStyle: value });
     }, [setDesktopWindowControlsStyle]);
 
-    const shouldAnimateChatPreview = (isSettingsDialogOpen || isMobile || isVSCodeRuntime())
+    const shouldAnimateChatPreview = (isSettingsDialogOpen || isMobile)
         && (visibleSettings ? visibleSettings.includes('chatRenderMode') : true);
 
     React.useEffect(() => {
@@ -625,25 +624,22 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
         return visibleSettings.includes(setting);
     };
 
-    const isVSCode = isVSCodeRuntime();
-    const hasThemeSettings = shouldShow('theme') && !isVSCode;
+    const hasThemeSettings = shouldShow('theme');
     const showWindowControlsPositionSetting = shouldShow('windowControlsPosition') && showWindowControlsPosition;
     const hasLocalizationSettings = shouldShow('theme') || shouldShow('timeFormat') || shouldShow('weekStart');
-    const showMobileLayoutSetting = isMobile && isWebRuntime() && !isDesktopShell() && !isVSCode;
-    const hasAppearanceSettings = isVSCode
-        ? hasLocalizationSettings
-        : (shouldShow('theme') || showWindowControlsPositionSetting || showMobileLayoutSetting || shouldShow('pwaInstallName') || shouldShow('pwaOrientation') || shouldShow('timeFormat') || shouldShow('weekStart'));
+    const showMobileLayoutSetting = isMobile && isWebRuntime() && !isDesktopShell();
+    const hasAppearanceSettings = (shouldShow('theme') || showWindowControlsPositionSetting || showMobileLayoutSetting || shouldShow('pwaInstallName') || shouldShow('pwaOrientation') || shouldShow('timeFormat') || shouldShow('weekStart'));
     const hasLayoutSettings = shouldShow('fontSize') || shouldShow('terminalFontSize') || shouldShow('editorFontSize') || shouldShow('spacing') || (shouldShow('inputBarOffset') && isMobile);
-    const hasNavigationSettings = (shouldShow('terminalQuickKeys') && !isMobile) || ((shouldShow('terminalShell') || shouldShow('terminalLoginShell')) && !isVSCode) || shouldShow('fileEditorKeymap') || shouldShow('autoSaveEnabled') || (shouldShow('expandedEditorToolbar') && !isVSCode);
+    const hasNavigationSettings = (shouldShow('terminalQuickKeys') && !isMobile) || ((shouldShow('terminalShell') || shouldShow('terminalLoginShell'))) || shouldShow('fileEditorKeymap') || shouldShow('autoSaveEnabled') || shouldShow('expandedEditorToolbar');
     const hasBehaviorSettings = shouldShow('mermaidRendering')
-        || (shouldShow('sessionGoal') && !isVSCode)
+        || shouldShow('sessionGoal')
         || shouldShow('userMessageRendering')
         || shouldShow('chatRenderMode')
         || shouldShow('messageTransport')
         || (shouldShow('activityRenderMode') && chatRenderMode === 'sorted')
         || shouldShow('collapsibleUserMessages')
         || shouldShow('stickyUserHeader')
-        || (shouldShow('promptNavigatorEnabled') && !isVSCode)
+        || shouldShow('promptNavigatorEnabled')
         || shouldShow('wideChatLayout')
         || shouldShow('codeBlockLineWrap')
         || shouldShow('splitAssistantMessageActions')
@@ -662,14 +658,14 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const showTransportSection = shouldShow('messageTransport');
     const showBehaviorMessageOptions = shouldShow('userMessageRendering')
         || shouldShow('mermaidRendering')
-        || (shouldShow('diffLayout') && !isVSCode)
+        || shouldShow('diffLayout')
         || shouldShow('followUpBehavior');
     const showBehaviorFeatureCheckboxes = shouldShow('sessionAssist')
-        || (shouldShow('sessionGoal') && !isVSCode)
+        || shouldShow('sessionGoal')
         || shouldShow('subagentReadOnlyBanner')
         || shouldShow('collapsibleUserMessages')
         || shouldShow('stickyUserHeader')
-        || (shouldShow('promptNavigatorEnabled') && !isVSCode)
+        || shouldShow('promptNavigatorEnabled')
         || shouldShow('wideChatLayout')
         || shouldShow('codeBlockLineWrap')
         || shouldShow('splitAssistantMessageActions')
@@ -685,10 +681,10 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     // when Appearance (or earlier sections) already rendered, keep the default divider.
     const behaviorSectionDivider = hasAppearanceSettings || hasLayoutSettings || hasNavigationSettings;
 
-    const showPwaInstallNameSetting = shouldShow('pwaInstallName') && isWebRuntime() && browserTab && !isDesktopShell() && !isVSCode;
-    const showPwaOrientationSetting = shouldShow('pwaOrientation') && isWebRuntime() && !isDesktopShell() && !isVSCode;
-    const showMobileKeyboardModeSetting = shouldShow('mobileKeyboardMode') && isWebRuntime() && !isDesktopShell() && !isVSCode && supportsMobileKeyboardResizeContent();
-    const showTerminalShellSetting = (shouldShow('terminalShell') || shouldShow('terminalLoginShell')) && !isVSCode;
+    const showPwaInstallNameSetting = shouldShow('pwaInstallName') && isWebRuntime() && browserTab && !isDesktopShell();
+    const showPwaOrientationSetting = shouldShow('pwaOrientation') && isWebRuntime() && !isDesktopShell();
+    const showMobileKeyboardModeSetting = shouldShow('mobileKeyboardMode') && isWebRuntime() && !isDesktopShell() && supportsMobileKeyboardResizeContent();
+    const showTerminalShellSetting = (shouldShow('terminalShell') || shouldShow('terminalLoginShell'));
     const [availableTerminalShells, setAvailableTerminalShells] = React.useState<TerminalShellOption[]>([]);
     const [terminalShellRuntimeEpoch, setTerminalShellRuntimeEpoch] = React.useState(0);
     React.useEffect(() => subscribeRuntimeEndpointChanged(() => {
@@ -1486,7 +1482,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     settingsItem="appearance.auto-save-enabled"
                                 />
                             )}
-                            {shouldShow('expandedEditorToolbar') && !isVSCode && (
+                            {shouldShow('expandedEditorToolbar') && (
                                 <SettingsCheckboxRow
                                     checked={expandedEditorToolbar}
                                     onChange={handleExpandedEditorToolbarChange}
@@ -1716,7 +1712,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                         </SettingsControlGroup>
                                     )}
 
-                                    {shouldShow('diffLayout') && !isVSCode && (
+                                    {shouldShow('diffLayout') && (
                                         <SettingsControlGroup title={t('settings.pichamber.visual.section.diffLayout')}>
                                             <SettingsRadioGroup aria-label={t('settings.pichamber.visual.section.diffLayoutAria')}>
                                                 {DIFF_LAYOUT_OPTIONS.map((option) => (
@@ -1818,7 +1814,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                 </SettingsSection>
                                 {/* The goal loop runs in the web server — VS Code only renders
                                     goal state, so the settings section is hidden there too. */}
-                                {shouldShow('sessionGoal') && !isVSCode && (
+                                {shouldShow('sessionGoal') && (
                                     <SettingsSection
                                         title={t('settings.pichamber.visual.goal.sectionTitle')}
                                         info={t('settings.pichamber.visual.goal.description')}
@@ -1879,7 +1875,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     </SettingsSection>
                                 )}
 
-                                {(shouldShow('collapsibleUserMessages') || shouldShow('stickyUserHeader') || (shouldShow('promptNavigatorEnabled') && !isVSCode) || shouldShow('wideChatLayout') || shouldShow('splitAssistantMessageActions') || shouldShow('codeBlockLineWrap')) && (
+                                {(shouldShow('collapsibleUserMessages') || shouldShow('stickyUserHeader') || shouldShow('promptNavigatorEnabled') || shouldShow('wideChatLayout') || shouldShow('splitAssistantMessageActions') || shouldShow('codeBlockLineWrap')) && (
                                 <SettingsSection
                                     title={t('settings.pichamber.visual.section.messageAppearance')}
                                     settingsItem="chat.message-appearance"
@@ -1905,7 +1901,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     />
                                 )}
 
-                                {shouldShow('promptNavigatorEnabled') && !isVSCode && (
+                                {shouldShow('promptNavigatorEnabled') && (
                                     <SettingsCheckboxRow
                                         checked={promptNavigatorEnabled}
                                         onChange={handlePromptNavigatorEnabledChange}
@@ -1948,7 +1944,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                 </SettingsSection>
                                 )}
 
-                                {(shouldShow('showToolFileIcons') || shouldShow('showTurnChangedFiles') || (shouldShow('dotfiles') && !isVSCodeRuntime()) || shouldShow('fileViewerPreview')) && (
+                                {(shouldShow('showToolFileIcons') || shouldShow('showTurnChangedFiles') || shouldShow('dotfiles') || shouldShow('fileViewerPreview')) && (
                                 <SettingsSection
                                     title={t('settings.pichamber.visual.section.toolsAndFiles')}
                                     settingsItem="chat.tools-and-files"
@@ -1974,7 +1970,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     />
                                 )}
 
-                                {shouldShow('dotfiles') && !isVSCodeRuntime() && (
+                                {shouldShow('dotfiles') && (
                                     <SettingsCheckboxRow
                                         checked={directoryShowHidden}
                                         onChange={setDirectoryShowHidden}

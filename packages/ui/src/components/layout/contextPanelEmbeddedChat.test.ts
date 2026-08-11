@@ -161,7 +161,7 @@ describe('isEmbeddedSessionChat', () => {
   });
 
   test('caches the first result so URL rewrites cannot flip it (mirrors VS Code stable global)', () => {
-    // VS Code detects its webview via the stable `window.__VSCODE_CONFIG__`
+    // The iframe is detected via its fixed `?ocPanel=session-chat` query parameter
     // global — it never changes. The embedded iframe's identity is equally
     // fixed at mount (the parent builds the src); caching the first read
     // makes detection just as stable, surviving any URL rewrite.

@@ -72,21 +72,3 @@ export function collectDroppedFiles(dataTransfer: DataTransfer | null | undefine
         .map((item) => item.getAsFile())
         .filter((file): file is File => Boolean(file));
 }
-
-/**
- * File references from a drop that carries no `File` objects — VS Code hands
- * over paths and expects the receiver to resolve them itself.
- */
-export function collectDroppedFileUris(dataTransfer: DataTransfer | null | undefined): string[] {
-    if (!dataTransfer || typeof dataTransfer.getData !== 'function') return [];
-
-    const extracted = new Set<string>();
-    for (const dataType of VS_CODE_DROP_DATA_TYPES) {
-        const rawPayload = readData(dataTransfer, dataType);
-        if (!rawPayload) continue;
-        for (const candidate of parseDroppedFileReferences(rawPayload)) {
-            extracted.add(candidate);
-        }
-    }
-    return Array.from(extracted);
-}

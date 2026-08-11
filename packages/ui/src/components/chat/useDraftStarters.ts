@@ -7,7 +7,6 @@ import { useSkillsStore } from '@/stores/useSkillsStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { getProjectDraftStarters, saveProjectDraftStarters } from '@/lib/pichamberConfig';
-import { isVSCodeRuntime } from '@/lib/desktop';
 import type { IconName } from '@/components/icon/icons';
 import {
     BUILTIN_STARTERS,
@@ -59,7 +58,6 @@ export type UseDraftStartersResult = {
 
 export function useDraftStarters(): UseDraftStartersResult {
     const { t } = useI18n();
-    const isVSCode = React.useMemo(() => isVSCodeRuntime(), []);
     const globalRaw = useUIStore((s) => s.globalDraftStarters);
     const commands = useCommandsStore((s) => s.commands);
     const skills = useSkillsStore((s) => s.skills);
@@ -107,7 +105,7 @@ export function useDraftStarters(): UseDraftStartersResult {
     const skillNames = React.useMemo(() => new Set(skills.map((s) => s.name)), [skills]);
 
     const resolve = React.useCallback((ref: DraftStarterRef, group: StarterGroup): ResolvedStarter | null => {
-        if (isVSCode && ref.type === 'command' && (ref.name === 'craft-goal' || ref.name === 'schedule-task')) return null;
+        if (ref.type === 'command' && (ref.name === 'craft-goal' || ref.name === 'schedule-task')) return null;
         if (ref.type === 'command') {
             const builtin = getBuiltInStarter(ref.name);
             if (builtin) {
@@ -118,7 +116,7 @@ export function useDraftStarters(): UseDraftStartersResult {
         }
         if (!skillNames.has(ref.name)) return null;
         return { id: chipId(group, ref), ref, group, label: normalizeStarterLabel(ref.name), icon: SKILL_FALLBACK_ICON, submitText: `/${ref.name}` };
-    }, [t, commandNames, skillNames, isVSCode]);
+    }, [t, commandNames, skillNames]);
 
     const globalRefs = React.useMemo<readonly DraftStarterRef[]>(
         () => globalRaw ?? DEFAULT_GLOBAL_STARTERS,
@@ -144,7 +142,7 @@ export function useDraftStarters(): UseDraftStartersResult {
     const pinnable = React.useMemo<PinnableItem[]>(() => {
         const items: PinnableItem[] = [];
         for (const b of BUILTIN_STARTERS) {
-            if (isVSCode && (b.name === 'craft-goal' || b.name === 'schedule-task')) continue;
+            if ((b.name === 'craft-goal' || b.name === 'schedule-task')) continue;
             items.push({ type: 'command', name: b.name, label: t(b.labelKey), icon: b.icon, section: 'built-in', scope: 'user' });
         }
         for (const c of commands) {
@@ -156,7 +154,7 @@ export function useDraftStarters(): UseDraftStartersResult {
         }
         // Only offer items that are not already pinned (removed built-ins reappear here).
         return items.filter((item) => !pinnedKeys.has(`${item.type}:${item.name}`));
-    }, [t, commands, skills, pinnedKeys, isVSCode]);
+    }, [t, commands, skills, pinnedKeys]);
 
     const persistGlobal = React.useCallback((next: DraftStarterRef[]) => {
         useUIStore.getState().setGlobalDraftStarters(next);

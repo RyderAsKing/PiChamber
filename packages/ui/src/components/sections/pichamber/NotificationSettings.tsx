@@ -1,6 +1,6 @@
 import React from 'react';
 import { useUIStore } from '@/stores/useUIStore';
-import { isDesktopShell, isVSCodeRuntime } from '@/lib/desktop';
+import { isDesktopShell } from '@/lib/desktop';
 import { toast } from '@/components/ui';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { Input } from '@/components/ui/input';
@@ -44,7 +44,6 @@ const TEMPLATE_EVENT_LABEL_KEYS = {
 export const NotificationSettings: React.FC = () => {
   const { t } = useI18n();
   const isDesktop = React.useMemo(() => isDesktopShell(), []);
-  const isVSCode = React.useMemo(() => isVSCodeRuntime(), []);
   // The native Capacitor app runs in a WKWebView with no Web Notification API; it has its
   // own native (Local Notifications) permission. Treat it as a native runtime, not a
   // browser, so the toggle isn't gated on Notification.permission (which is stuck there).
@@ -53,7 +52,7 @@ export const NotificationSettings: React.FC = () => {
     const capacitor = (window as typeof window & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
     return capacitor?.isNativePlatform?.() === true || window.location.protocol === 'capacitor:';
   }, []);
-  const isBrowser = !isDesktop && !isVSCode && !isNativeApp;
+  const isBrowser = !isDesktop && !isNativeApp;
   const nativeNotificationsEnabled = useUIStore(state => state.nativeNotificationsEnabled);
   const setNativeNotificationsEnabled = useUIStore(state => state.setNativeNotificationsEnabled);
   const notificationMode = useUIStore(state => state.notificationMode);
@@ -145,7 +144,7 @@ export const NotificationSettings: React.FC = () => {
     }
   };
 
-  const canShowNotifications = isDesktop || isVSCode || isNativeApp || (isBrowser && typeof Notification !== 'undefined' && Notification.permission === 'granted');
+  const canShowNotifications = isDesktop || isNativeApp || (isBrowser && typeof Notification !== 'undefined' && Notification.permission === 'granted');
 
   const updateTemplate = (
     event: 'completion' | 'error' | 'question' | 'subtask',
@@ -469,9 +468,7 @@ export const NotificationSettings: React.FC = () => {
               info={
                 isBrowser
                   ? t('settings.notifications.page.delivery.browserPermissionHint')
-                  : isVSCode
-                    ? t('settings.notifications.page.delivery.vscodeHint')
-                    : undefined
+                  : undefined
               }
               ariaLabel={t('settings.notifications.page.delivery.enableAria')}
             />

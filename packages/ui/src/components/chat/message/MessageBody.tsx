@@ -32,8 +32,6 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { TextSelectionMenu } from './TextSelectionMenu';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { useChatSurfaceMode } from '@/components/chat/useChatSurfaceMode';
-import { isVSCodeRuntime } from '@/lib/desktop';
-import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { toast } from '@/components/ui';
 import { Icon } from "@/components/icon/Icon";
 import { formatTimestampForDisplay } from './timeFormat';
@@ -258,9 +256,9 @@ const UserSubtaskPart: React.FC<{ part: SubtaskPartLike }> = ({ part }) => {
                             if (!effectiveDirectory) return;
                             // In contexts with no ContextPanel (embedded
                             // session-chat iframe) or single-surface layouts
-                            // (mobile, VS Code), navigate in place. Otherwise
-                            // open a new side-panel tab.
-                            if (isEmbeddedSessionChat() || isMobile || isVSCodeRuntime()) {
+                            // (mobile), navigate in place. Otherwise open a
+                            // new side-panel tab.
+                            if (isEmbeddedSessionChat() || isMobile) {
                                 setCurrentSession(taskSessionID, effectiveDirectory);
                                 return;
                             }
@@ -1215,13 +1213,12 @@ const AssistantMessageBody = React.memo(({
     const suggestedPlanTitle = React.useMemo(() => suggestPlanTitleFromText(assistantPlanText), [assistantPlanText]);
 
     const openContextPreview = useUIStore((state) => state.openContextPreview);
-    const isVSCode = isVSCodeRuntime();
     const isMiniChatSurface = chatSurfaceMode === 'mini-chat';
-    const canUseProjectPlanActions = !isVSCode && !isMiniChatSurface && !isMobile;
-    const canShowMultiRunAction = !isVSCode && !isMiniChatSurface && !isMobile;
+    const canUseProjectPlanActions = !isMiniChatSurface && !isMobile;
+    const canShowMultiRunAction = !isMiniChatSurface && !isMobile;
 
     const messagePreviewUrl = React.useMemo(() => {
-        if (isVSCode || isMobile || isMiniChatSurface) {
+        if (isMobile || isMiniChatSurface) {
             return null;
         }
 
@@ -1250,7 +1247,7 @@ const AssistantMessageBody = React.memo(({
             return url.includes('0.0.0.0') ? url.replace('0.0.0.0', '127.0.0.1') : url;
         }
         return null;
-    }, [assistantTextParts, isMobile, isMiniChatSurface, isVSCode, toolParts]);
+    }, [assistantTextParts, isMobile, isMiniChatSurface, toolParts]);
 
     const createSessionFromAssistantMessage = useSessionUIStore((state) => state.createSessionFromAssistantMessage);
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
@@ -1259,7 +1256,7 @@ const AssistantMessageBody = React.memo(({
     const projects = useProjectsStore((state) => state.projects);
     const effectiveDirectory = useEffectiveDirectory();
     const isReviewSessionView = reviewTransferDirection === 'review-to-original';
-    const effectiveReviewTransferDirection = (!isMobile && !isVSCode) ? reviewTransferDirection : null;
+    const effectiveReviewTransferDirection = (!isMobile) ? reviewTransferDirection : null;
     const reviewTransferAction = React.useMemo(() => {
         const transferText = assistantPlanText.trim();
         if (!sessionId || !effectiveDirectory || !transferText || !effectiveReviewTransferDirection) return undefined;
@@ -1296,7 +1293,6 @@ const AssistantMessageBody = React.memo(({
     const collapsibleThinkingBlocks = useUIStore((state) => state.collapsibleThinkingBlocks);
     const showSplitAssistantMessageActions = useUIStore((state) => state.showSplitAssistantMessageActions);
     const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
-    const vscodeApi = useRuntimeAPIs().vscode;
     const isSortedRenderMode = chatRenderMode === 'sorted';
     const collapsedPreviewCount = 7;
     const isLastAssistantInTurn = turnGroupingContext?.isLastAssistantInTurn ?? false;
@@ -1601,25 +1597,12 @@ const AssistantMessageBody = React.memo(({
 
                 const fileName = `message-${messageId}.png`;
 
-                if (isVSCodeRuntime()) {
-                    const payload = await vscodeApi?.saveImage?.({ fileName, dataUrl }) as { saved?: boolean; canceled?: boolean; error?: string } | undefined;
-                    if (!payload) {
-                        throw new Error('Failed to save image in VS Code');
-                    }
-                    if (payload.saved !== true) {
-                        if (payload.canceled) {
-                            return;
-                        }
-                        throw new Error(payload.error || 'Failed to save image in VS Code');
-                    }
-                } else {
-                    const link = document.createElement('a');
-                    link.download = fileName;
-                    link.href = dataUrl;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                }
+                const link = document.createElement('a');
+                link.download = fileName;
+                link.href = dataUrl;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
 
                 toast.success(t('chat.messageBody.toast.imageSaved'));
             } catch (error) {
@@ -1631,7 +1614,7 @@ const AssistantMessageBody = React.memo(({
                 }
             }
         },
-        [messageId, t, vscodeApi]
+        [messageId, t]
     );
 
     const activityPartsForTurn = React.useMemo(() => {
@@ -2058,7 +2041,7 @@ const AssistantMessageBody = React.memo(({
     }, [messageCompletedAt, messageCreatedAt, timeFormatPreference, locale]);
 
     const footerTimestampClassName = 'text-sm text-muted-foreground/60 tabular-nums flex items-center gap-1';
-    const canOpenMessagePreview = !isMiniChatSurface && !isMobile && !isVSCode;
+    const canOpenMessagePreview = !isMiniChatSurface && !isMobile;
 
     const finalTurnActionButtons = (
         <>

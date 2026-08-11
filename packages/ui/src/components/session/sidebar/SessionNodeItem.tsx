@@ -14,7 +14,7 @@ import {
 import { dropdownMenuItemClass, dropdownMenuPopupClass, dropdownMenuSeparatorClass, dropdownMenuSubTriggerClass } from '@/components/ui/dropdown-menu.styles';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn, formatDirectoryName } from '@/lib/utils';
-import { canUseElectronDesktopIPC, invokeDesktop, isVSCodeRuntime } from '@/lib/desktop';
+import { canUseElectronDesktopIPC, invokeDesktop } from '@/lib/desktop';
 import { toast } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -46,7 +46,6 @@ import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
 import { parseMultiRunSessionTitle } from '@/lib/multirun/title';
 import { MultiRunFusionDialog } from '@/components/multirun/MultiRunFusionDialog';
 import { FusionIcon } from '@/components/icons/FusionIcon';
-import { RuntimeAPIContext } from '@/contexts/runtimeAPIContext';
 import { startSessionTreeWorktreeMove, useIsSessionWorktreeMovePending } from '@/lib/worktrees/sessionWorktreeMove';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -301,33 +300,13 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     childRenderExtrasFor,
   } = props;
 
-  const isVSCode = React.useMemo(() => isVSCodeRuntime(), []);
   const isElectron = React.useMemo(() => canUseElectronDesktopIPC(), []);
-  const runtimeApis = React.useContext(RuntimeAPIContext);
-  const revealOnHoverClass = isVSCode
-    ? 'group-hover:opacity-100 group-hover:pointer-events-auto'
-    : 'group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto';
-  const hideOnHoverClass = isVSCode
-    ? 'group-hover:opacity-0'
-    : 'group-hover:opacity-0 group-focus-within:opacity-0';
-  const showOpenInEditorAction = isVSCode;
+  const revealOnHoverClass = 'group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto';
+  const hideOnHoverClass = 'group-hover:opacity-0 group-focus-within:opacity-0';
   const showQuickArchiveAction = !archivedBucket && !mobileVariant;
-  const revealPaddingClass = isVSCode
-    // VS Code rows reveal up to three actions on hover
-    // (open-in-editor + quick-archive + menu, each h-4). The date sits in the
-    // row flow, so the title must shrink enough to clear the actions or they
-    // overlap the timestamp. Open-in-editor is always present in VS Code.
-    ? (showQuickArchiveAction && showOpenInEditorAction
-        ? 'group-hover:pr-18'
-        : showQuickArchiveAction || showOpenInEditorAction
-          ? 'group-hover:pr-14'
-          : 'group-hover:pr-8')
-    // Reserve just enough room for the hover-revealed actions (two 16px
-    // buttons + gap, anchored at the row edge past the title's own end) so
-    // they never overlap the title without leaving a large hole.
-    : (showQuickArchiveAction
-        ? 'group-hover:pr-7 group-focus-within:pr-7'
-        : 'group-hover:pr-3 group-focus-within:pr-3');
+  const revealPaddingClass = showQuickArchiveAction
+    ? 'group-hover:pr-7 group-focus-within:pr-7'
+    : 'group-hover:pr-3 group-focus-within:pr-3';
   const alwaysActionPaddingClass = showQuickArchiveAction ? 'pr-13' : 'pr-7';
   const suppressNextSelectRef = React.useRef(false);
   const [isTouchPressed, setIsTouchPressed] = React.useState(false);
@@ -358,11 +337,10 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     ?? (projectLabelFromStore ? formatProjectLabel(projectLabelFromStore) : null);
   const tooltipBranchLabel = secondaryMeta?.branchLabel ?? node.worktree?.branch ?? null;
   const prLookupKey = React.useMemo(() => {
-    if (isVSCode) return null;
     const branch = node.worktree?.branch?.trim();
     const directory = normalizePath(node.worktree?.path ?? null);
     return branch && directory ? getGitHubPrStatusKey(directory, branch) : null;
-  }, [isVSCode, node.worktree]);
+  }, [node.worktree]);
   const prSummary = usePrVisualSummary(prLookupKey);
   const prIconColor = prSummary ? `var(--pr-${prSummary.visualState})` : undefined;
   const sessionGroupingMode = useSessionDisplayStore((state) => state.sessionGroupingMode);
@@ -829,22 +807,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     handleDeleteSession(session, { archivedBucket, hardDelete: true, skipConfirm: true });
   };
 
-  const handleOpenInEditorPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-  };
-
-  const handleOpenInEditorMouseDown = (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-  };
-
-  const handleOpenInEditorClick = (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    void runtimeApis?.vscode?.executeCommand('openchamber.openSessionInEditor', session.id, sessionTitle);
-  };
-
   const handleRowSelect = (event?: React.MouseEvent<HTMLButtonElement>) => {
     if (suppressNextSelectRef.current) {
       suppressNextSelectRef.current = false;
@@ -957,7 +919,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
         <Icon name="download" className="mr-1 h-4 w-4" />
         {t('sessions.sidebar.session.menu.exportMarkdown')}
       </Item>
-      {!isSubtaskSession && !archivedBucket && !isVSCode ? (
+      {!isSubtaskSession && !archivedBucket ? (
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="block">
@@ -1006,7 +968,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
           const normalized = normalizePath(candidate ?? null);
           if (normalized && !scopes.includes(normalized)) scopes.push(normalized);
         };
-        if (projectId && !isVSCode) {
+        if (projectId) {
           const project = useProjectsStore.getState().projects.find((entry) => entry.id === projectId);
           const projectRoot = normalizePath(project?.path ?? null);
           pushScope(projectRoot);
@@ -1073,12 +1035,11 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
         );
       })() : null}
 
-      {!isVSCode ? (
-        <Item
-          disabled={!sessionDirectory}
-          onClick={() => {
-            if (!sessionDirectory) return;
-            openContextPanelTab(sessionDirectory, {
+      <Item
+        disabled={!sessionDirectory}
+        onClick={() => {
+          if (!sessionDirectory) return;
+          openContextPanelTab(sessionDirectory, {
               mode: 'chat',
               dedupeKey: `session:${session.id}`,
               label: sessionTitle,
@@ -1091,7 +1052,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
           <span className="truncate">{t('sessions.sidebar.session.menu.openInSidePanel')}</span>
           <span className="shrink-0 typography-micro px-1 rounded leading-none pb-px text-[var(--status-warning)] bg-[var(--status-warning)]/10">{t('sessions.sidebar.session.menu.betaBadge')}</span>
         </Item>
-      ) : null}
 
       {isElectron ? (
         <Item
@@ -1231,7 +1191,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
 	                      'flex min-w-0 flex-1 cursor-pointer flex-col gap-0 overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 text-foreground select-none transition-[padding]',
 	                      isTouchPressed && 'bg-interactive-hover/70',
                       alwaysShowActions
-                        ? (isVSCode ? revealPaddingClass : alwaysActionPaddingClass)
+                        ? alwaysActionPaddingClass
                         : revealPaddingClass,
                     )}
                   >
@@ -1308,9 +1268,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                     </div>
                   </button>
                 </TooltipTrigger>
-                {/* VS Code already shows project context via workspace headers, so
-                    the per-row metadata tooltip is redundant noise there. */}
-                {!isVSCode ? (
                 <TooltipContent side="right" sideOffset={8} className="max-w-xs text-left">
                   <div className="flex min-w-44 flex-col gap-1.5 text-left text-xs">
                     <div className="flex items-center justify-between gap-3">
@@ -1339,7 +1296,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                     ) : null}
                   </div>
                 </TooltipContent>
-                ) : null}
               </Tooltip>
             )}
           </div>
@@ -1354,7 +1310,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
             'absolute right-0 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 transition-opacity',
             isSessionMenuOpen
               ? 'opacity-100'
-              : (alwaysShowActions && !isVSCode)
+              : alwaysShowActions
                 ? 'opacity-100'
                 : cn('opacity-0', revealOnHoverClass),
           )}>
@@ -1369,29 +1325,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                 onArchive={handleQuickArchiveClick}
                 onDelete={handleQuickDeleteClick}
               />
-            ) : null}
-            {showOpenInEditorAction ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className={cn(
-                      'inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 transition-opacity',
-                      !alwaysShowActions ? 'h-4 w-4' : 'h-6 w-6',
-                    )}
-                    aria-label={t('sessions.sidebar.session.actions.openInEditor')}
-                    onPointerDown={handleOpenInEditorPointerDown}
-                    onMouseDown={handleOpenInEditorMouseDown}
-                    onClick={handleOpenInEditorClick}
-                    onKeyDown={(event) => event.stopPropagation()}
-                  >
-                    <Icon name="external-link" className={cn(!alwaysShowActions ? 'h-2.5 w-2.5' : 'h-3.5 w-3.5')} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="left" sideOffset={8}>
-                  {t('sessions.sidebar.session.actions.openInEditor')}
-                </TooltipContent>
-              </Tooltip>
             ) : null}
             <DropdownMenu open={isMenuOpen} onOpenChange={handleMenuOpenChange} onOpenChangeComplete={handleMenuOpenChangeComplete}>
               <DropdownMenuTrigger asChild>

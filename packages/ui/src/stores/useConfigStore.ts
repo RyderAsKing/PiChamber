@@ -81,7 +81,7 @@ const fetchPiChamberDefaults = async (): Promise<PiChamberDefaults> => {
         return result;
     };
     try {
-        // 1. Runtime settings API (VSCode)
+        // 1. Runtime settings API (desktop/embedded surfaces)
         const runtimeSettings = getRegisteredRuntimeAPIs()?.settings;
         if (runtimeSettings) {
             try {

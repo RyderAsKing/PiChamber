@@ -9,7 +9,6 @@
 import type { FilesAPI } from './api/types';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { getDesktopHomeDirectory } from './desktop';
-import { isVSCodeRuntime } from './desktop';
 import { sanitizeStarterRefs, type DraftStarterRef } from './draftStarters';
 import { createProjectIdFromPath } from './projectId';
 import { runtimeFetch } from './runtime-fetch';
@@ -22,7 +21,7 @@ const LEGACY_CONFIG_DIR = '.openchamber';
 const USER_PROJECTS_DIR_SEGMENTS = ['.config', 'pichamber', 'projects'];
 
 /**
- * Get the runtime Files API if available (Desktop/VSCode).
+ * Get the runtime Files API if available (Desktop).
  */
 function getRuntimeFilesAPI(): FilesAPI | null {
   const apis = getRegisteredRuntimeAPIs();
@@ -242,8 +241,7 @@ const resolveServerHome = async (): Promise<ResolvedServerHome> => {
   }
 
   // Fallback for environments where /api/fs/home is unavailable.
-  // VSCode intentionally avoids this because embedded home equals workspace path.
-  if (!home && !isVSCodeRuntime()) {
+  if (!home) {
     try {
       const desktopHome = await getDesktopHomeDirectory();
       if (desktopHome && desktopHome.trim().length > 0) {

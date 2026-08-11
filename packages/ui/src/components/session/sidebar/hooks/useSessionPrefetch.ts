@@ -2,7 +2,6 @@ import React from 'react';
 import type { Session } from '@opencode-ai/sdk/v2';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { getSyncSessionMaterializationStatus } from '@/sync/sync-refs';
-import { isVSCodeRuntime } from '@/lib/desktop';
 
 const SESSION_PREFETCH_HOVER_DELAY_MS = 180;
 const SESSION_PREFETCH_SETTLE_MS = 600;
@@ -33,7 +32,7 @@ export const useSessionPrefetch = ({ enabled = true, currentSessionId, sortedSes
   const sessionPrefetchQueueRef = React.useRef<PrefetchRequest[]>([]);
   const sessionPrefetchInFlightRef = React.useRef<Set<string>>(new Set());
   const generationRef = React.useRef(0);
-  const prefetchDisabled = React.useMemo(() => isVSCodeRuntime(), []);
+  const prefetchDisabled = false;
 
   const requestKey = React.useCallback((request: Pick<PrefetchRequest, 'directory' | 'sessionId'>) => (
     `${request.directory}\n${request.sessionId}`

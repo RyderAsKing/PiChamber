@@ -20,7 +20,6 @@ type Args = {
   pinnedSessionIds: Set<string>;
   sessionOrderRanks: ReadonlyMap<string, number>;
   gitBranches: Map<string, string | null>;
-  isVSCode: boolean;
 };
 
 const isArchivedSession = (session: Session): boolean => Boolean(session.time?.archived);
@@ -126,11 +125,6 @@ export const useSessionGrouping = (args: Args) => {
 
       const getGroupKey = (session: Session) => {
         if (session.time?.archived) return archivedKey;
-        // VS Code groups by open workspace, not by worktree: every non-archived
-        // session in a project belongs to that project's single (root) group.
-        // Worktrees aren't registered in VS Code, so the desktop directory-match
-        // below would otherwise dump these sessions into the archived bucket.
-        if (args.isVSCode) return normalizedProjectRoot ?? '__project_root__';
         const metadataPath = normalizePath(args.worktreeMetadata.get(session.id)?.path ?? null);
         const normalizedDir = metadataPath ?? resolveGlobalSessionDirectory(session);
         if (!normalizedDir) return archivedKey;
@@ -212,8 +206,7 @@ export const useSessionGrouping = (args: Args) => {
         return aLabel.localeCompare(bLabel);
       });
 
-      // VS Code groups strictly by open workspace — no per-worktree subgroups.
-      const worktreeGroups = args.isVSCode ? [] : sortedWorktrees;
+      const worktreeGroups = sortedWorktrees;
       worktreeGroups.forEach((meta) => {
         const directory = normalizePath(meta.path) ?? meta.path;
         const currentBranch = args.gitBranches.get(directory)?.trim() || null;
@@ -250,14 +243,14 @@ export const useSessionGrouping = (args: Args) => {
           isArchivedBucket: true,
           worktree: null,
           directory: null,
-          folderScopeKey: !args.isVSCode && normalizedProjectRoot ? getArchivedScopeKey(normalizedProjectRoot) : null,
+          folderScopeKey: normalizedProjectRoot ? getArchivedScopeKey(normalizedProjectRoot) : null,
           sessions: archivedSessions,
         });
       }
 
       return groups;
     },
-    [args.homeDirectory, args.worktreeMetadata, args.pinnedSessionIds, args.sessionOrderRanks, args.gitBranches, args.isVSCode, t],
+    [args.homeDirectory, args.worktreeMetadata, args.pinnedSessionIds, args.sessionOrderRanks, args.gitBranches, t],
   );
 
   return {

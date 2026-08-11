@@ -150,7 +150,7 @@ export const ProjectActionsButton = ({
 }: ProjectActionsButtonProps) => {
   const { t } = useI18n();
   const { currentTheme } = useThemeSystem();
-  const { terminal, runtime } = useRuntimeAPIs();
+  const { terminal } = useRuntimeAPIs();
   const { isMobile } = useDeviceInfo();
   const isDesktopShellApp = React.useMemo(() => isDesktopShell(), []);
   const desktopSshInstances = useDesktopSshStore((state) => state.instances);
@@ -415,7 +415,7 @@ export const ProjectActionsButton = ({
   ]);
 
   const runAction = React.useCallback(async (action: PiChamberProjectAction) => {
-    if (runtime.isVSCode || (!allowMobile && isMobile)) {
+    if (!allowMobile && isMobile) {
       return;
     }
 
@@ -600,7 +600,6 @@ export const ProjectActionsButton = ({
     openExternal,
     openContextPreview,
     projectActionRuns,
-    runtime.isVSCode,
     removeProjectActionRun,
     setConnecting,
     setProjectActionRun,
@@ -713,7 +712,7 @@ export const ProjectActionsButton = ({
     return state.sessions.get(previewRun.directory)?.tabs.find((tab) => tab.id === previewRun.tabId)?.previewUrl ?? null;
   });
 
-  if (runtime.isVSCode || (!allowMobile && isMobile) || !stableProjectRef || !normalizedDirectory) {
+  if ((!allowMobile && isMobile) || !stableProjectRef || !normalizedDirectory) {
     return null;
   }
 

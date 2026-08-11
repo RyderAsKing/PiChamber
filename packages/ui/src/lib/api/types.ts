@@ -1,14 +1,12 @@
 import type { WorktreeMetadata } from '@/types/worktree';
 import type { DraftStarterRef } from '@/lib/draftStarters';
 
-type RuntimePlatform = 'web' | 'desktop' | 'vscode';
+type RuntimePlatform = 'web' | 'desktop';
 
 interface RuntimeDescriptor {
   platform: RuntimePlatform;
 
   isDesktop: boolean;
-
-  isVSCode: boolean;
 
   label?: string;
 }
@@ -764,15 +762,6 @@ export interface EditorAPI {
   ): Promise<void>;
 }
 
-export interface VSCodeAPI {
-  executeCommand(command: string, ...args: unknown[]): Promise<unknown>;
-  openAgentManager(): Promise<void>;
-  openExternalUrl(url: string): Promise<void>;
-  pickFiles?(options?: { extensions?: string[] }): Promise<unknown>;
-  saveImage?(payload: unknown): Promise<unknown>;
-  saveMarkdown?(payload: unknown): Promise<unknown>;
-}
-
 export interface PushSubscribePayload {
   endpoint: string;
   keys: {
@@ -780,7 +769,7 @@ export interface PushSubscribePayload {
     auth: string;
   };
   origin?: string;
-  /** Runtime surface ('ios' | 'android' | 'vscode' | 'desktop' | 'web') for presence-aware routing. */
+  /** Runtime surface ('ios' | 'android' | 'desktop' | 'web') for presence-aware routing. */
   platform?: string;
 }
 
@@ -1236,7 +1225,6 @@ export interface RuntimeAPIs {
   clientAuth?: ClientAuthAPI;
   tools: ToolsAPI;
   editor?: EditorAPI;
-  vscode?: VSCodeAPI;
   worktrees?: WorktreeMetadata[];
 }
 

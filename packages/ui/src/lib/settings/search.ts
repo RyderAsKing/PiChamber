@@ -49,21 +49,18 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'appearance',
     titleKey: 'settings.pichamber.visual.field.weekStartsOn',
     keywords: ['calendar', 'monday', 'sunday'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'appearance.light-theme',
     page: 'appearance',
     titleKey: 'settings.pichamber.visual.field.lightTheme',
     keywords: ['theme', 'color', 'light mode'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'appearance.dark-theme',
     page: 'appearance',
     titleKey: 'settings.pichamber.visual.field.darkTheme',
     keywords: ['theme', 'color', 'dark mode'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'appearance.dock-badge',
@@ -81,7 +78,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.pichamber.visual.field.installAppName',
     descriptionKey: 'settings.pichamber.visual.field.installAppNameHint',
     keywords: ['pwa', 'installed app'],
-    isAvailable: (ctx) => ctx.isWeb && !ctx.isDesktop && !ctx.isVSCode,
+    isAvailable: (ctx) => ctx.isWeb && !ctx.isDesktop,
   },
   {
     id: 'appearance.pwa-orientation',
@@ -89,7 +86,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.pichamber.visual.field.installOrientation',
     descriptionKey: 'settings.pichamber.visual.field.installOrientationHint',
     keywords: ['pwa', 'portrait', 'landscape'],
-    isAvailable: (ctx) => ctx.isWeb && !ctx.isDesktop && !ctx.isVSCode,
+    isAvailable: (ctx) => ctx.isWeb && !ctx.isDesktop,
   },
   {
     id: 'appearance.mobile-keyboard-mode',
@@ -97,7 +94,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.pichamber.visual.field.mobileKeyboardMode',
     descriptionKey: 'settings.pichamber.visual.field.mobileKeyboardModeHint',
     keywords: ['mobile', 'keyboard', 'resize'],
-    isAvailable: (ctx) => ctx.isMobile && ctx.isWeb && !ctx.isDesktop && !ctx.isVSCode,
+    isAvailable: (ctx) => ctx.isMobile && ctx.isWeb && !ctx.isDesktop,
   },
   {
     id: 'appearance.interface-font-size',
@@ -118,7 +115,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.pichamber.visual.field.terminalShell',
     descriptionKey: 'settings.pichamber.visual.field.terminalShellHint',
     keywords: ['terminal', 'shell', 'bash', 'zsh', 'fish', 'pwsh', 'powershell'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'appearance.editor-font-size',
@@ -153,7 +149,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'general',
     titleKey: 'settings.pichamber.visual.field.expandedEditorToolbar',
     keywords: ['editor', 'toolbar', 'tabs', 'docked', 'files'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'appearance.file-editor-keymap',
@@ -167,7 +162,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.pichamber.visual.field.terminalQuickKeys',
     descriptionKey: 'settings.pichamber.visual.field.terminalQuickKeysTooltip',
     keywords: ['terminal', 'keyboard', 'esc', 'ctrl', 'arrows'],
-    isAvailable: (ctx) => !ctx.isMobile && !ctx.isVSCode,
+    isAvailable: (ctx) => !ctx.isMobile,
   },
   {
     id: 'appearance.usage-reports',
@@ -211,14 +206,12 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'chat',
     titleKey: 'settings.pichamber.visual.field.sessionGoal',
     keywords: ['goal', 'objective', 'auto continue', 'small model'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'chat.session-goal-budget',
     page: 'chat',
     titleKey: 'settings.pichamber.visual.goal.budgetLabel',
     keywords: ['goal', 'budget', 'tokens', 'limit'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'chat.reasoning-traces',
@@ -243,7 +236,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'chat',
     titleKey: 'settings.pichamber.visual.field.promptNavigatorEnabled',
     keywords: ['prompt', 'navigator', 'navigation', 'timeline', 'scroll'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'chat.collapsible-user-messages',
@@ -311,7 +303,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'chat',
     titleKey: 'settings.pichamber.visual.field.showDotfiles',
     keywords: ['hidden files'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'chat.follow-up-behavior',
@@ -464,14 +455,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'general',
     titleKey: 'settings.pichamber.opencodeCli.field.binaryPath',
     keywords: ['opencode', 'cli', 'binary', 'path'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'sessions.opencode-update-notifications',
     page: 'general',
     titleKey: 'settings.pichamber.opencodeCli.field.showUpdateNotifications',
     keywords: ['opencode', 'cli', 'updates'],
-    isAvailable: (ctx) => !ctx.isVSCode && !ctx.isWindowsArm64,
+    isAvailable: (ctx) => !ctx.isWindowsArm64,
   },
   {
     id: 'sessions.agent-control-tool',
@@ -479,7 +469,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.pichamber.opencodeCli.field.agentControlTool',
     descriptionKey: 'settings.pichamber.opencodeCli.field.agentControlToolInfo',
     keywords: ['agent', 'tool', 'orchestration', 'openchamber', 'sessions', 'schedule', 'control'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'git.github-account',
@@ -561,7 +550,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.remoteInstances.clientAuth.title',
     descriptionKey: 'settings.remoteInstances.clientAuth.description',
     keywords: ['pairing link', 'client token', 'connect desktop', 'remote access', 'relay', 'devices', 'connect from anywhere'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'remote-instances.direct-hosts',
@@ -577,7 +565,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.behavior.page.section.systemPromptOptimization',
     descriptionKey: 'settings.behavior.page.systemPromptOptimization.info',
     keywords: ['system prompt', 'tokens', 'context', 'optimize', 'minimal'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'behavior.system-prompt',
@@ -825,21 +812,18 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'magic-prompts',
     titleKey: 'settings.magicPrompts.page.block.visiblePrompt',
     keywords: ['prompt text', 'user message', 'template'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'magic-prompts.instructions',
     page: 'magic-prompts',
     titleKey: 'settings.magicPrompts.page.block.instructions',
     keywords: ['hidden prompt', 'instructions', 'template'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'magic-prompts.reset-overrides',
     page: 'magic-prompts',
     titleKey: 'settings.magicPrompts.page.actions.resetAllOverrides',
     keywords: ['reset', 'default prompts', 'overrides'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'shortcuts.keyboard-shortcuts',
@@ -866,14 +850,12 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.pichamber.tunnel.field.provider',
     descriptionKey: 'settings.pichamber.tunnel.description',
     keywords: ['remote access', 'cloudflare', 'ngrok'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'tunnel.type',
     page: 'tunnel',
     titleKey: 'settings.pichamber.tunnel.field.tunnelType',
     keywords: ['quick', 'managed remote', 'managed local'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'tunnel.ttl',
@@ -881,14 +863,12 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.pichamber.tunnel.field.connectLinkTtl',
     descriptionKey: 'settings.pichamber.tunnel.field.tunnelSessionTtl',
     keywords: ['expiry', 'expiration', 'session ttl', 'connect link ttl'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'tunnel.managed-remote',
     page: 'tunnel',
     titleKey: 'settings.pichamber.tunnel.section.savedManagedRemoteTunnels',
     keywords: ['cloudflare', 'hostname', 'token', 'managed remote'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'tunnel.managed-local-config',
@@ -896,7 +876,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.pichamber.tunnel.field.configurationFile',
     descriptionKey: 'settings.pichamber.tunnel.note.managedLocalUsesConfig',
     keywords: ['cloudflared', 'config', 'yaml', 'json', 'managed local'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'tunnel.start',
@@ -904,7 +883,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.pichamber.tunnel.actions.startTunnel',
     descriptionKey: 'settings.pichamber.tunnel.note.connectLinksOneTime',
     keywords: ['connect link', 'qr code', 'public url', 'remote access'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'notifications.delivery',
@@ -923,7 +901,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'notifications',
     titleKey: 'settings.notifications.page.push.title',
     keywords: ['background', 'push'],
-    isAvailable: (ctx) => ctx.isWeb && !ctx.isDesktop && !ctx.isVSCode,
+    isAvailable: (ctx) => ctx.isWeb && !ctx.isDesktop,
   },
 ] as const;
 

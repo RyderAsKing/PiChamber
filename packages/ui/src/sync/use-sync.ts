@@ -15,17 +15,14 @@ import {
 } from "./sync-context"
 import { dropSessionCaches, getProtectedSessionCacheIds } from "./session-cache"
 import { stripSessionDiffSnapshots } from "./sanitize"
-import { isVSCodeRuntime } from "@/lib/desktop"
 import { isMobileSurfaceRuntime } from "@/lib/runtimeSurface"
 import { clearSessionPrefetch } from "./session-prefetch-cache"
 import { getSessionMaterializationStatus } from "./materialization"
 import { getRuntimeKey } from "@/lib/runtime-switch"
 
 const INITIAL_MESSAGE_PAGE_SIZE = 50
-const VSCODE_INITIAL_MESSAGE_PAGE_SIZE = 30
 const MOBILE_INITIAL_MESSAGE_PAGE_SIZE = 30
 const MAX_SEEN_DIRS = 30
-const VSCODE_SESSION_CACHE_LIMIT = 4
 const MOBILE_SESSION_CACHE_LIMIT = 4
 
 // Shared across useSync() instances so cache eviction is based on app-level
@@ -76,14 +73,12 @@ function assertSdkSuccess<T>(result: SdkResult<T>, operation: string): void {
   throw new Error(`${operation} failed${status ? ` (${status})` : ""}: ${formatSdkError(result.error)}`)
 }
 
-const isConstrainedSessionRuntime = () => isVSCodeRuntime() || isMobileSurfaceRuntime()
+const isConstrainedSessionRuntime = () => isMobileSurfaceRuntime()
 const getEffectiveSessionCacheLimit = () => {
-  if (isVSCodeRuntime()) return VSCODE_SESSION_CACHE_LIMIT
   if (isMobileSurfaceRuntime()) return MOBILE_SESSION_CACHE_LIMIT
   return SESSION_CACHE_LIMIT
 }
 const getInitialMessagePageSize = () => {
-  if (isVSCodeRuntime()) return VSCODE_INITIAL_MESSAGE_PAGE_SIZE
   if (isMobileSurfaceRuntime()) return MOBILE_INITIAL_MESSAGE_PAGE_SIZE
   return INITIAL_MESSAGE_PAGE_SIZE
 }

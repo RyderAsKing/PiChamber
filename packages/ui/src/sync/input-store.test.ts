@@ -58,7 +58,6 @@ describe("input-store attachments", () => {
       pendingInputText: null,
       pendingInputMode: "replace",
       pendingSyntheticParts: null,
-      activeEditorFile: null,
     })
     useInputStore.getState().setAttachedFiles([])
   })
@@ -105,20 +104,6 @@ describe("input-store attachments", () => {
     expect(useInputStore.getState().attachedFiles.map((file) => file.filename)).toEqual(["restored.txt"])
   })
 
-  testWithMockFileReader("does not attach a VS Code selection that finishes reading after attachments are cleared", async () => {
-    const addPromise = useInputStore.getState().addVSCodeSelectionAttachment(
-      "/workspace/hello.txt",
-      new File(["hello"], "hello.txt", { type: "text/plain" })
-    )
-    expect(pendingReaders).toHaveLength(1)
-
-    useInputStore.getState().clearAttachedFiles()
-    resolveReader(pendingReaders[0], "data:text/plain;base64,aGVsbG8=")
-    await addPromise
-
-    expect(useInputStore.getState().attachedFiles).toEqual([])
-  })
-
   test("does not leave local file reads pending after a reader error", async () => {
     const addPromise = useInputStore.getState().addAttachedFile(new File(["hello"], "hello.txt", { type: "text/plain" }))
     expect(pendingReaders).toHaveLength(1)
@@ -129,15 +114,15 @@ describe("input-store attachments", () => {
     expect(useInputStore.getState().attachedFiles).toEqual([])
   })
 
-  test("cleans up pending VS Code selection keys after a reader error", async () => {
+  test("cleans up pending attachment reads after a reader error", async () => {
     const file = new File(["hello"], "hello.txt", { type: "text/plain" })
-    const firstAdd = useInputStore.getState().addVSCodeSelectionAttachment("/workspace/hello.txt", file)
+    const firstAdd = useInputStore.getState().addAttachedFile(file)
     expect(pendingReaders).toHaveLength(1)
 
     rejectReader(pendingReaders[0])
     await firstAdd
 
-    const secondAdd = useInputStore.getState().addVSCodeSelectionAttachment("/workspace/hello.txt", file)
+    const secondAdd = useInputStore.getState().addAttachedFile(file)
     expect(pendingReaders).toHaveLength(2)
     resolveReader(pendingReaders[1], "data:text/plain;base64,aGVsbG8=")
     await secondAdd
@@ -259,7 +244,11 @@ describe("input-store attachments", () => {
     await waitForReaderCount(1)
     resolveReader(pendingReaders[0], "data:text/plain;base64,RG9jdW1lbnQ=")
     await waitForReaderCount(2)
-    useInputStore.getState().addVSCodeFileAttachment("/workspace/design-image-1.png", "design-image-1.png", 1)
+    useInputStore.getState().addRestoredAttachment({
+      url: "file:///workspace/design-image-1.png",
+      mimeType: "text/plain",
+      filename: "design-image-1.png",
+    })
     resolveReader(pendingReaders[1], "data:image/png;base64,AQID")
 
     await waitForReaderCount(3)

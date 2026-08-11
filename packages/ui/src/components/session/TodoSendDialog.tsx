@@ -7,7 +7,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
-import { isVSCodeRuntime } from '@/lib/desktop';
 import { ModelSelector } from '@/components/sections/agents/ModelSelector';
 import { AgentSelector } from '@/components/sections/commands/AgentSelector';
 import { ThinkingPill } from '@/components/session/ThinkingPill';
@@ -52,7 +51,7 @@ const getInitialExecution = (params: {
 export function TodoSendDialog(props: TodoSendDialogProps) {
   const { t } = useI18n();
   const { open, onOpenChange, target, projectDirectory, submitting = false, allowRunAsGoal = false, onConfirm } = props;
-  const showRunAsGoal = allowRunAsGoal && !isVSCodeRuntime();
+  const showRunAsGoal = allowRunAsGoal;
 
   const loadProviders = useConfigStore((state) => state.loadProviders);
   const loadConfigAgents = useConfigStore((state) => state.loadAgents);

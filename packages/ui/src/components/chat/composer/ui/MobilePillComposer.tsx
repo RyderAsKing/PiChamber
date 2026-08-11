@@ -26,7 +26,6 @@ export interface MobilePillComposerProps {
     directory?: string;
     newSessionDraftOpen: boolean;
     hasContent: boolean;
-    isVSCode: boolean;
     canAbort: boolean;
     footerIconButtonClass: string;
     iconSizeClass: string;
@@ -51,7 +50,6 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
         directory,
         newSessionDraftOpen,
         hasContent,
-        isVSCode,
         canAbort,
         footerIconButtonClass,
         iconSizeClass,
@@ -88,7 +86,6 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
                 style={{ backgroundColor: currentTheme?.colors?.surface?.subtle }}
             >
                 <ComposerAttachmentControls
-                    isVSCode={isVSCode}
                     footerIconButtonClass={footerIconButtonClass}
                     iconSizeClass={iconSizeClass}
                     handlePickLocalFiles={onPickLocalFiles}

@@ -3014,7 +3014,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     ? `${selectedFile.path}|${selectedFileReadOptions.allowOutsideWorkspace ? 'outside' : 'workspace'}|${selectedFileReadOptions.outsideFileGrant ?? ''}`
     : '';
 
-  const htmlAssetAuthKey = selectedFile?.path && isHtml && htmlViewMode === 'preview' && !runtime.isVSCode
+  const htmlAssetAuthKey = selectedFile?.path && isHtml && htmlViewMode === 'preview'
     ? selectedFile.path
     : '';
 
@@ -3977,14 +3977,9 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
             <div className="h-full overflow-hidden">
               <iframe
                 key={htmlPreviewNonce}
-                src={!runtime.isVSCode && htmlAssetAuthReadyKey === htmlAssetAuthKey ? (() => {
+                src={htmlAssetAuthReadyKey === htmlAssetAuthKey ? (() => {
                   const encoded = selectedFile.path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
                   return getRuntimeUrlResolver().authenticatedAsset(`/api/fs/serve${encoded.startsWith('/') ? encoded : `/${encoded}`}`);
-                })() : undefined}
-                srcDoc={runtime.isVSCode ? (() => {
-                  const basePath = selectedFile.path.substring(0, selectedFile.path.lastIndexOf('/') + 1);
-                  if (!basePath) return fileContent;
-                  return fileContent.replace(/<head([^>]*)>/i, `<head$1><base href="${basePath}">`);
                 })() : undefined}
                 className="w-full h-full border-none"
                 sandbox="allow-scripts allow-same-origin allow-forms"

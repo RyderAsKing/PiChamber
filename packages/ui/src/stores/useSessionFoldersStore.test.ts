@@ -28,10 +28,6 @@ mock.module('./utils/safeStorage', () => ({
   getSafeStorage: () => safeStorage,
 }));
 
-mock.module('@/lib/desktop', () => ({
-  isVSCodeRuntime: () => false,
-}));
-
 mock.module('@/lib/runtime-fetch', () => ({
   runtimeFetch: mock(async () => new Response(JSON.stringify(diskResponseBody), { headers: { 'Content-Type': 'application/json' } })),
 }));

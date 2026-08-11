@@ -8,17 +8,6 @@ import { resolveSettingsSlug } from '@/lib/settings/metadata';
 import { isEmbeddedSessionChat } from '@/components/layout/contextPanelEmbeddedChat';
 
 /**
- * Check if running in VS Code webview context.
- */
-function isVSCodeContext(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  const win = window as { __VSCODE_CONFIG__?: unknown };
-  return win.__VSCODE_CONFIG__ !== undefined;
-}
-
-/**
  * Hook that provides bidirectional URL routing for PiChamber.
  *
  * On mount:
@@ -29,7 +18,6 @@ function isVSCodeContext(): boolean {
  * Works in:
  * - Web: Full bidirectional sync
  * - Desktop: Full bidirectional sync
- * - VS Code: State-only (no URL updates, reads initial params)
  * - Embedded session-chat iframe (`?ocPanel=session-chat`): No URL updates.
  *   The iframe's session identity is fixed at mount (the parent builds the
  *   src with `sessionId`); in-place subtask navigation must NOT rewrite the
@@ -38,7 +26,6 @@ function isVSCodeContext(): boolean {
  *   "Open subtask" clicks.
  */
 export function useRouter(): void {
-  const isVSCode = React.useMemo(() => isVSCodeContext(), []);
   // Captured once at mount: the iframe's embedded-ness never changes during
   // its lifetime (a parent src swap is a full reload).
   const isEmbeddedChat = React.useMemo(() => isEmbeddedSessionChat(), []);
@@ -125,14 +112,14 @@ export function useRouter(): void {
    */
   const syncURLFromState = React.useCallback(
     (options: { replace?: boolean } = {}) => {
-      if (isVSCode || isEmbeddedChat || isApplyingRouteRef.current) {
+      if (isEmbeddedChat || isApplyingRouteRef.current) {
         return;
       }
 
       const state = getCurrentAppState();
       updateBrowserURL(state, options);
     },
-    [isVSCode, isEmbeddedChat, getCurrentAppState]
+    [isEmbeddedChat, getCurrentAppState]
   );
 
   // Initialize: parse URL and apply route on mount
@@ -158,7 +145,7 @@ export function useRouter(): void {
       // Use the parsed route values instead of an immediate store snapshot so
       // deep links do not briefly normalize `?session=...` back to `/` while
       // the session's directory/message bootstrap is still catching up.
-      if (!isVSCode && !isEmbeddedChat) {
+      if (!isEmbeddedChat) {
         updateBrowserURL({
           ...getCurrentAppState(),
           sessionId: route.sessionId ?? useSessionUIStore.getState().currentSessionId,
@@ -170,11 +157,11 @@ export function useRouter(): void {
     };
 
     void initializeRoute();
-  }, [applyRoute, getCurrentAppState, isVSCode, isEmbeddedChat]);
+  }, [applyRoute, getCurrentAppState, isEmbeddedChat]);
 
   // Subscribe to session changes
   React.useEffect(() => {
-    if (isVSCode || isEmbeddedChat) {
+    if (isEmbeddedChat) {
       return;
     }
 
@@ -193,11 +180,11 @@ export function useRouter(): void {
     });
 
     return unsubscribe;
-  }, [isVSCode, isEmbeddedChat, syncURLFromState]);
+  }, [isEmbeddedChat, syncURLFromState]);
 
   // Subscribe to UI store changes (tab, settings)
   React.useEffect(() => {
-    if (isVSCode || isEmbeddedChat) {
+    if (isEmbeddedChat) {
       return;
     }
 
@@ -230,11 +217,11 @@ export function useRouter(): void {
     });
 
     return unsubscribe;
-  }, [isVSCode, isEmbeddedChat, syncURLFromState]);
+  }, [isEmbeddedChat, syncURLFromState]);
 
   // Listen for browser back/forward navigation
   React.useEffect(() => {
-    if (typeof window === 'undefined' || isVSCode || isEmbeddedChat) {
+    if (typeof window === 'undefined' || isEmbeddedChat) {
       return;
     }
 
@@ -264,5 +251,5 @@ export function useRouter(): void {
     return () => {
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [applyRoute, isVSCode, isEmbeddedChat, setActiveMainTab, setSettingsDialogOpen]);
+  }, [applyRoute, isEmbeddedChat, setActiveMainTab, setSettingsDialogOpen]);
 }

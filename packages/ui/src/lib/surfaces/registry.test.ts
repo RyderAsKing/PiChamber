@@ -9,7 +9,6 @@ import {
 const baseOptions = {
   railOrder: [],
   planModeEnabled: true,
-  isVSCode: false,
   screenWidth: 1200,
   tabs: [],
 } as const;
@@ -26,8 +25,7 @@ describe('getVisibleContextRailSurfaces', () => {
     expect(surfaces.some((surface) => surface.id === 'plan')).toBe(true);
   });
 
-  test('hides the walkthrough on VS Code and below the min width', () => {
-    expect(getVisibleContextRailSurfaces({ ...baseOptions, isVSCode: true }).some((s) => s.id === 'walkthrough')).toBe(false);
+  test('hides the walkthrough below the min width', () => {
     expect(
       getVisibleContextRailSurfaces({ ...baseOptions, screenWidth: WALKTHROUGH_MIN_WIDTH - 1 }).some((s) => s.id === 'walkthrough'),
     ).toBe(false);

@@ -66,7 +66,7 @@ import { DesktopHostSwitcherDialog } from '@/components/desktop/DesktopHostSwitc
 import { OpenInAppButton } from '@/components/desktop/OpenInAppButton';
 import { ProjectActionsButton } from '@/components/layout/ProjectActionsButton';
 import { SessionSwitcherDropdown } from '@/components/session/SessionSwitcherDropdown';
-import { canUseElectronDesktopIPC, invokeDesktop, isDesktopLocalOriginActive, isDesktopShell, isVSCodeRuntime, startDesktopWindowDrag, type UpdateInfo } from '@/lib/desktop';
+import { canUseElectronDesktopIPC, invokeDesktop, isDesktopLocalOriginActive, isDesktopShell, startDesktopWindowDrag, type UpdateInfo } from '@/lib/desktop';
 import { desktopHostsGet, redactSensitiveUrl } from '@/lib/desktopHosts';
 import {
   LOCAL_HOST_ID,
@@ -654,7 +654,6 @@ export const Header: React.FC<HeaderProps> = ({
   const [remoteUpdateError, setRemoteUpdateError] = React.useState<string | null>(null);
   const compactCurrentInstanceLabel = React.useMemo(() => formatCompactHeaderLabel(currentInstanceLabel), [currentInstanceLabel]);
   const [mobileServicesTab, setMobileServicesTab] = React.useState<'usage' | 'mcp'>('usage');
-  const isVSCode = React.useMemo(() => isVSCodeRuntime(), []);
   // While the work-status panel is on screen it already reports the project,
   // the branch and the context fill — three paces away in the same window.
   // These yield to it rather than saying the same thing twice, and return the
@@ -680,8 +679,7 @@ export const Header: React.FC<HeaderProps> = ({
     }
     setWorkStatusPanelEnabled(!workStatusPanelEnabled);
   }, [setWorkStatusOverlayOpen, setWorkStatusPanelEnabled, workStatusOverlayOpen, workStatusPanelEnabled, workStatusPanelFits]);
-  const showDesktopHeaderContextUsage = !isVSCode
-    && !workStatusPanelVisible
+  const showDesktopHeaderContextUsage = !workStatusPanelVisible
     && activeMainTab === 'chat'
     && !!stableDesktopContextUsage
     && stableDesktopContextUsage.totalTokens > 0;
@@ -1541,11 +1539,11 @@ export const Header: React.FC<HeaderProps> = ({
     if (isTabletStandalonePwa) {
       return 'max(calc(0.75rem + var(--oc-wco-left-inset, 0px)), 5.5rem)';
     }
-    if ((!isDesktopApp || usesFramelessChrome) && !isVSCode) {
+    if ((!isDesktopApp || usesFramelessChrome)) {
       return 'calc(0.75rem + var(--oc-wco-left-inset, 0px))';
     }
     return '0.75rem';
-  }, [isDesktopApp, isDesktopWindowFullscreen, isMacPlatform, isTabletStandalonePwa, isVSCode, usesFramelessChrome]);
+  }, [isDesktopApp, isDesktopWindowFullscreen, isMacPlatform, isTabletStandalonePwa, usesFramelessChrome]);
 
   useEffect(() => {
     if (typeof document === 'undefined') {
@@ -1614,7 +1612,7 @@ export const Header: React.FC<HeaderProps> = ({
   }, [isDesktopApp, isMacPlatform, macosMajorVersion]);
 
   const webWindowControlsOverlayStyle = React.useMemo<React.CSSProperties | undefined>(() => {
-    if ((isDesktopApp && !usesFramelessChrome) || isVSCode) {
+    if (isDesktopApp && !usesFramelessChrome) {
       return undefined;
     }
 
@@ -1625,7 +1623,7 @@ export const Header: React.FC<HeaderProps> = ({
       minHeight: 'max(3rem, var(--oc-wco-titlebar-height, 0px))',
       height: 'max(3rem, var(--oc-wco-titlebar-height, 0px))',
     };
-  }, [isDesktopApp, isVSCode, usesFramelessChrome]);
+  }, [isDesktopApp, usesFramelessChrome]);
 
   const updateHeaderHeight = React.useCallback(() => {
     if (typeof document === 'undefined') {
@@ -2055,7 +2053,7 @@ export const Header: React.FC<HeaderProps> = ({
                       <DropdownMenuItem onClick={() => void shareCurrentSession()}><Icon name="share-2" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.share')}</DropdownMenuItem>
                     )}
                     <DropdownMenuItem onClick={() => void exportCurrentSession()}><Icon name="download" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.exportMarkdown')}</DropdownMenuItem>
-                    {!isVSCode && currentSession && !currentSession.parentId ? (
+                    {currentSession && !currentSession.parentId ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span className="block">
@@ -2123,7 +2121,7 @@ export const Header: React.FC<HeaderProps> = ({
             className={cn(desktopHeaderIconButtonClass, 'mr-1')}
             Icon={'picture-in-picture-2'}
           />
-          {activeMainTab === 'chat' && !isVSCode ? (
+          {activeMainTab === 'chat' ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <button

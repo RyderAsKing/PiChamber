@@ -1,5 +1,5 @@
 import React from 'react';
-import { isDesktopShell, isVSCodeRuntime } from '@/lib/desktop';
+import { isDesktopShell } from '@/lib/desktop';
 import { isIPadApp } from '@/lib/platform';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 
@@ -98,7 +98,7 @@ export function getDeviceInfo(): DeviceInfo {
   const noHover = hoverQuery?.matches ?? false;
   const maxTouchPoints = typeof navigator !== 'undefined' ? navigator.maxTouchPoints ?? 0 : 0;
   // Desktop panels are desktop surfaces even when their viewport is narrow.
-  const isDesktopShellRuntime = isDesktopShell() || isVSCodeRuntime() || hasDesktopSurfaceOverride();
+  const isDesktopShellRuntime = isDesktopShell() || hasDesktopSurfaceOverride();
   const { isExplicitTablet } = getNavigatorDeviceHints(maxTouchPoints);
 
   const hasTouchInput = prefersCoarsePointer || noHover || maxTouchPoints > 0;
