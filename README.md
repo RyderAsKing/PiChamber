@@ -2,10 +2,6 @@
   <img src="docs/references/badges/pichamber-logo.svg" width="32" height="32" alt="PiChamber" />
 </p>
 
-<p align="center">
-  [![GitHub stars](https://img.shields.io/github/stars/RyderAsKing/PiChamber?style=flat&labelColor=100F0F&color=66800B)](https://github.com/RyderAsKing/PiChamber/stargazers) [![GitHub release](https://img.shields.io/github/v/release/RyderAsKing/PiChamber?style=flat&labelColor=100F0F&color=205EA6)](https://github.com/RyderAsKing/PiChamber/releases/latest)
-</p>
-
 > **Note:** PiChamber is currently a community fork of [OpenChamber](https://github.com/openchamber/openchamber) and is functionally identical to it. The rebrand is metadata-only at this stage; the runtime, SDK integration, and behavior are unchanged.
 
 ## Run agent work. Keep control. Ship from anywhere.
