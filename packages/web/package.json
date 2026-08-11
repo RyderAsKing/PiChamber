@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.1.0",
+    "@earendil-works/pi-coding-agent": "0.84.1",
     "@octokit/rest": "^22.0.1",
     "@opencode-ai/sdk": "1.18.15",
     "@simplewebauthn/server": "13.3.1",
