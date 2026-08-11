@@ -20,7 +20,7 @@ class SessionDaemonProtocolError extends Error {
   }
 }
 
-function isLocalSessionDaemonEndpoint(endpoint, platform = process.platform) {
+export function isLocalSessionDaemonEndpoint(endpoint, platform = process.platform) {
   if (typeof endpoint !== 'string' || endpoint.length === 0) return false;
 
   if (platform === 'win32') {
@@ -55,7 +55,7 @@ async function createPiSessionRuntime({ cwd, agentDir = getAgentDir() }) {
   return createAgentSessionRuntime(createRuntime, {
     cwd,
     agentDir,
-    sessionManager: SessionManager.create(cwd, `${agentDir}/sessions`),
+    sessionManager: SessionManager.create(cwd),
   });
 }
 
@@ -65,6 +65,7 @@ export function createSessionDaemon({
   cwd,
   agentDir = getAgentDir(),
   createRuntime = createPiSessionRuntime,
+  healthMetadata = {},
   platform = process.platform,
 } = {}) {
   if (!isLocalSessionDaemonEndpoint(endpoint, platform)) {
@@ -171,6 +172,7 @@ export function createSessionDaemon({
             state: 'ready',
             sessionId: runtime.session.sessionId,
             lastSequence: sequence,
+            ...(Number.isInteger(healthMetadata.daemonPid) ? { daemonPid: healthMetadata.daemonPid } : {}),
           },
         });
         return;
@@ -264,6 +266,7 @@ export function createSessionDaemon({
       try {
         if (platform !== 'win32') {
           await mkdir(dirname(endpoint), { recursive: true, mode: 0o700 });
+          await chmod(dirname(endpoint), 0o700);
           try {
             await lstat(endpoint);
             throw new SessionDaemonProtocolError('ENDPOINT_IN_USE', 'The daemon endpoint already exists.');

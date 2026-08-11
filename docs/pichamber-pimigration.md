@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved design plan. This document records the agreed migration from the current OpenCode-backed product to a Pi-native PiChamber. Workstream 0 and its Week 0 architecture spike are in progress; the spike is not a releasable dual-runtime path. The plan does not authorize a partial dual-runtime release.
+Approved design plan. This document records the agreed migration from the current OpenCode-backed product to a Pi-native PiChamber. Workstream 0 and its Week 0 architecture spike are complete; the Workstream 1 daemon-lifecycle foundation is in progress. None of these implementation stages is a releasable dual-runtime path. The plan does not authorize a partial dual-runtime release.
 
 This document is the approved plan for the Pi-native migration and is intentionally scoped separately from the completed identity-stabilization work recorded in the changelog.
 
