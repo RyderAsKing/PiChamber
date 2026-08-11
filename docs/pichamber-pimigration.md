@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved design plan. This document records the agreed migration from the current OpenCode-backed product to a Pi-native PiChamber. It is a planning artifact only; it does not authorize a partial dual-runtime release or imply that implementation has begun.
+Approved design plan. This document records the agreed migration from the current OpenCode-backed product to a Pi-native PiChamber. Workstream 0 and its Week 0 architecture spike are in progress; the spike is not a releasable dual-runtime path. The plan does not authorize a partial dual-runtime release.
 
 This document is the approved plan for the Pi-native migration and is intentionally scoped separately from the completed identity-stabilization work recorded in the changelog.
 
@@ -234,6 +234,8 @@ optimizer, OpenCode updater, and OpenCode compatibility aliases.
 ### Workstream 0: Record the boundary and prepare the repository
 
 Before executable work:
+
+The current boundary, naming, and OpenCode inventory are recorded in [the Workstream 0 boundary record](./pichamber-pi-workstream-0.md). Keep that record current as migration batches begin.
 
 1. Add the exact Pi SDK dependency only after implementation approval.
 2. Pin and review the Pi SDK version deliberately; do not treat 0.x minor changes as transparent updates.
