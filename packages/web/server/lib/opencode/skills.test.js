@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import fsPromises from 'fs/promises';
 import os from 'os';
@@ -220,8 +220,24 @@ describe('skills', () => {
     const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'oc-skills-rename-rollback-'));
     const projectRoot = path.join(tempRoot, 'project');
     const skillDir = path.join(projectRoot, '.opencode', 'skills', 'rollback-skill');
+    const renamedDir = path.join(projectRoot, '.opencode', 'skills', 'rollback-skill-renamed');
     const skillPath = path.join(skillDir, 'SKILL.md');
+    const renamedSkillPath = path.join(renamedDir, 'SKILL.md');
     const body = '# Rollback body\n\nMust remain in the original directory.';
+
+    // Force the frontmatter write to fail when the rename helper tries to
+    // update SKILL.md in the newly renamed directory. chmod 0o444 is
+    // bypassed when the test runs as root, so we spy on the underlying
+    // fs.writeFileSync primitive and reject the call that targets the
+    // renamed path. Other writes (initial setup, cleanup) pass through
+    // untouched.
+    const originalWriteFileSync = fs.writeFileSync;
+    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockImplementation((target, data, options) => {
+      if (typeof target === 'string' && target === renamedSkillPath) {
+        throw Object.assign(new Error('EACCES: simulated write failure for test'), { code: 'EACCES' });
+      }
+      return originalWriteSync(target, data, options);
+    });
 
     try {
       await fsPromises.mkdir(skillDir, { recursive: true });
@@ -238,19 +254,14 @@ describe('skills', () => {
         ].join('\n'),
         'utf8',
       );
-      await fsPromises.chmod(skillPath, 0o444);
 
       expect(() => renameSkill('rollback-skill', 'rollback-skill-renamed', projectRoot)).toThrow();
 
       expect(fs.existsSync(skillDir)).toBe(true);
-      expect(fs.existsSync(path.join(projectRoot, '.opencode', 'skills', 'rollback-skill-renamed'))).toBe(false);
+      expect(fs.existsSync(renamedDir)).toBe(false);
       expect(await fsPromises.readFile(skillPath, 'utf8')).toContain(body);
     } finally {
-      try {
-        await fsPromises.chmod(skillPath, 0o644);
-      } catch {
-        // Best-effort cleanup when the file was rolled back under a different mode.
-      }
+      writeSpy.mockRestore();
       await fsPromises.rm(tempRoot, { recursive: true, force: true });
     }
   });
