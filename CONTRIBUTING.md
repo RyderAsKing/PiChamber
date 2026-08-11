@@ -1,5 +1,13 @@
 # Contributing to PiChamber
 
+> **Not accepting contributions right now.**
+>
+> PiChamber is in a very early phase of my port to [pi](https://pi.dev). At this
+> stage, contributions might hurt more than they help — the codebase is changing
+> quickly and much of it is likely to be reworked. If you still want to
+> contribute, you're welcome to, but please be patient: it may take a while for
+> me to get back to you.
+
 PiChamber is a community fork of [OpenChamber](https://github.com/openchamber/openchamber). Development setup and contribution guidelines are largely the same as upstream; this guide focuses on the PiChamber-specific changes.
 
 ## Getting Started
@@ -232,7 +240,7 @@ See [AGENTS.md](./AGENTS.md) for detailed architecture reference.
 
 ## Not a developer?
 
-You can still help:
+You can still help (though during this early phase, it may take a while for issues and discussions to get a response):
 
 - Report bugs or UX issues — even "this felt confusing" is valuable feedback
 - Test on different devices, browsers, or OS versions

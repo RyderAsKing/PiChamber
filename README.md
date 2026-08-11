@@ -1,7 +1,10 @@
-# <img src="docs/references/badges/pichamber-logo.svg" width="32" height="32" align="absmiddle" /> PiChamber
+<p align="center">
+  <img src="docs/references/badges/pichamber-logo.svg" width="32" height="32" alt="PiChamber" />
+</p>
 
-[![GitHub stars](https://img.shields.io/github/stars/RyderAsKing/PiChamber?style=flat&labelColor=100F0F&color=66800B)](https://github.com/RyderAsKing/PiChamber/stargazers)
-[![GitHub release](https://img.shields.io/github/v/release/RyderAsKing/PiChamber?style=flat&labelColor=100F0F&color=205EA6)](https://github.com/RyderAsKing/PiChamber/releases/latest)
+<p align="center">
+  [![GitHub stars](https://img.shields.io/github/stars/RyderAsKing/PiChamber?style=flat&labelColor=100F0F&color=66800B)](https://github.com/RyderAsKing/PiChamber/stargazers) [![GitHub release](https://img.shields.io/github/v/release/RyderAsKing/PiChamber?style=flat&labelColor=100F0F&color=205EA6)](https://github.com/RyderAsKing/PiChamber/releases/latest)
+</p>
 
 > **Note:** PiChamber is currently a community fork of [OpenChamber](https://github.com/openchamber/openchamber) and is functionally identical to it. The rebrand is metadata-only at this stage; the runtime, SDK integration, and behavior are unchanged.
 
@@ -141,11 +144,16 @@ PiChamber is currently a metadata-only rebrand of OpenChamber. The next phase wi
 
 ## Contributing
 
+> **Not accepting contributions right now.** PiChamber is in a very early phase
+> of my port to [pi](https://pi.dev), and contributions at this stage might hurt
+> more than they help. You're still welcome to contribute — issues and pull
+> requests are read — but it may take a while for me to get back to you.
+
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup and contribution guidelines. Documentation authoring guidance lives in [`packages/docs`](packages/docs/README.md).
 
 ## Acknowledgments
 
-PiChamber is a community fork of [OpenChamber](https://github.com/openchamber/openchamber) by Bohdan Triapitsyn. Special thanks to:
+PiChamber is a community fork of [OpenChamber](https://github.com/openchamber/openchamber) by Bohdan Triapitsyn. Special thanks to OpenChamber for the idea and for the initial code for this port. Thanks also to:
 
 - [OpenCode](https://opencode.ai) for its excellent API and extensible open-source architecture
 - [Pierre](https://pierrejs-docs.vercel.app/) for its fast diff viewer and syntax highlighting
