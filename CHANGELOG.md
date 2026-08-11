@@ -6,21 +6,21 @@ All notable changes to this project will be documented in this file.
 
 ### Project rebrand: OpenChamber → PiChamber (Phase 1 stabilization)
 
-This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.com/openchamber/openchamber). It makes the PiChamber identity coherent across every owned runtime (web, CLI, Electron, VS Code) before Phase 2 introduces the [pi](https://pi.dev) integration. Runtime behavior, the OpenCode SDK integration, and the still-active OpenChamber protocol namespaces (HTTP routes, custom events, bridge/IPC commands, window globals, URL schemes) remain unchanged unless explicitly named below.
+This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.com/openchamber/openchamber). It makes the PiChamber identity coherent across every owned runtime (web, CLI, Electron) before Phase 2 introduces the [pi](https://pi.dev) integration. Runtime behavior, the OpenCode SDK integration, and the still-active OpenChamber protocol namespaces (HTTP routes, custom events, IPC commands, window globals, URL schemes) remain unchanged unless explicitly named below.
 
 **Phase 1 scope (shipped in this stabilization pass):**
 
-- **VS Code command namespace:** the extension command namespace was renamed to `pichamber.*` and matches the rest of the PiChamber identifiers.
+- **VS Code extension removed:** the `packages/vscode` extension (extension host, webview, and its `pichamber.*` command namespace) was removed from the repository; the runtime contract no longer includes a VS Code platform.
 - **PWA-specific localStorage keys:** the four PWA keys were renamed to `pichamber.*` (`pichamber.pwaName`, `pichamber.pwaOrientation`, `pichamber.mobileKeyboardMode`, `pichamber.pwaRecentSessions`) in this stabilization pass. The shared UI constants and the literal `<script>` strings in `packages/web/index.html` are now locked by a focused contract test.
-- **Application data root:** every PiChamber-owned file (settings, themes, projects, walkthroughs, goals, quota credentials, passkeys, managed-process records, install IDs) resolves through one canonical resolver at `~/.config/pichamber`, overridable by `OPENCHAMBER_DATA_DIR`. Web, CLI, Electron, and VS Code share the same default and the same override semantics. Web `GET /api/fs/home` and the VS Code `api:fs/home` bridge now both expose `pichamberDataDir` so the shared UI can resolve `projects/` beneath the authoritative root rather than reconstructing `<home>/.config/pichamber` on its own.
+- **Application data root:** every PiChamber-owned file (settings, themes, projects, walkthroughs, goals, quota credentials, passkeys, managed-process records, install IDs) resolves through one canonical resolver at `~/.config/pichamber`, overridable by `OPENCHAMBER_DATA_DIR`. Web, CLI, and Electron share the same default and the same override semantics. Web `GET /api/fs/home` exposes `pichamberDataDir` so the shared UI can resolve `projects/` beneath the authoritative root rather than reconstructing `<home>/.config/pichamber` on its own.
 - **Package ownership detection:** global-bin detection in `package-manager.js` now probes only `pichamber` / `pichamber.cmd`, and `isPackageInstalledWith()` validates `@pichamber/web` rather than a generic `openchamber` substring.
-- **Default update checks:** the hosted update check no longer defaults to a placeholder host. Web/CLI versions come from the authoritative npm `@pichamber/web` `dist-tags.latest`, release notes from the PiChamber changelog after the npm cross-check, GitHub assets from `RyderAsKing/PiChamber`, and Android selects the canonical PiChamber APK and refuses AAB-only/unrelated releases. `OPENCHAMBER_UPDATE_API_URL` remains an opt-in override for deployment integrations; the VS Code bridge follows the same opt-in rule.
+- **Default update checks:** the hosted update check no longer defaults to a placeholder host. Web/CLI versions come from the authoritative npm `@pichamber/web` `dist-tags.latest`, release notes from the PiChamber changelog after the npm cross-check, GitHub assets from `RyderAsKing/PiChamber`, and Android selects the canonical PiChamber APK and refuses AAB-only/unrelated releases. `OPENCHAMBER_UPDATE_API_URL` remains an opt-in override for deployment integrations.
 - **Process identity:** `cli-process.js` now recognizes only the `pichamber` / `pichamber.cmd` / `pichamber.exe` executable tokens and the `@pichamber/web/bin/cli.js`, `@pichamber/web/server/index.js`, `PiChamber/packages/web/bin/cli.js`, and `PiChamber/packages/web/server/index.js` entrypoints. OpenChamber-only paths, `pichamber` appearing in usernames, hostnames, project files, or unrelated package names, and generic `cli.js` / `server/index.js` paths are no longer accepted.
 
 **Phase 1 non-goals (intentionally deferred to later phases):**
 
 - `/api/openchamber/*` remains the sole active HTTP route prefix.
-- `openchamber:*` custom events, `api:openchamber:*` bridge commands, `__openchamber*` window globals, and `openchamber-ui://` / `openchamber://` URL schemes are unchanged.
+- `openchamber:*` custom events, `__openchamber*` window globals, and `openchamber-ui://` / `openchamber://` URL schemes are unchanged.
 - `OPENCHAMBER_*` environment variables are unchanged.
 - No automatic import or fallback read of legacy `~/.config/openchamber` data is provided. Legacy-data migration is out of scope.
 - OpenCode runtime behavior (SDK calls, proxy, SSE) is unchanged.
@@ -33,7 +33,7 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Mobile `capacitor.config.ts` `appId` (`com.openchamber.app` → `com.pichamber.app`).
 - Workspace localStorage key rename (`openchamber_*` → `pichamber_*`) for keys outside the four PWA keys above.
 - HTTP route rename: `/api/openchamber/*` → `/api/pichamber/*`.
-- Custom-event / bridge / window-global renames (`openchamber:*`, `api:openchamber:*`, `__openchamber*`).
+- Custom-event / window-global renames (`openchamber:*`, `__openchamber*`).
 - `.agents/skills/openchamber-change-discipline/` directory rename (kept as-is to preserve skill loaders and references).
 - SSH secret name migration (`openchamberPassword` / `openchamber_password` → `pichamberPassword`) continues to be served as a read fallback to `pichamberPassword` for backwards compatibility.
 
@@ -60,7 +60,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Mobile/Android: pairing QR codes now work in older WebViews that misread `openchamber://` links (thanks to @CMBill).
 - Mobile: pending agent questions now reappear after a cold start instead of leaving the session waiting without an answer prompt.
 - Files: removing an attached Office or OpenDocument file also removes the images extracted from that document, and Linux reveal failures now surface as an error instead of escaping in the background (thanks to @chiamsun, @pascalandr).
-- VSCode: notebook links now open in the notebook editor when a compatible extension is installed (thanks to @TTTPOB).
 - Settings: rapid edits to notification templates no longer overwrite one another, and the collapsed-user-message preference now persists correctly (thanks to @AmanTahiliani, @pascalandr).
 - Walkthrough: branch comparisons now use the repository's actual remote default branch instead of assuming its name (thanks to @RyderAsKing).
 - Server: foreground installs managed by a user systemd service now update through a separate transient service instead of being interrupted by the server restart (thanks to @SYU8384).
@@ -107,7 +106,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Desktop/Linux: terminals and OpenCode now start with the correct shell arguments in AppImage installs, fixing broken zsh startup (thanks to @makeittech).
 - Files: browser clients now label file exports as downloads and no longer show the desktop-only reveal action (thanks to @makeittech).
 - Chat: assistant messages no longer render active HTML.
-- VSCode: clicking an apply_patch tool result now opens each changed file at its correct path instead of always opening the first file (thanks to @nabsiddiqui).
 
 ## [1.17.2] - 2026-08-01
 
@@ -122,7 +120,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Files: added a global Auto-save setting under Settings → General; binary, PDF, and Office files are excluded from auto-save (thanks to @makeittech).
 - Terminal: switching terminal tabs no longer rebuilds the connection from scratch on each open or switch (thanks to @makeittech).
 - Sidebar: sessions with active agents now show a live activity indicator even when the sidebar is collapsed (thanks to @pascalandr).
-- VSCode: per-session permission auto-accept now replies to live permission requests correctly when auto-accept is turned on.
 - Usage: all Z.ai usage windows now appear in the usage view.
 - Chat: tool descriptions now show the glob pattern when a tool's input uses one.
 - Desktop: sticky session headers in the sidebar no longer blink or shift position during page transitions (thanks to @ChangeHow).
@@ -177,8 +174,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Sidebar: projects now default to manual ordering instead of recent-activity order; explicit sorting choices remain unchanged.
 - Desktop/macOS: added a setting to hide the menu bar item.
 - Desktop/Windows: SSH remote instances now connect through native Windows OpenSSH without relying on unsupported connection sharing. Password authentication and port forwarding work through hidden background processes, and connection failures now show the underlying SSH error instead of a generic message.
-- VSCode/Cursor: opening a chat no longer crashes when the editor webview does not expose its usual messaging APIs, and disposed editor tabs no longer receive late streaming messages (thanks to @makeittech).
-- VSCode: the active workspace is now detected before startup state is restored, preventing projects outside the editor workspace from replacing it.
 - Mobile/Terminal: opening the terminal in a mobile browser or PWA now focuses its input and opens the keyboard without an extra tap (thanks to @bashrusakh).
 - Context Panel: delayed file-open requests no longer switch the panel back to a file after you select another tab.
 
@@ -191,7 +186,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Chat: if creating a session fails, the new-session draft stays open and restores the submitted prompt instead of discarding it.
 - Sessions: new drafts and sessions now stay with the project selected in the sidebar, including workspaces with nested or sibling projects (thanks to @bashrusakh).
 - Small Model: provider API keys referenced through environment variables or files now work for summaries, goal audits, and other Small Model features; Gemini 3 Flash models now use their supported thinking setting.
-- VSCode: per-session permission auto-accept works again, persists across extension restarts, and applies to subagent sessions while an OpenChamber view is open.
 - Mobile/Android: update downloads now select an APK when a release also includes an Android App Bundle.
 
 ## [1.16.1] - 2026-07-14
@@ -265,8 +259,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Mobile: the composer stays focused more reliably when the keyboard opens, and the dictation transcript grows the composer like typed text.
 - Mobile: iOS PWA safe areas, keyboard overlays, and app-resume connection checks were tightened up.
 - Desktop: password-protected instances opened from desktop or a browser no longer take the mobile-only unlock path.
-- VSCode: favorite models now stay saved after restarting the extension (thanks to @Catan).
-- VSCode: closing Settings returns to the previous extension view instead of always showing the sessions list (thanks to @Catan).
 
 ## [1.14.0] - 2026-07-05
 
@@ -299,8 +291,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Chat: fixed edge cases where late-loading tool content, subagent content, or streaming Thinking blocks could pull the conversation away from the latest message or fight manual scrolling.
 - Chat: embedded JSON examples in messages no longer render as generated-result cards.
 - Sync: chat state now recovers after idle reconnects instead of leaving sessions stuck in a stale busy state.
-- VSCode: clearing optional agent fields now removes them from agent config instead of saving `null` values.
-- VSCode: the extension no longer picks OpenCode desktop app installs when looking for the standalone OpenCode CLI.
 
 ## [1.13.8] - 2026-06-29
 
@@ -365,7 +355,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Git: Git identities can now enable SSH commit signing.
 - Git: pushing from the Git view now syncs first, reducing rejected pushes when the branch needs to update.
 - Usage: MiniMax M3 and Token Plan usage now handle the provider's latest API response format (thanks to @baruchvitorino).
-- VSCode: font size and padding preferences now apply inside the extension webview (thanks to @Sin991114).
 - Startup: managed OpenCode server processes left behind by a previous crash are cleaned up on the next start.
 - CLI: stale server PID files are checked more carefully so unrelated processes are not mistaken for an OpenChamber server.
 - Files: downloads and file names with non-Latin characters now handle those characters correctly in headers (thanks to @FanFan4204).
@@ -432,8 +421,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Sessions: new draft sessions now start from the default model and agent instead of inheriting the previous session's selection, and fall back to OpenCode's own `default_agent` (and its model) when no OpenChamber default is set.
 - Startup: cached settings and session state now appear earlier while the live API finishes connecting.
 - Startup: the model and agent now appear faster on the initial draft — config loads under the project key up front (no reload when the draft opens) and the agent list is fetched once instead of per consumer.
-- VSCode: the extension opens faster with cached sessions, models, providers, and projects, then refreshes in the background.
-- VSCode: sessions are now grouped under their workspace, with cleaner session rows and an archived-sessions toggle.
 
 ## [1.12.4] - 2026-06-11
 
@@ -462,8 +449,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Terminal/Mobile: touch scrolling in the terminal no longer conflicts with terminal input as often (thanks to @kostazol).
 - Usage: added Cursor quota tracking.
 - UI/Localization: added French interface translations and French documentation (thanks to @pascalandr).
-- VSCode: added an action to archive all sessions from the extension (thanks to @jjdubski).
-- VSCode: added multi-root workspace support, including workspace folder switching in the extension (thanks to @mmospanenko).
 
 ## [1.12.3] - 2026-06-05
 
@@ -478,7 +463,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Tunnels: ngrok startup failures now show the ngrok or authtoken error returned during startup.
 - Projects: the Add Project directory picker now starts with hidden files off each time it opens.
 - Chat: prompts sent while creating or switching target sessions now stay attached to the intended project directory.
-- VSCode: the extension now detects more Windows OpenCode installs from PATH, npm, Scoop, and Chocolatey.
 
 ## [1.12.1] - 2026-06-03
 
@@ -519,7 +503,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Sessions: inline session renaming no longer exits immediately after focus changes (thanks to @youfch).
 - Notes/Todos: completed todos stay at the end of the list, and the send-to-session dialog has a cleaner model picker (thanks to @kostazol, @rghamilton3).
 - Usage: added a setting to hide prediction rows on usage cards (thanks to @ermanhavuc).
-- VSCode: restored live streaming in the extension.
 
 ## [1.11.6] - 2026-05-25
 
@@ -549,7 +532,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - UI: refreshed the desktop workspace shell with a full-width header, framed chat area, and smooth left/right sidebar open and close states.
 - Chat: completed reasoning blocks stay collapsed without replaying the collapse animation when you reopen a session.
 - Files: file search and mention results avoid mixing entries from similar query/cache keys (thanks to @isanchez404).
-- VSCode: switching between chat sessions is less likely to stall on very large conversations.
 - Voice: preview audio now stops and cleans up correctly when you stop playback or leave Voice settings (thanks to @isanchez404).
 - UI/Localization: refreshed Simplified Chinese terminology across the interface (thanks to @luojiyin).
 
@@ -600,7 +582,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Chat/Permissions: restored `@agent` mentions in sent messages and parent-session auto-accept for child-session permissions.
 - Chat/Input: queued messages now auto-send one at a time in FIFO order, and model/agent selections persist across reloads (thanks to @lyxxx708, @chutastic).
 - Chat/Performance: virtualized more timeline content, deferred heavy tool output, and improved scroll-to-bottom behavior.
-- VSCode: improved chat sidebar command handoff, active-editor context updates, SSE cleanup, Agent Manager settings sync, and archived-session bulk delete reliability in the extension (thanks to @isanchez404, @jjdubski).
 - Git: generalized repository provider handling beyond GitHub and made commit/PR generation more tolerant of JSON wrapped in assistant text.
 - Terminal: rejected file paths as terminal working directories, preserved UTF-8 replay chunks, and cleaned up WebSocket/SSE listeners reliably during shutdown and reconnects (thanks to @isanchez404).
 - Usage/Reliability: guarded quota percentages and reset timestamps defensively.
@@ -639,7 +620,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Usage: OpenRouter credit balances now avoid misleading percentage displays and use clearer labels across usage views (thanks to @zerone0x).
 - Preview: improved embedded preview proxying with cleaner URL rewriting, fewer false-positive dev-server errors, steady navigation, and theme-aware preview frames.
 - Notifications: suppressed inherited subagent completion notifications.
-- VSCode: split the extension into a dedicated app root.
 
 ## [1.10.1] - 2026-05-06
 
@@ -652,7 +632,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Chat/Reliability: pending questions now survive session switches and directory eviction.
 - Mobile/Terminal: added an opt-in keyboard resize mode and steady touch terminal input.
 - Terminal: restored focus back to terminal input after Ghostty element blur events.
-- VSCode/Reliability: aligned session status parsing and reconnect reconciliation (thanks to @vhqtvn).
 - Startup/Reliability: configured OpenCode CLI paths are now validated before managed startup, with clearer errors for missing, non-executable, or app-bundle paths.
 - Performance/Reliability: reduced duplicate app initialization, deferred heavier views, lowered local server status overhead, optimized markdown file-link detection, reduced sync recovery payloads, and suppressed expected missing-directory noise.
 
@@ -663,7 +642,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Projects/Terminal: added Auto-discover for local dev servers, background terminal startup, action-linked Preview reopen controls, and cleaner terminal tab styling (thanks to @wpbiggs).
 - Settings/Behavior: added a dedicated Behavior page with global `AGENTS.md` configuration and response style presets.
 - Chat/UI: added a wide layout option, steady scroll position across sessions and generated prompts, less flicker during streaming, and safer rendering for malformed message parts (thanks to @jwcrystal, @pasta-paul).
-- VSCode/Chat: added the currently open editor file to chat context (thanks to @daveotero).
 - UI/Settings: improved settings scrolling, empty states, and button/overlay polish (thanks to @Yabuku-xD).
 - GitHub/Git: improved fork-aware issue and pull-request listing, PR status handling, startup loading feedback, remote MCP headers, and long model ID handling (thanks to @corrm, @ricautomation, @yart).
 - Reliability/Streaming: reconnects now recover immediately after OS wake-from-sleep, long agent sessions avoid streaming hangs, concurrent sessions sharing the same provider are throttled more safely, and model metadata refreshes after OpenCode restarts (thanks to @jwcrystal, @pasta-paul, @Yabuku-xD).
@@ -676,7 +654,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Projects: improved the project directory picker with expandable pinned folders and better file/path handling.
 - Chat/UI: improved split-response action placement, error-message alignment, tab close affordances, and overscroll behavior.
 - Sessions/Sidebar: fixed stale session, folder, project, and worktree state after mutations, and polished pinned-session indicators (thanks to @corrm, @Yabuku-xD).
-- VSCode/Windows: normalized Windows drive-letter paths in extension webviews and added MiniMax/Ollama quota support.
 - Reliability/Startup: hardened managed OpenCode startup, preserved shell PATH reliably, ignored stale downgrade update prompts, and improved stream/proxy recovery with heartbeat support.
 
 ## [1.9.9] - 2026-04-26
@@ -756,7 +733,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Security/Chat: user messages now escape raw HTML by default (thanks to @kalac2232).
 - Desktop/Performance: reduced Tauri shell CPU/GPU overhead during longer sessions.
 - Sessions/Drafts: draft chat config now stays synced with the selected draft target directory.
-- VSCode/Files: added file stat support in the extension bridge (thanks to @geekifan).
 - Chat/Models: added arrow-key navigation for thinking-mode selection in model controls (thanks to @daveotero).
 - Files: added HTML preview support in the file viewer (thanks to @nguyenngothuong).
 - Chat: improved error message readability with clearer styling and safer word-wrapping (thanks to @nguyenngothuong).
@@ -773,7 +749,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 
 - Chat/Performance: rebuilt live session sync and streaming updates to cut render churn, reduce CPU spikes, and keep long-running chats smooth and more stable across runtimes.
 - Worktrees/Multi-Run: added instant draft-first worktree creation and redesigned the multi-run launcher with a cleaner, faster flow for parallel runs.
-- VSCode/UI: polished the extension chat and sidebar with improved spacing, tooltips, a resizable sessions pane, and file-to-chat mention flows from Explorer.
 - Models/Providers: improved custom provider model metadata loading and caching (thanks to @ZeppLu).
 - CLI/Server: added `--foreground` for process-manager deployments, made managed server hostname configurable, and added an explicit `--host` option with safer localhost defaults (thanks to @colinmollenhour, @rapidrabbit76, @yulia-ivashko).
 - Docker/Deployments: improved container defaults, including UID 1000 user behavior, non-fatal SSH key generation, and better localhost detection in container networking (thanks to @yulia-ivashko).
@@ -784,7 +759,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Sessions/UI: restored Project Notes access in the sidebar, polished notes/todo editing, and fixed project action overlap.
 - Chat/GitHub: linked issues and pull requests now appear as user-message attachments and open reliably across runtimes.
 - Settings/MCP: adding MCP servers now consistently respects user vs project scope, preventing user-scope entries from being written into project config files.
-- VSCode/Reliability: managed server startup now imports login-shell environment values and normalizes Windows workspace paths.
 - Sessions: sidebar lists now keep sessions visible in both Recent and Project sections for easier discovery (thanks to @nguyenngothuong).
 - Files: file trees now refresh incrementally after create/rename/delete actions (thanks to @nguyenngothuong).
 - Sessions/Worktrees: draft sessions now resolve the correct project when opened from worktree paths (thanks to @yulia-ivashko).
@@ -830,8 +804,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 
 - Desktop: startup now opens the app shell much earlier while background services continue loading.
 - Desktop/macOS: fixed early title updates that could shift traffic-light window controls on startup.
-- VSCode: edit-style tool results now open directly in a focused diff view.
-- VSCode: cleaned up extension settings by removing duplicate display controls and hiding sections that do not apply in the editor environment.
 - Chat: fixed focus-mode composer layout.
 - UI/Theming: unified loading logos and startup screens across runtimes, with visuals that better match your active theme.
 - Projects/UI: project icons now follow active theme foreground colors consistently.
@@ -878,7 +850,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Chat: added a new "Share as image" action (thanks to @Jovines).
 - Chat: improved message readability with cleaner tool/reasoning rendering and less noisy activity timing in busy conversations (thanks to @nelsonPires5).
 - Desktop/Chat: permission toasts now include session context and a clearer permission preview (thanks to @nelsonPires5).
-- VSCode: fixed live streaming edge cases for event endpoints with query/trailing-slash variants.
 - Reliability: improved event-stream/session visibility handling when the app is hidden or restored.
 - Windows: fixed CLI/runtime path and spawn edge cases to reduce startup and command failures on Windows (thanks to @plfavreau).
 - Notifications/Voice: consolidated TTS and summarization service wiring for steady text-to-speech and summary flows (thanks to @nelsonPires5).
@@ -1049,7 +1020,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 ## [1.6.4] - 2026-02-5
 
 - Desktop: switch between local and remote OpenChamber instances, plus a thinner runtime.
-- VSCode: improved Windows PATH resolution and cold-start readiness checks to reduce "stuck loading" for sessions/models/agents.
 - Mobile: split Agent/Model controls and a quick commands button with autocomplete (Commands/Agents/Files) for easier input (thanks to @Jovines, @gsxdsm).
 - Chat: select text in messages to quickly add it to your prompt or start a new session (thanks to @gsxdsm).
 - Diff/Plans: add inline comment drafts (thanks to @nelsonPires5).
@@ -1063,7 +1033,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 
 - Web: improved server readiness check to use the `/global/health` endpoint.
 - Web: added login rate limit protection to prevent brute-force attempts on the authentication endpoint (thanks to @Jovines).
-- VSCode: improved server health check with the proper health API endpoint and increased timeout for steady startup (thanks to @wienans).
 - Settings: dialog no longer persists open/closed state across app restarts.
 
 ## [1.6.2] - 2026-02-1
@@ -1096,7 +1065,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Git: PR picker now validates local branch existence and includes a refresh action.
 - Git: worktree integration now syncs clean target directories before merging.
 - Diff: fixed memory leak when viewing many modified files; large changesets now lazy-load for smooth performance.
-- VSCode: session activity status now updates reliably even when the webview is hidden.
 - Web: session activity tracking now works consistently across browser tabs.
 - Reliability: plans directory no longer errors when missing.
 
@@ -1174,7 +1142,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Git: added gitmoji picker in commit message composer with cached emoji list (thanks to @TaylorBeeston).
 - Chat: optimized message loading for opening sessions.
 - UI: added one-click diagnostics copy in the About dialog.
-- VSCode: tuned layout breakpoint and server readiness timeout for steady startup.
 - Reliability: improved OpenCode process cleanup to reduce orphaned servers.
 
 ## [1.5.1] - 2026-01-16
@@ -1187,17 +1154,13 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - UI: added a new Files tab to browse workspace files directly from the interface.
 - Diff: enhanced the diff viewer with mobile support and the ability to ask the agent for comments on changes.
 - Git Identities: added "default identity" setting with one-click set/unset and automatic local identity detection.
-- VSCode: improved server management to ensure it initializes within the workspace directory with context-aware readiness checks.
-- VSCode: added responsive layout with sessions sidebar + chat side-by-side when wide, compact header, and streamlined settings.
-- Web/VSCode: fixed orphaned OpenCode processes not being cleaned up on restart or exit.
+- Web: fixed orphaned OpenCode processes not being cleaned up on restart or exit.
 - Web: the server now automatically resolves and uses an available port if the default is occupied.
 - Stability: fixed heartbeat race condition causing session stalls during long tasks (thanks to @tybradle).
 - Desktop: fixed commands for worktree setup access to PATH.
 
 ## [1.4.9] - 2026-01-14
 
-- VSCode: added session editor panel to view sessions alongside files.
-- VSCode: improved server connection reliability with multiple URL candidate support.
 - Diff: added stacked/inline diff mode toggle in settings with sidebar file navigation (thanks to @nelsonPires5).
 - Mobile: fixed iOS keyboard safe area padding for home indicator bar (thanks to @Jovines).
 - Upload: increased attachment size limit to 50MB with automatic image compression to 2048px for large files.
@@ -1220,7 +1183,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 
 ## [1.4.6] - 2026-01-09
 
-- VSCode/Web: switched OpenCode CLI management to the SDK.
 - Input: removed auto-complete and auto-correction.
 - Shortcuts: switched the agent cycling shortcut from Shift+Tab back to Tab.
 - Chat: added question tool support with a rich UI for interaction.
@@ -1311,7 +1273,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - ESC key now closes settings; double-ESC abort only works on chat tab without overlays.
 - Added responsive tab labels in settings header (icons only at narrow widths).
 - Improved session activity status handling and message step completion logic.
-- Introduced enhanced VSCode extension settings with dynamic layout based on width.
 
 ## [1.3.6] - 2025-12-27
 
@@ -1354,7 +1315,7 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 
 - New chats no longer create a session until you send your first message.
 - The app opens to a new chat by default.
-- Fixed mobile and VSCode sessions handling.
+- Fixed mobile sessions handling.
 - Updated app identity with new logo and icons across all platforms.
 
 ## [1.3.0] - 2025-12-21
@@ -1363,13 +1324,11 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Polished mobile controls in chat view.
 - Updated user message layout/styling.
 - Improved header tab responsiveness.
-- Fixed bugs with new session creation when the VSCode extension initialized for the first time.
-- Adjusted VSCode extension theme mapping and model selection view.
 - Polished file autocomplete experience.
 
 ## [1.2.9] - 2025-12-20
 
-- Added session auto-cleanup with configurable retention across app versions, including the VSCode extension.
+- Added session auto-cleanup with configurable retention across app versions.
 - Added web package updates from the mobile/PWA settings view.
 - Added several optimizations for long sessions.
 
@@ -1429,7 +1388,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 - Favorite & recent models for quick access in model selection.
 - Tool call expansion settings: collapsed, activity, or detailed modes.
 - Font size & spacing controls (50-200% scaling) in Appearance Settings.
-- Settings page access within VSCode extension.
   Thanks to @theblazehen for contributing these features!
 
 ## [1.1.6] - 2025-12-15
@@ -1447,7 +1405,6 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 ## [1.1.4] - 2025-12-15
 
 - Flexoki themes for Shiki syntax highlighting for consistency with the app color schema.
-- Enhanced VSCode extension theming with editor themes.
 - Fixed mobile view model/agent selection.
 
 ## [1.1.3] - 2025-12-14
