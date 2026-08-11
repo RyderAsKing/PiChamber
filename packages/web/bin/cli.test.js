@@ -173,14 +173,21 @@ async function waitForTcpPort(port, timeoutMs = 3000) {
   return false;
 }
 
-// Spawn a long-lived child whose argv[1] is a recognizable PiChamber
-// entrypoint path so /proc-style cmdline readers can confirm PiChamber
-// identity. We persist a tiny `pichamber`-named script file under a temp dir
-// and invoke it through node so the cmdline carries the canonical
-// `/pichamber <token>` shape the strict matcher accepts.
+// Spawn a long-lived child whose argv[1] is a recognized PiChamber source
+// entrypoint path so /proc-style cmdline readers can confirm identity. The
+// fixture deliberately uses the same entrypoint shape as a source checkout;
+// a mere `pichamber` argument is not accepted.
 function writePiChamberLikeScript(name, extraCode = '') {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `pichamber-cli-fixture-${name}-`));
-  const filePath = path.join(dir, 'pichamber');
+  const filePath = path.join(
+    dir,
+    'PiChamber',
+    'packages',
+    'web',
+    name === 'hung' ? 'server' : 'bin',
+    name === 'hung' ? 'index.js' : 'cli.js',
+  );
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `#!/usr/bin/env node\nsetInterval(() => {}, 1000);\n${extraCode}`);
   fs.chmodSync(filePath, 0o755);
   return { dir, filePath };
@@ -193,7 +200,7 @@ function spawnPiChamberLikeIdleProcess() {
   const child = spawn(process.execPath, [filePath, 'serve', '--idle'], { stdio: 'ignore' });
   const originalKill = child.kill.bind(child);
   child.kill = (signal) => {
-    try { fs.rmSync(path.dirname(filePath), { recursive: true, force: true }); } catch { /* ignore */ }
+    try { fs.rmSync(idleFixture?.dir, { recursive: true, force: true }); } catch { /* ignore */ }
     idleFixture = null;
     return originalKill(signal);
   };
@@ -233,7 +240,7 @@ function spawnPiChamberLikeHungServer(port) {
   const child = spawn(process.execPath, [filePath, 'serve', '--hung'], { stdio: 'ignore' });
   const originalKill = child.kill.bind(child);
   child.kill = (signal) => {
-    try { fs.rmSync(path.dirname(filePath), { recursive: true, force: true }); } catch { /* ignore */ }
+    try { fs.rmSync(hungFixture?.dir, { recursive: true, force: true }); } catch { /* ignore */ }
     hungFixture = null;
     return originalKill(signal);
   };
@@ -1050,9 +1057,9 @@ describe('isPiChamberCmdline (and legacy isOpenchamberCmdline alias)', () => {
     expect(isPiChamberCmdline('node /usr/local/lib/node_modules/@pichamber/web/server/index.js --port 9090')).toBe(true);
     // Quoted Windows path with spaces in the install location.
     expect(isPiChamberCmdline('"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\@pichamber\\web\\server\\index.js" --port 9090')).toBe(true);
-    // Direct executable invocation on unix / windows.
+    // Direct executable invocation on unix / windows must occupy argv[0].
     expect(isPiChamberCmdline('/usr/local/bin/pichamber serve --port 3000')).toBe(true);
-    expect(isPiChamberCmdline('node /usr/local/bin/pichamber.cmd serve')).toBe(true);
+    expect(isPiChamberCmdline('C:\\Users\\u\\AppData\\Roaming\\npm\\pichamber.cmd serve')).toBe(true);
   });
 
   it('accepts PiChamber source-checkout entrypoints', () => {
@@ -1066,6 +1073,10 @@ describe('isPiChamberCmdline (and legacy isOpenchamberCmdline alias)', () => {
     expect(isPiChamberCmdline('vi /tmp/pichamber-notes.md')).toBe(false);
     expect(isPiChamberCmdline('ssh pichamber@example.com')).toBe(false);
     expect(isPiChamberCmdline('node /home/u/.npm-global/lib/node_modules/some-pichamber-helper/index.js')).toBe(false);
+    expect(isPiChamberCmdline('/bin/sh -c "echo pichamber"')).toBe(false);
+    expect(isPiChamberCmdline('node /tmp/unrelated.js pichamber')).toBe(false);
+    expect(isPiChamberCmdline('python task.py --label pichamber')).toBe(false);
+    expect(isPiChamberCmdline('node /usr/local/bin/pichamber.cmd serve')).toBe(false);
     expect(isPiChamberCmdline('node ./cli.js serve')).toBe(false);
     expect(isPiChamberCmdline('node ./server/index.js')).toBe(false);
     expect(isPiChamberCmdline('')).toBe(false);

@@ -92,15 +92,7 @@ function normalizeArch(value) {
   return mapArch(process.arch);
 }
 
-async function resolveAndroidApkUrl(version, candidateUrl) {
-  if (typeof candidateUrl === 'string') {
-    try {
-      if (new URL(candidateUrl).pathname.toLowerCase().endsWith('.apk')) return candidateUrl;
-    } catch {
-      // Resolve malformed or non-APK values from the authoritative release assets below.
-    }
-  }
-
+async function resolveAndroidApkUrl(version) {
   try {
     const response = await fetch(`${GITHUB_RELEASES_API_URL}/tags/v${version}`, {
       headers: {
@@ -120,7 +112,7 @@ async function resolveAndroidApkUrl(version, candidateUrl) {
       ))
       : [];
     const canonicalAsset = apkAssets.find((asset) => /^PiChamber-.+-android\.apk$/i.test(asset.name));
-    return (canonicalAsset || apkAssets[0])?.browser_download_url;
+    return canonicalAsset?.browser_download_url;
   } catch {
     return undefined;
   }
@@ -169,23 +161,12 @@ async function checkForUpdatesFromApi(currentVersion, options = {}) {
     const versionComparison = compareVersions(data.latestVersion, currentVersion);
     if (versionComparison < 0) return null;
 
-    const releaseUrl = `${GITHUB_RELEASES_URL}/tag/v${data.latestVersion}`;
-    const downloadUrl = typeof data.downloadUrl === 'string'
-      ? data.downloadUrl
-      : typeof data.download?.url === 'string'
-        ? data.download.url
-        : undefined;
     const updateAvailable = Boolean(data.updateAvailable) && versionComparison > 0;
-    const mobileDownloadUrl = updateAvailable && appType === 'mobile-capacitor' && platform === 'android'
-      ? await resolveAndroidApkUrl(data.latestVersion, downloadUrl)
-      : undefined;
     return {
       available: updateAvailable,
       version: data.latestVersion,
       currentVersion,
       body: typeof data.releaseNotes === 'string' ? data.releaseNotes : undefined,
-      releaseUrl: typeof data.releaseNotesUrl === 'string' ? data.releaseNotesUrl : releaseUrl,
-      downloadUrl: mobileDownloadUrl,
       nextSuggestedCheckInSec:
         typeof data.nextSuggestedCheckInSec === 'number' && Number.isFinite(data.nextSuggestedCheckInSec)
           ? data.nextSuggestedCheckInSec
@@ -783,24 +764,6 @@ export async function checkForUpdates(options = {}) {
   const pm = detectPackageManager();
   const appType = normalizeAppType(options.appType);
   const platform = normalizePlatform(options.platform);
-
-  if (currentVersion !== 'unknown') {
-    const remote = await checkForUpdatesFromApi(currentVersion, options);
-    if (remote) {
-      if (remote.available && appType === 'web') {
-        const npmLatest = await getLatestVersion();
-        if (!npmLatest || compareVersions(npmLatest, remote.version) < 0) {
-          remote.available = false;
-        }
-      }
-      return {
-        ...remote,
-        packageManager: pm,
-        updateCommand: 'pichamber update',
-      };
-    }
-  }
-
   const latestVersion = await getLatestVersion();
 
   if (!latestVersion || currentVersion === 'unknown') {
@@ -812,10 +775,14 @@ export async function checkForUpdates(options = {}) {
   }
 
   const available = compareVersions(latestVersion, currentVersion) > 0;
-  let changelog;
+  const remote = await checkForUpdatesFromApi(currentVersion, options);
+  const trustedRemote = remote?.version === latestVersion ? remote : null;
+  let changelog = trustedRemote?.body;
   let downloadUrl;
   if (available) {
-    changelog = await fetchChangelogNotes(currentVersion, latestVersion);
+    if (!changelog) {
+      changelog = await fetchChangelogNotes(currentVersion, latestVersion);
+    }
     if (appType === 'mobile-capacitor' && platform === 'android') {
       downloadUrl = await resolveAndroidApkUrl(latestVersion);
     }
@@ -828,6 +795,7 @@ export async function checkForUpdates(options = {}) {
     body: changelog,
     releaseUrl: `${GITHUB_RELEASES_URL}/tag/v${latestVersion}`,
     downloadUrl,
+    nextSuggestedCheckInSec: trustedRemote?.nextSuggestedCheckInSec,
     packageManager: pm,
     // Show our CLI command, not raw package manager command
     updateCommand: 'pichamber update',

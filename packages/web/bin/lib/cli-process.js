@@ -130,46 +130,51 @@ function readProcessCmdline(pid) {
 // from a stranger process can never authorize termination.
 //
 // Identity recognition proceeds as follows:
-//   1. If the command line contains the `@pichamber/web/...` install path
-//      or the source-checkout `PiChamber/packages/web/...` path, accept it.
-//   2. Otherwise, accept if any whitespace-separated token's basename equals
-//      `pichamber`, `pichamber.cmd`, or `pichamber.exe`.
+//   1. Accept a direct `pichamber` executable in argv[0].
+//   2. Accept a Node/Bun process only when its first script argument is a
+//      published `@pichamber/web` or source-checkout PiChamber entrypoint.
+//
+// A product-name token in a later argument is not enough: a stale pid file
+// must never authorize stopping `/bin/sh -c "echo pichamber"` or
+// `node unrelated.js pichamber`.
 function normalisePathSeparators(cmdline) {
   return cmdline.replace(/[\\\/]+/g, '/');
 }
 
-function matchesInstallPath(cmdline) {
-  if (/(?:^|[^A-Za-z0-9_-])@pichamber\/web\/(?:bin\/cli\.js|server\/index\.js)(?:$|[^A-Za-z0-9._-])/.test(cmdline)) {
-    return true;
-  }
-  if (/(?:^|[^A-Za-z0-9_-])PiChamber\/packages\/web\/(?:bin\/cli\.js|server\/index\.js)(?:$|[^A-Za-z0-9._-])/.test(cmdline)) {
-    return true;
-  }
-  return false;
+function tokenizeCommandLine(cmdline) {
+  return cmdline.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
 }
 
-function matchesExecutableToken(cmdline) {
-  for (const rawToken of cmdline.split(/\s+/)) {
-    const token = rawToken.replace(/^["']+|["']+$/g, '');
-    if (!token) continue;
-    const basename = token.split('/').pop();
-    if (!basename) continue;
-    if (/^pichamber(?:\.cmd|\.exe)?$/i.test(basename)) {
-      return true;
-    }
-  }
-  return false;
+function normalizeCommandToken(token) {
+  return normalisePathSeparators(token.replace(/^["']+|["']+$/g, ''));
+}
+
+function getTokenBasename(token) {
+  return normalizeCommandToken(token).split('/').pop() || '';
+}
+
+function isPiChamberExecutableToken(token) {
+  return /^pichamber(?:\.cmd|\.exe)?$/i.test(getTokenBasename(token));
+}
+
+function isNodeOrBunExecutableToken(token) {
+  return /^(?:node|bun)(?:\.exe)?$/i.test(getTokenBasename(token));
+}
+
+function isPiChamberEntrypointToken(token) {
+  const normalized = normalizeCommandToken(token);
+  return /(?:^|\/)@pichamber\/web\/(?:bin\/cli\.js|server\/index\.js)$/i.test(normalized)
+    || /(?:^|\/)PiChamber\/packages\/web\/(?:bin\/cli\.js|server\/index\.js)$/i.test(normalized);
 }
 
 function isPiChamberCmdline(cmdline) {
   if (typeof cmdline !== 'string' || cmdline.length === 0) {
     return false;
   }
-  const normalised = normalisePathSeparators(cmdline);
-  if (matchesInstallPath(normalised)) {
-    return true;
-  }
-  return matchesExecutableToken(normalised);
+  const tokens = tokenizeCommandLine(cmdline);
+  if (tokens.length === 0) return false;
+  if (isPiChamberExecutableToken(tokens[0])) return true;
+  return isNodeOrBunExecutableToken(tokens[0]) && isPiChamberEntrypointToken(tokens[1] || '');
 }
 
 // Compatibility alias kept for in-process callers (the OpenChamber

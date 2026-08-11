@@ -29,6 +29,9 @@ type SystemRuntimeDeps = {
 
 const NOTIFICATION_CLAIM_TTL_MS = 10_000;
 const notificationClaims = new Map<string, number>();
+const PI_CHAMBER_GITHUB_RELEASES_URL = 'https://github.com/RyderAsKing/PiChamber/releases';
+const PI_CHAMBER_GITHUB_RELEASES_API_URL = 'https://api.github.com/repos/RyderAsKing/PiChamber/releases';
+const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
 const claimNotification = (key: string): boolean => {
   const now = Date.now();
@@ -356,8 +359,43 @@ export async function handleSystemBridgeMessage(
           return { id, type, success: false, error: text || `Update check failed with ${response.status}` };
         }
 
-        const data = await response.json();
-        return { id, type, success: true, data };
+        const data = await response.json() as Record<string, unknown>;
+        const latestVersion = typeof data?.latestVersion === 'string' ? data.latestVersion.trim() : '';
+        if (!VERSION_PATTERN.test(latestVersion)) {
+          return { id, type, success: false, error: 'Configured update API returned an invalid version.' };
+        }
+
+        // The configured service may provide polling metadata and release notes,
+        // but GitHub remains the authority for PiChamber artifacts. Never expose
+        // a hosted download URL to the webview.
+        const releaseResponse = await fetch(
+          `${PI_CHAMBER_GITHUB_RELEASES_API_URL}/tags/v${encodeURIComponent(latestVersion)}`,
+          {
+            headers: {
+              Accept: 'application/vnd.github+json',
+              'User-Agent': 'pichamber-vscode-update-check',
+            },
+            signal: AbortSignal.timeout(10_000),
+          },
+        );
+        if (!releaseResponse.ok) {
+          return { id, type, success: false, error: 'Configured update version is not published in PiChamber releases.' };
+        }
+
+        const safeData = { ...data };
+        delete safeData.downloadUrl;
+        delete safeData.download;
+        delete safeData.releaseUrl;
+        return {
+          id,
+          type,
+          success: true,
+          data: {
+            ...safeData,
+            latestVersion,
+            releaseUrl: `${PI_CHAMBER_GITHUB_RELEASES_URL}/tag/v${latestVersion}`,
+          },
+        };
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         return { id, type, success: false, error: errorMessage };

@@ -31,6 +31,7 @@ mock.module('vscode', () => ({
 mock.module('./opencodeConfig', () => ({
   removeProviderConfig: mock(),
   getProviderSources: mock(),
+  upsertProviderConfig: mock(),
 }));
 mock.module('./opencodeAuth', () => ({
   getProviderAuth: mock(),
@@ -94,5 +95,50 @@ describe('VS Code system bridge editor:openFile', () => {
       { scheme: 'file', fsPath: '/workspace/source.ts' },
       { selection: new Range(position, position) },
     );
+  });
+});
+
+describe('VS Code system bridge update checks', () => {
+  test('accepts hosted update metadata only after GitHub confirms the release and strips hosted downloads', async () => {
+    const originalFetch = globalThis.fetch;
+    const calls = [];
+    let fetchCount = 0;
+    globalThis.fetch = async (url) => {
+      const urlString = typeof url === 'string' ? url : url.url;
+      calls.push(urlString);
+      fetchCount += 1;
+      if (fetchCount === 1) {
+        return {
+          ok: true,
+          json: async () => ({
+            latestVersion: '1.2.3',
+            updateAvailable: true,
+            downloadUrl: 'https://updates.example.test/untrusted.apk',
+          }),
+        };
+      }
+      return { ok: true, json: async () => ({}) };
+    };
+    try {
+      const response = await handleSystemBridgeMessage({
+        id: 'update-check',
+        type: 'api:openchamber:update-check',
+        payload: { currentVersion: '1.2.2' },
+      }, undefined, deps);
+
+      expect(response).toMatchObject({
+        id: 'update-check',
+        success: true,
+        data: {
+          latestVersion: '1.2.3',
+          releaseUrl: 'https://github.com/RyderAsKing/PiChamber/releases/tag/v1.2.3',
+        },
+      });
+      expect(response.data?.downloadUrl).toBeUndefined();
+      expect(calls).toContain('https://example.com/update-check');
+      expect(calls).toContain('https://api.github.com/repos/RyderAsKing/PiChamber/releases/tags/v1.2.3');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

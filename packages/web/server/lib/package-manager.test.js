@@ -123,7 +123,7 @@ describe('checkForUpdates (no hosted API by default)', () => {
     });
   });
 
-  it('uses an explicit OPENCHAMBER_UPDATE_API_URL when configured', async () => {
+  it('uses configured hosted notes only after the reported version matches npm latest', async () => {
     const previous = process.env.OPENCHAMBER_UPDATE_API_URL;
     process.env.OPENCHAMBER_UPDATE_API_URL = 'https://updates.example.test/api/check';
     try {
@@ -151,6 +151,47 @@ describe('checkForUpdates (no hosted API by default)', () => {
       const urls = fetchMock.calls.map((c) => c.url);
       expect(urls.some((u) => u.includes('updates.example.test'))).toBe(true);
       expect(urls.some((u) => u.includes('api.pichamber.dev'))).toBe(false);
+    } finally {
+      if (typeof previous === 'string') {
+        process.env.OPENCHAMBER_UPDATE_API_URL = previous;
+      } else {
+        delete process.env.OPENCHAMBER_UPDATE_API_URL;
+      }
+    }
+  });
+
+  it('ignores a configured hosted update that disagrees with npm latest', async () => {
+    const previous = process.env.OPENCHAMBER_UPDATE_API_URL;
+    process.env.OPENCHAMBER_UPDATE_API_URL = 'https://updates.example.test/api/check';
+    try {
+      fetchMock
+        .when('updates.example.test', {
+          ok: true,
+          json: async () => ({
+            latestVersion: '9.9.9',
+            updateAvailable: true,
+            releaseNotes: 'Untrusted release notes',
+          }),
+        })
+        .when('registry.npmjs.org', {
+          ok: true,
+          json: async () => ({ 'dist-tags': { latest: '1.11.0' } }),
+        })
+        .when('raw.githubusercontent.com', {
+          ok: true,
+          text: async () => '## [1.11.0] - 2026-05-01\n\n- Verified release',
+        });
+
+      const result = await checkForUpdates({
+        appType: 'desktop-electron',
+        currentVersion: '1.10.0',
+      });
+      expect(result).toMatchObject({
+        available: true,
+        version: '1.11.0',
+        body: expect.stringContaining('Verified release'),
+        releaseUrl: 'https://github.com/RyderAsKing/PiChamber/releases/tag/v1.11.0',
+      });
     } finally {
       if (typeof previous === 'string') {
         process.env.OPENCHAMBER_UPDATE_API_URL = previous;
@@ -238,6 +279,48 @@ describe('checkForUpdates (no hosted API by default)', () => {
       });
       expect(result.downloadUrl).toBeUndefined();
     });
+  });
+
+  it('ignores a hosted APK URL and selects only the canonical GitHub release APK', async () => {
+    const previous = process.env.OPENCHAMBER_UPDATE_API_URL;
+    process.env.OPENCHAMBER_UPDATE_API_URL = 'https://updates.example.test/api/check';
+    try {
+      fetchMock
+        .when('updates.example.test', {
+          ok: true,
+          json: async () => ({
+            latestVersion: '1.10.0',
+            updateAvailable: true,
+            downloadUrl: 'https://untrusted.example/malicious.apk',
+          }),
+        })
+        .when('registry.npmjs.org', {
+          ok: true,
+          json: async () => ({ 'dist-tags': { latest: '1.10.0' } }),
+        })
+        .when('api.github.com/repos/RyderAsKing/PiChamber/releases/tags/v1.10.0', {
+          ok: true,
+          json: async () => ({
+            assets: [
+              { name: 'PiChamber-1.10.0-42-android.apk', browser_download_url: 'https://github.example/PiChamber.apk' },
+            ],
+          }),
+        });
+
+      const result = await checkForUpdates({
+        appType: 'mobile-capacitor',
+        platform: 'android',
+        currentVersion: '1.9.10',
+      });
+      expect(result.downloadUrl).toBe('https://github.example/PiChamber.apk');
+      expect(result.downloadUrl).not.toContain('untrusted.example');
+    } finally {
+      if (typeof previous === 'string') {
+        process.env.OPENCHAMBER_UPDATE_API_URL = previous;
+      } else {
+        delete process.env.OPENCHAMBER_UPDATE_API_URL;
+      }
+    }
   });
 });
 
