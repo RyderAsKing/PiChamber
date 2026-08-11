@@ -43,21 +43,9 @@ Linux builds produce an AppImage for the native x64 or arm64 host.
 
 For desktop-specific details, see [`packages/electron/README.md`](./packages/electron/README.md).
 
-### VS Code Extension
-
-```bash
-bun run vscode:dev      # Watch mode + Extension Development Host
-bun run vscode:build    # Build extension + webview
-bun run vscode:package  # Create a local .vsix package
-```
-
-`bun run vscode:dev` opens an Extension Development Host automatically. You can override the editor or workspace with `OPENCHAMBER_VSCODE_BIN` and `OPENCHAMBER_VSCODE_DEV_WORKSPACE`.
-
-Example: `OPENCHAMBER_VSCODE_BIN=cursor bun run vscode:dev`.
-
 ### Shared UI (`packages/ui`)
 
-No standalone app server. This is a source-level library used by Web, Desktop, and VS Code.
+No standalone app server. This is a source-level library used by Web and Desktop.
 
 Useful package commands:
 
@@ -76,8 +64,6 @@ bun run lint:ui
 | `bun run build:ui` | Build only `packages/ui` |
 | `bun run build:electron` | Run Electron package build script without full packaging |
 | `bun run electron:build` | Build packaged desktop app for the current OS |
-| `bun run vscode:build` | Build the VS Code extension |
-| `bun run vscode:package` | Package the VS Code extension as `.vsix` |
 | `bun run pack:web` | Create a package archive for `@pichamber/web` |
 
 ## Platform Build Notes
@@ -240,7 +226,6 @@ packages/
   ui/        Shared React components, hooks, stores, and theme system
   web/       Web server (Express) + frontend (Vite) + CLI
   electron/  Electron desktop shell
-  vscode/    VS Code extension (extension host + webview)
 ```
 
 See [AGENTS.md](./AGENTS.md) for detailed architecture reference.

@@ -16,8 +16,6 @@ PiChamber gives you one place to direct agent work, understand the changes, and 
 <details>
 <summary>More screenshots</summary>
 
-![VS Code Extension](packages/vscode/extension.jpg)
-
 <p>
 <img src="docs/references/pwa_chat_example.png" width="45%" alt="PiChamber PWA chat">
 <img src="docs/references/pwa_diff_example.png" width="45%" alt="PiChamber PWA diff review">
@@ -49,7 +47,7 @@ Start a session from a GitHub issue or pull request with its context attached. S
 
 ### Continue on another device
 
-Open the same projects and sessions from Desktop, Web/PWA, VS Code, iOS, or Android. Check progress, answer questions, review changes, and reattach to a running terminal.
+Open the same projects and sessions from Desktop, Web/PWA, iOS, or Android. Check progress, answer questions, review changes, and reattach to a running terminal.
 
 ### Private remote access
 
@@ -69,7 +67,6 @@ Run a prompt once, daily, weekly, or on a cron schedule. Scheduled tasks can use
 | --- | --- |
 | **Desktop** | The complete workspace for macOS, Windows, and Linux, with multiple windows, Mini Chat, remote machines, SSH, and native notifications |
 | **Web / PWA** | Open your workspace in a browser, install it as an app, and stay up to date through background notifications |
-| **VS Code** | Keep sessions beside your code, send selections to the agent, open results in the editor, and compare parallel runs |
 | **iOS / Android** | Review and steer work away from your desk, receive completion alerts, and use the terminal with touch controls |
 | **CLI / Server** | Run PiChamber on a workstation or server, schedule work, manage remote access, and keep it available after login |
 
@@ -88,13 +85,9 @@ chmod +x PiChamber-*.AppImage
 
 Linux AppImages require FUSE (`libfuse.so.2`). Without FUSE, run with `APPIMAGE_EXTRACT_AND_RUN=1`.
 
-### VS Code
-
-Install the PiChamber extension from the Visual Studio Marketplace, or build it from source (see [CONTRIBUTING.md](./CONTRIBUTING.md)).
-
 ### CLI — Web and PWA
 
-Requires Node.js 22+. CLI/Web and VS Code use your installed [OpenCode CLI](https://opencode.ai).
+Requires Node.js 22+. CLI/Web uses your installed [OpenCode CLI](https://opencode.ai).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/RyderAsKing/PiChamber/main/scripts/install.sh | bash
@@ -144,7 +137,7 @@ PiChamber is an independent community fork of [OpenChamber](https://github.com/o
 
 ### Roadmap
 
-PiChamber is currently a metadata-only rebrand of OpenChamber. The next phase will introduce a [pi](https://pi.dev) integration alongside (and ultimately in place of) the current OpenCode integration. Internal runtime contracts (env vars, the `openchamber-ui://` protocol, localStorage keys, HTTP routes, and the VS Code command namespace) are intentionally preserved in this phase to keep upgrades non-breaking; they will be renamed in a later phase with deprecation aliases.
+PiChamber is currently a metadata-only rebrand of OpenChamber. The next phase will introduce a [pi](https://pi.dev) integration alongside (and ultimately in place of) the current OpenCode integration. Internal runtime contracts (env vars, the `openchamber-ui://` protocol, localStorage keys, and HTTP routes) are intentionally preserved in this phase to keep upgrades non-breaking; they will be renamed in a later phase with deprecation aliases.
 
 ## Contributing
 

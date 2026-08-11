@@ -106,7 +106,7 @@ iOS Simulator helpers: `mobile:sim:{boot,install,launch,run,serve,list,kill}` (s
 - The server forwards notification-worthy events to a signed **relay**; the relay routes each token
   to APNs or FCM by its bound platform. The app itself only needs to obtain and register the token.
 - **Presence-aware suppression**: each client reports foreground visibility + its platform; a
-  mobile push is skipped while an interactive (desktop/web/vscode) client is visible (it already
+  mobile push is skipped while an interactive (desktop/web) client is visible (it already
   shows the in-app notification). Gated on the desktop's visibility, never the phone's own.
 - Foreground behavior: iOS suppresses the banner via `presentationOptions: []`; the web/PWA service
   worker suppresses when a window is focused.

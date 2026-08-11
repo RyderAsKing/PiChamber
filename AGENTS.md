@@ -2,7 +2,7 @@
 
 ## Purpose
 
-PiChamber provides shared web, desktop, VS Code, hosted-mobile, and native-mobile UI surfaces for OpenCode.
+PiChamber provides shared web, desktop, hosted-mobile, and native-mobile UI surfaces for OpenCode.
 
 > PiChamber is currently a metadata-only community fork of [OpenChamber](https://github.com/openchamber/openchamber). The runtime behavior, SDK integration, and shared contracts are unchanged in this phase.
 
@@ -27,7 +27,6 @@ read. Skill loading is a required part of the task, not optional guidance.
 - `packages/ui`: shared React UI, state, sync, and runtime contracts.
 - `packages/web`: web surfaces, PiChamber server, managed/external OpenCode lifecycle, and CLI.
 - `packages/electron`: native desktop shell and privileged Electron boundary.
-- `packages/vscode`: extension host, webview, and runtime bridge.
 - `packages/mobile`: Capacitor iOS/Android shell; bundles the mobile web surface and connects to an existing PiChamber server.
 - `packages/docs`: product documentation; not a Bun workspace.
 
@@ -37,7 +36,7 @@ Electron starts the PiChamber backend in-process, never as a sidecar. Developmen
 
 > The `openchamber-ui://` protocol is an internal runtime contract and is intentionally preserved in Phase 1. It will be renamed in a later phase with a deprecation alias.
 
-Shared contracts must define intentional behavior for every applicable runtime: web, desktop, VS Code, hosted mobile, and Capacitor mobile.
+Shared contracts must define intentional behavior for every applicable runtime: web, desktop, hosted mobile, and Capacitor mobile.
 
 ## Always-On Constraints
 
@@ -70,7 +69,6 @@ High-value anchors:
 - Stores: `packages/ui/src/stores/DOCUMENTATION.md`
 - CLI: `packages/web/bin/lib/DOCUMENTATION.md`
 - Performance measurement tooling: `scripts/perf/DOCUMENTATION.md`
-- VS Code runtime: `packages/vscode/src/DOCUMENTATION.md`
 - Electron: `packages/electron/README.md`
 - Mobile: `packages/mobile/README.md`
 
