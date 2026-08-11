@@ -9,7 +9,6 @@ COPY bun-patches ./bun-patches
 COPY packages/ui/package.json ./packages/ui/
 COPY packages/web/package.json ./packages/web/
 COPY packages/electron/package.json ./packages/electron/
-COPY packages/vscode/package.json ./packages/vscode/
 COPY packages/mobile/package.json ./packages/mobile/
 RUN bun install --frozen-lockfile --ignore-scripts
 
