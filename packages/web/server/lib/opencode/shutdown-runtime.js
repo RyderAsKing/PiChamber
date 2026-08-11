@@ -18,6 +18,7 @@ export const createGracefulShutdownRuntime = (dependencies) => {
     setTerminalRuntime,
     getMessageStreamRuntime,
     setMessageStreamRuntime,
+    getRuntimeShutdownHooks = () => [],
     shouldSkipOpenCodeStop,
     getOpenCodePort,
     getOpenCodeProcess,
@@ -71,6 +72,16 @@ export const createGracefulShutdownRuntime = (dependencies) => {
       } catch {
       } finally {
         setMessageStreamRuntime(null);
+      }
+    }
+
+    for (const hook of getRuntimeShutdownHooks()) {
+      try {
+        await hook.stop();
+      } catch (error) {
+        console.warn(`[Runtime] shutdown hook failed: ${error?.code ?? 'RUNTIME_STOP_FAILED'}`);
+      } finally {
+        hook.clear?.();
       }
     }
 

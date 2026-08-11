@@ -1,0 +1,87 @@
+import { readFile, chmod, rename, rm, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
+
+import { createSessionDaemon } from './session-daemon.js';
+
+const argument = (name) => {
+  const index = process.argv.indexOf(name);
+  return index === -1 ? undefined : process.argv[index + 1];
+};
+
+const endpoint = argument('--endpoint');
+const credentialFile = argument('--credential-file');
+const stateFile = argument('--state-file');
+const cwd = argument('--cwd');
+const agentDir = argument('--agent-dir');
+
+const exitWithFailure = (code) => {
+  // Do not log configuration paths, credentials, or session data from this
+  // private process. The parent maps startup failure to a stable error code.
+  process.exitCode = code;
+};
+
+const writeState = async () => {
+  const temporaryPath = `${stateFile}.${process.pid}.tmp`;
+  const state = JSON.stringify({
+    protocolVersion: 1,
+    pid: process.pid,
+    endpoint,
+    startedAt: new Date().toISOString(),
+  });
+  await writeFile(temporaryPath, state, { mode: 0o600 });
+  await chmod(temporaryPath, 0o600);
+  await rename(temporaryPath, stateFile);
+  await chmod(stateFile, 0o600);
+};
+
+const removeOwnState = async () => {
+  try {
+    const state = JSON.parse(await readFile(stateFile, 'utf8'));
+    if (state?.pid === process.pid) await rm(stateFile, { force: true });
+  } catch {
+    // A missing or malformed state sidecar cannot block daemon shutdown.
+  }
+};
+
+if (!endpoint || !credentialFile || !stateFile || !cwd) {
+  exitWithFailure(64);
+} else {
+  let daemon;
+  let stopping = false;
+  try {
+    const credential = (await readFile(credentialFile, 'utf8')).trim();
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd,
+      ...(agentDir ? { agentDir } : {}),
+      healthMetadata: { daemonPid: process.pid },
+    });
+    await daemon.start();
+    await writeState();
+  } catch {
+    try {
+      await daemon?.stop();
+    } catch {
+      // Process exit closes the local listener if startup cleanup also failed.
+    }
+    await removeOwnState();
+    exitWithFailure(1);
+  }
+
+  const stop = async () => {
+    if (stopping) return;
+    stopping = true;
+    try {
+      await daemon?.stop();
+    } finally {
+      await removeOwnState();
+    }
+  };
+
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    process.once(signal, () => {
+      void stop().finally(() => process.exit(0));
+    });
+  }
+}

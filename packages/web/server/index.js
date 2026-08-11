@@ -102,6 +102,8 @@ import { createSystemPromptRuntime } from './lib/system-prompt/runtime.js';
 import { createPiChamberSessionService } from './lib/openchamber-sessions/routes.js';
 import { createScheduledTaskService } from './lib/scheduled-tasks/service.js';
 import { createPiChamberControlService } from './lib/openchamber-control/service.js';
+import { createPiSessionDaemonSupervisor } from './lib/pi/session-daemon/supervisor.js';
+import { registerPiRuntimeRoutes } from './lib/pi/routes.js';
 import { createProxyMiddleware, responseInterceptor } from 'http-proxy-middleware';
 import webPush from 'web-push';
 
@@ -509,6 +511,7 @@ let runtimeManagedRemoteTunnelHostname = '';
 let terminalRuntime = null;
 let dictationRuntime = null;
 let messageStreamRuntime = null;
+let piSessionDaemonRuntime = null;
 const userProvidedOpenCodePassword = hmrStateRuntime.getUserProvidedOpenCodePassword(hmrState);
 const initialOpenCodeAuthState = hmrStateRuntime.resolveOpenCodeAuthFromState({
   hmrState,
@@ -1253,6 +1256,12 @@ const gracefulShutdownRuntime = createGracefulShutdownRuntime({
   setMessageStreamRuntime: (value) => {
     messageStreamRuntime = value;
   },
+  getRuntimeShutdownHooks: () => piSessionDaemonRuntime ? [{
+    stop: () => piSessionDaemonRuntime.stop(),
+    clear: () => {
+      piSessionDaemonRuntime = null;
+    },
+  }] : [],
   shouldSkipOpenCodeStop: () => ENV_SKIP_OPENCODE_START || isExternalOpenCode,
   getOpenCodePort: () => openCodePort,
   getOpenCodeProcess: () => openCodeProcess,
@@ -1298,6 +1307,10 @@ async function main(options = {}) {
   systemPromptRuntime = createSystemPromptRuntime({
     fsPromises,
     path,
+    dataDir: OPENCHAMBER_DATA_DIR,
+  });
+  piSessionDaemonRuntime = createPiSessionDaemonSupervisor({
+    cwd: process.cwd(),
     dataDir: OPENCHAMBER_DATA_DIR,
   });
 
@@ -1600,6 +1613,9 @@ async function main(options = {}) {
     agentToolRuntime,
   });
   uiAuthController = bootstrapResult.uiAuthController;
+  registerPiRuntimeRoutes(app, {
+    getPiSessionDaemonRuntime: () => piSessionDaemonRuntime,
+  });
   realtimeProxyRuntime = attachRealtimeProxy({
     app,
     server,
@@ -1761,6 +1777,13 @@ async function main(options = {}) {
   terminalRuntime = startupPipelineResult.terminalRuntime;
   dictationRuntime = startupPipelineResult.dictationRuntime;
   messageStreamRuntime = startupPipelineResult.messageStreamRuntime;
+
+  // The API is already registered, so a startup failure remains an explicit
+  // unavailable state instead of delaying the web server or falling through to
+  // the generic OpenCode proxy.
+  void piSessionDaemonRuntime.start().catch((error) => {
+    console.warn(`[PiSessionDaemon] unavailable: ${error?.code ?? 'DAEMON_UNAVAILABLE'}`);
+  });
 
   try {
     await scheduledTasksRuntime.start();

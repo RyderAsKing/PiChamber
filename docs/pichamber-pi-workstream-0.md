@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-This is the Workstream 0 implementation record for the approved [Pi migration plan](./pichamber-pimigration.md). It records the migration boundary, names the new Pi-owned surfaces, and captures the current OpenCode dependency inventory. The Week 0 disposable-environment spike is now in progress under the Pi-owned web-server boundary; it does not create a releasable dual-runtime path.
+This is the Workstream 0 implementation record for the approved [Pi migration plan](./pichamber-pimigration.md). It records the migration boundary, names the new Pi-owned surfaces, and captures the current OpenCode dependency inventory. The Week 0 disposable-environment spike is complete; its successor daemon-lifecycle work is recorded separately. Neither creates a releasable dual-runtime path.
 
 The spike adds the reviewed, exactly pinned Pi SDK only to `@pichamber/web`, its direct consumer. It does not add Pi code to an OpenCode module or expose a browser-facing daemon listener.
 
@@ -258,7 +258,7 @@ find packages/web/server/lib/opencode -type f | sort
 
 ## Week 0 spike implementation
 
-The focused implementation now lives in `packages/web/server/lib/pi/session-daemon/` with colocated tests. It:
+The completed focused spike lives in `packages/web/server/lib/pi/session-daemon/` with colocated tests. It:
 
 1. imports the approved, exactly pinned Pi SDK and creates a persistent session using a disposable agent directory and selected cwd;
 2. binds only a local Unix socket (or Windows named pipe), authenticates the private client, and creates the socket with owner-only permissions on POSIX;
@@ -266,4 +266,4 @@ The focused implementation now lives in `packages/web/server/lib/pi/session-daem
 4. keeps the runtime alive while a client disconnects and sends a sequenced snapshot to the reconnecting client; and
 5. rejects TCP endpoints and unauthenticated clients instead of presenting a false empty/idle state.
 
-It intentionally does not register public `/api/pi/*` routes, integrate lifecycle supervision, or retain an OpenCode fallback. Those remain later Workstream 1–4 work.
+The spike itself did not register public routes or lifecycle supervision. The initial detached-process supervision and `GET /api/pi/runtime` adapter are now recorded in [the Workstream 1 daemon record](./pichamber-pi-workstream-1.md); session registry, operation families, queue policy, and recovery remain later work.

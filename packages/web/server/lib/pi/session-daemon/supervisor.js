@@ -1,0 +1,322 @@
+import { createHash, randomBytes } from 'node:crypto';
+import { spawn as spawnChildProcess } from 'node:child_process';
+import { chmod, lstat, mkdir, open, readFile, rm, writeFile } from 'node:fs/promises';
+import { userInfo } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
+
+import { resolvePiChamberDataDir } from '../../pichamber-data-dir.js';
+import { isLocalSessionDaemonEndpoint } from './session-daemon.js';
+import { requestSessionDaemon, SessionDaemonClientError } from './ipc-client.js';
+
+const PROTOCOL_VERSION = 1;
+const STARTUP_TIMEOUT_MS = 5_000;
+const RETRY_DELAY_MS = 100;
+const DAEMON_ENTRYPOINT = fileURLToPath(new URL('./daemon-process.js', import.meta.url));
+
+class PiSessionDaemonUnavailableError extends Error {
+  constructor(code) {
+    super('The Pi session daemon is unavailable.');
+    this.code = code;
+  }
+}
+
+const delay = (milliseconds) => new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+
+const getWindowsOwnerKey = () => {
+  try {
+    return createHash('sha256').update(userInfo().username).digest('hex').slice(0, 16);
+  } catch {
+    return 'owner';
+  }
+};
+
+const isValidState = (state) => (
+  state
+  && state.protocolVersion === PROTOCOL_VERSION
+  && Number.isInteger(state.pid)
+  && state.pid > 0
+  && typeof state.endpoint === 'string'
+  && typeof state.startedAt === 'string'
+);
+
+const isPidAlive = (processLike, pid) => {
+  try {
+    processLike.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
+  }
+};
+
+const resolvePiSessionDaemonPaths = ({
+  env = process.env,
+  dataDir = resolvePiChamberDataDir({ env }),
+  pathModule = { join, resolve, isAbsolute },
+  platform = process.platform,
+} = {}) => {
+  const piDataDir = pathModule.join(dataDir, 'pi');
+  const runtimeDir = typeof env.XDG_RUNTIME_DIR === 'string' && env.XDG_RUNTIME_DIR.trim()
+    ? pathModule.join(pathModule.resolve(env.XDG_RUNTIME_DIR.trim()), 'pichamber')
+    : pathModule.join(dataDir, 'runtime');
+  const configuredEndpoint = typeof env.OPENCHAMBER_PI_SESSION_DAEMON_ENDPOINT === 'string'
+    ? env.OPENCHAMBER_PI_SESSION_DAEMON_ENDPOINT.trim()
+    : '';
+  const endpoint = configuredEndpoint || (platform === 'win32'
+    ? `\\\\.\\pipe\\pichamber-pi-session-daemon-${getWindowsOwnerKey()}`
+    : pathModule.join(runtimeDir, 'pi-session-daemon.sock'));
+
+  if (!isLocalSessionDaemonEndpoint(endpoint, platform)) {
+    throw new PiSessionDaemonUnavailableError('INVALID_DAEMON_ENDPOINT');
+  }
+
+  const configuredAgentDir = typeof env.OPENCHAMBER_PI_AGENT_DIR === 'string' ? env.OPENCHAMBER_PI_AGENT_DIR.trim() : '';
+  return {
+    endpoint,
+    agentDir: configuredAgentDir ? pathModule.resolve(configuredAgentDir) : undefined,
+    piDataDir,
+    runtimeDir,
+    credentialFile: pathModule.join(piDataDir, 'session-daemon.key'),
+    stateFile: pathModule.join(piDataDir, 'session-daemon-state.json'),
+    lockFile: pathModule.join(piDataDir, 'session-daemon.lock'),
+  };
+};
+
+/**
+ * Owns a single daemon for the local PiChamber host. The state sidecar is
+ * deliberately non-secret; the credential is read only by this process and
+ * the child daemon, never passed to a browser or logged.
+ */
+export const createPiSessionDaemonSupervisor = ({
+  env = process.env,
+  cwd = process.cwd(),
+  dataDir,
+  platform = process.platform,
+  processLike = process,
+  request = requestSessionDaemon,
+  spawn = spawnChildProcess,
+  wait = delay,
+  startupTimeoutMs = STARTUP_TIMEOUT_MS,
+} = {}) => {
+  const paths = resolvePiSessionDaemonPaths({ env, dataDir, platform });
+  let startPromise = null;
+
+  const withOperationLock = async (operation) => {
+    const deadline = Date.now() + startupTimeoutMs;
+    await mkdir(paths.piDataDir, { recursive: true, mode: 0o700 });
+    await chmod(paths.piDataDir, 0o700);
+    while (true) {
+      try {
+        const handle = await open(paths.lockFile, 'wx', 0o600);
+        try {
+          await handle.writeFile(JSON.stringify({ pid: processLike.pid, claimedAt: new Date().toISOString() }));
+          await chmod(paths.lockFile, 0o600);
+        } finally {
+          await handle.close();
+        }
+        try {
+          return await operation();
+        } finally {
+          try {
+            const claim = JSON.parse(await readFile(paths.lockFile, 'utf8'));
+            if (claim?.pid === processLike.pid) await rm(paths.lockFile, { force: true });
+          } catch {
+            // A missing or already-replaced lock must not remove another owner.
+          }
+        }
+      } catch (error) {
+        if (error?.code !== 'EEXIST') throw new PiSessionDaemonUnavailableError('DAEMON_LOCK_UNAVAILABLE');
+        try {
+          const claim = JSON.parse(await readFile(paths.lockFile, 'utf8'));
+          if (!isPidAlive(processLike, claim?.pid)) await rm(paths.lockFile, { force: true });
+        } catch (readError) {
+          if (readError?.code !== 'ENOENT') throw new PiSessionDaemonUnavailableError('DAEMON_LOCK_UNAVAILABLE');
+        }
+        if (Date.now() >= deadline) throw new PiSessionDaemonUnavailableError('DAEMON_LOCK_TIMEOUT');
+        await wait(RETRY_DELAY_MS);
+      }
+    }
+  };
+
+  const readState = async () => {
+    try {
+      const state = JSON.parse(await readFile(paths.stateFile, 'utf8'));
+      return isValidState(state) ? state : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const readCredential = async () => {
+    try {
+      const credential = (await readFile(paths.credentialFile, 'utf8')).trim();
+      if (credential.length < 32) throw new Error('invalid credential');
+      return credential;
+    } catch {
+      throw new PiSessionDaemonUnavailableError('DAEMON_CREDENTIAL_UNAVAILABLE');
+    }
+  };
+
+  const ensureCredential = async () => {
+    await mkdir(paths.piDataDir, { recursive: true, mode: 0o700 });
+    await chmod(paths.piDataDir, 0o700);
+    try {
+      const credential = await readCredential();
+      await chmod(paths.credentialFile, 0o600);
+      return credential;
+    } catch (error) {
+      if (error.code !== 'DAEMON_CREDENTIAL_UNAVAILABLE') throw error;
+    }
+
+    const credential = randomBytes(32).toString('hex');
+    try {
+      await writeFile(paths.credentialFile, `${credential}\n`, { flag: 'wx', mode: 0o600 });
+      await chmod(paths.credentialFile, 0o600);
+      return credential;
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw new PiSessionDaemonUnavailableError('DAEMON_CREDENTIAL_UNAVAILABLE');
+      return readCredential();
+    }
+  };
+
+  const probe = async (credential) => {
+    const state = await readState();
+    if (!state || state.endpoint !== paths.endpoint) {
+      throw new PiSessionDaemonUnavailableError('DAEMON_UNAVAILABLE');
+    }
+    try {
+      const health = await request({ endpoint: paths.endpoint, credential, command: 'runtime.health' });
+      if (health?.state !== 'ready' || health.daemonPid !== state.pid) {
+        throw new PiSessionDaemonUnavailableError('DAEMON_IDENTITY_MISMATCH');
+      }
+      return { state, health };
+    } catch (error) {
+      if (error instanceof PiSessionDaemonUnavailableError) throw error;
+      throw new PiSessionDaemonUnavailableError(error instanceof SessionDaemonClientError ? error.code : 'DAEMON_UNAVAILABLE');
+    }
+  };
+
+  const endpointExists = async () => {
+    if (platform === 'win32') return false;
+    try {
+      await lstat(paths.endpoint);
+      return true;
+    } catch (error) {
+      if (error?.code === 'ENOENT') return false;
+      throw new PiSessionDaemonUnavailableError('DAEMON_ENDPOINT_UNREADABLE');
+    }
+  };
+
+  const removeStaleState = async (state) => {
+    const current = await readState();
+    if (current?.pid === state?.pid && current.endpoint === paths.endpoint) {
+      await rm(paths.stateFile, { force: true });
+    }
+  };
+
+  const start = async () => {
+    if (startPromise) return startPromise;
+    startPromise = withOperationLock(async () => {
+      const credential = await ensureCredential();
+      try {
+        const existing = await probe(credential);
+        return { state: 'ready', reused: true, protocolVersion: PROTOCOL_VERSION, capabilities: existing.health.capabilities ?? [] };
+      } catch (error) {
+        if (!(error instanceof PiSessionDaemonUnavailableError)) throw error;
+      }
+
+      const staleState = await readState();
+      if (staleState && isPidAlive(processLike, staleState.pid)) {
+        throw new PiSessionDaemonUnavailableError('DAEMON_UNAVAILABLE');
+      }
+      if (await endpointExists()) {
+        // Do not unlink a socket we could not authenticate and identify.
+        throw new PiSessionDaemonUnavailableError('DAEMON_ENDPOINT_UNVERIFIED');
+      }
+      if (staleState) await removeStaleState(staleState);
+      await mkdir(dirname(paths.stateFile), { recursive: true, mode: 0o700 });
+      if (platform !== 'win32') {
+        await mkdir(paths.runtimeDir, { recursive: true, mode: 0o700 });
+        await chmod(paths.runtimeDir, 0o700);
+      }
+
+      const child = spawn(processLike.execPath, [
+        DAEMON_ENTRYPOINT,
+        '--endpoint', paths.endpoint,
+        '--credential-file', paths.credentialFile,
+        '--state-file', paths.stateFile,
+        '--cwd', cwd,
+        ...(paths.agentDir ? ['--agent-dir', paths.agentDir] : []),
+      ], {
+        cwd,
+        detached: platform !== 'win32',
+        stdio: 'ignore',
+        windowsHide: true,
+        env,
+      });
+      child.unref?.();
+
+      const deadline = Date.now() + startupTimeoutMs;
+      while (Date.now() < deadline) {
+        try {
+          const started = await probe(credential);
+          return { state: 'ready', reused: false, protocolVersion: PROTOCOL_VERSION, capabilities: started.health.capabilities ?? [] };
+        } catch {
+          await wait(RETRY_DELAY_MS);
+        }
+      }
+      try {
+        processLike.kill(child.pid, 'SIGTERM');
+      } catch {
+        // The child may have exited before the timeout; either way it is not ready.
+      }
+      throw new PiSessionDaemonUnavailableError('DAEMON_START_TIMEOUT');
+    });
+
+    try {
+      return await startPromise;
+    } finally {
+      startPromise = null;
+    }
+  };
+
+  const health = async () => {
+    try {
+      const credential = await readCredential();
+      const ready = await probe(credential);
+      return { state: 'ready', protocolVersion: PROTOCOL_VERSION, capabilities: ready.health.capabilities ?? [] };
+    } catch (error) {
+      return {
+        state: 'unavailable',
+        protocolVersion: PROTOCOL_VERSION,
+        error: { code: error instanceof PiSessionDaemonUnavailableError ? error.code : 'DAEMON_UNAVAILABLE' },
+      };
+    }
+  };
+
+  const stop = async () => {
+    const pendingStart = startPromise;
+    if (pendingStart) await pendingStart.catch(() => {});
+    return withOperationLock(async () => {
+      const credential = await readCredential();
+      const { state } = await probe(credential);
+      try {
+        processLike.kill(state.pid, 'SIGTERM');
+      } catch {
+        throw new PiSessionDaemonUnavailableError('DAEMON_STOP_FAILED');
+      }
+
+      const deadline = Date.now() + startupTimeoutMs;
+      while (Date.now() < deadline) {
+        if (!isPidAlive(processLike, state.pid)) {
+          await removeStaleState(state);
+          return { state: 'stopped' };
+        }
+        await wait(RETRY_DELAY_MS);
+      }
+      throw new PiSessionDaemonUnavailableError('DAEMON_STOP_TIMEOUT');
+    });
+  };
+
+  return { paths, start, health, stop };
+};
