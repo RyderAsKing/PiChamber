@@ -10,7 +10,7 @@ Use `serve-sim` to stream and control a booted Apple Simulator from the terminal
 ## PiChamber Defaults
 
 - Mobile package: `packages/mobile`
-- iOS bundle id: `com.openchamber.app`
+- iOS bundle id: `com.openchamber.app` (legacy runtime identifier; preserve until the app-id migration)
 - Headless env wrapper: `packages/mobile/scripts/with-mobile-env.mjs`
 - iOS simulator helper: `packages/mobile/scripts/ios-sim.mjs`
 - Preferred scripts:
