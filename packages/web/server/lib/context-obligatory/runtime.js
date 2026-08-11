@@ -5,7 +5,17 @@ const isRecord = (value) => Boolean(value && typeof value === 'object' && !Array
 
 const readContextState = (session) => {
   const metadata = isRecord(session?.metadata) ? session.metadata : {};
-  const pichamber = isRecord(metadata.pichamber) ? metadata.openchamber : {};
+  // The canonical storage location for context-obligatory state is
+  // `session.metadata.pichamber` (see DOCUMENTATION.md). A legacy
+  // `session.metadata.openchamber` block may still exist on sessions
+  // pinned under the pre-rebrand namespace, so fall back to it when the
+  // canonical block is absent instead of dropping the user's pinned
+  // messages. New writes always target `metadata.pichamber`.
+  const pichamber = isRecord(metadata.pichamber)
+    ? metadata.pichamber
+    : isRecord(metadata.openchamber)
+      ? metadata.openchamber
+      : {};
   const messages = Array.isArray(pichamber.context_obligatory_messages)
     ? pichamber.context_obligatory_messages.filter((item) =>
       isRecord(item)
@@ -112,7 +122,7 @@ export const createContextObligatoryRuntime = ({
       body: {
         metadata: {
           ...freshState.metadata,
-          openchamber: {
+          pichamber: {
             ...freshState.pichamber,
             context_obligatory_last_compaction_message_id: summary.id,
           },
