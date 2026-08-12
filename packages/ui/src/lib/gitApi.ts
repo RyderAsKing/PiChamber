@@ -1,6 +1,5 @@
 
 import * as gitHttp from './gitApiHttp';
-import { opencodeClient } from './opencode/client';
 import { renderMagicPrompt } from './magicPrompts';
 import { runtimeFetch } from './runtime-fetch';
 import { materializeOpenDraftSession, useSessionUIStore } from '@/sync/session-ui-store';
@@ -43,13 +42,6 @@ const getRuntimeGit = () => {
   return getRegisteredRuntimeAPIs()?.git ?? null;
 };
 
-const requestChatForceScrollBottom = (sessionId: string) => {
-  if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent('openchamber:chat-force-scroll-bottom', {
-    detail: { sessionId },
-  }));
-};
-
 const extractJsonObject = (value: string): Record<string, unknown> | null => {
   const text = value.trim();
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -71,23 +63,6 @@ const extractJsonObject = (value: string): Record<string, unknown> | null => {
   }
 
   return null;
-};
-
-const extractAssistantText = (response: unknown): string => {
-  const data = (response as { data?: { parts?: Array<unknown> } } | null)?.data;
-  const parts = Array.isArray(data?.parts) ? data.parts : [];
-  return parts
-    .map((part) => {
-      const item = part as { type?: unknown; text?: unknown; content?: unknown; value?: unknown };
-      if (item.type !== 'text') return '';
-      if (typeof item.text === 'string') return item.text;
-      if (typeof item.content === 'string') return item.content;
-      if (typeof item.value === 'string') return item.value;
-      return '';
-    })
-    .filter((text) => text.trim().length > 0)
-    .join('\n')
-    .trim();
 };
 
 export async function checkIsGitRepository(directory: string): Promise<boolean> {
@@ -620,56 +595,33 @@ const runStructuredGenerationInActiveSession = async ({
   const trimmedDirectory = typeof directory === 'string' ? directory.trim() : '';
   const visiblePromptText = typeof visiblePrompt === 'string' ? visiblePrompt.trim() : '';
   const hiddenPromptText = typeof hiddenPrompt === 'string' ? hiddenPrompt.trim() : '';
-  const promptParts: Array<{ type: 'text'; text: string; synthetic?: boolean }> = [];
-  if (visiblePromptText) {
-    promptParts.push({
-      type: 'text',
-      text: hiddenPromptText ? `${visiblePromptText}\n\n` : visiblePromptText,
-      synthetic: false,
-    });
-  }
-  if (hiddenPromptText) {
-    promptParts.push({ type: 'text', text: hiddenPromptText, synthetic: true });
-  }
-  if (promptParts.length === 0) {
-    throw new Error('Generation prompts are empty');
-  }
-
-  requestChatForceScrollBottom(generationSession.sessionId);
-
-  const response = await opencodeClient.withDirectory(directory, async () => {
-    return opencodeClient.getApiClient().session.prompt({
-      sessionID: generationSession.sessionId,
-      ...(trimmedDirectory.length > 0 ? { directory: trimmedDirectory } : {}),
-      model: {
-        providerID: generationSession.providerID,
-        modelID: generationSession.modelID,
-      },
-      ...(generationSession.agent ? { agent: generationSession.agent } : {}),
-      ...(generationSession.variant ? { variant: generationSession.variant } : {}),
-      parts: promptParts,
-    });
+  const fullPrompt = [visiblePromptText, hiddenPromptText].filter(Boolean).join('\n\n');
+  const response = await runtimeFetch('/api/small-model/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt: fullPrompt,
+      directory: trimmedDirectory,
+      preferredProviderID: generationSession.providerID,
+      preferredModelID: generationSession.modelID,
+    }),
   });
 
-  const responseError = response?.error as { message?: string } | undefined;
-  if (!response?.data) {
-    throw new Error(responseError?.message || `Failed to generate ${kind} output`);
+  if (!response.ok) {
+    throw new Error(`Failed to generate ${kind} output`);
   }
 
-  const info = response.data.info as { finish?: string; error?: unknown };
-  const assistantText = extractAssistantText(response);
+  const payload = (await response.json().catch(() => null)) as { text?: string } | null;
+  const assistantText = typeof payload?.text === 'string' ? payload.text : '';
   const parsedOutput = extractJsonObject(assistantText);
   if (!parsedOutput) {
     console.error('[git-generation][browser] invalid JSON output', {
       kind,
       sessionId: generationSession.sessionId,
       elapsedMs: Date.now() - requestStartedAt,
-      finish: info?.finish,
       assistantText,
-      messageInfo: response.data.info,
-      messageParts: response.data.parts,
     });
-    throw new Error('No JSON output returned by session');
+    throw new Error('No JSON output returned by generation model');
   }
 
   return parsedOutput;

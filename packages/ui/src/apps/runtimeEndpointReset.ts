@@ -30,7 +30,7 @@ import { syncDesktopSettings } from '@/lib/persistence';
 // no bounce back to the draft.
 export const reconnectAppForTransportSwitch = (): void => {
   disposeTerminalInputTransport();
-  opencodeClient.reconnectToRuntimeBaseUrl();
+  opencodeClient?.reconnectToRuntimeBaseUrl?.();
   resetStreamingState();
 };
 
@@ -42,7 +42,7 @@ export const resetAppForRuntimeEndpointChange = (detail: RuntimeEndpointChangedD
   }
   disposeTerminalInputTransport();
   useTerminalStore.getState().clearAll();
-  opencodeClient.reconnectToRuntimeBaseUrl();
+  opencodeClient?.reconnectToRuntimeBaseUrl?.();
   useConfigStore.setState({
     providers: [],
     agents: [],

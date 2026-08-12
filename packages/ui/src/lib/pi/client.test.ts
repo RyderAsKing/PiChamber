@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
+import { PiService, piClient, createScopedPiClient, PiRequestError } from "@/lib/pi/client"
+import { fetchPiRuntimeHealth } from "./transport"
 
 // Mock runtime-fetch to a stub that captures calls. We still need to mock
 // the underlying globalThis.fetch so the client actually issues requests.
@@ -65,14 +67,12 @@ describe("PiService", () => {
   })
 
   test("listProjects reads the public Pi project collection", async () => {
-    const { PiService } = await import("./client")
     const client = new PiService()
     expect(await client.listProjects()).toEqual({ projects: [{ directory: "/work", selected: true }] })
     expect(recordedCalls()[0].url).toBe("/api/pi/projects")
   })
 
   test("createSession POSTs to /api/pi/sessions", async () => {
-    const { PiService } = await import("./client")
     const client = new PiService()
     const result = await client.createSession({ cwd: "/work", title: "demo" })
     expect(result.session.id).toBe("s1")
@@ -83,7 +83,6 @@ describe("PiService", () => {
   })
 
   test("deleteSession returns true on 204 and 404", async () => {
-    const { PiService } = await import("./client")
     const client = new PiService()
     expect(await client.deleteSession({ sessionId: "s1" })).toBe(true)
     installFetchMock(() => jsonResponse({ error: { code: "INVALID_SESSION" } }, { status: 404 }))
@@ -94,7 +93,6 @@ describe("PiService", () => {
     installFetchMock(() =>
       jsonResponse({ error: { code: "DAEMON_UNAVAILABLE" } }, { status: 503 }),
     )
-    const { PiService, PiRequestError } = await import("./client")
     const client = new PiService()
     try {
       await client.listSessions()
@@ -111,7 +109,6 @@ describe("PiService", () => {
       expect(JSON.parse(call.init?.body as string)).toEqual({ providerId: "p1", type: "api_key", apiKey: "private-key" })
       return jsonResponse({ login: { id: "login-1", providerId: "p1", state: "pending" } })
     })
-    const { PiService } = await import("./client")
     const client = new PiService()
     expect(await client.loginProvider({ providerId: "p1", type: "api_key", apiKey: "private-key" })).toEqual({
       login: { id: "login-1", providerId: "p1", state: "pending" },
@@ -125,7 +122,6 @@ describe("PiService", () => {
       expect(JSON.parse(call.init?.body as string)).toEqual({ providerId: "custom", label: "Custom", baseUrl: "https://api.example.test/v1", api: "openai-completions", headers: { "X-Client": "private" }, models: [{ id: "model", providerId: "custom", label: "Model" }] })
       return jsonResponse({ config: { providerId: "custom", label: "Custom", baseUrl: "https://api.example.test/v1", api: "openai-completions", models: [{ id: "model", providerId: "custom", label: "Model" }] } })
     })
-    const { PiService } = await import("./client")
     expect(await new PiService().setProviderModels({ providerId: "custom", label: "Custom", baseUrl: "https://api.example.test/v1", api: "openai-completions", headers: { "X-Client": "private" }, models: [{ id: "model", providerId: "custom", label: "Model" }] })).toEqual({
       config: { providerId: "custom", label: "Custom", baseUrl: "https://api.example.test/v1", api: "openai-completions", models: [{ id: "model", providerId: "custom", label: "Model" }] },
     })
@@ -141,7 +137,6 @@ describe("PiService", () => {
       }
       return jsonResponse({ error: { code: "DAEMON_REQUEST_FAILED" } }, { status: 500 })
     })
-    const { PiService } = await import("./client")
     const client = new PiService()
     expect(await client.getSettings()).toEqual({ pi: { global: {}, project: { trusted: false } }, pichamber: { version: 1 } })
     expect(await client.setPiChamberDefaults({ defaultThinking: "high" })).toEqual({ pichamber: { version: 1, defaultThinking: "high" } })
@@ -158,7 +153,6 @@ describe("PiService", () => {
       }
       return jsonResponse({ error: { code: "DAEMON_REQUEST_FAILED" } }, { status: 500 })
     })
-    const { PiService } = await import("./client")
     const client = new PiService()
     expect(await client.listResources()).toEqual({ skills: [], prompts: [], agents: [] })
     expect(await client.updateResource({ resourceId: "prompt-1", content: "Updated" })).toEqual({ skills: [], prompts: [], agents: [] })
@@ -178,7 +172,6 @@ describe("PiService", () => {
         default: { providerId: "p1", modelId: "m1" },
       }),
     )
-    const { PiService } = await import("./client")
     const client = new PiService()
     const providers = await client.listProviders()
     expect(providers.providers).toHaveLength(1)
@@ -191,13 +184,11 @@ describe("fetchPiRuntimeHealth", () => {
 
   test("returns ready when the daemon is up", async () => {
     installFetchMock(() => jsonResponse({ state: "ready", protocolVersion: 1, capabilities: [] }))
-    const { fetchPiRuntimeHealth } = await import("./transport")
     expect((await fetchPiRuntimeHealth()).state).toBe("ready")
   })
 
   test("returns unavailable on 401", async () => {
     installFetchMock(() => jsonResponse({}, { status: 401 }))
-    const { fetchPiRuntimeHealth } = await import("./transport")
     const health = await fetchPiRuntimeHealth()
     expect(health.state).toBe("unavailable")
     expect(health.error?.code).toBe("DAEMON_AUTH_FAILED")
@@ -205,7 +196,6 @@ describe("fetchPiRuntimeHealth", () => {
 
   test("returns unavailable on protocol mismatch", async () => {
     installFetchMock(() => new Response("not-json", { status: 200 }))
-    const { fetchPiRuntimeHealth } = await import("./transport")
     const health = await fetchPiRuntimeHealth()
     expect(health.state).toBe("unavailable")
     expect(health.error?.code).toBe("DAEMON_PROTOCOL_MISMATCH")
@@ -214,12 +204,10 @@ describe("fetchPiRuntimeHealth", () => {
 
 describe("module exports", () => {
   test("piClient is a PiService instance", async () => {
-    const { piClient, PiService } = await import("./client")
     expect(piClient).toBeInstanceOf(PiService)
   })
 
   test("createScopedPiClient binds the directory", async () => {
-    const { createScopedPiClient, PiService } = await import("./client")
     const scoped = createScopedPiClient("/scoped")
     expect(scoped).toBeInstanceOf(PiService)
     expect(scoped.getDirectory()).toBe("/scoped")

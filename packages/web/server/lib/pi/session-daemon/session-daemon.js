@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
-import { chmod, mkdir, lstat, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, lstat, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { hasTrustRequiringProjectResources } from '@earendil-works/pi-coding-agent';
 import { StringDecoder } from 'node:string_decoder';
@@ -871,11 +871,19 @@ export function createSessionDaemon({
       }
       // Paths come only from the server-local upload map. They never cross a
       // public response and are redacted from persisted transcript projections.
-      if (attachment.mime.startsWith('image/') && attachment.size <= 20 * 1024 * 1024) {
-        const data = await readFile(attachment.path);
-        images.push({ type: 'image', mimeType: attachment.mime, data: data.toString('base64') });
-      } else {
-        text.push(`[Attachment ${attachment.name} is available at ${attachment.path}]`);
+      try {
+        if (attachment.mime.startsWith('image/') && attachment.size <= 20 * 1024 * 1024) {
+          const data = await readFile(attachment.path);
+          images.push({ type: 'image', mimeType: attachment.mime, data: data.toString('base64') });
+        } else {
+          await stat(attachment.path);
+          text.push(`[Attachment ${attachment.name} is available at ${attachment.path}]`);
+        }
+      } catch (err) {
+        if (err && err.code === 'ENOENT') {
+          throw new SessionDaemonProtocolError('ATTACHMENT_MISSING', `The attached temporary file ${attachment.name} is no longer available.`);
+        }
+        throw err;
       }
     }
     return { text: text.join('\n'), images };

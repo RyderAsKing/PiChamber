@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import { opencodeClient } from '@/lib/opencode/client';
+import { piClient } from '@/lib/pi/client';
+import { getFilesystemHome } from '@/lib/fsApi';
 import { getDesktopHomeDirectory } from '@/lib/desktop';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { updateDesktopSettings } from '@/lib/persistence';
@@ -185,23 +186,13 @@ const initializeHomeDirectory = async () => {
   };
 
   try {
-    const fsHome = await opencodeClient.getFilesystemHome();
+    const fsHome = await getFilesystemHome();
     const resolved = acceptCandidate(fsHome);
     if (resolved) {
       return resolved;
     }
   } catch (filesystemError) {
     console.warn('Failed to obtain filesystem home directory:', filesystemError);
-  }
-
-  try {
-    const info = await opencodeClient.getSystemInfo();
-    const resolved = acceptCandidate(info?.homeDirectory);
-    if (resolved) {
-      return resolved;
-    }
-  } catch (error) {
-    console.warn('Failed to get home directory from system info:', error);
   }
 
   try {
@@ -233,7 +224,7 @@ const initialCurrentDirectory = (() => {
 })();
 
 if (initialCurrentDirectory) {
-  opencodeClient.setDirectory(initialCurrentDirectory);
+  piClient.setDirectory(initialCurrentDirectory);
 }
 const initialIsHomeReady = Boolean(initialHomeDirectory && initialHomeDirectory !== '/');
 
@@ -257,7 +248,7 @@ export const useDirectoryStore = create<DirectoryStore>()(
           console.log('[DirectoryStore] setDirectory called with path:', resolvedPath);
         }
 
-        opencodeClient.setDirectory(resolvedPath);
+        piClient.setDirectory(resolvedPath);
         invalidateFileSearchCache();
 
         set((state) => {
@@ -283,7 +274,7 @@ export const useDirectoryStore = create<DirectoryStore>()(
           const newIndex = state.historyIndex - 1;
           const newDirectory = state.directoryHistory[newIndex];
 
-          opencodeClient.setDirectory(newDirectory);
+          piClient.setDirectory(newDirectory);
           invalidateFileSearchCache();
 
           safeStorage.setItem('lastDirectory', newDirectory);
@@ -306,7 +297,7 @@ export const useDirectoryStore = create<DirectoryStore>()(
           const newIndex = state.historyIndex + 1;
           const newDirectory = state.directoryHistory[newIndex];
 
-          opencodeClient.setDirectory(newDirectory);
+          piClient.setDirectory(newDirectory);
           invalidateFileSearchCache();
 
           safeStorage.setItem('lastDirectory', newDirectory);
@@ -407,7 +398,7 @@ export const useDirectoryStore = create<DirectoryStore>()(
 
         if ((shouldReplaceCurrent || currentChanged) && resolvedReady) {
           const nextDirectory = shouldReplaceCurrent ? resolvedHome : (resolvedCurrent as string);
-          opencodeClient.setDirectory(nextDirectory);
+          piClient.setDirectory(nextDirectory);
           invalidateFileSearchCache();
           safeStorage.setItem('lastDirectory', nextDirectory);
           void updateDesktopSettings({ lastDirectory: nextDirectory });
