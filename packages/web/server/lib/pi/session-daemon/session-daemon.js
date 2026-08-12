@@ -10,6 +10,8 @@ import {
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
 
+import { createSessionRuntimeRegistry } from './runtime-registry.js';
+
 const PROTOCOL_VERSION = 1;
 const MAX_FRAME_BYTES = 1024 * 1024;
 
@@ -80,19 +82,19 @@ export function createSessionDaemon({
 
   let server;
   let runtime;
-  let unsubscribe;
+  let runtimeRegistry;
   let sequence = 0;
   let started = false;
   const clients = new Set();
 
-  const publish = (event, payload) => {
+  const publish = (event, payload, sessionId = runtime?.session?.sessionId) => {
     const message = {
       protocolVersion: PROTOCOL_VERSION,
       kind: 'event',
       event,
       sequence: ++sequence,
       payload: {
-        sessionId: runtime?.session?.sessionId,
+        sessionId,
         ...payload,
       },
     };
@@ -114,47 +116,56 @@ export function createSessionDaemon({
   };
 
   const disposeRuntime = async () => {
-    unsubscribe?.();
-    unsubscribe = undefined;
-    await runtime?.dispose?.();
+    if (runtimeRegistry) {
+      const hadTrackedRuntime = runtimeRegistry.size > 0;
+      await runtimeRegistry.disposeAll();
+      if (!hadTrackedRuntime) await runtime?.dispose?.();
+      runtimeRegistry = undefined;
+    } else {
+      await runtime?.dispose?.();
+    }
     runtime = undefined;
   };
 
-  const bindSession = () => {
-    unsubscribe?.();
-    unsubscribe = runtime.session.subscribe((event) => {
-      switch (event.type) {
-        case 'message_update': {
-          const update = event.assistantMessageEvent;
-          if (update.type === 'text_delta') {
-            publish('assistant.message.delta', { contentIndex: update.contentIndex, delta: update.delta });
-          } else if (update.type === 'thinking_delta') {
-            publish('assistant.thinking.delta', { contentIndex: update.contentIndex, delta: update.delta });
-          }
-          break;
+  const publishSessionEvent = (sessionId, event) => {
+    switch (event.type) {
+      case 'message_update': {
+        const update = event.assistantMessageEvent;
+        if (update.type === 'text_delta') {
+          publish('assistant.message.delta', { contentIndex: update.contentIndex, delta: update.delta }, sessionId);
+        } else if (update.type === 'thinking_delta') {
+          publish('assistant.thinking.delta', { contentIndex: update.contentIndex, delta: update.delta }, sessionId);
         }
-        case 'tool_execution_start':
-          publish('session.tool.start', { toolCallId: event.toolCallId, toolName: event.toolName });
-          break;
-        case 'tool_execution_update':
-          publish('session.tool.update', { toolCallId: event.toolCallId, toolName: event.toolName });
-          break;
-        case 'tool_execution_end':
-          publish('session.tool.end', { toolCallId: event.toolCallId, toolName: event.toolName, isError: event.isError });
-          break;
-        case 'queue_update':
-          publish('session.queue', { steering: event.steering.length, followUp: event.followUp.length });
-          break;
-        case 'agent_start':
-          publish('session.lifecycle', { state: 'running' });
-          break;
-        case 'agent_settled':
-          publish('session.lifecycle', { state: 'idle' });
-          break;
-        default:
-          break;
+        break;
       }
+      case 'tool_execution_start':
+        publish('session.tool.start', { toolCallId: event.toolCallId, toolName: event.toolName }, sessionId);
+        break;
+      case 'tool_execution_update':
+        publish('session.tool.update', { toolCallId: event.toolCallId, toolName: event.toolName }, sessionId);
+        break;
+      case 'tool_execution_end':
+        publish('session.tool.end', { toolCallId: event.toolCallId, toolName: event.toolName, isError: event.isError }, sessionId);
+        break;
+      case 'queue_update':
+        publish('session.queue', { steering: event.steering.length, followUp: event.followUp.length }, sessionId);
+        break;
+      case 'agent_start':
+        publish('session.lifecycle', { state: 'running' }, sessionId);
+        break;
+      case 'agent_settled':
+        publish('session.lifecycle', { state: 'idle' }, sessionId);
+        break;
+      default:
+        break;
+    }
+  };
+
+  const bindSession = () => {
+    runtimeRegistry = createSessionRuntimeRegistry({
+      onSessionEvent: ({ sessionId }, event) => publishSessionEvent(sessionId, event),
     });
+    runtimeRegistry.register(runtime, { cwd });
   };
 
   const handleRequest = (socket, message) => {
