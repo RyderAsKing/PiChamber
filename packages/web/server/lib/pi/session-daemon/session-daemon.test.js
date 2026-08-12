@@ -10,10 +10,11 @@ import { createSessionDaemon } from './session-daemon.js';
 const credential = 'a-private-daemon-credential';
 
 class FakeSession {
-  constructor(sessionId = 'pi-session-1') {
+  constructor(sessionId = 'pi-session-1', sessionFile) {
     this.sessionId = sessionId;
     this.isStreaming = false;
     this.listeners = new Set();
+    this.sessionManager = { getSessionFile: () => sessionFile };
   }
 
   subscribe(listener) {
@@ -33,6 +34,7 @@ class FakeRuntime {
     this.cwd = cwd;
     this.session = session;
     this.rebindSession = undefined;
+    this.disposed = false;
   }
 
   setRebindSession(rebindSession) {
@@ -44,7 +46,9 @@ class FakeRuntime {
     await this.rebindSession?.(session);
   }
 
-  async dispose() {}
+  async dispose() {
+    this.disposed = true;
+  }
 }
 
 function connectClient(endpoint) {
@@ -180,6 +184,48 @@ describe('Pi session daemon spike', () => {
     });
     expect((await delta).sequence).toBeGreaterThan(reconnectSnapshot.sequence);
     await reconnectingClient.close();
+  });
+
+  it('disposes an idle runtime without deleting its Pi JSONL and restores it on demand', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
+    const endpoint = join(root, 'daemon.sock');
+    const sessionFile = join(root, 'session.jsonl');
+    await writeFile(sessionFile, `{"type":"session","id":"pi-session-1","cwd":"${root}"}\n`);
+    const firstRuntime = new FakeRuntime({
+      cwd: root,
+      session: new FakeSession('pi-session-1', sessionFile),
+    });
+    const restoredRuntime = new FakeRuntime({
+      cwd: root,
+      session: new FakeSession('pi-session-1', sessionFile),
+    });
+    const runtimeCalls = [];
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      idleTimeoutMs: 10,
+      createRuntime: async (options) => {
+        runtimeCalls.push(options);
+        return runtimeCalls.length === 1 ? firstRuntime : restoredRuntime;
+      },
+    });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    firstRuntime.session.emit({ type: 'agent_settled' });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(firstRuntime.disposed).toBe(true);
+    await expect(stat(sessionFile)).resolves.toMatchObject({ isFile: expect.any(Function) });
+
+    await client.request('sessions.prompt', { text: 'resume after idle' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(runtimeCalls).toEqual([
+      { cwd: root, agentDir: expect.any(String) },
+      { cwd: root, agentDir: expect.any(String), sessionFile },
+    ]);
+    await client.close();
   });
 
   it('rebinds daemon events to the replacement Pi session identity', async () => {

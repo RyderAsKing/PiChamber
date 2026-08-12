@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-This record covers the initial daemon-lifecycle implementation following the completed boundary and SDK spike in [the Workstream 0 record](./pichamber-pi-workstream-0.md). It makes the private Pi runtime independently supervised by the web server and exposes only authenticated public health. It is not a session/UI cutover and does not create a supported OpenCode/Pi runtime choice.
+This record covers the completed daemon-lifecycle work following the boundary and SDK spike in [the Workstream 0 record](./pichamber-pi-workstream-0.md). It makes the private Pi runtime independently supervised by the web server, records active runtimes by authoritative Pi identity plus cwd, and exposes only authenticated public health. It is not a session/UI cutover and does not create a supported OpenCode/Pi runtime choice.
 
 ## Implemented ownership
 
@@ -13,6 +13,8 @@ This record covers the initial daemon-lifecycle implementation following the com
 | Private client | `ipc-client.js` | The server reaches the daemon with its local credential over JSONL IPC. The module owns framing/timeouts and gives callers stable errors rather than an empty runtime result. |
 | Public health adapter | `packages/web/server/lib/pi/routes.js` | `GET /api/pi/runtime` is registered before the generic OpenCode proxy and returns only `protocolVersion`, `state`, `capabilities`, or a stable unavailable error code. It never returns endpoint, key, PID, cwd, agent directory, or session data. |
 | Web lifecycle | `packages/web/server/index.js` | The server starts the daemon after its listener is ready and attempts a graceful daemon stop before HTTP shutdown. A startup failure leaves the route available with `503`/`DAEMON_*`, not a fabricated idle or empty response. |
+| Runtime registry and idle lifecycle | `packages/web/server/lib/pi/session-daemon/runtime-registry.js`, `session-daemon.js` | Active SDK runtimes use `{ cwd, sessionId }` identity. Replacement detaches the old listener before binding the new session; duplicate ownership is rejected. An `agent_settled` runtime is disposed after the daemon's five-minute idle timeout, without deleting Pi JSONL, and is recreated from the remembered session file on the next private prompt. |
+| JSONL validation and crash recovery | `session-jsonl.js`, `daemon-process.js`, `supervisor.js` | The daemon validates every cwd-scoped Pi JSONL candidate rather than accepting Pi discovery's best-effort omission. Malformed/unreadable files produce stable failure codes in the owner-only state sidecar. After a forced crash, the supervisor removes a stale POSIX socket only after the recorded PID is dead and the socket is unreachable through the authenticated client. |
 
 ## Local files and permissions
 
@@ -31,15 +33,16 @@ An existing socket that cannot be authenticated and matched to the state PID is 
 ## Runtime behavior
 
 - The supervisor honors `OPENCHAMBER_DATA_DIR`, `OPENCHAMBER_PI_AGENT_DIR`, and `OPENCHAMBER_PI_SESSION_DAEMON_ENDPOINT` only on the server.
-- The Pi runtime now uses `SessionManager.create(cwd)` without overriding Pi's default session directory, preserving Pi's normal cwd-scoped session discovery.
+- The Pi runtime resolves its cwd-scoped session directory from the configured Pi agent directory, preserving Pi's normal `sessions/<encoded-cwd>` discovery layout while honoring the server-only agent override.
 - The private health response includes a daemon PID only for supervisor identity verification. The public adapter strips it.
+- A valid owner-only failure sidecar makes health explicitly unavailable with `MALFORMED_SESSION_JSONL` or `SESSION_JSONL_UNREADABLE`; it never becomes an empty session list or synthetic idle state.
 - The server's existing authenticated `/api` middleware protects `/api/pi/runtime`; the adapter is registered before the generic OpenCode `/api/*` proxy.
 - Shutdown is best-effort only after the same private health/identity verification. It cannot signal an arbitrary PID from a stale sidecar.
 
 ## Deliberate limits
 
-This foundation still has one active runtime/session in the daemon. It does not yet implement the Workstream 1 registry and directory-scoping responsibilities, Pi session list/create/open/delete/tree/fork/clone operations, session replacement rebinding, idle runtime disposal, malformed-JSONL reporting, queue policy, replay persistence, or forced-crash interruption/recovery. The only public Pi route is runtime health; session routes and public event streaming are later contract work.
+The daemon currently restores only the single last-active runtime after idle disposal. Pi session collection/mutation commands, queue policy, replay persistence, session routes, and public event streaming are later IPC/API work. The only public Pi route remains runtime health.
 
 ## Validation evidence
 
-Focused tests use temporary PiChamber data roots, XDG runtime directories, project directories, and Pi agent directories with `PI_OFFLINE=1`. They verify real detached daemon start/reuse/health/stop, sidecar key mode, no secret in health output, socket authentication/reconnect behavior, and public health response redaction/unavailable status. They do not exercise Windows pipe ACLs, a live model provider, full server startup, or the deferred registry/recovery operations.
+Focused tests use temporary PiChamber data roots, XDG runtime directories, project directories, and Pi agent directories with `PI_OFFLINE=1`. They verify real detached daemon start/reuse/health/stop, sidecar key mode, no secret in health output, socket authentication/reconnect behavior, identity-plus-cwd registry rebinding/conflict behavior, idle disposal without JSONL deletion and rehydration, malformed/unreadable JSONL failures, forced-`SIGKILL` crash recovery, and public health response redaction/unavailable status. They do not exercise Windows pipe ACLs, a live model provider, full server startup, or future IPC/API commands.

@@ -20,19 +20,28 @@ const exitWithFailure = (code) => {
   process.exitCode = code;
 };
 
-const writeState = async () => {
+const writeState = async (state) => {
   const temporaryPath = `${stateFile}.${process.pid}.tmp`;
-  const state = JSON.stringify({
-    protocolVersion: 1,
-    pid: process.pid,
-    endpoint,
-    startedAt: new Date().toISOString(),
-  });
-  await writeFile(temporaryPath, state, { mode: 0o600 });
+  await writeFile(temporaryPath, JSON.stringify(state), { mode: 0o600 });
   await chmod(temporaryPath, 0o600);
   await rename(temporaryPath, stateFile);
   await chmod(stateFile, 0o600);
 };
+
+const writeReadyState = () => writeState({
+  protocolVersion: 1,
+  pid: process.pid,
+  endpoint,
+  startedAt: new Date().toISOString(),
+});
+
+const writeFailureState = (code) => writeState({
+  protocolVersion: 1,
+  pid: process.pid,
+  endpoint,
+  state: 'failed',
+  error: { code },
+});
 
 const removeOwnState = async () => {
   try {
@@ -58,14 +67,22 @@ if (!endpoint || !credentialFile || !stateFile || !cwd) {
       healthMetadata: { daemonPid: process.pid },
     });
     await daemon.start();
-    await writeState();
-  } catch {
+    await writeReadyState();
+  } catch (error) {
     try {
       await daemon?.stop();
     } catch {
       // Process exit closes the local listener if startup cleanup also failed.
     }
-    await removeOwnState();
+    if (error?.code === 'MALFORMED_SESSION_JSONL' || error?.code === 'SESSION_JSONL_UNREADABLE') {
+      try {
+        await writeFailureState(error.code);
+      } catch {
+        // The supervisor will report the generic startup failure when the sidecar cannot be written.
+      }
+    } else {
+      await removeOwnState();
+    }
     exitWithFailure(1);
   }
 

@@ -482,8 +482,8 @@ This is a dependency-based implementation timeline, not a calendar commitment. E
 | Window | Deliverable | Exit gate |
 | --- | --- | --- |
 | Completed foundation | Boundary and lifecycle prerequisites | The Workstream 0 spike, private daemon lifecycle, and shared-client foundations are recorded separately. They are prerequisites only and do not satisfy a later workstream exit gate. |
-| Next dependency gate | Daemon registry and recovery | Workstream 1’s identity-plus-cwd registry, replacement rebinding, idle disposal, malformed-session failure, and crash recovery have focused tests. |
-| Then | Complete IPC and authenticated API | Workstream 2’s command/event families, queue policy, snapshot resume, and authenticated public adapters pass focused daemon, route, and transport tests. |
+| Completed workstream | Daemon registry and recovery | Workstream 1’s identity-plus-cwd registry, replacement rebinding, idle disposal, malformed-session failure, and crash recovery have focused tests. |
+| Next dependency gate | Complete IPC and authenticated API | Workstream 2’s command/event families, queue policy, snapshot resume, and authenticated public adapters pass focused daemon, route, and transport tests. |
 | Then | Pi-native web UI cutover | Workstream 3’s service/store replacement powers session list, transcript, prompt, steer/follow-up, abort, model/thinking, tree/fork/clone, reconnect, and interrupted/error states in the web UI. |
 | Subsequent | Pi settings, providers, resources | Pi auth/models/settings integration, PiChamber defaults, provider UI, trust, AGENTS.md, native skills/templates, Magic Prompts, and extension-disabled policy work end to end. |
 | Subsequent | Core server workspace integrations | Filesystem, terminal, Git, temporary path attachments, direct local/VPS connection, trusted-device auth, and Electron daemon lifecycle are usable. |
