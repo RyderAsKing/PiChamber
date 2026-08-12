@@ -2,9 +2,9 @@
 
 ## Status
 
-Approved design plan. This document records the agreed migration from the current OpenCode-backed product to a Pi-native PiChamber. Workstream 0 and its Week 0 architecture spike are complete; the Workstream 1 daemon-lifecycle foundation is in progress. None of these implementation stages is a releasable dual-runtime path. The plan does not authorize a partial dual-runtime release.
+Approved design plan. This document records the agreed migration from the current OpenCode-backed product to a Pi-native PiChamber. The completed Workstream 0 boundary/spike and the implemented daemon-lifecycle and shared-client foundations are recorded in their implementation records: [Workstream 0](./pichamber-pi-workstream-0.md), [daemon lifecycle](./pichamber-pi-workstream-1.md), and [shared client](./pichamber-pi-workstream-3.md). Those foundations do **not** satisfy the full Workstream 1–3 delivery gates below: there is no releasable Pi-native UI path or partial dual-runtime release.
 
-This document is the approved plan for the Pi-native migration and is intentionally scoped separately from the completed identity-stabilization work recorded in the changelog.
+A workstream is complete only when its stated exit gate has focused validation. A foundation record documents delivered prerequisites; it must not be used to claim that its consuming workstream is complete. This document is intentionally scoped separately from the completed identity-stabilization work recorded in the changelog.
 
 ## Purpose
 
@@ -253,13 +253,9 @@ Create a PiChamber-owned daemon module under the web/runtime ownership boundary.
 ```text
 packages/web/server/lib/pi/session-daemon/
   daemon lifecycle and composition
-  private IPC server and protocol schema
   session registry and directory scoping
   Pi SDK factory/resource loader/model runtime integration
-  queue and session-operation handlers
-  event snapshot/replay publisher
-  provider/auth bridge
-  attachment handoff
+  idle-runtime disposal and event-subscription ownership
 ```
 
 Responsibilities:
@@ -272,14 +268,16 @@ Responsibilities:
 - hold active session runtimes in a registry keyed by authoritative Pi session identity and cwd;
 - rebind Pi event subscriptions after `new`, resume, fork, clone, or other session replacement;
 - dispose idle runtime objects safely without deleting Pi session JSONL;
-- expose daemon health/version/capability information to the web server;
+- expose daemon health/version/capability information to the web server; and
 - report malformed or unreadable session JSONL as a visible failure, never as an authoritative empty session.
 
-The daemon should not expose an HTTP/LAN port, browser authentication surface, pairing endpoint, or user-facing route.
+The daemon should not expose an HTTP/LAN port, browser authentication surface, pairing endpoint, or user-facing route. It owns runtime objects and their lifecycle; command names, request framing, and browser-facing API adaptation belong to Workstream 2.
 
-### Workstream 2: Define the private IPC contract
+**Exit gate:** focused tests prove authoritative identity-plus-cwd registry behavior, safe replacement rebinding, idle disposal without JSONL deletion, malformed-session failure, and forced-crash interruption/recovery. The existing lifecycle foundation is a prerequisite, not evidence for these requirements.
 
-Use a versioned, typed, request/response plus event protocol. The protocol is PiChamber-owned; it is not Pi RPC and it is not Pi's experimental remote protocol.
+### Workstream 2: Define the private IPC and public API contract
+
+Use a versioned, typed, request/response plus event protocol and explicit authenticated `/api/pi/` adapters. The protocol is PiChamber-owned; it is not Pi RPC and it is not Pi's experimental remote protocol. Private framing, command/event handlers, queue policy, snapshots/replay, and public route translation are owned here; the browser never accesses the private endpoint.
 
 Minimum command families:
 
@@ -319,7 +317,12 @@ Protocol requirements:
 - partial assistant deltas are assembled from Pi event lifecycle and `contentIndex`, while finalized Pi messages are authoritative;
 - a daemon request failure includes a stable machine-readable code and does not mutate unrelated sessions;
 - an unavailable daemon is visibly unavailable, not represented as an idle or empty session;
-- no credentials, pairing secrets, bearer tokens, or user attachment bytes are logged by protocol diagnostics.
+- no credentials, pairing secrets, bearer tokens, or user attachment bytes are logged by protocol diagnostics; and
+- every public adapter is registered before the generic OpenCode proxy, preserves authentication through the shared runtime transport, and returns an explicit unavailable/error result rather than fabricated empty data.
+
+The provider, resource, and attachment command names reserve their protocol shapes here, but their daemon handlers and public routes remain owned by Workstreams 4–6. They do not block the session/UI cutover gate.
+
+**Exit gate:** focused daemon, route, and transport tests cover every core session command/event family, public route authentication/redaction, snapshot-resume sequencing, queue/abort behavior, and unavailable/malformed-session failures. The implemented envelope and shared types are prerequisites, not evidence that the command/event surface is complete.
 
 ### Workstream 3: Replace the OpenCode API and UI data layer
 
@@ -351,6 +354,8 @@ The UI migration must cover:
 - explicit interrupted/error display.
 
 Do not preserve OpenCode endpoint names, event names, SDK client classes, or type aliases merely to reduce refactor size.
+
+**Exit gate:** the web UI uses the Pi-native service/store path for every listed flow, with no live `OpencodeService` dependency for those flows. Focused UI and server tests cover bootstrap, transcript hydration, streaming, actions, reconnect, remote-host/directory staleness, and interrupted/error rendering; a browser smoke test exercises the complete path against the authenticated Pi API.
 
 ### Workstream 4: Integrate Pi configuration and providers
 
@@ -476,13 +481,14 @@ This is a dependency-based implementation timeline, not a calendar commitment. E
 
 | Window | Deliverable | Exit gate |
 | --- | --- | --- |
-| Week 0 | Architecture spike | Daemon imports Pi SDK, opens/creates a Pi session with normal dotfiles, streams text/tool events over private IPC, and survives a web-server reconnect. |
-| Weeks 1-2 | Session daemon and IPC foundation | Lifecycle ownership, health, typed IPC, project/cwd scoping, session registry, snapshot/event sequencing, queue behavior, and crash-state handling have focused tests. |
-| Weeks 3-4 | Pi-native API and shared UI state | OpenCode client/store replacement powers session list, transcript, prompt, steer/follow-up, abort, model/thinking, tree/fork/clone, and reconnect in the web UI. |
-| Week 5 | Pi settings, providers, resources | Pi auth/models/settings integration, PiChamber defaults, provider UI, trust, AGENTS.md, native skills/templates, Magic Prompts, and extension-disabled policy work end to end. |
-| Week 6 | Core server workspace integrations | Filesystem, terminal, Git, temporary path attachments, direct local/VPS connection, trusted-device auth, and Electron daemon lifecycle are usable. |
-| Week 7 | Pi core cutover | Remove released OpenCode runtime path, run regression and remote/desktop smoke tests, and update core documentation. This is the first Pi-native usable release gate. |
-| Weeks 8-10 | Retained follow-up product features | Walkthrough/small model first, then previews, GitHub, notifications, quota, archive UI refinements, mini-chat, tunnel/relay work, and updater hardening. |
+| Completed foundation | Boundary and lifecycle prerequisites | The Workstream 0 spike, private daemon lifecycle, and shared-client foundations are recorded separately. They are prerequisites only and do not satisfy a later workstream exit gate. |
+| Next dependency gate | Daemon registry and recovery | Workstream 1’s identity-plus-cwd registry, replacement rebinding, idle disposal, malformed-session failure, and crash recovery have focused tests. |
+| Then | Complete IPC and authenticated API | Workstream 2’s command/event families, queue policy, snapshot resume, and authenticated public adapters pass focused daemon, route, and transport tests. |
+| Then | Pi-native web UI cutover | Workstream 3’s service/store replacement powers session list, transcript, prompt, steer/follow-up, abort, model/thinking, tree/fork/clone, reconnect, and interrupted/error states in the web UI. |
+| Subsequent | Pi settings, providers, resources | Pi auth/models/settings integration, PiChamber defaults, provider UI, trust, AGENTS.md, native skills/templates, Magic Prompts, and extension-disabled policy work end to end. |
+| Subsequent | Core server workspace integrations | Filesystem, terminal, Git, temporary path attachments, direct local/VPS connection, trusted-device auth, and Electron daemon lifecycle are usable. |
+| Cutover gate | Pi core release | Remove released OpenCode runtime path, run regression and remote/desktop smoke tests, and update core documentation. This is the first Pi-native usable release gate. |
+| Follow-up | Retained product features | Walkthrough/small model first, then previews, GitHub, notifications, quota, archive UI refinements, mini-chat, tunnel/relay work, and updater hardening. |
 | Later | Intentional expansion | Pi package/skills UI, native extensions/subagents, folders/retention, VS Code, hosted mobile, Capacitor mobile, and optional modes/GUI extension API. |
 
 ## Validation Plan
