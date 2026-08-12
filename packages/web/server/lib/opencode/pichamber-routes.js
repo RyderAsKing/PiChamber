@@ -93,29 +93,9 @@ export const registerPiChamberRoutes = (app, dependencies) => {
         process.env.container === 'docker';
 
       if (isContainer) {
-        res.json({
-          success: true,
-          message: 'Update starting, server will stay online',
-          version: updateInfo.version,
-          packageManager: pm,
-          autoRestart: false,
+        return res.status(409).json({
+          error: 'Docker deployments must be updated using container image deployment (e.g. docker pull) rather than in-app replacement.',
         });
-
-        setTimeout(() => {
-          console.log(`\nInstalling update using ${pm} (container mode)...`);
-          console.log(`Running: ${updateCmd}`);
-
-          const shell = process.platform === 'win32' ? (process.env.ComSpec || 'cmd.exe') : 'sh';
-          const shellFlag = process.platform === 'win32' ? '/c' : '-c';
-          const child = spawnChild(shell, [shellFlag, updateCmd], {
-            detached: true,
-            stdio: 'ignore',
-            env: process.env,
-          });
-          child.unref();
-        }, 500);
-
-        return;
       }
 
       const currentPort = server.address()?.port || 3000;

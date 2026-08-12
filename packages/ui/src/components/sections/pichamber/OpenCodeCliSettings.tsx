@@ -16,7 +16,6 @@ import { recordDeferredOpenCodeRestart } from '@/lib/opencode/deferredRestart';
 import { useUIStore } from '@/stores/useUIStore';
 import { useI18n } from '@/lib/i18n';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { isWindowsArm64 } from '@/lib/platform';
 import { toast } from '@/components/ui';
 
 export const OpenCodeCliSettings: React.FC = () => {
@@ -24,8 +23,6 @@ export const OpenCodeCliSettings: React.FC = () => {
   const [value, setValue] = React.useState('');
   const [isLoading, setIsLoading] = React.useState(true);
   const [isSaving, setIsSaving] = React.useState(false);
-  const showOpenCodeUpdateNotifications = useUIStore((state) => state.showOpenCodeUpdateNotifications);
-  const setShowOpenCodeUpdateNotifications = useUIStore((state) => state.setShowOpenCodeUpdateNotifications);
   const agentControlToolEnabled = useUIStore((state) => state.agentControlToolEnabled);
   const setAgentControlToolEnabled = useUIStore((state) => state.setAgentControlToolEnabled);
 
@@ -97,11 +94,6 @@ export const OpenCodeCliSettings: React.FC = () => {
     }
   }, [t, value]);
 
-  const handleShowUpdateNotificationsChange = React.useCallback((enabled: boolean) => {
-    setShowOpenCodeUpdateNotifications(enabled);
-    void updateDesktopSettings({ showOpenCodeUpdateNotifications: enabled });
-  }, [setShowOpenCodeUpdateNotifications]);
-
   const handleAgentControlToolChange = React.useCallback((enabled: boolean) => {
     setAgentControlToolEnabled(enabled);
     void updateDesktopSettings({ agentControlToolEnabled: enabled });
@@ -150,16 +142,6 @@ export const OpenCodeCliSettings: React.FC = () => {
         </SettingsFieldRow>
 
         <SettingsInset className={SETTINGS_OPTION_STACK_CLASS}>
-          {!isWindowsArm64() && (
-            <SettingsCheckboxRow
-              settingsItem="sessions.opencode-update-notifications"
-              checked={showOpenCodeUpdateNotifications}
-              onChange={handleShowUpdateNotificationsChange}
-              label={t('settings.pichamber.opencodeCli.field.showUpdateNotifications')}
-              ariaLabel={t('settings.pichamber.opencodeCli.field.showUpdateNotificationsAria')}
-            />
-          )}
-
           <SettingsCheckboxRow
             settingsItem="sessions.agent-control-tool"
             checked={agentControlToolEnabled}
