@@ -104,8 +104,14 @@ export function createSessionDaemon({
   let sequence = 0;
   let started = false;
   const clients = new Set();
+  // A reconnect replays only a contiguous retained gap; otherwise it receives
+  // a new authoritative snapshot before later events can arrive.
+  const eventLog = [];
+  const streamingMessageIds = new Map();
+  const MAX_REPLAY_EVENTS = 1_024;
 
   const publish = (event, payload, sessionId = runtime?.session?.sessionId) => {
+    if (typeof sessionId !== 'string' || sessionId.length === 0) return;
     const message = {
       protocolVersion: PROTOCOL_VERSION,
       kind: 'event',
@@ -113,9 +119,12 @@ export function createSessionDaemon({
       sequence: ++sequence,
       payload: {
         sessionId,
+        directory: cwd,
         ...payload,
       },
     };
+    eventLog.push(message);
+    if (eventLog.length > MAX_REPLAY_EVENTS) eventLog.shift();
     for (const client of clients) writeFrame(client, message);
   };
 
@@ -132,17 +141,34 @@ export function createSessionDaemon({
     };
   };
 
-  const publishSnapshot = (socket) => {
+  const publishSnapshot = (socket, requestedSessionId) => {
     const session = getSessionState();
+    if (requestedSessionId && requestedSessionId !== session.sessionId) return;
+    if (typeof session.sessionId !== 'string' || session.sessionId.length === 0) return;
+    const activeSession = runtime?.session;
+    const messages = projectMessageEntries(activeSession);
+    const lastAssistant = [...messages].reverse().find((entry) => entry.message.role === 'assistant')?.message;
+    const model = activeSession?.model;
+    const snapshotSequence = ++sequence;
     writeFrame(socket, {
       protocolVersion: PROTOCOL_VERSION,
       kind: 'event',
       event: 'session.snapshot',
-      sequence: ++sequence,
+      sequence: snapshotSequence,
       payload: {
         sessionId: session.sessionId,
+        directory: cwd,
         isStreaming: session.isStreaming,
-        lastSequence: sequence,
+        lifecycle: session.isStreaming ? 'busy' : 'idle',
+        queue: activeSession ? {
+          steering: activeSession.getSteeringMessages?.().length ?? 0,
+          followUp: activeSession.getFollowUpMessages?.().length ?? 0,
+        } : { steering: 0, followUp: 0 },
+        ...(model?.provider && model?.id ? { model: { providerId: model.provider, modelId: model.id } } : {}),
+        ...(activeSession?.thinkingLevel ? { thinking: activeSession.thinkingLevel } : {}),
+        ...(typeof lastAssistant?.text === 'string' ? { lastText: lastAssistant.text } : {}),
+        ...(typeof lastAssistant?.thinking === 'string' ? { lastThinking: lastAssistant.thinking } : {}),
+        lastSequence: snapshotSequence,
       },
     });
   };
@@ -280,52 +306,226 @@ export function createSessionDaemon({
     renamePersistedSession({ sessionFile: target.path, title });
   };
 
-  const createSession = async (payload) => {
-    if (!payload || typeof payload !== 'object' || payload.cwd !== cwd) {
-      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested session directory is invalid.');
-    }
-    if (payload.parentId !== undefined || payload.title !== undefined || payload.model !== undefined || payload.thinking !== undefined) {
-      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested session creation options are not supported.');
-    }
-
-    const activeRuntime = await ensureRuntime();
-    const result = await activeRuntime.newSession?.();
-    if (!result || result.cancelled) {
-      throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled session creation.');
-    }
-
-    const sessionId = activeRuntime.session?.sessionId;
+  const findPersistedSession = async (sessionId) => {
     if (typeof sessionId !== 'string' || sessionId.length === 0) {
-      throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi created an invalid session.');
+      throw new SessionDaemonProtocolError('INVALID_SESSION', 'The Pi session does not exist.');
     }
-    const sessions = await listSessionItems(cwd);
-    const created = sessions.find((item) => item.session.id === sessionId);
-    if (!created) {
-      throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi did not persist the created session.');
+    await validatePiSessionJsonlDirectory({ cwd, agentDir });
+    const sessions = await listSessions({ cwd, agentDir });
+    const target = Array.isArray(sessions) ? sessions.find((session) => session?.id === sessionId) : undefined;
+    if (typeof target?.path !== 'string' || target.path.length === 0) {
+      throw new SessionDaemonProtocolError('INVALID_SESSION', 'The Pi session does not exist.');
     }
-    return { session: created.session, messages: [], lastSequence: sequence };
+    await validatePiSessionJsonlFile(target.path);
+    return target;
+  };
+
+  const activateSession = async (sessionId) => {
+    const activeRuntime = await ensureRuntime();
+    if (activeRuntime.session?.sessionId === sessionId) return activeRuntime;
+    const target = await findPersistedSession(sessionId);
+    const result = await activeRuntime.switchSession?.(target.path);
+    if (!result || result.cancelled || activeRuntime.session?.sessionId !== sessionId) {
+      throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi did not open the requested session.');
+    }
+    rememberRuntimeSession();
+    return activeRuntime;
+  };
+
+  const projectMessageEntries = (session) => {
+    const entries = session?.sessionManager?.getEntries?.();
+    if (!Array.isArray(entries)) return [];
+    return entries.flatMap((entry) => {
+      if (entry?.type !== 'message' || !entry.message || typeof entry.id !== 'string') return [];
+      const timestamp = Date.parse(entry.timestamp);
+      const createdAt = Number.isFinite(timestamp) ? timestamp : 0;
+      if (entry.message.role === 'user') {
+        const text = typeof entry.message.content === 'string'
+          ? entry.message.content
+          : Array.isArray(entry.message.content)
+            ? entry.message.content.filter((part) => part?.type === 'text').map((part) => part.text).join('')
+            : '';
+        return [{ message: { id: entry.id, sessionId: session.sessionId, directory: cwd, role: 'user', text, createdAt }, parts: [] }];
+      }
+      if (entry.message.role !== 'assistant' || !Array.isArray(entry.message.content)) return [];
+      const text = entry.message.content.filter((part) => part?.type === 'text').map((part) => part.text).join('');
+      const thinking = entry.message.content.filter((part) => part?.type === 'thinking').map((part) => part.thinking).join('');
+      const parts = entry.message.content.flatMap((part, index) => {
+        if (part?.type === 'text') return [{ type: 'text', id: `${entry.id}:${index}`, index, text: part.text }];
+        if (part?.type === 'thinking') return [{ type: 'thinking', id: `${entry.id}:${index}`, index, text: part.thinking }];
+        if (part?.type === 'toolCall') return [{ type: 'tool', id: `${entry.id}:${index}`, index, toolCallId: part.id, name: part.name, input: part.arguments, state: 'completed' }];
+        return [];
+      });
+      return [{
+        message: {
+          id: entry.id, sessionId: session.sessionId, directory: cwd, role: 'assistant', text, thinking, createdAt,
+          model: { providerId: entry.message.provider, modelId: entry.message.model },
+          ...(entry.message.errorMessage ? { error: { code: 'ASSISTANT_ERROR', message: entry.message.errorMessage } } : {}),
+        },
+        parts,
+      }];
+    });
+  };
+
+  const projectActiveSession = () => {
+    const session = runtime?.session;
+    const manager = session?.sessionManager;
+    const header = manager?.getHeader?.();
+    const createdAt = Date.parse(header?.timestamp);
+    if (!session || !Number.isFinite(createdAt)) {
+      throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi returned an invalid active session.');
+    }
+    const model = session.model;
+    return {
+      session: {
+        id: session.sessionId, directory: cwd, createdAt, updatedAt: createdAt,
+        ...(session.sessionName ? { title: session.sessionName } : {}),
+        ...(model?.provider && model?.id ? { model: { providerId: model.provider, modelId: model.id } } : {}),
+        ...(session.thinkingLevel ? { thinking: session.thinkingLevel } : {}),
+        messageCount: projectMessageEntries(session).length,
+      },
+      messages: projectMessageEntries(session),
+      lastSequence: sequence,
+    };
+  };
+
+  const createSession = async (payload) => {
+    if (!payload || typeof payload !== 'object' || payload.cwd !== cwd
+      || (payload.title !== undefined && (typeof payload.title !== 'string' || payload.title.trim().length === 0 || payload.title.length > 256))
+      || (payload.thinking !== undefined && !['off', 'low', 'medium', 'high', 'xhigh'].includes(payload.thinking))
+      || (payload.model !== undefined && (!payload.model || typeof payload.model.providerId !== 'string' || typeof payload.model.modelId !== 'string'))) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested session creation options are invalid.');
+    }
+    const activeRuntime = await ensureRuntime();
+    const parent = payload.parentId === undefined ? undefined : await findPersistedSession(payload.parentId);
+    const result = await activeRuntime.newSession?.({
+      ...(parent ? { parentSession: parent.path } : {}),
+      ...(payload.title ? { setup: async (manager) => manager.appendSessionInfo(payload.title.trim()) } : {}),
+    });
+    if (!result || result.cancelled) throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled session creation.');
+    if (payload.model) await setSessionModel(activeRuntime, payload.model);
+    if (payload.thinking) activeRuntime.session.setThinkingLevel(payload.thinking);
+    rememberRuntimeSession();
+    return projectActiveSession();
+  };
+
+  const setSessionModel = async (activeRuntime, model) => {
+    if (!model || typeof model.providerId !== 'string' || typeof model.modelId !== 'string') {
+      throw new SessionDaemonProtocolError('INVALID_MODEL', 'The requested Pi model is invalid.');
+    }
+    const selected = activeRuntime.session?.modelRuntime?.getModel?.(model.providerId, model.modelId);
+    if (!selected) throw new SessionDaemonProtocolError('INVALID_MODEL', 'The requested Pi model is unavailable.');
+    await activeRuntime.session.setModel(selected);
+  };
+
+  const sessionInput = async (payload, delivery) => {
+    if (!payload || typeof payload !== 'object' || typeof payload.sessionId !== 'string'
+      || typeof payload.text !== 'string' || payload.text.length === 0 || Buffer.byteLength(payload.text) > 64 * 1024) {
+      throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session prompt is invalid.');
+    }
+    const activeRuntime = await activateSession(payload.sessionId);
+    if (payload.model !== undefined) await setSessionModel(activeRuntime, payload.model);
+    if (payload.thinking !== undefined) {
+      if (!['off', 'low', 'medium', 'high', 'xhigh'].includes(payload.thinking)) {
+        throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested thinking level is invalid.');
+      }
+      activeRuntime.session.setThinkingLevel(payload.thinking);
+    }
+    if (!delivery && activeRuntime.session.isStreaming) {
+      throw new SessionDaemonProtocolError('SESSION_BUSY', 'The Pi session already has an active run.');
+    }
+    if (delivery && !activeRuntime.session.isStreaming) {
+      throw new SessionDaemonProtocolError('SESSION_NOT_RUNNING', 'The Pi session has no active run.');
+    }
+    await activeRuntime.session.sendUserMessage(payload.text, delivery ? { deliverAs: delivery } : undefined);
+    const messageId = typeof payload.messageId === 'string' && payload.messageId.length > 0
+      ? payload.messageId
+      : activeRuntime.session.sessionManager?.getLeafId?.();
+    if (typeof messageId !== 'string' || messageId.length === 0) {
+      throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi did not persist the prompt.');
+    }
+    return { accepted: true, messageId };
+  };
+
+  const treeForSession = async (sessionId) => {
+    const activeRuntime = await activateSession(sessionId);
+    const nodes = activeRuntime.session.sessionManager?.getTree?.();
+    if (!Array.isArray(nodes)) throw new SessionDaemonProtocolError('SESSION_TREE_NOT_FOUND', 'Pi returned an invalid session tree.');
+    const project = (node) => ({
+      sessionId: node.entry.id,
+      parentId: node.entry.parentId,
+      ...(node.entry.type === 'session_info' && typeof node.entry.name === 'string' ? { title: node.entry.name } : {}),
+      updatedAt: Date.parse(node.entry.timestamp) || 0,
+      children: node.children.map(project),
+    });
+    return { rootId: sessionId, nodes: nodes.map(project) };
+  };
+
+  const deleteSession = async (sessionId) => {
+    const target = await findPersistedSession(sessionId);
+    const activeRuntime = await ensureRuntime();
+    if (activeRuntime.session?.sessionId === sessionId) {
+      if (activeRuntime.session.isStreaming) await activeRuntime.session.abort();
+      const replacement = await activeRuntime.newSession?.();
+      if (!replacement || replacement.cancelled) throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled replacement session creation.');
+      rememberRuntimeSession();
+    }
+    await rm(target.path, { force: false });
+    publish('session.lifecycle', { state: 'idle', deleted: true }, sessionId);
   };
 
   const publishSessionEvent = (sessionId, event) => {
     switch (event.type) {
-      case 'message_update': {
-        const update = event.assistantMessageEvent;
-        if (update.type === 'text_delta') {
-          publish('assistant.message.delta', { contentIndex: update.contentIndex, delta: update.delta }, sessionId);
-        } else if (update.type === 'thinking_delta') {
-          publish('assistant.thinking.delta', { contentIndex: update.contentIndex, delta: update.delta }, sessionId);
+      case 'message_start': {
+        if (event.message?.role === 'assistant') {
+          const messageId = `assistant-${sessionId}-${sequence + 1}`;
+          streamingMessageIds.set(sessionId, messageId);
+          publish('assistant.message.start', {
+            messageId,
+            role: 'assistant',
+            startedAt: Number.isFinite(event.message.timestamp) ? event.message.timestamp : Date.now(),
+            ...(event.message.provider && event.message.model ? { model: { providerId: event.message.provider, modelId: event.message.model } } : {}),
+          }, sessionId);
         }
         break;
       }
-      case 'tool_execution_start':
-        publish('session.tool.start', { toolCallId: event.toolCallId, toolName: event.toolName }, sessionId);
+      case 'message_update': {
+        const update = event.assistantMessageEvent;
+        if (update.type === 'text_delta') {
+          publish('assistant.message.delta', { messageId: streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`, partId: `${streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`}:text:${update.contentIndex}`, contentIndex: update.contentIndex, delta: update.delta }, sessionId);
+        } else if (update.type === 'thinking_delta') {
+          publish('assistant.thinking.delta', { messageId: streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`, partId: `${streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`}:thinking:${update.contentIndex}`, contentIndex: update.contentIndex, delta: update.delta }, sessionId);
+        }
         break;
-      case 'tool_execution_update':
-        publish('session.tool.update', { toolCallId: event.toolCallId, toolName: event.toolName }, sessionId);
+      }
+      case 'message_end': {
+        if (event.message?.role === 'assistant') {
+          const content = Array.isArray(event.message.content) ? event.message.content : [];
+          publish('assistant.message.end', {
+            messageId: streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`,
+            text: content.filter((part) => part?.type === 'text').map((part) => part.text).join(''),
+            thinking: content.filter((part) => part?.type === 'thinking').map((part) => part.thinking).join(''),
+            ...(event.message.errorMessage ? { error: { code: 'ASSISTANT_ERROR' } } : {}),
+          }, sessionId);
+          streamingMessageIds.delete(sessionId);
+        }
         break;
-      case 'tool_execution_end':
-        publish('session.tool.end', { toolCallId: event.toolCallId, toolName: event.toolName, isError: event.isError }, sessionId);
+      }
+      case 'tool_execution_start': {
+        const messageId = streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
+        publish('session.tool.start', { toolCallId: event.toolCallId, partId: `${messageId}:tool:${event.toolCallId}`, messageId, name: event.toolName, toolName: event.toolName, state: 'running' }, sessionId);
         break;
+      }
+      case 'tool_execution_update': {
+        const messageId = streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
+        publish('session.tool.update', { toolCallId: event.toolCallId, partId: `${messageId}:tool:${event.toolCallId}`, messageId, name: event.toolName, toolName: event.toolName, state: 'running' }, sessionId);
+        break;
+      }
+      case 'tool_execution_end': {
+        const messageId = streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
+        publish('session.tool.end', { toolCallId: event.toolCallId, partId: `${messageId}:tool:${event.toolCallId}`, messageId, name: event.toolName, toolName: event.toolName, state: event.isError ? 'error' : 'completed', isError: event.isError === true }, sessionId);
+        break;
+      }
       case 'queue_update':
         publish('session.queue', { steering: event.steering.length, followUp: event.followUp.length }, sessionId);
         break;
@@ -333,9 +533,27 @@ export function createSessionDaemon({
         clearIdleDisposal();
         publish('session.lifecycle', { state: 'running' }, sessionId);
         break;
+      case 'agent_end': {
+        const finalMessage = event.messages?.at?.(-1);
+        if (finalMessage?.role === 'assistant' && finalMessage.stopReason === 'aborted') {
+          publish('session.interrupted', { reason: 'user-abort', streaming: false }, sessionId);
+        } else if (finalMessage?.role === 'assistant' && typeof finalMessage.errorMessage === 'string') {
+          publish('session.error', { code: 'ASSISTANT_ERROR' }, sessionId);
+        }
+        break;
+      }
       case 'agent_settled':
         publish('session.lifecycle', { state: 'idle' }, sessionId);
         scheduleIdleDisposal(sessionId);
+        break;
+      case 'thinking_level_changed':
+        publish('session.thinking', { thinking: event.level }, sessionId);
+        break;
+      case 'compaction_start':
+        publish('session.compaction', { running: true }, sessionId);
+        break;
+      case 'compaction_end':
+        publish('session.compaction', { running: false }, sessionId);
         break;
       default:
         break;
@@ -364,10 +582,22 @@ export function createSessionDaemon({
             state: 'ready',
             sessionId: getSessionState().sessionId,
             lastSequence: sequence,
-            capabilities: ['sessions.list', 'sessions.create', 'sessions.rename', 'sessions.prompt'],
+            capabilities: [
+              'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.rename', 'sessions.delete',
+              'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt',
+              'sessions.steer', 'sessions.followUp', 'sessions.abort', 'sessions.setModel',
+              'sessions.setThinking', 'sessions.compact',
+            ],
             ...(Number.isInteger(healthMetadata.daemonPid) ? { daemonPid: healthMetadata.daemonPid } : {}),
           },
         });
+        return;
+      case 'projects.list':
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: { projects: [{ directory: cwd, selected: true }] } });
+        return;
+      case 'projects.select':
+        if (message.payload?.directory !== cwd) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested project directory is invalid.');
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: { directory: cwd } });
         return;
       case 'sessions.list': {
         const sessions = await listSessionItems(message.payload?.directory);
@@ -379,14 +609,44 @@ export function createSessionDaemon({
         });
         return;
       }
+      case 'sessions.open': {
+        const activeRuntime = await activateSession(message.payload?.sessionId);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: projectActiveSession(activeRuntime) });
+        return;
+      }
       case 'sessions.rename': {
         await renameSession(message.payload);
-        writeFrame(socket, {
-          protocolVersion: PROTOCOL_VERSION,
-          kind: 'response',
-          requestId: message.requestId,
-          result: {},
-        });
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
+        return;
+      }
+      case 'sessions.delete': {
+        await deleteSession(message.payload?.sessionId);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
+        return;
+      }
+      case 'sessions.tree': {
+        const result = await treeForSession(message.payload?.sessionId);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'sessions.navigate': {
+        const activeRuntime = await activateSession(message.payload?.sessionId);
+        const messageId = message.payload?.messageId;
+        if (typeof messageId !== 'string' || messageId.length === 0) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested tree entry is invalid.');
+        const result = await activeRuntime.session.navigateTree(messageId);
+        if (result.cancelled) throw new SessionDaemonProtocolError('SESSION_TREE_NOT_FOUND', 'Pi cancelled tree navigation.');
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: projectActiveSession() });
+        return;
+      }
+      case 'sessions.fork':
+      case 'sessions.clone': {
+        const activeRuntime = await activateSession(message.payload?.sessionId);
+        const entryId = message.command === 'sessions.fork' ? message.payload?.messageId : activeRuntime.session.sessionManager?.getLeafId?.();
+        if (typeof entryId !== 'string' || entryId.length === 0) throw new SessionDaemonProtocolError('SESSION_TREE_NOT_FOUND', 'The Pi session has no fork point.');
+        const result = await activeRuntime.fork(entryId, { position: 'at' });
+        if (result.cancelled) throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled session creation.');
+        rememberRuntimeSession();
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: projectActiveSession() });
         return;
       }
       case 'sessions.create': {
@@ -399,20 +659,47 @@ export function createSessionDaemon({
         });
         return;
       }
-      case 'sessions.prompt': {
-        const text = message.payload?.text;
-        if (typeof text !== 'string' || text.length === 0 || Buffer.byteLength(text) > 64 * 1024) {
-          throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session prompt is invalid.');
-        }
-        void ensureRuntime().then((activeRuntime) => activeRuntime.session.prompt(text)).catch((error) => {
-          publish('session.error', { code: error?.code ?? 'PROMPT_FAILED' }, getSessionState().sessionId);
-        });
-        writeFrame(socket, {
-          protocolVersion: PROTOCOL_VERSION,
-          kind: 'response',
-          requestId: message.requestId,
-          result: { accepted: true },
-        });
+      case 'sessions.prompt':
+      case 'sessions.steer':
+      case 'sessions.followUp': {
+        // The browser route always supplies the path-selected identity. Keep the
+        // original private lifecycle smoke call compatible with the active runtime.
+        const payload = message.payload?.sessionId ? message.payload : { ...message.payload, sessionId: getSessionState().sessionId };
+        const result = await sessionInput(payload, message.command === 'sessions.steer' ? 'steer' : message.command === 'sessions.followUp' ? 'followUp' : undefined);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'sessions.abort': {
+        const activeRuntime = await activateSession(message.payload?.sessionId);
+        const streaming = activeRuntime.session.isStreaming;
+        await activeRuntime.session.abort();
+        if (streaming) publish('session.interrupted', { reason: 'user-abort', streaming: true }, message.payload.sessionId);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
+        return;
+      }
+      case 'sessions.setModel': {
+        const activeRuntime = await activateSession(message.payload?.sessionId);
+        await setSessionModel(activeRuntime, message.payload?.model);
+        const selected = activeRuntime.session.model;
+        publish('session.model', { model: { providerId: selected.provider, modelId: selected.id } }, message.payload.sessionId);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
+        return;
+      }
+      case 'sessions.setThinking': {
+        const activeRuntime = await activateSession(message.payload?.sessionId);
+        const thinking = message.payload?.thinking;
+        if (!['off', 'low', 'medium', 'high', 'xhigh'].includes(thinking)) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested thinking level is invalid.');
+        activeRuntime.session.setThinkingLevel(thinking);
+        publish('session.thinking', { thinking }, message.payload.sessionId);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
+        return;
+      }
+      case 'sessions.compact': {
+        const activeRuntime = await activateSession(message.payload?.sessionId);
+        if (message.payload?.model !== undefined) await setSessionModel(activeRuntime, message.payload.model);
+        if (message.payload?.thinking !== undefined) activeRuntime.session.setThinkingLevel(message.payload.thinking);
+        await activeRuntime.session.compact();
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
         return;
       }
       default:
@@ -460,7 +747,18 @@ export function createSessionDaemon({
             authenticated = true;
             clients.add(socket);
             writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'authenticated' });
-            publishSnapshot(socket);
+            const requestedSessionId = typeof message.sessionId === 'string' && message.sessionId.length > 0 ? message.sessionId : undefined;
+            const fromSequence = Number.isSafeInteger(message.fromSequence) && message.fromSequence >= 0 ? message.fromSequence : undefined;
+            const oldestRetainedSequence = eventLog[0]?.sequence;
+            const canReplay = fromSequence !== undefined && Number.isSafeInteger(oldestRetainedSequence)
+              && fromSequence >= oldestRetainedSequence - 1;
+            if (canReplay) {
+              for (const event of eventLog) {
+                if (event.sequence > fromSequence && (!requestedSessionId || event.payload.sessionId === requestedSessionId)) writeFrame(socket, event);
+              }
+            } else {
+              publishSnapshot(socket, requestedSessionId);
+            }
             continue;
           }
           requestChain = requestChain.then(() => handleRequest(socket, message)).catch((error) => reject(error));

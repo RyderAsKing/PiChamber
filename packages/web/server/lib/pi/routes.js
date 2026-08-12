@@ -3,6 +3,8 @@
  * boundary to private daemon requests. They never expose local daemon details.
  */
 
+import { createPiArchiveStore } from './archive-store.js';
+
 const UNAVAILABLE_CODES = new Set([
   'DAEMON_UNAVAILABLE',
   'DAEMON_AUTH_FAILED',
@@ -13,6 +15,7 @@ const UNAVAILABLE_CODES = new Set([
   'DAEMON_CREDENTIAL_UNAVAILABLE',
   'MALFORMED_SESSION_JSONL',
   'SESSION_JSONL_UNREADABLE',
+  'ARCHIVE_METADATA_INVALID',
 ]);
 
 const writeDaemonError = (res, error) => {
@@ -52,6 +55,10 @@ const projectSession = (value) => {
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
     ...(Number.isSafeInteger(value.messageCount) && value.messageCount >= 0 ? { messageCount: value.messageCount } : {}),
+    ...(value.model && typeof value.model.providerId === 'string' && typeof value.model.modelId === 'string' ? { model: { providerId: value.model.providerId, modelId: value.model.modelId } } : {}),
+    ...(typeof value.thinking === 'string' ? { thinking: value.thinking } : {}),
+    ...(value.archived === true ? { archived: true } : {}),
+    ...(Number.isFinite(value.timeArchived) ? { timeArchived: value.timeArchived } : {}),
   };
 };
 
@@ -67,12 +74,95 @@ const projectSessionList = (sessions) => {
   });
 };
 
+const projectSessionDetail = (value) => {
+  if (!value || typeof value !== 'object' || !Array.isArray(value.messages) || !Number.isSafeInteger(value.lastSequence)) throw protocolMismatch();
+  const messages = value.messages.map((item) => {
+    if (!item || typeof item !== 'object' || !item.message || !Array.isArray(item.parts)) throw protocolMismatch();
+    const message = item.message;
+    if (typeof message.id !== 'string' || typeof message.sessionId !== 'string' || typeof message.directory !== 'string'
+      || !Number.isFinite(message.createdAt) || (message.role !== 'user' && message.role !== 'assistant')) throw protocolMismatch();
+    const projected = {
+      id: message.id, sessionId: message.sessionId, directory: message.directory, role: message.role, createdAt: message.createdAt,
+      ...(typeof message.text === 'string' ? { text: message.text } : {}),
+      ...(message.role === 'assistant' && typeof message.thinking === 'string' ? { thinking: message.thinking } : {}),
+      ...(message.model && typeof message.model.providerId === 'string' && typeof message.model.modelId === 'string' ? { model: { providerId: message.model.providerId, modelId: message.model.modelId } } : {}),
+      ...(message.error && typeof message.error.code === 'string' ? { error: { code: message.error.code } } : {}),
+    };
+    const parts = item.parts.map((part) => {
+      if (!part || typeof part !== 'object' || typeof part.type !== 'string' || typeof part.id !== 'string' || !Number.isSafeInteger(part.index)) throw protocolMismatch();
+      if (part.type === 'text' || part.type === 'thinking') {
+        if (typeof part.text !== 'string') throw protocolMismatch();
+        return { type: part.type, id: part.id, index: part.index, text: part.text };
+      }
+      if (part.type === 'tool' && typeof part.toolCallId === 'string' && typeof part.name === 'string') {
+        return { type: 'tool', id: part.id, index: part.index, toolCallId: part.toolCallId, name: part.name, ...(part.input !== undefined ? { input: part.input } : {}), ...(part.output !== undefined ? { output: part.output } : {}), ...(part.isError === true ? { isError: true } : {}), state: ['pending', 'running', 'completed', 'error', 'cancelled'].includes(part.state) ? part.state : 'completed' };
+      }
+      throw protocolMismatch();
+    });
+    return { message: projected, parts };
+  });
+  return { session: projectSession(value.session), messages, lastSequence: value.lastSequence };
+};
+
+const sessionIdFrom = (req) => typeof req.params.sessionId === 'string' && req.params.sessionId.length > 0 ? req.params.sessionId : undefined;
+
+const projectEventFrame = (frame) => {
+  if (!frame || frame.kind !== 'event' || typeof frame.event !== 'string' || !Number.isSafeInteger(frame.sequence)
+    || !frame.payload || typeof frame.payload.sessionId !== 'string' || typeof frame.payload.directory !== 'string') return null;
+  const { sessionId, directory } = frame.payload;
+  const common = { protocolVersion: 1, kind: 'event', name: frame.event, sequence: frame.sequence, sessionId, directory };
+  switch (frame.event) {
+    case 'session.snapshot': {
+      const snapshot = frame.payload;
+      return { ...common, payload: { snapshot: {
+        sessionId, directory, isStreaming: snapshot.isStreaming === true,
+        lifecycle: ['idle', 'busy', 'retry', 'error', 'interrupted'].includes(snapshot.lifecycle) ? snapshot.lifecycle : 'idle',
+        queue: { steering: Number.isSafeInteger(snapshot.queue?.steering) ? snapshot.queue.steering : 0, followUp: Number.isSafeInteger(snapshot.queue?.followUp) ? snapshot.queue.followUp : 0 },
+        ...(snapshot.model && typeof snapshot.model.providerId === 'string' && typeof snapshot.model.modelId === 'string' ? { model: { providerId: snapshot.model.providerId, modelId: snapshot.model.modelId } } : {}),
+        ...(typeof snapshot.thinking === 'string' ? { thinking: snapshot.thinking } : {}),
+        ...(typeof snapshot.lastText === 'string' ? { lastText: snapshot.lastText } : {}),
+        ...(typeof snapshot.lastThinking === 'string' ? { lastThinking: snapshot.lastThinking } : {}),
+        lastSequence: Number.isSafeInteger(snapshot.lastSequence) ? snapshot.lastSequence : frame.sequence,
+      } } };
+    }
+    case 'session.lifecycle': return { ...common, payload: { state: frame.payload.state } };
+    case 'assistant.message.start': return { ...common, payload: { messageId: frame.payload.messageId, role: frame.payload.role, startedAt: frame.payload.startedAt, ...(frame.payload.model ? { model: frame.payload.model } : {}) } };
+    case 'assistant.message.delta':
+    case 'assistant.thinking.delta': return { ...common, payload: { messageId: frame.payload.messageId, contentIndex: frame.payload.contentIndex, delta: frame.payload.delta, ...(typeof frame.payload.partId === 'string' ? { partId: frame.payload.partId } : {}) } };
+    case 'assistant.message.end': return { ...common, payload: { messageId: frame.payload.messageId, ...(typeof frame.payload.text === 'string' ? { text: frame.payload.text } : {}), ...(typeof frame.payload.thinking === 'string' ? { thinking: frame.payload.thinking } : {}) } };
+    case 'session.queue': return { ...common, payload: { steering: frame.payload.steering, followUp: frame.payload.followUp } };
+    case 'session.model': return { ...common, payload: { model: frame.payload.model } };
+    case 'session.thinking': return { ...common, payload: { thinking: frame.payload.thinking } };
+    case 'session.compaction': return { ...common, payload: { running: frame.payload.running === true } };
+    case 'session.error': return { ...common, payload: { code: frame.payload.code } };
+    case 'session.interrupted': return { ...common, payload: { reason: frame.payload.reason, streaming: frame.payload.streaming === true } };
+    case 'session.tool.start':
+    case 'session.tool.update':
+    case 'session.tool.end': return { ...common, payload: { toolCallId: frame.payload.toolCallId, partId: frame.payload.partId, messageId: frame.payload.messageId, name: frame.payload.name, state: frame.payload.state, ...(frame.payload.input !== undefined ? { input: frame.payload.input } : {}), ...(frame.payload.output !== undefined ? { output: frame.payload.output } : {}), ...(frame.payload.isError === true ? { isError: true } : {}) } };
+    default: return null;
+  }
+};
+
+const requestSessionOperation = async (req, res, getPiSessionDaemonRuntime, command, payload = {}) => {
+  const sessionId = sessionIdFrom(req);
+  if (!sessionId) {
+    res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+    return undefined;
+  }
+  try {
+    return await getDaemonRuntime(getPiSessionDaemonRuntime).request(command, { ...payload, sessionId });
+  } catch (error) {
+    writeDaemonError(res, error);
+    return undefined;
+  }
+};
+
 /**
  * Browser-visible Pi runtime and session-collection routes. The authenticated
  * /api middleware is registered by the server composition root before these
  * adapters; this function is mounted before the generic OpenCode proxy.
  */
-export const registerPiRuntimeRoutes = (app, { getPiSessionDaemonRuntime }) => {
+export const registerPiRuntimeRoutes = (app, { getPiSessionDaemonRuntime, archiveStore = createPiArchiveStore() }) => {
   app.get('/api/pi/runtime', async (_req, res) => {
     const runtime = getPiSessionDaemonRuntime();
     if (!runtime) {
@@ -84,20 +174,86 @@ export const registerPiRuntimeRoutes = (app, { getPiSessionDaemonRuntime }) => {
       return;
     }
 
-    const health = await runtime.health();
-    if (health.state !== 'ready') {
-      res.status(503).json({
+    try {
+      const health = await runtime.health();
+      if (health.state !== 'ready') {
+        res.status(503).json({
+          protocolVersion: health.protocolVersion,
+          state: 'unavailable',
+          error: { code: health.error?.code ?? 'DAEMON_UNAVAILABLE' },
+        });
+        return;
+      }
+      res.json({
         protocolVersion: health.protocolVersion,
-        state: 'unavailable',
-        error: { code: health.error?.code ?? 'DAEMON_UNAVAILABLE' },
+        state: 'ready',
+        capabilities: Array.isArray(health.capabilities) ? health.capabilities : [],
       });
+    } catch {
+      res.status(503).json({ protocolVersion: 1, state: 'unavailable', error: { code: 'DAEMON_UNAVAILABLE' } });
+    }
+  });
+
+  app.get('/api/pi/projects', async (_req, res) => {
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('projects.list');
+      if (!Array.isArray(result?.projects) || result.projects.some((project) => !project || typeof project.directory !== 'string' || typeof project.selected !== 'boolean')) throw protocolMismatch();
+      res.json({ projects: result.projects.map((project) => ({ directory: project.directory, selected: project.selected })) });
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.post('/api/pi/projects/select', async (req, res) => {
+    const directory = req.body?.directory;
+    if (typeof directory !== 'string' || directory.length === 0) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
       return;
     }
-    res.json({
-      protocolVersion: health.protocolVersion,
-      state: 'ready',
-      capabilities: Array.isArray(health.capabilities) ? health.capabilities : [],
-    });
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('projects.select', { directory });
+      if (typeof result?.directory !== 'string') throw protocolMismatch();
+      res.json({ directory: result.directory });
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.get('/api/pi/events', async (req, res) => {
+    const sessionId = typeof req.query.sessionId === 'string' && req.query.sessionId.length > 0 ? req.query.sessionId : undefined;
+    const rawCursor = req.query.fromSequence;
+    const fromSequence = rawCursor === undefined ? undefined : Number(rawCursor);
+    if (rawCursor !== undefined && (!Number.isSafeInteger(fromSequence) || fromSequence < 0)) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    let close;
+    try {
+      const runtime = getDaemonRuntime(getPiSessionDaemonRuntime);
+      if (typeof runtime.subscribe !== 'function') throw protocolMismatch();
+      res.status(200).set({
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+      });
+      res.flushHeaders?.();
+      const send = (frame) => {
+        const event = projectEventFrame(frame);
+        if (event) res.write(`data: ${JSON.stringify(event)}\n\n`);
+      };
+      close = await runtime.subscribe({ sessionId, fromSequence, onEvent: send, onError: () => res.end() });
+      const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 15_000);
+      const cleanup = () => {
+        clearInterval(heartbeat);
+        close?.();
+      };
+      req.once('close', cleanup);
+      res.once('close', cleanup);
+    } catch (error) {
+      if (!res.headersSent) writeDaemonError(res, error);
+      else res.end();
+      close?.();
+    }
   });
 
   app.get('/api/pi/sessions', async (req, res) => {
@@ -111,7 +267,12 @@ export const registerPiRuntimeRoutes = (app, { getPiSessionDaemonRuntime }) => {
       const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('sessions.list', {
         ...(typeof directory === 'string' ? { directory } : {}),
       });
-      res.json({ sessions: projectSessionList(result?.sessions) });
+      const archived = await archiveStore.read();
+      res.json({
+        sessions: projectSessionList(result?.sessions).map((item) => archived[item.session.id]
+          ? { ...item, session: { ...item.session, archived: true, timeArchived: archived[item.session.id] } }
+          : item),
+      });
     } catch (error) {
       writeDaemonError(res, error);
     }
@@ -132,6 +293,76 @@ export const registerPiRuntimeRoutes = (app, { getPiSessionDaemonRuntime }) => {
       writeDaemonError(res, error);
     }
   });
+
+  app.get('/api/pi/sessions/:sessionId', async (req, res) => {
+    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.open');
+    if (result !== undefined) res.json(projectSessionDetail(result));
+  });
+
+  app.get('/api/pi/sessions/:sessionId/snapshot', async (req, res) => {
+    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.open');
+    if (result !== undefined) res.json(projectSessionDetail(result));
+  });
+
+  app.delete('/api/pi/sessions/:sessionId', async (req, res) => {
+    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.delete');
+    if (result !== undefined) res.status(204).end();
+  });
+
+  app.post('/api/pi/sessions/:sessionId/archive', async (req, res) => {
+    const archived = req.body?.archived;
+    const sessionId = sessionIdFrom(req);
+    if (!sessionId || typeof archived !== 'boolean') {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      // Confirm that the opaque ID belongs to the configured daemon before
+      // writing PiChamber-only metadata.
+      await getDaemonRuntime(getPiSessionDaemonRuntime).request('sessions.open', { sessionId });
+      await archiveStore.set(sessionId, archived);
+      res.status(204).end();
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.get('/api/pi/sessions/:sessionId/tree', async (req, res) => {
+    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.tree');
+    if (result !== undefined) res.json(result);
+  });
+
+  app.post('/api/pi/sessions/:sessionId/navigate', async (req, res) => {
+    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.navigate', { messageId: req.body?.messageId });
+    if (result !== undefined) res.json(projectSessionDetail(result));
+  });
+
+  for (const [suffix, command] of [['fork', 'sessions.fork'], ['clone', 'sessions.clone']]) {
+    app.post(`/api/pi/sessions/:sessionId/${suffix}`, async (req, res) => {
+      const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, command, req.body && typeof req.body === 'object' ? req.body : {});
+      if (result !== undefined) res.status(201).json(projectSessionDetail(result));
+    });
+  }
+
+  for (const [suffix, command] of [['prompt', 'sessions.prompt'], ['steer', 'sessions.steer'], ['follow-up', 'sessions.followUp']]) {
+    app.post(`/api/pi/sessions/:sessionId/${suffix}`, async (req, res) => {
+      const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, command, req.body && typeof req.body === 'object' ? req.body : {});
+      if (result !== undefined) {
+        if (!result || result.accepted !== true || typeof result.messageId !== 'string') {
+          writeDaemonError(res, protocolMismatch());
+          return;
+        }
+        res.status(202).json({ accepted: true, messageId: result.messageId });
+      }
+    });
+  }
+
+  for (const [suffix, command] of [['abort', 'sessions.abort'], ['model', 'sessions.setModel'], ['thinking', 'sessions.setThinking'], ['compact', 'sessions.compact']]) {
+    app.post(`/api/pi/sessions/:sessionId/${suffix}`, async (req, res) => {
+      const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, command, req.body && typeof req.body === 'object' ? req.body : {});
+      if (result !== undefined) res.status(204).end();
+    });
+  }
 
   app.post('/api/pi/sessions', async (req, res) => {
     const input = req.body;

@@ -47,6 +47,8 @@ export type PiErrorCode =
   | 'INVALID_SESSION'
   | 'SESSION_CREATE_CANCELLED'
   | 'INVALID_PROMPT'
+  | 'SESSION_BUSY'
+  | 'SESSION_NOT_RUNNING'
   | 'INVALID_MODEL'
   | 'SESSION_INTERRUPTED'
   | 'SESSION_TREE_NOT_FOUND'
@@ -60,7 +62,9 @@ export type PiErrorCode =
   | 'DAEMON_CREDENTIAL_UNAVAILABLE'
   | 'MALFORMED_SESSION_JSONL'
   | 'SESSION_JSONL_UNREADABLE'
-  | 'RUNTIME_DISPOSAL_FAILED';
+  | 'RUNTIME_DISPOSAL_FAILED'
+  | 'ARCHIVE_METADATA_INVALID'
+  | 'ASSISTANT_ERROR';
 
 /** A stable error object returned in response and event payloads. */
 export interface PiError {

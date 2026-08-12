@@ -17,6 +17,9 @@ class FakeSession {
     this.names = [];
     this.sessionManager = {
       getSessionFile: () => sessionFile,
+      getHeader: () => ({ timestamp: '2026-01-01T00:00:00.000Z' }),
+      getEntries: () => [],
+      getLeafId: () => 'fake-entry',
       appendSessionInfo: (name) => this.names.push(name),
     };
   }
@@ -31,6 +34,8 @@ class FakeSession {
   }
 
   async prompt() {}
+
+  async sendUserMessage() {}
 }
 
 class FakeRuntime {
@@ -179,20 +184,28 @@ describe('Pi session daemon spike', () => {
 
     const reconnectingClient = connectClient(endpoint);
     const reconnectSnapshot = await reconnectingClient.authenticate();
+    const messageStart = reconnectingClient.next((message) => message.event === 'assistant.message.start');
     const delta = reconnectingClient.next((message) => message.event === 'assistant.message.delta');
+    const messageEnd = reconnectingClient.next((message) => message.event === 'assistant.message.end');
     const toolStart = reconnectingClient.next((message) => message.event === 'session.tool.start');
+    session.emit({ type: 'message_start', message: { role: 'assistant', timestamp: 1, provider: 'test', model: 'model' } });
     session.emit({
       type: 'message_update',
       assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'still running' },
     });
     session.emit({ type: 'tool_execution_start', toolCallId: 'tool-1', toolName: 'read' });
+    session.emit({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'still running' }] } });
 
     await expect(delta).resolves.toMatchObject({
       payload: { sessionId: 'pi-session-1', contentIndex: 0, delta: 'still running' },
     });
+    await expect(messageStart).resolves.toMatchObject({
+      payload: { sessionId: 'pi-session-1', directory: join(root, 'project'), role: 'assistant', model: { providerId: 'test', modelId: 'model' } },
+    });
     await expect(toolStart).resolves.toMatchObject({
       payload: { sessionId: 'pi-session-1', toolCallId: 'tool-1', toolName: 'read' },
     });
+    await expect(messageEnd).resolves.toMatchObject({ payload: { sessionId: 'pi-session-1', text: 'still running' } });
     expect((await delta).sequence).toBeGreaterThan(reconnectSnapshot.sequence);
     await reconnectingClient.close();
   });
@@ -277,7 +290,7 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
-  it('creates and selects a persisted Pi session without accepting unsupported creation options', async () => {
+  it('creates and selects a persisted Pi session with supported creation metadata', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = join(root, 'daemon.sock');
     const runtime = new FakeRuntime({ cwd: root, session: new FakeSession('pi-session-old') });
@@ -306,7 +319,9 @@ describe('Pi session daemon spike', () => {
         messages: [],
       },
     });
-    await expect(client.request('sessions.create', { cwd: root, title: 'unsupported' })).rejects.toThrow('Daemon connection closed');
+    await expect(client.request('sessions.create', { cwd: root, title: 'Named session' })).resolves.toMatchObject({
+      result: { session: { id: 'pi-session-new', directory: root } },
+    });
     client.socket.destroy();
   });
 
@@ -445,7 +460,7 @@ describe('Pi session daemon spike', () => {
       const health = await client.request('runtime.health');
       expect(health.result).toMatchObject({
         state: 'ready',
-        capabilities: ['sessions.list', 'sessions.create', 'sessions.rename', 'sessions.prompt'],
+        capabilities: expect.arrayContaining(['projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.rename', 'sessions.delete', 'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt', 'sessions.steer', 'sessions.followUp', 'sessions.abort', 'sessions.setModel', 'sessions.setThinking', 'sessions.compact']),
       });
       expect(health.result.sessionId).toEqual(expect.any(String));
       const created = await client.request('sessions.create', { cwd });

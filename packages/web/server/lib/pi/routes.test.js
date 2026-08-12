@@ -58,6 +58,33 @@ describe('Pi runtime route', () => {
     });
   });
 
+  it('lists and selects only daemon-owned projects', async () => {
+    const calls = [];
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: ['projects.list', 'projects.select'] }),
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        if (command === 'projects.list') return { projects: [{ directory: '/workspace', selected: true, cwd: '/private' }] };
+        return { directory: '/workspace', endpoint: '/private/socket' };
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+
+    const list = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/projects`);
+    await expect(list.json()).resolves.toEqual({ projects: [{ directory: '/workspace', selected: true }] });
+    const select = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/projects/select`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ directory: '/workspace' }),
+    });
+    await expect(select.json()).resolves.toEqual({ directory: '/workspace' });
+    expect(calls).toEqual([
+      { command: 'projects.list', payload: undefined },
+      { command: 'projects.select', payload: { directory: '/workspace' } },
+    ]);
+  });
+
   it('proxies a cwd-scoped session collection without exposing private daemon details', async () => {
     const runtime = {
       health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: ['sessions.list'] }),
@@ -161,6 +188,72 @@ describe('Pi runtime route', () => {
       messages: [],
       lastSequence: 7,
     });
+  });
+
+  it('routes path-selected session operations and projects transcript fields only', async () => {
+    const calls = [];
+    const detail = {
+      session: { id: 'pi-session-4', directory: '/workspace', createdAt: 1, updatedAt: 2, sessionFile: '/private/session.jsonl' },
+      messages: [{
+        message: { id: 'entry-1', sessionId: 'pi-session-4', directory: '/workspace', role: 'assistant', text: 'hello', thinking: '', createdAt: 2, secret: 'never-expose' },
+        parts: [{ type: 'text', id: 'entry-1:0', index: 0, text: 'hello', privatePath: '/private' }],
+      }],
+      lastSequence: 9,
+    };
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        if (command === 'sessions.open' || command === 'sessions.navigate') return detail;
+        if (command === 'sessions.prompt') return { accepted: true, messageId: 'entry-2', credential: 'never-expose' };
+        return {};
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, archiveStore: { read: async () => ({}), set: async () => {} } });
+    server = await listen(app);
+
+    const detailResponse = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions/pi-session-4`);
+    expect(detailResponse.status).toBe(200);
+    await expect(detailResponse.json()).resolves.toEqual({
+      session: { id: 'pi-session-4', directory: '/workspace', createdAt: 1, updatedAt: 2 },
+      messages: [{
+        message: { id: 'entry-1', sessionId: 'pi-session-4', directory: '/workspace', role: 'assistant', text: 'hello', thinking: '', createdAt: 2 },
+        parts: [{ type: 'text', id: 'entry-1:0', index: 0, text: 'hello' }],
+      }],
+      lastSequence: 9,
+    });
+    const promptResponse = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions/pi-session-4/prompt`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other', text: 'hello' }),
+    });
+    expect(promptResponse.status).toBe(202);
+    await expect(promptResponse.json()).resolves.toEqual({ accepted: true, messageId: 'entry-2' });
+    expect(calls).toEqual([
+      { command: 'sessions.open', payload: { sessionId: 'pi-session-4' } },
+      { command: 'sessions.prompt', payload: { sessionId: 'pi-session-4', text: 'hello' } },
+    ]);
+  });
+
+  it('streams sequenced projected snapshots without exposing private transport fields', async () => {
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      subscribe: async ({ onEvent }) => {
+        onEvent({ protocolVersion: 1, kind: 'event', event: 'session.snapshot', sequence: 4, payload: { sessionId: 'pi-session-5', directory: '/workspace', isStreaming: false, lifecycle: 'idle', queue: { steering: 0, followUp: 0 }, lastSequence: 4, endpoint: '/private/socket' } });
+        return () => {};
+      },
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-5&fromSequence=3`);
+    const reader = response.body.getReader();
+    const first = await reader.read();
+    await reader.cancel();
+    const text = new TextDecoder().decode(first.value);
+    expect(text).toContain('"name":"session.snapshot"');
+    expect(text).toContain('"lastSequence":4');
+    expect(text).not.toContain('/private/socket');
   });
 
   it('returns an explicit failure when the daemon session collection is unavailable or malformed', async () => {
