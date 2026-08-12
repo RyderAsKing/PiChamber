@@ -5,6 +5,7 @@
 
 import { createPiArchiveStore } from './archive-store.js';
 import { createPiAttachmentStore } from './attachment-store.js';
+import { createPiSettingsStore } from './settings-store.js';
 
 const UNAVAILABLE_CODES = new Set([
   'DAEMON_UNAVAILABLE',
@@ -131,6 +132,79 @@ const projectProviders = (value) => {
   };
 };
 
+const projectProviderConfig = (value) => {
+  const config = value?.config;
+  if (config === null) return { config: null };
+  if (!config || typeof config !== 'object' || typeof config.providerId !== 'string' || typeof config.label !== 'string'
+    || typeof config.baseUrl !== 'string' || typeof config.api !== 'string' || !Array.isArray(config.models)) throw protocolMismatch();
+  return {
+    config: {
+      providerId: config.providerId,
+      label: config.label,
+      baseUrl: config.baseUrl,
+      api: config.api,
+      models: config.models.map((model) => {
+        if (!model || typeof model !== 'object' || typeof model.id !== 'string' || typeof model.providerId !== 'string') throw protocolMismatch();
+        return {
+          id: model.id,
+          providerId: model.providerId,
+          ...(typeof model.label === 'string' ? { label: model.label } : {}),
+          ...(Number.isSafeInteger(model.contextWindow) ? { contextWindow: model.contextWindow } : {}),
+          ...(model.supportsThinking === true ? { supportsThinking: true } : {}),
+        };
+      }),
+    },
+  };
+};
+
+const projectProviderStatus = (value) => {
+  if (!value || typeof value !== 'object' || typeof value.providerId !== 'string' || typeof value.authenticated !== 'boolean') throw protocolMismatch();
+  return { providerId: value.providerId, authenticated: value.authenticated };
+};
+
+const projectProviderLogin = (value) => {
+  const login = value?.login;
+  if (!login || typeof login !== 'object' || typeof login.id !== 'string' || typeof login.providerId !== 'string'
+    || !['pending', 'complete', 'failed'].includes(login.state)) throw protocolMismatch();
+  const projected = { id: login.id, providerId: login.providerId, state: login.state };
+  if (login.prompt && typeof login.prompt === 'object' && ['text', 'secret', 'select', 'manual_code'].includes(login.prompt.type)) {
+    projected.prompt = {
+      type: login.prompt.type,
+      ...(typeof login.prompt.message === 'string' ? { message: login.prompt.message } : {}),
+      ...(typeof login.prompt.placeholder === 'string' ? { placeholder: login.prompt.placeholder } : {}),
+      ...(Array.isArray(login.prompt.options) ? { options: login.prompt.options
+        .filter((option) => option && typeof option.id === 'string' && typeof option.label === 'string')
+        .map((option) => ({ id: option.id, label: option.label, ...(typeof option.description === 'string' ? { description: option.description } : {}) })) } : {}),
+    };
+  }
+  if (login.authUrl && typeof login.authUrl.url === 'string' && login.authUrl.url.length <= 8_192) {
+    projected.authUrl = { url: login.authUrl.url, ...(typeof login.authUrl.instructions === 'string' ? { instructions: login.authUrl.instructions } : {}) };
+  }
+  if (login.deviceCode && typeof login.deviceCode.userCode === 'string' && typeof login.deviceCode.verificationUri === 'string') {
+    projected.deviceCode = {
+      userCode: login.deviceCode.userCode,
+      verificationUri: login.deviceCode.verificationUri,
+      ...(Number.isFinite(login.deviceCode.intervalSeconds) ? { intervalSeconds: login.deviceCode.intervalSeconds } : {}),
+      ...(Number.isFinite(login.deviceCode.expiresInSeconds) ? { expiresInSeconds: login.deviceCode.expiresInSeconds } : {}),
+    };
+  }
+  if (login.error && typeof login.error.code === 'string') projected.error = { code: login.error.code };
+  return { login: projected };
+};
+
+const projectPiSettings = (value) => {
+  if (!value || typeof value !== 'object' || !value.global || !value.project) throw protocolMismatch();
+  const project = value.project;
+  if (typeof project.trusted !== 'boolean') throw protocolMismatch();
+  const copy = (settings) => ({
+    ...(typeof settings.defaultProvider === 'string' ? { defaultProvider: settings.defaultProvider } : {}),
+    ...(typeof settings.defaultModel === 'string' ? { defaultModel: settings.defaultModel } : {}),
+    ...(typeof settings.defaultThinking === 'string' ? { defaultThinking: settings.defaultThinking } : {}),
+    ...(typeof settings.defaultProjectTrust === 'string' ? { defaultProjectTrust: settings.defaultProjectTrust } : {}),
+  });
+  return { pi: { global: copy(value.global), project: { trusted: project.trusted, ...(project.denied === true ? { denied: true } : {}), ...copy(project) } } };
+};
+
 const projectSessionTree = (value) => {
   if (!value || typeof value !== 'object' || typeof value.rootId !== 'string' || !Array.isArray(value.nodes)) throw protocolMismatch();
   const projectNode = (node) => {
@@ -210,6 +284,7 @@ export const registerPiRuntimeRoutes = (app, {
   getPiSessionDaemonRuntime,
   archiveStore = createPiArchiveStore(),
   attachmentStore = createPiAttachmentStore(),
+  settingsStore = createPiSettingsStore(),
 }) => {
   app.get('/api/pi/runtime', async (_req, res) => {
     const runtime = getPiSessionDaemonRuntime();
@@ -271,6 +346,142 @@ export const registerPiRuntimeRoutes = (app, {
     try {
       const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.list');
       res.json(projectProviders(result));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.get('/api/pi/providers/:providerId/config', async (req, res) => {
+    const providerId = req.params.providerId;
+    if (typeof providerId !== 'string' || providerId.length === 0) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.config.get', { providerId });
+      res.json(projectProviderConfig(result));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.put('/api/pi/providers/:providerId/models', async (req, res) => {
+    const providerId = req.params.providerId;
+    const payload = req.body;
+    if (typeof providerId !== 'string' || providerId.length === 0 || !payload || typeof payload !== 'object') {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.models.set', { ...payload, providerId });
+      res.json(projectProviderConfig(result));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.get('/api/pi/providers/:providerId/status', async (req, res) => {
+    const providerId = req.params.providerId;
+    if (typeof providerId !== 'string' || providerId.length === 0) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.status', { providerId });
+      res.json(projectProviderStatus(result));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.post('/api/pi/providers/:providerId/login', async (req, res) => {
+    const providerId = req.params.providerId;
+    const type = req.body?.type;
+    const apiKey = req.body?.apiKey;
+    if (typeof providerId !== 'string' || providerId.length === 0 || !['api_key', 'oauth'].includes(type)
+      || (apiKey !== undefined && typeof apiKey !== 'string')) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.login', {
+        providerId, type, ...(typeof apiKey === 'string' ? { apiKey } : {}),
+      });
+      res.status(202).json(projectProviderLogin(result));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.get('/api/pi/providers/:providerId/login/:loginId', async (req, res) => {
+    const providerId = req.params.providerId;
+    const loginId = req.params.loginId;
+    if (typeof providerId !== 'string' || typeof loginId !== 'string') {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.login.status', { providerId, loginId });
+      res.json(projectProviderLogin(result));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.post('/api/pi/providers/:providerId/login/:loginId/respond', async (req, res) => {
+    const providerId = req.params.providerId;
+    const loginId = req.params.loginId;
+    const value = req.body?.value;
+    if (typeof providerId !== 'string' || typeof loginId !== 'string' || typeof value !== 'string') {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.login.respond', { providerId, loginId, value });
+      res.json(projectProviderLogin(result));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.post('/api/pi/providers/:providerId/logout', async (req, res) => {
+    const providerId = req.params.providerId;
+    if (typeof providerId !== 'string' || providerId.length === 0) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.logout', { providerId });
+      res.json(projectProviderStatus(result));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.get('/api/pi/settings', async (_req, res) => {
+    try {
+      const pi = projectPiSettings(await getDaemonRuntime(getPiSessionDaemonRuntime).request('settings.get'));
+      const pichamber = await settingsStore.read();
+      res.json({ ...pi, pichamber });
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.put('/api/pi/settings/pi', async (req, res) => {
+    const payload = req.body;
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('settings.set', payload);
+      res.json(projectPiSettings(result));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.put('/api/pi/settings/defaults', async (req, res) => {
+    try {
+      const pichamber = await settingsStore.update(req.body ?? {});
+      res.json({ pichamber });
     } catch (error) {
       writeDaemonError(res, error);
     }

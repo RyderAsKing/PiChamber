@@ -54,6 +54,9 @@ export type PiErrorCode =
   | 'SESSION_TREE_NOT_FOUND'
   | 'PROVIDER_NOT_FOUND'
   | 'PROVIDER_AUTH_REQUIRED'
+  | 'PROJECT_UNTRUSTED'
+  | 'PI_SETTINGS_INVALID'
+  | 'PI_MODEL_CONFIG_INVALID'
   | 'RESOURCE_NOT_FOUND'
   | 'ATTACHMENT_FAILED'
   | 'ATTACHMENT_TOO_LARGE'
@@ -278,23 +281,80 @@ export interface PiProviderStatusResponse {
 
 export interface PiProviderLoginInput {
   providerId: string;
+  type: 'api_key' | 'oauth';
   /** API key submission. The browser POSTs the value once; the server writes
-   *  it to Pi's credential store and the browser never sees it again. */
+   * it through Pi's credential runtime and never returns it. */
   apiKey?: string;
-  /** Optional OAuth / device-code payload. */
-  oauth?: {
-    code?: string;
-    callbackUrl?: string;
+}
+
+export interface PiProviderLoginState {
+  id: string;
+  providerId: string;
+  state: 'pending' | 'complete' | 'failed';
+  prompt?: {
+    type: 'text' | 'secret' | 'select' | 'manual_code';
+    message?: string;
+    placeholder?: string;
+    options?: Array<{ id: string; label: string; description?: string }>;
   };
+  authUrl?: { url: string; instructions?: string };
+  deviceCode?: { userCode: string; verificationUri: string; intervalSeconds?: number; expiresInSeconds?: number };
+  error?: PiError;
+}
+
+export interface PiProviderLoginResponse {
+  login: PiProviderLoginState;
 }
 
 export interface PiProviderLogoutInput {
   providerId: string;
 }
 
-export interface PiProviderSetModelsInput {
+export interface PiProviderModelsConfig {
   providerId: string;
+  label: string;
+  baseUrl: string;
+  api: 'openai-completions' | 'openai-responses' | 'anthropic-messages' | 'google-generative-ai';
   models: PiModel[];
+}
+
+export interface PiProviderConfigResponse {
+  config: PiProviderModelsConfig | null;
+}
+
+export interface PiProviderSetModelsInput extends PiProviderModelsConfig {
+  /** Optional non-secret Pi models.json environment reference, e.g. `{env:API_KEY}`. */
+  apiKeyReference?: string;
+  /** Optional per-provider headers. Values are write-only and never returned. */
+  headers?: Record<string, string>;
+}
+
+// ---------------------------------------------------------------------------
+// Pi settings
+// ---------------------------------------------------------------------------
+
+export type PiConfigThinkingLevel = PiThinkingLevel | 'minimal' | 'max';
+
+export interface PiSettingsSnapshot {
+  pi: {
+    global: { defaultProvider?: string; defaultModel?: string; defaultThinking?: PiConfigThinkingLevel; defaultProjectTrust?: 'ask' | 'always' | 'never' };
+    project: { trusted: boolean; denied?: boolean; defaultProvider?: string; defaultModel?: string; defaultThinking?: PiConfigThinkingLevel };
+  };
+  pichamber: { version: 1; defaultModel?: PiModelRef; defaultThinking?: PiThinkingLevel; smallModel?: PiModelRef; walkthroughModel?: PiModelRef };
+}
+
+export interface PiSettingsUpdateInput {
+  scope: 'global' | 'project';
+  defaultModel?: PiModelRef | null;
+  defaultThinking?: PiConfigThinkingLevel | null;
+  trust?: boolean | null;
+}
+
+export interface PiChamberDefaultsUpdateInput {
+  defaultModel?: PiModelRef | null;
+  defaultThinking?: PiThinkingLevel | null;
+  smallModel?: PiModelRef | null;
+  walkthroughModel?: PiModelRef | null;
 }
 
 // ---------------------------------------------------------------------------

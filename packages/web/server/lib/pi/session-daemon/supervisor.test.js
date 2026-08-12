@@ -96,7 +96,7 @@ describe('Pi session daemon supervisor', () => {
     await expect(supervisor.health()).resolves.toEqual({
       state: 'ready',
       protocolVersion: 1,
-      capabilities: ['projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.rename', 'sessions.delete', 'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt', 'sessions.steer', 'sessions.followUp', 'sessions.abort', 'sessions.setModel', 'sessions.setThinking', 'sessions.compact', 'providers.list'],
+      capabilities: ['projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.rename', 'sessions.delete', 'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt', 'sessions.steer', 'sessions.followUp', 'sessions.abort', 'sessions.setModel', 'sessions.setThinking', 'sessions.compact', 'providers.list', 'providers.config.get', 'providers.models.set', 'providers.status', 'providers.login', 'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set'],
     });
     await expect(supervisor.request('sessions.list')).resolves.toMatchObject({ sessions: expect.any(Array) });
 

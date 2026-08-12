@@ -53,6 +53,16 @@ export interface PiReconnectResult {
   error?: { code: string; message?: string; status?: number };
 }
 
+interface PiReconnectDependencies {
+  fetchHealth: typeof fetchPiRuntimeHealth;
+  createStream: typeof createPiEventStream;
+}
+
+const defaultDependencies: PiReconnectDependencies = {
+  fetchHealth: fetchPiRuntimeHealth,
+  createStream: createPiEventStream,
+};
+
 export interface PiReconnectOptions {
   directory: string;
   sessionId: PiSessionId;
@@ -87,7 +97,10 @@ const toError = (error: unknown): { code: string; message?: string; status?: num
  * a live stream handle. The caller is responsible for wiring the snapshot
  * into the main reducer before applying events from `onEvent`.
  */
-export const reconnectPiSession = async (options: PiReconnectOptions): Promise<PiReconnectResult> => {
+export const reconnectPiSession = async (
+  options: PiReconnectOptions,
+  dependencies: PiReconnectDependencies = defaultDependencies,
+): Promise<PiReconnectResult> => {
   const result: PiReconnectResult = {
     phase: 'idle',
     snapshotState: createSnapshotReducerState(),
@@ -101,7 +114,7 @@ export const reconnectPiSession = async (options: PiReconnectOptions): Promise<P
   // 1. Health probe first — a `unavailable` result is not a failure but a
   //    distinct state the UI must render.
   result.phase = 'health-check';
-  const health = await task(() => fetchPiRuntimeHealth(options.signal, options.runtimeKey));
+  const health = await task(() => dependencies.fetchHealth(options.signal, options.runtimeKey));
   if (health.state !== 'ready') {
     result.phase = 'unavailable';
     result.error = {
@@ -190,7 +203,7 @@ export const reconnectPiSession = async (options: PiReconnectOptions): Promise<P
   //    dropped by the reducer, which is the correct behavior.
   result.phase = 'stream-attach';
   try {
-    result.stream = createPiEventStream(
+    result.stream = dependencies.createStream(
       {
         onEvent: options.onEvent,
         onDisconnect: (reason) => options.onStreamDisconnect?.(reason),

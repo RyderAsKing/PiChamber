@@ -23,8 +23,13 @@ import {
   type PiError,
   type PiProviderListResponse,
   type PiProviderLoginInput,
+  type PiProviderLoginResponse,
   type PiProviderLogoutInput,
+  type PiSettingsSnapshot,
+  type PiSettingsUpdateInput,
+  type PiChamberDefaultsUpdateInput,
   type PiProviderSetModelsInput,
+  type PiProviderConfigResponse,
   type PiProviderStatusResponse,
   type PiResourceListResponse,
   type PiRuntimeHealth,
@@ -379,11 +384,27 @@ export class PiService {
     );
   }
 
-  async loginProvider(input: PiProviderLoginInput, scope?: PiClientScope): Promise<void> {
+  async loginProvider(input: PiProviderLoginInput, scope?: PiClientScope): Promise<PiProviderLoginResponse> {
     assertRuntimeUnchanged(scope);
-    await jsonRequest<PiProviderLoginInput, undefined>(
+    return jsonRequest<PiProviderLoginInput, PiProviderLoginResponse>(
       `/api/pi/providers/${encodeURIComponent(input.providerId)}/login`,
       { method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+    );
+  }
+
+  async getProviderLogin(providerId: string, loginId: string, scope?: PiClientScope): Promise<PiProviderLoginResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiProviderLoginResponse>(
+      `/api/pi/providers/${encodeURIComponent(providerId)}/login/${encodeURIComponent(loginId)}`,
+      { method: 'GET', ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+    );
+  }
+
+  async respondProviderLogin(providerId: string, loginId: string, value: string, scope?: PiClientScope): Promise<PiProviderLoginResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<{ value: string }, PiProviderLoginResponse>(
+      `/api/pi/providers/${encodeURIComponent(providerId)}/login/${encodeURIComponent(loginId)}/respond`,
+      { method: 'POST', body: { value }, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
     );
   }
 
@@ -395,12 +416,43 @@ export class PiService {
     );
   }
 
-  async setProviderModels(input: PiProviderSetModelsInput, scope?: PiClientScope): Promise<void> {
+  async getProviderConfig(providerId: string, scope?: PiClientScope): Promise<PiProviderConfigResponse> {
     assertRuntimeUnchanged(scope);
-    await jsonRequest<{ providerId: string; models: import('./types').PiModel[] }, undefined>(
-      `/api/pi/providers/${encodeURIComponent(input.providerId)}/models`,
-      { method: 'PUT', body: { providerId: input.providerId, models: input.models }, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+    return jsonRequest<undefined, PiProviderConfigResponse>(
+      `/api/pi/providers/${encodeURIComponent(providerId)}/config`,
+      { method: 'GET', ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
     );
+  }
+
+  async setProviderModels(input: PiProviderSetModelsInput, scope?: PiClientScope): Promise<PiProviderConfigResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<PiProviderSetModelsInput, PiProviderConfigResponse>(
+      `/api/pi/providers/${encodeURIComponent(input.providerId)}/models`,
+      { method: 'PUT', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+    );
+  }
+
+  // ----- Pi settings ------------------------------------------------------
+
+  async getSettings(scope?: PiClientScope): Promise<PiSettingsSnapshot> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiSettingsSnapshot>('/api/pi/settings', {
+      method: 'GET', ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  async setPiSettings(input: PiSettingsUpdateInput, scope?: PiClientScope): Promise<Pick<PiSettingsSnapshot, 'pi'>> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<PiSettingsUpdateInput, Pick<PiSettingsSnapshot, 'pi'>>('/api/pi/settings/pi', {
+      method: 'PUT', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  async setPiChamberDefaults(input: PiChamberDefaultsUpdateInput, scope?: PiClientScope): Promise<Pick<PiSettingsSnapshot, 'pichamber'>> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<PiChamberDefaultsUpdateInput, Pick<PiSettingsSnapshot, 'pichamber'>>('/api/pi/settings/defaults', {
+      method: 'PUT', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
   }
 
   // ----- Resources --------------------------------------------------------
