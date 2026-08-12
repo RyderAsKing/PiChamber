@@ -28,6 +28,7 @@ import {
   type PiProviderStatusResponse,
   type PiResourceListResponse,
   type PiRuntimeHealth,
+  type PiProjectListResponse,
   type PiSessionCreateInput,
   type PiSessionDetailResponse,
   type PiSessionListResponse,
@@ -173,6 +174,16 @@ export class PiService {
       capabilities: health.capabilities,
       ...(health.error ? { error: health.error as PiError } : {}),
     };
+  }
+
+  // ----- Projects ---------------------------------------------------------
+
+  async listProjects(scope?: PiClientScope): Promise<PiProjectListResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiProjectListResponse>('/api/pi/projects', {
+      method: 'GET',
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
   }
 
   // ----- Sessions ---------------------------------------------------------

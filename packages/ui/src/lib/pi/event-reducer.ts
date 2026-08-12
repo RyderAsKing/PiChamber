@@ -164,7 +164,7 @@ const ensureMessage = (
     directory,
     role: payload.role,
     createdAt: payload.startedAt,
-    text: '',
+    text: payload.role === 'user' ? payload.text ?? '' : '',
     thinking: '',
     streaming: payload.role === 'assistant',
     ...(payload.model ? { model: payload.model } : {}),

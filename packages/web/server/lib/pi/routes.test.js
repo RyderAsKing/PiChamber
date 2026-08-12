@@ -85,6 +85,49 @@ describe('Pi runtime route', () => {
     ]);
   });
 
+  it('projects Pi provider metadata without credentials or private model data', async () => {
+    const runtime = {
+      request: async (command) => {
+        expect(command).toBe('providers.list');
+        return { providers: [{ id: 'provider', label: 'Provider', authenticated: true, secret: 'never-public', models: [{ id: 'model', providerId: 'provider', label: 'Model', contextWindow: 100, supportsThinking: true, thinkingLevels: ['low', 'bad'] }] }] };
+      },
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/providers`);
+    await expect(response.json()).resolves.toEqual({ providers: [{ id: 'provider', label: 'Provider', authenticated: true, models: [{ id: 'model', providerId: 'provider', label: 'Model', contextWindow: 100, supportsThinking: true, thinkingLevels: ['low'] }] }] });
+  });
+
+  it('uploads opaque attachments and resolves them only across the private prompt adapter', async () => {
+    const calls = [];
+    const attachmentStore = {
+      create: async (input) => ({ id: 'attachment-1', name: input.filename, mime: input.mime, size: 3, path: '/never-public' }),
+      resolve: async (ids) => {
+        expect(ids).toEqual(['attachment-1']);
+        return [{ id: 'attachment-1', name: 'note.txt', mime: 'text/plain', size: 3, path: '/private/upload' }];
+      },
+    };
+    const runtime = {
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        return command === 'sessions.prompt' ? { accepted: true, messageId: 'message-1' } : {};
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, attachmentStore });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi`;
+
+    const upload = await fetch(`${base}/attachments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: 'note.txt', mime: 'text/plain', base64: 'YWJj' }) });
+    expect(upload.status).toBe(201);
+    await expect(upload.json()).resolves.toEqual({ attachment: { id: 'attachment-1', name: 'note.txt', mime: 'text/plain', size: 3 } });
+    const prompt = await fetch(`${base}/sessions/session-1/prompt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'read this', attachments: [{ id: 'attachment-1' }] }) });
+    expect(prompt.status).toBe(202);
+    expect(calls).toEqual([{ command: 'sessions.prompt', payload: { sessionId: 'session-1', text: 'read this', attachments: [{ id: 'attachment-1', name: 'note.txt', mime: 'text/plain', size: 3, path: '/private/upload' }] } }]);
+  });
+
   it('proxies a cwd-scoped session collection without exposing private daemon details', async () => {
     const runtime = {
       health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: ['sessions.list'] }),
@@ -244,7 +287,7 @@ describe('Pi runtime route', () => {
       request: async (command, payload) => {
         calls.push({ command, payload });
         if (command === 'sessions.open' || command === 'sessions.navigate' || command === 'sessions.fork' || command === 'sessions.clone') return detail;
-        if (command === 'sessions.tree') return { rootId: 'pi-session-7', nodes: [{ sessionId: 'pi-session-7', updatedAt: 2, children: [], privatePath: '/private' }] };
+        if (command === 'sessions.tree') return { rootId: 'pi-session-7', nodes: [{ entryId: 'entry-7', updatedAt: 2, children: [], privatePath: '/private' }] };
         if (command === 'sessions.list') return { sessions: [{ session: detail.session, updatedAt: 2 }] };
         if (['sessions.prompt', 'sessions.steer', 'sessions.followUp'].includes(command)) return { accepted: true, messageId: 'message-1' };
         return {};
@@ -258,7 +301,7 @@ describe('Pi runtime route', () => {
 
     await expect((await fetch(`${base}/snapshot`)).json()).resolves.toMatchObject({ session: { archived: true, timeArchived: 9 } });
     expect((await fetch(base, { method: 'DELETE' })).status).toBe(204);
-    await expect((await fetch(`${base}/tree`)).json()).resolves.toEqual({ rootId: 'pi-session-7', nodes: [{ sessionId: 'pi-session-7', updatedAt: 2, children: [] }] });
+    await expect((await fetch(`${base}/tree`)).json()).resolves.toEqual({ rootId: 'pi-session-7', nodes: [{ entryId: 'entry-7', updatedAt: 2, children: [] }] });
     expect((await fetch(`${base}/navigate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other', messageId: 'entry-1' }) })).status).toBe(200);
     expect((await fetch(`${base}/fork`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other', messageId: 'entry-1' }) })).status).toBe(201);
     expect((await fetch(`${base}/clone`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other' }) })).status).toBe(201);

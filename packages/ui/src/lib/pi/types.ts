@@ -137,7 +137,7 @@ export interface PiAttachment {
    * Server-local absolute path. Browsers never receive this value through
    * `getMessage`; the daemon hands it only to Pi tools.
    */
-  path: string;
+  path?: string;
 }
 
 /**

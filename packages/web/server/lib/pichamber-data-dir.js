@@ -65,7 +65,7 @@ function resolvePiChamberDataDir(deps = defaultDeps) {
 function resolvePiChamberDataPath(segments, deps) {
   const pathModule = deps?.path ?? defaultDeps.path;
   const dataDir = resolvePiChamberDataDir(deps);
-  const list = Array.isArray(segments) ? segments : [segments];
+  const list = segments === undefined ? [] : Array.isArray(segments) ? segments : [segments];
   return pathModule.join(dataDir, ...list);
 }
 

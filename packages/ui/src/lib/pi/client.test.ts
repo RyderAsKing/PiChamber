@@ -59,6 +59,9 @@ describe("PiService", () => {
           capabilities: ["sessions.list"],
         })
       }
+      if (url.pathname === "/api/pi/projects" && call.init?.method === "GET") {
+        return jsonResponse({ projects: [{ directory: "/work", selected: true }] })
+      }
       if (url.pathname === "/api/pi/sessions" && call.init?.method === "GET") {
         return jsonResponse({ sessions: [] })
       }
@@ -79,6 +82,13 @@ describe("PiService", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch
+  })
+
+  test("listProjects reads the public Pi project collection", async () => {
+    const { PiService } = await import("./client")
+    const client = new PiService()
+    expect(await client.listProjects()).toEqual({ projects: [{ directory: "/work", selected: true }] })
+    expect(recordedCalls()[0].url).toBe("/api/pi/projects")
   })
 
   test("createSession POSTs to /api/pi/sessions", async () => {

@@ -63,6 +63,10 @@ describe('resolvePiChamberDataDir', () => {
 describe('resolvePiChamberDataPath', () => {
   const deps = { env: {}, homedir: () => '/home/u', path };
 
+  it('returns the effective root when no segment is requested', () => {
+    expect(resolvePiChamberDataPath(undefined, deps)).toBe(path.join('/home/u', '.config', 'pichamber'));
+  });
+
   it('joins a single segment beneath the effective root', () => {
     expect(resolvePiChamberDataPath('settings.json', deps)).toBe(
       path.join('/home/u', '.config', 'pichamber', 'settings.json'),
