@@ -35,7 +35,7 @@ export const requestSessionDaemon = ({ endpoint, credential, command, payload, t
   const fail = (code) => finish(reject, new SessionDaemonClientError(code));
 
   timer = setTimeout(() => fail('DAEMON_UNAVAILABLE'), timeoutMs);
-  socket.once('error', () => fail('DAEMON_UNAVAILABLE'));
+  socket.once('error', (error) => fail(error?.code === 'ECONNREFUSED' ? 'DAEMON_CONNECTION_REFUSED' : 'DAEMON_UNAVAILABLE'));
   socket.on('connect', () => {
     socket.write(`${JSON.stringify({ kind: 'authenticate', credential })}\n`);
   });

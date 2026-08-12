@@ -56,7 +56,10 @@ export type PiErrorCode =
   | 'ATTACHMENT_TOO_LARGE'
   | 'ATTACHMENT_MISSING'
   | 'DAEMON_ENDPOINT_UNVERIFIED'
-  | 'DAEMON_CREDENTIAL_UNAVAILABLE';
+  | 'DAEMON_CREDENTIAL_UNAVAILABLE'
+  | 'MALFORMED_SESSION_JSONL'
+  | 'SESSION_JSONL_UNREADABLE'
+  | 'RUNTIME_DISPOSAL_FAILED';
 
 /** A stable error object returned in response and event payloads. */
 export interface PiError {

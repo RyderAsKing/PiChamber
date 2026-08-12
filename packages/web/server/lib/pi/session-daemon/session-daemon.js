@@ -11,6 +11,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 
 import { createSessionRuntimeRegistry } from './runtime-registry.js';
+import { getPiSessionDirectory, validatePiSessionJsonlDirectory, validatePiSessionJsonlFile } from './session-jsonl.js';
 
 const PROTOCOL_VERSION = 1;
 const MAX_FRAME_BYTES = 1024 * 1024;
@@ -32,7 +33,7 @@ export function isLocalSessionDaemonEndpoint(endpoint, platform = process.platfo
   return isAbsolute(endpoint);
 }
 
-async function createPiSessionRuntime({ cwd, agentDir = getAgentDir() }) {
+async function createPiSessionRuntime({ cwd, agentDir = getAgentDir(), sessionFile }) {
   const createRuntime = async ({ cwd: runtimeCwd, agentDir: runtimeAgentDir, sessionManager, sessionStartEvent }) => {
     const services = await createAgentSessionServices({
       cwd: runtimeCwd,
@@ -57,7 +58,9 @@ async function createPiSessionRuntime({ cwd, agentDir = getAgentDir() }) {
   return createAgentSessionRuntime(createRuntime, {
     cwd,
     agentDir,
-    sessionManager: SessionManager.create(cwd),
+    sessionManager: sessionFile
+      ? SessionManager.open(sessionFile, getPiSessionDirectory({ cwd, agentDir }), cwd)
+      : SessionManager.create(cwd, getPiSessionDirectory({ cwd, agentDir })),
   });
 }
 
@@ -68,6 +71,7 @@ export function createSessionDaemon({
   agentDir = getAgentDir(),
   createRuntime = createPiSessionRuntime,
   healthMetadata = {},
+  idleTimeoutMs = 5 * 60 * 1_000,
   platform = process.platform,
 } = {}) {
   if (!isLocalSessionDaemonEndpoint(endpoint, platform)) {
@@ -79,10 +83,16 @@ export function createSessionDaemon({
   if (typeof cwd !== 'string' || cwd.length === 0) {
     throw new SessionDaemonProtocolError('INVALID_CWD', 'The session daemon working directory is invalid.');
   }
+  if (!Number.isFinite(idleTimeoutMs) || idleTimeoutMs < 0) {
+    throw new SessionDaemonProtocolError('INVALID_IDLE_TIMEOUT', 'The session daemon idle timeout is invalid.');
+  }
 
   let server;
   let runtime;
   let runtimeRegistry;
+  let runtimeStartPromise;
+  let idleDisposeTimer;
+  let dormantSession;
   let sequence = 0;
   let started = false;
   const clients = new Set();
@@ -101,21 +111,41 @@ export function createSessionDaemon({
     for (const client of clients) writeFrame(client, message);
   };
 
+  const getSessionState = () => runtime
+    ? { sessionId: runtime.session.sessionId, isStreaming: runtime.session.isStreaming }
+    : { sessionId: dormantSession?.sessionId, isStreaming: false };
+
+  const rememberRuntimeSession = () => {
+    const sessionId = runtime?.session?.sessionId;
+    if (typeof sessionId !== 'string' || sessionId.length === 0) return;
+    dormantSession = {
+      sessionId,
+      sessionFile: runtime.session.sessionManager?.getSessionFile?.(),
+    };
+  };
+
   const publishSnapshot = (socket) => {
+    const session = getSessionState();
     writeFrame(socket, {
       protocolVersion: PROTOCOL_VERSION,
       kind: 'event',
       event: 'session.snapshot',
       sequence: ++sequence,
       payload: {
-        sessionId: runtime.session.sessionId,
-        isStreaming: runtime.session.isStreaming,
+        sessionId: session.sessionId,
+        isStreaming: session.isStreaming,
         lastSequence: sequence,
       },
     });
   };
 
+  const clearIdleDisposal = () => {
+    if (idleDisposeTimer) clearTimeout(idleDisposeTimer);
+    idleDisposeTimer = undefined;
+  };
+
   const disposeRuntime = async () => {
+    clearIdleDisposal();
     if (runtimeRegistry) {
       const hadTrackedRuntime = runtimeRegistry.size > 0;
       await runtimeRegistry.disposeAll();
@@ -125,6 +155,34 @@ export function createSessionDaemon({
       await runtime?.dispose?.();
     }
     runtime = undefined;
+  };
+
+  const startRuntime = async ({ sessionFile } = {}) => {
+    if (sessionFile) await validatePiSessionJsonlFile(sessionFile);
+    runtime = await createRuntime({ cwd, agentDir, ...(sessionFile ? { sessionFile } : {}) });
+    bindSession();
+    rememberRuntimeSession();
+    return runtime;
+  };
+
+  const ensureRuntime = () => {
+    if (runtime) return Promise.resolve(runtime);
+    if (!runtimeStartPromise) {
+      runtimeStartPromise = startRuntime({ sessionFile: dormantSession?.sessionFile }).finally(() => {
+        runtimeStartPromise = undefined;
+      });
+    }
+    return runtimeStartPromise;
+  };
+
+  const scheduleIdleDisposal = (sessionId) => {
+    clearIdleDisposal();
+    idleDisposeTimer = setTimeout(() => {
+      idleDisposeTimer = undefined;
+      if (!runtime || runtime.session.sessionId !== sessionId || runtime.session.isStreaming) return;
+      rememberRuntimeSession();
+      void disposeRuntime().catch(() => publish('session.error', { code: 'RUNTIME_DISPOSAL_FAILED' }, sessionId));
+    }, idleTimeoutMs);
   };
 
   const publishSessionEvent = (sessionId, event) => {
@@ -151,10 +209,12 @@ export function createSessionDaemon({
         publish('session.queue', { steering: event.steering.length, followUp: event.followUp.length }, sessionId);
         break;
       case 'agent_start':
+        clearIdleDisposal();
         publish('session.lifecycle', { state: 'running' }, sessionId);
         break;
       case 'agent_settled':
         publish('session.lifecycle', { state: 'idle' }, sessionId);
+        scheduleIdleDisposal(sessionId);
         break;
       default:
         break;
@@ -181,7 +241,7 @@ export function createSessionDaemon({
           requestId: message.requestId,
           result: {
             state: 'ready',
-            sessionId: runtime.session.sessionId,
+            sessionId: getSessionState().sessionId,
             lastSequence: sequence,
             ...(Number.isInteger(healthMetadata.daemonPid) ? { daemonPid: healthMetadata.daemonPid } : {}),
           },
@@ -192,8 +252,8 @@ export function createSessionDaemon({
         if (typeof text !== 'string' || text.length === 0 || Buffer.byteLength(text) > 64 * 1024) {
           throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session prompt is invalid.');
         }
-        void runtime.session.prompt(text).catch(() => {
-          publish('session.error', { code: 'PROMPT_FAILED' });
+        void ensureRuntime().then((activeRuntime) => activeRuntime.session.prompt(text)).catch((error) => {
+          publish('session.error', { code: error?.code ?? 'PROMPT_FAILED' }, getSessionState().sessionId);
         });
         writeFrame(socket, {
           protocolVersion: PROTOCOL_VERSION,
@@ -271,8 +331,8 @@ export function createSessionDaemon({
     },
     async start() {
       if (started) return;
-      runtime = await createRuntime({ cwd, agentDir });
-      bindSession();
+      await validatePiSessionJsonlDirectory({ cwd, agentDir });
+      await startRuntime();
 
       try {
         if (platform !== 'win32') {

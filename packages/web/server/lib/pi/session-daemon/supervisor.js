@@ -31,14 +31,21 @@ const getWindowsOwnerKey = () => {
   }
 };
 
-const isValidState = (state) => (
+const hasValidStateIdentity = (state) => (
   state
   && state.protocolVersion === PROTOCOL_VERSION
   && Number.isInteger(state.pid)
   && state.pid > 0
   && typeof state.endpoint === 'string'
-  && typeof state.startedAt === 'string'
 );
+
+const isValidState = (state) => hasValidStateIdentity(state) && typeof state.startedAt === 'string';
+
+const isValidFailureState = (state) => hasValidStateIdentity(state)
+  && state.state === 'failed'
+  && typeof state.error?.code === 'string';
+
+const isPermanentStartupFailure = (code) => code === 'MALFORMED_SESSION_JSONL' || code === 'SESSION_JSONL_UNREADABLE';
 
 const isPidAlive = (processLike, pid) => {
   try {
@@ -106,24 +113,9 @@ export const createPiSessionDaemonSupervisor = ({
     await mkdir(paths.piDataDir, { recursive: true, mode: 0o700 });
     await chmod(paths.piDataDir, 0o700);
     while (true) {
+      let handle;
       try {
-        const handle = await open(paths.lockFile, 'wx', 0o600);
-        try {
-          await handle.writeFile(JSON.stringify({ pid: processLike.pid, claimedAt: new Date().toISOString() }));
-          await chmod(paths.lockFile, 0o600);
-        } finally {
-          await handle.close();
-        }
-        try {
-          return await operation();
-        } finally {
-          try {
-            const claim = JSON.parse(await readFile(paths.lockFile, 'utf8'));
-            if (claim?.pid === processLike.pid) await rm(paths.lockFile, { force: true });
-          } catch {
-            // A missing or already-replaced lock must not remove another owner.
-          }
-        }
+        handle = await open(paths.lockFile, 'wx', 0o600);
       } catch (error) {
         if (error?.code !== 'EEXIST') throw new PiSessionDaemonUnavailableError('DAEMON_LOCK_UNAVAILABLE');
         try {
@@ -134,6 +126,24 @@ export const createPiSessionDaemonSupervisor = ({
         }
         if (Date.now() >= deadline) throw new PiSessionDaemonUnavailableError('DAEMON_LOCK_TIMEOUT');
         await wait(RETRY_DELAY_MS);
+        continue;
+      }
+
+      try {
+        await handle.writeFile(JSON.stringify({ pid: processLike.pid, claimedAt: new Date().toISOString() }));
+        await chmod(paths.lockFile, 0o600);
+      } finally {
+        await handle.close();
+      }
+      try {
+        return await operation();
+      } finally {
+        try {
+          const claim = JSON.parse(await readFile(paths.lockFile, 'utf8'));
+          if (claim?.pid === processLike.pid) await rm(paths.lockFile, { force: true });
+        } catch {
+          // A missing or already-replaced lock must not remove another owner.
+        }
       }
     }
   };
@@ -142,6 +152,15 @@ export const createPiSessionDaemonSupervisor = ({
     try {
       const state = JSON.parse(await readFile(paths.stateFile, 'utf8'));
       return isValidState(state) ? state : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const readFailureState = async () => {
+    try {
+      const state = JSON.parse(await readFile(paths.stateFile, 'utf8'));
+      return isValidFailureState(state) ? state : null;
     } catch {
       return null;
     }
@@ -182,6 +201,8 @@ export const createPiSessionDaemonSupervisor = ({
   const probe = async (credential) => {
     const state = await readState();
     if (!state || state.endpoint !== paths.endpoint) {
+      const failure = await readFailureState();
+      if (failure?.endpoint === paths.endpoint) throw new PiSessionDaemonUnavailableError(failure.error.code);
       throw new PiSessionDaemonUnavailableError('DAEMON_UNAVAILABLE');
     }
     try {
@@ -192,7 +213,11 @@ export const createPiSessionDaemonSupervisor = ({
       return { state, health };
     } catch (error) {
       if (error instanceof PiSessionDaemonUnavailableError) throw error;
-      throw new PiSessionDaemonUnavailableError(error instanceof SessionDaemonClientError ? error.code : 'DAEMON_UNAVAILABLE');
+      throw new PiSessionDaemonUnavailableError(
+        error instanceof SessionDaemonClientError && error.code !== 'DAEMON_CONNECTION_REFUSED'
+          ? error.code
+          : 'DAEMON_UNAVAILABLE',
+      );
     }
   };
 
@@ -208,10 +233,31 @@ export const createPiSessionDaemonSupervisor = ({
   };
 
   const removeStaleState = async (state) => {
-    const current = await readState();
+    const current = await readState() ?? await readFailureState();
     if (current?.pid === state?.pid && current.endpoint === paths.endpoint) {
       await rm(paths.stateFile, { force: true });
     }
+  };
+
+  const recoverVerifiedStaleEndpoint = async (state, credential) => {
+    if (platform === 'win32' || !state || isPidAlive(processLike, state.pid)) return false;
+    try {
+      const endpoint = await lstat(paths.endpoint);
+      if (!endpoint.isSocket()) return false;
+    } catch (error) {
+      if (error?.code === 'ENOENT') return false;
+      throw new PiSessionDaemonUnavailableError('DAEMON_ENDPOINT_UNREADABLE');
+    }
+
+    try {
+      await request({ endpoint: paths.endpoint, credential, command: 'runtime.health' });
+      return false;
+    } catch (error) {
+      if (!(error instanceof SessionDaemonClientError) || error.code !== 'DAEMON_CONNECTION_REFUSED') return false;
+    }
+
+    await rm(paths.endpoint, { force: false });
+    return true;
   };
 
   const start = async () => {
@@ -225,13 +271,16 @@ export const createPiSessionDaemonSupervisor = ({
         if (!(error instanceof PiSessionDaemonUnavailableError)) throw error;
       }
 
-      const staleState = await readState();
+      const staleState = await readState() ?? await readFailureState();
       if (staleState && isPidAlive(processLike, staleState.pid)) {
         throw new PiSessionDaemonUnavailableError('DAEMON_UNAVAILABLE');
       }
       if (await endpointExists()) {
-        // Do not unlink a socket we could not authenticate and identify.
-        throw new PiSessionDaemonUnavailableError('DAEMON_ENDPOINT_UNVERIFIED');
+        const recovered = await recoverVerifiedStaleEndpoint(staleState, credential);
+        if (!recovered) {
+          // Do not unlink a socket we could not authenticate and identify.
+          throw new PiSessionDaemonUnavailableError('DAEMON_ENDPOINT_UNVERIFIED');
+        }
       }
       if (staleState) await removeStaleState(staleState);
       await mkdir(dirname(paths.stateFile), { recursive: true, mode: 0o700 });
@@ -261,7 +310,8 @@ export const createPiSessionDaemonSupervisor = ({
         try {
           const started = await probe(credential);
           return { state: 'ready', reused: false, protocolVersion: PROTOCOL_VERSION, capabilities: started.health.capabilities ?? [] };
-        } catch {
+        } catch (error) {
+          if (error instanceof PiSessionDaemonUnavailableError && isPermanentStartupFailure(error.code)) throw error;
           await wait(RETRY_DELAY_MS);
         }
       }
