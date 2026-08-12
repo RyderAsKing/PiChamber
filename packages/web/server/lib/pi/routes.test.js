@@ -235,6 +235,60 @@ describe('Pi runtime route', () => {
     ]);
   });
 
+  it('adapts every path-selected session operation and archives without selecting a Pi runtime', async () => {
+    const calls = [];
+    const detail = { session: { id: 'pi-session-7', directory: '/workspace', createdAt: 1, updatedAt: 2 }, messages: [], lastSequence: 5 };
+    const archiveStore = { read: async () => ({ 'pi-session-7': 9 }), set: async (...args) => calls.push({ command: 'archive.set', payload: args }) };
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        if (command === 'sessions.open' || command === 'sessions.navigate' || command === 'sessions.fork' || command === 'sessions.clone') return detail;
+        if (command === 'sessions.tree') return { rootId: 'pi-session-7', nodes: [{ sessionId: 'pi-session-7', updatedAt: 2, children: [], privatePath: '/private' }] };
+        if (command === 'sessions.list') return { sessions: [{ session: detail.session, updatedAt: 2 }] };
+        if (['sessions.prompt', 'sessions.steer', 'sessions.followUp'].includes(command)) return { accepted: true, messageId: 'message-1' };
+        return {};
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, archiveStore });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi/sessions/pi-session-7`;
+
+    await expect((await fetch(`${base}/snapshot`)).json()).resolves.toMatchObject({ session: { archived: true, timeArchived: 9 } });
+    expect((await fetch(base, { method: 'DELETE' })).status).toBe(204);
+    await expect((await fetch(`${base}/tree`)).json()).resolves.toEqual({ rootId: 'pi-session-7', nodes: [{ sessionId: 'pi-session-7', updatedAt: 2, children: [] }] });
+    expect((await fetch(`${base}/navigate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other', messageId: 'entry-1' }) })).status).toBe(200);
+    expect((await fetch(`${base}/fork`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other', messageId: 'entry-1' }) })).status).toBe(201);
+    expect((await fetch(`${base}/clone`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other' }) })).status).toBe(201);
+    for (const suffix of ['prompt', 'steer', 'follow-up']) {
+      expect((await fetch(`${base}/${suffix}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other', text: 'hello' }) })).status).toBe(202);
+    }
+    for (const [suffix, body] of [['abort', {}], ['model', { model: { providerId: 'test', modelId: 'model' } }], ['thinking', { thinking: 'high' }], ['compact', { thinking: 'low' }]]) {
+      expect((await fetch(`${base}/${suffix}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other', ...body }) })).status).toBe(204);
+    }
+    const callsBeforeArchive = calls.length;
+    expect((await fetch(`${base}/archive`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived: false }) })).status).toBe(204);
+    expect(calls).toContainEqual({ command: 'archive.set', payload: ['pi-session-7', false] });
+    expect(calls.slice(callsBeforeArchive)).toContainEqual({ command: 'sessions.list', payload: undefined });
+    expect(calls.slice(callsBeforeArchive)).not.toContainEqual({ command: 'sessions.open', payload: { sessionId: 'pi-session-7' } });
+    for (const call of calls.filter((call) => call.command?.startsWith('sessions.') && call.command !== 'sessions.list')) {
+      expect(call.payload.sessionId).toBe('pi-session-7');
+    }
+  });
+
+  it('rejects unauthenticated requests before the Pi adapters run', async () => {
+    let invoked = false;
+    const app = express();
+    app.use('/api', (_req, res) => res.status(401).json({ error: { code: 'UNAUTHORIZED' } }));
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => { invoked = true; return undefined; } });
+    server = await listen(app);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions`);
+    expect(response.status).toBe(401);
+    expect(invoked).toBe(false);
+  });
+
   it('streams sequenced projected snapshots without exposing private transport fields', async () => {
     const runtime = {
       health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),

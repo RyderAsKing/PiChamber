@@ -403,8 +403,14 @@ export function createSessionDaemon({
       ...(payload.title ? { setup: async (manager) => manager.appendSessionInfo(payload.title.trim()) } : {}),
     });
     if (!result || result.cancelled) throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled session creation.');
-    if (payload.model) await setSessionModel(activeRuntime, payload.model);
-    if (payload.thinking) activeRuntime.session.setThinkingLevel(payload.thinking);
+    if (payload.model) {
+      await setSessionModel(activeRuntime, payload.model);
+      publishSessionModel(activeRuntime.session);
+    }
+    if (payload.thinking) {
+      activeRuntime.session.setThinkingLevel(payload.thinking);
+      publish('session.thinking', { thinking: payload.thinking });
+    }
     rememberRuntimeSession();
     return projectActiveSession();
   };
@@ -418,24 +424,40 @@ export function createSessionDaemon({
     await activeRuntime.session.setModel(selected);
   };
 
+  const publishSessionModel = (session, sessionId = session?.sessionId) => {
+    const model = session?.model;
+    if (!model?.provider || !model?.id) {
+      throw new SessionDaemonProtocolError('INVALID_MODEL', 'Pi did not select a valid model.');
+    }
+    publish('session.model', { model: { providerId: model.provider, modelId: model.id } }, sessionId);
+  };
+
+  const validateThinking = (thinking) => {
+    if (!['off', 'low', 'medium', 'high', 'xhigh'].includes(thinking)) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested thinking level is invalid.');
+    }
+  };
+
   const sessionInput = async (payload, delivery) => {
     if (!payload || typeof payload !== 'object' || typeof payload.sessionId !== 'string'
       || typeof payload.text !== 'string' || payload.text.length === 0 || Buffer.byteLength(payload.text) > 64 * 1024) {
       throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session prompt is invalid.');
     }
+    if (payload.thinking !== undefined) validateThinking(payload.thinking);
     const activeRuntime = await activateSession(payload.sessionId);
-    if (payload.model !== undefined) await setSessionModel(activeRuntime, payload.model);
-    if (payload.thinking !== undefined) {
-      if (!['off', 'low', 'medium', 'high', 'xhigh'].includes(payload.thinking)) {
-        throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested thinking level is invalid.');
-      }
-      activeRuntime.session.setThinkingLevel(payload.thinking);
-    }
     if (!delivery && activeRuntime.session.isStreaming) {
       throw new SessionDaemonProtocolError('SESSION_BUSY', 'The Pi session already has an active run.');
     }
     if (delivery && !activeRuntime.session.isStreaming) {
       throw new SessionDaemonProtocolError('SESSION_NOT_RUNNING', 'The Pi session has no active run.');
+    }
+    if (payload.model !== undefined) {
+      await setSessionModel(activeRuntime, payload.model);
+      publishSessionModel(activeRuntime.session, payload.sessionId);
+    }
+    if (payload.thinking !== undefined) {
+      activeRuntime.session.setThinkingLevel(payload.thinking);
+      publish('session.thinking', { thinking: payload.thinking }, payload.sessionId);
     }
     await activeRuntime.session.sendUserMessage(payload.text, delivery ? { deliverAs: delivery } : undefined);
     const messageId = typeof payload.messageId === 'string' && payload.messageId.length > 0
@@ -680,24 +702,30 @@ export function createSessionDaemon({
       case 'sessions.setModel': {
         const activeRuntime = await activateSession(message.payload?.sessionId);
         await setSessionModel(activeRuntime, message.payload?.model);
-        const selected = activeRuntime.session.model;
-        publish('session.model', { model: { providerId: selected.provider, modelId: selected.id } }, message.payload.sessionId);
+        publishSessionModel(activeRuntime.session, message.payload.sessionId);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
         return;
       }
       case 'sessions.setThinking': {
         const activeRuntime = await activateSession(message.payload?.sessionId);
         const thinking = message.payload?.thinking;
-        if (!['off', 'low', 'medium', 'high', 'xhigh'].includes(thinking)) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested thinking level is invalid.');
+        validateThinking(thinking);
         activeRuntime.session.setThinkingLevel(thinking);
         publish('session.thinking', { thinking }, message.payload.sessionId);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
         return;
       }
       case 'sessions.compact': {
+        if (message.payload?.thinking !== undefined) validateThinking(message.payload.thinking);
         const activeRuntime = await activateSession(message.payload?.sessionId);
-        if (message.payload?.model !== undefined) await setSessionModel(activeRuntime, message.payload.model);
-        if (message.payload?.thinking !== undefined) activeRuntime.session.setThinkingLevel(message.payload.thinking);
+        if (message.payload?.model !== undefined) {
+          await setSessionModel(activeRuntime, message.payload.model);
+          publishSessionModel(activeRuntime.session, message.payload.sessionId);
+        }
+        if (message.payload?.thinking !== undefined) {
+          activeRuntime.session.setThinkingLevel(message.payload.thinking);
+          publish('session.thinking', { thinking: message.payload.thinking }, message.payload.sessionId);
+        }
         await activeRuntime.session.compact();
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
         return;

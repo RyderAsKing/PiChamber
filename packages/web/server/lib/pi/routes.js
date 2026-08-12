@@ -104,6 +104,23 @@ const projectSessionDetail = (value) => {
   return { session: projectSession(value.session), messages, lastSequence: value.lastSequence };
 };
 
+const projectSessionTree = (value) => {
+  if (!value || typeof value !== 'object' || typeof value.rootId !== 'string' || !Array.isArray(value.nodes)) throw protocolMismatch();
+  const projectNode = (node) => {
+    if (!node || typeof node !== 'object' || typeof node.sessionId !== 'string'
+      || (node.parentId !== undefined && node.parentId !== null && typeof node.parentId !== 'string')
+      || !Number.isFinite(node.updatedAt) || !Array.isArray(node.children)) throw protocolMismatch();
+    return {
+      sessionId: node.sessionId,
+      ...(typeof node.parentId === 'string' ? { parentId: node.parentId } : {}),
+      ...(typeof node.title === 'string' ? { title: node.title } : {}),
+      updatedAt: node.updatedAt,
+      children: node.children.map(projectNode),
+    };
+  };
+  return { rootId: value.rootId, nodes: value.nodes.map(projectNode) };
+};
+
 const sessionIdFrom = (req) => typeof req.params.sessionId === 'string' && req.params.sessionId.length > 0 ? req.params.sessionId : undefined;
 
 const projectEventFrame = (frame) => {
@@ -294,15 +311,22 @@ export const registerPiRuntimeRoutes = (app, { getPiSessionDaemonRuntime, archiv
     }
   });
 
-  app.get('/api/pi/sessions/:sessionId', async (req, res) => {
+  const sendSessionDetail = async (req, res) => {
     const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.open');
-    if (result !== undefined) res.json(projectSessionDetail(result));
-  });
+    if (result === undefined) return;
+    try {
+      const detail = projectSessionDetail(result);
+      const archived = await archiveStore.read();
+      res.json(archived[detail.session.id]
+        ? { ...detail, session: { ...detail.session, archived: true, timeArchived: archived[detail.session.id] } }
+        : detail);
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  };
 
-  app.get('/api/pi/sessions/:sessionId/snapshot', async (req, res) => {
-    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.open');
-    if (result !== undefined) res.json(projectSessionDetail(result));
-  });
+  app.get('/api/pi/sessions/:sessionId', sendSessionDetail);
+  app.get('/api/pi/sessions/:sessionId/snapshot', sendSessionDetail);
 
   app.delete('/api/pi/sessions/:sessionId', async (req, res) => {
     const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.delete');
@@ -317,9 +341,15 @@ export const registerPiRuntimeRoutes = (app, { getPiSessionDaemonRuntime, archiv
       return;
     }
     try {
-      // Confirm that the opaque ID belongs to the configured daemon before
-      // writing PiChamber-only metadata.
-      await getDaemonRuntime(getPiSessionDaemonRuntime).request('sessions.open', { sessionId });
+      // Confirm membership without selecting/replacing the daemon's active
+      // runtime: archive is PiChamber metadata, not a Pi session mutation.
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('sessions.list');
+      const items = projectSessionList(result?.sessions);
+      if (!items.some((item) => item.session.id === sessionId)) {
+        const error = new Error('The Pi session does not exist.');
+        error.code = 'INVALID_SESSION';
+        throw error;
+      }
       await archiveStore.set(sessionId, archived);
       res.status(204).end();
     } catch (error) {
@@ -329,7 +359,7 @@ export const registerPiRuntimeRoutes = (app, { getPiSessionDaemonRuntime, archiv
 
   app.get('/api/pi/sessions/:sessionId/tree', async (req, res) => {
     const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.tree');
-    if (result !== undefined) res.json(result);
+    if (result !== undefined) res.json(projectSessionTree(result));
   });
 
   app.post('/api/pi/sessions/:sessionId/navigate', async (req, res) => {

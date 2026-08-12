@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved design plan. This document records the agreed migration from the current OpenCode-backed product to a Pi-native PiChamber. The completed Workstream 0 boundary/spike and the implemented daemon-lifecycle and shared-client foundations are recorded in their implementation records: [Workstream 0](./pichamber-pi-workstream-0.md), [daemon lifecycle](./pichamber-pi-workstream-1.md), and [shared client](./pichamber-pi-workstream-3.md). Those foundations do **not** satisfy the full Workstream 1–3 delivery gates below: there is no releasable Pi-native UI path or partial dual-runtime release.
+Approved design plan. This document records the agreed migration from the current OpenCode-backed product to a Pi-native PiChamber. The completed boundary, daemon lifecycle, IPC/API, and shared-client foundations are recorded in their implementation records: [Workstream 0](./pichamber-pi-workstream-0.md), [daemon lifecycle](./pichamber-pi-workstream-1.md), and [shared client](./pichamber-pi-workstream-3.md). Workstreams 1 and 2 have focused exit-gate validation; there is still no releasable Pi-native UI path or partial dual-runtime release.
 
 A workstream is complete only when its stated exit gate has focused validation. A foundation record documents delivered prerequisites; it must not be used to claim that its consuming workstream is complete. This document is intentionally scoped separately from the completed identity-stabilization work recorded in the changelog.
 
@@ -322,7 +322,7 @@ Protocol requirements:
 
 The provider, resource, and attachment command names reserve their protocol shapes here, but their daemon handlers and public routes remain owned by Workstreams 4–6. They do not block the session/UI cutover gate.
 
-**Exit gate:** focused daemon, route, and transport tests cover every core session command/event family, public route authentication/redaction, snapshot-resume sequencing, queue/abort behavior, and unavailable/malformed-session failures. The implemented envelope and shared types are prerequisites, not evidence that the command/event surface is complete.
+**Exit gate: complete.** Focused daemon, route, and transport tests cover every core session command/event family, public route authentication/redaction, snapshot-resume sequencing, queue/abort behavior, and unavailable/malformed-session failures. The implementation keeps the daemon private and treats unavailable or malformed state as explicit failures, never empty success.
 
 ### Workstream 3: Replace the OpenCode API and UI data layer
 
@@ -483,7 +483,7 @@ This is a dependency-based implementation timeline, not a calendar commitment. E
 | --- | --- | --- |
 | Completed foundation | Boundary and lifecycle prerequisites | The Workstream 0 spike, private daemon lifecycle, and shared-client foundations are recorded separately. They are prerequisites only and do not satisfy a later workstream exit gate. |
 | Completed workstream | Daemon registry and recovery | Workstream 1’s identity-plus-cwd registry, replacement rebinding, idle disposal, malformed-session failure, and crash recovery have focused tests. |
-| Next dependency gate | Complete IPC and authenticated API | Workstream 2’s command/event families, queue policy, snapshot resume, and authenticated public adapters pass focused daemon, route, and transport tests. |
+| Completed workstream | Private IPC and authenticated API | Workstream 2’s command/event families, queue policy, snapshot resume, and authenticated public adapters pass focused daemon, route, and transport tests. |
 | Then | Pi-native web UI cutover | Workstream 3’s service/store replacement powers session list, transcript, prompt, steer/follow-up, abort, model/thinking, tree/fork/clone, reconnect, and interrupted/error states in the web UI. |
 | Subsequent | Pi settings, providers, resources | Pi auth/models/settings integration, PiChamber defaults, provider UI, trust, AGENTS.md, native skills/templates, Magic Prompts, and extension-disabled policy work end to end. |
 | Subsequent | Core server workspace integrations | Filesystem, terminal, Git, temporary path attachments, direct local/VPS connection, trusted-device auth, and Electron daemon lifecycle are usable. |
