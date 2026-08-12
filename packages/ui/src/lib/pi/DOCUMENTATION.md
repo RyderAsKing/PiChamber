@@ -74,6 +74,9 @@ reconnect begins.
 including bootstrap, sequenced event reduction, reconnect hydration, and
 runtime-switch disposal. `PiApp.tsx` is mounted by both the web/desktop and
 mobile app entries and uses only `PiService` for session flows.
+`PiResourceSettings.tsx` hosts the mounted Providers, Skills, Snippets,
+Behavior/`AGENTS.md`, and Magic Prompts surfaces, including the project-trust
+dialog. `?settings=` opens that surface directly.
 
 Native resource discovery is projected from Pi's resource loader without filesystem paths. Skills are browse-only; Pi prompt templates and applicable global/project instruction files are edited only through opaque daemon identifiers. Project-local resources remain hidden until the browser makes an explicit persisted Pi trust decision; extensions remain disabled by the daemon.
 

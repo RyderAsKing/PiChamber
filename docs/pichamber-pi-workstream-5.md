@@ -45,5 +45,7 @@ server-resolved opaque ID rather than a browser-supplied path.
 - `git diff --check`
 
 Focused tests cover opaque resource projection, resource write persistence,
-route allowlisting, and typed client requests. Static checks do not replace
-manual browser validation; visual smoke coverage remains outstanding.
+route allowlisting, and typed client requests. The mounted Pi app hosts the
+resource Settings pages (including `?settings=` deep links). Visual smoke
+screenshots for skills, snippets, Behavior/`AGENTS.md`, Magic Prompts, and
+the project-trust dialog are attached to the Workstream 5 pull request.
