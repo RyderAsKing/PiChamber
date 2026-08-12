@@ -4,7 +4,11 @@ import { isWebRuntime } from '@/lib/desktop';
 import { usePwaDetection } from '@/hooks/usePwaDetection';
 import { useI18n } from '@/lib/i18n';
 import { getDeferredSafeStorage, getSafeSessionStorage } from '@/stores/utils/safeStorage';
-import { shouldShowPwaInstallToast } from '@/components/update/openCodeUpdateDedup';
+
+const shouldShowPwaInstallToast = (input: { dismissed: string | null; sessionShown: string | null; hasActiveToast: boolean }) => {
+  if (input.hasActiveToast || input.dismissed === 'true' || input.sessionShown === 'true') return false;
+  return true;
+};
 
 type InstallPromptOutcome = 'accepted' | 'dismissed';
 

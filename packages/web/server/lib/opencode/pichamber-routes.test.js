@@ -138,4 +138,17 @@ describe('PiChamber foreground update route', () => {
       timeout: 5000,
     });
   });
+
+  it('rejects an update in Docker container mode with 409 error', async () => {
+    const { app, dependencies } = createApp();
+    dependencies.fs.existsSync.mockImplementation((targetPath) => targetPath === '/.dockerenv');
+
+    await request(app)
+      .post('/api/openchamber/update-install')
+      .expect(409, {
+        error: 'Docker deployments must be updated using container image deployment (e.g. docker pull) rather than in-app replacement.',
+      });
+
+    expect(childProcess.spawnSync).not.toHaveBeenCalled();
+  });
 });

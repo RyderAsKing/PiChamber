@@ -1,3 +1,4 @@
+import fs from 'fs';
 import { requestServerShutdown } from './cli-http.js';
 import { discoverRunningInstances } from './cli-lifecycle.js';
 import {
@@ -28,7 +29,6 @@ function createUpdateCommand({ importFromFilePath, packageManagerPath, serveComm
       getCurrentVersion,
     } = await importFromFilePath(packageManagerPath);
 
-    const runningInstances = await discoverRunningInstances();
     const currentVersion = getCurrentVersion();
 
     if (showOutput) {
@@ -49,6 +49,7 @@ function createUpdateCommand({ importFromFilePath, packageManagerPath, serveComm
       }
       throw new Error(updateInfo.error);
     }
+
     if (!updateInfo.available) {
       if (isJsonMode(options)) {
         printJson({
@@ -70,11 +71,64 @@ function createUpdateCommand({ importFromFilePath, packageManagerPath, serveComm
       return;
     }
 
+    const isContainer =
+      fs.existsSync('/.dockerenv') ||
+      Boolean(process.env.CONTAINER) ||
+      process.env.container === 'docker';
+
+    if (isContainer) {
+      const msg = 'Docker deployments must be updated using container image deployment (e.g. docker pull) rather than in-app replacement.';
+      updateSpin?.error('Docker deployment detected');
+      if (isJsonMode(options)) {
+        printJson({
+          currentVersion,
+          latestVersion: updateInfo.version || 'latest',
+          updated: false,
+          error: msg,
+        });
+        return;
+      }
+      if (showOutput) {
+        clackOutro('update skipped');
+      }
+      throw new Error(msg);
+    }
+
+    const isSystemdService = Boolean(process.env.INVOCATION_ID) || Boolean(process.env.OPENCHAMBER_SYSTEMD_UNIT);
+    if (isSystemdService) {
+      const msg = 'systemd deployments must be updated through package management and service restart (e.g. systemctl --user restart openchamber.service).';
+      updateSpin?.error('systemd service deployment detected');
+      if (isJsonMode(options)) {
+        printJson({
+          currentVersion,
+          latestVersion: updateInfo.version || 'latest',
+          updated: false,
+          error: msg,
+        });
+        return;
+      }
+      if (showOutput) {
+        clackOutro('update skipped');
+      }
+      throw new Error(msg);
+    }
+
     if (showOutput && !updateSpin) {
       logStatus('info', `updating ${updateInfo.currentVersion || currentVersion} -> ${updateInfo.version || 'latest'}`);
     }
     updateSpin?.message(`Updating to ${updateInfo.version || 'latest'}...`);
 
+    const pm = detectPackageManager();
+    const result = executeUpdate(pm, { silent: isJsonMode(options) || isQuietMode(options) });
+    if (!result.success) {
+      updateSpin?.error('Update failed');
+      if (showOutput) {
+        clackOutro('update failed');
+      }
+      throw new Error(`Update failed with exit code ${result.exitCode}`);
+    }
+
+    const runningInstances = await discoverRunningInstances();
     if (runningInstances.length > 0) {
       updateSpin?.message(`Stopping ${runningInstances.length} running instance(s)...`);
       for (const instance of runningInstances) {
@@ -89,19 +143,7 @@ function createUpdateCommand({ importFromFilePath, packageManagerPath, serveComm
         } catch {
         }
       }
-    }
 
-    const pm = detectPackageManager();
-    const result = executeUpdate(pm, { silent: isJsonMode(options) || isQuietMode(options) });
-    if (!result.success) {
-      updateSpin?.error('Update failed');
-      if (showOutput) {
-        clackOutro('update failed');
-      }
-      throw new Error(`Update failed with exit code ${result.exitCode}`);
-    }
-
-    if (runningInstances.length > 0) {
       updateSpin?.message(`Restarting ${runningInstances.length} instance(s)...`);
       for (const instance of runningInstances) {
         const storedOptions = readInstanceOptions(instance.instanceFilePath) || { port: instance.port };
@@ -139,3 +181,4 @@ function createUpdateCommand({ importFromFilePath, packageManagerPath, serveComm
 }
 
 export { createUpdateCommand };
+
