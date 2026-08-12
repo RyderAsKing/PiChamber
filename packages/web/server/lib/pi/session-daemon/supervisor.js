@@ -7,7 +7,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 import { resolvePiChamberDataDir } from '../../pichamber-data-dir.js';
 import { isLocalSessionDaemonEndpoint } from './session-daemon.js';
-import { requestSessionDaemon, SessionDaemonClientError } from './ipc-client.js';
+import { requestSessionDaemon, SessionDaemonClientError, subscribeSessionDaemon } from './ipc-client.js';
 
 const PROTOCOL_VERSION = 1;
 const STARTUP_TIMEOUT_MS = 5_000;
@@ -344,6 +344,12 @@ export const createPiSessionDaemonSupervisor = ({
     }
   };
 
+  const subscribe = async ({ sessionId, fromSequence, onEvent, onError }) => {
+    const credential = await readCredential();
+    await probe(credential);
+    return subscribeSessionDaemon({ endpoint: paths.endpoint, credential, sessionId, fromSequence, onEvent, onError });
+  };
+
   const health = async () => {
     try {
       const credential = await readCredential();
@@ -382,5 +388,5 @@ export const createPiSessionDaemonSupervisor = ({
     });
   };
 
-  return { paths, start, health, request: requestDaemon, stop };
+  return { paths, start, health, request: requestDaemon, subscribe, stop };
 };

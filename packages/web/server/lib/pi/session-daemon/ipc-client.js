@@ -84,3 +84,61 @@ export const requestSessionDaemon = ({ endpoint, credential, command, payload, t
     }
   });
 });
+
+/**
+ * Open an authenticated server-only event subscription. The caller owns the
+ * returned close function and must relay only projected frames to browsers.
+ */
+export const subscribeSessionDaemon = ({ endpoint, credential, sessionId, fromSequence, onEvent, onError, timeoutMs = 5_000 }) => {
+  const decoder = new StringDecoder('utf8');
+  let buffer = '';
+  let authenticated = false;
+  let closed = false;
+  const socket = createConnection(endpoint);
+  const timer = setTimeout(() => fail(new SessionDaemonClientError('DAEMON_UNAVAILABLE')), timeoutMs);
+  const finish = () => {
+    clearTimeout(timer);
+    if (!closed) socket.destroy();
+  };
+  const fail = (error) => {
+    if (closed) return;
+    closed = true;
+    clearTimeout(timer);
+    socket.destroy();
+    onError?.(error);
+  };
+  socket.once('error', () => fail(new SessionDaemonClientError('DAEMON_UNAVAILABLE')));
+  socket.on('connect', () => {
+    socket.write(`${JSON.stringify({ kind: 'authenticate', credential, ...(sessionId ? { sessionId } : {}), ...(Number.isSafeInteger(fromSequence) && fromSequence >= 0 ? { fromSequence } : {}) })}\n`);
+  });
+  socket.on('data', (chunk) => {
+    buffer += decoder.write(chunk);
+    if (Buffer.byteLength(buffer) > MAX_FRAME_BYTES) return fail(new SessionDaemonClientError('MALFORMED_DAEMON_RESPONSE'));
+    while (true) {
+      const newline = buffer.indexOf('\n');
+      if (newline === -1) return;
+      const line = buffer.slice(0, newline).replace(/\r$/, '');
+      buffer = buffer.slice(newline + 1);
+      if (!line) continue;
+      let message;
+      try { message = JSON.parse(line); } catch { fail(new SessionDaemonClientError('MALFORMED_DAEMON_RESPONSE')); return; }
+      if (message.protocolVersion !== PROTOCOL_VERSION) { fail(new SessionDaemonClientError('UNSUPPORTED_DAEMON_PROTOCOL')); return; }
+      if (!authenticated) {
+        if (message.kind !== 'authenticated') { fail(new SessionDaemonClientError('DAEMON_AUTH_FAILED')); return; }
+        authenticated = true;
+        clearTimeout(timer);
+        continue;
+      }
+      if (message.kind === 'event') onEvent?.(message);
+      else if (message.kind === 'error') fail(new SessionDaemonClientError(message.error?.code ?? 'DAEMON_REQUEST_FAILED'));
+    }
+  });
+  socket.on('close', () => {
+    if (!closed) fail(new SessionDaemonClientError('DAEMON_UNAVAILABLE'));
+  });
+  return () => {
+    if (closed) return;
+    closed = true;
+    finish();
+  };
+};
