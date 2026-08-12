@@ -10,8 +10,8 @@ import { createSessionDaemon } from './session-daemon.js';
 const credential = 'a-private-daemon-credential';
 
 class FakeSession {
-  constructor() {
-    this.sessionId = 'pi-session-1';
+  constructor(sessionId = 'pi-session-1') {
+    this.sessionId = sessionId;
     this.isStreaming = false;
     this.listeners = new Set();
   }
@@ -26,6 +26,25 @@ class FakeSession {
   }
 
   async prompt() {}
+}
+
+class FakeRuntime {
+  constructor({ cwd, session }) {
+    this.cwd = cwd;
+    this.session = session;
+    this.rebindSession = undefined;
+  }
+
+  setRebindSession(rebindSession) {
+    this.rebindSession = rebindSession;
+  }
+
+  async replaceSession(session) {
+    this.session = session;
+    await this.rebindSession?.(session);
+  }
+
+  async dispose() {}
 }
 
 function connectClient(endpoint) {
@@ -161,6 +180,39 @@ describe('Pi session daemon spike', () => {
     });
     expect((await delta).sequence).toBeGreaterThan(reconnectSnapshot.sequence);
     await reconnectingClient.close();
+  });
+
+  it('rebinds daemon events to the replacement Pi session identity', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
+    const endpoint = join(root, 'daemon.sock');
+    const firstSession = new FakeSession('pi-session-1');
+    const runtime = new FakeRuntime({ cwd: root, session: firstSession });
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => runtime,
+    });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    const replacementSession = new FakeSession('pi-session-2');
+    await runtime.replaceSession(replacementSession);
+    firstSession.emit({
+      type: 'message_update',
+      assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'stale' },
+    });
+    const delta = client.next((message) => message.event === 'assistant.message.delta');
+    replacementSession.emit({
+      type: 'message_update',
+      assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'current' },
+    });
+
+    await expect(delta).resolves.toMatchObject({
+      payload: { sessionId: 'pi-session-2', contentIndex: 0, delta: 'current' },
+    });
+    await client.close();
   });
 
   it('rejects non-local endpoints and unauthenticated clients before a request can reach the runtime', async () => {
