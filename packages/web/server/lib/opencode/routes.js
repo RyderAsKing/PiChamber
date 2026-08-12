@@ -73,7 +73,7 @@ export const registerOpenCodeRoutes = (app, dependencies) => {
       console.error('Failed to resolve OpenCode binary:', error);
       res.status(500).json({ error: 'Failed to resolve OpenCode binary' });
     }
-
+  });
 
   app.get('/api/opencode/health', async (_req, res) => {
     try {
