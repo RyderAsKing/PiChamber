@@ -32,6 +32,8 @@ import {
   type PiProviderConfigResponse,
   type PiProviderStatusResponse,
   type PiResourceListResponse,
+  type PiResourceUpdateInput,
+  type PiPromptTemplateCreateInput,
   type PiRuntimeHealth,
   type PiProjectListResponse,
   type PiSessionCreateInput,
@@ -459,11 +461,30 @@ export class PiService {
 
   async listResources(scope?: PiClientScope): Promise<PiResourceListResponse> {
     assertRuntimeUnchanged(scope);
-    const directory = scope?.directory ?? this.currentDirectory;
     return jsonRequest<undefined, PiResourceListResponse>('/api/pi/resources', {
       method: 'GET',
-      ...(directory ? { query: { directory } } : {}),
       ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  async updateResource(input: PiResourceUpdateInput, scope?: PiClientScope): Promise<PiResourceListResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<PiResourceUpdateInput, PiResourceListResponse>(`/api/pi/resources/${encodeURIComponent(input.resourceId)}`, {
+      method: 'PUT', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  async createPromptTemplate(input: PiPromptTemplateCreateInput, scope?: PiClientScope): Promise<PiResourceListResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<PiPromptTemplateCreateInput, PiResourceListResponse>('/api/pi/resources/prompts', {
+      method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  async deletePromptTemplate(resourceId: string, scope?: PiClientScope): Promise<PiResourceListResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiResourceListResponse>(`/api/pi/resources/prompts/${encodeURIComponent(resourceId)}`, {
+      method: 'DELETE', ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
     });
   }
 

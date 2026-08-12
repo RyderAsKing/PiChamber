@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -564,6 +564,34 @@ describe('Pi session daemon spike', () => {
       result: { project: { trusted: true, defaultProvider: 'test', defaultModel: 'model', defaultThinking: 'high' } },
     });
     expect(trust).toBe(true);
+    await client.close();
+  });
+
+  it('lists and edits only opaque Pi resource identifiers without disclosing server paths', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-resources-'));
+    const cwd = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    const endpoint = join(root, 'daemon.sock');
+    await Promise.all([mkdir(cwd), mkdir(agentDir)]);
+    const loader = {
+      getSkills: () => ({ skills: [{ name: 'review', description: 'Review changes', filePath: join(agentDir, 'skills', 'review', 'SKILL.md'), sourceInfo: { scope: 'user', origin: 'top-level' } }] }),
+      getPrompts: () => ({ prompts: [] }),
+      getAgentsFiles: () => ({ agentsFiles: [] }),
+    };
+    daemon = createSessionDaemon({
+      endpoint, credential, cwd, agentDir,
+      createRuntime: async () => ({ session: new FakeSession(), services: { resourceLoader: loader }, async dispose() {} }),
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    const listed = await client.request('resources.list');
+    expect(listed.result.skills).toEqual([expect.objectContaining({ name: 'review', location: 'global' })]);
+    const globalAgents = listed.result.agents.find((resource) => resource.location === 'global');
+    expect(globalAgents).toMatchObject({ kind: 'agents', name: 'AGENTS.md', editable: true });
+    expect(JSON.stringify(listed.result)).not.toContain(agentDir);
+    await expect(client.request('resources.update', { resourceId: globalAgents.id, content: '# Global instructions\n' })).resolves.toMatchObject({ result: { agents: expect.any(Array) } });
+    await expect(readFile(join(agentDir, 'AGENTS.md'), 'utf8')).resolves.toBe('# Global instructions\n');
     await client.close();
   });
 

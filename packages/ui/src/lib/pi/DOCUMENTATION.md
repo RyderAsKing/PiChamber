@@ -75,6 +75,8 @@ including bootstrap, sequenced event reduction, reconnect hydration, and
 runtime-switch disposal. `PiApp.tsx` is mounted by both the web/desktop and
 mobile app entries and uses only `PiService` for session flows.
 
+Native resource discovery is projected from Pi's resource loader without filesystem paths. Skills are browse-only; Pi prompt templates and applicable global/project instruction files are edited only through opaque daemon identifiers. Project-local resources remain hidden until the browser makes an explicit persisted Pi trust decision; extensions remain disabled by the daemon.
+
 Provider discovery is projected from Pi's model runtime without credentials.
 The mounted Providers surface submits API keys once through the authenticated
 adapter or renders Pi's opaque browser/device/manual-code login state; stored

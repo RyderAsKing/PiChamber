@@ -202,7 +202,28 @@ const projectPiSettings = (value) => {
     ...(typeof settings.defaultThinking === 'string' ? { defaultThinking: settings.defaultThinking } : {}),
     ...(typeof settings.defaultProjectTrust === 'string' ? { defaultProjectTrust: settings.defaultProjectTrust } : {}),
   });
-  return { pi: { global: copy(value.global), project: { trusted: project.trusted, ...(project.denied === true ? { denied: true } : {}), ...copy(project) } } };
+  return { pi: { global: copy(value.global), project: { trusted: project.trusted, ...(project.denied === true ? { denied: true } : {}), ...(project.requiresTrust === true ? { requiresTrust: true } : {}), ...copy(project) } } };
+};
+
+const projectResources = (value) => {
+  if (!value || typeof value !== 'object') throw protocolMismatch();
+  const project = (resources, kind) => {
+    if (!Array.isArray(resources)) throw protocolMismatch();
+    return resources.map((resource) => {
+      if (!resource || typeof resource !== 'object' || resource.kind !== kind || typeof resource.id !== 'string' || resource.id.length === 0
+        || typeof resource.name !== 'string' || !['global', 'project', 'package', 'path'].includes(resource.location)) throw protocolMismatch();
+      return {
+        id: resource.id,
+        kind,
+        name: resource.name,
+        location: resource.location,
+        ...(typeof resource.description === 'string' ? { description: resource.description } : {}),
+        ...(typeof resource.content === 'string' ? { content: resource.content } : {}),
+        ...(resource.editable === true ? { editable: true } : {}),
+      };
+    });
+  };
+  return { skills: project(value.skills, 'skill'), prompts: project(value.prompts, 'prompt'), agents: project(value.agents, 'agents') };
 };
 
 const projectSessionTree = (value) => {
@@ -482,6 +503,54 @@ export const registerPiRuntimeRoutes = (app, {
     try {
       const pichamber = await settingsStore.update(req.body ?? {});
       res.json({ pichamber });
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.get('/api/pi/resources', async (_req, res) => {
+    try {
+      res.json(projectResources(await getDaemonRuntime(getPiSessionDaemonRuntime).request('resources.list')));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.put('/api/pi/resources/:resourceId', async (req, res) => {
+    const resourceId = req.params.resourceId;
+    const content = req.body?.content;
+    if (typeof resourceId !== 'string' || resourceId.length === 0 || typeof content !== 'string') {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      res.json(projectResources(await getDaemonRuntime(getPiSessionDaemonRuntime).request('resources.update', { resourceId, content })));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.post('/api/pi/resources/prompts', async (req, res) => {
+    const { name, description, content, location } = req.body ?? {};
+    if (typeof name !== 'string' || typeof description !== 'string' || typeof content !== 'string' || !['global', 'project'].includes(location)) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      res.status(201).json(projectResources(await getDaemonRuntime(getPiSessionDaemonRuntime).request('resources.prompts.create', { name, description, content, location })));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.delete('/api/pi/resources/prompts/:resourceId', async (req, res) => {
+    const resourceId = req.params.resourceId;
+    if (typeof resourceId !== 'string' || resourceId.length === 0) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      res.json(projectResources(await getDaemonRuntime(getPiSessionDaemonRuntime).request('resources.prompts.delete', { resourceId })));
     } catch (error) {
       writeDaemonError(res, error);
     }

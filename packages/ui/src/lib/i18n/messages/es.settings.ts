@@ -2125,4 +2125,8 @@ export const settingsDict = {
   "settings.pichamber.visual.field.followUpBehaviorDescription": "Choose what happens when you press Enter on a follow-up message while the agent is still responding.",
   "settings.pichamber.visual.option.followUpBehavior.steer.label": "Steer",
   "settings.pichamber.visual.option.followUpBehavior.queue.label": "Queue",
+  'settings.projectTrust.dialog.title': '¿Confiar en este proyecto?',
+  'settings.projectTrust.dialog.description': 'Este proyecto contiene ajustes, habilidades, plantillas o extensiones de Pi. Al confiar en él, permites que Pi cargue esos recursos del proyecto.',
+  'settings.projectTrust.dialog.decline': 'Mantener sin confianza',
+  'settings.projectTrust.dialog.trust': 'Confiar en el proyecto',
 } as const;

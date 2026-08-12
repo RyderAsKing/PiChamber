@@ -147,6 +147,23 @@ describe("PiService", () => {
     expect(await client.setPiChamberDefaults({ defaultThinking: "high" })).toEqual({ pichamber: { version: 1, defaultThinking: "high" } })
   })
 
+  test("uses the typed native resource routes", async () => {
+    installFetchMock((call) => {
+      if (call.url === "/api/pi/resources" && call.init?.method === "GET") {
+        return jsonResponse({ skills: [], prompts: [], agents: [] })
+      }
+      if (call.url === "/api/pi/resources/prompt-1" && call.init?.method === "PUT") {
+        expect(JSON.parse(call.init.body as string)).toEqual({ resourceId: "prompt-1", content: "Updated" })
+        return jsonResponse({ skills: [], prompts: [], agents: [] })
+      }
+      return jsonResponse({ error: { code: "DAEMON_REQUEST_FAILED" } }, { status: 500 })
+    })
+    const { PiService } = await import("./client")
+    const client = new PiService()
+    expect(await client.listResources()).toEqual({ skills: [], prompts: [], agents: [] })
+    expect(await client.updateResource({ resourceId: "prompt-1", content: "Updated" })).toEqual({ skills: [], prompts: [], agents: [] })
+  })
+
   test("listProviders returns the parsed payload", async () => {
     installFetchMock(() =>
       jsonResponse({

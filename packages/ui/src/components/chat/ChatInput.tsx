@@ -1923,7 +1923,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         const textBeforeCursor = message.substring(0, cursorPosition);
         const lastHashSymbol = textBeforeCursor.lastIndexOf('#');
         const startIndex = lastHashSymbol !== -1 ? lastHashSymbol : cursorPosition;
-        const newMessage = `${message.substring(0, startIndex)}#${trigger} ${message.substring(cursorPosition)}`;
+        const newMessage = `${message.substring(0, startIndex)}/${trigger} ${message.substring(cursorPosition)}`;
         setMessage(newMessage);
         const nextCursor = startIndex + trigger.length + 2;
         requestAnimationFrame(() => {
