@@ -72,6 +72,14 @@ export function createSessionDaemon({
   createRuntime = createPiSessionRuntime,
   healthMetadata = {},
   idleTimeoutMs = 5 * 60 * 1_000,
+  listSessions = ({ cwd: sessionCwd, agentDir: sessionAgentDir }) => SessionManager.list(
+    sessionCwd,
+    getPiSessionDirectory({ cwd: sessionCwd, agentDir: sessionAgentDir }),
+  ),
+  renamePersistedSession = ({ sessionFile, title }) => {
+    const manager = SessionManager.open(sessionFile, getPiSessionDirectory({ cwd, agentDir }), cwd);
+    manager.appendSessionInfo(title);
+  },
   platform = process.platform,
 } = {}) {
   if (!isLocalSessionDaemonEndpoint(endpoint, platform)) {
@@ -185,6 +193,119 @@ export function createSessionDaemon({
     }, idleTimeoutMs);
   };
 
+  const listSessionItems = async (requestedDirectory) => {
+    if (requestedDirectory !== undefined && requestedDirectory !== cwd) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested session directory is invalid.');
+    }
+    await validatePiSessionJsonlDirectory({ cwd, agentDir });
+    const sessions = await listSessions({ cwd, agentDir });
+    if (!Array.isArray(sessions)) {
+      throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi returned an invalid session collection.');
+    }
+
+    const idByPath = new Map(sessions.map((session) => [session?.path, session?.id]));
+    const items = sessions.map((session) => {
+      const createdAt = session?.created instanceof Date ? session.created.getTime() : NaN;
+      const updatedAt = session?.modified instanceof Date ? session.modified.getTime() : NaN;
+      if (typeof session?.id !== 'string' || session.id.length === 0 || !Number.isFinite(createdAt) || !Number.isFinite(updatedAt)) {
+        throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi returned an invalid session record.');
+      }
+      return {
+        session: {
+          id: session.id,
+          directory: cwd,
+          ...(typeof session.name === 'string' && session.name.length > 0 ? { title: session.name } : {}),
+          ...(typeof session.parentSessionPath === 'string' && idByPath.get(session.parentSessionPath)
+            ? { parentId: idByPath.get(session.parentSessionPath) }
+            : {}),
+          createdAt,
+          updatedAt,
+          ...(Number.isSafeInteger(session.messageCount) && session.messageCount >= 0 ? { messageCount: session.messageCount } : {}),
+        },
+        ...(typeof session.firstMessage === 'string' && session.firstMessage.length > 0 ? { preview: session.firstMessage } : {}),
+        updatedAt,
+      };
+    });
+
+    const activeSession = runtime?.session;
+    const activeSessionId = activeSession?.sessionId;
+    if (typeof activeSessionId !== 'string' || activeSessionId.length === 0 || items.some((item) => item.session.id === activeSessionId)) {
+      return items;
+    }
+    const manager = activeSession.sessionManager;
+    const header = manager?.getHeader?.();
+    const createdAt = Date.parse(header?.timestamp);
+    if (!Number.isFinite(createdAt)) {
+      throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi returned an invalid active session.');
+    }
+    const entries = manager?.getEntries?.();
+    items.unshift({
+      session: {
+        id: activeSessionId,
+        directory: cwd,
+        ...(typeof manager?.getSessionName?.() === 'string' ? { title: manager.getSessionName() } : {}),
+        createdAt,
+        updatedAt: createdAt,
+        ...(Array.isArray(entries) ? { messageCount: entries.filter((entry) => entry?.type === 'message').length } : {}),
+      },
+      updatedAt: createdAt,
+    });
+    return items;
+  };
+
+  const renameSession = async (payload) => {
+    if (!payload || typeof payload !== 'object' || typeof payload.sessionId !== 'string' || payload.sessionId.length === 0
+      || typeof payload.title !== 'string' || payload.title.trim().length === 0 || payload.title.length > 256) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested session title is invalid.');
+    }
+    const sessionId = payload.sessionId;
+    const title = payload.title.trim();
+    const activeSession = runtime?.session;
+    if (activeSession?.sessionId === sessionId) {
+      const manager = activeSession.sessionManager;
+      if (typeof manager?.appendSessionInfo !== 'function') {
+        throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi returned an invalid active session.');
+      }
+      manager.appendSessionInfo(title);
+      return;
+    }
+
+    await validatePiSessionJsonlDirectory({ cwd, agentDir });
+    const sessions = await listSessions({ cwd, agentDir });
+    const target = Array.isArray(sessions) ? sessions.find((session) => session?.id === sessionId) : undefined;
+    if (typeof target?.path !== 'string' || target.path.length === 0) {
+      throw new SessionDaemonProtocolError('INVALID_SESSION', 'The Pi session does not exist.');
+    }
+    await validatePiSessionJsonlFile(target.path);
+    renamePersistedSession({ sessionFile: target.path, title });
+  };
+
+  const createSession = async (payload) => {
+    if (!payload || typeof payload !== 'object' || payload.cwd !== cwd) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested session directory is invalid.');
+    }
+    if (payload.parentId !== undefined || payload.title !== undefined || payload.model !== undefined || payload.thinking !== undefined) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested session creation options are not supported.');
+    }
+
+    const activeRuntime = await ensureRuntime();
+    const result = await activeRuntime.newSession?.();
+    if (!result || result.cancelled) {
+      throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled session creation.');
+    }
+
+    const sessionId = activeRuntime.session?.sessionId;
+    if (typeof sessionId !== 'string' || sessionId.length === 0) {
+      throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi created an invalid session.');
+    }
+    const sessions = await listSessionItems(cwd);
+    const created = sessions.find((item) => item.session.id === sessionId);
+    if (!created) {
+      throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi did not persist the created session.');
+    }
+    return { session: created.session, messages: [], lastSequence: sequence };
+  };
+
   const publishSessionEvent = (sessionId, event) => {
     switch (event.type) {
       case 'message_update': {
@@ -228,7 +349,7 @@ export function createSessionDaemon({
     runtimeRegistry.register(runtime, { cwd });
   };
 
-  const handleRequest = (socket, message) => {
+  const handleRequest = async (socket, message) => {
     if (message.protocolVersion !== PROTOCOL_VERSION || message.kind !== 'request' || typeof message.requestId !== 'string') {
       throw new SessionDaemonProtocolError('INVALID_REQUEST', 'The daemon request is invalid.');
     }
@@ -243,10 +364,41 @@ export function createSessionDaemon({
             state: 'ready',
             sessionId: getSessionState().sessionId,
             lastSequence: sequence,
+            capabilities: ['sessions.list', 'sessions.create', 'sessions.rename', 'sessions.prompt'],
             ...(Number.isInteger(healthMetadata.daemonPid) ? { daemonPid: healthMetadata.daemonPid } : {}),
           },
         });
         return;
+      case 'sessions.list': {
+        const sessions = await listSessionItems(message.payload?.directory);
+        writeFrame(socket, {
+          protocolVersion: PROTOCOL_VERSION,
+          kind: 'response',
+          requestId: message.requestId,
+          result: { sessions },
+        });
+        return;
+      }
+      case 'sessions.rename': {
+        await renameSession(message.payload);
+        writeFrame(socket, {
+          protocolVersion: PROTOCOL_VERSION,
+          kind: 'response',
+          requestId: message.requestId,
+          result: {},
+        });
+        return;
+      }
+      case 'sessions.create': {
+        const result = await createSession(message.payload);
+        writeFrame(socket, {
+          protocolVersion: PROTOCOL_VERSION,
+          kind: 'response',
+          requestId: message.requestId,
+          result,
+        });
+        return;
+      }
       case 'sessions.prompt': {
         const text = message.payload?.text;
         if (typeof text !== 'string' || text.length === 0 || Buffer.byteLength(text) > 64 * 1024) {
@@ -270,6 +422,7 @@ export function createSessionDaemon({
 
   const onConnection = (socket) => {
     let authenticated = false;
+    let requestChain = Promise.resolve();
     const decoder = new StringDecoder('utf8');
     let buffer = '';
 
@@ -310,7 +463,7 @@ export function createSessionDaemon({
             publishSnapshot(socket);
             continue;
           }
-          handleRequest(socket, message);
+          requestChain = requestChain.then(() => handleRequest(socket, message)).catch((error) => reject(error));
         } catch (error) {
           reject(error);
           return;

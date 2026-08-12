@@ -330,6 +330,20 @@ export const createPiSessionDaemonSupervisor = ({
     }
   };
 
+  const requestDaemon = async (command, payload) => {
+    const credential = await readCredential();
+    await probe(credential);
+    try {
+      return await request({ endpoint: paths.endpoint, credential, command, payload });
+    } catch (error) {
+      throw new PiSessionDaemonUnavailableError(
+        error instanceof SessionDaemonClientError && error.code !== 'DAEMON_CONNECTION_REFUSED'
+          ? error.code
+          : 'DAEMON_UNAVAILABLE',
+      );
+    }
+  };
+
   const health = async () => {
     try {
       const credential = await readCredential();
@@ -368,5 +382,5 @@ export const createPiSessionDaemonSupervisor = ({
     });
   };
 
-  return { paths, start, health, stop };
+  return { paths, start, health, request: requestDaemon, stop };
 };

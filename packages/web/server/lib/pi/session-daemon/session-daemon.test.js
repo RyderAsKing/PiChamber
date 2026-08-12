@@ -14,7 +14,11 @@ class FakeSession {
     this.sessionId = sessionId;
     this.isStreaming = false;
     this.listeners = new Set();
-    this.sessionManager = { getSessionFile: () => sessionFile };
+    this.names = [];
+    this.sessionManager = {
+      getSessionFile: () => sessionFile,
+      appendSessionInfo: (name) => this.names.push(name),
+    };
   }
 
   subscribe(listener) {
@@ -44,6 +48,13 @@ class FakeRuntime {
   async replaceSession(session) {
     this.session = session;
     await this.rebindSession?.(session);
+  }
+
+  async newSession() {
+    const session = new FakeSession('pi-session-new');
+    this.session = session;
+    await this.rebindSession?.(session);
+    return { cancelled: false };
   }
 
   async dispose() {
@@ -186,6 +197,119 @@ describe('Pi session daemon spike', () => {
     await reconnectingClient.close();
   });
 
+  it('lists only validated cwd-scoped sessions without exposing Pi JSONL paths', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
+    const endpoint = join(root, 'daemon.sock');
+    const listed = [];
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => ({ session: new FakeSession(), async dispose() {} }),
+      listSessions: async (options) => {
+        listed.push(options);
+        return [{
+          path: join(root, 'session.jsonl'),
+          id: 'pi-session-1',
+          cwd: root,
+          name: 'Pi session',
+          created: new Date('2026-01-01T00:00:00.000Z'),
+          modified: new Date('2026-01-02T00:00:00.000Z'),
+          messageCount: 3,
+          firstMessage: 'Keep this preview',
+        }];
+      },
+    });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await expect(client.request('sessions.list', { directory: root })).resolves.toMatchObject({
+      result: {
+        sessions: [{
+          session: {
+            id: 'pi-session-1',
+            directory: root,
+            title: 'Pi session',
+            messageCount: 3,
+          },
+          preview: 'Keep this preview',
+          updatedAt: Date.parse('2026-01-02T00:00:00.000Z'),
+        }],
+      },
+    });
+    expect(listed).toEqual([{ cwd: root, agentDir: expect.any(String) }]);
+    expect(JSON.stringify((await client.request('sessions.list')).result)).not.toContain('session.jsonl');
+    await client.close();
+  });
+
+  it('renames active and persisted sessions without exposing their JSONL paths', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
+    const endpoint = join(root, 'daemon.sock');
+    const persistedSessionFile = join(root, 'persisted.jsonl');
+    await writeFile(persistedSessionFile, `{"type":"session","id":"pi-session-persisted","cwd":"${root}"}\n`);
+    const activeSession = new FakeSession('pi-session-active');
+    const renamed = [];
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => new FakeRuntime({ cwd: root, session: activeSession }),
+      listSessions: async () => [{
+        path: persistedSessionFile,
+        id: 'pi-session-persisted',
+        cwd: root,
+        created: new Date('2026-01-01T00:00:00.000Z'),
+        modified: new Date('2026-01-01T00:00:01.000Z'),
+        messageCount: 1,
+        firstMessage: 'stored',
+      }],
+      renamePersistedSession: ({ sessionFile, title }) => renamed.push({ sessionFile, title }),
+    });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await expect(client.request('sessions.rename', { sessionId: 'pi-session-active', title: '  Active title  ' })).resolves.toMatchObject({ result: {} });
+    await expect(client.request('sessions.rename', { sessionId: 'pi-session-persisted', title: 'Persisted title' })).resolves.toMatchObject({ result: {} });
+    expect(activeSession.names).toEqual(['Active title']);
+    expect(renamed).toEqual([{ sessionFile: persistedSessionFile, title: 'Persisted title' }]);
+    await client.close();
+  });
+
+  it('creates and selects a persisted Pi session without accepting unsupported creation options', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
+    const endpoint = join(root, 'daemon.sock');
+    const runtime = new FakeRuntime({ cwd: root, session: new FakeSession('pi-session-old') });
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => runtime,
+      listSessions: async () => [{
+        path: join(root, 'new-session.jsonl'),
+        id: runtime.session.sessionId,
+        cwd: root,
+        created: new Date('2026-01-01T00:00:00.000Z'),
+        modified: new Date('2026-01-01T00:00:01.000Z'),
+        messageCount: 0,
+        firstMessage: '',
+      }],
+    });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await expect(client.request('sessions.create', { cwd: root })).resolves.toMatchObject({
+      result: {
+        session: { id: 'pi-session-new', directory: root, messageCount: 0 },
+        messages: [],
+      },
+    });
+    await expect(client.request('sessions.create', { cwd: root, title: 'unsupported' })).rejects.toThrow('Daemon connection closed');
+    client.socket.destroy();
+  });
+
   it('disposes an idle runtime without deleting its Pi JSONL and restores it on demand', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = join(root, 'daemon.sock');
@@ -319,8 +443,16 @@ describe('Pi session daemon spike', () => {
       const client = connectClient(endpoint);
       await client.authenticate();
       const health = await client.request('runtime.health');
-      expect(health.result).toMatchObject({ state: 'ready' });
+      expect(health.result).toMatchObject({
+        state: 'ready',
+        capabilities: ['sessions.list', 'sessions.create', 'sessions.rename', 'sessions.prompt'],
+      });
       expect(health.result.sessionId).toEqual(expect.any(String));
+      const created = await client.request('sessions.create', { cwd });
+      expect(created.result).toMatchObject({
+        session: { id: expect.any(String), directory: cwd, messageCount: 0 },
+        messages: [],
+      });
       await client.close();
     } finally {
       if (previousOffline === undefined) delete process.env.PI_OFFLINE;

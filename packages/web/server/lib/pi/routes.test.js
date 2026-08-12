@@ -57,4 +57,132 @@ describe('Pi runtime route', () => {
       error: { code: 'DAEMON_UNAVAILABLE' },
     });
   });
+
+  it('proxies a cwd-scoped session collection without exposing private daemon details', async () => {
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: ['sessions.list'] }),
+      request: async (command, payload) => {
+        expect(command).toBe('sessions.list');
+        expect(payload).toEqual({ directory: '/workspace' });
+        return {
+          sessions: [{
+            session: {
+              id: 'pi-session-1',
+              directory: '/workspace',
+              createdAt: 1,
+              updatedAt: 2,
+            },
+            updatedAt: 2,
+          }],
+          endpoint: '/private/socket',
+          credential: 'never-expose-this',
+        };
+      },
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions?directory=%2Fworkspace`);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      sessions: [{
+        session: {
+          id: 'pi-session-1',
+          directory: '/workspace',
+          createdAt: 1,
+          updatedAt: 2,
+        },
+        updatedAt: 2,
+      }],
+    });
+  });
+
+  it('renames a session through the daemon without accepting a body session identity', async () => {
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: ['sessions.rename'] }),
+      request: async (command, payload) => {
+        expect(command).toBe('sessions.rename');
+        expect(payload).toEqual({ sessionId: 'pi-session-3', title: 'Renamed' });
+        return {};
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions/pi-session-3`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: 'other-session', title: 'Renamed' }),
+    });
+    expect(response.status).toBe(204);
+  });
+
+  it('creates a session through the daemon and whitelists the fresh-session response', async () => {
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: ['sessions.create'] }),
+      request: async (command, payload) => {
+        expect(command).toBe('sessions.create');
+        expect(payload).toEqual({ cwd: '/workspace' });
+        return {
+          session: {
+            id: 'pi-session-2',
+            directory: '/workspace',
+            createdAt: 1,
+            updatedAt: 2,
+            sessionFile: '/private/session.jsonl',
+          },
+          messages: [],
+          lastSequence: 7,
+          credential: 'never-expose-this',
+        };
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cwd: '/workspace' }),
+    });
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({
+      session: {
+        id: 'pi-session-2',
+        directory: '/workspace',
+        createdAt: 1,
+        updatedAt: 2,
+      },
+      messages: [],
+      lastSequence: 7,
+    });
+  });
+
+  it('returns an explicit failure when the daemon session collection is unavailable or malformed', async () => {
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: ['sessions.list'] }),
+      request: async () => {
+        const error = new Error('unavailable');
+        error.code = 'MALFORMED_SESSION_JSONL';
+        throw error;
+      },
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+
+    const unavailable = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions`);
+    expect(unavailable.status).toBe(503);
+    await expect(unavailable.json()).resolves.toEqual({ error: { code: 'MALFORMED_SESSION_JSONL' } });
+
+    runtime.request = async () => ({ sessions: null });
+    const malformed = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions`);
+    expect(malformed.status).toBe(503);
+    await expect(malformed.json()).resolves.toEqual({ error: { code: 'DAEMON_PROTOCOL_MISMATCH' } });
+  });
 });

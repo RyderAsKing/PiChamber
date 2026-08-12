@@ -93,7 +93,12 @@ describe('Pi session daemon supervisor', () => {
     supervisor = createPiSessionDaemonSupervisor({ env, cwd });
     await expect(supervisor.start()).resolves.toMatchObject({ state: 'ready', reused: false, protocolVersion: 1 });
     await expect(supervisor.start()).resolves.toMatchObject({ state: 'ready', reused: true, protocolVersion: 1 });
-    await expect(supervisor.health()).resolves.toEqual({ state: 'ready', protocolVersion: 1, capabilities: [] });
+    await expect(supervisor.health()).resolves.toEqual({
+      state: 'ready',
+      protocolVersion: 1,
+      capabilities: ['sessions.list', 'sessions.create', 'sessions.rename', 'sessions.prompt'],
+    });
+    await expect(supervisor.request('sessions.list')).resolves.toMatchObject({ sessions: expect.any(Array) });
 
     const credential = await readFile(supervisor.paths.credentialFile, 'utf8');
     expect(credential.trim()).toHaveLength(64);
