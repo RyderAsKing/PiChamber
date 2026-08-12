@@ -2,6 +2,7 @@ import { createRealpathCache } from '../path-realpath-cache.js';
 import nodeFsPromises from 'node:fs/promises';
 import nodePath from 'node:path';
 import { resolvePiChamberDataDir } from '../pichamber-data-dir.js';
+import { createFsSearchRuntime } from './search.js';
 
 const EXEC_JOB_TTL_MS = 30 * 60 * 1000;
 const OUTSIDE_FILE_GRANT_TTL_MS = 10 * 60 * 1000;
@@ -1463,6 +1464,56 @@ export const registerFsRoutes = (app, dependencies) => {
         return sendOsPermissionDenied(res, 'Access to directory denied');
       }
       return res.status(500).json({ error: (error && error.message) || 'Failed to list directory' });
+    }
+  });
+
+  app.get('/api/fs/find', async (req, res) => {
+    const rawPath = typeof req.query.directory === 'string' ? req.query.directory : typeof req.query.path === 'string' ? req.query.path : '';
+    if (!rawPath.trim()) return res.status(400).json({ error: 'Directory path is required' });
+
+    try {
+      const { canonicalPath } = await resolveWorkspacePath(rawPath, { scope: 'read' });
+      const query = typeof req.query.query === 'string' ? req.query.query : '';
+      const limit = Number.isSafeInteger(Number(req.query.limit)) ? Math.min(Number(req.query.limit), 500) : 60;
+      const includeHidden = req.query.includeHidden === 'true';
+      const respectGitignore = req.query.respectGitignore !== 'false';
+      const type = req.query.type === 'directory' ? 'directory' : req.query.type === 'file' ? 'file' : undefined;
+
+      const fsSearchRuntime = createFsSearchRuntime({ fsPromises, path, spawn, resolveGitBinaryForSpawn });
+      const rawHits = await fsSearchRuntime.searchFilesystemFiles(canonicalPath, {
+        query,
+        limit,
+        includeHidden,
+        respectGitignore,
+      });
+
+      const files = rawHits
+        .filter((hit) => {
+          if (type === 'file' && hit.isDir) return false;
+          if (type === 'directory' && !hit.isDir) return false;
+          return true;
+        })
+        .map((hit) => {
+          const hitPath = hit.path.replace(/\\/g, '/');
+          const rootNorm = canonicalPath.replace(/\\/g, '/');
+          const relativePath = hitPath.startsWith(rootNorm)
+            ? hitPath.slice(rootNorm.length).replace(/^\//, '')
+            : path.basename(hitPath);
+          const name = path.basename(hitPath);
+          return {
+            name,
+            path: hitPath,
+            relativePath,
+            ...(name.includes('.') ? { extension: name.split('.').pop().toLowerCase() } : {}),
+          };
+        });
+
+      return res.json({ files });
+    } catch (error) {
+      if (error && error.code === 'WORKSPACE_ACCESS_DENIED') {
+        return sendWorkspaceAccessDenied(res, 'Access to directory denied');
+      }
+      return res.status(500).json({ error: (error && error.message) || 'Failed to search files' });
     }
   });
 };

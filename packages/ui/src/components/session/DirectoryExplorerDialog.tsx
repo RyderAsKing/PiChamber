@@ -22,8 +22,9 @@ import { runtimeFetch } from '@/lib/runtime-fetch';
 import { useDeviceInfo } from '@/lib/device';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { Icon } from "@/components/icon/Icon";
-import { opencodeClient } from '@/lib/opencode/client';
+import { getFilesystemHome, listLocalDirectory } from '@/lib/fsApi';
 import { useI18n } from '@/lib/i18n';
+
 import {
   isFilesystemError,
   type FilesystemErrorReason,
@@ -122,22 +123,7 @@ const focusPathInput = (input: HTMLInputElement | null): void => {
 };
 
 const resolveFreshFilesystemHome = async (): Promise<string | null> => {
-  try {
-    const response = await runtimeFetch('/api/fs/home', {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-    });
-    if (response.ok) {
-      const data = await response.json() as { home?: unknown };
-      if (typeof data.home === 'string' && data.home.trim().length > 0) {
-        return normalizeSeparators(data.home.trim());
-      }
-    }
-  } catch {
-    // Fall back to the client helper below.
-  }
-
-  return opencodeClient.getFilesystemHome().catch(() => null);
+  return getFilesystemHome();
 };
 
 export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = ({
@@ -269,7 +255,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     setIsLoading(true);
     setIsBrowseDirectoryMissing(false);
     setBrowseErrorReason(null);
-    opencodeClient.listLocalDirectory(browseDirectoryAbsolutePath)
+    listLocalDirectory(browseDirectoryAbsolutePath)
       .then((result) => {
         if (cancelled) return;
         setIsBrowseDirectoryMissing(false);
@@ -446,14 +432,26 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
           toast.error(t('directoryExplorerDialog.toast.cloneUrlRequired'));
           return;
         }
-        const result = await opencodeClient.cloneRepository({
-          remoteUrl,
-          destinationPath: target,
-          gitIdentityId: selectedGitIdentity?.id ?? null,
+        const response = await runtimeFetch('/api/git/clone', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            remoteUrl,
+            destinationPath: target,
+            gitIdentityId: selectedGitIdentity?.id ?? null,
+          }),
         });
-        selectedTarget = result.path;
+        if (!response.ok) {
+          throw new Error('Failed to clone git repository');
+        }
+        const data = (await response.json()) as { path?: string };
+        selectedTarget = data.path || target;
       } else if (shouldCreateSelection) {
-        await opencodeClient.createDirectory(target, { asProject: true });
+        await runtimeFetch('/api/fs/mkdir', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: target }),
+        });
       }
       const project = addProject(selectedTarget);
       if (!project) {

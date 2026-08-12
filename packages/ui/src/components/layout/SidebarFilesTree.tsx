@@ -39,7 +39,7 @@ import { useDirectoryShowHidden } from '@/lib/directoryShowHidden';
 import { useFilesViewShowGitignored } from '@/lib/filesViewShowGitignored';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { cn, getRevealLabelKey } from '@/lib/utils';
-import { opencodeClient } from '@/lib/opencode/client';
+import { listLocalDirectory } from '@/lib/fsApi';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { Icon } from "@/components/icon/Icon";
 import { getContextFileOpenFailureMessage, validateContextFileOpen } from '@/lib/contextFileOpenGuard';
@@ -600,7 +600,7 @@ export const SidebarFilesTree: React.FC = () => {
         path: entry.path,
         isDirectory: entry.isDirectory,
       })))
-      : opencodeClient.listLocalDirectory(normalizedDir).then((result) => result.map((entry) => ({
+      : listLocalDirectory(normalizedDir).then((result) => result.map((entry) => ({
         name: entry.name,
         path: entry.path,
         isDirectory: entry.isDirectory,
