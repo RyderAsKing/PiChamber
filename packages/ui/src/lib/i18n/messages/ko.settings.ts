@@ -2125,4 +2125,8 @@ export const settingsDict = {
   'settings.pichamber.visual.field.followUpBehaviorDescription': 'Choose what happens when you press Enter on a follow-up message while the agent is still responding.',
   'settings.pichamber.visual.option.followUpBehavior.steer.label': 'Steer',
   'settings.pichamber.visual.option.followUpBehavior.queue.label': 'Queue',
+  'settings.projectTrust.dialog.title': '이 프로젝트를 신뢰하시겠습니까?',
+  'settings.projectTrust.dialog.description': '이 프로젝트에는 Pi 설정, 스킬, 프롬프트 또는 확장이 포함되어 있습니다. 신뢰하면 Pi가 이러한 프로젝트 리소스를 불러올 수 있습니다.',
+  'settings.projectTrust.dialog.decline': '신뢰하지 않음',
+  'settings.projectTrust.dialog.trust': '프로젝트 신뢰',
 } as const;

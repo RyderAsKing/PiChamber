@@ -2125,4 +2125,8 @@ export const settingsDict = {
   'settings.pichamber.visual.field.followUpBehaviorDescription': 'エージェントが応答している間にフォローアップメッセージで Enter を押したときの動作を選択します。',
   'settings.pichamber.visual.option.followUpBehavior.steer.label': 'ステア',
   'settings.pichamber.visual.option.followUpBehavior.queue.label': 'キュー',
+  'settings.projectTrust.dialog.title': 'このプロジェクトを信頼しますか？',
+  'settings.projectTrust.dialog.description': 'このプロジェクトには Pi の設定、スキル、プロンプト、または拡張機能が含まれています。信頼すると、Pi はこれらのプロジェクトリソースを読み込めます。',
+  'settings.projectTrust.dialog.decline': '信頼しない',
+  'settings.projectTrust.dialog.trust': 'プロジェクトを信頼',
 } as const;

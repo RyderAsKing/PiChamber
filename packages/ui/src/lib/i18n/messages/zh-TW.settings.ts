@@ -2125,4 +2125,8 @@
   'settings.pichamber.visual.field.followUpBehaviorDescription': 'Choose what happens when you press Enter on a follow-up message while the agent is still responding.',
   'settings.pichamber.visual.option.followUpBehavior.steer.label': 'Steer',
   'settings.pichamber.visual.option.followUpBehavior.queue.label': 'Queue',
+  'settings.projectTrust.dialog.title': '信任此專案？',
+  'settings.projectTrust.dialog.description': '此專案包含 Pi 設定、技能、提示範本或擴充功能。信任後，Pi 可以載入這些專案資源。',
+  'settings.projectTrust.dialog.decline': '保持不信任',
+  'settings.projectTrust.dialog.trust': '信任專案',
 } as const;

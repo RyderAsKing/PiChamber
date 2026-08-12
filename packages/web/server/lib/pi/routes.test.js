@@ -208,6 +208,34 @@ describe('Pi runtime route', () => {
     await expect((await fetch(`${base}/defaults`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ defaultThinking: 'low' }) })).json()).resolves.toEqual({ pichamber: { version: 1, defaultThinking: 'low' } });
   });
 
+  it('projects native resources without exposing daemon filesystem paths', async () => {
+    const calls = [];
+    const runtime = {
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        return {
+          skills: [{ id: 'skill-1', kind: 'skill', name: 'review', description: 'Review', location: 'global', filePath: '/private/skill/SKILL.md' }],
+          prompts: [{ id: 'prompt-1', kind: 'prompt', name: 'review', location: 'project', content: 'Review it', editable: true, filePath: '/private/.pi/prompts/review.md' }],
+          agents: [{ id: 'agents-1', kind: 'agents', name: 'AGENTS.md', location: 'global', content: 'Rules', editable: true, filePath: '/private/AGENTS.md' }],
+        };
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi/resources`;
+    const listed = await fetch(base);
+    await expect(listed.json()).resolves.toEqual({
+      skills: [{ id: 'skill-1', kind: 'skill', name: 'review', description: 'Review', location: 'global' }],
+      prompts: [{ id: 'prompt-1', kind: 'prompt', name: 'review', location: 'project', content: 'Review it', editable: true }],
+      agents: [{ id: 'agents-1', kind: 'agents', name: 'AGENTS.md', location: 'global', content: 'Rules', editable: true }],
+    });
+    const updated = await fetch(`${base}/agents-1`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: 'Updated rules' }) });
+    expect(updated.status).toBe(200);
+    expect(calls).toEqual([{ command: 'resources.list', payload: undefined }, { command: 'resources.update', payload: { resourceId: 'agents-1', content: 'Updated rules' } }]);
+  });
+
   it('uploads opaque attachments and resolves them only across the private prompt adapter', async () => {
     const calls = [];
     const attachmentStore = {

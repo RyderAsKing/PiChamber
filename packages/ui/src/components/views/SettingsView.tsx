@@ -7,7 +7,6 @@ import { useCommandsStore } from '@/stores/useCommandsStore';
 import { useMcpConfigStore } from '@/stores/useMcpConfigStore';
 import { useSnippetsStore } from '@/stores/useSnippetsStore';
 import { useSkillsStore } from '@/stores/useSkillsStore';
-import { useSkillsCatalogStore } from '@/stores/useSkillsCatalogStore';
 import { Tooltip, TooltipTrigger } from '@/components/ui/tooltip';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { AgentsSidebar } from '@/components/sections/agents/AgentsSidebar';
@@ -112,7 +111,6 @@ const pageOrder: SettingsPageSlug[] = [
   'magic-prompts',
   'snippets',
   'skills.installed',
-  'skills.catalog',
 ];
 
 const NAV_GROUP_ORDER = ['general', 'projects', 'opencode', 'content'] as const;
@@ -272,9 +270,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
       void usePluginsStore.getState().loadPlugins();
       return;
     }
-    if (settingsSlug === 'skills.installed' || settingsSlug === 'skills.catalog') {
+    if (settingsSlug === 'skills.installed') {
       void useSkillsStore.getState().loadSkills();
-      void useSkillsCatalogStore.getState().loadCatalog();
     }
     if (settingsSlug === 'snippets') {
       void useSnippetsStore.getState().loadSnippets();
@@ -336,8 +333,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         return t('settings.page.plugins.title');
       case 'skills.installed':
         return t('settings.page.skills.title');
-      case 'skills.catalog':
-        return t('settings.page.skillsCatalog.title');
       case 'git':
         return t('settings.page.git.title');
       case 'appearance':
@@ -422,14 +417,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
       store.setSnippetDraft({ name, scope: 'global' });
       store.setSelectedSnippet(name);
       return result.id === 'snippets.create' ? 'snippets.content' : result.id;
-    }
-
-    if (result.id.startsWith('skills.')) {
-      const store = useSkillsStore.getState();
-      const name = nextUniqueName('new-skill', store.skills.map((skill) => skill.name));
-      store.setSkillDraft({ name, scope: 'user', source: 'opencode', description: '', instructions: '' });
-      store.setSelectedSkill(name);
-      return result.id === 'skills.create' ? 'skills.basic-information' : result.id;
     }
 
     if (result.id === 'providers.connect') {
@@ -624,9 +611,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
       case 'plugins':
         return <PluginsPage />;
       case 'skills.installed':
-        return <SkillsPage view="installed" />;
-      case 'skills.catalog':
-        return <SkillsPage view="catalog" />;
+        return <SkillsPage />;
       case 'providers':
         return <ProvidersPage />;
       case 'usage':

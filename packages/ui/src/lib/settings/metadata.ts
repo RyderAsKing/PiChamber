@@ -14,7 +14,6 @@ export type SettingsPageSlug =
   | 'mcp'
   | 'plugins'
   | 'skills.installed'
-  | 'skills.catalog'
   | 'git'
   | 'appearance'
   | 'chat'
@@ -134,13 +133,6 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
     group: 'content',
     kind: 'split',
     keywords: ['skill', 'skills', 'instructions', 'install', 'catalog'],
-  },
-  {
-    slug: 'skills.catalog',
-    title: 'Skills Catalog',
-    group: 'content',
-    kind: 'single',
-    keywords: ['install', 'catalog', 'external', 'repository', 'skills catalog'],
   },
   {
     slug: 'git',
@@ -275,8 +267,6 @@ export function getSettingsNavIcon(slug: SettingsPageSlug): IconName | null {
 
     case 'skills.installed':
       return 'book-open';
-    case 'skills.catalog':
-      return 'book';
 
     case 'git':
       return 'git-branch';

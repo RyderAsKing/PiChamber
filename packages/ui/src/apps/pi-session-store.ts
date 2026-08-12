@@ -106,7 +106,7 @@ export class PiSessionStore {
   setModel = (sessionId: string, providerId: string, modelId: string) => piClient.setSessionModel({ sessionId, model: { providerId, modelId } }, this.scope());
   setThinking = (sessionId: string, thinking: 'off' | 'low' | 'medium' | 'high' | 'xhigh') => piClient.setSessionThinking({ sessionId, thinking }, this.scope());
   tree = (sessionId: string) => piClient.getSessionTree(sessionId, this.scope());
-  providers = () => piClient.listProviders(this.scope());
+  providers = () => piClient.listProviders({ runtimeKey: getRuntimeKey() });
   upload = (input: { filename: string; mime: string; base64: string }) => piClient.createAttachment(input, this.scope());
   selected(): PiProjectedSession | null { const id = this.state.selectedSessionId; const session = id ? this.state.reducer.bySession.get(id) : undefined; return session ? projectSession(session) : null; }
 

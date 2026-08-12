@@ -144,7 +144,7 @@ export const SnippetAutocomplete = React.forwardRef<SnippetAutocompleteHandle, S
           >
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="font-semibold truncate">#{snippet.name}</span>
+                <span className="font-semibold truncate">/{snippet.name}</span>
                 <span className="text-[10px] leading-none uppercase font-bold tracking-tight px-1.5 py-1 rounded border flex-shrink-0 bg-[var(--surface-muted)] text-muted-foreground border-[var(--interactive-border)]/60">{t(`snippets.source.${snippet.source}`)}</span>
               </div>
               {!isMobile && (

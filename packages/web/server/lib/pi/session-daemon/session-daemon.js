@@ -1,7 +1,8 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
-import { chmod, mkdir, lstat, readFile, rm } from 'node:fs/promises';
-import { dirname, isAbsolute, join } from 'node:path';
+import { chmod, mkdir, lstat, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join } from 'node:path';
+import { hasTrustRequiringProjectResources } from '@earendil-works/pi-coding-agent';
 import { StringDecoder } from 'node:string_decoder';
 import {
   createAgentSessionFromServices,
@@ -644,6 +645,7 @@ export function createSessionDaemon({
       project: {
         trusted: trust === true,
         ...(trust === false ? { denied: true } : {}),
+        ...(trust === null && hasTrustRequiringProjectResources(cwd) ? { requiresTrust: true } : {}),
         ...(trust === true && typeof project.defaultProvider === 'string' ? { defaultProvider: project.defaultProvider } : {}),
         ...(trust === true && typeof project.defaultModel === 'string' ? { defaultModel: project.defaultModel } : {}),
         ...(trust === true && typeof project.defaultThinkingLevel === 'string' ? { defaultThinking: project.defaultThinkingLevel } : {}),
@@ -669,10 +671,13 @@ export function createSessionDaemon({
     if (hasTrust && payload.trust !== null && typeof payload.trust !== 'boolean') {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The project trust decision is invalid.');
     }
+    if (hasTrust && runtime?.session?.isStreaming) {
+      throw new SessionDaemonProtocolError('SESSION_BUSY', 'Project trust cannot change during an active session.');
+    }
     const trustStore = createTrustStore(agentDir);
     if (hasTrust) trustStore.set(cwd, payload.trust);
     const trusted = trustStore.get(cwd) === true;
-    if (payload.scope === 'project' && !trusted) {
+    if (payload.scope === 'project' && !trusted && (hasModel || hasThinking)) {
       throw new SessionDaemonProtocolError('PROJECT_UNTRUSTED', 'The project is not trusted.');
     }
     if (hasModel || hasThinking) {
@@ -702,7 +707,129 @@ export function createSessionDaemon({
       await manager.flush();
       if (manager.drainErrors().length > 0) throw new SessionDaemonProtocolError('PI_SETTINGS_INVALID', 'Pi settings could not be written.');
     }
+    if (hasTrust) {
+      // Trust changes alter which project resources Pi loads. Recreate the idle
+      // runtime so the next resource/session read is authoritative.
+      await disposeRuntime();
+      await ensureRuntime();
+    }
     return readPiSettings();
+  };
+
+  const resourceId = (kind, filePath) => `${kind}:${createHash('sha256').update(filePath).digest('base64url')}`;
+
+  const resourceLocation = (sourceInfo) => {
+    if (sourceInfo?.scope === 'project') return 'project';
+    if (sourceInfo?.origin === 'package') return 'package';
+    if (sourceInfo?.scope === 'user') return 'global';
+    return 'path';
+  };
+
+  const resourceCatalog = async () => {
+    const activeRuntime = await ensureRuntime();
+    const loader = activeRuntime?.services?.resourceLoader;
+    if (!loader || typeof loader.getSkills !== 'function' || typeof loader.getPrompts !== 'function' || typeof loader.getAgentsFiles !== 'function') {
+      throw new SessionDaemonProtocolError('DAEMON_REQUEST_FAILED', 'Pi resource discovery is unavailable.');
+    }
+    const skills = loader.getSkills().skills.map((skill) => ({
+      id: resourceId('skill', skill.filePath),
+      kind: 'skill', name: skill.name, ...(skill.description ? { description: skill.description } : {}), location: resourceLocation(skill.sourceInfo), editable: false,
+    }));
+    const prompts = loader.getPrompts().prompts.map((prompt) => ({
+      id: resourceId('prompt', prompt.filePath),
+      kind: 'prompt', name: prompt.name, ...(prompt.description ? { description: prompt.description } : {}),
+      location: resourceLocation(prompt.sourceInfo), content: prompt.content,
+      editable: prompt.sourceInfo?.origin === 'top-level' && ['user', 'project'].includes(prompt.sourceInfo?.scope),
+      filePath: prompt.filePath,
+    }));
+    const agents = loader.getAgentsFiles().agentsFiles.map((agent) => ({
+      id: resourceId('agents', agent.path), kind: 'agents', name: basename(agent.path),
+      location: agent.path.startsWith(agentDir) ? 'global' : 'project', content: agent.content, editable: true, filePath: agent.path,
+    }));
+    const globalAgentsPath = join(agentDir, 'AGENTS.md');
+    const projectAgentsPath = join(cwd, 'AGENTS.md');
+    for (const [location, filePath] of [['global', globalAgentsPath], ['project', projectAgentsPath]]) {
+      if (!agents.some((agent) => agent.filePath === filePath)) {
+        agents.push({ id: resourceId('agents', filePath), kind: 'agents', name: 'AGENTS.md', location, content: '', editable: true, filePath });
+      }
+    }
+    return { skills, prompts, agents };
+  };
+
+  const publicResources = (catalog) => ({
+    skills: catalog.skills.map(({ filePath, ...resource }) => resource),
+    prompts: catalog.prompts.map(({ filePath, ...resource }) => resource),
+    agents: catalog.agents.map(({ filePath, ...resource }) => resource),
+  });
+
+  const requireIdleResourceMutation = () => {
+    if (runtime?.session?.isStreaming) throw new SessionDaemonProtocolError('SESSION_BUSY', 'Resources cannot change during an active session.');
+  };
+
+  const writeResourceFile = async (filePath, content) => {
+    const temporary = `${filePath}.${randomUUID()}.tmp`;
+    await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
+    try {
+      await writeFile(temporary, content, { encoding: 'utf8', mode: 0o600 });
+      await rename(temporary, filePath);
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => {});
+      throw error;
+    }
+  };
+
+  const refreshResources = async () => {
+    await disposeRuntime();
+    await ensureRuntime();
+    return publicResources(await resourceCatalog());
+  };
+
+  const updateResource = async (payload) => {
+    if (!payload || typeof payload.resourceId !== 'string' || typeof payload.content !== 'string' || payload.content.length > 200_000) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi resource update is invalid.');
+    }
+    requireIdleResourceMutation();
+    const catalog = await resourceCatalog();
+    const resource = [...catalog.prompts, ...catalog.agents].find((item) => item.id === payload.resourceId && item.editable === true);
+    if (!resource?.filePath) throw new SessionDaemonProtocolError('RESOURCE_NOT_FOUND', 'The requested Pi resource is not editable.');
+    let content = payload.content;
+    if (resource.kind === 'prompt') {
+      const previous = await readFile(resource.filePath, 'utf8').catch((error) => error?.code === 'ENOENT' ? '' : Promise.reject(error));
+      const frontmatter = previous.match(/^(---\r?\n[\s\S]*?\r?\n---\r?\n?)/)?.[1] ?? '';
+      content = `${frontmatter}${content}`;
+    }
+    await writeResourceFile(resource.filePath, content);
+    return refreshResources();
+  };
+
+  const createPrompt = async (payload) => {
+    if (!payload || !['global', 'project'].includes(payload.location) || typeof payload.name !== 'string' || typeof payload.content !== 'string'
+      || typeof payload.description !== 'string' || payload.content.length > 200_000 || payload.description.length > 4_000
+      || !/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(payload.name)) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template is invalid.');
+    }
+    requireIdleResourceMutation();
+    const trust = createTrustStore(agentDir).get(cwd);
+    if (payload.location === 'project' && trust !== true) throw new SessionDaemonProtocolError('PROJECT_UNTRUSTED', 'The project is not trusted.');
+    const filePath = join(payload.location === 'global' ? agentDir : join(cwd, '.pi'), 'prompts', `${payload.name}.md`);
+    try {
+      await readFile(filePath, 'utf8');
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template already exists.');
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    await writeResourceFile(filePath, `---\ndescription: ${JSON.stringify(payload.description)}\n---\n${payload.content}`);
+    return refreshResources();
+  };
+
+  const deletePrompt = async (payload) => {
+    if (!payload || typeof payload.resourceId !== 'string') throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template is invalid.');
+    requireIdleResourceMutation();
+    const catalog = await resourceCatalog();
+    const resource = catalog.prompts.find((item) => item.id === payload.resourceId && item.editable === true);
+    if (!resource?.filePath) throw new SessionDaemonProtocolError('RESOURCE_NOT_FOUND', 'The requested Pi prompt template is not editable.');
+    await rm(resource.filePath);
+    return refreshResources();
   };
 
   const setSessionModel = async (activeRuntime, model) => {
@@ -944,6 +1071,7 @@ export function createSessionDaemon({
               'sessions.steer', 'sessions.followUp', 'sessions.abort', 'sessions.setModel',
               'sessions.setThinking', 'sessions.compact', 'providers.list', 'providers.config.get', 'providers.models.set', 'providers.status', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
+              'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.delete',
             ],
             ...(Number.isInteger(healthMetadata.daemonPid) ? { daemonPid: healthMetadata.daemonPid } : {}),
           },
@@ -1007,6 +1135,26 @@ export function createSessionDaemon({
       }
       case 'settings.set': {
         const result = await setPiSettings(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'resources.list': {
+        const result = publicResources(await resourceCatalog());
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'resources.update': {
+        const result = await updateResource(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'resources.prompts.create': {
+        const result = await createPrompt(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'resources.prompts.delete': {
+        const result = await deletePrompt(message.payload);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }

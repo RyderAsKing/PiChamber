@@ -2116,4 +2116,8 @@ export const settingsDict = {
   'settings.pichamber.visual.option.themeMode.light.description': 'Immer helles Erscheinungsbild verwenden',
   'settings.pichamber.visual.option.themeMode.dark.description': 'Immer dunkles Erscheinungsbild verwenden',
   'chat.message.userText.collapseAria': 'Benutzernachricht einklappen',
+  'settings.projectTrust.dialog.title': 'Diesem Projekt vertrauen?',
+  'settings.projectTrust.dialog.description': 'Dieses Projekt enthält Pi-Einstellungen, Skills, Prompts oder Erweiterungen. Wenn Sie ihm vertrauen, darf Pi diese Projektressourcen laden.',
+  'settings.projectTrust.dialog.decline': 'Nicht vertrauen',
+  'settings.projectTrust.dialog.trust': 'Projekt vertrauen',
 };

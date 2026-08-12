@@ -338,7 +338,7 @@ export type PiConfigThinkingLevel = PiThinkingLevel | 'minimal' | 'max';
 export interface PiSettingsSnapshot {
   pi: {
     global: { defaultProvider?: string; defaultModel?: string; defaultThinking?: PiConfigThinkingLevel; defaultProjectTrust?: 'ask' | 'always' | 'never' };
-    project: { trusted: boolean; denied?: boolean; defaultProvider?: string; defaultModel?: string; defaultThinking?: PiConfigThinkingLevel };
+    project: { trusted: boolean; denied?: boolean; requiresTrust?: boolean; defaultProvider?: string; defaultModel?: string; defaultThinking?: PiConfigThinkingLevel };
   };
   pichamber: { version: 1; defaultModel?: PiModelRef; defaultThinking?: PiThinkingLevel; smallModel?: PiModelRef; walkthroughModel?: PiModelRef };
 }
@@ -365,6 +365,18 @@ export interface PiResourceListResponse {
   skills: PiResource[];
   prompts: PiResource[];
   agents: PiResource[];
+}
+
+export interface PiResourceUpdateInput {
+  resourceId: string;
+  content: string;
+}
+
+export interface PiPromptTemplateCreateInput {
+  name: string;
+  description: string;
+  content: string;
+  location: 'global' | 'project';
 }
 
 // ---------------------------------------------------------------------------

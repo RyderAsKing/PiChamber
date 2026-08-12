@@ -264,13 +264,15 @@ export interface PiModel {
  * these on disk; the SDK reads them through Pi's normal discovery.
  */
 export interface PiResource {
+  /** Opaque daemon identifier; it never encodes a server filesystem path. */
+  id: string;
   kind: 'skill' | 'prompt' | 'agents';
   name: string;
   description?: string;
   /** Where Pi found this resource. */
   location: 'global' | 'project' | 'package' | 'path';
-  /** Absolute path on disk. Not returned to the browser for some kinds. */
-  path?: string;
-  /** Body for prompt templates. */
+  /** True only when the Pi-owned source can be safely edited through the daemon. */
+  editable?: boolean;
+  /** Body for prompt templates or applicable instruction files. */
   content?: string;
 }
