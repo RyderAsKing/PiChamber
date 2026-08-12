@@ -4,6 +4,7 @@
  */
 
 import { createPiArchiveStore } from './archive-store.js';
+import { createPiAttachmentStore } from './attachment-store.js';
 
 const UNAVAILABLE_CODES = new Set([
   'DAEMON_UNAVAILABLE',
@@ -104,14 +105,40 @@ const projectSessionDetail = (value) => {
   return { session: projectSession(value.session), messages, lastSequence: value.lastSequence };
 };
 
+const projectProviders = (value) => {
+  if (!value || typeof value !== 'object' || !Array.isArray(value.providers)) throw protocolMismatch();
+  return {
+    providers: value.providers.map((provider) => {
+      if (!provider || typeof provider !== 'object' || typeof provider.id !== 'string'
+        || typeof provider.label !== 'string' || typeof provider.authenticated !== 'boolean' || !Array.isArray(provider.models)) throw protocolMismatch();
+      return {
+        id: provider.id,
+        label: provider.label,
+        authenticated: provider.authenticated,
+        models: provider.models.map((model) => {
+          if (!model || typeof model !== 'object' || typeof model.id !== 'string' || typeof model.providerId !== 'string') throw protocolMismatch();
+          return {
+            id: model.id,
+            providerId: model.providerId,
+            ...(typeof model.label === 'string' ? { label: model.label } : {}),
+            ...(Number.isSafeInteger(model.contextWindow) ? { contextWindow: model.contextWindow } : {}),
+            ...(model.supportsThinking === true ? { supportsThinking: true } : {}),
+            ...(Array.isArray(model.thinkingLevels) ? { thinkingLevels: model.thinkingLevels.filter((level) => ['off', 'low', 'medium', 'high', 'xhigh'].includes(level)) } : {}),
+          };
+        }),
+      };
+    }),
+  };
+};
+
 const projectSessionTree = (value) => {
   if (!value || typeof value !== 'object' || typeof value.rootId !== 'string' || !Array.isArray(value.nodes)) throw protocolMismatch();
   const projectNode = (node) => {
-    if (!node || typeof node !== 'object' || typeof node.sessionId !== 'string'
+    if (!node || typeof node !== 'object' || typeof node.entryId !== 'string'
       || (node.parentId !== undefined && node.parentId !== null && typeof node.parentId !== 'string')
       || !Number.isFinite(node.updatedAt) || !Array.isArray(node.children)) throw protocolMismatch();
     return {
-      sessionId: node.sessionId,
+      entryId: node.entryId,
       ...(typeof node.parentId === 'string' ? { parentId: node.parentId } : {}),
       ...(typeof node.title === 'string' ? { title: node.title } : {}),
       updatedAt: node.updatedAt,
@@ -143,7 +170,7 @@ const projectEventFrame = (frame) => {
       } } };
     }
     case 'session.lifecycle': return { ...common, payload: { state: frame.payload.state } };
-    case 'assistant.message.start': return { ...common, payload: { messageId: frame.payload.messageId, role: frame.payload.role, startedAt: frame.payload.startedAt, ...(frame.payload.model ? { model: frame.payload.model } : {}) } };
+    case 'assistant.message.start': return { ...common, payload: { messageId: frame.payload.messageId, role: frame.payload.role, startedAt: frame.payload.startedAt, ...(typeof frame.payload.text === 'string' ? { text: frame.payload.text } : {}), ...(frame.payload.model ? { model: frame.payload.model } : {}) } };
     case 'assistant.message.delta':
     case 'assistant.thinking.delta': return { ...common, payload: { messageId: frame.payload.messageId, contentIndex: frame.payload.contentIndex, delta: frame.payload.delta, ...(typeof frame.payload.partId === 'string' ? { partId: frame.payload.partId } : {}) } };
     case 'assistant.message.end': return { ...common, payload: { messageId: frame.payload.messageId, ...(typeof frame.payload.text === 'string' ? { text: frame.payload.text } : {}), ...(typeof frame.payload.thinking === 'string' ? { thinking: frame.payload.thinking } : {}) } };
@@ -179,7 +206,11 @@ const requestSessionOperation = async (req, res, getPiSessionDaemonRuntime, comm
  * /api middleware is registered by the server composition root before these
  * adapters; this function is mounted before the generic OpenCode proxy.
  */
-export const registerPiRuntimeRoutes = (app, { getPiSessionDaemonRuntime, archiveStore = createPiArchiveStore() }) => {
+export const registerPiRuntimeRoutes = (app, {
+  getPiSessionDaemonRuntime,
+  archiveStore = createPiArchiveStore(),
+  attachmentStore = createPiAttachmentStore(),
+}) => {
   app.get('/api/pi/runtime', async (_req, res) => {
     const runtime = getPiSessionDaemonRuntime();
     if (!runtime) {
@@ -231,6 +262,15 @@ export const registerPiRuntimeRoutes = (app, { getPiSessionDaemonRuntime, archiv
       const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('projects.select', { directory });
       if (typeof result?.directory !== 'string') throw protocolMismatch();
       res.json({ directory: result.directory });
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.get('/api/pi/providers', async (_req, res) => {
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.list');
+      res.json(projectProviders(result));
     } catch (error) {
       writeDaemonError(res, error);
     }
@@ -376,7 +416,18 @@ export const registerPiRuntimeRoutes = (app, { getPiSessionDaemonRuntime, archiv
 
   for (const [suffix, command] of [['prompt', 'sessions.prompt'], ['steer', 'sessions.steer'], ['follow-up', 'sessions.followUp']]) {
     app.post(`/api/pi/sessions/:sessionId/${suffix}`, async (req, res) => {
-      const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, command, req.body && typeof req.body === 'object' ? req.body : {});
+      let payload = req.body && typeof req.body === 'object' ? req.body : {};
+      try {
+        if (payload.attachments !== undefined) {
+          if (!Array.isArray(payload.attachments) || payload.attachments.some((attachment) => !attachment || typeof attachment.id !== 'string')) throw protocolMismatch();
+          const attachments = await attachmentStore.resolve(payload.attachments.map((attachment) => attachment.id));
+          payload = { ...payload, attachments };
+        }
+      } catch (error) {
+        writeDaemonError(res, error);
+        return;
+      }
+      const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, command, payload);
       if (result !== undefined) {
         if (!result || result.accepted !== true || typeof result.messageId !== 'string') {
           writeDaemonError(res, protocolMismatch());
@@ -393,6 +444,17 @@ export const registerPiRuntimeRoutes = (app, { getPiSessionDaemonRuntime, archiv
       if (result !== undefined) res.status(204).end();
     });
   }
+
+  app.post('/api/pi/attachments', async (req, res) => {
+    try {
+      const attachment = await attachmentStore.create(req.body ?? {});
+      if (!attachment || typeof attachment.id !== 'string' || typeof attachment.name !== 'string'
+        || typeof attachment.mime !== 'string' || !Number.isSafeInteger(attachment.size)) throw protocolMismatch();
+      res.status(201).json({ attachment: { id: attachment.id, name: attachment.name, mime: attachment.mime, size: attachment.size } });
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
 
   app.post('/api/pi/sessions', async (req, res) => {
     const input = req.body;
@@ -415,4 +477,6 @@ export const registerPiRuntimeRoutes = (app, { getPiSessionDaemonRuntime, archiv
       writeDaemonError(res, error);
     }
   });
+
+  return { dispose: () => attachmentStore.dispose?.() };
 };

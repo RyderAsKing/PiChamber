@@ -40,6 +40,16 @@ describe("applyPiEvent", () => {
     expect(applied.state.bySession.get("sess-1")?.lifecycle).toBe("busy")
   })
 
+  test("hydrates a user message from its non-streaming start event", () => {
+    const state = applyPiEvent(createReducerState(), baseEvent("assistant.message.start", 1, {
+      messageId: "u1", role: "user", text: "hello Pi", startedAt: 1_000,
+    })).state
+    const message = state.bySession.get("sess-1")?.messages.get("u1")
+    expect(message?.role).toBe("user")
+    expect(message?.text).toBe("hello Pi")
+    expect(message?.streaming).toBe(false)
+  })
+
   test("assembles canonical assistant message and thinking deltas", () => {
     let state = applyPiEvent(createReducerState(), assistantStart()).state
     state = applyPiEvent(state, baseEvent("assistant.message.delta", 2, {

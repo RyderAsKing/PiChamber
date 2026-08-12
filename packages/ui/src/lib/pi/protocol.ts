@@ -87,6 +87,19 @@ export interface PiRuntimeHealth {
 }
 
 // ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+export interface PiProject {
+  directory: string;
+  selected: boolean;
+}
+
+export interface PiProjectListResponse {
+  projects: PiProject[];
+}
+
+// ---------------------------------------------------------------------------
 // Sessions
 // ---------------------------------------------------------------------------
 
@@ -234,8 +247,9 @@ export interface PiArchiveInput {
 }
 
 export interface PiSessionTreeNode {
-  sessionId: PiSessionId;
-  parentId: PiSessionId | null;
+  /** Pi history entry identity accepted by `sessions.navigate`. */
+  entryId: string;
+  parentId: string | null;
   title?: string;
   updatedAt: number;
   children: PiSessionTreeNode[];
@@ -364,6 +378,8 @@ export interface PiMessageStartPayload {
   messageId: string;
   role: 'assistant' | 'user';
   parentId?: string;
+  /** User messages do not have a delta stream, so their text arrives here. */
+  text?: string;
   /** When the assistant turn started, in ms epoch. */
   startedAt: number;
   model?: PiModelRef;

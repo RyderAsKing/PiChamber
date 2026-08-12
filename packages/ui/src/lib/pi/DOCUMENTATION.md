@@ -68,10 +68,14 @@ for SSE, and `openRuntimeWebSocket` for WS/relay operation. Only one connection
 is active per generation; a failed WS is closed before SSE fallback or
 reconnect begins.
 
-## Deliberate limits
+## Mounted UI ownership
 
-This module is the typed boundary, not a finished UI. The owning store in
-`packages/ui/src/sync/` wraps the reducer with a Zustand store and the
-sync-context layer wires it to the directory bootstrap scheduler. Workstream
-3 lays the foundation; the UI cutover is a follow-up workstream that
-replaces the legacy consumers.
+`packages/ui/src/apps/pi-session-store.ts` owns one active daemon project,
+including bootstrap, sequenced event reduction, reconnect hydration, and
+runtime-switch disposal. `PiApp.tsx` is mounted by both the web/desktop and
+mobile app entries and uses only `PiService` for session flows.
+
+Provider discovery is projected from Pi's model runtime without credentials.
+Attachment uploads return opaque identifiers; their temporary paths cross only
+the private daemon IPC and are redacted from public transcript/event output.
+The browser never receives a path, endpoint, credential, or daemon identity.

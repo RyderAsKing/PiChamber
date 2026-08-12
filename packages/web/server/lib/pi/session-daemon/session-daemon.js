@@ -1,5 +1,5 @@
 import { createServer } from 'node:net';
-import { chmod, mkdir, lstat, rm } from 'node:fs/promises';
+import { chmod, mkdir, lstat, readFile, rm } from 'node:fs/promises';
 import { dirname, isAbsolute } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import {
@@ -340,11 +340,11 @@ export function createSessionDaemon({
       const timestamp = Date.parse(entry.timestamp);
       const createdAt = Number.isFinite(timestamp) ? timestamp : 0;
       if (entry.message.role === 'user') {
-        const text = typeof entry.message.content === 'string'
+        const text = redactAttachmentPaths(typeof entry.message.content === 'string'
           ? entry.message.content
           : Array.isArray(entry.message.content)
             ? entry.message.content.filter((part) => part?.type === 'text').map((part) => part.text).join('')
-            : '';
+            : '');
         return [{ message: { id: entry.id, sessionId: session.sessionId, directory: cwd, role: 'user', text, createdAt }, parts: [] }];
       }
       if (entry.message.role !== 'assistant' || !Array.isArray(entry.message.content)) return [];
@@ -415,6 +415,37 @@ export function createSessionDaemon({
     return projectActiveSession();
   };
 
+  const listProviders = async () => {
+    const activeRuntime = await ensureRuntime();
+    const modelRuntime = activeRuntime.session?.modelRuntime;
+    const models = modelRuntime?.getModels?.();
+    if (!Array.isArray(models)) throw new SessionDaemonProtocolError('PROVIDER_UNAVAILABLE', 'Pi did not provide a model catalog.');
+    const providers = new Map();
+    for (const model of models) {
+      if (!model || typeof model.provider !== 'string' || typeof model.id !== 'string') continue;
+      const provider = modelRuntime.getProvider?.(model.provider);
+      const auth = modelRuntime.getProviderAuthStatus?.(model.provider);
+      const entry = providers.get(model.provider) ?? {
+        id: model.provider,
+        label: typeof provider?.name === 'string' ? provider.name : model.provider,
+        authenticated: auth?.configured === true,
+        models: [],
+      };
+      entry.models.push({
+        id: model.id,
+        providerId: model.provider,
+        ...(typeof model.name === 'string' ? { label: model.name } : {}),
+        ...(Number.isSafeInteger(model.contextWindow) ? { contextWindow: model.contextWindow } : {}),
+        ...(model.reasoning === true ? { supportsThinking: true } : {}),
+        ...(model.thinkingLevelMap && typeof model.thinkingLevelMap === 'object'
+          ? { thinkingLevels: Object.entries(model.thinkingLevelMap).filter(([, value]) => value !== null).map(([level]) => level) }
+          : {}),
+      });
+      providers.set(model.provider, entry);
+    }
+    return { providers: [...providers.values()] };
+  };
+
   const setSessionModel = async (activeRuntime, model) => {
     if (!model || typeof model.providerId !== 'string' || typeof model.modelId !== 'string') {
       throw new SessionDaemonProtocolError('INVALID_MODEL', 'The requested Pi model is invalid.');
@@ -438,6 +469,32 @@ export function createSessionDaemon({
     }
   };
 
+  const redactAttachmentPaths = (text) => typeof text === 'string'
+    ? text.replace(/(?:[A-Za-z]:)?[^\s]*pi-clipboard-[0-9a-f-]{36}(?:\.[^\s\])]+)?/gi, '[attachment]')
+    : '';
+
+  const prepareAttachmentContent = async (attachments) => {
+    if (attachments === undefined) return { text: '', images: [] };
+    if (!Array.isArray(attachments) || attachments.length > 32) throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session attachments are invalid.');
+    const text = [];
+    const images = [];
+    for (const attachment of attachments) {
+      if (!attachment || typeof attachment.path !== 'string' || typeof attachment.name !== 'string'
+        || typeof attachment.mime !== 'string' || !Number.isSafeInteger(attachment.size) || attachment.size <= 0) {
+        throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session attachments are invalid.');
+      }
+      // Paths come only from the server-local upload map. They never cross a
+      // public response and are redacted from persisted transcript projections.
+      if (attachment.mime.startsWith('image/') && attachment.size <= 20 * 1024 * 1024) {
+        const data = await readFile(attachment.path);
+        images.push({ type: 'image', mimeType: attachment.mime, data: data.toString('base64') });
+      } else {
+        text.push(`[Attachment ${attachment.name} is available at ${attachment.path}]`);
+      }
+    }
+    return { text: text.join('\n'), images };
+  };
+
   const sessionInput = async (payload, delivery) => {
     if (!payload || typeof payload !== 'object' || typeof payload.sessionId !== 'string'
       || typeof payload.text !== 'string' || payload.text.length === 0 || Buffer.byteLength(payload.text) > 64 * 1024) {
@@ -459,7 +516,12 @@ export function createSessionDaemon({
       activeRuntime.session.setThinkingLevel(payload.thinking);
       publish('session.thinking', { thinking: payload.thinking }, payload.sessionId);
     }
-    await activeRuntime.session.sendUserMessage(payload.text, delivery ? { deliverAs: delivery } : undefined);
+    const attachments = await prepareAttachmentContent(payload.attachments);
+    const text = [payload.text, attachments.text].filter(Boolean).join('\n\n');
+    const content = attachments.images.length > 0
+      ? [{ type: 'text', text }, ...attachments.images]
+      : text;
+    await activeRuntime.session.sendUserMessage(content, delivery ? { deliverAs: delivery } : undefined);
     const messageId = typeof payload.messageId === 'string' && payload.messageId.length > 0
       ? payload.messageId
       : activeRuntime.session.sessionManager?.getLeafId?.();
@@ -474,7 +536,7 @@ export function createSessionDaemon({
     const nodes = activeRuntime.session.sessionManager?.getTree?.();
     if (!Array.isArray(nodes)) throw new SessionDaemonProtocolError('SESSION_TREE_NOT_FOUND', 'Pi returned an invalid session tree.');
     const project = (node) => ({
-      sessionId: node.entry.id,
+      entryId: node.entry.id,
       parentId: node.entry.parentId,
       ...(node.entry.type === 'session_info' && typeof node.entry.name === 'string' ? { title: node.entry.name } : {}),
       updatedAt: Date.parse(node.entry.timestamp) || 0,
@@ -499,7 +561,20 @@ export function createSessionDaemon({
   const publishSessionEvent = (sessionId, event) => {
     switch (event.type) {
       case 'message_start': {
-        if (event.message?.role === 'assistant') {
+        if (event.message?.role === 'user') {
+          const content = event.message.content;
+          const text = redactAttachmentPaths(typeof content === 'string'
+            ? content
+            : Array.isArray(content)
+              ? content.filter((part) => part?.type === 'text').map((part) => part.text).join('')
+              : '');
+          publish('assistant.message.start', {
+            messageId: `user-${sessionId}-${sequence + 1}`,
+            role: 'user',
+            text,
+            startedAt: Number.isFinite(event.message.timestamp) ? event.message.timestamp : Date.now(),
+          }, sessionId);
+        } else if (event.message?.role === 'assistant') {
           const messageId = `assistant-${sessionId}-${sequence + 1}`;
           streamingMessageIds.set(sessionId, messageId);
           publish('assistant.message.start', {
@@ -553,7 +628,7 @@ export function createSessionDaemon({
         break;
       case 'agent_start':
         clearIdleDisposal();
-        publish('session.lifecycle', { state: 'running' }, sessionId);
+        publish('session.lifecycle', { state: 'busy' }, sessionId);
         break;
       case 'agent_end': {
         const finalMessage = event.messages?.at?.(-1);
@@ -608,7 +683,7 @@ export function createSessionDaemon({
               'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.rename', 'sessions.delete',
               'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt',
               'sessions.steer', 'sessions.followUp', 'sessions.abort', 'sessions.setModel',
-              'sessions.setThinking', 'sessions.compact',
+              'sessions.setThinking', 'sessions.compact', 'providers.list',
             ],
             ...(Number.isInteger(healthMetadata.daemonPid) ? { daemonPid: healthMetadata.daemonPid } : {}),
           },
@@ -621,6 +696,11 @@ export function createSessionDaemon({
         if (message.payload?.directory !== cwd) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested project directory is invalid.');
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: { directory: cwd } });
         return;
+      case 'providers.list': {
+        const result = await listProviders();
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
       case 'sessions.list': {
         const sessions = await listSessionItems(message.payload?.directory);
         writeFrame(socket, {

@@ -512,6 +512,7 @@ let terminalRuntime = null;
 let dictationRuntime = null;
 let messageStreamRuntime = null;
 let piSessionDaemonRuntime = null;
+let piAttachmentRuntime = null;
 const userProvidedOpenCodePassword = hmrStateRuntime.getUserProvidedOpenCodePassword(hmrState);
 const initialOpenCodeAuthState = hmrStateRuntime.resolveOpenCodeAuthFromState({
   hmrState,
@@ -1256,12 +1257,16 @@ const gracefulShutdownRuntime = createGracefulShutdownRuntime({
   setMessageStreamRuntime: (value) => {
     messageStreamRuntime = value;
   },
-  getRuntimeShutdownHooks: () => piSessionDaemonRuntime ? [{
-    stop: () => piSessionDaemonRuntime.stop(),
-    clear: () => {
-      piSessionDaemonRuntime = null;
-    },
-  }] : [],
+  getRuntimeShutdownHooks: () => [
+    ...(piSessionDaemonRuntime ? [{
+      stop: () => piSessionDaemonRuntime.stop(),
+      clear: () => { piSessionDaemonRuntime = null; },
+    }] : []),
+    ...(piAttachmentRuntime ? [{
+      stop: () => piAttachmentRuntime.dispose(),
+      clear: () => { piAttachmentRuntime = null; },
+    }] : []),
+  ],
   shouldSkipOpenCodeStop: () => ENV_SKIP_OPENCODE_START || isExternalOpenCode,
   getOpenCodePort: () => openCodePort,
   getOpenCodeProcess: () => openCodeProcess,
@@ -1613,7 +1618,7 @@ async function main(options = {}) {
     agentToolRuntime,
   });
   uiAuthController = bootstrapResult.uiAuthController;
-  registerPiRuntimeRoutes(app, {
+  piAttachmentRuntime = registerPiRuntimeRoutes(app, {
     getPiSessionDaemonRuntime: () => piSessionDaemonRuntime,
   });
   realtimeProxyRuntime = attachRealtimeProxy({

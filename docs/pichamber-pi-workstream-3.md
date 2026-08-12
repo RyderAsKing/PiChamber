@@ -2,17 +2,14 @@
 
 ## Status and scope
 
-This record covers the foundation implemented for Workstream 3 of the
-approved [Pi migration plan](./pichamber-pimigration.md). The new modules
-create the Pi-native service and shared-contract surface that replaces
-`packages/ui/src/lib/opencode/`. The legacy `OpencodeService` is
-**unchanged** in this workstream; the workstream-3 plan keeps the existing
-facade operational until the actual UI cutover happens.
+This record covers the Pi-native session UI delivered for Workstream 3 of the
+approved [Pi migration plan](./pichamber-pimigration.md). The mounted web,
+desktop, and mobile session surface uses `PiService` and the sequenced Pi
+session store; it does not mount `OpencodeService` or the legacy SDK sync
+provider for session behavior.
 
-The release policy is unchanged: there is still no dual-runtime path. The
-new modules are an unused-by-default foundation; consumers swap to them in
-the follow-up UI cutover workstream, and `OpencodeService` is deleted as
-part of workstream 9.
+There is no dual-runtime session path. The authenticated `/api/pi/*`
+contract is the sole mounted session backend.
 
 ## Implemented ownership
 
@@ -29,18 +26,21 @@ part of workstream 9.
 | Archive sidecar | `packages/ui/src/lib/pi/archive.ts` | PiChamber-only metadata; the browser never edits Pi JSONL. |
 | Attachment helpers | `packages/ui/src/lib/pi/attachments.ts` | Filename sanitization, MIME normalization, base64 helpers, server-local path metadata. |
 | Model/provider helpers | `packages/ui/src/lib/pi/model-provider.ts` | Picker-friendly sorting, comparison helpers, and the agreed new-session precedence (explicit → configured → Pi fallback). |
-| Sync-layer owner | `packages/ui/src/sync/pi-bootstrap.ts`, `pi-reconnect.ts`, `pi-snapshot.ts`, `pi-event-reducer.ts`, `pi.ts` | Thin wrappers that adapt the pure helpers to the sync-context store contract. |
+| Mounted UI owner | `packages/ui/src/apps/pi-session-store.ts`, `PiApp.tsx` | One active-project owner handles bootstrap, sequenced events, reconnect, runtime switches, session actions, provider model discovery, and opaque attachment upload. |
 | Documentation | `packages/ui/src/lib/pi/DOCUMENTATION.md` | Owner boundaries, public types vs. private runtime, failure semantics, sequencing rules, and the deliberate limits of the foundation. |
 
-## Why the legacy facade is intact
+## Mounted flow coverage
 
-The workstream-3 plan says: "Replace `OpencodeService` and its OpenCode SDK
-data shapes rather than adding a permanent emulation layer." The full
-replacement happens across workstreams 4-9 (settings, resources, UI
-components). This workstream creates the typed boundary and the reducers
-those workstreams will plug into. Deleting `OpencodeService` before its
-consumers are migrated would leave the UI broken in a way that defeats the
-workstream-by-workstream validation gates.
+The Pi application covers project/session bootstrap, authoritative session
+list and transcript hydration, live user/assistant/reasoning/tool rendering,
+prompt/steer/follow-up/abort, provider-backed model selection and thinking,
+rename/tree/fork/clone/compact/archive/delete, snapshot reconnect, runtime
+switch rejection, and explicit unavailable/error/interrupted rendering.
+
+Attachments are uploaded as bounded opaque objects. Browser-visible payloads
+never contain their temporary filesystem paths; the server resolves the path
+only while forwarding the private prompt request and the daemon redacts it
+from public transcript and event projections.
 
 ## New-session defaults
 
@@ -73,16 +73,11 @@ attach can still succeed — but every failure is captured for diagnostics.
 
 ## Deliberate limits
 
-- No existing `OpencodeService` consumer has been migrated yet. The
-  follow-up cutover workstreams replace one consumer at a time.
-- The `archive.ts` module is the browser-side adapter; the server-side
-  sidecar file lives under `packages/web/server/lib/pi/archive/` (a
-  separate workstream).
-- The browser-side transport does not implement retry tuning specific
-  to Pi. The existing `runtimeFetch` retry behavior applies unchanged.
+- Provider credential mutation, provider configuration, resource settings,
+  and advanced document extraction retain their owning dedicated workstreams.
 - The Pi SDK is not imported anywhere under `packages/ui/`; only the web
   server owns it. The UI talks to the public `/api/pi/` namespace, and
-  the server proxies to the private daemon IPC.
+  the server proxies to private daemon IPC.
 
 ## Validation evidence
 

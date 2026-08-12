@@ -20,7 +20,12 @@ class FakeSession {
     this.compacted = 0;
     this.model = { provider: 'test', id: 'model' };
     this.thinkingLevel = 'low';
-    this.modelRuntime = { getModel: (providerId, modelId) => ({ provider: providerId, id: modelId }) };
+    this.modelRuntime = {
+      getModel: (providerId, modelId) => ({ provider: providerId, id: modelId }),
+      getModels: () => [{ provider: 'test', id: 'model', name: 'Test model', contextWindow: 128_000, reasoning: true, thinkingLevelMap: { low: 1, high: null } }],
+      getProvider: () => ({ name: 'Test provider' }),
+      getProviderAuthStatus: () => ({ configured: true }),
+    };
     this.sessionManager = {
       getSessionFile: () => sessionFile,
       getHeader: () => ({ timestamp: '2026-01-01T00:00:00.000Z' }),
@@ -486,6 +491,7 @@ describe('Pi session daemon spike', () => {
     await client.authenticate();
 
     await expect(client.request('projects.list')).resolves.toMatchObject({ result: { projects: [{ directory: root, selected: true }] } });
+    await expect(client.request('providers.list')).resolves.toMatchObject({ result: { providers: [{ id: 'test', authenticated: true, models: [{ id: 'model', supportsThinking: true, thinkingLevels: ['low'] }] }] } });
     await expect(client.request('projects.select', { directory: root })).resolves.toMatchObject({ result: { directory: root } });
     await expect(client.request('sessions.create', { cwd: root, title: 'Created' })).resolves.toMatchObject({ result: { session: { id: 'pi-session-new' } } });
     await expect(client.request('sessions.open', { sessionId: 'pi-session-persisted' })).resolves.toMatchObject({ result: { session: { id: 'pi-session-persisted' } } });
