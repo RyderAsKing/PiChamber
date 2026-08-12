@@ -78,7 +78,17 @@ export class PiSessionStore {
 
   async create(title?: string): Promise<void> {
     const directory = this.directory(); const expected = this.generation;
-    const detail = await piClient.createSession({ cwd: directory, ...(title ? { title } : {}) }, this.scope());
+    // PiChamber defaults are authoritative only when explicitly configured;
+    // otherwise Pi's settings/model runtime performs its normal fallback.
+    // A settings fetch failure aborts creation rather than silently creating a
+    // session with an unknown default selection.
+    const settings = await piClient.getSettings(this.scope());
+    const detail = await piClient.createSession({
+      cwd: directory,
+      ...(title ? { title } : {}),
+      ...(settings.pichamber.defaultModel ? { model: settings.pichamber.defaultModel } : {}),
+      ...(settings.pichamber.defaultThinking ? { thinking: settings.pichamber.defaultThinking } : {}),
+    }, this.scope());
     if (expected !== this.generation) return;
     this.state = { ...this.state, sessions: [{ session: detail.session, updatedAt: detail.session.updatedAt }, ...this.state.sessions], selectedSessionId: detail.session.id }; this.emit();
     await this.hydrate(detail.session.id, expected, detail);

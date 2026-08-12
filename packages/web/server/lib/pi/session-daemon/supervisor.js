@@ -253,7 +253,10 @@ export const createPiSessionDaemonSupervisor = ({
       await request({ endpoint: paths.endpoint, credential, command: 'runtime.health' });
       return false;
     } catch (error) {
-      if (!(error instanceof SessionDaemonClientError) || error.code !== 'DAEMON_CONNECTION_REFUSED') return false;
+      // A dead owner plus an owner-only socket that either refuses or never
+      // completes authenticated IPC is a verified stale endpoint. Protocol,
+      // authentication, or malformed-response errors remain unverifiable.
+      if (!(error instanceof SessionDaemonClientError) || !['DAEMON_CONNECTION_REFUSED', 'DAEMON_UNAVAILABLE'].includes(error.code)) return false;
     }
 
     await rm(paths.endpoint, { force: false });

@@ -20,11 +20,21 @@ class FakeSession {
     this.compacted = 0;
     this.model = { provider: 'test', id: 'model' };
     this.thinkingLevel = 'low';
+    this.providerAuthenticated = true;
     this.modelRuntime = {
       getModel: (providerId, modelId) => ({ provider: providerId, id: modelId }),
       getModels: () => [{ provider: 'test', id: 'model', name: 'Test model', contextWindow: 128_000, reasoning: true, thinkingLevelMap: { low: 1, high: null } }],
-      getProvider: () => ({ name: 'Test provider' }),
-      getProviderAuthStatus: () => ({ configured: true }),
+      getProvider: (providerId) => providerId === 'test' ? ({ name: 'Test provider' }) : undefined,
+      getProviderAuthStatus: () => ({ configured: this.providerAuthenticated }),
+      login: async (_providerId, type, interaction) => {
+        if (type === 'api_key') this.lastApiKey = await interaction.prompt({ type: 'secret', message: 'Key' });
+        else {
+          interaction.notify({ type: 'device_code', userCode: 'CODE', verificationUri: 'https://example.test/device' });
+          this.lastOAuthCode = await interaction.prompt({ type: 'manual_code', message: 'Paste code' });
+        }
+        this.providerAuthenticated = true;
+      },
+      logout: async () => { this.providerAuthenticated = false; },
     };
     this.sessionManager = {
       getSessionFile: () => sessionFile,
@@ -526,6 +536,92 @@ describe('Pi session daemon spike', () => {
     expect(runtime.session.aborted).toBe(1);
     await expect(runningClient.request('sessions.delete', { sessionId: 'pi-session-persisted' })).resolves.toMatchObject({ result: {} });
     await runningClient.close();
+  });
+
+  it('keeps Pi global/project defaults and trust decisions authoritative', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
+    const endpoint = join(root, 'daemon.sock');
+    let trust;
+    const global = {};
+    const project = {};
+    const createSettingsManager = ({ projectTrusted }) => ({
+      getGlobalSettings: () => global,
+      getProjectSettings: () => project,
+      setDefaultModelAndProvider: (provider, model) => { global.defaultProvider = provider; global.defaultModel = model; },
+      setDefaultThinkingLevel: (level) => { global.defaultThinkingLevel = level; },
+      updateProjectSettings: (_field, update) => update(project),
+      flush: async () => {},
+      drainErrors: () => [],
+      projectTrusted,
+    });
+    const createTrustStore = () => ({ get: () => trust, set: (_cwd, value) => { trust = value; } });
+    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createSettingsManager, createTrustStore, createRuntime: async () => ({ session: new FakeSession(), async dispose() {} }) });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await expect(client.request('settings.get')).resolves.toMatchObject({ result: { global: {}, project: { trusted: false } } });
+    await expect(client.request('settings.set', { scope: 'project', trust: true, defaultModel: { providerId: 'test', modelId: 'model' }, defaultThinking: 'high' })).resolves.toMatchObject({
+      result: { project: { trusted: true, defaultProvider: 'test', defaultModel: 'model', defaultThinking: 'high' } },
+    });
+    expect(trust).toBe(true);
+    await client.close();
+  });
+
+  it('updates Pi models.json through an idle daemon and projects only credential-blind configuration', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
+    const endpoint = join(root, 'daemon.sock');
+    const updates = [];
+    const modelConfigStore = {
+      get: async (providerId) => providerId === 'custom' ? null : null,
+      update: async (input) => {
+        updates.push(input);
+        return { providerId: input.providerId, label: input.label, baseUrl: input.baseUrl, api: input.api ?? 'openai-completions', models: input.models };
+      },
+    };
+    daemon = createSessionDaemon({
+      endpoint, credential, cwd: root, modelConfigStore,
+      createRuntime: async () => ({ session: new FakeSession(), async dispose() {} }),
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await expect(client.request('providers.config.get', { providerId: 'custom' })).resolves.toEqual(expect.objectContaining({ result: { config: null } }));
+    const result = await client.request('providers.models.set', {
+      providerId: 'custom', label: 'Custom', baseUrl: 'https://api.example.test/v1',
+      models: [{ id: 'model', providerId: 'custom', label: 'Model' }], apiKeyReference: '{env:CUSTOM_KEY}',
+    });
+    expect(result.result).toEqual({ config: { providerId: 'custom', label: 'Custom', baseUrl: 'https://api.example.test/v1', api: 'openai-completions', models: [{ id: 'model', providerId: 'custom', label: 'Model' }] } });
+    expect(updates).toEqual([{
+      providerId: 'custom', label: 'Custom', baseUrl: 'https://api.example.test/v1',
+      models: [{ id: 'model', providerId: 'custom', label: 'Model' }], apiKeyReference: '{env:CUSTOM_KEY}',
+    }]);
+    expect(JSON.stringify(result.result)).not.toContain('CUSTOM_KEY');
+    await client.close();
+  });
+
+  it('runs persisted API-key and interactive OAuth logins without exposing credential values in daemon responses', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
+    const endpoint = join(root, 'daemon.sock');
+    const session = new FakeSession();
+    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+
+    const apiLogin = await client.request('providers.login', { providerId: 'test', type: 'api_key', apiKey: 'private-key' });
+    expect(apiLogin.result.login).toMatchObject({ providerId: 'test', state: 'pending' });
+    expect(JSON.stringify(apiLogin)).not.toContain('private-key');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(session.lastApiKey).toBe('private-key');
+
+    const oauthLogin = await client.request('providers.login', { providerId: 'test', type: 'oauth' });
+    const loginId = oauthLogin.result.login.id;
+    expect(oauthLogin.result.login).toMatchObject({ deviceCode: { userCode: 'CODE', verificationUri: 'https://example.test/device' } });
+    await expect(client.request('providers.login.respond', { providerId: 'test', loginId, value: 'manual-code' })).resolves.toMatchObject({ result: { login: { id: loginId, state: 'pending' } } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(session.lastOAuthCode).toBe('manual-code');
+    await expect(client.request('providers.logout', { providerId: 'test' })).resolves.toMatchObject({ result: { authenticated: false } });
+    await client.close();
   });
 
   it('maps all core session event families to sequenced public-safe daemon frames', async () => {

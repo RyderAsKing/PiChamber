@@ -18,6 +18,7 @@
  */
 
 import {
+  createPiEventStream,
   fetchPiRuntimeHealth,
   type PiStreamHandle,
 } from './transport';
@@ -67,6 +68,16 @@ export interface PiBootstrapError {
   status?: number;
 }
 
+interface PiBootstrapDependencies {
+  fetchHealth: typeof fetchPiRuntimeHealth;
+  createStream: typeof createPiEventStream;
+}
+
+const defaultDependencies: PiBootstrapDependencies = {
+  fetchHealth: fetchPiRuntimeHealth,
+  createStream: createPiEventStream,
+};
+
 export interface PiBootstrapOptions {
   directory: string;
   scope?: PiClientScope;
@@ -110,7 +121,10 @@ const toError = (error: unknown): PiBootstrapError => {
  * callers MUST dispose it on unmount to avoid leaking the WebSocket/SSE
  * reader.
  */
-export const bootstrapPiDirectory = async (options: PiBootstrapOptions): Promise<PiBootstrapResult> => {
+export const bootstrapPiDirectory = async (
+  options: PiBootstrapOptions,
+  dependencies: PiBootstrapDependencies = defaultDependencies,
+): Promise<PiBootstrapResult> => {
   const result: PiBootstrapResult = {
     phase: 'idle',
     reducerState: { bySession: new Map(), lastSequence: new Map() },
@@ -124,7 +138,7 @@ export const bootstrapPiDirectory = async (options: PiBootstrapOptions): Promise
 
   // 1. Probe runtime health.
   result.phase = 'runtime-probe';
-  const health = await task(() => fetchPiRuntimeHealth(options.signal, options.runtimeKey));
+  const health = await task(() => dependencies.fetchHealth(options.signal, options.runtimeKey));
   if (health.state === 'ready') {
     result.health = {
       state: 'ready',
@@ -215,11 +229,10 @@ export const bootstrapPiDirectory = async (options: PiBootstrapOptions): Promise
   //    the handle so the caller can dispose it later.
   result.phase = 'stream-attach';
   try {
-    const { createPiEventStream } = await import('./transport');
     const streamFromSequence = options.selectedSessionId
       ? result.lastSequence.get(options.selectedSessionId)
       : options.fromSequence;
-    const handle = createPiEventStream(
+    const handle = dependencies.createStream(
       {
         onEvent: options.onEvent,
         onDisconnect: (reason) => options.onStreamDisconnect?.(reason),

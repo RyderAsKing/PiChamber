@@ -1,25 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 
-// The transport module uses the runtime URL resolver which is not
-// available in a Node test environment. We mock the whole module so that
-// the client tests do not have to depend on a real resolver, while still
-// allowing the dedicated transport tests to override the mock at runtime.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const transportMock: any = {
-  fetchPiRuntimeHealth: mock(async () => ({
-    state: "ready" as const,
-    protocolVersion: 1,
-    capabilities: [],
-  })),
-  createPiEventStream: mock(() => ({
-    dispose: () => undefined,
-    reconnect: () => undefined,
-    eventsUrl: "ws://test/events",
-  })),
-}
-
-mock.module("./transport", () => transportMock)
-
 // Mock runtime-fetch to a stub that captures calls. We still need to mock
 // the underlying globalThis.fetch so the client actually issues requests.
 const originalFetch = globalThis.fetch
@@ -124,6 +104,49 @@ describe("PiService", () => {
     }
   })
 
+  test("forwards provider login input once and exposes only public login state", async () => {
+    installFetchMock((call) => {
+      expect(call.url).toBe("/api/pi/providers/p1/login")
+      expect(call.init?.method).toBe("POST")
+      expect(JSON.parse(call.init?.body as string)).toEqual({ providerId: "p1", type: "api_key", apiKey: "private-key" })
+      return jsonResponse({ login: { id: "login-1", providerId: "p1", state: "pending" } })
+    })
+    const { PiService } = await import("./client")
+    const client = new PiService()
+    expect(await client.loginProvider({ providerId: "p1", type: "api_key", apiKey: "private-key" })).toEqual({
+      login: { id: "login-1", providerId: "p1", state: "pending" },
+    })
+  })
+
+  test("reads and writes custom provider models without treating write-only headers as response data", async () => {
+    installFetchMock((call) => {
+      expect(call.url).toBe("/api/pi/providers/custom/models")
+      expect(call.init?.method).toBe("PUT")
+      expect(JSON.parse(call.init?.body as string)).toEqual({ providerId: "custom", label: "Custom", baseUrl: "https://api.example.test/v1", api: "openai-completions", headers: { "X-Client": "private" }, models: [{ id: "model", providerId: "custom", label: "Model" }] })
+      return jsonResponse({ config: { providerId: "custom", label: "Custom", baseUrl: "https://api.example.test/v1", api: "openai-completions", models: [{ id: "model", providerId: "custom", label: "Model" }] } })
+    })
+    const { PiService } = await import("./client")
+    expect(await new PiService().setProviderModels({ providerId: "custom", label: "Custom", baseUrl: "https://api.example.test/v1", api: "openai-completions", headers: { "X-Client": "private" }, models: [{ id: "model", providerId: "custom", label: "Model" }] })).toEqual({
+      config: { providerId: "custom", label: "Custom", baseUrl: "https://api.example.test/v1", api: "openai-completions", models: [{ id: "model", providerId: "custom", label: "Model" }] },
+    })
+  })
+
+  test("reads and writes separated Pi and PiChamber settings", async () => {
+    installFetchMock((call) => {
+      if (call.url === "/api/pi/settings" && call.init?.method === "GET") {
+        return jsonResponse({ pi: { global: {}, project: { trusted: false } }, pichamber: { version: 1 } })
+      }
+      if (call.url === "/api/pi/settings/defaults" && call.init?.method === "PUT") {
+        return jsonResponse({ pichamber: { version: 1, defaultThinking: "high" } })
+      }
+      return jsonResponse({ error: { code: "DAEMON_REQUEST_FAILED" } }, { status: 500 })
+    })
+    const { PiService } = await import("./client")
+    const client = new PiService()
+    expect(await client.getSettings()).toEqual({ pi: { global: {}, project: { trusted: false } }, pichamber: { version: 1 } })
+    expect(await client.setPiChamberDefaults({ defaultThinking: "high" })).toEqual({ pichamber: { version: 1, defaultThinking: "high" } })
+  })
+
   test("listProviders returns the parsed payload", async () => {
     installFetchMock(() =>
       jsonResponse({
@@ -147,34 +170,16 @@ describe("PiService", () => {
 })
 
 describe("fetchPiRuntimeHealth", () => {
-  afterEach(() => {
-    globalThis.fetch = originalFetch
-    transportMock.fetchPiRuntimeHealth.mockReset()
-    transportMock.fetchPiRuntimeHealth.mockResolvedValue({
-      state: "ready",
-      protocolVersion: 1,
-      capabilities: [],
-    })
-  })
+  afterEach(() => { globalThis.fetch = originalFetch })
 
   test("returns ready when the daemon is up", async () => {
-    transportMock.fetchPiRuntimeHealth.mockResolvedValueOnce({
-      state: "ready",
-      protocolVersion: 1,
-      capabilities: [],
-    })
+    installFetchMock(() => jsonResponse({ state: "ready", protocolVersion: 1, capabilities: [] }))
     const { fetchPiRuntimeHealth } = await import("./transport")
-    const health = await fetchPiRuntimeHealth()
-    expect(health.state).toBe("ready")
+    expect((await fetchPiRuntimeHealth()).state).toBe("ready")
   })
 
   test("returns unavailable on 401", async () => {
-    transportMock.fetchPiRuntimeHealth.mockResolvedValueOnce({
-      state: "unavailable",
-      protocolVersion: 1,
-      capabilities: [],
-      error: { code: "DAEMON_AUTH_FAILED" },
-    })
+    installFetchMock(() => jsonResponse({}, { status: 401 }))
     const { fetchPiRuntimeHealth } = await import("./transport")
     const health = await fetchPiRuntimeHealth()
     expect(health.state).toBe("unavailable")
@@ -182,12 +187,7 @@ describe("fetchPiRuntimeHealth", () => {
   })
 
   test("returns unavailable on protocol mismatch", async () => {
-    transportMock.fetchPiRuntimeHealth.mockResolvedValueOnce({
-      state: "unavailable",
-      protocolVersion: 1,
-      capabilities: [],
-      error: { code: "DAEMON_PROTOCOL_MISMATCH" },
-    })
+    installFetchMock(() => new Response("not-json", { status: 200 }))
     const { fetchPiRuntimeHealth } = await import("./transport")
     const health = await fetchPiRuntimeHealth()
     expect(health.state).toBe("unavailable")

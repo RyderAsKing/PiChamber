@@ -8,7 +8,6 @@ import { useMcpConfigStore } from '@/stores/useMcpConfigStore';
 import { useSnippetsStore } from '@/stores/useSnippetsStore';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { useSkillsCatalogStore } from '@/stores/useSkillsCatalogStore';
-import { useConfigStore } from '@/stores/useConfigStore';
 import { Tooltip, TooltipTrigger } from '@/components/ui/tooltip';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { AgentsSidebar } from '@/components/sections/agents/AgentsSidebar';
@@ -62,6 +61,7 @@ import {
   type SettingsPageMeta,
 } from '@/lib/settings/metadata';
 import { buildSettingsSearchResults, type SettingsSearchResult } from '@/lib/settings/search';
+import { usePiProviderSelectionStore } from '@/lib/pi/provider-selection';
 
 // UI Kit: fixed settings navigation width
 const SETTINGS_NAV_WIDTH = 256;
@@ -117,7 +117,6 @@ const pageOrder: SettingsPageSlug[] = [
 
 const NAV_GROUP_ORDER = ['general', 'projects', 'opencode', 'content'] as const;
 
-const ADD_PROVIDER_SETTINGS_ID = '__add_provider__';
 
 function buildRuntimeContext(isDesktop: boolean, isMobile: boolean): SettingsRuntimeContext {
   const isWeb = !isDesktop && isWebRuntime();
@@ -434,7 +433,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
     }
 
     if (result.id === 'providers.connect') {
-      useConfigStore.getState().setSelectedProvider(ADD_PROVIDER_SETTINGS_ID);
+      usePiProviderSelectionStore.getState().setSelectedProviderId(null);
     }
 
     if (result.id === 'plugins.create') {

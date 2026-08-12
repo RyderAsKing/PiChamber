@@ -76,6 +76,14 @@ runtime-switch disposal. `PiApp.tsx` is mounted by both the web/desktop and
 mobile app entries and uses only `PiService` for session flows.
 
 Provider discovery is projected from Pi's model runtime without credentials.
+The mounted Providers surface submits API keys once through the authenticated
+adapter or renders Pi's opaque browser/device/manual-code login state; stored
+credentials never return to the browser. Custom OpenAI-compatible providers
+are written through the same adapter to Pi `models.json`; configuration
+responses omit credentials and headers, which are write-only. PiChamber
+new-session model/thinking plus small-model and walkthrough-model defaults
+live in its own sidecar. Only the explicit new-session overrides are passed to
+the daemon, so Pi's normal settings fallback remains authoritative otherwise.
 Attachment uploads return opaque identifiers; their temporary paths cross only
 the private daemon IPC and are redacted from public transcript/event output.
 The browser never receives a path, endpoint, credential, or daemon identity.

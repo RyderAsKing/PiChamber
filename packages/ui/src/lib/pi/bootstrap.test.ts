@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 
-// Mock the transport module so we don't need a real runtime URL resolver.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockFetchPiRuntimeHealth: any = mock(async () => ({
   state: "ready" as const,
@@ -15,18 +14,10 @@ const mockCreatePiEventStream: any = mock(() => ({
   eventsUrl: "ws://test/events",
 }))
 
-mock.module("./transport", () => ({
-  fetchPiRuntimeHealth: mockFetchPiRuntimeHealth,
-  createPiEventStream: mockCreatePiEventStream,
-  openRuntimeWebSocket: () => ({ addEventListener: () => undefined, close: () => undefined }),
-  getRuntimeUrlResolver: () => ({
-    api: (path: string) => `http://localhost${path}`,
-    sse: (path: string) => `http://localhost${path}`,
-    ws: (path: string) => `ws://localhost${path}`,
-    health: () => "http://localhost/health",
-    authenticatedAsset: (path: string) => `http://localhost${path}`,
-  }),
-}))
+const dependencies = {
+  fetchHealth: mockFetchPiRuntimeHealth,
+  createStream: mockCreatePiEventStream,
+}
 
 const originalFetch = globalThis.fetch
 
@@ -75,7 +66,7 @@ describe("bootstrapPiDirectory", () => {
     const result = await bootstrapPiDirectory({
       directory: "/work",
       onEvent: (event) => events.push(event),
-    })
+    }, dependencies)
     expect(result.phase).toBe("failed")
     expect(result.health.state).toBe("unavailable")
     expect(result.stream).toBeNull()
@@ -129,7 +120,7 @@ describe("bootstrapPiDirectory", () => {
       directory: "/work",
       selectedSessionId: "s1",
       onEvent: (event) => events.push(event),
-    })
+    }, dependencies)
     expect(result.health.state).toBe("ready")
     expect(result.reducerState.bySession.get("s1")?.messages.get("m1")?.text).toBe("Hi")
     expect(result.lastSequence.get("s1")).toBe(3)
@@ -161,7 +152,7 @@ describe("bootstrapPiDirectory", () => {
     const result = await bootstrapPiDirectory({
       directory: "/work",
       onEvent: (event) => events.push(event),
-    })
+    }, dependencies)
     expect(result.phase).toBe("ready")
     expect(result.errors.some((entry) => entry.phase === "session-list")).toBe(true)
     expect(result.stream).not.toBeNull()

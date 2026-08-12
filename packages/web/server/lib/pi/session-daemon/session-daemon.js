@@ -1,15 +1,19 @@
+import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import { chmod, mkdir, lstat, readFile, rm } from 'node:fs/promises';
-import { dirname, isAbsolute } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
   createAgentSessionServices,
   getAgentDir,
+  ProjectTrustStore,
   SessionManager,
+  SettingsManager,
 } from '@earendil-works/pi-coding-agent';
 
+import { createPiModelConfigStore } from '../model-config-store.js';
 import { createSessionRuntimeRegistry } from './runtime-registry.js';
 import { getPiSessionDirectory, validatePiSessionJsonlDirectory, validatePiSessionJsonlFile } from './session-jsonl.js';
 
@@ -76,6 +80,13 @@ export function createSessionDaemon({
     sessionCwd,
     getPiSessionDirectory({ cwd: sessionCwd, agentDir: sessionAgentDir }),
   ),
+  createSettingsManager = ({ cwd: settingsCwd, agentDir: settingsAgentDir, projectTrusted }) => SettingsManager.create(
+    settingsCwd,
+    settingsAgentDir,
+    { projectTrusted },
+  ),
+  createTrustStore = (settingsAgentDir) => new ProjectTrustStore(settingsAgentDir),
+  modelConfigStore = createPiModelConfigStore({ file: join(agentDir, 'models.json') }),
   renamePersistedSession = ({ sessionFile, title }) => {
     const manager = SessionManager.open(sessionFile, getPiSessionDirectory({ cwd, agentDir }), cwd);
     manager.appendSessionInfo(title);
@@ -108,6 +119,7 @@ export function createSessionDaemon({
   // a new authoritative snapshot before later events can arrive.
   const eventLog = [];
   const streamingMessageIds = new Map();
+  const loginAttempts = new Map();
   const MAX_REPLAY_EVENTS = 1_024;
 
   const publish = (event, payload, sessionId = runtime?.session?.sessionId) => {
@@ -446,6 +458,253 @@ export function createSessionDaemon({
     return { providers: [...providers.values()] };
   };
 
+  const getProviderConfiguration = async (providerId) => {
+    if (typeof providerId !== 'string' || providerId.length === 0 || providerId.length > 256) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested provider is invalid.');
+    }
+    return { config: await modelConfigStore.get(providerId) };
+  };
+
+  const setProviderModels = async (payload) => {
+    if (!payload || typeof payload !== 'object') {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The provider configuration is invalid.');
+    }
+    const activeRuntime = await ensureRuntime();
+    if (activeRuntime.session?.isStreaming) {
+      throw new SessionDaemonProtocolError('SESSION_BUSY', 'Provider configuration cannot change while a session is streaming.');
+    }
+    if (typeof activeRuntime.session?.modelRuntime?.getError?.() === 'string') {
+      throw new SessionDaemonProtocolError('PI_MODEL_CONFIG_INVALID', 'Pi models configuration is invalid.');
+    }
+    let config;
+    try {
+      config = await modelConfigStore.update(payload);
+    } catch (error) {
+      if (error?.code === 'PI_MODEL_CONFIG_INVALID') {
+        throw new SessionDaemonProtocolError('PI_MODEL_CONFIG_INVALID', 'Pi models configuration is invalid.');
+      }
+      throw error;
+    }
+    // ModelRuntime snapshots models.json at construction. Rehydrate only while
+    // idle so catalog changes are authoritative immediately and never race a turn.
+    rememberRuntimeSession();
+    await disposeRuntime();
+    await ensureRuntime();
+    return { config };
+  };
+
+  const providerStatus = async (providerId) => {
+    if (typeof providerId !== 'string' || providerId.length === 0 || providerId.length > 256) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested provider is invalid.');
+    }
+    const activeRuntime = await ensureRuntime();
+    const modelRuntime = activeRuntime.session?.modelRuntime;
+    if (!modelRuntime?.getProvider?.(providerId)) {
+      throw new SessionDaemonProtocolError('PROVIDER_NOT_FOUND', 'The requested provider is unavailable.');
+    }
+    const auth = modelRuntime.getProviderAuthStatus?.(providerId);
+    return { providerId, authenticated: auth?.configured === true };
+  };
+
+  const projectLoginAttempt = (attempt) => ({
+    id: attempt.id,
+    providerId: attempt.providerId,
+    state: attempt.state,
+    ...(attempt.prompt ? { prompt: attempt.prompt } : {}),
+    ...(attempt.authUrl ? { authUrl: attempt.authUrl } : {}),
+    ...(attempt.deviceCode ? { deviceCode: attempt.deviceCode } : {}),
+    ...(attempt.errorCode ? { error: { code: attempt.errorCode } } : {}),
+  });
+
+  const getLoginAttempt = (providerId, attemptId) => {
+    const attempt = loginAttempts.get(attemptId);
+    if (!attempt || attempt.providerId !== providerId) {
+      throw new SessionDaemonProtocolError('PROVIDER_AUTH_REQUIRED', 'The provider login attempt is unavailable.');
+    }
+    return attempt;
+  };
+
+  const expireLoginAttempt = (attempt) => {
+    const timer = setTimeout(() => {
+      if (loginAttempts.get(attempt.id) === attempt) {
+        attempt.controller.abort();
+        attempt.rejectPrompt?.(new Error('Provider login expired.'));
+        loginAttempts.delete(attempt.id);
+      }
+    }, 10 * 60 * 1_000);
+    timer.unref?.();
+    return timer;
+  };
+
+  const startProviderLogin = async (payload) => {
+    if (!payload || typeof payload !== 'object' || typeof payload.providerId !== 'string'
+      || !['api_key', 'oauth'].includes(payload.type)
+      || (payload.apiKey !== undefined && (typeof payload.apiKey !== 'string' || payload.apiKey.length === 0 || payload.apiKey.length > 16_384))) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The provider login request is invalid.');
+    }
+    if (payload.type === 'api_key' && typeof payload.apiKey !== 'string') {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The provider API key is required.');
+    }
+    const activeRuntime = await ensureRuntime();
+    const modelRuntime = activeRuntime.session?.modelRuntime;
+    if (!modelRuntime?.getProvider?.(payload.providerId)) {
+      throw new SessionDaemonProtocolError('PROVIDER_NOT_FOUND', 'The requested provider is unavailable.');
+    }
+    const controller = new AbortController();
+    const attempt = {
+      id: randomUUID(), providerId: payload.providerId, state: 'pending', controller,
+      prompt: undefined, authUrl: undefined, deviceCode: undefined, errorCode: undefined,
+      resolvePrompt: undefined, rejectPrompt: undefined,
+    };
+    attempt.expiry = expireLoginAttempt(attempt);
+    loginAttempts.set(attempt.id, attempt);
+    const apiKey = payload.apiKey;
+    const interaction = {
+      signal: controller.signal,
+      prompt: async (prompt) => {
+        if (payload.type === 'api_key') return apiKey;
+        if (!prompt || !['text', 'secret', 'select', 'manual_code'].includes(prompt.type)) {
+          throw new Error('Unsupported provider login prompt.');
+        }
+        attempt.prompt = {
+          type: prompt.type,
+          ...(typeof prompt.message === 'string' ? { message: prompt.message } : {}),
+          ...(typeof prompt.placeholder === 'string' ? { placeholder: prompt.placeholder } : {}),
+          ...(Array.isArray(prompt.options) ? { options: prompt.options
+            .filter((option) => option && typeof option.id === 'string' && typeof option.label === 'string')
+            .map((option) => ({ id: option.id, label: option.label, ...(typeof option.description === 'string' ? { description: option.description } : {}) })) } : {}),
+        };
+        return new Promise((resolve, reject) => {
+          attempt.resolvePrompt = resolve;
+          attempt.rejectPrompt = reject;
+          controller.signal.addEventListener('abort', () => reject(new Error('Provider login cancelled.')), { once: true });
+        });
+      },
+      notify: (event) => {
+        if (!event || typeof event !== 'object') return;
+        if (event.type === 'auth_url' && typeof event.url === 'string') {
+          attempt.authUrl = { url: event.url, ...(typeof event.instructions === 'string' ? { instructions: event.instructions } : {}) };
+        } else if (event.type === 'device_code' && typeof event.userCode === 'string' && typeof event.verificationUri === 'string') {
+          attempt.deviceCode = {
+            userCode: event.userCode, verificationUri: event.verificationUri,
+            ...(Number.isFinite(event.intervalSeconds) ? { intervalSeconds: event.intervalSeconds } : {}),
+            ...(Number.isFinite(event.expiresInSeconds) ? { expiresInSeconds: event.expiresInSeconds } : {}),
+          };
+        }
+      },
+    };
+    void modelRuntime.login(payload.providerId, payload.type, interaction).then(
+      () => { attempt.state = 'complete'; attempt.prompt = undefined; },
+      () => { attempt.state = 'failed'; attempt.prompt = undefined; attempt.errorCode = 'PROVIDER_AUTH_REQUIRED'; },
+    ).finally(() => {
+      clearTimeout(attempt.expiry);
+      const timer = setTimeout(() => loginAttempts.delete(attempt.id), 5 * 60 * 1_000);
+      timer.unref?.();
+    });
+    return { login: projectLoginAttempt(attempt) };
+  };
+
+  const respondProviderLogin = (payload) => {
+    if (!payload || typeof payload !== 'object' || typeof payload.providerId !== 'string' || typeof payload.loginId !== 'string'
+      || typeof payload.value !== 'string' || payload.value.length > 16_384) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The provider login response is invalid.');
+    }
+    const attempt = getLoginAttempt(payload.providerId, payload.loginId);
+    if (attempt.state !== 'pending' || !attempt.resolvePrompt) {
+      throw new SessionDaemonProtocolError('PROVIDER_AUTH_REQUIRED', 'The provider login is not awaiting input.');
+    }
+    const resolve = attempt.resolvePrompt;
+    attempt.prompt = undefined;
+    attempt.resolvePrompt = undefined;
+    attempt.rejectPrompt = undefined;
+    resolve(payload.value);
+    return { login: projectLoginAttempt(attempt) };
+  };
+
+  const logoutProvider = async (providerId) => {
+    const status = await providerStatus(providerId);
+    const activeRuntime = await ensureRuntime();
+    await activeRuntime.session.modelRuntime.logout(providerId);
+    return { providerId: status.providerId, authenticated: false };
+  };
+
+  const readPiSettings = () => {
+    const trustStore = createTrustStore(agentDir);
+    const trust = trustStore.get(cwd);
+    const manager = createSettingsManager({ cwd, agentDir, projectTrusted: trust === true });
+    const global = manager.getGlobalSettings();
+    const project = manager.getProjectSettings();
+    return {
+      global: {
+        ...(typeof global.defaultProvider === 'string' ? { defaultProvider: global.defaultProvider } : {}),
+        ...(typeof global.defaultModel === 'string' ? { defaultModel: global.defaultModel } : {}),
+        ...(typeof global.defaultThinkingLevel === 'string' ? { defaultThinking: global.defaultThinkingLevel } : {}),
+        ...(typeof global.defaultProjectTrust === 'string' ? { defaultProjectTrust: global.defaultProjectTrust } : {}),
+      },
+      project: {
+        trusted: trust === true,
+        ...(trust === false ? { denied: true } : {}),
+        ...(trust === true && typeof project.defaultProvider === 'string' ? { defaultProvider: project.defaultProvider } : {}),
+        ...(trust === true && typeof project.defaultModel === 'string' ? { defaultModel: project.defaultModel } : {}),
+        ...(trust === true && typeof project.defaultThinkingLevel === 'string' ? { defaultThinking: project.defaultThinkingLevel } : {}),
+      },
+    };
+  };
+
+  const setPiSettings = async (payload) => {
+    if (!payload || typeof payload !== 'object' || !['global', 'project'].includes(payload.scope)) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi settings request is invalid.');
+    }
+    const hasModel = Object.hasOwn(payload, 'defaultModel');
+    const hasThinking = Object.hasOwn(payload, 'defaultThinking');
+    const hasTrust = Object.hasOwn(payload, 'trust');
+    if (!hasModel && !hasThinking && !hasTrust) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi settings request is empty.');
+    if (hasModel && payload.defaultModel !== null && (!payload.defaultModel || typeof payload.defaultModel.providerId !== 'string'
+      || typeof payload.defaultModel.modelId !== 'string' || payload.defaultModel.providerId.length === 0 || payload.defaultModel.modelId.length === 0)) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi default model is invalid.');
+    }
+    if (hasThinking && payload.defaultThinking !== null && !['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(payload.defaultThinking)) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi default thinking level is invalid.');
+    }
+    if (hasTrust && payload.trust !== null && typeof payload.trust !== 'boolean') {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The project trust decision is invalid.');
+    }
+    const trustStore = createTrustStore(agentDir);
+    if (hasTrust) trustStore.set(cwd, payload.trust);
+    const trusted = trustStore.get(cwd) === true;
+    if (payload.scope === 'project' && !trusted) {
+      throw new SessionDaemonProtocolError('PROJECT_UNTRUSTED', 'The project is not trusted.');
+    }
+    if (hasModel || hasThinking) {
+      const manager = createSettingsManager({ cwd, agentDir, projectTrusted: trusted });
+      if (payload.scope === 'global') {
+        if (hasModel) manager.setDefaultModelAndProvider(payload.defaultModel?.providerId, payload.defaultModel?.modelId);
+        if (hasThinking) manager.setDefaultThinkingLevel(payload.defaultThinking ?? undefined);
+      } else {
+        // Pi has no public project-default setters. Its locked project update
+        // operation preserves the authoritative settings-file merge semantics;
+        // mark each touched top-level field so clears persist as removals.
+        if (hasModel) {
+          manager.updateProjectSettings('defaultProvider', (settings) => {
+            if (payload.defaultModel === null) delete settings.defaultProvider;
+            else settings.defaultProvider = payload.defaultModel.providerId;
+          });
+          manager.updateProjectSettings('defaultModel', (settings) => {
+            if (payload.defaultModel === null) delete settings.defaultModel;
+            else settings.defaultModel = payload.defaultModel.modelId;
+          });
+        }
+        if (hasThinking) manager.updateProjectSettings('defaultThinkingLevel', (settings) => {
+          if (payload.defaultThinking === null) delete settings.defaultThinkingLevel;
+          else settings.defaultThinkingLevel = payload.defaultThinking;
+        });
+      }
+      await manager.flush();
+      if (manager.drainErrors().length > 0) throw new SessionDaemonProtocolError('PI_SETTINGS_INVALID', 'Pi settings could not be written.');
+    }
+    return readPiSettings();
+  };
+
   const setSessionModel = async (activeRuntime, model) => {
     if (!model || typeof model.providerId !== 'string' || typeof model.modelId !== 'string') {
       throw new SessionDaemonProtocolError('INVALID_MODEL', 'The requested Pi model is invalid.');
@@ -683,7 +942,8 @@ export function createSessionDaemon({
               'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.rename', 'sessions.delete',
               'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt',
               'sessions.steer', 'sessions.followUp', 'sessions.abort', 'sessions.setModel',
-              'sessions.setThinking', 'sessions.compact', 'providers.list',
+              'sessions.setThinking', 'sessions.compact', 'providers.list', 'providers.config.get', 'providers.models.set', 'providers.status', 'providers.login',
+              'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
             ],
             ...(Number.isInteger(healthMetadata.daemonPid) ? { daemonPid: healthMetadata.daemonPid } : {}),
           },
@@ -698,6 +958,55 @@ export function createSessionDaemon({
         return;
       case 'providers.list': {
         const result = await listProviders();
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'providers.config.get': {
+        const result = await getProviderConfiguration(message.payload?.providerId);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'providers.models.set': {
+        const result = await setProviderModels(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'providers.status': {
+        const result = await providerStatus(message.payload?.providerId);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'providers.login': {
+        const result = await startProviderLogin(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'providers.login.respond': {
+        const result = respondProviderLogin(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'providers.login.status': {
+        const providerId = message.payload?.providerId;
+        const loginId = message.payload?.loginId;
+        if (typeof providerId !== 'string' || typeof loginId !== 'string') {
+          throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The provider login identifier is invalid.');
+        }
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: { login: projectLoginAttempt(getLoginAttempt(providerId, loginId)) } });
+        return;
+      }
+      case 'providers.logout': {
+        const result = await logoutProvider(message.payload?.providerId);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'settings.get': {
+        const result = readPiSettings();
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'settings.set': {
+        const result = await setPiSettings(message.payload);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
@@ -923,6 +1232,12 @@ export function createSessionDaemon({
     },
     async stop() {
       if (!started) return;
+      for (const attempt of loginAttempts.values()) {
+        attempt.controller.abort();
+        attempt.rejectPrompt?.(new Error('Provider login cancelled.'));
+        clearTimeout(attempt.expiry);
+      }
+      loginAttempts.clear();
       for (const client of clients) client.destroy();
       clients.clear();
       await new Promise((resolve, reject) => {

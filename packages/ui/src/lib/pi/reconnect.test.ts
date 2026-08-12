@@ -14,18 +14,10 @@ const mockCreatePiEventStream: any = mock(() => ({
   eventsUrl: "ws://test/events",
 }))
 
-mock.module("./transport", () => ({
-  fetchPiRuntimeHealth: mockFetchPiRuntimeHealth,
-  createPiEventStream: mockCreatePiEventStream,
-  openRuntimeWebSocket: () => ({ addEventListener: () => undefined, close: () => undefined }),
-  getRuntimeUrlResolver: () => ({
-    api: (path: string) => `http://localhost${path}`,
-    sse: (path: string) => `http://localhost${path}`,
-    ws: (path: string) => `ws://localhost${path}`,
-    health: () => "http://localhost/health",
-    authenticatedAsset: (path: string) => `http://localhost${path}`,
-  }),
-}))
+const dependencies = {
+  fetchHealth: mockFetchPiRuntimeHealth,
+  createStream: mockCreatePiEventStream,
+}
 
 const originalFetch = globalThis.fetch
 
@@ -73,7 +65,7 @@ describe("reconnectPiSession", () => {
       directory: "/work",
       sessionId: "s1",
       onEvent: () => {},
-    })
+    }, dependencies)
     expect(result.phase).toBe("unavailable")
     expect(result.error?.code).toBe("DAEMON_UNAVAILABLE")
     expect(result.stream).toBeNull()
@@ -107,7 +99,7 @@ describe("reconnectPiSession", () => {
       sessionId: "s1",
       lastKnownSequence: 5,
       onEvent: () => {},
-    })
+    }, dependencies)
     expect(result.phase).toBe("ready")
     expect(result.lastSequence).toBe(12)
     expect(result.stream).not.toBeNull()
@@ -127,7 +119,7 @@ describe("reconnectPiSession", () => {
       directory: "/work",
       sessionId: "missing",
       onEvent: () => {},
-    })
+    }, dependencies)
     expect(result.phase).toBe("failed")
     expect(result.error?.code).toBe("INVALID_SESSION")
   })
