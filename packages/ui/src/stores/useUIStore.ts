@@ -623,7 +623,6 @@ interface UIStore {
   isOpenCodeStatusDialogOpen: boolean;
   openCodeStatusText: string;
   isSessionCreateDialogOpen: boolean;
-  isScheduledTasksDialogOpen: boolean;
   isArchivePageOpen: boolean;
   worktreesPageProjectId: string | null;
   isSettingsDialogOpen: boolean;
@@ -712,7 +711,6 @@ interface UIStore {
   showTerminalQuickKeysOnDesktop: boolean;
   persistChatDraft: boolean;
   showOpenCodeUpdateNotifications: boolean;
-  agentControlToolEnabled: boolean;
   inputSpellcheckEnabled: boolean;
   wideChatLayoutEnabled: boolean;
   codeBlockLineWrap: boolean;
@@ -793,10 +791,9 @@ interface UIStore {
   setOpenCodeStatusDialogOpen: (open: boolean) => void;
   setOpenCodeStatusText: (text: string) => void;
   setSessionCreateDialogOpen: (open: boolean) => void;
-  setScheduledTasksDialogOpen: (open: boolean) => void;
   setArchivePageOpen: (open: boolean) => void;
   setWorktreesPageProjectId: (projectId: string | null) => void;
-  /** Close every full-page surface (Scheduled, Archive, Worktrees, Multi-run). */
+  /** Close every full-page surface (Archive, Worktrees, Multi-run). */
   closeMainSurfaces: () => void;
   setSettingsDialogOpen: (open: boolean) => void;
   setNewWorktreeDialogOpen: (open: boolean) => void;
@@ -879,7 +876,6 @@ interface UIStore {
   setMaxLastMessageLength: (value: number) => void;
   setPersistChatDraft: (value: boolean) => void;
   setShowOpenCodeUpdateNotifications: (value: boolean) => void;
-  setAgentControlToolEnabled: (value: boolean) => void;
   setInputSpellcheckEnabled: (value: boolean) => void;
   setWideChatLayoutEnabled: (value: boolean) => void;
   setCodeBlockLineWrap: (value: boolean) => void;
@@ -955,7 +951,6 @@ export const useUIStore = create<UIStore>()(
         isOpenCodeStatusDialogOpen: false,
         openCodeStatusText: '',
         isSessionCreateDialogOpen: false,
-        isScheduledTasksDialogOpen: false,
         isArchivePageOpen: false,
         worktreesPageProjectId: null,
         isSettingsDialogOpen: false,
@@ -1032,7 +1027,6 @@ export const useUIStore = create<UIStore>()(
         showTerminalQuickKeysOnDesktop: false,
         persistChatDraft: true,
         showOpenCodeUpdateNotifications: !isWindowsArm64(),
-        agentControlToolEnabled: true,
         inputSpellcheckEnabled: false,
         wideChatLayoutEnabled: false,
         codeBlockLineWrap: true,
@@ -1653,31 +1647,24 @@ export const useUIStore = create<UIStore>()(
           set({ isSessionCreateDialogOpen: open });
         },
 
-        setScheduledTasksDialogOpen: (open) => {
-          set(open
-            ? { isScheduledTasksDialogOpen: true, isArchivePageOpen: false, worktreesPageProjectId: null, isMultiRunLauncherOpen: false }
-            : { isScheduledTasksDialogOpen: false });
-        },
-
         setArchivePageOpen: (open) => {
           set(open
-            ? { isArchivePageOpen: true, isScheduledTasksDialogOpen: false, worktreesPageProjectId: null, isMultiRunLauncherOpen: false }
+            ? { isArchivePageOpen: true, worktreesPageProjectId: null, isMultiRunLauncherOpen: false }
             : { isArchivePageOpen: false });
         },
 
         setWorktreesPageProjectId: (projectId) => {
           set(projectId
-            ? { worktreesPageProjectId: projectId, isScheduledTasksDialogOpen: false, isArchivePageOpen: false, isMultiRunLauncherOpen: false }
+            ? { worktreesPageProjectId: projectId, isArchivePageOpen: false, isMultiRunLauncherOpen: false }
             : { worktreesPageProjectId: null });
         },
 
         closeMainSurfaces: () => {
           const state = get();
-          if (!state.isScheduledTasksDialogOpen && !state.isArchivePageOpen && !state.worktreesPageProjectId && !state.isMultiRunLauncherOpen) {
+          if (!state.isArchivePageOpen && !state.worktreesPageProjectId && !state.isMultiRunLauncherOpen) {
             return;
           }
           set({
-            isScheduledTasksDialogOpen: false,
             isArchivePageOpen: false,
             worktreesPageProjectId: null,
             isMultiRunLauncherOpen: false,
@@ -2144,7 +2131,7 @@ export const useUIStore = create<UIStore>()(
           set((state) => ({
             isMultiRunLauncherOpen: open,
             multiRunLauncherPrefillPrompt: open ? state.multiRunLauncherPrefillPrompt : '',
-            ...(open ? { isScheduledTasksDialogOpen: false, isArchivePageOpen: false, worktreesPageProjectId: null } : {}),
+            ...(open ? { isArchivePageOpen: false, worktreesPageProjectId: null } : {}),
           }));
         },
 
@@ -2153,7 +2140,6 @@ export const useUIStore = create<UIStore>()(
             isMultiRunLauncherOpen: true,
             multiRunLauncherPrefillPrompt: '',
             isSessionSwitcherOpen: false,
-            isScheduledTasksDialogOpen: false,
             isArchivePageOpen: false,
             worktreesPageProjectId: null,
           });
@@ -2164,7 +2150,6 @@ export const useUIStore = create<UIStore>()(
             isMultiRunLauncherOpen: true,
             multiRunLauncherPrefillPrompt: prompt,
             isSessionSwitcherOpen: false,
-            isScheduledTasksDialogOpen: false,
             isArchivePageOpen: false,
             worktreesPageProjectId: null,
           });
@@ -2225,9 +2210,6 @@ export const useUIStore = create<UIStore>()(
         },
         setShowOpenCodeUpdateNotifications: (value) => {
           set({ showOpenCodeUpdateNotifications: value });
-        },
-        setAgentControlToolEnabled: (value) => {
-          set({ agentControlToolEnabled: value });
         },
         setInputSpellcheckEnabled: (value) => {
           set({ inputSpellcheckEnabled: value });
@@ -2551,7 +2533,6 @@ export const useUIStore = create<UIStore>()(
           maxLastMessageLength: state.maxLastMessageLength,
           persistChatDraft: state.persistChatDraft,
           showOpenCodeUpdateNotifications: state.showOpenCodeUpdateNotifications,
-          agentControlToolEnabled: state.agentControlToolEnabled,
           inputSpellcheckEnabled: state.inputSpellcheckEnabled,
           wideChatLayoutEnabled: state.wideChatLayoutEnabled,
           codeBlockLineWrap: state.codeBlockLineWrap,

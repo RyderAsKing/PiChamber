@@ -548,7 +548,6 @@ const materializeAuthoritativeUiSettings = (settings: DesktopSettings): DesktopS
     maxLastMessageLength: defaults.maxLastMessageLength,
     inputSpellcheckEnabled: defaults.inputSpellcheckEnabled,
     showOpenCodeUpdateNotifications: defaults.showOpenCodeUpdateNotifications,
-    agentControlToolEnabled: defaults.agentControlToolEnabled,
     showToolFileIcons: defaults.showToolFileIcons,
     codeBlockLineWrap: defaults.codeBlockLineWrap,
     showTurnChangedFiles: defaults.showTurnChangedFiles,
@@ -704,12 +703,6 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
   ) {
     store.setShowOpenCodeUpdateNotifications(settings.showOpenCodeUpdateNotifications);
   }
-  if (
-    typeof settings.agentControlToolEnabled === 'boolean'
-    && settings.agentControlToolEnabled !== store.agentControlToolEnabled
-  ) {
-    store.setAgentControlToolEnabled(settings.agentControlToolEnabled);
-  }
   if (typeof settings.showToolFileIcons === 'boolean' && settings.showToolFileIcons !== store.showToolFileIcons) {
     store.setShowToolFileIcons(settings.showToolFileIcons);
   }
@@ -815,27 +808,14 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
     store.setFontSize(settings.fontSize);
   }
   if (Array.isArray(settings.draftStarters)) {
-    let nextStarters = sanitizeStarterRefs(settings.draftStarters)
-      .filter((starter) => starter.type !== 'command' || starter.name !== 'craft-goal');
-    if (settings.draftStartersScheduleTaskAdded !== true && !nextStarters.some((starter) => starter.type === 'command' && starter.name === 'schedule-task')) {
-      const planIndex = nextStarters.findIndex((starter) => starter.type === 'command' && starter.name === 'plan-feature');
-      const insertAt = planIndex >= 0 ? planIndex + 1 : nextStarters.length;
-      nextStarters = [
-        ...nextStarters.slice(0, insertAt),
-        { type: 'command', name: 'schedule-task' },
-        ...nextStarters.slice(insertAt),
-      ];
-    }
+    const nextStarters = sanitizeStarterRefs(settings.draftStarters)
+      .filter((starter) => starter.type !== 'command' || (starter.name !== 'craft-goal' && starter.name !== 'schedule-task'));
     if (JSON.stringify(store.globalDraftStarters) !== JSON.stringify(nextStarters)) {
       store.setGlobalDraftStarters(nextStarters);
     }
-    if (settings.draftStartersScheduleTaskAdded !== true) {
-      settings.draftStarters = nextStarters;
-      settings.draftStartersScheduleTaskAdded = true;
-    }
-  } else if (settings.draftStartersScheduleTaskAdded !== true) {
-    settings.draftStartersScheduleTaskAdded = true;
+    settings.draftStarters = nextStarters;
   }
+  delete settings.draftStartersScheduleTaskAdded;
   if (typeof settings.draftStartersVisible === 'boolean' && settings.draftStartersVisible !== store.draftStartersVisible) {
     store.setDraftStartersVisible(settings.draftStartersVisible);
   }
@@ -1326,9 +1306,6 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
   }
   if (typeof candidate.showOpenCodeUpdateNotifications === 'boolean') {
     result.showOpenCodeUpdateNotifications = candidate.showOpenCodeUpdateNotifications;
-  }
-  if (typeof candidate.agentControlToolEnabled === 'boolean') {
-    result.agentControlToolEnabled = candidate.agentControlToolEnabled;
   }
   if (typeof candidate.openCodeUpdateToastDismissedVersion === 'string') {
     result.openCodeUpdateToastDismissedVersion = candidate.openCodeUpdateToastDismissedVersion.trim().slice(0, 128);

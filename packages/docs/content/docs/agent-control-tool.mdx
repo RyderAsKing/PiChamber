@@ -1,6 +1,6 @@
 ---
 title: Agent Control Tool
-description: Let an agent manage PiChamber sessions, worktrees, and scheduled tasks from chat.
+description: Let an agent manage PiChamber sessions and worktrees from chat.
 ---
 
 # Agent Control Tool
@@ -14,11 +14,8 @@ Ask the agent in plain language. For example:
 - "Create a new PiChamber session in this project, use the `openai/gpt-5.6-sol` model, and send it this prompt: review the authentication flow."
 - "Create a new PiChamber session for this task in a separate worktree, and ask it to add tests for the login flow."
 - "Use PiChamber to list my 10 most recent sessions and include their current status."
-- "Create an PiChamber scheduled task named Weekday review that sends this prompt at 09:00 every weekday: review changes since the last run."
-- "Run the PiChamber scheduled task named Weekday review now."
 - "Check the PiChamber session named Authentication review and show me its latest assistant response."
 
-The tool can list projects and model preferences, create and follow up on sessions, fork a session, create isolated worktree sessions, and manage scheduled tasks. Sessions started this way appear in PiChamber like any other session, so you can open them and continue the work yourself.
 
 ## Keep in mind
 
@@ -34,5 +31,4 @@ The tool is not available when PiChamber connects to an external OpenCode server
 
 ## Related
 
-- [Scheduled Tasks](/scheduled-tasks/)
 - [Worktree Sessions](/worktrees/)

@@ -1262,10 +1262,9 @@ export const Header: React.FC<HeaderProps> = ({
       : 'sessions.sidebar.session.delete.success'));
   }, [archiveSessions, currentSessionId, deleteSessions, pendingHeaderRetentionAction, t]);
 
-  // Full-page surfaces (Scheduled, Archive, Worktrees, Multi-run) replace the
-  // chat area; while one is open the header shows the surface identity
-  // instead of the session switcher.
-  const isScheduledSurfaceOpen = useUIStore((state) => state.isScheduledTasksDialogOpen);
+  // Full-page surfaces (Archive, Worktrees, Multi-run) replace the chat area;
+  // while one is open the header shows the surface identity instead of the
+  // session switcher.
   const isArchiveSurfaceOpen = useUIStore((state) => state.isArchivePageOpen);
   const worktreesSurfaceProjectId = useUIStore((state) => state.worktreesPageProjectId);
   const isMultiRunSurfaceOpen = useUIStore((state) => state.isMultiRunLauncherOpen);
@@ -1275,9 +1274,6 @@ export const Header: React.FC<HeaderProps> = ({
     return project?.label?.trim() || project?.path?.split('/').pop() || null;
   });
   const activeSurfaceHeader = React.useMemo<{ title: string; subtitle: string | null } | null>(() => {
-    if (isScheduledSurfaceOpen) {
-      return { title: t('sessions.scheduledTasks.dialog.title'), subtitle: null };
-    }
     if (isArchiveSurfaceOpen) {
       return { title: t('sessions.archivePage.title'), subtitle: null };
     }
@@ -1291,7 +1287,7 @@ export const Header: React.FC<HeaderProps> = ({
       return { title: t('sessions.sidebar.header.actions.newMultiRun'), subtitle: null };
     }
     return null;
-  }, [isArchiveSurfaceOpen, isMultiRunSurfaceOpen, isScheduledSurfaceOpen, t, worktreesSurfaceProjectId, worktreesSurfaceProjectLabel]);
+  }, [isArchiveSurfaceOpen, isMultiRunSurfaceOpen, t, worktreesSurfaceProjectId, worktreesSurfaceProjectLabel]);
 
 
   const actionDirectory = React.useMemo(() => {

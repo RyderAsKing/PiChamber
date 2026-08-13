@@ -152,7 +152,7 @@ This is a baseline for deletion and port planning, not a compatibility commitmen
 - The primary runtime facade is `packages/ui/src/lib/opencode/client.ts` (`OpencodeService`). The migration replaces it with Pi-native modules rather than adapting its types or endpoint names.
 - The primary event reduction owner is `packages/ui/src/sync/event-reducer.ts`; the remaining session bootstrap, stream, cache, ordering, and optimistic-flow consumers are in `packages/ui/src/sync/`.
 - OpenCode SDK data shapes also reach UI hooks, stores, message rendering, sidebar/session components, mobile apps, review/worktree flows, and their tests. `rg -l '@opencode-ai/sdk' packages` is the authoritative file list for this snapshot.
-- Direct runtime SDK clients outside the shared facade currently include `packages/web/server/lib/openchamber-sessions/routes.js`, `packages/web/server/lib/openchamber-control/service.js`, `packages/web/server/lib/scheduled-tasks/runtime.js`, and `packages/web/server/lib/opencode/skill-routes.js`.
+- Direct runtime SDK clients outside the shared facade currently include `packages/web/server/lib/opencode/skill-routes.js`.
 
 ### OpenCode process and server ownership
 
@@ -160,18 +160,14 @@ This is a baseline for deletion and port planning, not a compatibility commitmen
 - `packages/web/server/index.js` is the current composition root that wires the managed OpenCode lifecycle, proxy/event paths, session service, and control service.
 - `packages/electron/scripts/prepare-opencode-cli.mjs`, `verify-opencode-cli.mjs`, and `verify-linux-appimage.mjs`, plus the OpenCode CLI resources they stage, are OpenCode-binary deletion targets.
 - `packages/web/vite.config.ts` contains OpenCode SDK alias/vendor-chunk configuration and is a cutover consumer.
-- `packages/web/server/lib/system-prompt/` and its managed-launch injection path, plus `packages/web/server/lib/session-assist/` and its UI/settings consumers, were removed as OpenCode-coupled features. `packages/web/server/lib/agent-tool/`, `packages/web/server/lib/scheduled-tasks/`, and their callers remain OpenCode-coupled feature removal targets; they are not Pi daemon homes.
+- `packages/web/server/lib/system-prompt/` and its managed-launch injection path, plus `packages/web/server/lib/session-assist/`, scheduled tasks, loop-file scheduling, the agent tool, and OpenCode session/control adapters with their UI/settings/CLI consumers have been removed as OpenCode-coupled features.
 
 ### Existing API/event routes
 
 | Current surface | Current owner | Disposition |
 | --- | --- | --- |
 | Generic `/api/*` OpenCode proxy, `/api/event`, `/api/global/event`, and session message forwarding | `packages/web/server/lib/opencode/proxy.js` | Remove; replace only the required product operations under `/api/pi/`. |
-| `/api/openchamber/events` | `packages/web/server/lib/scheduled-tasks/routes.js` plus server wiring | Replace with `/api/pi/events` for Pi runtime events; preserve unrelated product notifications only through an intentional PiChamber event design. |
 | `/api/openchamber/realtime-proxy/{sse,ws}` | `packages/web/server/lib/realtime-proxy.js` | Retain only as generic PiChamber transport if a Pi-native consumer still needs it; it is not the daemon protocol. |
-| `/api/openchamber/sessions`, `/:sessionId/send`, `/:sessionId/fork` | `packages/web/server/lib/openchamber-sessions/routes.js` | Replace with the `/api/pi/sessions` routes above. |
-| `/api/openchamber/control` and `/api/openchamber/agent-tool` | `openchamber-control/routes.js`, `agent-tool/runtime.js` | Remove: the OpenCode tool/agent-control contract is a migration non-goal. |
-| `/api/openchamber/scheduled-tasks/status` | `scheduled-tasks/routes.js` | Remove: scheduled tasks and loop-file scheduling are migration non-goals. |
 | `/api/openchamber/relay/{status,enable,disable}` | `relay/service.js` | Retain as PiChamber-owned relay management and port after direct Pi connections are stable. |
 | `/api/openchamber/tunnel/{check,doctor,providers,status,managed-remote-token,start,stop}` | `tunnels/routes.js` | Retain as PiChamber-owned tunnel management; port after direct Pi connections are stable. |
 | `/api/opencode/*` health/version/directory/upgrade and `/api/config/opencode-resolution` | `packages/web/server/lib/opencode/routes.js` | Remove. |

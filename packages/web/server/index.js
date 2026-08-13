@@ -74,7 +74,6 @@ import { createBootstrapRuntime } from './lib/opencode/bootstrap-runtime.js';
 import { createSessionRuntime } from './lib/opencode/session-runtime.js';
 import { createOpenCodeWatcherRuntime } from './lib/opencode/watcher.js';
 import { createContextObligatoryRuntime } from './lib/context-obligatory/runtime.js';
-import { createScheduledTasksRuntime } from './lib/scheduled-tasks/runtime.js';
 import { createServerStartupRuntime } from './lib/opencode/server-startup-runtime.js';
 import { createTunnelWiringRuntime } from './lib/opencode/tunnel-wiring-runtime.js';
 import { createStartupPipelineRuntime } from './lib/opencode/startup-pipeline-runtime.js';
@@ -87,17 +86,12 @@ import { createApnsRuntime } from './lib/notifications/apns-runtime.js';
 import { createNotificationTemplateRuntime } from './lib/notifications/template-runtime.js';
 import { createPermissionAutoAcceptRuntime } from './lib/permission-auto-accept/runtime.js';
 import { createGracefulShutdownRuntime } from './lib/opencode/shutdown-runtime.js';
-import { createProjectConfigRuntime } from './lib/projects/project-config.js';
 import { createRemoteClientAuthRuntime } from './lib/client-auth/remote-clients.js';
 import { createClientPairingRuntime } from './lib/client-auth/pairing.js';
 import { createPreviewProxyRuntime } from './lib/preview/proxy-runtime.js';
 import { attachRealtimeProxy } from './lib/realtime-proxy.js';
 import { createRelayService } from './lib/relay/service.js';
 import { createRelayHostLock } from './lib/relay/host-lock.js';
-import { createAgentToolRuntime } from './lib/agent-tool/runtime.js';
-import { createPiChamberSessionService } from './lib/openchamber-sessions/routes.js';
-import { createScheduledTaskService } from './lib/scheduled-tasks/service.js';
-import { createPiChamberControlService } from './lib/openchamber-control/service.js';
 import { createPiSessionDaemonSupervisor } from './lib/pi/session-daemon/supervisor.js';
 import { registerPiRuntimeRoutes } from './lib/pi/routes.js';
 import { createProxyMiddleware, responseInterceptor } from 'http-proxy-middleware';
@@ -110,7 +104,6 @@ const DEFAULT_PORT = 3000;
 const DESKTOP_NOTIFY_PREFIX = '[PiChamberDesktopNotify] ';
 const uiNotificationClients = new Set();
 const uiNotificationWsClients = new Set();
-const uiPiChamberEventClients = new Set();
 const HEALTH_CHECK_INTERVAL = 15000;
 const SHUTDOWN_TIMEOUT = 10000;
 const MODELS_DEV_API_URL = 'https://models.dev/api.json';
@@ -150,7 +143,6 @@ const SSE_PATH_PREFIXES = [
   '/api/event',
   '/api/global/event',
   '/api/notifications/stream',
-  '/api/openchamber/events',
   '/api/openchamber/realtime-proxy/sse',
 ];
 
@@ -253,7 +245,6 @@ const sanitizeProjects = (...args) => settingsNormalizationRuntime.sanitizeProje
 
 const PICHAMBER_USER_CONFIG_ROOT = resolvePiChamberDataDir();
 const PICHAMBER_USER_THEMES_DIR = path.join(PICHAMBER_USER_CONFIG_ROOT, 'themes');
-const PICHAMBER_PROJECTS_CONFIG_DIR = path.join(PICHAMBER_USER_CONFIG_ROOT, 'projects');
 
 const MAX_THEME_JSON_BYTES = 512 * 1024;
 
@@ -269,7 +260,6 @@ const themeRuntime = createThemeRuntime({
 const readCustomThemesFromDisk = (...args) => themeRuntime.readCustomThemesFromDisk(...args);
 
 let notificationTemplateRuntime = null;
-let agentToolRuntime = null;
 
 const createTimeoutSignal = (...args) => notificationTemplateRuntime.createTimeoutSignal(...args);
 const formatProjectLabel = (...args) => notificationTemplateRuntime.formatProjectLabel(...args);
@@ -459,12 +449,6 @@ const getUpstreamStallTimeoutMs = () => (
     ? UPSTREAM_STALL_TIMEOUT_CONCURRENT_MS
     : DEFAULT_UPSTREAM_STALL_TIMEOUT_MS
 );
-
-const projectConfigRuntime = createProjectConfigRuntime({
-  fsPromises,
-  path,
-  projectsDirPath: PICHAMBER_PROJECTS_CONFIG_DIR,
-});
 
 // HMR-persistent state via globalThis
 // These values survive Vite HMR reloads to prevent zombie OpenCode processes
@@ -910,7 +894,6 @@ const bootstrapRuntime = createBootstrapRuntime({
   registerTtsRoutes,
   registerNotificationRoutes,
   registerPiChamberRoutes,
-  registerAgentToolRoutes: (app, options) => options.agentToolRuntime.registerRoutes(app, options.express),
   express,
 });
 const tunnelWiringRuntime = createTunnelWiringRuntime({
@@ -1040,12 +1023,7 @@ const openCodeLifecycleRuntime = createOpenCodeLifecycleRuntime({
       console.warn('Failed to rebind message stream after OpenCode restart:', error?.message ?? error);
     }
   },
-  getManagedOpenCodeEnv: async () => {
-    const settings = await readSettingsFromDiskMigrated().catch(() => null);
-    return settings?.agentControlToolEnabled === false
-      ? {}
-      : await (agentToolRuntime?.prepareManagedOpenCodeEnv() || {});
-  },
+  getManagedOpenCodeEnv: async () => ({}),
 });
 
 
@@ -1055,80 +1033,6 @@ const waitForAgentPresence = (...args) => openCodeLifecycleRuntime.waitForAgentP
 const refreshOpenCodeAfterConfigChange = (...args) => openCodeLifecycleRuntime.refreshOpenCodeAfterConfigChange(...args);
 const startHealthMonitoring = () => openCodeLifecycleRuntime.startHealthMonitoring(HEALTH_CHECK_INTERVAL);
 const triggerHealthCheck = () => openCodeLifecycleRuntime.triggerHealthCheck();
-const scheduledTasksRuntime = createScheduledTasksRuntime({
-  projectConfigRuntime,
-  listProjects: async () => {
-    const settings = await readSettingsFromDiskMigrated();
-    return sanitizeProjects(settings?.projects || []);
-  },
-  buildOpenCodeUrl,
-  getOpenCodeAuthHeaders,
-  waitForOpenCodeReady,
-  setSessionAutoAccept: (sessionId, enabled, directory) => permissionAutoAcceptRuntime.setSessionPolicy(sessionId, enabled, directory),
-  emitTaskRunEvent: (event) => {
-    for (const client of uiPiChamberEventClients) {
-      try {
-        writeSseEvent(client, {
-          type: 'openchamber:scheduled-task-ran',
-          properties: {
-            projectId: event.projectID,
-            taskId: event.taskID,
-            ranAt: event.ranAt,
-            status: event.status,
-            ...(event.sessionID ? { sessionId: event.sessionID } : {}),
-          },
-        });
-      } catch {
-        uiPiChamberEventClients.delete(client);
-      }
-    }
-  },
-  logger: console,
-});
-const emitSessionCreatedEvent = (event) => {
-  for (const client of uiPiChamberEventClients) {
-    try {
-      writeSseEvent(client, {
-        type: 'openchamber:session-created',
-        properties: {
-          sessionId: event.sessionID,
-          directory: event.directory,
-          createdAt: event.createdAt,
-          promptDispatched: event.promptDispatched === true,
-          dispatchedAsCommand: event.dispatchedAsCommand === true,
-          ...(event.projectID ? { projectId: event.projectID } : {}),
-          ...(event.title ? { title: event.title } : {}),
-        },
-      });
-    } catch {
-      uiPiChamberEventClients.delete(client);
-    }
-  }
-};
-const scheduledTaskService = createScheduledTaskService({
-  readSettingsFromDiskMigrated,
-  sanitizeProjects,
-  projectConfigRuntime,
-  scheduledTasksRuntime,
-});
-const openChamberSessionService = createPiChamberSessionService({
-  readSettingsFromDiskMigrated,
-  sanitizeProjects,
-  validateDirectoryPath,
-  buildOpenCodeUrl,
-  getOpenCodeAuthHeaders,
-  waitForOpenCodeReady,
-  emitSessionCreatedEvent,
-});
-const openChamberControlService = createPiChamberControlService({
-  readSettingsFromDiskMigrated,
-  sanitizeProjects,
-  buildOpenCodeUrl,
-  getOpenCodeAuthHeaders,
-  waitForOpenCodeReady,
-  sessionService: openChamberSessionService,
-  scheduledTaskService,
-});
 
 const ensureGlobalWatcherStarted = async () => {
   if (globalWatcherStartPromise) {
@@ -1210,7 +1114,6 @@ const gracefulShutdownRuntime = createGracefulShutdownRuntime({
     activeTunnelController = value;
   },
   tunnelAuthController,
-  scheduledTasksRuntime,
 });
 
 const gracefulShutdown = (...args) => gracefulShutdownRuntime.gracefulShutdown(...args);
@@ -1222,18 +1125,6 @@ async function main(options = {}) {
     || (typeof process.env.OPENCHAMBER_HOST === 'string' && process.env.OPENCHAMBER_HOST.trim().length > 0
       ? process.env.OPENCHAMBER_HOST.trim()
       : '127.0.0.1');
-  agentToolRuntime = createAgentToolRuntime({
-    crypto,
-    fsPromises,
-    path,
-    dataDir: OPENCHAMBER_DATA_DIR,
-    env: process.env,
-    executeAction: (...args) => openChamberControlService.execute(...args),
-    getActivePort: () => {
-      const address = server?.address?.();
-      return typeof address === 'object' && address ? address.port : null;
-    },
-  });
   piSessionDaemonRuntime = createPiSessionDaemonSupervisor({
     cwd: process.cwd(),
     dataDir: OPENCHAMBER_DATA_DIR,
@@ -1535,7 +1426,6 @@ async function main(options = {}) {
     fetchFreeZenModels,
     getCachedZenModels,
     setAutoAcceptSession,
-    agentToolRuntime,
   });
   uiAuthController = bootstrapResult.uiAuthController;
   piAttachmentRuntime = registerPiRuntimeRoutes(app, {
@@ -1622,15 +1512,7 @@ async function main(options = {}) {
     getOpenCodeAuthHeaders,
     getOpenCodePort: () => openCodePort,
     buildAugmentedPath,
-    projectConfigRuntime,
-    scheduledTasksRuntime,
-    scheduledTaskService,
-    openChamberSessionService,
-    openChamberControlService,
     waitForOpenCodeReady,
-    emitSessionCreatedEvent,
-    getPiChamberEventClients: () => uiPiChamberEventClients,
-    writeSseEvent,
     permissionAutoAcceptRuntime,
   });
 
@@ -1709,12 +1591,6 @@ async function main(options = {}) {
     console.warn(`[PiSessionDaemon] unavailable: ${error?.code ?? 'DAEMON_UNAVAILABLE'}`);
   });
 
-  try {
-    await scheduledTasksRuntime.start();
-  } catch (error) {
-    console.warn('[ScheduledTasks] Failed to start runtime:', error?.message || error);
-  }
-
   // Only opens a relay control socket when the user opted in (config enabled).
   // Reconcile the relay lifecycle from demand on startup: run it if any relay
   // device/session exists, stop it (and clear a stale enabled flag) otherwise.
@@ -1739,7 +1615,6 @@ async function main(options = {}) {
       tunnel: {
         active: Boolean(tunnelService.getPublicUrl()),
       },
-      scheduledTasks: scheduledTasksRuntime.getStatus(),
     }),
     isReady: () => isOpenCodeReady,
     restartOpenCode: () => restartOpenCode(),

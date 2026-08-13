@@ -52,7 +52,7 @@ Pair a device with a one-time QR code and connect through **Private Relay** with
 
 ### Track work across projects
 
-See which sessions are working, waiting, finished, or failed, along with approvals, scheduled tasks, provider limits, token use, and costs. Organize sessions into folders and keep notes, todos, and reusable project actions nearby.
+See which sessions are working, waiting, finished, or failed, along with approvals, provider limits, token use, and costs. Organize sessions into folders and keep notes, todos, and reusable project actions nearby.
 
 ### Schedule recurring work
 

@@ -656,9 +656,8 @@ async function readPiChamberConfig(project: ProjectRef): Promise<PiChamberConfig
 /**
  * Write the per-user config for a project.
  *
- * Server owns `version` and `scheduledTasks` keys; client reads them via their
- * dedicated route and never round-trips them through this config write path to
- * avoid a read-then-write race clobbering a concurrent server update.
+ * Server owns the config version; client preserves it when writing shared
+ * project metadata.
  */
 async function writePiChamberConfig(
   project: ProjectRef,
@@ -696,7 +695,6 @@ async function writePiChamberConfig(
 
     const serverOwned: Record<string, unknown> = {};
     if (existing.version !== undefined) serverOwned.version = existing.version;
-    if (existing.scheduledTasks !== undefined) serverOwned.scheduledTasks = existing.scheduledTasks;
 
     const content = JSON.stringify({
       ...existing,

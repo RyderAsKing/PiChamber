@@ -30,7 +30,6 @@ This module provides OpenCode server integration utilities for the web server ru
 - `packages/web/server/lib/opencode/tunnel-wiring-runtime.js`: tunnel service/routes composition runtime and active-port wiring for main server startup.
 - `packages/web/server/lib/opencode/startup-pipeline-runtime.js`: server startup tail orchestration runtime for terminal/proxy/static/start-listen flow.
 - `packages/web/server/lib/opencode/startup-performance.js`: opt-in startup phase diagnostics with fixed labels and numeric metadata allowlists.
-- `packages/web/server/lib/agent-tool/runtime.js`: managed OpenCode custom-tool materialization, environment injection, loopback authentication, and fixed CLI action dispatch.
 - `packages/web/server/lib/opencode/server-utils-runtime.js`: shared server runtime utilities for OpenCode proxy wiring, OpenCode port/readiness helpers, and snapshot fetchers.
 - `packages/web/server/lib/opencode/pichamber-routes.js`: PiChamber update and models metadata route registration.
 - `packages/web/server/lib/opencode/pwa-manifest-routes.js`: PWA manifest route registration with recent-session shortcut resolution and short-lived caching.
@@ -121,12 +120,8 @@ The runtime maintains active-session count incrementally from idempotent activit
   - `waitForPortRelease(port, timeoutMs, hostname?)`
   - `killProcessOnPort(port)`
 
-Managed OpenCode launch also merges the environment returned by the agent-tool
-runtime. PATH and `OPENCODE_SERVER_PASSWORD` remain lifecycle-owned and cannot
-be replaced by injected values. External OpenCode processes receive no
-PiChamber tool injection. Managed launch env strips AppImage `ARGV0` before
-spawn so zsh-backed OpenCode tools do not rewrite child argv[0] to the AppImage
-path (#2588).
+Managed launch env strips AppImage `ARGV0` before spawn so zsh-backed
+OpenCode tools do not rewrite child argv[0] to the AppImage path (#2588).
 
 Before spawn, `applyProviderEnvAliases` fills unset Google credential aliases
 from any present sibling (`GOOGLE_GENERATIVE_AI_API_KEY`, `GOOGLE_API_KEY`,

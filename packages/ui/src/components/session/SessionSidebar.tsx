@@ -93,7 +93,6 @@ import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
 import { useNotificationStore } from '@/sync/notification-store';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { getGitHubPrStatusKey, useGitHubPrStatusStore } from '@/stores/useGitHubPrStatusStore';
-import { subscribeOpenchamberEvents } from '@/lib/pichamberEvents';
 import { buildSessionBootstrapDemands } from './sidebar/sessionBootstrapDemands';
 import { recordWorktreesSeen } from './sidebar/worktreeFirstSeen';
 import { getRuntimeKey } from '@/lib/runtime-switch';
@@ -392,7 +391,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const toggleHelpDialog = useUIStore((state) => state.toggleHelpDialog);
   const setAboutDialogOpen = useUIStore((state) => state.setAboutDialogOpen);
   const setSessionSwitcherOpen = useUIStore((state) => state.setSessionSwitcherOpen);
-  const setScheduledTasksDialogOpen = useUIStore((state) => state.setScheduledTasksDialogOpen);
   const setArchivePageOpen = useUIStore((state) => state.setArchivePageOpen);
   const setWorktreesPageProjectId = useUIStore((state) => state.setWorktreesPageProjectId);
   const openMultiRunLauncher = useUIStore((state) => state.openMultiRunLauncher);
@@ -535,7 +533,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     [projects, runtimeKey],
   );
   const [resolvedWorktreeTopologyKey, setResolvedWorktreeTopologyKey] = React.useState<string | null>(null);
-  const [worktreeDiscoveryRevision, requestWorktreeDiscovery] = React.useReducer((revision) => revision + 1, 0);
   const isWorktreeTopologyLoading = resolvedWorktreeTopologyKey !== projectWorktreeDiscoveryKey;
   const [unresolvedWorktreeProjectPaths, setUnresolvedWorktreeProjectPaths] = React.useState<ReadonlySet<string>>(new Set());
 
@@ -638,44 +635,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [projectWorktreeDiscoveryKey, runtimeKey, worktreeDiscoveryRevision]);
-
-  React.useEffect(() => {
-    let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
-    let needsGlobalRefresh = false;
-    const sessionDirectories = new Set<string>();
-    const unsubscribe = subscribeOpenchamberEvents((event) => {
-      if (event.type === 'scheduled-task-ran') {
-        needsGlobalRefresh = true;
-      } else {
-        sessionDirectories.add(event.directory);
-        requestWorktreeDiscovery();
-      }
-      if (refreshTimeout) {
-        clearTimeout(refreshTimeout);
-      }
-      refreshTimeout = setTimeout(() => {
-        refreshTimeout = null;
-        if (needsGlobalRefresh) {
-          needsGlobalRefresh = false;
-          sessionDirectories.clear();
-          void refreshGlobalSessions(syncSessionsSnapshotRef.current);
-          return;
-        }
-        const directories = [...sessionDirectories];
-        sessionDirectories.clear();
-        if (directories.length > 0) {
-          void refreshGlobalSessionsForDirectories(directories, syncSessionsSnapshotRef.current);
-        }
-      }, 500);
-    });
-    return () => {
-      if (refreshTimeout) {
-        clearTimeout(refreshTimeout);
-      }
-      unsubscribe();
-    };
-  }, []);
+  }, [projectWorktreeDiscoveryKey, runtimeKey]);
 
   const isDesktopShellRuntime = React.useMemo(() => isDesktopShell(), []);
 
@@ -1812,10 +1772,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         hideDirectoryControls={hideDirectoryControls}
         showRecentControls
         handleOpenDirectoryDialog={handleOpenDirectoryDialog}
-        onOpenScheduled={() => {
-          if (mobileVariant) setSessionSwitcherOpen(false);
-          setScheduledTasksDialogOpen(true);
-        }}
         onOpenMultiRun={handleOpenMultiRunFromHeader}
         canOpenMultiRun={projects.length > 0}
         onOpenArchive={() => {

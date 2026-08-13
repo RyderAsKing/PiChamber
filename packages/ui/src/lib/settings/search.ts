@@ -434,13 +434,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     isAvailable: (ctx) => !ctx.isWindowsArm64,
   },
   {
-    id: 'sessions.agent-control-tool',
-    page: 'general',
-    titleKey: 'settings.pichamber.opencodeCli.field.agentControlTool',
-    descriptionKey: 'settings.pichamber.opencodeCli.field.agentControlToolInfo',
-    keywords: ['agent', 'tool', 'orchestration', 'openchamber', 'sessions', 'schedule', 'control'],
-  },
-  {
     id: 'git.github-account',
     page: 'git',
     titleKey: 'settings.github.page.actions.connect',
