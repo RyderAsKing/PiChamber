@@ -73,7 +73,20 @@ export async function forkFromMessage(sessionId: string): Promise<void> {
 export async function fetchMessagesForSession() { return []; }
 export function setContextObligatoryMessage(..._args: unknown[]) {}
 export async function respondToPermission(..._args: unknown[]) {}
-export function abortCurrentOperation(..._args: unknown[]) {}
+export async function respondToQuestion(..._args: unknown[]) {}
+export async function rejectQuestion(..._args: unknown[]) {}
+export function isQuestionRequestNotFoundError(_error?: unknown) { return false; }
+export async function dismissOpenPermissionsForSession(_sessionId: string): Promise<boolean> { return false; }
+export async function dismissOpenQuestionsForSession(_sessionId: string): Promise<boolean> { return false; }
+export async function waitForConnectionOrThrow(): Promise<void> {
+  const snapshot = store().getState();
+  if (snapshot.connection === 'ready') return;
+  throw snapshot.error ?? new Error('Pi runtime is unavailable');
+}
+export async function setLinkedIssue(..._args: unknown[]): Promise<void> {}
+export function abortCurrentOperation(sessionId?: string) {
+  if (sessionId) void store().abort(sessionId);
+}
 export function getSessionLastAssistantModel(..._args: unknown[]) { return null; }
 
 export function setOptimisticRefs(

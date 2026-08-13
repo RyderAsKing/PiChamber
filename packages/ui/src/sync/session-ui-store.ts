@@ -92,7 +92,7 @@ export type { AttachedFile }
 // Send routing — shell mode, slash commands, or normal prompt
 // ---------------------------------------------------------------------------
 
-export function routeMessage(params: {
+export async function routeMessage(params: {
   runtimeKey?: string
   sessionId: string
   directory?: string | null
@@ -108,7 +108,17 @@ export function routeMessage(params: {
   delivery?: 'steer' | 'followUp' | 'prompt'
 }): Promise<void> {
   const delivery = params.delivery === 'steer' || params.delivery === 'followUp' ? params.delivery : 'prompt'
-  return getPiSessionStore().prompt(params.sessionId, params.content, delivery)
+  const sessionStore = getPiSessionStore()
+  if (params.sessionId && params.providerID && params.modelID) {
+    await sessionStore.setModel(params.sessionId, params.providerID, params.modelID)
+  }
+  if (
+    params.sessionId
+    && (params.variant === 'off' || params.variant === 'low' || params.variant === 'medium' || params.variant === 'high' || params.variant === 'xhigh')
+  ) {
+    await sessionStore.setThinking(params.sessionId, params.variant)
+  }
+  return sessionStore.prompt(params.sessionId, params.content, delivery)
 }
 
 type CapturedSendTarget = {

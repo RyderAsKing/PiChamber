@@ -2857,15 +2857,12 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                 >
                     {renderVariantSelector()}
                     {renderModelSelector()}
-                    {renderAgentSelector()}
                 </div>
             </div>
 
             {renderMobileModelPanel()}
             {renderMobileVariantPanel()}
-            {renderMobileAgentPanel()}
             {renderMobileModelTooltip()}
-            {renderMobileAgentTooltip()}
         </>
     );
 

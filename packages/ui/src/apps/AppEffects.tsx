@@ -10,6 +10,7 @@ import { setOptimisticRefs } from '@/sync/session-actions';
 import { markSessionViewed } from '@/sync/notification-store';
 import { setExternallyViewedSession } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
+import { useConfigStore } from '@/stores/useConfigStore';
 
 const MINI_CHAT_PRESENCE_CHANNEL = 'openchamber:mini-chat-presence';
 
@@ -73,6 +74,46 @@ export function SyncRuntimeEffects({ embeddedBackgroundWorkEnabled }: {
   return <SyncOptimisticBridge />;
 }
 
+const ConfigStoreBootstrap: React.FC = () => {
+  const initializeApp = useConfigStore((state) => state.initializeApp);
+  const isInitialized = useConfigStore((state) => state.isInitialized);
+  const isConnected = useConfigStore((state) => state.isConnected);
+  const loadProviders = useConfigStore((state) => state.loadProviders);
+  const providersCount = useConfigStore((state) => state.providers.length);
+
+  React.useEffect(() => {
+    void initializeApp();
+  }, [initializeApp]);
+
+  React.useEffect(() => {
+    if (isInitialized) return;
+    let active = true;
+    let retryCount = 0;
+    const id = window.setInterval(() => {
+      if (!active) return;
+      retryCount += 1;
+      if (retryCount > 10) {
+        window.clearInterval(id);
+        return;
+      }
+      if (!useConfigStore.getState().isInitialized) {
+        void useConfigStore.getState().initializeApp();
+      }
+    }, 1000);
+    return () => {
+      active = false;
+      window.clearInterval(id);
+    };
+  }, [isInitialized]);
+
+  React.useEffect(() => {
+    if (!isConnected) return;
+    if (providersCount === 0) void loadProviders({ source: 'webApp:recovery' });
+  }, [isConnected, loadProviders, providersCount]);
+
+  return null;
+};
+
 export function SyncAppEffects({ embeddedBackgroundWorkEnabled }: {
   embeddedBackgroundWorkEnabled: boolean;
 }) {
@@ -82,6 +123,7 @@ export function SyncAppEffects({ embeddedBackgroundWorkEnabled }: {
 
   return (
     <>
+      <ConfigStoreBootstrap />
       <SyncRuntimeEffects embeddedBackgroundWorkEnabled={embeddedBackgroundWorkEnabled} />
       <MiniChatPresenceBridge />
     </>

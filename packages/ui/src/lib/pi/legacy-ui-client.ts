@@ -19,12 +19,24 @@ export const opencodeClient = {
   clearConfigCache: () => {},
   getProvidersForConfig: async () => {
     const response = await piClient.listProviders({ runtimeKey: getRuntimeKey() });
-    return {
-      all: response.providers.map((provider) => ({
+    const providers = response.providers
+      .filter((provider) => provider.authenticated)
+      .map((provider) => ({
         id: provider.id,
         name: provider.label ?? provider.id,
-        models: Object.fromEntries(provider.models.map((model) => [model.id, model])),
-      })) satisfies Provider[],
+        models: Object.fromEntries(provider.models.map((model) => [model.id, {
+          id: model.id,
+          name: model.label ?? model.id,
+          providerID: model.providerId,
+          reasoning: model.supportsThinking === true,
+          ...(Number.isSafeInteger(model.contextWindow) ? { limit: { context: model.contextWindow } } : {}),
+        }])),
+      })) satisfies Provider[];
+    return {
+      providers,
+      default: response.default
+        ? { [response.default.providerId]: response.default.modelId }
+        : {},
     };
   },
   listAgents: async (..._args: unknown[]): Promise<Agent[]> => [],

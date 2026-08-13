@@ -70,6 +70,12 @@ reconnect begins.
 including bootstrap, sequenced event reduction, reconnect hydration, and
 runtime-switch disposal. `App.tsx`, `MobileApp.tsx`, and `ElectronMiniChatApp.tsx`
 mount `PiSessionProvider` around `MainLayout` / the mobile shell / mini-chat.
+The restored web shell bootstraps provider/model config through
+`initializeApp()` in `SyncAppEffects`; `legacy-ui-client.getProvidersForConfig`
+must return `{ providers, default }` so the config store can leave the picker
+off the loading state. The picker only includes authenticated providers;
+unconfigured catalog entries stay on the Providers settings page. Composer
+chrome does not expose an OpenCode agent selector.
 Chat, sidebar, and composer mutations go through `PiSessionStore` and `/api/pi/*`.
 Settings chrome is the restored OpenChamber hub limited to Pi-owned pages
 (Providers, Skills, Snippets, Behavior/`AGENTS.md`, Magic Prompts, appearance
