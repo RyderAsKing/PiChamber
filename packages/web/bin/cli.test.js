@@ -11,7 +11,6 @@ import { isModuleCliExecution, normalizeCliEntryPath } from './cli-entry.js';
 import { requestJson } from './lib/cli-http.js';
 import { requestControlAction } from './lib/cli-control.js';
 import { inspectTunnelAttachability } from './lib/cli-lifecycle.js';
-import { formatGoal } from './lib/commands-schedule.js';
 import {
   buildSessionCreatePayload,
   buildSessionPromptPayload,
@@ -327,35 +326,6 @@ describe('cli args', () => {
     expect(parsed.options.timezone).toBe('Europe/Kyiv');
   });
 
-  it('parses goal-enabled scheduled task options', () => {
-    const parsed = parseArgs([
-      'schedule',
-      'create',
-      '--dir',
-      '/repo',
-      '--name',
-      'Finish migration',
-      '--prompt',
-      'Complete and verify the migration',
-      '--model',
-      'openai/gpt-5.5',
-      '--daily',
-      '09:30',
-      '--goal',
-      '--goal-token-budget',
-      '200000',
-    ]);
-
-    expect(parsed.options.goal).toBe(true);
-    expect(parsed.options.goalTokenBudget).toBe('200000');
-  });
-
-  it('formats scheduled goal state compactly', () => {
-    expect(formatGoal({})).toBe('goal:no');
-    expect(formatGoal({ goalEnabled: true })).toBe('goal:yes');
-    expect(formatGoal({ goalEnabled: true, goalTokenBudget: 200000 })).toBe('goal:yes budget:200000');
-  });
-
   it('parses session create options', () => {
     const parsed = parseArgs([
       'session',
@@ -431,44 +401,6 @@ describe('cli args', () => {
     });
   });
 
-  it('builds goal-enabled session create payloads', () => {
-    const parsed = parseArgs([
-      'session',
-      'create',
-      '--dir',
-      '/repo',
-      '--prompt',
-      'Finish and verify the migration',
-      '--goal',
-      '--goal-token-budget',
-      '200000',
-    ]);
-
-    expect(buildSessionCreatePayload(parsed.options)).toEqual({
-      directory: '/repo',
-      prompt: 'Finish and verify the migration',
-      goal: true,
-      goalTokenBudget: 200000,
-    });
-  });
-
-  it('validates session goal options before HTTP', () => {
-    expect(() => buildSessionCreatePayload({ directory: '/repo', goal: true })).toThrow('--goal requires --prompt.');
-    expect(() => buildSessionCreatePayload({
-      directory: '/repo',
-      prompt: 'Run',
-      goalTokenBudget: '200000',
-    })).toThrow('--goal-token-budget requires --goal.');
-    for (const value of ['999', '1.5', '100000001', 'nope']) {
-      expect(() => buildSessionCreatePayload({
-        directory: '/repo',
-        prompt: 'Run',
-        goal: true,
-        goalTokenBudget: value,
-      })).toThrow('--goal-token-budget must be an integer from 1000 to 100000000.');
-    }
-  });
-
   it('parses session list filters', () => {
     const parsed = parseArgs(['session', 'list', '--dir', '/repo', '--limit', '5']);
 
@@ -522,14 +454,13 @@ describe('cli args', () => {
   it('parses session send and fork actions', () => {
     const send = parseArgs([
       'session', 'send', '--session', 'ses_123', '--dir', '/repo', '--prompt', 'Continue',
-      '--goal', '--wait', '--last-assistant',
+      '--wait', '--last-assistant',
     ]);
     expect(send.sessionAction).toBe('send');
     expect(send.options).toMatchObject({
       session: 'ses_123',
       directory: '/repo',
       prompt: 'Continue',
-      goal: true,
       wait: true,
       lastAssistant: true,
     });
@@ -549,15 +480,11 @@ describe('cli args', () => {
       prompt: 'Continue',
       model: 'openai/gpt-5.5',
       agent: 'build',
-      goal: true,
-      goalTokenBudget: '200000',
     }, 'send')).toEqual({
       directory: '/repo',
       prompt: 'Continue',
       model: 'openai/gpt-5.5',
       agent: 'build',
-      goal: true,
-      goalTokenBudget: 200000,
     });
     expect(buildSessionPromptPayload({
       session: 'ses_123',

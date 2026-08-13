@@ -39,8 +39,6 @@ import { SessionActivityDuration } from '@/components/session/SessionActivityDur
 import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore';
 import { useI18n } from '@/lib/i18n';
 import { useShiftKeyHeld } from '@/hooks/useShiftKeyHeld';
-import { getSessionGoal } from '@/lib/sessionGoalMetadata';
-import { sessionGoalStatusColor, sessionGoalStatusLabelKey } from '@/lib/sessionGoalPresentation';
 import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
 import { parseMultiRunSessionTitle } from '@/lib/multirun/title';
@@ -430,16 +428,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   const hasActivityDuration = useHasSessionActivityDuration(session.id, isStreaming);
   const isMovingToWorktree = useIsSessionWorktreeMovePending(session.id);
   const sessionPermissions = useSessionPermissions(session.id, sessionDirectory ?? undefined, { bootstrap: false });
-  const sessionGoal = getSessionGoal(resolvedSession);
-  const sessionGoalGlyph = sessionGoal ? (
-    <span
-      className="inline-flex flex-shrink-0 items-center"
-      title={t(sessionGoalStatusLabelKey[sessionGoal.status] as never)}
-      aria-label={t(sessionGoalStatusLabelKey[sessionGoal.status] as never)}
-    >
-      <Icon name="target" className="h-3 w-3" style={{ color: sessionGoalStatusColor[sessionGoal.status] }} />
-    </span>
-  ) : null;
   const sessionTitle = resolvedSession.title || t('sessions.sidebar.session.untitled');
   const hasChildren = node.children.length > 0;
   const isPinnedSession = isSessionPinned(pinnedSessionIds, sessionDirectory, session.id);
@@ -1212,7 +1200,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                             <SessionActivityDuration sessionId={session.id} running={isStreaming} />
                           ) : (
                             <>
-                              {sessionGoalGlyph}
                               {showInlineBranchMarker ? (
                                 <Icon
                                   name="git-branch"
@@ -1224,7 +1211,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                             </>
                           )}
                         </span>
-                      ) : (showActivityDuration || sessionGoalGlyph || showInlineBranchMarker) ? (
+                      ) : (showActivityDuration || showInlineBranchMarker) ? (
                         <div className="relative ml-1 flex h-4 flex-shrink-0 items-center justify-end">
                           <span className={cn(
                             'inline-flex items-center gap-1 whitespace-nowrap text-right transition-opacity duration-150',
@@ -1240,8 +1227,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                               />
                             ) : (
                               <>
-                                {sessionGoalGlyph}
-                                {showInlineBranchMarker ? (
+                                  {showInlineBranchMarker ? (
                                   <Icon
                                     name="git-branch"
                                     className={cn('h-3 w-3', !prIconColor && 'text-muted-foreground/60')}

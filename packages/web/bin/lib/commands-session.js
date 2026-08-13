@@ -1,6 +1,5 @@
 import { TunnelCliError, EXIT_CODE } from './cli-errors.js';
 import { resolveTargetPort } from './cli-api-target.js';
-import { parseGoalTokenBudget } from './cli-goal.js';
 import { requestControlAction } from './cli-control.js';
 import {
   intro as clackIntro,
@@ -94,11 +93,6 @@ const buildSessionCreatePayload = (options = {}) => {
 
   const prompt = asNonEmptyString(options.prompt);
   const model = validateModel(options.model);
-  const goalEnabled = options.goal === true;
-  const goalTokenBudget = parseGoalTokenBudget(options);
-  if (goalEnabled && !prompt) {
-    throw new TunnelCliError('--goal requires --prompt.', EXIT_CODE.USAGE_ERROR);
-  }
 
   const title = asNonEmptyString(options.title) || asNonEmptyString(options.name);
   const agent = asNonEmptyString(options.agent);
@@ -116,8 +110,6 @@ const buildSessionCreatePayload = (options = {}) => {
     ...(model ? { model } : {}),
     ...(agent ? { agent } : {}),
     ...(variant ? { variant } : {}),
-    ...(goalEnabled ? { goal: true } : {}),
-    ...(goalTokenBudget !== undefined ? { goalTokenBudget } : {}),
     ...(typeof options.setUpstream === 'boolean' ? { setUpstream: options.setUpstream } : {}),
   };
 };
@@ -133,8 +125,6 @@ const buildSessionPromptPayload = (options = {}, action) => {
   if (messageId && action !== 'fork') {
     throw new TunnelCliError('--message is only valid for session fork.', EXIT_CODE.USAGE_ERROR);
   }
-  const goalEnabled = options.goal === true;
-  const goalTokenBudget = parseGoalTokenBudget(options);
   return {
     directory,
     prompt,
@@ -142,8 +132,6 @@ const buildSessionPromptPayload = (options = {}, action) => {
     ...(model ? { model } : {}),
     ...(agent ? { agent } : {}),
     ...(variant ? { variant } : {}),
-    ...(goalEnabled ? { goal: true } : {}),
-    ...(goalTokenBudget !== undefined ? { goalTokenBudget } : {}),
   };
 };
 
@@ -158,7 +146,7 @@ const validateActionWaitOptions = (options, action) => {
 
 async function sessionCommand(options = {}, action = 'help') {
   if (action === 'help') {
-    process.stdout.write(`PiChamber Session Commands\n\nUSAGE:\n  openchamber session list [--dir <path>] [--limit <count>] [--with-status] [OPTIONS]\n  openchamber session create --dir <path> [--title <title>] [--wait] [OPTIONS]\n  openchamber session create --project <projectId> [--title <title>] [--wait] [OPTIONS]\n  openchamber session send --session <id> --dir <path> --prompt <text> [--wait] [OPTIONS]\n  openchamber session fork --session <id> --dir <path> --prompt <text> [--message <id>] [--wait] [OPTIONS]\n  openchamber session status --session <id> --dir <path> [OPTIONS]\n  openchamber session messages --session <id> --dir <path> [--wait] [OPTIONS]\n\nLIST OPTIONS:\n  --dir <path>            Filter sessions by directory\n  --limit <count>         Maximum sessions to show (default: 10)\n  --all                   Include archived sessions\n  --with-status           Include authoritative idle/busy/retry status\n\nACTION OPTIONS:\n  --session <id>          Source or target session id\n  --dir <path>            Authoritative session directory\n  --prompt <text>         Prompt to send to the session\n  --message <id>          Fork from this message (fork only; default: latest)\n  --model <provider/model>  Model for the prompt (defaults to configured selection)\n  --agent <id>            Agent for the prompt (defaults to configured selection)\n  --variant <id>          Model variant for the prompt\n  --goal                  Run the prompt as a new goal\n  --goal-token-budget <n> Goal token budget (1000-100000000; requires --goal)\n  --wait                  Wait for the dispatched activity to become idle\n  --last-assistant        Include the last assistant text after waiting\n  --timeout <seconds>     Wait timeout in seconds (default: 600, max: 86400)\n\nCREATE OPTIONS:\n  --worktree <name>       Create a git worktree before creating the session\n  --branch <name>         Branch name for --worktree\n  --start-ref, --base <ref>  Start ref for --worktree\n  --upstream              Set upstream for the worktree branch\n  --no-upstream           Do not set upstream for the worktree branch\n  --name <title>          Alias for --title\n\nSTATUS/MESSAGES OPTIONS:\n  --last                  Return only the latest text-bearing message\n  --last-assistant        Shorthand for --last --role assistant\n  --limit <count>         Maximum text messages to return (default: 10)\n  --all                   Return all text-bearing messages\n  --role <role>           Filter messages: all, user, assistant\n\nOUTPUT OPTIONS:\n  -p, --port <port>       PiChamber server port\n  --json                  Output machine-readable JSON\n  -q, --quiet             Print compact output\n`);
+    process.stdout.write(`PiChamber Session Commands\n\nUSAGE:\n  openchamber session list [--dir <path>] [--limit <count>] [--with-status] [OPTIONS]\n  openchamber session create --dir <path> [--title <title>] [--wait] [OPTIONS]\n  openchamber session create --project <projectId> [--title <title>] [--wait] [OPTIONS]\n  openchamber session send --session <id> --dir <path> --prompt <text> [--wait] [OPTIONS]\n  openchamber session fork --session <id> --dir <path> --prompt <text> [--message <id>] [--wait] [OPTIONS]\n  openchamber session status --session <id> --dir <path> [OPTIONS]\n  openchamber session messages --session <id> --dir <path> [--wait] [OPTIONS]\n\nLIST OPTIONS:\n  --dir <path>            Filter sessions by directory\n  --limit <count>         Maximum sessions to show (default: 10)\n  --all                   Include archived sessions\n  --with-status           Include authoritative idle/busy/retry status\n\nACTION OPTIONS:\n  --session <id>          Source or target session id\n  --dir <path>            Authoritative session directory\n  --prompt <text>         Prompt to send to the session\n  --message <id>          Fork from this message (fork only; default: latest)\n  --model <provider/model>  Model for the prompt (defaults to configured selection)\n  --agent <id>            Agent for the prompt (defaults to configured selection)\n  --variant <id>          Model variant for the prompt\n  --wait                  Wait for the dispatched activity to become idle\n  --last-assistant        Include the last assistant text after waiting\n  --timeout <seconds>     Wait timeout in seconds (default: 600, max: 86400)\n\nCREATE OPTIONS:\n  --worktree <name>       Create a git worktree before creating the session\n  --branch <name>         Branch name for --worktree\n  --start-ref, --base <ref>  Start ref for --worktree\n  --upstream              Set upstream for the worktree branch\n  --no-upstream           Do not set upstream for the worktree branch\n  --name <title>          Alias for --title\n\nSTATUS/MESSAGES OPTIONS:\n  --last                  Return only the latest text-bearing message\n  --last-assistant        Shorthand for --last --role assistant\n  --limit <count>         Maximum text messages to return (default: 10)\n  --all                   Return all text-bearing messages\n  --role <role>           Filter messages: all, user, assistant\n\nOUTPUT OPTIONS:\n  -p, --port <port>       PiChamber server port\n  --json                  Output machine-readable JSON\n  -q, --quiet             Print compact output\n`);
     return;
   }
 
@@ -272,9 +260,6 @@ async function sessionCommand(options = {}, action = 'help') {
     if (result?.promptDispatched) {
       logStatus('info', result.dispatchedAsCommand ? 'command dispatched' : 'prompt dispatched');
     }
-    if (result?.goalEnabled) {
-      logStatus('info', 'goal mode active', result.goalTokenBudget ? `budget: ${result.goalTokenBudget}` : undefined);
-    }
     if (sessionStatus) logStatus('info', `session status: ${sessionStatus.type}`);
     clackOutro(action === 'fork' ? 'forked' : 'sent');
     if (lastAssistantMessage) process.stdout.write(`\n${formatTextMessage(lastAssistantMessage)}\n`);
@@ -319,9 +304,6 @@ async function sessionCommand(options = {}, action = 'help') {
   }
   if (result?.promptDispatched) {
     logStatus('info', result.dispatchedAsCommand ? 'initial command dispatched' : 'initial prompt dispatched');
-  }
-  if (result?.goalEnabled) {
-    logStatus('info', 'goal mode active', result.goalTokenBudget ? `budget: ${result.goalTokenBudget}` : undefined);
   }
   if (sessionStatus) {
     logStatus('info', `session status: ${sessionStatus.type}`);

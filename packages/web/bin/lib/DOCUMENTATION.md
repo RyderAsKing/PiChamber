@@ -95,9 +95,6 @@ These modules hold reusable, non-presentational logic for commands.
 - `cli-api-target.js`
   - Resolves the target PiChamber runtime for control-plane commands, preferring desktop unless a port is explicit.
 
-- `cli-goal.js`
-  - Owns shared Goal Mode token-budget validation for session and schedule commands.
-
 - `cli-network.js`
   - Host resolution, URL building, LAN detection, unsafe browser port validation, and UI password/network exposure checks.
 

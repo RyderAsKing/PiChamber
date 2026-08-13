@@ -9,9 +9,6 @@ type AppearanceSlice = {
   showReasoningTraces: boolean;
   workStatusPanelEnabled: boolean;
   workStatusHiddenSections: string[];
-  sessionGoalEnabled: boolean;
-  sessionGoalDefaultBudgetEnabled: boolean;
-  sessionGoalDefaultBudget: number;
   collapsibleThinkingBlocks: boolean;
   showDeletionDialog: boolean;
   nativeNotificationsEnabled: boolean;
@@ -62,9 +59,6 @@ export const startAppearanceAutoSave = (): void => {
     showReasoningTraces: useUIStore.getState().showReasoningTraces,
     workStatusPanelEnabled: useUIStore.getState().workStatusPanelEnabled,
     workStatusHiddenSections: useUIStore.getState().workStatusHiddenSections,
-    sessionGoalEnabled: useUIStore.getState().sessionGoalEnabled,
-    sessionGoalDefaultBudgetEnabled: useUIStore.getState().sessionGoalDefaultBudgetEnabled,
-    sessionGoalDefaultBudget: useUIStore.getState().sessionGoalDefaultBudget,
     collapsibleThinkingBlocks: useUIStore.getState().collapsibleThinkingBlocks,
     showDeletionDialog: useUIStore.getState().showDeletionDialog,
     nativeNotificationsEnabled: useUIStore.getState().nativeNotificationsEnabled,
@@ -102,9 +96,6 @@ export const startAppearanceAutoSave = (): void => {
       showReasoningTraces: state.showReasoningTraces,
       workStatusPanelEnabled: state.workStatusPanelEnabled,
       workStatusHiddenSections: state.workStatusHiddenSections,
-      sessionGoalEnabled: state.sessionGoalEnabled,
-      sessionGoalDefaultBudgetEnabled: state.sessionGoalDefaultBudgetEnabled,
-      sessionGoalDefaultBudget: state.sessionGoalDefaultBudget,
       collapsibleThinkingBlocks: state.collapsibleThinkingBlocks,
       showDeletionDialog: state.showDeletionDialog,
       nativeNotificationsEnabled: state.nativeNotificationsEnabled,
@@ -149,15 +140,6 @@ export const startAppearanceAutoSave = (): void => {
     }
     if (current.showReasoningTraces !== previous.showReasoningTraces) {
       diff.showReasoningTraces = current.showReasoningTraces;
-    }
-    if (current.sessionGoalEnabled !== previous.sessionGoalEnabled) {
-      diff.sessionGoalEnabled = current.sessionGoalEnabled;
-    }
-    if (current.sessionGoalDefaultBudgetEnabled !== previous.sessionGoalDefaultBudgetEnabled) {
-      diff.sessionGoalDefaultBudgetEnabled = current.sessionGoalDefaultBudgetEnabled;
-    }
-    if (current.sessionGoalDefaultBudget !== previous.sessionGoalDefaultBudget) {
-      diff.sessionGoalDefaultBudget = current.sessionGoalDefaultBudget;
     }
     if (current.collapsibleThinkingBlocks !== previous.collapsibleThinkingBlocks) {
       diff.collapsibleThinkingBlocks = current.collapsibleThinkingBlocks;

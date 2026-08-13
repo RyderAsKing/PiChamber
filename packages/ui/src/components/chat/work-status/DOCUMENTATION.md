@@ -94,7 +94,6 @@ endpoint and no polling of its own.
 | Subagent blockers | directory `permission` / `question` maps | one subscription covers every child |
 | Usage | `components/usage/usageGroups.ts` over `useQuotaStore` | grouping shared with the mobile popover; presentation is not |
 | Linked threads | `lib/linkedIssues.ts` over session metadata | written by the flows that attach an issue or PR |
-| Goal | `useSessionGoal` | respects the Settings toggle |
 | MCP | `useMcpStore` | connect/disconnect reuses the dropdown's actions |
 | Pinned messages | `getContextObligatoryMessages` + `state.part` | see below |
 | Todos | live `state.todo[sessionId]`, persisted fallback | live channel wins |
@@ -254,8 +253,6 @@ Rows that name something the app can already show are buttons:
 | Branch | git surface (`openContextSurface(dir, 'git')`) |
 | Pull request, Checks | PR surface (`openContextSurface(dir, 'pr')`) |
 | Subagent | that child session's chat tab, read-only |
-| Goal (row) | the composer's own `SessionGoalDialog` |
-| Goal (pause/resume) | `setSessionGoalStatus(sessionId, directory, status)` |
 | MCP switch | connects/disconnects the server |
 | MCP status | the state doubles as the button that reconnects |
 | Pinned (pin icon) | unpins the message |

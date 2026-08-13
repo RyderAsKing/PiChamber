@@ -26,8 +26,6 @@ PiChamber gives you one place to direct agent work, understand the changes, and 
 
 ### Goals that continue on their own
 
-Give a session a finish line with **Session Goals**. PiChamber checks the result after every turn and keeps the agent working until the goal is complete, blocked, or reaches the limit you set — even after you close the app.
-
 ### Compare and combine runs
 
 Use **Multi-run** to give the same task to up to five models, each in its own session and optionally its own worktree. See what each one actually built, choose the best result, or use **Fusion** to combine the strongest parts into a new session.
@@ -58,7 +56,7 @@ See which sessions are working, waiting, finished, or failed, along with approva
 
 ### Schedule recurring work
 
-Run a prompt once, daily, weekly, or on a cron schedule. Scheduled tasks can use Session Goals, so they continue toward an outcome instead of stopping after one response.
+Run a prompt once, daily, weekly, or on a cron schedule.
 
 ## Use it where you work
 
@@ -116,7 +114,6 @@ Go deeper with the PiChamber guides:
 - [Connect devices](packages/docs/content/docs/connect-devices.mdx)
 - [Private Relay](packages/docs/content/docs/private-relay.mdx)
 - [Multi-run](packages/docs/content/docs/multi-run.mdx)
-- [Session Goals](packages/docs/content/docs/session-goals.mdx)
 - [Changes Walkthrough](packages/docs/content/docs/walkthrough.mdx)
 - [Preview and dev servers](packages/docs/content/docs/preview.mdx)
 - [GitHub workflows](packages/docs/content/docs/github.mdx)

@@ -184,18 +184,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['streaming', 'sse', 'websocket'],
   },
   {
-    id: 'chat.session-goal',
-    page: 'chat',
-    titleKey: 'settings.pichamber.visual.field.sessionGoal',
-    keywords: ['goal', 'objective', 'auto continue', 'small model'],
-  },
-  {
-    id: 'chat.session-goal-budget',
-    page: 'chat',
-    titleKey: 'settings.pichamber.visual.goal.budgetLabel',
-    keywords: ['goal', 'budget', 'tokens', 'limit'],
-  },
-  {
     id: 'chat.reasoning-traces',
     page: 'chat',
     titleKey: 'settings.pichamber.visual.field.showReasoningTraces',

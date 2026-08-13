@@ -13,7 +13,6 @@
 
 import { Icon } from '@/components/icon/Icon';
 import { StopIcon } from '@/components/icons/StopIcon';
-import { SessionGoalRow } from '@/components/chat/SessionGoalRow';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { Theme } from '@/types/theme';
@@ -44,7 +43,6 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
     const {
         message,
         sessionId: currentSessionId,
-        directory,
         newSessionDraftOpen,
         canAbort,
         footerIconButtonClass,
@@ -63,11 +61,6 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
 
     return (
         <div className="flex flex-col">
-        <SessionGoalRow
-            sessionId={currentSessionId}
-            directory={directory}
-            className="mb-1.5"
-        />
         <div className="flex items-center gap-2">
             <div
                 className="flex h-11 min-w-0 flex-1 items-center gap-x-0.5 rounded-full border border-border/80 pl-2 pr-1 shadow-[0_4px_16px_-4px_rgb(0_0_0_/_0.12)]"

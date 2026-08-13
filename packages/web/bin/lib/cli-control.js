@@ -46,7 +46,7 @@ export const requestControlAction = async (port, action, input, options = {}) =>
   const isPartial = body?.partial === true;
   const partialSessionId = isPartial ? asNonEmptyString(body?.sessionId) : null;
   const partialDirectory = isPartial ? asNonEmptyString(body?.directory) : null;
-  const partialSubject = body?.partialAction === 'goal-configured' ? 'Goal on session' : 'Forked session';
+  const partialSubject = 'Forked session';
   const partial = partialSessionId
     ? ` ${partialSubject} ${partialSessionId} remains available${partialDirectory ? ` in ${partialDirectory}` : ''}.`
     : '';

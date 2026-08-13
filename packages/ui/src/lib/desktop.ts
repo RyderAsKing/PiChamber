@@ -129,9 +129,6 @@ export type DesktopSettings = {
   defaultVariant?: string;
   defaultAgent?: string;
   smallModelUseDefault?: boolean;
-  sessionGoalEnabled?: boolean;
-  sessionGoalDefaultBudgetEnabled?: boolean;
-  sessionGoalDefaultBudget?: number;
   smallModelOverride?: string; // format: "provider/model"
   // The walkthrough needs structured output and a roomy context, which the
   // small model is often deliberately not chosen for. Unset means "use the

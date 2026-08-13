@@ -73,10 +73,6 @@ import {
   type UnarchiveSessionsOptions,
 } from "./session-actions"
 import { useInputStore, type SyntheticContextPart } from "./input-store"
-import { useSessionGoalArmStore } from "@/stores/useSessionGoalArmStore"
-import { setSessionGoal } from "@/lib/sessionGoalActions"
-import { wrapSystemReminder } from "@/lib/systemReminder"
-import { useUIStore } from "@/stores/useUIStore"
 import { useSelectionStore } from "./selection-store"
 import { getViewportSessionMemory, useViewportStore, viewportSessionKey } from "./viewport-store"
 import { useSessionWorktreeStore } from "./session-worktree-store"
@@ -88,34 +84,6 @@ import { persistWorktreeTopology, readPersistedWorktreeTopology } from "./worktr
 import { rememberRuntimeLiveStatus } from "./runtime-live-memory"
 
 export type { AttachedFile }
-
-type GoalCommand = { name: string; template?: string }
-
-export function expandSlashCommandGoalObjective(content: string, commands: GoalCommand[]): string {
-  if (!content.startsWith("/")) return content
-  const [head, ...tail] = content.split(" ")
-  const command = commands.find((candidate) => candidate.name === head.slice(1))
-  if (!command?.template?.trim()) return content
-  const argumentsText = tail.join(" ")
-  if (command.template.includes("$ARGUMENTS")) {
-    return command.template.replaceAll("$ARGUMENTS", argumentsText)
-  }
-
-  const positions = [...command.template.matchAll(/\$(\d+)/g)].map((match) => Number(match[1]))
-  if (positions.length > 0) {
-    const parsedArguments = [...argumentsText.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)]
-      .map((match) => match[1] ?? match[2] ?? match[3] ?? "")
-    const lastPosition = Math.max(...positions)
-    return command.template.replace(/\$(\d+)/g, (_match, value: string) => {
-      const position = Number(value)
-      return position === lastPosition
-        ? parsedArguments.slice(position - 1).join(" ")
-        : (parsedArguments[position - 1] ?? "")
-    })
-  }
-
-  return argumentsText ? `${command.template}\n\n${argumentsText}` : command.template
-}
 
 // ---------------------------------------------------------------------------
 // Send routing — shell mode, slash commands, or normal prompt
@@ -241,7 +209,6 @@ type AssistantMessageSessionExecution = {
   agent: string
   instructions: string
   createWorktree?: boolean
-  runAsGoal?: boolean
 }
 
 function notifyMessageSent(sessionId: string): void {
@@ -1227,54 +1194,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const draft = get().newSessionDraft
     const trimmedAgent = typeof agent === "string" && agent.trim().length > 0 ? agent.trim() : undefined
 
-    const goalArm = inputMode !== "shell" && content.trim().length > 0
-      ? useSessionGoalArmStore.getState().consume()
-      : { armed: false, objectiveOverride: null }
-    const goalArmed = goalArm.armed
-    if (goalArmed) {
-      // Teach the agent the goal protocol from turn one — without this it
-      // only learns about goal mode from the first server continuation.
-      const uiState = useUIStore.getState()
-      const budgetLine = uiState.sessionGoalDefaultBudgetEnabled
-        ? ` A token budget of ${uiState.sessionGoalDefaultBudget} tokens applies to this goal.`
-        : ""
-      const goalIntro = wrapSystemReminder(
-        "Goal mode is active for this session. The user message above defines the goal objective. "
-        + "Work toward it across turns; whenever you stop before the objective is verifiably complete, the system will automatically prompt you to continue. "
-        + "Progress is evaluated independently after each turn, so end every turn with a clear, factual statement of what is done, what was verified, and what remains."
-        + budgetLine,
-      )
-      additionalParts = [...(additionalParts ?? []), { text: goalIntro, synthetic: true }]
-    }
-    const applyArmedGoal = async (goalSessionId: string, goalDirectory: string | null | undefined) => {
-      if (!goalArmed) return
-      const uiState = useUIStore.getState()
-      const tokenBudget = uiState.sessionGoalDefaultBudgetEnabled ? uiState.sessionGoalDefaultBudget : null
-      let objective = goalArm.objectiveOverride?.trim() || content
-      if (!goalArm.objectiveOverride && content.startsWith("/")) {
-        const directoryCommands = getDirectoryState(goalDirectory ?? undefined)?.command ?? []
-        const storedCommands = useCommandsStore.getState().commands
-        const knownCommands = [...directoryCommands, ...storedCommands]
-        objective = expandSlashCommandGoalObjective(content, knownCommands)
-        if (objective === content) {
-          try {
-            objective = expandSlashCommandGoalObjective(
-              content,
-              await opencodeClient.listCommandsWithDetails(goalDirectory),
-            )
-          } catch {
-            // Command dispatch remains authoritative; raw invocation is a safe objective fallback.
-          }
-        }
-      }
-      try {
-        await setSessionGoal(goalSessionId, goalDirectory ?? undefined, { objective, tokenBudget }, null)
-      } catch (error) {
-        useSessionGoalArmStore.getState().setArmed(true, goalArm.objectiveOverride)
-        throw error
-      }
-    }
-
     // ---- New session from draft ----
     if (!capturedTarget && !options?.sessionId && draft?.open) {
       const createdDraftSession = await materializeOpenDraftSession({
@@ -1300,7 +1219,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         filename: a.filename,
       }))
 
-      await applyArmedGoal(createdDraftSession.sessionId, createdDraftSession.directory)
       await routeMessage({
         sessionId: createdDraftSession.sessionId,
         directory: createdDraftSession.directory,
@@ -1380,9 +1298,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       filename: a.filename,
     }))
 
-    if (targetSessionId) {
-      await applyArmedGoal(targetSessionId, currentSessionDirectory)
-    }
     await routeMessage({
       runtimeKey: capturedTarget?.runtimeKey,
       sessionId: targetSessionId || "",
@@ -1677,13 +1592,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       })
       useDirectoryStore.getState().setDirectory(createdWorktree.path, { showOverlay: false })
     }
-
-    // "Run as goal" rides the same arm mechanism as the composer target
-    // button: sendMessage consumes the flag, stamps the goal (objective =
-    // the composed fork message) and attaches the goal-mode intro part.
-    // Set explicitly either way so a stray armed flag cannot leak into a
-    // non-goal fork.
-    useSessionGoalArmStore.getState().setArmed(execution.runAsGoal === true)
 
     await get().sendMessage(
       composeForkSessionMessage(execution.instructions, assistantPlanText),
