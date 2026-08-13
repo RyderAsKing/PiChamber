@@ -1,33 +1,18 @@
 ---
-title: Install
-description: Install PiChamber for desktop, web, or VS Code.
+title: Install PiChamber
+description: Install the desktop application or the PiChamber server.
 ---
-
-# Install
-
-There are three ways to run PiChamber:
-
-- desktop app for macOS
-- web app hosted by the CLI, which you can install like a phone app (a PWA)
-- VS Code extension
-
-## Prerequisite
-
-Install [OpenCode](https://opencode.ai) first — PiChamber runs on top of it.
-
-## Web + PWA
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/RyderAsKing/PiChamber/main/scripts/install.sh | bash
-pichamber --ui-password be-creative-here
-```
-
-Open the URL the CLI prints (usually `http://localhost:3000`). You should see the PiChamber session list. To keep it handy, use your browser's "Install" option in the address bar to add it as an app.
 
 ## Desktop
 
-Download the latest desktop build from the GitHub releases page or the PiChamber download page. Open it and sign into your usual OpenCode workflow.
+Download PiChamber from the [GitHub Releases](https://github.com/RyderAsKing/PiChamber/releases/latest) page. The desktop application starts its PiChamber backend in-process.
 
-## VS Code
+## Server
 
-Install from the VS Code Marketplace and sign into your usual OpenCode workflow. The PiChamber view then opens in the sidebar.
+PiChamber server requires Node.js 22 or newer.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/RyderAsKing/PiChamber/main/scripts/install.sh | bash
+```
+
+Run `pichamber serve` after installation. The server creates and owns its local Pi session daemon automatically.

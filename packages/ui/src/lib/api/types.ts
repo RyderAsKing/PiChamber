@@ -1,4 +1,3 @@
-import type { WorktreeMetadata } from '@/types/worktree';
 import type { DraftStarterRef } from '@/lib/draftStarters';
 
 type RuntimePlatform = 'web' | 'desktop';
@@ -344,73 +343,6 @@ export interface CommitFileDiffResponse {
   isBinary: boolean;
 }
 
-export interface GitWorktreeInfo {
-  head: string;
-  name: string;
-  branch: string;
-  path: string;
-}
-
-export interface GitWorktreeValidationError {
-  code: string;
-  message: string;
-}
-
-export interface GitWorktreeValidationResult {
-  ok: boolean;
-  errors: GitWorktreeValidationError[];
-  resolved?: {
-    mode?: 'new' | 'existing';
-    localBranch?: string | null;
-  };
-}
-
-export interface GitWorktreeBootstrapStatus {
-  status: 'pending' | 'ready' | 'failed';
-  phase?: 'directory-created' | 'git-ready' | 'setup-ready';
-  error: string | null;
-  updatedAt: number;
-}
-
-export interface CreateGitWorktreePayload {
-  mode?: 'new' | 'existing';
-  /** Worktree folder name (falls back to OpenCode name generation when omitted). */
-  worktreeName?: string;
-  /** Backward-compatible alias for worktreeName. */
-  name?: string;
-  /** New local branch name for mode=new. */
-  branchName?: string;
-  /** Existing local/remote branch for mode=existing. */
-  existingBranch?: string;
-  /** Start ref for mode=new (local/remote branch or commit SHA). */
-  startRef?: string;
-  /** Additional startup script to run after project startup script. */
-  startCommand?: string;
-  /** Configure upstream tracking for the created/attached local branch. */
-  setUpstream?: boolean;
-  upstreamRemote?: string;
-  upstreamBranch?: string;
-  /** Optional remote provisioning (used for fork PR workflows). */
-  ensureRemoteName?: string;
-  ensureRemoteUrl?: string;
-  /** Return once the target directory exists and finish Git worktree setup in the background. */
-  returnAfterDirectoryCreated?: boolean;
-}
-
-export interface GitWorktreeCreateResult {
-  head: string;
-  name: string;
-  branch: string;
-  path: string;
-  directoryCreated?: true;
-  bootstrapStatus?: GitWorktreeBootstrapStatus;
-}
-
-export interface RemoveGitWorktreePayload {
-  directory: string;
-  deleteLocalBranch?: boolean;
-}
-
 export interface GitDeleteBranchPayload {
   branch: string;
   force?: boolean;
@@ -449,15 +381,6 @@ export interface GeneratedPullRequestDescription {
   body: string;
 }
 
-interface GitWorktreeAPI {
-  list(directory: string): Promise<GitWorktreeInfo[]>;
-  validate?(directory: string, payload: CreateGitWorktreePayload): Promise<GitWorktreeValidationResult>;
-  bootstrapStatus?(directory: string): Promise<GitWorktreeBootstrapStatus>;
-  preview?(directory: string, payload: CreateGitWorktreePayload): Promise<GitWorktreeCreateResult>;
-  create?(directory: string, payload: CreateGitWorktreePayload): Promise<GitWorktreeCreateResult>;
-  remove?(directory: string, payload: RemoveGitWorktreePayload): Promise<{ success: boolean }>;
-}
-
 export interface GitAPI {
   checkIsGitRepository(directory: string): Promise<boolean>;
   getGitStatus(directory: string, options?: { mode?: 'light' }): Promise<GitStatus>;
@@ -472,7 +395,6 @@ export interface GitAPI {
   stageGitHunk?(directory: string, filePath: string, patch: string): Promise<void>;
   unstageGitHunk?(directory: string, filePath: string, patch: string): Promise<void>;
   revertGitHunk?(directory: string, filePath: string, patch: string): Promise<void>;
-  isLinkedWorktree(directory: string): Promise<boolean>;
   getGitBranches(directory: string): Promise<GitBranch>;
   deleteGitBranch(directory: string, payload: GitDeleteBranchPayload): Promise<{ success: boolean }>;
   deleteRemoteBranch(directory: string, payload: GitDeleteRemoteBranchPayload): Promise<{ success: boolean }>;
@@ -482,12 +404,6 @@ export interface GitAPI {
     directory: string,
     payload: { base: string; head: string; context?: string; zenModel?: string; providerId?: string; modelId?: string }
   ): Promise<GeneratedPullRequestDescription>;
-  listGitWorktrees(directory: string): Promise<GitWorktreeInfo[]>;
-  validateGitWorktree?(directory: string, payload: CreateGitWorktreePayload): Promise<GitWorktreeValidationResult>;
-  getGitWorktreeBootstrapStatus?(directory: string): Promise<GitWorktreeBootstrapStatus>;
-  previewGitWorktree?(directory: string, payload: CreateGitWorktreePayload): Promise<GitWorktreeCreateResult>;
-  createGitWorktree?(directory: string, payload: CreateGitWorktreePayload): Promise<GitWorktreeCreateResult>;
-  deleteGitWorktree?(directory: string, payload: RemoveGitWorktreePayload): Promise<{ success: boolean }>;
   createGitCommit(directory: string, message: string, options?: CreateGitCommitOptions): Promise<GitCommitResult>;
   gitPush(directory: string, options?: { remote?: string; branch?: string; options?: string[] | Record<string, unknown> }): Promise<GitPushResult>;
   gitPull(directory: string, options?: GitPullOptions): Promise<GitPullResult>;
@@ -528,25 +444,7 @@ export interface GitAPI {
   stash(directory: string, options?: { message?: string; includeUntracked?: boolean }): Promise<{ success: boolean }>;
   stashPop(directory: string): Promise<{ success: boolean }>;
   getConflictDetails(directory: string): Promise<MergeConflictDetails>;
-  /** Phase 1: validate that a cwd is inside a worktreeRoot */
-  validateWorktreeDirectory?(directory: string, worktreeRoot: string): Promise<{
-    valid: boolean;
-    insideWorktreeRoot: boolean;
-    resolvedWorktreeRoot: string | null;
-    resolvedCwd: string | null;
-  }>;
-  /** Phase 1: canonicalize a directory to full worktree state */
-  canonicalizeWorktreeState?(directory: string): Promise<{
-    worktreeRoot: string | null;
-    cwd: string | null;
-    branch: string | null;
-    headState: 'branch' | 'detached' | 'unborn';
-    worktreeStatus: 'pending' | 'ready' | 'missing' | 'invalid' | 'not-a-repo';
-    legacy: boolean;
-    degraded: boolean;
-    attentionReason?: 'merge' | 'rebase' | 'cherry-pick' | 'revert' | 'bisect' | null;
-  }>;
-  worktree?: GitWorktreeAPI;
+
 }
 
 export interface FileListEntry {
@@ -637,7 +535,6 @@ export interface SettingsPayload {
   darkThemeId?: string;
   lastDirectory?: string;
   homeDirectory?: string;
-  opencodeBinary?: string;
   projects?: ProjectEntry[];
   activeProjectId?: string;
   securityScopedBookmarks?: string[];
@@ -655,8 +552,6 @@ export interface SettingsPayload {
   queueModeEnabled?: boolean;
   gitmojiEnabled?: boolean;
   inputSpellcheckEnabled?: boolean;
-  showOpenCodeUpdateNotifications?: boolean;
-  openCodeUpdateToastDismissedVersion?: string;
   showToolFileIcons?: boolean;
   codeBlockLineWrap?: boolean;
   showTurnChangedFiles?: boolean;
@@ -701,8 +596,6 @@ export interface SettingsLoadResult {
 export interface SettingsAPI {
   load(): Promise<SettingsLoadResult>;
   save(changes: Partial<SettingsPayload>): Promise<SettingsPayload>;
-
-  restartOpenCode?: () => Promise<{ restarted: boolean }>;
 }
 
 export interface DirectoryPermissionRequest {
@@ -1224,131 +1117,6 @@ export interface RuntimeAPIs {
   clientAuth?: ClientAuthAPI;
   tools: ToolsAPI;
   editor?: EditorAPI;
-  worktrees?: WorktreeMetadata[];
 }
 
 export type RuntimeAPISelector<TValue> = (apis: RuntimeAPIs) => TValue;
-
-// ============== Skills Catalog Types ==============
-
-type SkillsCatalogSourceId = string;
-
-type SkillsCatalogSourceType = 'github' | 'clawdhub';
-
-export interface SkillsCatalogSource {
-  id: SkillsCatalogSourceId;
-  label: string;
-  description?: string;
-  source: string;
-  defaultSubpath?: string;
-  sourceType?: SkillsCatalogSourceType;
-}
-
-interface SkillsCatalogItemInstalledBadge {
-  isInstalled: boolean;
-  scope?: 'user' | 'project';
-  source?: 'opencode' | 'agents' | 'claude';
-}
-
-interface ClawdHubSkillMetadata {
-  slug: string;
-  version: string;
-  displayName?: string;
-  owner?: string;
-  downloads?: number;
-  stars?: number;
-  versionsCount?: number;
-  createdAt?: number;
-  updatedAt?: number;
-}
-
-export interface SkillsCatalogItem {
-  sourceId: SkillsCatalogSourceId;
-  repoSource: string;
-  repoSubpath?: string;
-  gitIdentityId?: string;
-  skillDir: string;
-  skillName: string;
-  frontmatterName?: string;
-  description?: string;
-  installable: boolean;
-  warnings?: string[];
-  installed?: SkillsCatalogItemInstalledBadge;
-  /** ClawdHub-specific metadata (present only for ClawdHub sources) */
-  clawdhub?: ClawdHubSkillMetadata;
-}
-
-export interface SkillsCatalogResponse {
-  ok: boolean;
-  sources?: SkillsCatalogSource[];
-  itemsBySource?: Record<SkillsCatalogSourceId, SkillsCatalogItem[]>;
-  pageInfoBySource?: Record<SkillsCatalogSourceId, { nextCursor?: string | null }>;
-  error?: { kind: string; message: string };
-}
-
-export interface SkillsCatalogSourceResponse {
-  ok: boolean;
-  items?: SkillsCatalogItem[];
-  nextCursor?: string | null;
-  error?: { kind: string; message: string };
-}
-
-export interface SkillsRepoScanRequest {
-  source: string;
-  subpath?: string;
-  gitIdentityId?: string;
-}
-
-type SkillsRepoScanError =
-  | { kind: 'authRequired'; message: string; sshOnly: true; identities?: Array<{ id: string; name: string }> }
-  | { kind: 'invalidSource'; message: string }
-  | { kind: 'gitUnavailable'; message: string }
-  | { kind: 'networkError'; message: string }
-  | { kind: 'unknown'; message: string };
-
-export interface SkillsRepoScanResponse {
-  ok: boolean;
-  items?: SkillsCatalogItem[];
-  error?: SkillsRepoScanError;
-}
-
-interface SkillsInstallSelection {
-  skillDir: string;
-  /** ClawdHub-specific metadata for installation */
-  clawdhub?: {
-    slug: string;
-    version: string;
-  };
-}
-
-export interface SkillsInstallRequest {
-  source: string;
-  subpath?: string;
-  gitIdentityId?: string;
-  scope: 'user' | 'project';
-  targetSource?: 'opencode' | 'agents';
-  selections: SkillsInstallSelection[];
-  conflictPolicy?: 'prompt' | 'skipAll' | 'overwriteAll';
-  conflictDecisions?: Record<string, 'skip' | 'overwrite'>;
-}
-
-export type SkillsInstallError = SkillsRepoScanError | {
-  kind: 'conflicts';
-  message: string;
-  conflicts: Array<{ skillName: string; scope: 'user' | 'project'; source?: 'opencode' | 'agents' }>;
-};
-
-export interface SkillsInstallResponse {
-  ok: boolean;
-  installed?: Array<{ skillName: string; scope: 'user' | 'project'; source?: 'opencode' | 'agents' }>;
-  skipped?: Array<{ skillName: string; reason: string }>;
-  error?: SkillsInstallError;
-  requiresReload?: boolean;
-  requiresRestart?: boolean;
-  restartDeferred?: boolean;
-  requiresManualRestart?: boolean;
-  reloadFailed?: boolean;
-  warning?: string;
-  message?: string;
-  reloadDelayMs?: number;
-}

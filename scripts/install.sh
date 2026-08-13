@@ -262,9 +262,7 @@ EOF
       fi
     fi
     echo ""
-    echo "  Phase 1 note:"
-    echo "    PiChamber is a metadata-only rebrand; the runtime still targets the OpenCode SDK."
-    echo "    Make sure your OpenCode-side runtime is reachable (for example: opencode serve)."
+    echo "  PiChamber starts and manages its Pi session daemon when you run the server."
     echo ""
   else
     echo ""

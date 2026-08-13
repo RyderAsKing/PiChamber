@@ -2,76 +2,27 @@
   <img src="docs/references/badges/pichamber-logo.svg" width="32" height="32" alt="PiChamber" />
 </p>
 
-> **Note:** PiChamber is currently a community fork of [OpenChamber](https://github.com/openchamber/openchamber) and is functionally identical to it. The rebrand is metadata-only at this stage; the runtime, SDK integration, and behavior are unchanged.
-
 ## Run agent work. Keep control. Ship from anywhere.
 
-**PiChamber is an open-source workspace for running, supervising, and reviewing AI coding work across desktop, browser, editor, and mobile.**
+**PiChamber is an open-source workspace for running and supervising [Pi Coding Agent](https://pi.dev) work from desktop or a browser.**
 
-PiChamber gives you one place to direct agent work, understand the changes, and move them toward release. Your projects stay available when you switch devices or step away.
+PiChamber runs a Pi-native session daemon on the host, provides an authenticated web API, and lets trusted devices connect to the same server.
 
 ![PiChamber Chat](docs/references/chat_example.png)
 
-<details>
-<summary>More screenshots</summary>
+## What you can do
 
-<p>
-<img src="docs/references/pwa_chat_example.png" width="45%" alt="PiChamber PWA chat">
-<img src="docs/references/pwa_diff_example.png" width="45%" alt="PiChamber PWA diff review">
-</p>
-
-</details>
-
-## What you can do with PiChamber
-
-### Goals that continue on their own
-
-### Compare and combine runs
-
-Use **Multi-run** to give the same task to up to five models, each in its own session and optionally its own worktree. See what each one actually built, choose the best result, or use **Fusion** to combine the strongest parts into a new session.
-
-### Guided changes walkthroughs
-
-**Changes Walkthrough** turns a large diff into an AI-guided tour of the change. It groups related edits into steps, puts them in the order the change makes sense, and explains how the pieces fit together.
-
-### Inspect a running app
-
-Open your app beside the conversation with **Preview**. Point at an element and send the agent its screenshot, styles, position, and browser errors — all the context behind "this thing here." Desktop brings the same workflow to any web page through its built-in browser.
-
-### GitHub context from issue to pull request
-
-Start a session from a GitHub issue or pull request with its context attached. Send failed checks or review comments back to the agent, then update or merge the pull request from PiChamber.
-
-### Continue on another device
-
-Open the same projects and sessions from Desktop, Web/PWA, iOS, or Android. Check progress, answer questions, review changes, and reattach to a running terminal.
-
-### Private remote access
-
-Pair a device with a one-time QR code and connect through **Private Relay** without opening ports or exposing a public server. The connection is end-to-end encrypted and can be revoked at any time. Direct connections, LAN/VPN access, Cloudflare/Ngrok tunnels, and SSH are also supported.
-
-### Track work across projects
-
-See which sessions are working, waiting, finished, or failed, along with approvals, provider limits, token use, and costs. Organize sessions into folders and keep notes, todos, and reusable project actions nearby.
-
-### Schedule recurring work
-
-Run a prompt once, daily, weekly, or on a cron schedule.
-
-## Use it where you work
-
-| Surface | Role |
-| --- | --- |
-| **Desktop** | The complete workspace for macOS, Windows, and Linux, with multiple windows, Mini Chat, remote machines, SSH, and native notifications |
-| **Web / PWA** | Open your workspace in a browser, install it as an app, and stay up to date through background notifications |
-| **iOS / Android** | Review and steer work away from your desk, receive completion alerts, and use the terminal with touch controls |
-| **CLI / Server** | Run PiChamber on a workstation or server, schedule work, manage remote access, and keep it available after login |
+- Create, resume, rename, fork, clone, archive, and delete Pi sessions.
+- Follow live assistant, reasoning, and tool output; steer, queue, or abort work.
+- Configure Pi providers, models, prompt templates, skills, project trust, and `AGENTS.md` resources without exposing stored credentials to the browser.
+- Connect desktop and browser clients to a local or self-hosted PiChamber server.
+- Pair trusted devices with one-time connection links and protect server access with a UI password.
 
 ## Quick start
 
 ### Desktop — macOS, Windows, and Linux
 
-Download the latest release from [GitHub Releases](https://github.com/RyderAsKing/PiChamber/releases/latest). Desktop bundles the matching OpenCode CLI, so no separate OpenCode installation is required.
+Download the latest release from [GitHub Releases](https://github.com/RyderAsKing/PiChamber/releases/latest). Desktop includes the Pi SDK integration; it does not require a separately installed Pi CLI or server.
 
 Linux releases are available as x86_64 and ARM64 AppImages. Make the downloaded AppImage executable and keep it in a writable location for in-app updates:
 
@@ -82,13 +33,13 @@ chmod +x PiChamber-*.AppImage
 
 Linux AppImages require FUSE (`libfuse.so.2`). Without FUSE, run with `APPIMAGE_EXTRACT_AND_RUN=1`.
 
-### CLI — Web and PWA
+### Server — Web and PWA
 
-Requires Node.js 22+. CLI/Web uses your installed [OpenCode CLI](https://opencode.ai).
+Requires Node.js 22+.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/RyderAsKing/PiChamber/main/scripts/install.sh | bash
-pichamber --ui-password be-creative-here
+pichamber serve --ui-password be-creative-here
 ```
 
 Common operations:
@@ -96,7 +47,6 @@ Common operations:
 ```bash
 pichamber status
 pichamber connect-url --qr
-pichamber tunnel start --provider cloudflare --mode quick --qr
 pichamber startup enable
 pichamber logs
 pichamber stop
@@ -107,52 +57,23 @@ PiChamber binds to localhost by default. Use `--lan` only on a trusted network a
 
 ## Guides
 
-Go deeper with the PiChamber guides:
-
 - [Quick start](packages/docs/content/docs/quickstart.mdx)
 - [Installation](packages/docs/content/docs/install.mdx)
 - [Connect devices](packages/docs/content/docs/connect-devices.mdx)
-- [Private Relay](packages/docs/content/docs/private-relay.mdx)
-- [Multi-run](packages/docs/content/docs/multi-run.mdx)
-- [Changes Walkthrough](packages/docs/content/docs/walkthrough.mdx)
-- [Preview and dev servers](packages/docs/content/docs/preview.mdx)
-- [GitHub workflows](packages/docs/content/docs/github.mdx)
-- [Mobile](packages/docs/content/docs/mobile.mdx)
 - [Security](packages/docs/content/docs/security.mdx)
 - [Troubleshooting](packages/docs/content/docs/troubleshooting.mdx)
 
-For self-hosting details, see the [reverse proxy guide](docs/REVERSE_PROXY.md). For custom theme authoring, see the [custom themes guide](docs/CUSTOM_THEMES.md).
-
-## Why OpenCode?
-
-PiChamber uses [OpenCode](https://opencode.ai) to power its coding agents. We chose it because we believe it provides the best open-source agentic coding experience today: capable, extensible, and open by design.
-
-Around that foundation, PiChamber brings together the work that happens before, during, and after an agent run — deciding what to try, keeping it on track, reviewing the result, connecting from anywhere, and getting the change shipped.
-
-PiChamber is an independent community fork of [OpenChamber](https://github.com/openchamber/openchamber) and is not affiliated with the OpenCode team.
-
-### Roadmap
-
-PiChamber is currently a metadata-only rebrand of OpenChamber. The next phase will introduce a [pi](https://pi.dev) integration alongside (and ultimately in place of) the current OpenCode integration. Internal runtime contracts (env vars, the `openchamber-ui://` protocol, localStorage keys, and HTTP routes) are intentionally preserved in this phase to keep upgrades non-breaking; they will be renamed in a later phase with deprecation aliases.
+For self-hosting details, see the [reverse proxy guide](docs/REVERSE_PROXY.md).
 
 ## Contributing
 
-> **Not accepting contributions right now.** PiChamber is in a very early phase
-> of my port to [pi](https://pi.dev), and contributions at this stage might hurt
-> more than they help. You're still welcome to contribute — issues and pull
-> requests are read — but it may take a while for me to get back to you.
+> **Not accepting contributions right now.** PiChamber is in an early phase of its Pi port. Issues and pull requests are welcome, but responses may take time.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup and contribution guidelines. Documentation authoring guidance lives in [`packages/docs`](packages/docs/README.md).
 
 ## Acknowledgments
 
-PiChamber is a community fork of [OpenChamber](https://github.com/openchamber/openchamber) by Bohdan Triapitsyn. Special thanks to OpenChamber for the idea and for the initial code for this port. Thanks also to:
-
-- [OpenCode](https://opencode.ai) for its excellent API and extensible open-source architecture
-- [Pierre](https://pierrejs-docs.vercel.app/) for its fast diff viewer and syntax highlighting
-- [Ghostty-web](https://github.com/coder/ghostty-web) for its Ghostty web renderer
-- [Yulia Ivashko](https://github.com/yulia-ivashko), who built the firework celebration that plays on every successful push
-- Every contributor who shaped OpenChamber with code, ideas, and attention to detail
+PiChamber is a community fork of [OpenChamber](https://github.com/openchamber/openchamber) by Bohdan Triapitsyn. We retain its required MIT attribution. Thanks also to Pi Coding Agent, Pierre, Ghostty-web, and every contributor who shaped the project.
 
 ## License
 

@@ -1,5 +1,5 @@
 // JSON payload guards and HTTP request normalization for the relay tunnel client.
-// Spec: .opencode/plans/private-relay/01-protocol-spec.md (Layer 3).
+// Protocol: PiChamber private relay (Layer 3).
 
 import type {
   TunnelHttpResponsePayload,

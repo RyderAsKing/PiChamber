@@ -1,26 +1,14 @@
 ---
-title: Quickstart
-description: Start PiChamber quickly and pick the right app for the task.
+title: Quick start
+description: Start an authenticated PiChamber server and open its browser UI.
 ---
 
-# Quickstart
+Start a local server:
 
-## Fastest path
+```sh
+pichamber serve --ui-password "choose-a-strong-password"
+```
 
-1. Install [OpenCode](https://opencode.ai).
-2. Install the PiChamber CLI (see [Install](/install/) for the one-line command).
-3. Run `pichamber --ui-password be-creative-here`.
-4. Open the URL the CLI prints (usually `http://localhost:3000`).
-5. To use it from your phone, start a [tunnel](/tunnels/) and scan the QR code.
+Open the reported local URL in a browser. The first request starts the private Pi session daemon; PiChamber then loads your normal Pi agent configuration and sessions.
 
-You should see the PiChamber session list in your browser. If it loads, you're up and running.
-
-Use a strong UI password, especially if you plan to open the instance to the internet.
-
-If the page doesn't load, check [Troubleshooting](/troubleshooting/).
-
-## Which app should I use?
-
-- use **desktop** for day-to-day work on macOS
-- use **web** for remote access and reviewing from your phone
-- use **VS Code** for sessions right next to your code
+Use `--lan` only on a trusted network and always set `--ui-password` when exposing the server beyond localhost.

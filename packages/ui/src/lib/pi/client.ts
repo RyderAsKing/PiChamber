@@ -1,11 +1,11 @@
 /**
- * Pi service facade — the shared UI replacement for `OpencodeService`.
+ * Pi service facade for the shared UI.
  *
  * The facade wraps the public `/api/pi/` API contract. It is the only place
  * UI code calls into; lower-level transport helpers live next to it but are
  * not imported directly by consumers.
  *
- * The contract is intentionally narrower than the legacy OpenCode service:
+ * The contract intentionally exposes only Pi-native operations:
  *
  * - Sessions, messages, and parts come from a small set of typed RPCs.
  * - Provider, resource, and attachment calls return `null`/throw on failure
@@ -13,7 +13,7 @@
  * - Streamed mutations flow through the event stream, not service calls.
  *
  * The facade is a plain class so consumers can use one per directory
- * (mirroring `OpencodeService.getScopedApiClient`). A `piClient` singleton
+ * A `piClient` singleton
  * is exported for global, non-directory-scoped calls.
  */
 

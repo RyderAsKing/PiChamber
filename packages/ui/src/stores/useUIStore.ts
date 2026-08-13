@@ -10,7 +10,6 @@ import { getStoredMobileKeyboardMode, type MobileKeyboardMode } from '@/lib/mobi
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import type { TerminalShell } from '@/lib/api/types';
 import { useFilesViewTabsStore } from './useFilesViewTabsStore';
-import { isWindowsArm64 } from '@/lib/platform';
 
 export type MainTab = 'chat' | 'plan' | 'git' | 'diff' | 'terminal' | 'files' | 'context' | 'diagram';
 export type PendingDiffScope = 'working' | 'staged' | 'turn';
@@ -620,13 +619,9 @@ interface UIStore {
   isCommandPaletteOpen: boolean;
   isHelpDialogOpen: boolean;
   isAboutDialogOpen: boolean;
-  isOpenCodeStatusDialogOpen: boolean;
-  openCodeStatusText: string;
   isSessionCreateDialogOpen: boolean;
   isArchivePageOpen: boolean;
-  worktreesPageProjectId: string | null;
   isSettingsDialogOpen: boolean;
-  isNewWorktreeDialogOpen: boolean;
   isModelSelectorOpen: boolean;
   sidebarSection: SidebarSection;
 
@@ -642,8 +637,6 @@ interface UIStore {
   chatRenderMode: ChatRenderMode;
   activityRenderMode: ActivityRenderMode;
   showDeletionDialog: boolean;
-  /** When true, confirm before applying deferred OpenCode restart from Settings. */
-  showOpenCodeRestartConfirm: boolean;
   autoDeleteEnabled: boolean;
   /** Global file-editor autosave. Default true for backward compatibility. */
   autoSaveEnabled: boolean;
@@ -710,7 +703,6 @@ interface UIStore {
 
   showTerminalQuickKeysOnDesktop: boolean;
   persistChatDraft: boolean;
-  showOpenCodeUpdateNotifications: boolean;
   inputSpellcheckEnabled: boolean;
   wideChatLayoutEnabled: boolean;
   codeBlockLineWrap: boolean;
@@ -788,15 +780,11 @@ interface UIStore {
   toggleHelpDialog: () => void;
   setHelpDialogOpen: (open: boolean) => void;
   setAboutDialogOpen: (open: boolean) => void;
-  setOpenCodeStatusDialogOpen: (open: boolean) => void;
-  setOpenCodeStatusText: (text: string) => void;
   setSessionCreateDialogOpen: (open: boolean) => void;
   setArchivePageOpen: (open: boolean) => void;
-  setWorktreesPageProjectId: (projectId: string | null) => void;
-  /** Close every full-page surface (Archive, Worktrees, Multi-run). */
+  /** Close every full-page surface. */
   closeMainSurfaces: () => void;
   setSettingsDialogOpen: (open: boolean) => void;
-  setNewWorktreeDialogOpen: (open: boolean) => void;
   setModelSelectorOpen: (open: boolean) => void;
   applyTheme: () => void;
   setSidebarSection: (section: SidebarSection) => void;
@@ -809,7 +797,6 @@ interface UIStore {
   setChatRenderMode: (value: ChatRenderMode) => void;
   setActivityRenderMode: (value: ActivityRenderMode) => void;
   setShowDeletionDialog: (value: boolean) => void;
-  setShowOpenCodeRestartConfirm: (value: boolean) => void;
   setAutoDeleteEnabled: (value: boolean) => void;
   setAutoSaveEnabled: (value: boolean) => void;
   setAutoDeleteAfterDays: (days: number) => void;
@@ -875,7 +862,6 @@ interface UIStore {
   setSummaryLength: (value: number) => void;
   setMaxLastMessageLength: (value: number) => void;
   setPersistChatDraft: (value: boolean) => void;
-  setShowOpenCodeUpdateNotifications: (value: boolean) => void;
   setInputSpellcheckEnabled: (value: boolean) => void;
   setWideChatLayoutEnabled: (value: boolean) => void;
   setCodeBlockLineWrap: (value: boolean) => void;
@@ -948,13 +934,9 @@ export const useUIStore = create<UIStore>()(
         isCommandPaletteOpen: false,
         isHelpDialogOpen: false,
         isAboutDialogOpen: false,
-        isOpenCodeStatusDialogOpen: false,
-        openCodeStatusText: '',
         isSessionCreateDialogOpen: false,
         isArchivePageOpen: false,
-        worktreesPageProjectId: null,
         isSettingsDialogOpen: false,
-        isNewWorktreeDialogOpen: false,
         isModelSelectorOpen: false,
         sidebarSection: 'sessions',
         settingsPage: 'home',
@@ -968,7 +950,6 @@ export const useUIStore = create<UIStore>()(
         chatRenderMode: 'live',
         activityRenderMode: 'summary',
         showDeletionDialog: true,
-        showOpenCodeRestartConfirm: true,
         autoDeleteEnabled: false,
         autoSaveEnabled: true,
         autoDeleteAfterDays: 30,
@@ -1026,7 +1007,6 @@ export const useUIStore = create<UIStore>()(
 
         showTerminalQuickKeysOnDesktop: false,
         persistChatDraft: true,
-        showOpenCodeUpdateNotifications: !isWindowsArm64(),
         inputSpellcheckEnabled: false,
         wideChatLayoutEnabled: false,
         codeBlockLineWrap: true,
@@ -1635,38 +1615,23 @@ export const useUIStore = create<UIStore>()(
           set({ isAboutDialogOpen: open });
         },
 
-        setOpenCodeStatusDialogOpen: (open) => {
-          set({ isOpenCodeStatusDialogOpen: open });
-        },
-
-        setOpenCodeStatusText: (text) => {
-          set({ openCodeStatusText: text });
-        },
-
         setSessionCreateDialogOpen: (open) => {
           set({ isSessionCreateDialogOpen: open });
         },
 
         setArchivePageOpen: (open) => {
           set(open
-            ? { isArchivePageOpen: true, worktreesPageProjectId: null, isMultiRunLauncherOpen: false }
+            ? { isArchivePageOpen: true, isMultiRunLauncherOpen: false }
             : { isArchivePageOpen: false });
-        },
-
-        setWorktreesPageProjectId: (projectId) => {
-          set(projectId
-            ? { worktreesPageProjectId: projectId, isArchivePageOpen: false, isMultiRunLauncherOpen: false }
-            : { worktreesPageProjectId: null });
         },
 
         closeMainSurfaces: () => {
           const state = get();
-          if (!state.isArchivePageOpen && !state.worktreesPageProjectId && !state.isMultiRunLauncherOpen) {
+          if (!state.isArchivePageOpen && !state.isMultiRunLauncherOpen) {
             return;
           }
           set({
             isArchivePageOpen: false,
-            worktreesPageProjectId: null,
             isMultiRunLauncherOpen: false,
             multiRunLauncherPrefillPrompt: '',
           });
@@ -1682,10 +1647,6 @@ export const useUIStore = create<UIStore>()(
             }
             return { isSettingsDialogOpen: true, settingsHasOpenedOnce: true };
           });
-        },
-
-        setNewWorktreeDialogOpen: (open) => {
-          set({ isNewWorktreeDialogOpen: open });
         },
 
         setModelSelectorOpen: (open) => {
@@ -1735,9 +1696,6 @@ export const useUIStore = create<UIStore>()(
           set({ showDeletionDialog: value });
         },
 
-        setShowOpenCodeRestartConfirm: (value) => {
-          set({ showOpenCodeRestartConfirm: value });
-        },
 
         setAutoDeleteEnabled: (value) => {
           set({ autoDeleteEnabled: value });
@@ -2131,7 +2089,7 @@ export const useUIStore = create<UIStore>()(
           set((state) => ({
             isMultiRunLauncherOpen: open,
             multiRunLauncherPrefillPrompt: open ? state.multiRunLauncherPrefillPrompt : '',
-            ...(open ? { isArchivePageOpen: false, worktreesPageProjectId: null } : {}),
+            ...(open ? { isArchivePageOpen: false } : {}),
           }));
         },
 
@@ -2141,8 +2099,7 @@ export const useUIStore = create<UIStore>()(
             multiRunLauncherPrefillPrompt: '',
             isSessionSwitcherOpen: false,
             isArchivePageOpen: false,
-            worktreesPageProjectId: null,
-          });
+              });
         },
 
         openMultiRunLauncherWithPrompt: (prompt) => {
@@ -2151,8 +2108,7 @@ export const useUIStore = create<UIStore>()(
             multiRunLauncherPrefillPrompt: prompt,
             isSessionSwitcherOpen: false,
             isArchivePageOpen: false,
-            worktreesPageProjectId: null,
-          });
+              });
         },
 
         setTimelineDialogOpen: (open) => {
@@ -2207,9 +2163,6 @@ export const useUIStore = create<UIStore>()(
         setMaxLastMessageLength: (value) => { set({ maxLastMessageLength: value }); },
         setPersistChatDraft: (value) => {
           set({ persistChatDraft: value });
-        },
-        setShowOpenCodeUpdateNotifications: (value) => {
-          set({ showOpenCodeUpdateNotifications: value });
         },
         setInputSpellcheckEnabled: (value) => {
           set({ inputSpellcheckEnabled: value });
@@ -2490,7 +2443,6 @@ export const useUIStore = create<UIStore>()(
           chatRenderMode: state.chatRenderMode,
           activityRenderMode: state.activityRenderMode,
           showDeletionDialog: state.showDeletionDialog,
-          showOpenCodeRestartConfirm: state.showOpenCodeRestartConfirm,
           autoDeleteEnabled: state.autoDeleteEnabled,
           autoSaveEnabled: state.autoSaveEnabled,
           autoDeleteAfterDays: state.autoDeleteAfterDays,
@@ -2532,7 +2484,6 @@ export const useUIStore = create<UIStore>()(
           summaryLength: state.summaryLength,
           maxLastMessageLength: state.maxLastMessageLength,
           persistChatDraft: state.persistChatDraft,
-          showOpenCodeUpdateNotifications: state.showOpenCodeUpdateNotifications,
           inputSpellcheckEnabled: state.inputSpellcheckEnabled,
           wideChatLayoutEnabled: state.wideChatLayoutEnabled,
           codeBlockLineWrap: state.codeBlockLineWrap,

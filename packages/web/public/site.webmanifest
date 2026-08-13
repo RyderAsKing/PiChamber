@@ -1,7 +1,7 @@
 {
   "name": "PiChamber - AI Coding Companion",
   "short_name": "PiChamber",
-  "description": "PiChamber community fork of OpenChamber, a desktop companion for the OpenCode AI coding agent",
+  "description": "PiChamber workspace for Pi Coding Agent",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#151313",

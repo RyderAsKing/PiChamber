@@ -96,7 +96,7 @@ describe('resolvePiChamberDataPath', () => {
       resolvePiChamberDataPath(['projects', 'p1.json'], deps),
       resolvePiChamberDataPath(['themes', 'a.json'], deps),
       resolvePiChamberDataPath(['quota', 'creds.json'], deps),
-      resolvePiChamberDataPath(['managed-opencode', 'r.json'], deps),
+      resolvePiChamberDataPath(['pi-session-daemon', 'r.json'], deps),
     ];
     for (const child of children) {
       expect(child.startsWith(root + path.sep)).toBe(true);

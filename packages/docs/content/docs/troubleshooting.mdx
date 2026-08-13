@@ -1,40 +1,20 @@
 ---
 title: Troubleshooting
-description: Common setup and runtime issues with quick fixes.
+description: Diagnose PiChamber server and session-daemon availability.
 ---
 
-# Troubleshooting
+Check the server state:
 
-Hit a snag? Find the symptom below and try the fix.
+```sh
+pichamber status
+pichamber logs
+```
 
-## PiChamber command exits or fails to start
+If the browser reports that Pi is unavailable, verify that the server host can read its Pi agent directory and that the server process has permission to create its local daemon socket. A daemon failure is reported explicitly; it is not an empty session list.
 
-- confirm Node.js `>=22`
-- run `pichamber --version`
-- reinstall latest CLI if needed
+Stop and restart the host if the daemon cannot recover:
 
-## Web UI is not reachable
-
-- check server logs with `pichamber logs`
-- verify active port (default `3000`)
-- open `http://localhost:3000` directly first before testing tunnel links
-
-## Remote/tunnel link does not work
-
-- run `pichamber tunnel status --all`
-- restart tunnel from the same instance/port
-- regenerate connect link if previous token was already used
-
-See [Tunnels](/tunnels/) for the full setup, and [Reverse Proxy](/reverse-proxy/) if you run one.
-
-## VS Code extension does not connect
-
-- confirm PiChamber server is running
-- verify extension is updated
-- reload VS Code window and retry connection
-
-## Related
-
-- [Quickstart](/quickstart/)
-- [Tunnels](/tunnels/)
-- [Reverse Proxy](/reverse-proxy/)
+```sh
+pichamber stop
+pichamber serve --ui-password "choose-a-strong-password"
+```

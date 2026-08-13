@@ -15,7 +15,7 @@ interface ProvidersSidebarProps {
   onItemSelect?: () => void;
 }
 
-/** Pi provider catalog sidebar. It owns no credentials and never reads OpenCode config. */
+/** Pi provider catalog sidebar. It owns no credentials and reads only Pi-native configuration. */
 export const ProvidersSidebar: React.FC<ProvidersSidebarProps> = ({ onItemSelect }) => {
   const { t } = useI18n();
   const selectedProviderId = usePiProviderSelectionStore((state) => state.selectedProviderId);

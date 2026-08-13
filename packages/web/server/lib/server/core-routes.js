@@ -1021,33 +1021,7 @@ export const registerCommonRequestMiddleware = (app, dependencies) => {
         return res.status(413).json({ error: 'Content exceeds maximum size of 1048576 bytes' });
       }
       express.json({ limit: '1mb' })(req, res, next);
-    } else if (
-      req.path.startsWith('/api/config/agents') ||
-      req.path.startsWith('/api/config/commands') ||
-      req.path.startsWith('/api/config/mcp') ||
-      req.path.startsWith('/api/config/snippets') ||
-      req.path.startsWith('/api/config/settings') ||
-      req.path.startsWith('/api/config/skills') ||
-      req.path.startsWith('/api/config/plugins') ||
-      req.path.startsWith('/api/projects') ||
-      req.path.startsWith('/api/fs') ||
-      req.path.startsWith('/api/git') ||
-      req.path.startsWith('/api/magic-prompts') ||
-      req.path.startsWith('/api/prompts') ||
-      req.path.startsWith('/api/terminal') ||
-      req.path.startsWith('/api/push') ||
-      req.path.startsWith('/api/notifications') ||
-      req.path.startsWith('/api/permission-auto-accept') ||
-      req.path.startsWith('/api/pi') ||
-      req.path.startsWith('/api/provider') ||
-      req.path.startsWith('/api/session-folders') ||
-      req.path.startsWith('/api/small-model') ||
-      req.path.startsWith('/api/walkthrough') ||
-      req.path.startsWith('/api/text') ||
-      req.path.startsWith('/api/voice') ||
-      req.path.startsWith('/api/tts') ||
-      req.path.startsWith('/api/openchamber/tunnel')
-    ) {
+    } else if (req.path.startsWith('/api/pi')) {
       express.json({ limit: '50mb' })(req, res, next);
     } else if (req.path.startsWith('/api')) {
       next();

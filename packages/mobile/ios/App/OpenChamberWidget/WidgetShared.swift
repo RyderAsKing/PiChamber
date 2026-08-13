@@ -87,7 +87,7 @@ struct OverviewProvider: TimelineProvider {
 // MARK: - Logo (full PiChamber mark drawn from the SVG)
 
 /// The PiChamber logo, drawn to match packages/web/public/logo-dark-512x512.svg: an
-/// isometric cube with translucent face fills, stroked edges, and the OpenCode mark on the
+/// isometric cube with translucent face fills, stroked edges, and the PiChamber mark on the
 /// top face. Faces use low-opacity `.primary` so the system tint on the Lock Screen / Control
 /// Center reads as a translucent fill (no colour) rather than a flat wireframe. Coordinates are
 /// the SVG inner group (range x:-41.568…41.568, y:-48…48).
@@ -103,7 +103,7 @@ struct CubeLogoView: View {
 
             // Cube coordinate → canvas point.
             func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: cx + x * scale, y: cy + y * scale) }
-            // OpenCode-mark local coordinate → canvas point (SVG: matrix(0.866,0.5,-0.866,0.5,0,-24) · scale(0.75)).
+            // PiChamber-mark local coordinate → canvas point (SVG: matrix(0.866,0.5,-0.866,0.5,0,-24) · scale(0.75)).
             func m(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
                 let s: CGFloat = 0.75
                 let mx = 0.866 * s * x - 0.866 * s * y
@@ -124,7 +124,7 @@ struct CubeLogoView: View {
             context.stroke(right, with: .color(.primary), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
             context.stroke(top, with: .color(.primary), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
 
-            // OpenCode mark: square ring (even-odd) + a partial inner fill.
+            // PiChamber mark: square ring (even-odd) + a partial inner fill.
             var ring = Path()
             ring.move(to: m(-16, -20)); ring.addLine(to: m(16, -20)); ring.addLine(to: m(16, 20)); ring.addLine(to: m(-16, 20)); ring.closeSubpath()
             ring.move(to: m(-8, -12)); ring.addLine(to: m(-8, 12)); ring.addLine(to: m(8, 12)); ring.addLine(to: m(8, -12)); ring.closeSubpath()
