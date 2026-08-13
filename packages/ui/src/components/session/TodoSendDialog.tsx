@@ -6,7 +6,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Checkbox } from '@/components/ui/checkbox';
 import { ModelSelector } from '@/components/sections/agents/ModelSelector';
 import { AgentSelector } from '@/components/sections/commands/AgentSelector';
 import { ThinkingPill } from '@/components/session/ThinkingPill';
@@ -22,7 +21,6 @@ export type TodoSendExecution = {
   modelID: string;
   variant: string;
   agent: string;
-  runAsGoal?: boolean;
 };
 
 type TodoSendDialogProps = {
@@ -31,8 +29,6 @@ type TodoSendDialogProps = {
   target: TodoSendTarget;
   projectDirectory: string | null;
   submitting?: boolean;
-  /** Offer a "Run as goal" checkbox (hidden in VS Code, where the loop does not run). */
-  allowRunAsGoal?: boolean;
   onConfirm: (execution: TodoSendExecution) => Promise<void> | void;
 };
 
@@ -50,8 +46,7 @@ const getInitialExecution = (params: {
 
 export function TodoSendDialog(props: TodoSendDialogProps) {
   const { t } = useI18n();
-  const { open, onOpenChange, target, projectDirectory, submitting = false, allowRunAsGoal = false, onConfirm } = props;
-  const showRunAsGoal = allowRunAsGoal;
+  const { open, onOpenChange, target, projectDirectory, submitting = false, onConfirm } = props;
 
   const loadProviders = useConfigStore((state) => state.loadProviders);
   const loadConfigAgents = useConfigStore((state) => state.loadAgents);
@@ -182,25 +177,7 @@ export function TodoSendDialog(props: TodoSendDialogProps) {
           </div>
         </div>
 
-        <div className={`flex items-center gap-3 ${showRunAsGoal ? 'justify-between' : 'justify-end'}`}>
-          {showRunAsGoal ? (
-            <div className="flex min-w-0 items-center gap-2">
-              <Checkbox
-                checked={execution.runAsGoal === true}
-                onChange={(runAsGoal: boolean) => setExecution((prev) => ({ ...prev, runAsGoal }))}
-                disabled={submitting}
-                ariaLabel={t('sessions.scheduledTasks.editor.goal.aria')}
-              />
-              <button
-                type="button"
-                className="truncate typography-ui-label text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={submitting}
-                onClick={() => setExecution((prev) => ({ ...prev, runAsGoal: prev.runAsGoal !== true }))}
-              >
-                {t('sessions.scheduledTasks.editor.goal.label')}
-              </button>
-            </div>
-          ) : null}
+        <div className="flex items-center justify-end gap-3">
           <div className="flex items-center justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} disabled={submitting}>
             {t('rightSidebar.contextNotesTodo.sendDialog.actions.cancel')}

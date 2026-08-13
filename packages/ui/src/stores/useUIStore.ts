@@ -639,11 +639,6 @@ interface UIStore {
   eventStreamStatus: EventStreamStatus;
   eventStreamHint: string | null;
   showReasoningTraces: boolean;
-  sessionRecapEnabled: boolean;
-  sessionSuggestionEnabled: boolean;
-  sessionGoalEnabled: boolean;
-  sessionGoalDefaultBudgetEnabled: boolean;
-  sessionGoalDefaultBudget: number;
   collapsibleThinkingBlocks: boolean;
   chatRenderMode: ChatRenderMode;
   activityRenderMode: ActivityRenderMode;
@@ -813,11 +808,6 @@ interface UIStore {
   setSettingsRemoteInstancesSelectedId: (instanceId: string | null) => void;
   setEventStreamStatus: (status: EventStreamStatus, hint?: string | null) => void;
   setShowReasoningTraces: (value: boolean) => void;
-  setSessionRecapEnabled: (value: boolean) => void;
-  setSessionSuggestionEnabled: (value: boolean) => void;
-  setSessionGoalEnabled: (value: boolean) => void;
-  setSessionGoalDefaultBudgetEnabled: (value: boolean) => void;
-  setSessionGoalDefaultBudget: (value: number) => void;
   setCollapsibleThinkingBlocks: (value: boolean) => void;
   setChatRenderMode: (value: ChatRenderMode) => void;
   setActivityRenderMode: (value: ActivityRenderMode) => void;
@@ -979,11 +969,6 @@ export const useUIStore = create<UIStore>()(
         eventStreamStatus: 'idle',
         eventStreamHint: null,
         showReasoningTraces: true,
-        sessionRecapEnabled: true,
-        sessionSuggestionEnabled: true,
-        sessionGoalEnabled: true,
-        sessionGoalDefaultBudgetEnabled: false,
-        sessionGoalDefaultBudget: 200_000,
         collapsibleThinkingBlocks: true,
         chatRenderMode: 'live',
         activityRenderMode: 'summary',
@@ -1745,26 +1730,6 @@ export const useUIStore = create<UIStore>()(
 
         setShowReasoningTraces: (value) => {
           set({ showReasoningTraces: value });
-        },
-
-        setSessionRecapEnabled: (value) => {
-          set({ sessionRecapEnabled: value });
-        },
-
-        setSessionSuggestionEnabled: (value) => {
-          set({ sessionSuggestionEnabled: value });
-        },
-
-        setSessionGoalEnabled: (value) => {
-          set({ sessionGoalEnabled: value });
-        },
-
-        setSessionGoalDefaultBudgetEnabled: (value) => {
-          set({ sessionGoalDefaultBudgetEnabled: value });
-        },
-
-        setSessionGoalDefaultBudget: (value) => {
-          set({ sessionGoalDefaultBudget: value });
         },
 
         setCollapsibleThinkingBlocks: (value) => {
@@ -2539,11 +2504,6 @@ export const useUIStore = create<UIStore>()(
           isSessionCreateDialogOpen: state.isSessionCreateDialogOpen,
           // Note: isSettingsDialogOpen intentionally NOT persisted
           showReasoningTraces: state.showReasoningTraces,
-          sessionRecapEnabled: state.sessionRecapEnabled,
-          sessionSuggestionEnabled: state.sessionSuggestionEnabled,
-          sessionGoalEnabled: state.sessionGoalEnabled,
-          sessionGoalDefaultBudgetEnabled: state.sessionGoalDefaultBudgetEnabled,
-          sessionGoalDefaultBudget: state.sessionGoalDefaultBudget,
           collapsibleThinkingBlocks: state.collapsibleThinkingBlocks,
           chatRenderMode: state.chatRenderMode,
           activityRenderMode: state.activityRenderMode,

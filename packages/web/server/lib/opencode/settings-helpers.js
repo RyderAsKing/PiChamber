@@ -302,21 +302,6 @@ export const createSettingsHelpers = (dependencies) => {
     if (typeof candidate.showReasoningTraces === 'boolean') {
       result.showReasoningTraces = candidate.showReasoningTraces;
     }
-    if (typeof candidate.sessionRecapEnabled === 'boolean') {
-      result.sessionRecapEnabled = candidate.sessionRecapEnabled;
-    }
-    if (typeof candidate.sessionSuggestionEnabled === 'boolean') {
-      result.sessionSuggestionEnabled = candidate.sessionSuggestionEnabled;
-    }
-    if (typeof candidate.sessionGoalEnabled === 'boolean') {
-      result.sessionGoalEnabled = candidate.sessionGoalEnabled;
-    }
-    if (typeof candidate.sessionGoalDefaultBudgetEnabled === 'boolean') {
-      result.sessionGoalDefaultBudgetEnabled = candidate.sessionGoalDefaultBudgetEnabled;
-    }
-    if (typeof candidate.sessionGoalDefaultBudget === 'number' && Number.isFinite(candidate.sessionGoalDefaultBudget) && candidate.sessionGoalDefaultBudget > 0) {
-      result.sessionGoalDefaultBudget = Math.floor(candidate.sessionGoalDefaultBudget);
-    }
     if (typeof candidate.collapsibleThinkingBlocks === 'boolean') {
       result.collapsibleThinkingBlocks = candidate.collapsibleThinkingBlocks;
     }
@@ -513,9 +498,6 @@ export const createSettingsHelpers = (dependencies) => {
     }
     if (typeof candidate.agentControlToolEnabled === 'boolean') {
       result.agentControlToolEnabled = candidate.agentControlToolEnabled;
-    }
-    if (typeof candidate.optimizeSystemPrompt === 'boolean') {
-      result.optimizeSystemPrompt = candidate.optimizeSystemPrompt;
     }
     if (typeof candidate.openCodeUpdateToastDismissedVersion === 'string') {
       const version = candidate.openCodeUpdateToastDismissedVersion.trim();

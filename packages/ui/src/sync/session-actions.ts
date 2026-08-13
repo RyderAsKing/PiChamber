@@ -18,13 +18,7 @@ import { isSyntheticPart } from "@/lib/messages/synthetic"
 import { materializeSessionSnapshots } from "./materialization"
 import { stripMessageDiffSnapshots, stripSessionDiffSnapshots } from "./sanitize"
 import { sessionEvents } from "@/lib/sessionEvents"
-import {
-  getOriginalSessionID,
-  getSessionMetadata,
-  isReviewSession,
-  withoutReviewSessionLink,
-  type SessionMetadataRecord,
-} from "@/lib/sessionReviewMetadata"
+import { getSessionMetadata, type SessionMetadataRecord } from "@/lib/sessionReviewMetadata"
 import { withContextObligatoryMessage, type ContextObligatoryMessage } from "@/lib/contextObligatoryMessages"
 import { withLinkedIssue, type LinkedIssue } from "@/lib/linkedIssues"
 import { getImperativeSessionMessageLoader } from "./session-message-loader"
@@ -819,34 +813,6 @@ export async function setContextObligatoryMessage(
   return updated
 }
 
-async function cleanupReviewMetadataBeforeDelete(
-  sessionId: string,
-  directory?: string | null,
-  expectedRuntimeKey?: string,
-): Promise<void> {
-  if (isStaleRuntime(expectedRuntimeKey)) return
-  let session: Session
-  try {
-    session = await opencodeClient.getSession(sessionId, directory ?? getSessionDirectory(sessionId))
-  } catch {
-    return
-  }
-  if (isStaleRuntime(expectedRuntimeKey)) return
-  if (!isReviewSession(session)) return
-  const originalSessionID = getOriginalSessionID(session)
-  if (!originalSessionID) return
-  try {
-    await patchSessionMetadata(originalSessionID, directory ?? getSessionDirectory(originalSessionID), (metadata) =>
-      withoutReviewSessionLink(metadata, sessionId),
-      expectedRuntimeKey,
-    )
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if (/not found/i.test(message)) return
-    console.warn("[session-actions] review metadata cleanup failed before delete", error)
-  }
-}
-
 /** Remove a server-confirmed session from every live child store that has it. */
 function removeSessionFromLiveStores(sessionId: string, preferredDirectory?: string): SessionListSnapshot[] {
   if (!_childStores) return []
@@ -946,8 +912,7 @@ export async function deleteSession(sessionId: string, options?: DeleteSessionOp
   if (isStaleRuntime(expectedRuntimeKey)) return false
   const sessionDirectory = getSessionDirectory(sessionId)
   try {
-    await cleanupReviewMetadataBeforeDelete(sessionId, sessionDirectory, expectedRuntimeKey)
-    if (isStaleRuntime(expectedRuntimeKey)) return false
+      if (isStaleRuntime(expectedRuntimeKey)) return false
     const deleted = await opencodeClient.deleteSession(sessionId, sessionDirectory)
     if (isStaleRuntime(expectedRuntimeKey)) return false
     if (deleted !== true) {
@@ -977,8 +942,7 @@ export async function deleteSessionInDirectory(
 ): Promise<boolean> {
   if (isStaleRuntime(expectedRuntimeKey)) return false
   try {
-    await cleanupReviewMetadataBeforeDelete(sessionId, directory, expectedRuntimeKey)
-    if (isStaleRuntime(expectedRuntimeKey)) return false
+      if (isStaleRuntime(expectedRuntimeKey)) return false
     const deleted = await opencodeClient.deleteSession(sessionId, directory)
     if (isStaleRuntime(expectedRuntimeKey)) return false
     if (deleted !== true) {
@@ -1051,8 +1015,7 @@ export async function archiveSession(sessionId: string, expectedRuntimeKey = get
   const sessionDirectory = getSessionDirectory(sessionId)
   const archivedAt = Date.now()
   try {
-    await cleanupReviewMetadataBeforeDelete(sessionId, sessionDirectory, expectedRuntimeKey)
-    if (isStaleRuntime(expectedRuntimeKey)) return false
+      if (isStaleRuntime(expectedRuntimeKey)) return false
     const archived = await opencodeClient.updateSession(sessionId, { time: { archived: archivedAt } }, sessionDirectory)
     if (isStaleRuntime(expectedRuntimeKey)) return false
     if (!archived) {

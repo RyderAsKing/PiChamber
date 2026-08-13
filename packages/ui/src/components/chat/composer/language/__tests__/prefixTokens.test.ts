@@ -45,8 +45,8 @@ describe('scanPrefixTokens — boundaries', () => {
     });
 
     test('names may contain dashes, underscores and digits', () => {
-        expect(slashNames('/workspace-review /My_Skill /a1')).toEqual([
-            'workspace-review',
+        expect(slashNames('/plan-feature /My_Skill /a1')).toEqual([
+            'plan-feature',
             'My_Skill',
             'a1',
         ]);

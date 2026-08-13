@@ -133,28 +133,12 @@ const PROMPT_PAGE_MAP: Record<string, PromptPageConfig> = {
       { id: 'session.summary.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
     ],
   },
-  'session.review': {
-    titleKey: 'settings.magicPrompts.page.group.sessionWorkspaceReview.title',
-    descriptionKey: 'settings.magicPrompts.page.group.sessionWorkspaceReview.description',
-    blocks: [
-      { id: 'session.review.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'session.review.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
-    ],
-  },
   'session.plan': {
     titleKey: 'settings.magicPrompts.page.group.sessionFeaturePlan.title',
     descriptionKey: 'settings.magicPrompts.page.group.sessionFeaturePlan.description',
     blocks: [
       { id: 'session.plan.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
       { id: 'session.plan.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
-    ],
-  },
-  'session.craftGoal': {
-    titleKey: 'settings.magicPrompts.page.group.sessionCraftGoal.title',
-    descriptionKey: 'settings.magicPrompts.page.group.sessionCraftGoal.description',
-    blocks: [
-      { id: 'session.craftGoal.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'session.craftGoal.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
     ],
   },
   'session.catchup': {

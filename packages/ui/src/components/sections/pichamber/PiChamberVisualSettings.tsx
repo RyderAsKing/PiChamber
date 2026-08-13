@@ -277,7 +277,7 @@ const normalizeUserMessageRenderingMode = (mode: unknown): 'markdown' | 'plain' 
     return mode === 'markdown' ? 'markdown' : 'plain';
 };
 
-type VisibleSetting = 'sessionAssist' | 'sessionGoal' | 'theme' | 'windowControlsPosition' | 'pwaInstallName' | 'pwaOrientation' | 'mobileKeyboardMode' | 'timeFormat' | 'weekStart' | 'fontSize' | 'terminalFontSize' | 'terminalShell' | 'terminalLoginShell' | 'editorFontSize' | 'spacing' | 'inputBarOffset' | 'mermaidRendering' | 'userMessageRendering' | 'chatRenderMode' | 'messageTransport' | 'activityRenderMode' | 'collapsibleUserMessages' | 'stickyUserHeader' | 'promptNavigatorEnabled' | 'wideChatLayout' | 'codeBlockLineWrap' | 'splitAssistantMessageActions' | 'subagentReadOnlyBanner' | 'diffLayout' | 'mobileStatusBar' | 'dotfiles' | 'fileViewerPreview' | 'reasoning' | 'showToolFileIcons' | 'showTurnChangedFiles' | 'expandedTools' | 'followUpBehavior' | 'terminalQuickKeys' | 'fileEditorKeymap' | 'persistDraft' | 'inputSpellcheck' | 'reportUsage' | 'expandedEditorToolbar' | 'autoSaveEnabled';
+type VisibleSetting = 'theme' | 'windowControlsPosition' | 'pwaInstallName' | 'pwaOrientation' | 'mobileKeyboardMode' | 'timeFormat' | 'weekStart' | 'fontSize' | 'terminalFontSize' | 'terminalShell' | 'terminalLoginShell' | 'editorFontSize' | 'spacing' | 'inputBarOffset' | 'mermaidRendering' | 'userMessageRendering' | 'chatRenderMode' | 'messageTransport' | 'activityRenderMode' | 'collapsibleUserMessages' | 'stickyUserHeader' | 'promptNavigatorEnabled' | 'wideChatLayout' | 'codeBlockLineWrap' | 'splitAssistantMessageActions' | 'subagentReadOnlyBanner' | 'diffLayout' | 'mobileStatusBar' | 'dotfiles' | 'fileViewerPreview' | 'reasoning' | 'showToolFileIcons' | 'showTurnChangedFiles' | 'expandedTools' | 'followUpBehavior' | 'terminalQuickKeys' | 'fileEditorKeymap' | 'persistDraft' | 'inputSpellcheck' | 'reportUsage' | 'expandedEditorToolbar' | 'autoSaveEnabled';
 
 const WINDOW_CONTROLS_POSITION_OPTIONS: Array<{ id: DesktopWindowControlsPosition; labelKey: string }> = [
     { id: 'left', labelKey: 'settings.pichamber.desktopNetwork.option.windowControlsLeft' },
@@ -302,16 +302,6 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const { browserTab } = usePwaDetection();
     const directoryShowHidden = useDirectoryShowHidden();
     const showReasoningTraces = useUIStore(state => state.showReasoningTraces);
-    const sessionRecapEnabled = useUIStore(state => state.sessionRecapEnabled);
-    const sessionSuggestionEnabled = useUIStore(state => state.sessionSuggestionEnabled);
-    const setSessionRecapEnabled = useUIStore(state => state.setSessionRecapEnabled);
-    const setSessionSuggestionEnabled = useUIStore(state => state.setSessionSuggestionEnabled);
-    const sessionGoalEnabled = useUIStore(state => state.sessionGoalEnabled);
-    const setSessionGoalEnabled = useUIStore(state => state.setSessionGoalEnabled);
-    const sessionGoalDefaultBudgetEnabled = useUIStore(state => state.sessionGoalDefaultBudgetEnabled);
-    const setSessionGoalDefaultBudgetEnabled = useUIStore(state => state.setSessionGoalDefaultBudgetEnabled);
-    const sessionGoalDefaultBudget = useUIStore(state => state.sessionGoalDefaultBudget);
-    const setSessionGoalDefaultBudget = useUIStore(state => state.setSessionGoalDefaultBudget);
     const setShowReasoningTraces = useUIStore(state => state.setShowReasoningTraces);
     const collapsibleThinkingBlocks = useUIStore(state => state.collapsibleThinkingBlocks);
     const setCollapsibleThinkingBlocks = useUIStore(state => state.setCollapsibleThinkingBlocks);
@@ -632,7 +622,6 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const hasLayoutSettings = shouldShow('fontSize') || shouldShow('terminalFontSize') || shouldShow('editorFontSize') || shouldShow('spacing') || (shouldShow('inputBarOffset') && isMobile);
     const hasNavigationSettings = (shouldShow('terminalQuickKeys') && !isMobile) || ((shouldShow('terminalShell') || shouldShow('terminalLoginShell'))) || shouldShow('fileEditorKeymap') || shouldShow('autoSaveEnabled') || shouldShow('expandedEditorToolbar');
     const hasBehaviorSettings = shouldShow('mermaidRendering')
-        || shouldShow('sessionGoal')
         || shouldShow('userMessageRendering')
         || shouldShow('chatRenderMode')
         || shouldShow('messageTransport')
@@ -660,9 +649,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
         || shouldShow('mermaidRendering')
         || shouldShow('diffLayout')
         || shouldShow('followUpBehavior');
-    const showBehaviorFeatureCheckboxes = shouldShow('sessionAssist')
-        || shouldShow('sessionGoal')
-        || shouldShow('subagentReadOnlyBanner')
+    const showBehaviorFeatureCheckboxes = shouldShow('subagentReadOnlyBanner')
         || shouldShow('collapsibleUserMessages')
         || shouldShow('stickyUserHeader')
         || shouldShow('promptNavigatorEnabled')
@@ -1773,8 +1760,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     </SettingsSection>
                                 )}
                                 <SettingsSection
-                                    title={t('settings.pichamber.visual.section.sessionAssistance')}
-                                    settingsItem="chat.session-assistance"
+                                    title={t('settings.pichamber.visual.section.chatFeatures')}
                                     contentClassName={SETTINGS_OPTION_STACK_CLASS}
                                 >
                                     <SettingsCheckboxRow
@@ -1784,73 +1770,16 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                         ariaLabel={t('settings.pichamber.visual.field.draftStartersVisibleAria')}
                                         settingsItem="chat.draft-starters-visible"
                                     />
-                                        {shouldShow('sessionAssist') && (
-                                            <>
-                                                <SettingsCheckboxRow
-                                                    checked={sessionRecapEnabled}
-                                                    onChange={setSessionRecapEnabled}
-                                                    label={t('settings.pichamber.visual.field.sessionRecap')}
-                                                    ariaLabel={t('settings.pichamber.visual.field.sessionRecapAria')}
-                                                    settingsItem="chat.session-recap"
-                                                />
-                                                <SettingsCheckboxRow
-                                                    checked={sessionSuggestionEnabled}
-                                                    onChange={setSessionSuggestionEnabled}
-                                                    label={t('settings.pichamber.visual.field.sessionSuggestion')}
-                                                    ariaLabel={t('settings.pichamber.visual.field.sessionSuggestionAria')}
-                                                    settingsItem="chat.session-suggestion"
-                                                />
-                                            </>
-                                        )}
-                                        {shouldShow('subagentReadOnlyBanner') && (
-                                            <SettingsCheckboxRow
-                                                checked={allowPromptingSubagentSessions}
-                                                onChange={setAllowPromptingSubagentSessions}
-                                                label={t('settings.pichamber.visual.field.allowPromptingSubagentSessions')}
-                                                ariaLabel={t('settings.pichamber.visual.field.allowPromptingSubagentSessionsAria')}
-                                                settingsItem="chat.subagent-read-only-banner"
-                                            />
-                                        )}
-                                </SettingsSection>
-                                {/* The goal loop runs in the web server — VS Code only renders
-                                    goal state, so the settings section is hidden there too. */}
-                                {shouldShow('sessionGoal') && (
-                                    <SettingsSection
-                                        title={t('settings.pichamber.visual.goal.sectionTitle')}
-                                        info={t('settings.pichamber.visual.goal.description')}
-                                        contentClassName={SETTINGS_OPTION_STACK_CLASS}
-                                    >
+                                    {shouldShow('subagentReadOnlyBanner') && (
                                         <SettingsCheckboxRow
-                                            checked={sessionGoalEnabled}
-                                            onChange={setSessionGoalEnabled}
-                                            label={t('settings.pichamber.visual.field.sessionGoal')}
-                                            ariaLabel={t('settings.pichamber.visual.field.sessionGoalAria')}
-                                            settingsItem="chat.session-goal"
+                                            checked={allowPromptingSubagentSessions}
+                                            onChange={setAllowPromptingSubagentSessions}
+                                            label={t('settings.pichamber.visual.field.allowPromptingSubagentSessions')}
+                                            ariaLabel={t('settings.pichamber.visual.field.allowPromptingSubagentSessionsAria')}
+                                            settingsItem="chat.subagent-read-only-banner"
                                         />
-                                        <div data-settings-item="chat.session-goal-budget" className="flex items-center gap-2">
-                                            <SettingsCheckboxRow
-                                                checked={sessionGoalDefaultBudgetEnabled}
-                                                onChange={setSessionGoalDefaultBudgetEnabled}
-                                                disabled={!sessionGoalEnabled}
-                                                label={t('settings.pichamber.visual.goal.budgetLabel')}
-                                                ariaLabel={t('settings.pichamber.visual.goal.budgetAria')}
-                                            />
-                                            {sessionGoalEnabled && sessionGoalDefaultBudgetEnabled ? (
-                                                <NumberInput
-                                                    value={sessionGoalDefaultBudget}
-                                                    onValueChange={(value) => {
-                                                        if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-                                                            setSessionGoalDefaultBudget(Math.floor(value));
-                                                        }
-                                                    }}
-                                                    min={1000}
-                                                    max={100000000}
-                                                    step={50000}
-                                                />
-                                            ) : null}
-                                        </div>
-                                    </SettingsSection>
-                                )}
+                                    )}
+                                </SettingsSection>
                                 {shouldShow('reasoning') && (
                                     <SettingsSection
                                         title={t('settings.pichamber.visual.section.reasoning')}

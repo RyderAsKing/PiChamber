@@ -64,14 +64,12 @@ describe('PiChamber control service', () => {
       prompt: 'Run checks',
       model: 'provider/model',
       daily: ' 09:00 ',
-      goal: true,
-      goalTokenBudget: 5000,
     })).resolves.toEqual({ task: { id: 'task-1' }, created: true });
     expect(scheduledTaskService.resolveProjectID).toHaveBeenCalledWith({ projectId: undefined, directory: '/repo' });
     expect(scheduledTaskService.upsert).toHaveBeenCalledWith('project-1', expect.objectContaining({
       name: 'Daily',
       schedule: { kind: 'daily', times: ['09:00'] },
-      execution: expect.objectContaining({ providerID: 'provider', modelID: 'model', goalEnabled: true, goalTokenBudget: 5000 }),
+      execution: expect.objectContaining({ providerID: 'provider', modelID: 'model' }),
     }));
   });
 

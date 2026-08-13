@@ -29,9 +29,8 @@
  *   timezone -> task.schedule.timezone (optional, defaults to the server zone)
  *   body     -> task.execution.prompt
  *
- * `thinking_level` and `goalEnabled`/`goalTokenBudget` are not part of the
- * portable format (they are UI-only today); editing them in the file has no
- * effect and they remain JSON/UI-only.
+ * `thinking_level` is not part of the portable format; editing it in the
+ * file has no effect and it remains JSON/UI-only.
  *
  * Runtime state (lastRunAt, nextRunAt, lastStatus, ...) is never written to
  * the markdown file; it continues to live in the project config/state store.

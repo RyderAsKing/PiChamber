@@ -184,36 +184,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['streaming', 'sse', 'websocket'],
   },
   {
-    id: 'chat.session-recap',
-    page: 'chat',
-    titleKey: 'settings.pichamber.visual.field.sessionRecap',
-    keywords: ['recap', 'assist', 'small model', 'summary'],
-  },
-  {
-    id: 'chat.session-assistance',
-    page: 'chat',
-    titleKey: 'settings.pichamber.visual.section.sessionAssistance',
-    keywords: ['recap', 'suggestion', 'subagent'],
-  },
-  {
-    id: 'chat.session-suggestion',
-    page: 'chat',
-    titleKey: 'settings.pichamber.visual.field.sessionSuggestion',
-    keywords: ['suggestion', 'assist', 'small model', 'follow up'],
-  },
-  {
-    id: 'chat.session-goal',
-    page: 'chat',
-    titleKey: 'settings.pichamber.visual.field.sessionGoal',
-    keywords: ['goal', 'objective', 'auto continue', 'small model'],
-  },
-  {
-    id: 'chat.session-goal-budget',
-    page: 'chat',
-    titleKey: 'settings.pichamber.visual.goal.budgetLabel',
-    keywords: ['goal', 'budget', 'tokens', 'limit'],
-  },
-  {
     id: 'chat.reasoning-traces',
     page: 'chat',
     titleKey: 'settings.pichamber.visual.field.showReasoningTraces',
@@ -558,13 +528,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     descriptionKey: 'settings.remoteInstances.direct.description',
     keywords: ['server url', 'connection token', 'import link', 'host switcher', 'additional headers', 'request headers', 'cloudflare access', 'service token'],
     isAvailable: (ctx) => ctx.isDesktop,
-  },
-  {
-    id: 'behavior.system-prompt-optimization',
-    page: 'behavior',
-    titleKey: 'settings.behavior.page.section.systemPromptOptimization',
-    descriptionKey: 'settings.behavior.page.systemPromptOptimization.info',
-    keywords: ['system prompt', 'tokens', 'context', 'optimize', 'minimal'],
   },
   {
     id: 'behavior.system-prompt',

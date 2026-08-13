@@ -179,8 +179,6 @@ const ChatSectionContent: React.FC = () => {
     return (
         <PiChamberVisualSettings
             visibleSettings={[
-                'sessionGoal',
-                'sessionAssist',
                 'chatRenderMode',
                 'activityRenderMode',
                 'userMessageRendering',

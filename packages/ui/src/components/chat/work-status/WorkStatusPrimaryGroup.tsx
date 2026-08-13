@@ -26,8 +26,6 @@ import { useReportWorkStatusPresence } from './presenceContext';
 type Props = {
   sessionId: string | null;
   directory: string | null;
-  /** Rendered first inside the Session section; owns its own dialog. */
-  goalRow: React.ReactNode;
   showSession: boolean;
   showRepository: boolean;
 };
@@ -46,7 +44,7 @@ const formatPercent = (percent: number): string => `${Math.min(percent, 999).toF
  * the pull request look like. All of it stays true for as long as the session
  * is open, so it sits above anything episodic.
  */
-export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, goalRow, showSession, showRepository }) => {
+export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, showSession, showRepository }) => {
   const { t } = useI18n();
   const session = useSession(sessionId ?? '', directory ?? undefined);
   const { git } = useRuntimeAPIs();
@@ -204,7 +202,7 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
       : 'var(--status-success)';
 
   const cost = typeof session?.cost === 'number' && session.cost > 0 ? session.cost : null;
-  const hasSession = showSession && (usagePercent !== null || cost !== null || Boolean(goalRow));
+  const hasSession = showSession && (usagePercent !== null || cost !== null);
   const hasRepository = showRepository && Boolean(branch || changed || prSummary || attentionLabel);
 
   useReportWorkStatusPresence('session-repository', hasSession || hasRepository);
@@ -236,7 +234,6 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
           ) : null}
           {/* Below the context readout: the goal is a standing instruction,
               while context is the live number the reader came for. */}
-          {goalRow}
         </WorkStatusSection>
       ) : null}
 

@@ -28,8 +28,8 @@ describe('parseSlashCommand', () => {
     });
 
     test('a multi-line argument is preserved', () => {
-        expect(parseSlashCommand('/craft-goal line one\nline two'))
-            .toEqual({ name: 'craft-goal', argument: 'line one\nline two' });
+        expect(parseSlashCommand('/schedule-task line one\nline two'))
+            .toEqual({ name: 'schedule-task', argument: 'line one\nline two' });
     });
 
     test('ordinary prose is not a command', () => {
@@ -50,7 +50,7 @@ describe('findMagicPromptCommand', () => {
     });
 
     test('commands handled elsewhere are not prompt-pair commands', () => {
-        // undo/redo/timeline/compact/handoff-review manipulate state or open
+        // undo/redo/timeline/compact manipulate state or open
         // UI rather than sending a message.
         expect(findMagicPromptCommand('undo')).toBeNull();
         expect(findMagicPromptCommand('timeline')).toBeNull();
@@ -101,7 +101,7 @@ describe('buildCommandVariables', () => {
     });
 
     test('an idea is formatted as its own block', () => {
-        const variables = buildCommandVariables(findMagicPromptCommand('craft-goal')!, 'a CLI');
+        const variables = buildCommandVariables(findMagicPromptCommand('schedule-task')!, 'a CLI');
         expect(variables.visible.idea_block).toBe('\n\nHere is my initial idea:\na CLI');
     });
 

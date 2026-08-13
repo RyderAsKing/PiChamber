@@ -4,7 +4,6 @@ import { cn } from '@/lib/utils';
 import { ScrollShadow } from '@/components/ui/ScrollShadow';
 import { useUIStore } from '@/stores/useUIStore';
 import { WORK_STATUS_PANEL_WIDTH } from './useWorkStatusVisibility';
-import { WorkStatusGoalRow } from './WorkStatusGoalRow';
 import { WorkStatusPrimaryGroup } from './WorkStatusPrimaryGroup';
 import { WorkStatusUsageSection } from './WorkStatusUsageSection';
 import { WorkStatusSubagentsSection } from './WorkStatusSubagentsSection';
@@ -234,7 +233,6 @@ export const WorkStatusPanel: React.FC<Props> = ({ sessionId, directory, visible
           directory={directory}
           showSession={sectionVisible('session')}
           showRepository={sectionVisible('repository')}
-          goalRow={<WorkStatusGoalRow sessionId={sessionId} directory={directory} />}
         />
         {sectionVisible('usage') ? <WorkStatusUsageSection /> : null}
         {sectionVisible('subagents') ? <WorkStatusSubagentsSection sessionId={sessionId} directory={directory} /> : null}

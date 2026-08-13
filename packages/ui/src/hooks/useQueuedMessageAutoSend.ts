@@ -4,7 +4,6 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useContextStore } from '@/stores/contextStore';
-import { useAutoReviewStore } from '@/stores/useAutoReviewStore';
 import { parseAgentMentions } from '@/lib/messages/agentMentions';
 import { getDirectoryState } from '@/sync/sync-refs';
 import { useDirectorySync } from '@/sync/sync-context';
@@ -210,7 +209,6 @@ export const resolveQueuedSessionStatusType = (
 export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?: boolean }) {
   const enabled = typeof enabledOrOptions === 'boolean' ? enabledOrOptions : (enabledOrOptions?.enabled ?? true);
   const queuedMessages = useMessageQueueStore((state) => state.queuedMessages);
-  const autoReviewRuns = useAutoReviewStore((state) => state.runsByOriginalSessionID);
   const sessionStatusRecord = useDirectorySync((state) => state.session_status);
   // Message completion clears the in-flight fallback in
   // resolveQueuedSessionStatusType; subscribe so the queue drains the moment
@@ -221,7 +219,6 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
   const inFlightSessionsRef = React.useRef<Set<string>>(new Set());
   const sendFailuresRef = React.useRef<Map<string, QueuedAutoSendFailure>>(new Map());
   const previousStatusRef = React.useRef<Map<string, SessionStatusType>>(new Map());
-  const autoReviewBlockedSessionsRef = React.useRef<Set<string>>(new Set());
   const [retryTick, setRetryTick] = React.useState(0);
   const retryScheduler = React.useMemo(
     () => createQueuedAutoSendRetryScheduler(() => setRetryTick((value) => value + 1)),
@@ -249,11 +246,6 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
         retryScheduler.schedule(abortHoldUntil);
         return;
       }
-      if (useAutoReviewStore.getState().isRunningForSession(sessionId)) {
-        autoReviewBlockedSessionsRef.current.add(sessionId);
-        return;
-      }
-
       const currentStatus = resolveQueuedSessionStatusType(sessionId, target.directory);
       if (currentStatus !== 'idle') {
         return;
@@ -334,17 +326,10 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
       const { sessionId } = target;
       const currentStatusType = resolveQueuedSessionStatusType(sessionId, target.directory);
       const previousStatusType = previousStatusRef.current.get(sessionId);
-      const wasAutoReviewBlocked = autoReviewBlockedSessionsRef.current.has(sessionId);
-      const isAutoReviewRunning = useAutoReviewStore.getState().isRunningForSession(sessionId);
-      if (isAutoReviewRunning) {
-        autoReviewBlockedSessionsRef.current.add(sessionId);
-      } else if (wasAutoReviewBlocked) {
-        autoReviewBlockedSessionsRef.current.delete(sessionId);
-      }
+
 
       if (queue.length > 0 && (
         shouldDispatchQueuedAutoSend(previousStatusType, currentStatusType, queue.length > 0)
-        || (wasAutoReviewBlocked && !isAutoReviewRunning && currentStatusType === 'idle')
       )) {
         void dispatchSessionQueue(target, queue);
       }
@@ -353,5 +338,5 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
     });
 
     previousStatusRef.current = nextStatusMap;
-  }, [enabled, queuedMessages, sessionStatusRecord, sessionMessages, autoReviewRuns, currentDirectory, retryTick, retryScheduler]);
+  }, [enabled, queuedMessages, sessionStatusRecord, sessionMessages, currentDirectory, retryTick, retryScheduler]);
 }

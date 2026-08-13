@@ -7,7 +7,6 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { NumberInput } from '@/components/ui/number-input';
 import { Button } from '@/components/ui/button';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { toast } from '@/components/ui';
@@ -29,7 +28,6 @@ import { canonicalizeTimezone } from '@/lib/timezones';
 const WEEKDAY_INDEXES = [0, 1, 2, 3, 4, 5, 6] as const;
 
 // Mirrors the composer's footer icon toggles (PermissionAutoAcceptButton /
-// SessionGoalButton) so the state reads the same in both places.
 const EDITOR_TOGGLE_BUTTON_CLASS = 'flex h-6 w-6 cursor-pointer items-center justify-center text-foreground transition-none outline-none focus:outline-none flex-shrink-0';
 
 const TIMEZONE_OPTIONS = (() => {
@@ -474,8 +472,6 @@ type ScheduledTaskDraft = {
     modelID: string;
     variant: string;
     agent: string;
-    goalEnabled: boolean;
-    goalTokenBudget: number | null;
     permissionAutoAccept: boolean;
   };
   state?: ScheduledTask['state'];
@@ -526,8 +522,6 @@ const toDraft = (
         modelID: defaults.modelID,
         variant: defaults.variant,
         agent: defaults.agent,
-        goalEnabled: false,
-        goalTokenBudget: null,
         permissionAutoAccept: false,
       },
     };
@@ -562,10 +556,6 @@ const toDraft = (
       modelID: task.execution.modelID,
       variant: task.execution.variant || '',
       agent: task.execution.agent || '',
-      goalEnabled: task.execution.goalEnabled === true,
-      goalTokenBudget: typeof task.execution.goalTokenBudget === 'number' && task.execution.goalTokenBudget > 0
-        ? task.execution.goalTokenBudget
-        : null,
       permissionAutoAccept: task.execution.permissionAutoAccept === true,
     },
     state: task.state,
@@ -1173,10 +1163,6 @@ export function ScheduledTaskEditorDialog(props: {
         ...(draft.execution.variant.trim() ? { variant: draft.execution.variant.trim() } : {}),
         ...(draft.execution.agent.trim() ? { agent: draft.execution.agent.trim() } : {}),
         ...(draft.execution.permissionAutoAccept ? { permissionAutoAccept: true } : {}),
-        ...(draft.execution.goalEnabled ? { goalEnabled: true } : {}),
-        ...(draft.execution.goalEnabled && draft.execution.goalTokenBudget
-          ? { goalTokenBudget: draft.execution.goalTokenBudget }
-          : {}),
       },
       ...(draft.state ? { state: draft.state } : {}),
     };
@@ -1633,37 +1619,6 @@ export function ScheduledTaskEditorDialog(props: {
             </div>
           </div>
 
-          {draft.execution.goalEnabled ? (
-          <div className="flex flex-wrap items-center gap-x-8 gap-y-2">
-              <label className="inline-flex cursor-pointer items-center gap-2">
-                <Checkbox
-                  checked={draft.execution.goalTokenBudget !== null}
-                  onChange={(hasBudget) => setDraft((prev) => ({
-                    ...prev,
-                    execution: { ...prev.execution, goalTokenBudget: hasBudget ? 200_000 : null },
-                  }))}
-                  ariaLabel={t('sessions.scheduledTasks.editor.goal.budgetAria')}
-                />
-                <span className="typography-meta">{t('sessions.scheduledTasks.editor.goal.budgetLabel')}</span>
-              </label>
-            {draft.execution.goalTokenBudget !== null ? (
-              <NumberInput
-                value={draft.execution.goalTokenBudget}
-                onValueChange={(value) => {
-                  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-                    setDraft((prev) => ({
-                      ...prev,
-                      execution: { ...prev.execution, goalTokenBudget: Math.floor(value) },
-                    }));
-                  }
-                }}
-                min={1000}
-                max={100000000}
-                step={50000}
-              />
-            ) : null}
-          </div>
-          ) : null}
     </div>
   );
 
@@ -1699,27 +1654,6 @@ export function ScheduledTaskEditorDialog(props: {
             </button>
           </TooltipTrigger>
           <TooltipContent side="top" sideOffset={6}>{t('sessions.scheduledTasks.editor.permissionAutoAccept.label')}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className={cn(EDITOR_TOGGLE_BUTTON_CLASS, draft.execution.goalEnabled && 'text-[var(--status-info)]')}
-              onClick={() => setDraft((prev) => ({
-                ...prev,
-                execution: { ...prev.execution, goalEnabled: !prev.execution.goalEnabled },
-              }))}
-              aria-pressed={draft.execution.goalEnabled}
-              aria-label={t('sessions.scheduledTasks.editor.goal.aria')}
-            >
-              {draft.execution.goalEnabled ? (
-                <Icon name="target-fill" className="h-[18px] w-[18px] text-current" aria-hidden="true" />
-              ) : (
-                <Icon name="target" className="h-[18px] w-[18px] text-current" aria-hidden="true" />
-              )}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top" sideOffset={6}>{t('sessions.scheduledTasks.editor.goal.label')}</TooltipContent>
         </Tooltip>
         <Button type="button" variant="ghost" size="sm" onClick={() => onOpenChange(false)} disabled={saving}>
           {t('sessions.scheduledTasks.editor.actions.cancel')}

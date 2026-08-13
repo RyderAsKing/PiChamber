@@ -105,8 +105,6 @@ function parseArgs(argv = process.argv.slice(2)) {
     agent: undefined,
     variant: undefined,
     disabled: false,
-    goal: false,
-    goalTokenBudget: undefined,
     directory: undefined,
     role: undefined,
     last: false,
@@ -345,15 +343,6 @@ function parseArgs(argv = process.argv.slice(2)) {
       case 'disabled':
         options.disabled = true;
         break;
-      case 'goal':
-        options.goal = true;
-        break;
-      case 'goal-token-budget': {
-        const { value, nextIndex } = consumeValue(i, inlineValue);
-        i = nextIndex;
-        options.goalTokenBudget = value;
-        break;
-      }
       case 'config': {
         const { value, nextIndex } = consumeValue(i, inlineValue);
         i = nextIndex;

@@ -129,11 +129,6 @@ export type DesktopSettings = {
   defaultVariant?: string;
   defaultAgent?: string;
   smallModelUseDefault?: boolean;
-  sessionRecapEnabled?: boolean;
-  sessionSuggestionEnabled?: boolean;
-  sessionGoalEnabled?: boolean;
-  sessionGoalDefaultBudgetEnabled?: boolean;
-  sessionGoalDefaultBudget?: number;
   smallModelOverride?: string; // format: "provider/model"
   // The walkthrough needs structured output and a roomy context, which the
   // small model is often deliberately not chosen for. Unset means "use the
@@ -157,7 +152,6 @@ export type DesktopSettings = {
   inputSpellcheckEnabled?: boolean;
   showOpenCodeUpdateNotifications?: boolean;
   agentControlToolEnabled?: boolean;
-  optimizeSystemPrompt?: boolean;
   openCodeUpdateToastDismissedVersion?: string;
   showToolFileIcons?: boolean;
   codeBlockLineWrap?: boolean;
@@ -223,7 +217,6 @@ export type DesktopSettings = {
   draftStarters?: DraftStarterRef[];
   draftStartersVisible?: boolean;
   // One-time migration marker: Craft a Goal was offered in the starter row.
-  draftStartersCraftGoalAdded?: boolean;
   draftStartersScheduleTaskAdded?: boolean;
 };
 

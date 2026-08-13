@@ -58,8 +58,8 @@ Field mapping (model: `packages/ui/src/lib/scheduledTasksApi.ts`):
 | `timezone` | `schedule.timezone` (optional, IANA; defaults to the server zone) |
 | body | `execution.prompt` (required) |
 
-`thinking_level` and `goalEnabled`/`goalTokenBudget` are not part of the portable
-format (UI/JSON-only today); `daily`/`weekly`/`once` schedules remain UI/JSON-only.
+`thinking_level` is not part of the portable format (UI/JSON-only today);
+`daily`/`weekly`/`once` schedules remain UI/JSON-only.
 Runtime state (`lastRunAt`, `nextRunAt`, `lastStatus`, `lastError`, `lastSessionId`,
 `lastDurationMs`) is never written to the markdown file — it continues to live in
 the project config state store.
@@ -77,8 +77,8 @@ project write lock on every `syncProject` when the project path is known:
   schedule/execution/enabled are overwritten from the file while the task's
   `id` and runtime `state` are preserved (markdown wins on conflict).
 - **UI-only fields survive adoption.** Execution fields the file format does
-  not define (`goalEnabled`, `goalTokenBudget`, `permissionAutoAccept`,
-  `variant`) are preserved from the task when a loop adopts it; only fields the
+  not define (`permissionAutoAccept`, `variant`) are preserved from the task
+  when a loop adopts it; only fields the
   file defines are re-applied.
 - **Deletion.** A task carrying the `loopFile` marker whose loop file is no
   longer discovered (removed or renamed) is unscheduled (removed from the

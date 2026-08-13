@@ -110,13 +110,6 @@ const buildScheduledTask = (input) => {
   if (!name) throw new PiChamberControlError('name is required', 400);
   if (!prompt) throw new PiChamberControlError('prompt is required', 400);
   const model = parseModel(input.model);
-  const goalTokenBudget = input.goalTokenBudget;
-  if (goalTokenBudget !== undefined && input.goal !== true) {
-    throw new PiChamberControlError('goalTokenBudget requires goal', 400);
-  }
-  if (goalTokenBudget !== undefined && (!Number.isSafeInteger(goalTokenBudget) || goalTokenBudget < 1000 || goalTokenBudget > 100_000_000)) {
-    throw new PiChamberControlError('goalTokenBudget must be from 1000 to 100000000', 400);
-  }
   return {
     name,
     enabled: input.disabled !== true,
@@ -126,8 +119,6 @@ const buildScheduledTask = (input) => {
       ...model,
       ...(asNonEmptyString(input.agent) ? { agent: input.agent.trim() } : {}),
       ...(asNonEmptyString(input.variant) ? { variant: input.variant.trim() } : {}),
-      ...(input.goal === true ? { goalEnabled: true } : {}),
-      ...(goalTokenBudget !== undefined ? { goalTokenBudget } : {}),
     },
   };
 };
@@ -274,8 +265,6 @@ export const createPiChamberControlService = (dependencies) => {
       ...(asNonEmptyString(input.model) ? { model: input.model.trim() } : {}),
       ...(asNonEmptyString(input.agent) ? { agent: input.agent.trim() } : {}),
       ...(asNonEmptyString(input.variant) ? { variant: input.variant.trim() } : {}),
-      ...(input.goal === true ? { goal: true } : {}),
-      ...(input.goalTokenBudget !== undefined ? { goalTokenBudget: input.goalTokenBudget } : {}),
       ...(asNonEmptyString(input.worktree) ? { worktree: {
         name: input.worktree.trim(),
         ...(asNonEmptyString(input.branch) ? { branchName: input.branch.trim() } : {}),
