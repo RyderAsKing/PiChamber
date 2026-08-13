@@ -9,8 +9,6 @@ type AppearanceSlice = {
   showReasoningTraces: boolean;
   workStatusPanelEnabled: boolean;
   workStatusHiddenSections: string[];
-  sessionRecapEnabled: boolean;
-  sessionSuggestionEnabled: boolean;
   sessionGoalEnabled: boolean;
   sessionGoalDefaultBudgetEnabled: boolean;
   sessionGoalDefaultBudget: number;
@@ -64,8 +62,6 @@ export const startAppearanceAutoSave = (): void => {
     showReasoningTraces: useUIStore.getState().showReasoningTraces,
     workStatusPanelEnabled: useUIStore.getState().workStatusPanelEnabled,
     workStatusHiddenSections: useUIStore.getState().workStatusHiddenSections,
-    sessionRecapEnabled: useUIStore.getState().sessionRecapEnabled,
-    sessionSuggestionEnabled: useUIStore.getState().sessionSuggestionEnabled,
     sessionGoalEnabled: useUIStore.getState().sessionGoalEnabled,
     sessionGoalDefaultBudgetEnabled: useUIStore.getState().sessionGoalDefaultBudgetEnabled,
     sessionGoalDefaultBudget: useUIStore.getState().sessionGoalDefaultBudget,
@@ -106,8 +102,6 @@ export const startAppearanceAutoSave = (): void => {
       showReasoningTraces: state.showReasoningTraces,
       workStatusPanelEnabled: state.workStatusPanelEnabled,
       workStatusHiddenSections: state.workStatusHiddenSections,
-      sessionRecapEnabled: state.sessionRecapEnabled,
-      sessionSuggestionEnabled: state.sessionSuggestionEnabled,
       sessionGoalEnabled: state.sessionGoalEnabled,
       sessionGoalDefaultBudgetEnabled: state.sessionGoalDefaultBudgetEnabled,
       sessionGoalDefaultBudget: state.sessionGoalDefaultBudget,
@@ -155,12 +149,6 @@ export const startAppearanceAutoSave = (): void => {
     }
     if (current.showReasoningTraces !== previous.showReasoningTraces) {
       diff.showReasoningTraces = current.showReasoningTraces;
-    }
-    if (current.sessionRecapEnabled !== previous.sessionRecapEnabled) {
-      diff.sessionRecapEnabled = current.sessionRecapEnabled;
-    }
-    if (current.sessionSuggestionEnabled !== previous.sessionSuggestionEnabled) {
-      diff.sessionSuggestionEnabled = current.sessionSuggestionEnabled;
     }
     if (current.sessionGoalEnabled !== previous.sessionGoalEnabled) {
       diff.sessionGoalEnabled = current.sessionGoalEnabled;

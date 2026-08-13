@@ -528,8 +528,6 @@ const materializeAuthoritativeUiSettings = (settings: DesktopSettings): DesktopS
     showReasoningTraces: defaults.showReasoningTraces,
     workStatusPanelEnabled: defaults.workStatusPanelEnabled,
     workStatusHiddenSections: defaults.workStatusHiddenSections,
-    sessionRecapEnabled: defaults.sessionRecapEnabled,
-    sessionSuggestionEnabled: defaults.sessionSuggestionEnabled,
     sessionGoalEnabled: defaults.sessionGoalEnabled,
     sessionGoalDefaultBudgetEnabled: defaults.sessionGoalDefaultBudgetEnabled,
     sessionGoalDefaultBudget: defaults.sessionGoalDefaultBudget,
@@ -630,12 +628,6 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
   }
   if (typeof settings.showReasoningTraces === 'boolean' && settings.showReasoningTraces !== store.showReasoningTraces) {
     store.setShowReasoningTraces(settings.showReasoningTraces);
-  }
-  if (typeof settings.sessionRecapEnabled === 'boolean' && settings.sessionRecapEnabled !== store.sessionRecapEnabled) {
-    store.setSessionRecapEnabled(settings.sessionRecapEnabled);
-  }
-  if (typeof settings.sessionSuggestionEnabled === 'boolean' && settings.sessionSuggestionEnabled !== store.sessionSuggestionEnabled) {
-    store.setSessionSuggestionEnabled(settings.sessionSuggestionEnabled);
   }
   if (typeof settings.sessionGoalEnabled === 'boolean' && settings.sessionGoalEnabled !== store.sessionGoalEnabled) {
     store.setSessionGoalEnabled(settings.sessionGoalEnabled);
@@ -1099,12 +1091,6 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
   }
   if (typeof candidate.showReasoningTraces === 'boolean') {
     result.showReasoningTraces = candidate.showReasoningTraces;
-  }
-  if (typeof candidate.sessionRecapEnabled === 'boolean') {
-    result.sessionRecapEnabled = candidate.sessionRecapEnabled;
-  }
-  if (typeof candidate.sessionSuggestionEnabled === 'boolean') {
-    result.sessionSuggestionEnabled = candidate.sessionSuggestionEnabled;
   }
   if (typeof candidate.sessionGoalEnabled === 'boolean') {
     result.sessionGoalEnabled = candidate.sessionGoalEnabled;

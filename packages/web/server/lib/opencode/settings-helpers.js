@@ -302,12 +302,6 @@ export const createSettingsHelpers = (dependencies) => {
     if (typeof candidate.showReasoningTraces === 'boolean') {
       result.showReasoningTraces = candidate.showReasoningTraces;
     }
-    if (typeof candidate.sessionRecapEnabled === 'boolean') {
-      result.sessionRecapEnabled = candidate.sessionRecapEnabled;
-    }
-    if (typeof candidate.sessionSuggestionEnabled === 'boolean') {
-      result.sessionSuggestionEnabled = candidate.sessionSuggestionEnabled;
-    }
     if (typeof candidate.sessionGoalEnabled === 'boolean') {
       result.sessionGoalEnabled = candidate.sessionGoalEnabled;
     }

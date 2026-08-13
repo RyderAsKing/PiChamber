@@ -3,7 +3,7 @@
 Server-side control loop that keeps a session working toward a user-defined
 objective stored under `metadata.openchamber.goal`, with the small model as
 an independent progress auditor. Built on PiChamber's backend-driven
-architecture (session-assist is the structural template): the loop lives in
+architecture: the loop lives in
 the web server and survives UI disconnects.
 
 ## Goal payload (`metadata.openchamber.goal`)
@@ -72,8 +72,8 @@ before touching the filesystem). Rationale: metadata rides every
 
 ## Flow
 
-1. `createSessionGoalRuntime` subscribes to the global SSE hub (same pattern
-   as session-assist — it needs the envelope's `directory`).
+1. `createSessionGoalRuntime` subscribes to the global SSE hub and uses the
+   envelope's `directory` for its runtime calls.
 2. `session.status: idle` arms a 15s per-session timer; `busy`/`retry` clears
    it. A `session.updated` carrying a fresh active goal (`turnsUsed === 0` or
    `statusReason === 'resumed'`) arms a kickoff timer — 3s for fresh goals,

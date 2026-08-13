@@ -135,7 +135,6 @@ import { MobilePillComposer } from './composer/ui/MobilePillComposer';
 import { ComposerContextChips } from './composer/ui/ComposerContextChips';
 import { LinkedReferenceRow } from './composer/ui/LinkedReferenceRow';
 import { RevertedMessageDock } from './composer/ui/RevertedMessageDock';
-import { SessionSuggestionChip } from '@/components/chat/SessionSuggestionChip';
 import { SessionGoalRow } from '@/components/chat/SessionGoalRow';
 
 // Lazy like in ChatMessage: a static import would pull the @pierre/diffs and
@@ -2203,16 +2202,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const mobileTextareaFocused = mobileShell.focused;
 
 
-    const applyAssistSuggestion = React.useCallback((text: string) => {
-        setMessage(text);
-        if (isMobile && !mobileComposerExpanded) {
-            mobileShell.expand();
-        } else {
-            requestAnimationFrame(() => composerRef.current?.focus());
-        }
-    }, [isMobile, mobileComposerExpanded, mobileShell]);
-
-
     const handleMobileNewSession = React.useCallback(() => {
         if (newSessionDraftOpen) return;
         openNewSessionDraft(currentDirectory ? { directoryOverride: currentDirectory } : undefined);
@@ -2438,14 +2427,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         sessionId={currentSessionId}
                         directory={currentSessionDirectoryForSync ?? currentDirectory}
                         newSessionDraftOpen={newSessionDraftOpen}
-                        hasContent={Boolean(hasContent)}
                         canAbort={canAbort}
                         footerIconButtonClass={footerIconButtonClass}
                         iconSizeClass={iconSizeClass}
                         stopIconSizeClass={stopIconSizeClass}
                         theme={currentTheme}
                         onExpand={mobileShell.expand}
-                        onApplySuggestion={applyAssistSuggestion}
                         onNewSession={handleMobileNewSession}
                         onPickLocalFiles={handlePickLocalFiles}
                         onOpenIssuePicker={openIssuePicker}
@@ -2459,13 +2446,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 <SessionGoalRow
                     sessionId={currentSessionId}
                     directory={currentSessionDirectoryForSync ?? currentDirectory}
-                    className="mb-1.5"
-                />
-                <SessionSuggestionChip
-                    sessionId={currentSessionId}
-                    directory={currentSessionDirectoryForSync ?? currentDirectory}
-                    hidden={hasContent || newSessionDraftOpen}
-                    onApply={applyAssistSuggestion}
                     className="mb-1.5"
                 />
                 <div

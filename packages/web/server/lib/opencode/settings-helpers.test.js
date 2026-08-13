@@ -430,6 +430,12 @@ describe('settings helpers', () => {
       expect(helpers.sanitizeSettingsUpdate({ recentEfforts: { 'anthropic/claude-opus-4': [123, ''] } })).toEqual({});
     });
 
+    it('drops removed session assistance settings', () => {
+      const helpers = createTestHelpersWithRealSanitizers();
+
+      expect(helpers.sanitizeSettingsUpdate({ sessionRecapEnabled: true, sessionSuggestionEnabled: false })).toEqual({});
+    });
+
     it('survives a full settings.json payload containing all four previously-dropped fields (regression)', () => {
       const helpers = createTestHelpersWithRealSanitizers();
       const payload = {

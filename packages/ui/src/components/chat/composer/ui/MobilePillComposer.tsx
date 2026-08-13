@@ -14,7 +14,6 @@
 import { Icon } from '@/components/icon/Icon';
 import { StopIcon } from '@/components/icons/StopIcon';
 import { SessionGoalRow } from '@/components/chat/SessionGoalRow';
-import { SessionSuggestionChip } from '@/components/chat/SessionSuggestionChip';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { Theme } from '@/types/theme';
@@ -25,14 +24,12 @@ export interface MobilePillComposerProps {
     sessionId: string | null;
     directory?: string;
     newSessionDraftOpen: boolean;
-    hasContent: boolean;
     canAbort: boolean;
     footerIconButtonClass: string;
     iconSizeClass: string;
     stopIconSizeClass: string;
     theme: Theme;
     onExpand: () => void;
-    onApplySuggestion: (text: string) => void;
     onNewSession: () => void;
     onPickLocalFiles: () => void;
     onOpenIssuePicker: () => void;
@@ -49,14 +46,12 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
         sessionId: currentSessionId,
         directory,
         newSessionDraftOpen,
-        hasContent,
         canAbort,
         footerIconButtonClass,
         iconSizeClass,
         stopIconSizeClass,
         theme: currentTheme,
         onExpand,
-        onApplySuggestion,
         onNewSession,
         onPickLocalFiles,
         onOpenIssuePicker,
@@ -71,13 +66,6 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
         <SessionGoalRow
             sessionId={currentSessionId}
             directory={directory}
-            className="mb-1.5"
-        />
-        <SessionSuggestionChip
-            sessionId={currentSessionId}
-            directory={directory}
-            hidden={hasContent || newSessionDraftOpen}
-            onApply={onApplySuggestion}
             className="mb-1.5"
         />
         <div className="flex items-center gap-2">

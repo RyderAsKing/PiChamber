@@ -184,24 +184,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['streaming', 'sse', 'websocket'],
   },
   {
-    id: 'chat.session-recap',
-    page: 'chat',
-    titleKey: 'settings.pichamber.visual.field.sessionRecap',
-    keywords: ['recap', 'assist', 'small model', 'summary'],
-  },
-  {
-    id: 'chat.session-assistance',
-    page: 'chat',
-    titleKey: 'settings.pichamber.visual.section.sessionAssistance',
-    keywords: ['recap', 'suggestion', 'subagent'],
-  },
-  {
-    id: 'chat.session-suggestion',
-    page: 'chat',
-    titleKey: 'settings.pichamber.visual.field.sessionSuggestion',
-    keywords: ['suggestion', 'assist', 'small model', 'follow up'],
-  },
-  {
     id: 'chat.session-goal',
     page: 'chat',
     titleKey: 'settings.pichamber.visual.field.sessionGoal',

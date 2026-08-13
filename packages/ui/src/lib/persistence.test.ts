@@ -389,6 +389,19 @@ describe('updateDesktopSettings', () => {
     expect(useMessageQueueStore.getState().followUpBehavior).toBe('queue');
   });
 
+  test('drops removed session assistance settings from authoritative snapshots', async () => {
+    getWindow();
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://removed-settings.example', runtimeKey: 'removed-settings' });
+    registerSettingsApi(async () => ({}), async () => ({
+      settings: { sessionRecapEnabled: false, sessionSuggestionEnabled: false },
+      source: 'web',
+    }));
+
+    await syncDesktopSettings();
+
+    expect(JSON.parse(localStorage.getItem(getRuntimeSettingsMirrorStorageKey('removed-settings')) ?? '{}')).toEqual({});
+  });
+
   test('treats settings save responses as partial patches', async () => {
     getWindow();
     localStorage.setItem('selectedThemeId', 'existing-theme');

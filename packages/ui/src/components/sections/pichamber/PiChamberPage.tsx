@@ -180,7 +180,6 @@ const ChatSectionContent: React.FC = () => {
         <PiChamberVisualSettings
             visibleSettings={[
                 'sessionGoal',
-                'sessionAssist',
                 'chatRenderMode',
                 'activityRenderMode',
                 'userMessageRendering',
