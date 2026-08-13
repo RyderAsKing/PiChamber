@@ -1,6 +1,7 @@
 export type SessionMetadataRecord = Record<string, unknown>;
 
-export function getSessionMetadata(_session?: unknown): SessionMetadataRecord {
+export function getSessionMetadata(session?: unknown): SessionMetadataRecord {
+  void session;
   return {};
 }
 

@@ -20,6 +20,7 @@ export function resolveSessionDirectoryFromSources(sources: SessionDirectorySour
   return { directory, source: directory ? 'session' : undefined };
 }
 
-export function describeSessionDirectorySources(_sources?: SessionDirectorySources): string {
+export function describeSessionDirectorySources(sources?: SessionDirectorySources): string {
+  void sources;
   return '';
 }

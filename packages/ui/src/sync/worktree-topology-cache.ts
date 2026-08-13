@@ -1,5 +1,9 @@
-export function persistWorktreeTopology(_key?: string, _map?: Map<string, unknown>) {}
+export function persistWorktreeTopology(key?: string, map?: Map<string, unknown>) {
+  void key;
+  void map;
+}
 
-export function readPersistedWorktreeTopology(_key?: string) {
+export function readPersistedWorktreeTopology(key?: string) {
+  void key;
   return new Map();
 }

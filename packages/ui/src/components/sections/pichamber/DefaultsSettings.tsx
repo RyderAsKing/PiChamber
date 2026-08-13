@@ -340,7 +340,7 @@ export const DefaultsSettings: React.FC = () => {
                 {supportsVariants ? ` (${defaultVariant ?? t('settings.pichamber.defaults.option.defaultLowercase')})` : ''}
               </span>
             ) : (
-              <span className="text-foreground">{t('settings.pichamber.defaults.summaryOpenCodeDefault')}</span>
+              <span className="text-foreground">{t('settings.pichamber.defaults.option.default')}</span>
             )}
             {defaultAgent && (
               <>
