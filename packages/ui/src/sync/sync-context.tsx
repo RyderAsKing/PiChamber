@@ -5,6 +5,7 @@ import { piProjectedToRecords } from '@/lib/chat/pi-to-renderable';
 import type { Message, Part, PermissionRequest, QuestionRequest, Session, SessionStatus } from '@/lib/chat/types';
 import { projectSession } from '@/lib/pi/event-reducer';
 import { usePiSessionSnapshot, usePiSessionStore } from './pi-session-context';
+import { INITIAL_STATE, type State } from './types';
 
 const IDLE: SessionStatus = { type: 'idle' };
 const EMPTY_PERMISSIONS: PermissionRequest[] = [];
@@ -57,15 +58,16 @@ const mapPiSessions = (): Session[] =>
     time: { created: item.session.createdAt, updated: item.session.updatedAt },
   }));
 
+const buildPiDirectoryState = (): State => ({
+  ...INITIAL_STATE,
+  status: 'complete',
+  session: mapPiSessions(),
+  sessionTotal: getPiSessionStore().getState().sessions.length,
+});
+
 const piDirectoryChildStore = {
   subscribe: (listener: () => void) => getPiSessionStore().subscribe(listener),
-  getState: () => ({
-    session: mapPiSessions(),
-    message: {} as Record<string, Message[]>,
-    part: {} as Record<string, Part[]>,
-    permission: {} as Record<string, PermissionRequest[]>,
-    question: {} as Record<string, QuestionRequest[]>,
-  }),
+  getState: buildPiDirectoryState,
 };
 
 export function useDirectoryStore(_directory?: string, _options?: { bootstrap?: boolean }) {
@@ -73,13 +75,8 @@ export function useDirectoryStore(_directory?: string, _options?: { bootstrap?: 
 }
 
 export function useDirectorySync<T>(selector: (state: any) => T): T {
-  const state = usePiSessionSnapshot();
-  const sessions = state.sessions.map((item) => ({
-    id: item.session.id,
-    directory: item.session.directory,
-    title: item.session.title,
-  }));
-  return selector({ session: sessions, message: {}, part: {}, permission: {}, question: {} });
+  usePiSessionSnapshot();
+  return selector(buildPiDirectoryState());
 }
 
 export function useSessionMessages(sessionID: string, _directory?: string) {
