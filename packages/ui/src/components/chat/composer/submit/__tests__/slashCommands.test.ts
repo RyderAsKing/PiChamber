@@ -50,7 +50,7 @@ describe('findMagicPromptCommand', () => {
     });
 
     test('commands handled elsewhere are not prompt-pair commands', () => {
-        // undo/redo/timeline/compact/handoff-review manipulate state or open
+        // undo/redo/timeline/compact manipulate state or open
         // UI rather than sending a message.
         expect(findMagicPromptCommand('undo')).toBeNull();
         expect(findMagicPromptCommand('timeline')).toBeNull();

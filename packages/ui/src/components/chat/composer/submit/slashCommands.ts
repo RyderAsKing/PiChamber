@@ -9,7 +9,7 @@
  * commands are data.
  *
  * Commands that are not "send a prompt pair" (undo, redo, timeline, compact,
- * handoff-review) stay with the composer: they manipulate session state or
+ *) stay with the composer: they manipulate session state or
  * open UI rather than producing a message.
  */
 
@@ -67,13 +67,6 @@ export const MAGIC_PROMPT_COMMANDS: readonly MagicPromptCommand[] = [
         // Summarizing needs a conversation to summarize.
         requires: 'session',
         buildVariables: summaryVariables,
-    },
-    {
-        name: 'workspace-review',
-        visiblePrompt: 'session.review.visible',
-        instructionsPrompt: 'session.review.instructions',
-        errorToastKey: 'chat.chatInput.toast.reviewFailed',
-        requires: 'session-or-draft',
     },
     {
         name: 'plan-feature',
