@@ -1,0 +1,220 @@
+/* eslint-disable react-refresh/only-export-components, @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
+import { useMemo } from 'react';
+import { getPiSessionStore } from '@/apps/pi-session-store';
+import { piProjectedToRecords } from '@/lib/chat/pi-to-renderable';
+import type { Message, Part, PermissionRequest, QuestionRequest, Session, SessionStatus } from '@/lib/chat/types';
+import { projectSession } from '@/lib/pi/event-reducer';
+import { usePiSessionSnapshot, usePiSessionStore } from './pi-session-context';
+
+const IDLE: SessionStatus = { type: 'idle' };
+const EMPTY_PERMISSIONS: PermissionRequest[] = [];
+const EMPTY_QUESTIONS: QuestionRequest[] = [];
+
+export function useGlobalSessionStatus(_sessionId: string): SessionStatus | undefined {
+  return undefined;
+}
+export function useAllSessionStatuses(): Record<string, SessionStatus> {
+  return {};
+}
+export function useAllLiveSessions(): Session[] {
+  const state = usePiSessionSnapshot();
+  return state.sessions.map((item) => ({
+    id: item.session.id,
+    directory: item.session.directory,
+    title: item.session.title,
+    time: { created: item.session.createdAt, updated: item.session.updatedAt },
+  }));
+}
+export function setActiveSession(_directory: string, sessionId: string) {
+  void getPiSessionStore().select(sessionId);
+}
+export function setExternallyViewedSession(_directory: string, _sessionId: string, _viewed: boolean) {}
+export function applySessionStatusSnapshot() {}
+export function needsSnapshotAfterStatusPoll() { return false; }
+export function shouldTriggerStaleResync() { return false; }
+export const createEventRoutingIndex = () => ({});
+export function handleEvent() {}
+export function interruptedTurnToolParts() { return []; }
+
+export { SyncProvider, PiSessionProvider } from './pi-session-context';
+
+export function useSessionMessageLoader() {
+  return {
+    ensureSessionRenderable: async () => undefined,
+    loadMore: async () => undefined,
+  };
+}
+
+export function useSessionMessageLoadState(_sessionID: string, _directory?: string) {
+  return { loading: false, complete: true, error: null as string | null };
+}
+
+const mapPiSessions = (): Session[] =>
+  getPiSessionStore().getState().sessions.map((item) => ({
+    id: item.session.id,
+    directory: item.session.directory,
+    title: item.session.title,
+    time: { created: item.session.createdAt, updated: item.session.updatedAt },
+  }));
+
+const piDirectoryChildStore = {
+  subscribe: (listener: () => void) => getPiSessionStore().subscribe(listener),
+  getState: () => ({
+    session: mapPiSessions(),
+    message: {} as Record<string, Message[]>,
+    part: {} as Record<string, Part[]>,
+    permission: {} as Record<string, PermissionRequest[]>,
+    question: {} as Record<string, QuestionRequest[]>,
+  }),
+};
+
+export function useDirectoryStore(_directory?: string, _options?: { bootstrap?: boolean }) {
+  return piDirectoryChildStore;
+}
+
+export function useDirectorySync<T>(selector: (state: any) => T): T {
+  const state = usePiSessionSnapshot();
+  const sessions = state.sessions.map((item) => ({
+    id: item.session.id,
+    directory: item.session.directory,
+    title: item.session.title,
+  }));
+  return selector({ session: sessions, message: {}, part: {}, permission: {}, question: {} });
+}
+
+export function useSessionMessages(sessionID: string, _directory?: string) {
+  return useSessionMessageRecords(sessionID).map((record) => record.info);
+}
+
+export function useSessionMessagesResolved(_sessionID: string, _directory?: string): boolean {
+  return true;
+}
+
+export function useSessionParts(_messageID: string, _directory?: string): Part[] {
+  return [];
+}
+
+export function useSessionStatus(sessionID: string, _directory?: string): SessionStatus {
+  const state = usePiSessionSnapshot();
+  const session = state.reducer.bySession.get(sessionID);
+  if (!session) return IDLE;
+  if (session.lifecycle === 'busy' || session.lifecycle === 'retry') return { type: session.lifecycle };
+  if (session.lifecycle === 'interrupted') return { type: 'idle' };
+  return IDLE;
+}
+
+export function useSessionPermissions(_sessionID: string, _directory?: string): PermissionRequest[] {
+  return EMPTY_PERMISSIONS;
+}
+export function useSessionQuestions(_sessionID: string, _directory?: string): QuestionRequest[] {
+  return EMPTY_QUESTIONS;
+}
+export function useSessionQuestionCount() { return 0; }
+export function useSessions(): Session[] {
+  return useAllLiveSessions();
+}
+export function useScopedBlockingPermissions(): PermissionRequest[] {
+  return EMPTY_PERMISSIONS;
+}
+export function useScopedBlockingQuestions(): QuestionRequest[] {
+  return EMPTY_QUESTIONS;
+}
+export function useParentSession(): Session | null {
+  return null;
+}
+export function useSession(sessionID?: string | null): Session | undefined {
+  const state = usePiSessionSnapshot();
+  const item = state.sessions.find((entry) => entry.session.id === sessionID);
+  if (!item) return undefined;
+  return {
+    id: item.session.id,
+    directory: item.session.directory,
+    title: item.session.title,
+    time: { created: item.session.createdAt, updated: item.session.updatedAt },
+  };
+}
+export function useSessionDirectory(sessionID?: string | null): string | undefined {
+  const state = usePiSessionSnapshot();
+  return state.sessions.find((entry) => entry.session.id === sessionID)?.session.directory ?? state.directory ?? undefined;
+}
+export function useSyncSDK() {
+  return null;
+}
+export function useSyncDirectory(): string {
+  return usePiSessionSnapshot().directory ?? '';
+}
+const noopUnsubscribe = () => undefined;
+const piChildStoreManager = {
+  children: new Map<string, unknown>(),
+  getState: () => undefined,
+  setBootstrapDemand: (_owner?: string, _demand?: unknown) => undefined,
+  clearBootstrapDemand: (_owner?: string) => undefined,
+  subscribeBootstrap: (_notify: () => void) => noopUnsubscribe,
+  getBootstrapState: (_directory?: string) => 'ready' as const,
+  getBootstrapFailure: (_directory?: string) => undefined as string | undefined,
+  requestBootstrap: (_options?: unknown) => undefined,
+  ensureChild: (_directory?: string, _options?: unknown) => piDirectoryChildStore,
+};
+
+export function useChildStoreManager() {
+  return piChildStoreManager;
+}
+
+export type SessionTextMessage = { id: string; text: string };
+
+export function dropCachedSessionMessageRecordsSnapshots() {}
+export function buildSessionMessageRecordsSnapshot() { return []; }
+
+export function useSessionMessageCount(sessionID: string): number {
+  return useSessionMessageRecords(sessionID).length;
+}
+
+export function useSessionRenderable(_sessionID: string): boolean {
+  return true;
+}
+
+export function useSessionTextMessages(sessionID: string): SessionTextMessage[] {
+  return useSessionMessageRecords(sessionID).map((record) => ({
+    id: record.info.id,
+    text: record.parts.filter((part) => part.type === 'text').map((part) => part.text ?? '').join(''),
+  }));
+}
+
+export function useUserMessageHistory(sessionID: string): string[] {
+  return useSessionMessageRecords(sessionID)
+    .filter((record) => record.info.role === 'user')
+    .map((record) => record.parts.filter((part) => part.type === 'text').map((part) => part.text ?? '').join(''))
+    .filter(Boolean);
+}
+
+export function useSessionMessageRecords(sessionID: string, _directory?: string) {
+  const store = usePiSessionStore();
+  const state = usePiSessionSnapshot();
+  return useMemo(() => {
+    const session = state.reducer.bySession.get(sessionID);
+    return piProjectedToRecords(session ? projectSession(session) : store.selected()?.sessionId === sessionID ? store.selected() : null);
+  }, [sessionID, state.reducer, store]);
+}
+
+export function useEnsureSessionMessages(sessionID: string, _directory?: string, enabled = true) {
+  const store = usePiSessionStore();
+  if (enabled && sessionID && store.getState().selectedSessionId !== sessionID) {
+    void store.select(sessionID);
+  }
+}
+
+export function resyncBlockingRequestsForDirectory() {}
+export function getAllSyncSessionMap(): ReadonlyMap<string, Session> {
+  const map = new Map<string, Session>();
+  for (const item of getPiSessionStore().getState().sessions) {
+    map.set(item.session.id, {
+      id: item.session.id,
+      directory: item.session.directory,
+      title: item.session.title,
+      time: { created: item.session.createdAt, updated: item.session.updatedAt, ...(item.session.archived ? { archived: item.session.timeArchived } : {}) },
+    });
+  }
+  return map;
+}
+
+export type { Message, Part };

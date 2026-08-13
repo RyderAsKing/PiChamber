@@ -11,6 +11,7 @@ import { createClientPairingRuntime } from './lib/client-auth/pairing.js';
 import { createRemoteClientAuthRuntime } from './lib/client-auth/remote-clients.js';
 import { resolvePiChamberDataDir } from './lib/pichamber-data-dir.js';
 import { registerPiRuntimeRoutes } from './lib/pi/routes.js';
+import { registerWorkspaceIntegrations } from './lib/workspace/host.js';
 import { createPiSessionDaemonSupervisor } from './lib/pi/session-daemon/supervisor.js';
 import {
   getUnauthenticatedLanErrorMessage,
@@ -155,6 +156,7 @@ export async function startWebUiServer(options = {}) {
     getServerLabel: () => os.hostname() || 'PiChamber',
   });
   registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => piSessionDaemonRuntime });
+  registerWorkspaceIntegrations({ app, server, express, uiAuthController });
   registerStaticRoutes(app, { apiOnly });
 
   await listen(server, port, host);

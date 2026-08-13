@@ -18,7 +18,10 @@ This directory owns the Pi-native runtime boundary. It defines:
 - The model / provider helpers (`model-provider.ts`).
 
 The module uses native `Response` parsing through `runtimeFetch` so callers
-can distinguish failure from a successful empty result.
+can distinguish failure from a successful empty result. `MainLayout` is the
+mounted owner for web, desktop, mini-chat, and mobile chrome. Session truth
+lives in `PiSessionStore` via `PiSessionProvider`; chat leaves consume
+`pi-to-renderable` adapters rather than OpenCode SDK types.
 
 ## Public types vs. private runtime
 
@@ -65,11 +68,14 @@ reconnect begins.
 
 `packages/ui/src/apps/pi-session-store.ts` owns one active daemon project,
 including bootstrap, sequenced event reduction, reconnect hydration, and
-runtime-switch disposal. `PiApp.tsx` is mounted by the web, desktop, desktop mini-chat, and mobile app
-entries and uses only `PiService` for session flows.
-`PiResourceSettings.tsx` hosts the mounted Providers, Skills, Snippets,
-Behavior/`AGENTS.md`, and Magic Prompts surfaces, including the project-trust
-dialog. `?settings=` opens that surface directly.
+runtime-switch disposal. `App.tsx`, `MobileApp.tsx`, and `ElectronMiniChatApp.tsx`
+mount `PiSessionProvider` around `MainLayout` / the mobile shell / mini-chat.
+Chat, sidebar, and composer mutations go through `PiSessionStore` and `/api/pi/*`.
+Settings chrome is the restored OpenChamber hub limited to Pi-owned pages
+(Providers, Skills, Snippets, Behavior/`AGENTS.md`, Magic Prompts, appearance
+and other PiChamber pages). `PiResourceSettings.tsx` remains the page bodies
+for those resource surfaces. A failed daemon probe must show an error banner,
+never an empty idle session list.
 
 Native resource discovery is projected from Pi's resource loader without filesystem paths. Skills are browse-only; Pi prompt templates and applicable global/project instruction files are edited only through opaque daemon identifiers. Project-local resources remain hidden until the browser makes an explicit persisted Pi trust decision; extensions remain disabled by the daemon.
 

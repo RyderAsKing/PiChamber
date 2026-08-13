@@ -28,6 +28,13 @@ type Listener = () => void;
 const initial = (): PiSessionStoreState => ({ directory: null, sessions: [], selectedSessionId: null, reducer: createReducerState(), connection: 'loading', error: null, showArchived: false });
 const asError = (error: unknown) => error instanceof PiRequestError ? error : new PiRequestError('DAEMON_REQUEST_FAILED', error instanceof Error ? error.message : undefined);
 
+let sharedStore: PiSessionStore | null = null;
+
+export const getPiSessionStore = (): PiSessionStore => {
+  sharedStore ??= new PiSessionStore();
+  return sharedStore;
+};
+
 /** One active Pi project identity. Every async completion is generation- and runtime-guarded. */
 export class PiSessionStore {
   private state = initial();

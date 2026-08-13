@@ -3,7 +3,6 @@ import { describe, expect, test } from 'bun:test';
 import {
   CONTEXT_SURFACES,
   getVisibleContextRailSurfaces,
-  WALKTHROUGH_MIN_WIDTH,
 } from './registry';
 
 const baseOptions = {
@@ -14,24 +13,11 @@ const baseOptions = {
 } as const;
 
 describe('getVisibleContextRailSurfaces', () => {
-  test('hides the plan surface while plan mode is disabled', () => {
-    const surfaces = getVisibleContextRailSurfaces({ ...baseOptions, planModeEnabled: false });
+  test('never restores plan or walkthrough on the Pi shell', () => {
+    const surfaces = getVisibleContextRailSurfaces({ ...baseOptions, planModeEnabled: true, screenWidth: 2400 });
     expect(surfaces.some((surface) => surface.id === 'plan')).toBe(false);
+    expect(surfaces.some((surface) => surface.id === 'walkthrough')).toBe(false);
     expect(surfaces.some((surface) => surface.id === 'context')).toBe(true);
-  });
-
-  test('shows the plan surface while plan mode is enabled', () => {
-    const surfaces = getVisibleContextRailSurfaces({ ...baseOptions, planModeEnabled: true });
-    expect(surfaces.some((surface) => surface.id === 'plan')).toBe(true);
-  });
-
-  test('hides the walkthrough below the min width', () => {
-    expect(
-      getVisibleContextRailSurfaces({ ...baseOptions, screenWidth: WALKTHROUGH_MIN_WIDTH - 1 }).some((s) => s.id === 'walkthrough'),
-    ).toBe(false);
-    expect(
-      getVisibleContextRailSurfaces({ ...baseOptions, screenWidth: WALKTHROUGH_MIN_WIDTH }).some((s) => s.id === 'walkthrough'),
-    ).toBe(true);
   });
 
   test('hides content-driven surfaces until a matching tab exists', () => {

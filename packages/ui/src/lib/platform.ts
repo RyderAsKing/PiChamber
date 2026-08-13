@@ -38,3 +38,10 @@ export const getClientPlatform = (): ClientPlatform => {
   if (isDesktopShell()) return 'desktop';
   return 'web';
 };
+
+export const isWindowsArm64 = (): boolean => {
+  if (typeof navigator === 'undefined') return false;
+  const platform = navigator.platform || '';
+  const userAgent = navigator.userAgent || '';
+  return /Win/i.test(platform) && /ARM|aarch64/i.test(userAgent);
+};
