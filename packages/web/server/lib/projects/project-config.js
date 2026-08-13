@@ -213,13 +213,7 @@ const normalizeExecution = (value) => {
   const modelID = asNonEmptyString(value.modelID);
   const variant = asNonEmptyString(value.variant);
   const agent = asNonEmptyString(value.agent);
-  const goalEnabled = value.goalEnabled === true;
   const permissionAutoAccept = value.permissionAutoAccept === true;
-  const goalTokenBudget = typeof value.goalTokenBudget === 'number'
-    && Number.isFinite(value.goalTokenBudget)
-    && value.goalTokenBudget > 0
-    ? Math.floor(value.goalTokenBudget)
-    : undefined;
 
   if (!prompt) {
     throw new Error('execution.prompt is required');
@@ -237,8 +231,6 @@ const normalizeExecution = (value) => {
     modelID,
     ...(variant ? { variant } : {}),
     ...(agent ? { agent } : {}),
-    ...(goalEnabled ? { goalEnabled: true } : {}),
-    ...(goalEnabled && goalTokenBudget ? { goalTokenBudget } : {}),
     ...(permissionAutoAccept ? { permissionAutoAccept: true } : {}),
   };
 };
@@ -577,8 +569,8 @@ export const createProjectConfigRuntime = (deps) => {
    * - A loop whose name matches a JSON task (no `loopFile`) takes that task
    *   over: its schedule/execution/enabled are overwritten from the file while
    *   its id and runtime state are preserved (markdown wins on conflict).
-   *   Execution fields the file format does not define (goalEnabled,
-   *   goalTokenBudget, permissionAutoAccept, variant) are preserved.
+   *   Execution fields the file format does not define (permissionAutoAccept,
+   *   variant) are preserved.
    * - A task whose loopFile no longer matches any discovered loop file is
    *   unscheduled (removed). JSON-configured tasks (no loopFile) are never
    *   removed.

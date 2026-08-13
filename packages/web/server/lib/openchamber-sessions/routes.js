@@ -2,8 +2,7 @@ import express from 'express';
 import { createOpencodeClient } from '@opencode-ai/sdk/v2';
 import { createWorktree, getWorktreeBootstrapStatus } from '../git/index.js';
 import { expandSnippets } from '../opencode/snippets.js';
-import { expandCommandGoalObjective, parseScheduledCommandPrompt } from '../scheduled-tasks/runtime.js';
-import { buildGoalIntroText, createSessionGoal } from '../session-goal/create.js';
+import { parseScheduledCommandPrompt } from '../scheduled-tasks/runtime.js';
 import { PiChamberControlError, asControlError } from '../openchamber-control/error.js';
 
 const asNonEmptyString = (value) => {
@@ -34,29 +33,6 @@ const resolveRequestedModel = (payload) => {
 
 const FALLBACK_PROVIDER_ID = 'opencode';
 const FALLBACK_MODEL_ID = 'big-pickle';
-const MIN_GOAL_TOKEN_BUDGET = 1_000;
-const MAX_GOAL_TOKEN_BUDGET = 100_000_000;
-
-const resolveGoalInput = (payload, prompt) => {
-  const enabled = payload?.goal === true;
-  if (payload?.goalTokenBudget !== undefined && !enabled) {
-    return { ok: false, error: 'goalTokenBudget requires goal' };
-  }
-  if (enabled && !prompt) {
-    return { ok: false, error: 'prompt is required when goal is enabled' };
-  }
-  if (payload?.goalTokenBudget === undefined) {
-    return { ok: true, enabled, tokenBudget: null };
-  }
-  const tokenBudget = payload.goalTokenBudget;
-  if (!Number.isSafeInteger(tokenBudget)
-    || tokenBudget < MIN_GOAL_TOKEN_BUDGET
-    || tokenBudget > MAX_GOAL_TOKEN_BUDGET) {
-    return { ok: false, error: `goalTokenBudget must be an integer from ${MIN_GOAL_TOKEN_BUDGET} to ${MAX_GOAL_TOKEN_BUDGET}` };
-  }
-  return { ok: true, enabled, tokenBudget };
-};
-
 const isPrimaryAgentMode = (mode) => !mode || mode === 'primary' || mode === 'all';
 
 const providerModels = (provider) => {
@@ -356,7 +332,6 @@ export const createPiChamberSessionService = (dependencies) => {
     getOpenCodeAuthHeaders,
     waitForOpenCodeReady,
     emitSessionCreatedEvent,
-    createSessionGoal: createSessionGoalOverride,
   } = dependencies;
 
   // Last user message of an existing session, as a selection to reuse. Returns
@@ -431,7 +406,6 @@ export const createPiChamberSessionService = (dependencies) => {
     sessionID,
     directory,
     prompt,
-    goalInput,
     requestedModel,
     requestedAgent,
     requestedVariant,
@@ -482,65 +456,30 @@ export const createPiChamberSessionService = (dependencies) => {
       } catch {
       }
     }
-    if (goalInput.enabled) {
-      const commandObjective = resolvedCommand
-        ? expandCommandGoalObjective(resolvedCommand.template, resolvedCommand.arguments)
-        : null;
-      await (createSessionGoalOverride || createSessionGoal)({
+    if (resolvedCommand) {
+      await client.session.command({
+        sessionID,
+        directory,
+        command: resolvedCommand.command,
+        arguments: resolvedCommand.arguments,
+        ...(agent ? { agent } : {}),
+        model: `${model.providerID}/${model.modelID}`,
+        ...(variant ? { variant } : {}),
+      });
+    } else {
+      const baseline = await latestUserMessageID({ client, sessionID, directory });
+      await runPromptAsync({
         baseUrl,
         authHeaders,
         sessionID,
         directory,
-        objective: commandObjective ?? expandedPrompt,
-        tokenBudget: goalInput.tokenBudget,
-        providerID: model.providerID,
-        modelID: model.modelID,
-        onWarning: (message, error) => console.warn(`[PiChamberSessions] ${message}:`, error?.message || error),
-      });
-    }
-
-    const markGoalPartial = (error) => {
-      if (goalInput.enabled && error && typeof error === 'object') error.goalConfigured = true;
-      return error;
-    };
-
-    if (resolvedCommand) {
-      try {
-        await client.session.command({
-          sessionID,
-          directory,
-          command: resolvedCommand.command,
-          arguments: resolvedCommand.arguments,
+        payload: {
+          model,
           ...(agent ? { agent } : {}),
-          model: `${model.providerID}/${model.modelID}`,
           ...(variant ? { variant } : {}),
-        });
-      } catch (error) {
-        throw markGoalPartial(error);
-      }
-    } else {
-      const baseline = await latestUserMessageID({ client, sessionID, directory });
-      try {
-        await runPromptAsync({
-          baseUrl,
-          authHeaders,
-          sessionID,
-          directory,
-          payload: {
-            model,
-            ...(agent ? { agent } : {}),
-            ...(variant ? { variant } : {}),
-            parts: [
-              { type: 'text', text: expandedPrompt },
-              ...(goalInput.enabled
-                ? [{ type: 'text', text: buildGoalIntroText(goalInput.tokenBudget), synthetic: true }]
-                : []),
-            ],
-          },
-        });
-      } catch (error) {
-        throw markGoalPartial(error);
-      }
+          parts: [{ type: 'text', text: expandedPrompt }],
+        },
+      });
       const landed = await waitForPromptLanded({
         client,
         sessionID,
@@ -565,10 +504,6 @@ export const createPiChamberSessionService = (dependencies) => {
   const create = async (payload = {}) => {
     const title = asNonEmptyString(payload.title);
     const prompt = asNonEmptyString(payload.prompt);
-    const goalInput = resolveGoalInput(payload, prompt);
-    if (!goalInput.ok) {
-      throw new PiChamberControlError(goalInput.error, 400);
-    }
     const model = resolveRequestedModel(payload);
     const agent = asNonEmptyString(payload.agent);
     const variant = asNonEmptyString(payload.variant);
@@ -627,7 +562,6 @@ export const createPiChamberSessionService = (dependencies) => {
         sessionID,
         directory: sessionDirectory,
         prompt,
-        goalInput,
         requestedModel: model,
         requestedAgent: agent,
         requestedVariant: variant,
@@ -646,8 +580,6 @@ export const createPiChamberSessionService = (dependencies) => {
       promptDispatched: dispatch.promptDispatched,
       ...(dispatch.promptError ? { promptError: dispatch.promptError } : {}),
       dispatchedAsCommand: dispatch.dispatchedAsCommand,
-      ...(goalInput.enabled ? { goalEnabled: true } : {}),
-      ...(goalInput.tokenBudget ? { goalTokenBudget: goalInput.tokenBudget } : {}),
     };
 
     try {
@@ -662,8 +594,6 @@ export const createPiChamberSessionService = (dependencies) => {
         ...(prompt && dispatch.variant ? { variant: dispatch.variant } : {}),
         promptDispatched: dispatch.promptDispatched,
         dispatchedAsCommand: dispatch.dispatchedAsCommand,
-        ...(goalInput.enabled ? { goalEnabled: true } : {}),
-        ...(goalInput.tokenBudget ? { goalTokenBudget: goalInput.tokenBudget } : {}),
         createdAt: Date.now(),
       });
     } catch {
@@ -677,8 +607,6 @@ export const createPiChamberSessionService = (dependencies) => {
     const prompt = asNonEmptyString(payload.prompt);
     if (!sourceSessionID) throw new PiChamberControlError('sessionId is required', 400);
     if (!prompt) throw new PiChamberControlError('prompt is required', 400);
-    const goalInput = resolveGoalInput(payload, prompt);
-    if (!goalInput.ok) throw new PiChamberControlError(goalInput.error, 400);
     const requestedModel = resolveRequestedModel(payload);
 
     let targetSessionID = sourceSessionID;
@@ -730,7 +658,6 @@ export const createPiChamberSessionService = (dependencies) => {
         sessionID: targetSessionID,
         directory,
         prompt,
-        goalInput,
         requestedModel,
         requestedAgent: asNonEmptyString(payload.agent),
         requestedVariant: asNonEmptyString(payload.variant),
@@ -749,8 +676,6 @@ export const createPiChamberSessionService = (dependencies) => {
         promptDispatched: dispatch.promptDispatched,
         ...(dispatch.promptError ? { promptError: dispatch.promptError } : {}),
         dispatchedAsCommand: dispatch.dispatchedAsCommand,
-        ...(goalInput.enabled ? { goalEnabled: true } : {}),
-        ...(goalInput.tokenBudget ? { goalTokenBudget: goalInput.tokenBudget } : {}),
       };
 
       if (action === 'fork') {
@@ -765,8 +690,6 @@ export const createPiChamberSessionService = (dependencies) => {
             ...(dispatch.variant ? { variant: dispatch.variant } : {}),
             promptDispatched: dispatch.promptDispatched,
             dispatchedAsCommand: dispatch.dispatchedAsCommand,
-            ...(goalInput.enabled ? { goalEnabled: true } : {}),
-            ...(goalInput.tokenBudget ? { goalTokenBudget: goalInput.tokenBudget } : {}),
             createdAt: Date.now(),
           });
         } catch {
@@ -776,15 +699,14 @@ export const createPiChamberSessionService = (dependencies) => {
     } catch (error) {
       const statusCode = Number(error?.statusCode) || 500;
       const forkCreated = action === 'fork' && targetSessionID !== sourceSessionID;
-      const goalConfigured = error?.goalConfigured === true;
       throw new PiChamberControlError(
         error instanceof Error ? error.message : `Failed to ${action} session`,
         statusCode,
         {
-        ...(forkCreated || goalConfigured
+        ...(forkCreated
           ? {
             partial: true,
-            partialAction: forkCreated ? 'fork-created' : 'goal-configured',
+            partialAction: 'fork-created',
             sessionId: targetSessionID,
             directory,
           }

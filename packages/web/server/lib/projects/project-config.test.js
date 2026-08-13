@@ -454,8 +454,6 @@ describe('project-config loop reconciliation', () => {
           providerID: 'openai',
           modelID: 'gpt-4.1',
           variant: 'fast',
-          goalEnabled: true,
-          goalTokenBudget: 20000,
           permissionAutoAccept: true,
         },
       });
@@ -464,8 +462,6 @@ describe('project-config loop reconciliation', () => {
       const task = adopted.find((entry) => entry.id === created.task.id);
       expect(task.execution.prompt).toBe('Loop prompt for daily-digest');
       expect(task.execution.variant).toBe('fast');
-      expect(task.execution.goalEnabled).toBe(true);
-      expect(task.execution.goalTokenBudget).toBe(20000);
       expect(task.execution.permissionAutoAccept).toBe(true);
     } finally {
       await cleanup();

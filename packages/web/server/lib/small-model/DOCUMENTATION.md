@@ -106,8 +106,7 @@ other runtime API.
   - `[small-model:diagnostic]` logs record provider/model, input character
     counts, output budget, thinking toggle, HTTP/finish status, and
     content/reasoning lengths without logging prompts, response text, or
-    credentials. Goal audit parsing similarly emits
-    `[session-goal:diagnostic]` structural verdict metadata.
+    credentials.
 - `catalog.js` — models.dev catalog via the shared in-process cache
   (`../opencode/models-metadata.js`, also serving
   `/api/openchamber/models-metadata`).

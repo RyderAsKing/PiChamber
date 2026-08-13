@@ -73,7 +73,6 @@ import { createOpenCodeResolutionRuntime } from './lib/opencode/opencode-resolut
 import { createBootstrapRuntime } from './lib/opencode/bootstrap-runtime.js';
 import { createSessionRuntime } from './lib/opencode/session-runtime.js';
 import { createOpenCodeWatcherRuntime } from './lib/opencode/watcher.js';
-import { createSessionGoalRuntime } from './lib/session-goal/runtime.js';
 import { createContextObligatoryRuntime } from './lib/context-obligatory/runtime.js';
 import { createScheduledTasksRuntime } from './lib/scheduled-tasks/runtime.js';
 import { createServerStartupRuntime } from './lib/opencode/server-startup-runtime.js';
@@ -726,45 +725,6 @@ const maybeSendPushForTrigger = (...args) => notificationTriggerRuntime.maybeSen
 const setAutoAcceptSession = (sessionId, enabled) => permissionAutoAcceptRuntime.setSessionPolicy(sessionId, enabled);
 clearPendingPushBadge = () => notificationTriggerRuntime.clearPendingPushBadge();
 
-const sessionGoalRuntime = createSessionGoalRuntime({
-  buildOpenCodeUrl,
-  getOpenCodeAuthHeaders,
-  getSmallModelService: async () => import('./lib/small-model/index.js'),
-  emitGoalNotification: async ({ sessionId, directory, status, goal }) => {
-    // The goal settle notification replaces the per-turn ready notifications
-    // (suppressed while the goal is active) — so it obeys the same toggle.
-    const settings = await readSettingsFromDisk();
-    if (settings.notifyOnCompletion === false) {
-      return;
-    }
-    const title = status === 'complete'
-      ? 'Goal complete'
-      : (status === 'budgetLimited' ? 'Goal reached its token budget' : 'Goal blocked');
-    const detail = goal?.statusReason && goal.statusReason !== 'verified by audit' && goal.statusReason !== 'reported by agent'
-      ? goal.statusReason
-      : (goal?.note || '');
-    const objective = typeof goal?.objective === 'string' ? goal.objective.slice(0, 140) : '';
-    const notificationPayload = {
-      title,
-      body: [objective, detail].filter(Boolean).join(' — ').slice(0, 240),
-      tag: `goal-${sessionId}`,
-      kind: 'goal',
-      sessionId,
-      directory,
-    };
-    const desktopNotificationDelivered = emitDesktopNotification(notificationPayload);
-    broadcastUiNotification(notificationPayload, { desktopNotificationDelivered });
-    void notificationTriggerRuntime.sendGoalSettlePush({
-      sessionId,
-      directory,
-      status,
-      title,
-      body: notificationPayload.body,
-    }).catch((error) => {
-      console.warn('[session-goal] push fanout failed:', error?.message || error);
-    });
-  },
-});
 const contextObligatoryRuntime = createContextObligatoryRuntime({
   buildOpenCodeUrl,
   getOpenCodeAuthHeaders,
@@ -809,7 +769,6 @@ globalMessageStreamHub.subscribeEvent((event) => {
   const directory = typeof event?.directory === 'string' && event.directory && event.directory !== 'global'
     ? event.directory
     : '';
-  sessionGoalRuntime.processPayload(payload, directory);
   contextObligatoryRuntime.processPayload(payload, directory);
 });
 
@@ -1211,7 +1170,6 @@ const gracefulShutdownRuntime = createGracefulShutdownRuntime({
   },
   syncToHmrState,
   openCodeWatcherRuntime,
-  sessionGoalRuntime,
   contextObligatoryRuntime,
   sessionRuntime,
   getHealthCheckInterval: () => healthCheckInterval,
