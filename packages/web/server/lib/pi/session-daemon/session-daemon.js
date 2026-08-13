@@ -940,15 +940,28 @@ export function createSessionDaemon({
   };
 
   const deleteSession = async (sessionId) => {
-    const target = await findPersistedSession(sessionId);
     const activeRuntime = await ensureRuntime();
-    if (activeRuntime.session?.sessionId === sessionId) {
+    const wasActive = activeRuntime.session?.sessionId === sessionId;
+    if (wasActive) {
       if (activeRuntime.session.isStreaming) await activeRuntime.session.abort();
       const replacement = await activeRuntime.newSession?.();
       if (!replacement || replacement.cancelled) throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled replacement session creation.');
       rememberRuntimeSession();
     }
-    await rm(target.path, { force: false });
+    // Pi persists a newly-created active session during the transition to its
+    // replacement. Resolve its JSONL path only after that transition so a
+    // create-then-delete operation cannot report a session that listing sees
+    // but deletion cannot yet locate.
+    try {
+      const target = await findPersistedSession(sessionId);
+      await rm(target.path, { force: false });
+    } catch (error) {
+      // An empty Pi session can be visible while it is active but not yet have
+      // a JSONL file. Replacing that active session already removes its only
+      // live representation, so deleting it is complete rather than a false
+      // INVALID_SESSION failure.
+      if (!wasActive || error?.code !== 'INVALID_SESSION') throw error;
+    }
     publish('session.lifecycle', { state: 'idle', deleted: true }, sessionId);
   };
 

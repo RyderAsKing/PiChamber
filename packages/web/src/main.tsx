@@ -3,10 +3,6 @@ import { registerSW } from 'virtual:pwa-register';
 
 import type { RuntimeAPIs } from '@pichamber/ui/lib/api/types';
 import { resolveHostedSurface, type HostedSurface } from '@pichamber/ui/lib/runtimeSurface';
-import {
-  isEmbeddedSessionChat,
-  requestEmbeddedSessionRuntimeBootstrap,
-} from '@pichamber/ui/components/layout/contextPanelEmbeddedChat';
 import '@pichamber/ui/index.css';
 import '@pichamber/ui/styles/fonts';
 
@@ -85,14 +81,11 @@ const unregisterDevelopmentServiceWorkers = (): void => {
 };
 
 const start = async (): Promise<void> => {
-  const embeddedBootstrap = isEmbeddedSessionChat()
-    ? await requestEmbeddedSessionRuntimeBootstrap()
-    : null;
-  window.__OPENCHAMBER_RUNTIME_APIS__ = createConfiguredWebAPIs(embeddedBootstrap);
+  window.__OPENCHAMBER_RUNTIME_APIS__ = createConfiguredWebAPIs();
 
   if (hostedSurface === 'mobile') {
     const { renderMobileApp } = await import('@pichamber/ui/apps/renderMobileApp');
-    renderMobileApp(window.__OPENCHAMBER_RUNTIME_APIS__);
+    renderMobileApp();
     return;
   }
 

@@ -17,13 +17,11 @@ vi.mock('@pichamber/ui/lib/runtime-switch', () => ({
 }));
 vi.mock('@pichamber/ui/lib/desktopRelayRestore', () => ({ restoreDesktopRelayRuntime: vi.fn(() => Promise.resolve()) }));
 vi.mock('@pichamber/ui/lib/runtime-url', () => ({ configureRuntimeUrlResolver: vi.fn(() => ({})) }));
-vi.mock('@pichamber/ui/lib/opencode/client', () => ({ opencodeClient: { reconnectToRuntimeBaseUrl: vi.fn() } }));
 vi.mock('./api', () => ({ createWebAPIs: vi.fn() }));
 
 import { setRuntimeBearerToken, setRuntimeExtraHeaders } from '@pichamber/ui/lib/runtime-auth';
 import { initializeRuntimeEndpoint, switchRuntimeEndpoint } from '@pichamber/ui/lib/runtime-switch';
 import { restoreDesktopRelayRuntime } from '@pichamber/ui/lib/desktopRelayRestore';
-import { opencodeClient } from '@pichamber/ui/lib/opencode/client';
 import { createConfiguredWebAPIs, readRuntimeBootstrapConfig } from './runtimeConfig';
 
 const originalWindow = globalThis.window;
@@ -113,7 +111,6 @@ describe('createConfiguredWebAPIs', () => {
     expect(setRuntimeBearerToken).toHaveBeenCalledWith(bootstrap.clientToken);
     expect(setRuntimeExtraHeaders).toHaveBeenCalledWith(bootstrap.runtimeHeaders);
     expect(restoreDesktopRelayRuntime).toHaveBeenCalledWith(bootstrap.relayHostId);
-    expect(opencodeClient.reconnectToRuntimeBaseUrl).toHaveBeenCalled();
   });
 
   test('activates an embedded relay without relying on Electron preload IPC', () => {
@@ -140,6 +137,5 @@ describe('createConfiguredWebAPIs', () => {
       relay,
     });
     expect(restoreDesktopRelayRuntime).not.toHaveBeenCalled();
-    expect(opencodeClient.reconnectToRuntimeBaseUrl).toHaveBeenCalled();
   });
 });

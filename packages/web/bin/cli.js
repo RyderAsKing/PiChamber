@@ -31,7 +31,6 @@ import {
   findClosestMatch,
 } from './lib/cli-args.js';
 import { readDesktopLocalPortFromSettings } from './lib/cli-paths.js';
-import { resolveExplicitBinary, searchPathFor } from './lib/cli-executables.js';
 import { startupCommand } from './lib/commands-startup.js';
 import { logsCommand } from './lib/commands-logs.js';
 import { statusCommand } from './lib/commands-status.js';
@@ -141,33 +140,6 @@ function getPreferredServerRuntime() {
   return isBunInstalled() ? 'bun' : 'node';
 }
 
-async function checkOpenCodeCLI(onNotice) {
-  if (process.env.OPENCODE_BINARY) {
-    const override = resolveExplicitBinary(process.env.OPENCODE_BINARY);
-    if (override) {
-      process.env.OPENCODE_BINARY = override;
-      return override;
-    }
-    const message = `OPENCODE_BINARY="${process.env.OPENCODE_BINARY}" is not an executable file. Falling back to PATH lookup.`;
-    if (typeof onNotice === 'function') {
-      onNotice({ level: 'warning', code: 'OPENCODE_BINARY_INVALID', message });
-    } else {
-      console.warn(`Warning: ${message}`);
-    }
-  }
-
-  const resolvedFromPath = searchPathFor('opencode');
-  if (resolvedFromPath) {
-    process.env.OPENCODE_BINARY = resolvedFromPath;
-    return resolvedFromPath;
-  }
-
-  throw new Error(
-    `Unable to locate the opencode CLI on PATH (${process.env.PATH || '<empty>'}). ` +
-    'Ensure the CLI is installed and reachable, or set OPENCODE_BINARY to its full path.'
-  );
-}
-
 const commands = {
   serve: null,
 
@@ -189,7 +161,6 @@ const commands = {
 commands.serve = createServeCommand({
   serverPath: path.join(__dirname, '..', 'server', 'index.js'),
   bunBin: BUN_BIN,
-  checkOpenCodeCLI,
   getPreferredServerRuntime,
   setForegroundServerActive(value) { foregroundServerActive = value; },
   setForegroundShutdown(handler) { foregroundShutdown = handler; },

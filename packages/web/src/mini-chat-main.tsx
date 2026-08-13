@@ -13,5 +13,5 @@ window.__OPENCHAMBER_RUNTIME_APIS__ = createConfiguredWebAPIs();
 
 void import('@pichamber/ui/apps/renderElectronMiniChatApp')
   .then(({ renderElectronMiniChatApp }) => {
-    renderElectronMiniChatApp(window.__OPENCHAMBER_RUNTIME_APIS__ ?? createConfiguredWebAPIs());
+    renderElectronMiniChatApp();
   });

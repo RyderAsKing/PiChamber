@@ -1,8 +1,5 @@
 import React from 'react';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
-import { Icon } from '@/components/icon/Icon';
-import { useI18n } from '@/lib/i18n';
-import { getSettingsSaveState, subscribeToSettingsSaveState } from '@/lib/persistence';
 import { cn } from '@/lib/utils';
 import {
   SETTINGS_DESCRIPTION_CLASS,
@@ -97,61 +94,11 @@ export const SettingsPageLayout: React.FC<SettingsPageLayoutProps> = ({
             </div>
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
               {headerEnd}
-              {showSaveStatus && <SettingsSaveStatus />}
             </div>
           </div>
         )}
         {children}
       </div>
     </ScrollableOverlay>
-  );
-};
-
-// Only saves slower than this surface a "Saving…" spinner — local writes
-// finish instantly and stay silent; remote/mobile connections get feedback.
-const SAVE_SPINNER_DELAY_MS = 500;
-
-const SettingsSaveStatus: React.FC = () => {
-  const { t } = useI18n();
-  const status = React.useSyncExternalStore(
-    subscribeToSettingsSaveState,
-    getSettingsSaveState,
-    getSettingsSaveState,
-  );
-  const [showSaving, setShowSaving] = React.useState(false);
-
-  React.useEffect(() => {
-    if (status !== 'saving') {
-      setShowSaving(false);
-      return;
-    }
-    const timer = setTimeout(() => setShowSaving(true), SAVE_SPINNER_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [status]);
-
-  if (status === 'error') {
-    return (
-      <div
-        aria-live="assertive"
-        className="flex shrink-0 items-center gap-1.5 typography-meta text-[var(--status-error)]"
-      >
-        <Icon name="error-warning" className="size-3.5" />
-        <span>{t('settings.common.status.saveFailed')}</span>
-      </div>
-    );
-  }
-
-  if (status !== 'saving' || !showSaving) {
-    return null;
-  }
-
-  return (
-    <div
-      aria-live="polite"
-      className="flex shrink-0 items-center gap-1.5 typography-meta text-muted-foreground"
-    >
-      <Icon name="loader-4" className="size-3.5 animate-spin" />
-      <span>{t('settings.common.actions.saving')}</span>
-    </div>
   );
 };

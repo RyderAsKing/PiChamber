@@ -5,8 +5,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui';
 import { invokeDesktop, isDesktopShell } from '@/lib/desktop';
-import { syncDesktopSettings, initializeAppearancePreferences } from '@/lib/persistence';
-import { applyPersistedDirectoryPreferences } from '@/lib/directoryPersistence';
 import { DesktopHostSwitcherInline } from '@/components/desktop/DesktopHostSwitcher';
 import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
 import { Icon } from "@/components/icon/Icon";
@@ -564,16 +562,8 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
   }, [state]);
 
   React.useEffect(() => {
-    if (skipAuth) {
-      return;
-    }
-    if (state === 'authenticated' && !hasResyncedRef.current) {
+    if (!skipAuth && state === 'authenticated') {
       hasResyncedRef.current = true;
-      void (async () => {
-        await initializeAppearancePreferences();
-        await syncDesktopSettings();
-        await applyPersistedDirectoryPreferences();
-      })();
     }
   }, [skipAuth, state]);
 

@@ -70,7 +70,16 @@ export const PiApp = () => {
   const [settingsPage, setSettingsPage] = React.useState<PiResourceSettingsPage | null>(() => (
     typeof window === 'undefined' ? null : parsePiResourceSettingsPage(new URLSearchParams(window.location.search).get('settings'))
   ));
-  React.useEffect(() => { void store.start(); return store.dispose; }, [store]);
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const directory = params.get('directory');
+    const sessionId = params.get('sessionId');
+    void store.start({
+      ...(directory ? { directory } : {}),
+      ...(sessionId ? { sessionId } : {}),
+    });
+    return store.dispose;
+  }, [store]);
   if (settingsPage) {
     return <PiResourceSettings page={settingsPage} onPageChange={setSettingsPage} onClose={() => setSettingsPage(null)} />;
   }

@@ -6,7 +6,6 @@ import { DEFAULT_PORT } from './cli-args.js';
 import { EXIT_CODE, TunnelCliError } from './cli-errors.js';
 import { getDataDir } from './cli-paths.js';
 import { hasUiPasswordConfigured } from './cli-network.js';
-import { searchPathFor } from './cli-executables.js';
 
 const STARTUP_SERVICE_ID = 'dev.openchamber.web';
 
@@ -81,12 +80,6 @@ function collectStartupEnv(options = {}) {
       .map(([key, value]) => [key, String(value)])
   );
 
-  if (options.envSnapshot !== false) {
-    const opencodeBinary = process.env.OPENCODE_BINARY || searchPathFor('opencode');
-    if (typeof opencodeBinary === 'string' && opencodeBinary.trim().length > 0) {
-      env.OPENCODE_BINARY = opencodeBinary.trim();
-    }
-  }
   const uiPassword = hasUiPasswordConfigured(options.uiPassword) ? options.uiPassword : undefined;
   if (uiPassword) {
     env.OPENCHAMBER_UI_PASSWORD = uiPassword;
