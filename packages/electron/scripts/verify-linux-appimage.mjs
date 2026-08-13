@@ -64,22 +64,7 @@ const collectFiles = (root, predicate) => {
   return matches;
 };
 
-const defaultCliVersion = (binaryPath) => {
-  const result = spawnSync(binaryPath, ['--version'], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 15000,
-  });
-  if (result.status !== 0) throw new Error(`Failed to run packaged OpenCode CLI: ${binaryPath}`);
-  return (result.stdout || '').trim().split(/\s+/)[0] || '';
-};
-
-export const verifyExtractedPayload = ({
-  root,
-  targetArchitecture,
-  expectedOpenCodeVersion,
-  runCliVersion = defaultCliVersion,
-}) => {
+export const verifyExtractedPayload = ({ root, targetArchitecture }) => {
   const desktopPath = path.join(root, 'pichamber.desktop');
   if (!fs.existsSync(desktopPath)) throw new Error(`Missing desktop entry: ${desktopPath}`);
   const desktop = fs.readFileSync(desktopPath, 'utf8');
@@ -87,30 +72,19 @@ export const verifyExtractedPayload = ({
     if (!desktop.split(/\r?\n/).includes(entry)) throw new Error(`Desktop identity mismatch: missing ${entry}`);
   }
   if (!/^Exec=AppRun(?:\s|$)/m.test(desktop)) throw new Error('Desktop identity mismatch: expected AppImage AppRun entrypoint');
-
   assertElfArchitecture(path.join(root, 'openchamber'), targetArchitecture, 'Electron executable');
-  const cliPath = path.join(root, 'resources', 'opencode-cli', 'opencode');
-  assertElfArchitecture(cliPath, targetArchitecture, 'OpenCode CLI');
-  const actualVersion = runCliVersion(cliPath);
-  if (actualVersion !== expectedOpenCodeVersion) {
-    throw new Error(`OpenCode CLI version mismatch: expected ${expectedOpenCodeVersion}, got ${actualVersion || '(empty)'}`);
-  }
-
   const unpackedModules = path.join(root, 'resources', 'app.asar.unpacked', 'node_modules');
   if (!fs.existsSync(unpackedModules)) throw new Error(`Missing unpacked native modules: ${unpackedModules}`);
   const nativeModules = collectFiles(unpackedModules, (name, fullPath) => {
     if (!name.endsWith('.node')) return false;
     const normalizedPath = fullPath.split(path.sep).join('/');
-    if (!normalizedPath.includes('/prebuilds/')) return true;
-    return normalizedPath.includes(`/prebuilds/linux-${targetArchitecture}/`);
+    return !normalizedPath.includes('/prebuilds/') || normalizedPath.includes(`/prebuilds/linux-${targetArchitecture}/`);
   });
   for (const requiredName of REQUIRED_NATIVE_MODULES) {
-    if (!nativeModules.some((modulePath) => path.basename(modulePath) === requiredName)) {
-      throw new Error(`Missing packaged native module: ${requiredName}`);
-    }
+    if (!nativeModules.some((modulePath) => path.basename(modulePath) === requiredName)) throw new Error(`Missing packaged native module: ${requiredName}`);
   }
   for (const modulePath of nativeModules) assertElfArchitecture(modulePath, targetArchitecture, 'Native module');
-  return { nativeModuleCount: nativeModules.length, openCodeVersion: actualVersion };
+  return { nativeModuleCount: nativeModules.length };
 };
 
 const findAppImage = (version, architecture) => {
@@ -145,10 +119,9 @@ const main = () => {
     const result = verifyExtractedPayload({
       root: extractAppImage(appImagePath, temporaryDirectory),
       targetArchitecture: target,
-      expectedOpenCodeVersion: rootPackage.dependencies?.['@opencode-ai/sdk'],
     });
     console.log(`[electron] verified Linux ${target} AppImage: ${appImagePath}`);
-    console.log(`[electron] verified OpenCode CLI ${result.openCodeVersion} and ${result.nativeModuleCount} native modules`);
+    console.log(`[electron] verified ${result.nativeModuleCount} native modules`);
   } finally {
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });
   }

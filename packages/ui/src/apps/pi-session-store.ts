@@ -44,16 +44,19 @@ export class PiSessionStore {
   clearError = () => { if (this.state.error) { this.state = { ...this.state, error: null }; this.emit(); } };
   reportError = (error: unknown) => { this.state = { ...this.state, error: asError(error), connection: 'error' }; this.emit(); };
 
-  async start(): Promise<void> {
+  async start(options: { directory?: string | null; sessionId?: PiSessionId | null } = {}): Promise<void> {
     try {
       const projects = await piClient.listProjects({ runtimeKey: getRuntimeKey() });
-      const directory = projects.projects.find((project) => project.selected)?.directory ?? projects.projects[0]?.directory;
+      const requestedDirectory = typeof options.directory === 'string' ? options.directory : null;
+      const directory = projects.projects.some((project) => project.directory === requestedDirectory)
+        ? requestedDirectory
+        : projects.projects.find((project) => project.selected)?.directory ?? projects.projects[0]?.directory;
       if (!directory) throw new PiRequestError('DAEMON_UNAVAILABLE');
-      await this.open(directory);
+      await this.open(directory, options.sessionId);
     } catch (error) { this.reportError(error); }
   }
 
-  async open(directory: string): Promise<void> {
+  async open(directory: string, preferredSessionId?: PiSessionId | null): Promise<void> {
     const expected = ++this.generation;
     this.stream?.dispose(); this.stream = null;
     this.state = { ...initial(), directory, connection: 'loading' }; this.emit();
@@ -64,7 +67,10 @@ export class PiSessionStore {
       if (health.state !== 'ready') throw new PiRequestError(health.error?.code ?? 'DAEMON_UNAVAILABLE', health.error?.message);
       const result = await piClient.listSessions(scope);
       if (expected !== this.generation) return;
-      const selectedSessionId = result.sessions.find((item) => !item.session.archived)?.session.id ?? result.sessions[0]?.session.id ?? null;
+      const selectedSessionId = result.sessions.find((item) => item.session.id === preferredSessionId)?.session.id
+        ?? result.sessions.find((item) => !item.session.archived)?.session.id
+        ?? result.sessions[0]?.session.id
+        ?? null;
       this.state = { ...this.state, sessions: result.sessions, selectedSessionId, connection: 'ready' }; this.emit();
       if (selectedSessionId) await this.hydrate(selectedSessionId, expected);
     } catch (error) { if (expected === this.generation) this.reportError(error); }

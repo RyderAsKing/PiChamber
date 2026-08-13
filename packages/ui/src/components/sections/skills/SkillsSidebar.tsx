@@ -2,7 +2,6 @@ import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
-import { SettingsProjectSelector } from '@/components/sections/shared/SettingsProjectSelector';
 import { SETTINGS_PANEL_TITLE_CLASS } from '@/components/sections/shared/SettingsSection';
 import { useI18n } from '@/lib/i18n';
 import { useSkillsStore } from '@/stores/useSkillsStore';
@@ -24,7 +23,6 @@ export const SkillsSidebar: React.FC<SkillsSidebarProps> = ({ onItemSelect }) =>
     <div className="flex h-full flex-col bg-background">
       <div className="border-b px-3 pb-3 pt-4">
         <h2 className={`${SETTINGS_PANEL_TITLE_CLASS} mb-3`}>{t('settings.skills.sidebar.title')}</h2>
-        <SettingsProjectSelector className="mb-3" />
         <span className="typography-meta text-muted-foreground">{t('settings.skills.sidebar.total', { count: skills.length })}</span>
       </div>
       <ScrollableOverlay outerClassName="min-h-0 flex-1" className="space-y-1 px-3 py-2">

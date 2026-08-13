@@ -2,8 +2,7 @@
 
 ## Purpose
 
-This directory replaces the legacy `packages/ui/src/lib/opencode/` facade for
-the Pi-native runtime. It defines:
+This directory owns the Pi-native runtime boundary. It defines:
 
 - The Pi session / message / part data shapes (`types.ts`).
 - The public `/api/pi/` IPC envelope (`protocol.ts`).
@@ -15,17 +14,11 @@ the Pi-native runtime. It defines:
 - The event reducer helpers (`event-reducer.ts`).
 - The bootstrap owner (`bootstrap.ts`).
 - The reconnect owner (`reconnect.ts`).
-- The PiChamber-owned archive sidecar (`archive.ts`).
 - The attachment helpers (`attachments.ts`).
 - The model / provider helpers (`model-provider.ts`).
 
-The module intentionally does not depend on any OpenCode SDK type or route
-name. Where the legacy service exposed `OpencodeService`, this module exposes
-`PiService` plus thin wrappers (`piClient`, `createScopedPiClient`). Where
-the legacy `client.ts` returned `{ data, error, response }` HeyApi envelopes,
-the new facade uses native `Response` parsing through `runtimeFetch` so the
-caller can distinguish failure from successful empty data without an SDK
-import.
+The module uses native `Response` parsing through `runtimeFetch` so callers
+can distinguish failure from a successful empty result.
 
 ## Public types vs. private runtime
 
@@ -72,8 +65,8 @@ reconnect begins.
 
 `packages/ui/src/apps/pi-session-store.ts` owns one active daemon project,
 including bootstrap, sequenced event reduction, reconnect hydration, and
-runtime-switch disposal. `PiApp.tsx` is mounted by both the web/desktop and
-mobile app entries and uses only `PiService` for session flows.
+runtime-switch disposal. `PiApp.tsx` is mounted by the web, desktop, desktop mini-chat, and mobile app
+entries and uses only `PiService` for session flows.
 `PiResourceSettings.tsx` hosts the mounted Providers, Skills, Snippets,
 Behavior/`AGENTS.md`, and Magic Prompts surfaces, including the project-trust
 dialog. `?settings=` opens that surface directly.

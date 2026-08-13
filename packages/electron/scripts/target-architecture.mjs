@@ -2,12 +2,10 @@ const ARCHITECTURES = {
   x64: {
     node: 'x64',
     electronBuilder: 'x64',
-    opencode: 'x64',
   },
   arm64: {
     node: 'arm64',
     electronBuilder: 'arm64',
-    opencode: 'arm64',
   },
 };
 

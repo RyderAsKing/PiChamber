@@ -4,7 +4,6 @@ import { initializeRuntimeEndpoint, switchRuntimeEndpoint } from '@pichamber/ui/
 import { restoreDesktopRelayRuntime } from '@pichamber/ui/lib/desktopRelayRestore';
 import { configureRuntimeUrlResolver } from '@pichamber/ui/lib/runtime-url';
 import type { EmbeddedSessionRuntimeBootstrap } from '@pichamber/ui/components/layout/contextPanelEmbeddedChat';
-import { opencodeClient } from '@pichamber/ui/lib/opencode/client';
 import { createWebAPIs } from './api';
 
 const sameOrigin = (left: string, right: string): boolean => {
@@ -65,9 +64,6 @@ export const createConfiguredWebAPIs = (bootstrap?: EmbeddedSessionRuntimeBootst
       relay,
     });
   }
-  // createWebAPIs imports UI stores, which instantiate the SDK singleton before
-  // an embedded frame's asynchronous parent bootstrap is available.
-  opencodeClient.reconnectToRuntimeBaseUrl();
   void refreshRuntimeUrlAuthToken(apiBaseUrl || undefined).catch(() => {});
   if (localOrigin && !sameOrigin(apiBaseUrl, localOrigin) && Object.keys(getRuntimeExtraHeadersSync()).length > 0) {
     void refreshLocalRuntimeUrlAuthToken(localOrigin).catch(() => {});
@@ -85,10 +81,6 @@ export const createConfiguredWebAPIs = (bootstrap?: EmbeddedSessionRuntimeBootst
         restoreDesktopRelayRuntime(relayHostId || undefined).catch(() => {}),
         // Never hold the app hostage: a stuck probe/tunnel gives up to the UI.
         new Promise<void>((resolve) => { window.setTimeout(resolve, 10_000); }),
-      ]).then(() => {
-        // Relay-capable windows may select a reachable direct leg before React
-        // subscribes to runtime-change events, so bind the SDK explicitly.
-        opencodeClient.reconnectToRuntimeBaseUrl();
-      });
+      ]);
   return createWebAPIs({ urls });
 };

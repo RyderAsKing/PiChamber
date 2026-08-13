@@ -364,7 +364,7 @@ const OPENCHAMBER_DATA_DIR = resolvePiChamberDataDir();
 const JWT_SECRET_FILE = resolvePiChamberDataPath('jwt-secret');
 
 function getOrCreateJwtSecret() {
-  const envSecret = process.env.OPENCODE_JWT_SECRET;
+  const envSecret = process.env.PICHAMBER_JWT_SECRET;
   if (envSecret) {
     return new TextEncoder().encode(envSecret);
   }
@@ -390,8 +390,8 @@ function getOrCreateJwtSecret() {
 }
 
 function persistJwtSecret(secret) {
-  if (process.env.OPENCODE_JWT_SECRET) {
-    const error = new Error('Global sign-out is unavailable while OPENCODE_JWT_SECRET is set');
+  if (process.env.PICHAMBER_JWT_SECRET) {
+    const error = new Error('Global sign-out is unavailable while PICHAMBER_JWT_SECRET is set');
     error.statusCode = 400;
     throw error;
   }
