@@ -298,34 +298,6 @@ describe('cli args', () => {
     expect(parsed.options.port).toBe(3002);
   });
 
-  it('parses schedule commands and options', () => {
-    const parsed = parseArgs([
-      'schedule',
-      'create',
-      '--project',
-      'proj_1',
-      '--name',
-      'Daily review',
-      '--prompt',
-      'Review the repo',
-      '--model',
-      'openai/gpt-5.5',
-      '--daily',
-      '09:30',
-      '--timezone',
-      'Europe/Kyiv',
-    ]);
-
-    expect(parsed.command).toBe('schedule');
-    expect(parsed.scheduleAction).toBe('create');
-    expect(parsed.options.project).toBe('proj_1');
-    expect(parsed.options.name).toBe('Daily review');
-    expect(parsed.options.prompt).toBe('Review the repo');
-    expect(parsed.options.model).toBe('openai/gpt-5.5');
-    expect(parsed.options.daily).toBe('09:30');
-    expect(parsed.options.timezone).toBe('Europe/Kyiv');
-  });
-
   it('parses session create options', () => {
     const parsed = parseArgs([
       'session',
@@ -858,73 +830,6 @@ describe('CLI HTTP helpers', () => {
     });
   });
 
-  it('prefers the stored instance password over a non-explicit env password', async () => {
-    await withTempPiChamberDataDir(async () => {
-      const port = 45679;
-      fs.writeFileSync(await getInstanceFilePath(port), JSON.stringify({ port, uiPassword: 'stored-secret' }, null, 2));
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = async (url, options = {}) => {
-        if (String(url).endsWith('/auth/session')) {
-          expect(JSON.parse(options.body)).toEqual({ password: 'stored-secret' });
-          return {
-            ok: true,
-            headers: { getSetCookie: () => ['oc_ui_session=session-token; Path=/; HttpOnly'] },
-            json: async () => ({ authenticated: true }),
-          };
-        }
-        if (options.headers?.Cookie === 'oc_ui_session=session-token') {
-          return createMockJsonResponse({ ok: true });
-        }
-        return {
-          ok: false,
-          status: 401,
-          json: async () => ({ error: 'UI authentication required', locked: true }),
-        };
-      };
-
-      try {
-        const { response, body } = await requestJson(port, '/api/openchamber/scheduled-tasks/status', {
-          uiPassword: 'stale-env-secret',
-          explicitUiPassword: false,
-        });
-
-        expect(response.ok).toBe(true);
-        expect(body).toEqual({ ok: true });
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
-    });
-  });
-
-  it('authenticates desktop-local API requests with the stored client token', async () => {
-    await withTempPiChamberDataDir(async (dir) => {
-      const port = 57123;
-      fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({
-        desktopLocalPort: port,
-        desktopLocalClientToken: 'oc_client_test',
-      }, null, 2));
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = async (_url, options = {}) => {
-        if (options.headers?.Authorization === 'Bearer oc_client_test') {
-          return createMockJsonResponse({ ok: true });
-        }
-        return {
-          ok: false,
-          status: 401,
-          json: async () => ({ error: 'Client authentication required', locked: true }),
-        };
-      };
-
-      try {
-        const { response, body } = await requestJson(port, '/api/openchamber/scheduled-tasks/status');
-
-        expect(response.ok).toBe(true);
-        expect(body).toEqual({ ok: true });
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
-    });
-  });
 });
 
 describe('cli entry detection', () => {

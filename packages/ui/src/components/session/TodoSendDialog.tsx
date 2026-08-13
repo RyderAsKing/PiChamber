@@ -158,7 +158,7 @@ export function TodoSendDialog(props: TodoSendDialogProps) {
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <span className="typography-meta font-medium text-muted-foreground">{t('sessions.scheduledTasks.editor.thinkingLevel.label')}</span>
+            <span className="typography-meta font-medium text-muted-foreground">{t('sessions.sessionOptions.thinkingLevel.label')}</span>
             <ThinkingPill
               value={execution.variant}
               options={variantOptions}
@@ -167,7 +167,7 @@ export function TodoSendDialog(props: TodoSendDialogProps) {
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <span className="typography-meta font-medium text-muted-foreground">{t('sessions.scheduledTasks.editor.agent.label')}</span>
+            <span className="typography-meta font-medium text-muted-foreground">{t('sessions.sessionOptions.agent.label')}</span>
             <AgentSelector
               agentName={execution.agent}
               filter={agentFilter}

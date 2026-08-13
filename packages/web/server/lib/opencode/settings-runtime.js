@@ -138,9 +138,6 @@ export const createSettingsRuntime = (deps) => {
       ...(mergeByKey(oldValue.projectActions, newValue.projectActions, (item) => item.id).length > 0
         ? { projectActions: mergeByKey(oldValue.projectActions, newValue.projectActions, (item) => item.id) }
         : {}),
-      ...(mergeByKey(oldValue.scheduledTasks, newValue.scheduledTasks, (item) => item.id).length > 0
-        ? { scheduledTasks: mergeByKey(oldValue.scheduledTasks, newValue.scheduledTasks, (item) => item.id) }
-        : {}),
       ...(mergeByKey(oldPlanFiles, newPlanFiles, (item) => item.id || item.path).length > 0
         ? { projectPlanFiles: mergeByKey(oldPlanFiles, newPlanFiles, (item) => item.id || item.path) }
         : {}),

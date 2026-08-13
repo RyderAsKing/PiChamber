@@ -402,7 +402,7 @@ describe('updateDesktopSettings', () => {
     expect(JSON.parse(localStorage.getItem(getRuntimeSettingsMirrorStorageKey('removed-settings')) ?? '{}')).toEqual({});
   });
 
-  test('removes legacy craft-goal starters from synced settings', async () => {
+  test('removes retired starters from synced settings', async () => {
     registerSettingsApi(async () => ({}), async () => ({
       settings: {
         draftStarters: [
@@ -410,7 +410,6 @@ describe('updateDesktopSettings', () => {
           { type: 'command', name: 'craft-goal' },
           { type: 'command', name: 'schedule-task' },
         ],
-        draftStartersScheduleTaskAdded: true,
       },
       source: 'web',
     }));
@@ -419,8 +418,8 @@ describe('updateDesktopSettings', () => {
 
     expect(useUIStore.getState().globalDraftStarters).toEqual([
       { type: 'command', name: 'explore' },
-      { type: 'command', name: 'schedule-task' },
     ]);
+    expect(JSON.parse(localStorage.getItem(getRuntimeSettingsMirrorStorageKey('default')) ?? '{}').draftStartersScheduleTaskAdded).toBe(undefined);
   });
 
   test('treats settings save responses as partial patches', async () => {
@@ -500,7 +499,6 @@ describe('updateDesktopSettings', () => {
 
       expect(saveCalls).toHaveLength(1);
       expect(saveCalls[0]).toEqual({
-        draftStartersScheduleTaskAdded: true,
         favoriteModels: [{ providerID: 'anthropic', modelID: 'claude-haiku-4' }],
         hiddenModels: [{ providerID: 'openai', modelID: 'gpt-5' }],
         collapsedModelProviders: ['openai'],

@@ -36,7 +36,6 @@ import { resolveExplicitBinary, searchPathFor } from './lib/cli-executables.js';
 import { startupCommand } from './lib/commands-startup.js';
 import { logsCommand } from './lib/commands-logs.js';
 import { statusCommand } from './lib/commands-status.js';
-import { scheduleCommand } from './lib/commands-schedule.js';
 import { sessionCommand } from './lib/commands-session.js';
 import { modelsCommand } from './lib/commands-models.js';
 import { projectsCommand } from './lib/commands-projects.js';
@@ -184,8 +183,6 @@ const commands = {
 
   status: statusCommand,
 
-  schedule: scheduleCommand,
-
   session: sessionCommand,
 
   models: modelsCommand,
@@ -234,7 +231,7 @@ commands.update = createUpdateCommand({
 
 async function main() {
   const parsed = parseArgs();
-  const { command, subcommand, tunnelAction, startupAction, scheduleAction, sessionAction, controlAction, options, removedFlagErrors, helpRequested, versionRequested } = parsed;
+  const { command, subcommand, tunnelAction, startupAction, sessionAction, controlAction, options, removedFlagErrors, helpRequested, versionRequested } = parsed;
   activeCommandOptions = options;
 
   if (versionRequested) {
@@ -270,8 +267,6 @@ async function main() {
       showStartupHelp();
     } else if (command === 'connect-url') {
       showConnectUrlHelp();
-    } else if (command === 'schedule') {
-      await commands.schedule(options, 'help');
     } else if (command === 'session') {
       await commands.session(options, 'help');
     } else if (command === 'models') {
@@ -293,11 +288,6 @@ async function main() {
 
   if (command === 'startup') {
     await commands.startup(options, startupAction);
-    return;
-  }
-
-  if (command === 'schedule') {
-    await commands.schedule(options, scheduleAction);
     return;
   }
 
@@ -325,7 +315,7 @@ async function main() {
   }
 
   if (!commands[command]) {
-    const knownCommands = ['serve', 'stop', 'restart', 'status', 'schedule', 'session', 'models', 'projects', 'control', 'tunnel', 'startup', 'logs', 'update'];
+    const knownCommands = ['serve', 'stop', 'restart', 'status', 'session', 'models', 'projects', 'control', 'tunnel', 'startup', 'logs', 'update'];
     const suggestion = findClosestMatch(command, knownCommands);
     const hint = suggestion ? ` Did you mean '${suggestion}'?` : '';
     if (isJsonMode(options)) {

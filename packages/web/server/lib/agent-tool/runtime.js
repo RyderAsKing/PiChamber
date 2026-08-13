@@ -16,7 +16,6 @@ const PLUGIN_PARAMETER_PROPERTIES = {
   directory: { type: 'string', description: 'Absolute checkout or session directory; defaults to the current session directory' },
   sessionId: { type: 'string' },
   messageId: { type: 'string', description: 'Optional fork boundary message ID' },
-  taskId: { type: 'string' },
   title: { type: 'string' },
   prompt: { type: 'string' },
   model: { type: 'string', description: 'Model in provider/model format. When the user names no model: for session.create pick a suitable one from models.list favorites or recents (omit if there are none); for send and fork omit it — the session reuses its previous model' },
@@ -34,14 +33,6 @@ const PLUGIN_PARAMETER_PROPERTIES = {
   last: { type: 'boolean', description: 'Return only the last matching session message' },
   withStatus: { type: 'boolean', description: 'Include authoritative status in session.list' },
   role: { type: 'string', enum: ['all', 'user', 'assistant'], description: 'Message role filter' },
-  name: { type: 'string' },
-  daily: { type: 'string', description: 'Daily run time in HH:mm format' },
-  weekly: { type: 'string', description: 'Comma-separated weekdays; 0=Sunday and 6=Saturday' },
-  once: { type: 'string', description: 'One-time run date in YYYY-MM-DD format' },
-  time: { type: 'string', description: 'Weekly or one-time run time in HH:mm format' },
-  cron: { type: 'string', description: 'Cron expression' },
-  timezone: { type: 'string', description: 'IANA timezone' },
-  disabled: { type: 'boolean', description: 'true disables and false enables; required for schedule.toggle' },
 };
 
 const asNonEmptyString = (value) => {
@@ -70,7 +61,7 @@ const createPluginSource = () => String.raw`
 export const PiChamberPlugin = async () => ({
   tool: {
     openchamber: {
-      description: "Control PiChamber projects, sessions, and scheduled tasks on the user's behalf. Sessions and scheduled tasks you create are for the user to follow and interact with; never use this tool to delegate parts of your own current task. Use one action per call. Scope with projectId or directory; omit both to use the current session directory. Session dispatches return immediately by default and you receive no notification when a dispatched session finishes, so never promise to report back on it; the user follows it in PiChamber; a dispatched session needs no follow-up from you. If the user later asks how it went, use session.messages (add wait to block until it is idle, lastAssistant for just the final answer) — session.send always sends a NEW prompt and never just waits. Set wait only when the user asks or the next step requires the completed result. Session and worktree deletion are unavailable.",
+      description: "Control PiChamber projects and sessions on the user's behalf. Sessions you create are for the user to follow and interact with; never use this tool to delegate parts of your own current task. Use one action per call. Scope with projectId or directory; omit both to use the current session directory. Session dispatches return immediately by default and you receive no notification when a dispatched session finishes, so never promise to report back on it; the user follows it in PiChamber; a dispatched session needs no follow-up from you. If the user later asks how it went, use session.messages (add wait to block until it is idle, lastAssistant for just the final answer) — session.send always sends a NEW prompt and never just waits. Set wait only when the user asks or the next step requires the completed result. Session and worktree deletion are unavailable.",
       args: {
         action: { type: "string", enum: ${JSON.stringify(OPENCHAMBER_AGENT_TOOL_ACTIONS)}, oneOf: ${JSON.stringify(OPENCHAMBER_AGENT_TOOL_ACTION_DEFINITIONS.map(({ action, description }) => ({ const: action, description })))}, description: "PiChamber action to perform" },
         parameters: { type: "object", properties: ${JSON.stringify(PLUGIN_PARAMETER_PROPERTIES)}, additionalProperties: false, description: "Inputs for the action; use an empty object when none are needed" },

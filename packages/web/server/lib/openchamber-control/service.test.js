@@ -15,15 +15,6 @@ const createService = (overrides = {}) => {
     send: vi.fn(),
     fork: vi.fn(),
   };
-  const scheduledTaskService = {
-    status: vi.fn(async () => ({ enabledScheduledTasksCount: 0 })),
-    resolveProjectID: vi.fn(async () => 'project-1'),
-    list: vi.fn(async () => []),
-    upsert: vi.fn(),
-    run: vi.fn(),
-    remove: vi.fn(),
-    setEnabled: vi.fn(),
-  };
   const service = createPiChamberControlService({
     readSettingsFromDiskMigrated: vi.fn(async () => ({
       projects: [{ id: 'project-1', path: '/repo', label: 'Repo' }],
@@ -37,10 +28,9 @@ const createService = (overrides = {}) => {
     waitForOpenCodeReady: vi.fn(),
     createClient: vi.fn(() => client),
     sessionService,
-    scheduledTaskService,
     ...overrides,
   });
-  return { service, client, sessionService, scheduledTaskService };
+  return { service, client, sessionService };
 };
 
 describe('PiChamber control service', () => {
@@ -55,55 +45,9 @@ describe('PiChamber control service', () => {
     }));
   });
 
-  it('maps schedule creation into the shared scheduled-task service', async () => {
-    const { service, scheduledTaskService } = createService();
-    scheduledTaskService.upsert.mockResolvedValue({ task: { id: 'task-1' }, created: true });
-    await expect(service.execute('schedule.create', {
-      directory: '/repo',
-      name: 'Daily',
-      prompt: 'Run checks',
-      model: 'provider/model',
-      daily: ' 09:00 ',
-    })).resolves.toEqual({ task: { id: 'task-1' }, created: true });
-    expect(scheduledTaskService.resolveProjectID).toHaveBeenCalledWith({ projectId: undefined, directory: '/repo' });
-    expect(scheduledTaskService.upsert).toHaveBeenCalledWith('project-1', expect.objectContaining({
-      name: 'Daily',
-      schedule: { kind: 'daily', times: ['09:00'] },
-      execution: expect.objectContaining({ providerID: 'provider', modelID: 'model' }),
-    }));
-  });
-
-  it('does not combine an explicit schedule project with the tool context directory', async () => {
-    const { service, scheduledTaskService } = createService();
-    await service.execute('schedule.list', { projectId: ' project-1 ' }, '/current-session');
-    expect(scheduledTaskService.resolveProjectID).toHaveBeenCalledWith({ projectId: 'project-1', directory: undefined });
-  });
-
-  it('includes scheduler status alongside listed tasks', async () => {
-    const { service, scheduledTaskService } = createService();
-    scheduledTaskService.list.mockResolvedValue([{ id: 'task-1' }]);
-    await expect(service.execute('schedule.list', {}, '/repo')).resolves.toEqual({
-      scheduler: { enabledScheduledTasksCount: 0 },
-      tasks: [{ id: 'task-1' }],
-    });
-  });
-
-  it('toggles a scheduled task through the required disabled boolean', async () => {
-    const { service, scheduledTaskService } = createService();
-    scheduledTaskService.setEnabled.mockResolvedValue({ id: 'task-1', enabled: false });
-    await expect(service.execute('schedule.toggle', { taskId: 'task-1' }, '/repo')).rejects.toThrow('disabled is required for schedule.toggle');
-    await expect(service.execute('schedule.toggle', { taskId: 'task-1', disabled: true }, '/repo')).resolves.toEqual({
-      task: { id: 'task-1', enabled: false },
-      enabled: false,
-    });
-    expect(scheduledTaskService.setEnabled).toHaveBeenCalledWith('project-1', 'task-1', false);
-  });
-
-  it('returns an actionable taskId error before resolving schedule scope', async () => {
-    const { service, scheduledTaskService } = createService();
-    await expect(service.execute('schedule.run', {}, '/repo')).rejects.toThrow('taskId is required');
-    expect(scheduledTaskService.resolveProjectID).not.toHaveBeenCalled();
-    expect(scheduledTaskService.run).not.toHaveBeenCalled();
+  it('rejects retired schedule actions', async () => {
+    const { service } = createService();
+    await expect(service.execute('schedule.create', {})).rejects.toThrow('Unsupported PiChamber action: schedule.create');
   });
 
   it('validates wait modifiers before creating a session', async () => {

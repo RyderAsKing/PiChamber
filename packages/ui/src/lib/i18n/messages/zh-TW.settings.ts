@@ -946,7 +946,7 @@
   'settings.pichamber.opencodeCli.field.showUpdateNotificationsAria': '顯示 OpenCode 更新通知',
   'settings.pichamber.opencodeCli.field.agentControlTool': '智慧代理控制工具',
   'settings.pichamber.opencodeCli.field.agentControlToolAria': '啟用智慧代理控制工具',
-  'settings.pichamber.opencodeCli.field.agentControlToolInfo': '讓代理從聊天中協調你的工作：建立工作階段與 worktree、將提示委派給其他代理、管理排程任務。會為每個工作階段加入少量工具說明。在 Save + Reload 後生效。',
+  'settings.pichamber.opencodeCli.field.agentControlToolInfo': '讓代理從聊天中協調你的工作：建立工作階段與 worktree、將提示委派給其他代理。會為每個工作階段加入少量工具說明。在 Save + Reload 後生效。',
   'settings.pichamber.opencodeCli.actions.browseAria': '瀏覽 OpenCode 可執行檔路徑',
   'settings.pichamber.opencodeCli.actions.browse': '瀏覽',
   'settings.pichamber.opencodeCli.actions.saveAndReload': '儲存並重新載入',

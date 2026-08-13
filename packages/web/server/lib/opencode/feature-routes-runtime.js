@@ -10,7 +10,7 @@ import { registerPermissionAutoAcceptRoutes } from '../permission-auto-accept/ru
 import { registerConfigEntityRoutes } from './config-entity-routes.js';
 import { registerSettingsUtilityRoutes } from './core-routes.js';
 import { registerProjectIconRoutes } from './project-icon-routes.js';
-import { registerScheduledTaskRoutes } from '../scheduled-tasks/routes.js';
+import { registerPiChamberSessionEventRoutes } from '../openchamber-sessions/events.js';
 import { registerPiChamberSessionRoutes } from '../openchamber-sessions/routes.js';
 import { registerPiChamberControlRoutes } from '../openchamber-control/routes.js';
 import { registerSkillRoutes } from './skill-routes.js';
@@ -109,9 +109,6 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       getOpenCodeAuthHeaders,
       getOpenCodePort,
       buildAugmentedPath,
-      projectConfigRuntime,
-      scheduledTasksRuntime,
-      scheduledTaskService,
       openChamberSessionService,
       openChamberControlService,
       waitForOpenCodeReady,
@@ -161,12 +158,7 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       resolveGitBinaryForSpawn,
     });
 
-    registerScheduledTaskRoutes(app, {
-      readSettingsFromDiskMigrated,
-      sanitizeProjects,
-      projectConfigRuntime,
-      scheduledTasksRuntime,
-      scheduledTaskService,
+    registerPiChamberSessionEventRoutes(app, {
       getPiChamberEventClients,
       writeSseEvent,
     });

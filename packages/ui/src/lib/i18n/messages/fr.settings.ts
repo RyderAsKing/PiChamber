@@ -891,7 +891,7 @@ export const settingsDict = {
   'settings.pichamber.opencodeCli.field.showUpdateNotificationsAria': 'Afficher les notifications de mise à jour de OpenCode',
   'settings.pichamber.opencodeCli.field.agentControlTool': 'Outil de contrôle pour les agents',
   'settings.pichamber.opencodeCli.field.agentControlToolAria': 'Activer l’outil de contrôle pour les agents',
-  'settings.pichamber.opencodeCli.field.agentControlToolInfo': 'Laissez les agents orchestrer votre travail depuis le chat : créer des sessions et des worktrees, déléguer des prompts à d’autres agents et gérer les tâches planifiées. Ajoute une courte description d’outil à chaque session. Appliqué après Save + Reload.',
+  'settings.pichamber.opencodeCli.field.agentControlToolInfo': 'Laissez les agents orchestrer votre travail depuis le chat : créer des sessions et des worktrees, déléguer des prompts à d’autres agents. Ajoute une courte description d’outil à chaque session. Appliqué après Save + Reload.',
   'settings.pichamber.opencodeCli.actions.browseAria': 'Rechercher le chemin binaire OpenCode',
   'settings.pichamber.opencodeCli.actions.browse': 'Parcourir',
   'settings.pichamber.opencodeCli.actions.saveAndReload': 'Enregistrer + Recharger',

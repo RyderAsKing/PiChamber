@@ -18,7 +18,6 @@ type Props = {
   hideDirectoryControls: boolean;
   showRecentControls: boolean;
   handleOpenDirectoryDialog: () => void;
-  onOpenScheduled: () => void;
   onOpenMultiRun: () => void;
   canOpenMultiRun: boolean;
   onOpenArchive: () => void;
@@ -43,7 +42,6 @@ export function SidebarHeader(props: Props): React.ReactNode {
     hideDirectoryControls,
     showRecentControls,
     handleOpenDirectoryDialog,
-    onOpenScheduled,
     onOpenMultiRun,
     canOpenMultiRun,
     onOpenArchive,
@@ -96,20 +94,6 @@ export function SidebarHeader(props: Props): React.ReactNode {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.header.actions.addProject')}</p></TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={onOpenScheduled}
-                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
-                  aria-label={t('sessions.sidebar.header.actions.scheduledTasks')}
-                >
-                  <Icon name="calendar-schedule" className={headerActionIconClass} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.header.actions.scheduledTasks')}</p></TooltipContent>
             </Tooltip>
 
             <Tooltip>

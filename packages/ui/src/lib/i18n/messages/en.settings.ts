@@ -1004,7 +1004,7 @@ export const settingsDict = {
   'settings.pichamber.opencodeCli.field.showUpdateNotificationsAria': 'Show OpenCode update notifications',
   'settings.pichamber.opencodeCli.field.agentControlTool': 'Agent control tool',
   'settings.pichamber.opencodeCli.field.agentControlToolAria': 'Enable the agent control tool',
-  'settings.pichamber.opencodeCli.field.agentControlToolInfo': 'Let agents orchestrate your work from chat: spin up sessions and worktrees, delegate prompts to other agents, and manage scheduled tasks. Adds a small tool description to each session. Applies after Save + Reload.',
+  'settings.pichamber.opencodeCli.field.agentControlToolInfo': 'Let agents orchestrate your work from chat: spin up sessions and worktrees and delegate prompts to other agents. Adds a small tool description to each session. Applies after Save + Reload.',
   'settings.pichamber.opencodeCli.actions.browseAria': 'Browse for OpenCode binary path',
   'settings.pichamber.opencodeCli.actions.browse': 'Browse',
   'settings.pichamber.opencodeCli.actions.saveAndReload': 'Save + Reload',

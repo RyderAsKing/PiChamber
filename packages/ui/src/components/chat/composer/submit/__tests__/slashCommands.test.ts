@@ -27,11 +27,6 @@ describe('parseSlashCommand', () => {
             .toEqual({ name: 'summary', argument: 'Rate Limiting' });
     });
 
-    test('a multi-line argument is preserved', () => {
-        expect(parseSlashCommand('/schedule-task line one\nline two'))
-            .toEqual({ name: 'schedule-task', argument: 'line one\nline two' });
-    });
-
     test('ordinary prose is not a command', () => {
         expect(parseSlashCommand('explore the code')).toBeNull();
         expect(parseSlashCommand('see src/a.ts')).toBeNull();
@@ -98,16 +93,6 @@ describe('buildCommandVariables', () => {
         const variables = buildCommandVariables(findMagicPromptCommand('summary')!, '');
         expect(variables.visible.topic_line).toBe('');
         expect(variables.instructions.topic_block).toBe('');
-    });
-
-    test('an idea is formatted as its own block', () => {
-        const variables = buildCommandVariables(findMagicPromptCommand('schedule-task')!, 'a CLI');
-        expect(variables.visible.idea_block).toBe('\n\nHere is my initial idea:\na CLI');
-    });
-
-    test('an absent idea leaves the slot blank', () => {
-        expect(buildCommandVariables(findMagicPromptCommand('schedule-task')!, '').visible.idea_block)
-            .toBe('');
     });
 });
 

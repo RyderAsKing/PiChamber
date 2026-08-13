@@ -438,7 +438,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'general',
     titleKey: 'settings.pichamber.opencodeCli.field.agentControlTool',
     descriptionKey: 'settings.pichamber.opencodeCli.field.agentControlToolInfo',
-    keywords: ['agent', 'tool', 'orchestration', 'openchamber', 'sessions', 'schedule', 'control'],
+    keywords: ['agent', 'tool', 'orchestration', 'openchamber', 'sessions', 'control'],
   },
   {
     id: 'git.github-account',

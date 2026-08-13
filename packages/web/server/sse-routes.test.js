@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'bun:test';
 
 import { NOTIFICATION_SSE_HEARTBEAT_INTERVAL_MS, registerNotificationRoutes } from './lib/notifications/routes.js';
-import { registerScheduledTaskRoutes } from './lib/scheduled-tasks/routes.js';
+import { registerPiChamberSessionEventRoutes } from './lib/openchamber-sessions/events.js';
 
 const createRouteRegistry = () => {
   const routes = new Map();
@@ -161,7 +161,7 @@ describe('local SSE routes', () => {
     const { app, getRoute } = createRouteRegistry();
     const clients = new Set();
 
-    registerScheduledTaskRoutes(app, {
+    registerPiChamberSessionEventRoutes(app, {
       getPiChamberEventClients: () => clients,
       writeSseEvent(res, payload) {
         res.write(`data: ${JSON.stringify(payload)}\n\n`);

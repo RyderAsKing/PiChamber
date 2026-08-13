@@ -151,21 +151,6 @@
           }
         },
         {
-          "label": "Scheduled Tasks",
-          "link": "/scheduled-tasks/",
-          "translations": {
-            "uk": "Заплановані задачі",
-            "zh-CN": "计划任务",
-            "es": "Tareas programadas",
-            "pt-BR": "Tarefas agendadas",
-            "ko": "예약 작업",
-            "pl": "Zaplanowane zadania",
-            "fr": "Tâches planifiées",
-            "ja": "スケジュールタスク",
-            "de": "Geplante Aufgaben"
-          }
-        },
-        {
           "label": "Agent Control Tool",
           "link": "/agent-control-tool/",
           "translations": {

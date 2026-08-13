@@ -7,11 +7,6 @@ const DEFAULT_WAIT_TIMEOUT_SECONDS = 600;
 const MAX_WAIT_TIMEOUT_SECONDS = 86_400;
 const WAIT_POLL_INTERVAL_MS = 500;
 const CONTROL_ACTIONS = new Set(OPENCHAMBER_CONTROL_ACTIONS);
-const SCHEDULE_TASK_ID_ACTIONS = new Set([
-  'schedule.run',
-  'schedule.delete',
-  'schedule.toggle',
-]);
 
 const asNonEmptyString = (value) => {
   if (typeof value !== 'string') return null;
@@ -60,69 +55,6 @@ const extractTextMessages = (messages, role = 'all') => {
   return result.sort((left, right) => (left.createdAt || 0) - (right.createdAt || 0));
 };
 
-const parseModel = (value) => {
-  const model = asNonEmptyString(value);
-  if (!model) throw new PiChamberControlError('model is required', 400);
-  const slashIndex = model.indexOf('/');
-  if (slashIndex <= 0 || slashIndex === model.length - 1) {
-    throw new PiChamberControlError('model must be in provider/model format', 400);
-  }
-  return { providerID: model.slice(0, slashIndex), modelID: model.slice(slashIndex + 1) };
-};
-
-const parseWeekdays = (value) => {
-  const raw = asNonEmptyString(value);
-  if (!raw) throw new PiChamberControlError('weekly is required', 400);
-  const weekdays = raw.split(',').map((entry) => Number.parseInt(entry.trim(), 10));
-  if (weekdays.some((entry) => !Number.isInteger(entry) || entry < 0 || entry > 6)) {
-    throw new PiChamberControlError('weekly must contain weekdays from 0 to 6', 400);
-  }
-  return Array.from(new Set(weekdays)).sort((a, b) => a - b);
-};
-
-const buildSchedule = (input) => {
-  const daily = asNonEmptyString(input.daily);
-  const weekly = asNonEmptyString(input.weekly);
-  const once = asNonEmptyString(input.once);
-  const cron = asNonEmptyString(input.cron);
-  const selectors = [daily, weekly, once, cron].filter(Boolean);
-  if (selectors.length !== 1) {
-    throw new PiChamberControlError('Provide exactly one of daily, weekly, once, or cron', 400);
-  }
-  const timezone = asNonEmptyString(input.timezone);
-  if (daily) return { kind: 'daily', times: [daily], ...(timezone ? { timezone } : {}) };
-  if (weekly) {
-    const time = asNonEmptyString(input.time);
-    if (!time) throw new PiChamberControlError('time is required with weekly', 400);
-    return { kind: 'weekly', weekdays: parseWeekdays(weekly), times: [time], ...(timezone ? { timezone } : {}) };
-  }
-  if (once) {
-    const time = asNonEmptyString(input.time);
-    if (!time) throw new PiChamberControlError('time is required with once', 400);
-    return { kind: 'once', date: once, time, ...(timezone ? { timezone } : {}) };
-  }
-  return { kind: 'cron', cron, ...(timezone ? { timezone } : {}) };
-};
-
-const buildScheduledTask = (input) => {
-  const name = asNonEmptyString(input.name);
-  const prompt = asNonEmptyString(input.prompt);
-  if (!name) throw new PiChamberControlError('name is required', 400);
-  if (!prompt) throw new PiChamberControlError('prompt is required', 400);
-  const model = parseModel(input.model);
-  return {
-    name,
-    enabled: input.disabled !== true,
-    schedule: buildSchedule(input),
-    execution: {
-      prompt,
-      ...model,
-      ...(asNonEmptyString(input.agent) ? { agent: input.agent.trim() } : {}),
-      ...(asNonEmptyString(input.variant) ? { variant: input.variant.trim() } : {}),
-    },
-  };
-};
-
 export const createPiChamberControlService = (dependencies) => {
   const {
     readSettingsFromDiskMigrated,
@@ -131,7 +63,6 @@ export const createPiChamberControlService = (dependencies) => {
     getOpenCodeAuthHeaders,
     waitForOpenCodeReady,
     sessionService,
-    scheduledTaskService,
     createClient = createOpencodeClient,
     sleep = (duration) => new Promise((resolve) => setTimeout(resolve, duration)),
     now = Date.now,
@@ -316,41 +247,6 @@ export const createPiChamberControlService = (dependencies) => {
       }
       if (action === 'projects.list') return { projects: await projects() };
       if (action === 'models.list') return models();
-      if (action === 'schedule.status') return scheduledTaskService.status();
-      if (action.startsWith('schedule.')) {
-        const taskID = asNonEmptyString(input.taskId);
-        if (SCHEDULE_TASK_ID_ACTIONS.has(action) && !taskID) {
-          throw new PiChamberControlError('taskId is required', 400);
-        }
-        const explicitProjectID = asNonEmptyString(input.projectId);
-        const explicitDirectory = asNonEmptyString(input.directory);
-        const contextDirectoryFallback = explicitProjectID
-          ? undefined
-          : asNonEmptyString(contextDirectory) || undefined;
-        const projectID = await scheduledTaskService.resolveProjectID({
-          projectId: explicitProjectID || undefined,
-          directory: explicitDirectory || contextDirectoryFallback,
-        });
-        switch (action) {
-          case 'schedule.list':
-            return { scheduler: await scheduledTaskService.status(), tasks: await scheduledTaskService.list(projectID) };
-          case 'schedule.create': {
-            const result = await scheduledTaskService.upsert(projectID, buildScheduledTask(input));
-            return { task: result.task, created: result.created };
-          }
-          case 'schedule.run':
-            return scheduledTaskService.run(projectID, taskID);
-          case 'schedule.delete':
-            return { deleted: true, tasks: await scheduledTaskService.remove(projectID, taskID) };
-          case 'schedule.toggle': {
-            if (typeof input.disabled !== 'boolean') {
-              throw new PiChamberControlError('disabled is required for schedule.toggle', 400);
-            }
-            const enabled = input.disabled === false;
-            return { task: await scheduledTaskService.setEnabled(projectID, taskID, enabled), enabled };
-          }
-        }
-      }
       if (action === 'session.create' || action === 'session.send' || action === 'session.fork') {
         return executeSessionAction(action, input, contextDirectory, options.signal);
       }

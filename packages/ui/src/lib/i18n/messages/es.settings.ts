@@ -972,7 +972,7 @@ export const settingsDict = {
   "settings.pichamber.opencodeCli.field.showUpdateNotificationsAria": "Mostrar notificaciones de actualización de OpenCode",
   "settings.pichamber.opencodeCli.field.agentControlTool": "Herramienta de control para agentes",
   "settings.pichamber.opencodeCli.field.agentControlToolAria": "Activar la herramienta de control para agentes",
-  "settings.pichamber.opencodeCli.field.agentControlToolInfo": "Permite que los agentes orquesten tu trabajo desde el chat: crear sesiones y worktrees, delegar prompts a otros agentes y gestionar tareas programadas. Añade una pequeña descripción de herramienta a cada sesión. Se aplica tras Save + Reload.",
+  "settings.pichamber.opencodeCli.field.agentControlToolInfo": "Permite que los agentes orquesten tu trabajo desde el chat: crear sesiones y worktrees, delegar prompts a otros agentes. Añade una pequeña descripción de herramienta a cada sesión. Se aplica tras Save + Reload.",
   "settings.pichamber.opencodeCli.actions.browseAria": "Buscar ruta del ejecutable de OpenCode",
   "settings.pichamber.opencodeCli.actions.browse": "Buscar",
   "settings.pichamber.opencodeCli.actions.saveAndReload": "Guardar + Recargar",

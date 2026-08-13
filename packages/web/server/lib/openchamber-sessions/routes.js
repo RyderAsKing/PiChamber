@@ -2,7 +2,6 @@ import express from 'express';
 import { createOpencodeClient } from '@opencode-ai/sdk/v2';
 import { createWorktree, getWorktreeBootstrapStatus } from '../git/index.js';
 import { expandSnippets } from '../opencode/snippets.js';
-import { parseScheduledCommandPrompt } from '../scheduled-tasks/runtime.js';
 import { PiChamberControlError, asControlError } from '../openchamber-control/error.js';
 
 const asNonEmptyString = (value) => {
@@ -445,60 +444,37 @@ export const createPiChamberSessionService = (dependencies) => {
     }
 
     const expandedPrompt = expandSnippets(prompt, directory);
-    const parsedCommand = parseScheduledCommandPrompt(prompt);
-    let resolvedCommand = null;
-    if (parsedCommand) {
-      try {
-        const response = await client.command.list({ directory });
-        const commands = Array.isArray(response?.data) ? response.data : [];
-        const command = commands.find((candidate) => candidate?.name === parsedCommand.command);
-        if (command) resolvedCommand = { ...parsedCommand, template: command.template };
-      } catch {
-      }
-    }
-    if (resolvedCommand) {
-      await client.session.command({
-        sessionID,
-        directory,
-        command: resolvedCommand.command,
-        arguments: resolvedCommand.arguments,
+    const baseline = await latestUserMessageID({ client, sessionID, directory });
+    await runPromptAsync({
+      baseUrl,
+      authHeaders,
+      sessionID,
+      directory,
+      payload: {
+        model,
         ...(agent ? { agent } : {}),
-        model: `${model.providerID}/${model.modelID}`,
         ...(variant ? { variant } : {}),
-      });
-    } else {
-      const baseline = await latestUserMessageID({ client, sessionID, directory });
-      await runPromptAsync({
-        baseUrl,
-        authHeaders,
-        sessionID,
-        directory,
-        payload: {
-          model,
-          ...(agent ? { agent } : {}),
-          ...(variant ? { variant } : {}),
-          parts: [{ type: 'text', text: expandedPrompt }],
-        },
-      });
-      const landed = await waitForPromptLanded({
-        client,
-        sessionID,
-        directory,
-        baselineUserMessageID: baseline.messageID,
-      });
-      if (!landed) {
-        return {
-          model,
-          agent,
-          variant,
-          promptDispatched: false,
-          dispatchedAsCommand: false,
-          promptError: 'OpenCode accepted the prompt but it never appeared in the session',
-        };
-      }
+        parts: [{ type: 'text', text: expandedPrompt }],
+      },
+    });
+    const landed = await waitForPromptLanded({
+      client,
+      sessionID,
+      directory,
+      baselineUserMessageID: baseline.messageID,
+    });
+    if (!landed) {
+      return {
+        model,
+        agent,
+        variant,
+        promptDispatched: false,
+        dispatchedAsCommand: false,
+        promptError: 'OpenCode accepted the prompt but it never appeared in the session',
+      };
     }
 
-    return { model, agent, variant, promptDispatched: true, dispatchedAsCommand: Boolean(resolvedCommand) };
+    return { model, agent, variant, promptDispatched: true, dispatchedAsCommand: false };
   };
 
   const create = async (payload = {}) => {

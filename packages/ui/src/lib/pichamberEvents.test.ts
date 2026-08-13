@@ -11,28 +11,20 @@ mock.module('./runtime-switch', () => ({
 class MockEventSource {
   static CLOSED = 2;
   static instances: MockEventSource[] = [];
-
   readyState = 1;
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
   onerror: (() => void) | null = null;
-
-  constructor(public readonly url: string) {
-    MockEventSource.instances.push(this);
-  }
-
-  close() {
-    this.readyState = MockEventSource.CLOSED;
-  }
+  constructor(public readonly url: string) { MockEventSource.instances.push(this); }
+  close() { this.readyState = MockEventSource.CLOSED; }
 }
 
-describe('PiChamber events', () => {
+describe('PiChamber session-control events', () => {
   beforeEach(() => {
     MockEventSource.instances = [];
     globalThis.window = {} as Window & typeof globalThis;
     globalThis.EventSource = MockEventSource as unknown as typeof EventSource;
   });
-
   afterEach(() => {
     delete (globalThis as { window?: unknown }).window;
     delete (globalThis as { EventSource?: unknown }).EventSource;
@@ -41,35 +33,23 @@ describe('PiChamber events', () => {
   test('dispatches externally created session events', async () => {
     const { subscribeOpenchamberEvents } = await import('./pichamberEvents');
     const events: unknown[] = [];
-    const listener = (event: unknown) => events.push(event);
-    const unsubscribe = subscribeOpenchamberEvents(listener);
+    const unsubscribe = subscribeOpenchamberEvents((event) => events.push(event));
     const source = MockEventSource.instances[0];
+    expect(source.url).toBe('http://runtime.test/api/openchamber/events');
+    source.onmessage?.({ data: JSON.stringify({
+      type: 'openchamber:session-created',
+      properties: { sessionId: 'ses_123', directory: '/repo', projectId: 'project_1', createdAt: 123, promptDispatched: true, dispatchedAsCommand: false },
+    }) });
+    expect(events).toEqual([{ type: 'session-created', sessionId: 'ses_123', directory: '/repo', projectId: 'project_1', createdAt: 123, promptDispatched: true, dispatchedAsCommand: false }]);
+    unsubscribe();
+  });
 
-    source.onmessage?.({
-      data: JSON.stringify({
-        type: 'openchamber:session-created',
-        properties: {
-          sessionId: 'ses_123',
-          directory: '/repo/worktrees/research',
-          projectId: 'project_1',
-          createdAt: 123,
-          promptDispatched: true,
-          dispatchedAsCommand: false,
-        },
-      }),
-    });
-
-    expect(events).toEqual([
-      {
-        type: 'session-created',
-        sessionId: 'ses_123',
-        directory: '/repo/worktrees/research',
-        projectId: 'project_1',
-        createdAt: 123,
-        promptDispatched: true,
-        dispatchedAsCommand: false,
-      },
-    ]);
+  test('ignores removed scheduled-task event envelopes', async () => {
+    const { subscribeOpenchamberEvents } = await import('./pichamberEvents');
+    let calls = 0;
+    const unsubscribe = subscribeOpenchamberEvents(() => { calls += 1; });
+    MockEventSource.instances[0].onmessage?.({ data: JSON.stringify({ type: 'openchamber:scheduled-task-ran', properties: { projectId: 'project', taskId: 'task' } }) });
+    expect(calls).toBe(0);
     unsubscribe();
   });
 });

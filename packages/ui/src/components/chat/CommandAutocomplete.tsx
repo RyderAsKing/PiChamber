@@ -160,10 +160,6 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:schedule-task', name: 'schedule-task', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.scheduleTaskDescription'), isPiChamber: true }]
-            : []
-          ),
-          ...(canStartSessionCommand
             ? [{ id: 'openchamber:catch-up', name: 'catch-up', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.catchUpDescription'), isPiChamber: true }]
             : []
           ),
@@ -219,10 +215,6 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
           ),
           ...(canStartSessionCommand
             ? [{ id: 'openchamber:plan-feature', name: 'plan-feature', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.featurePlanDescription'), isPiChamber: true }]
-            : []
-          ),
-          ...(canStartSessionCommand
-            ? [{ id: 'openchamber:schedule-task', name: 'schedule-task', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.scheduleTaskDescription'), isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand

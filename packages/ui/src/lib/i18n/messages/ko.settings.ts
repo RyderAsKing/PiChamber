@@ -972,7 +972,7 @@ export const settingsDict = {
   'settings.pichamber.opencodeCli.field.showUpdateNotificationsAria': 'OpenCode 업데이트 알림 표시',
   'settings.pichamber.opencodeCli.field.agentControlTool': '에이전트 제어 도구',
   'settings.pichamber.opencodeCli.field.agentControlToolAria': '에이전트 제어 도구 활성화',
-  'settings.pichamber.opencodeCli.field.agentControlToolInfo': '에이전트가 채팅에서 작업을 오케스트레이션할 수 있습니다. 세션과 worktree 생성, 다른 에이전트에게 프롬프트 위임, 예약 작업 관리가 가능합니다. 각 세션에 작은 도구 설명이 추가됩니다. Save + Reload 후 적용됩니다.',
+  'settings.pichamber.opencodeCli.field.agentControlToolInfo': '에이전트가 채팅에서 작업을 오케스트레이션할 수 있습니다. 세션과 worktree 생성, 다른 에이전트에게 프롬프트 위임가 가능합니다. 각 세션에 작은 도구 설명이 추가됩니다. Save + Reload 후 적용됩니다.',
   'settings.pichamber.opencodeCli.actions.browseAria': 'OpenCode binary 경로 찾아보기',
   'settings.pichamber.opencodeCli.actions.browse': '찾아보기',
   'settings.pichamber.opencodeCli.actions.saveAndReload': '저장 + 다시 로드',

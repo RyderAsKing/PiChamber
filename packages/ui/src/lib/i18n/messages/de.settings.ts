@@ -2070,7 +2070,7 @@ export const settingsDict = {
   'settings.pichamber.desktopPassword.actions.hidePassword': 'Passwort verbergen',
   'settings.pichamber.opencodeCli.field.agentControlTool': 'Agenten-Steuerungswerkzeug',
   'settings.pichamber.opencodeCli.field.agentControlToolAria': 'Das Agenten-Steuerungswerkzeug aktivieren',
-  'settings.pichamber.opencodeCli.field.agentControlToolInfo': 'Lässt Agenten deine Arbeit per Chat orchestrieren: Sitzungen und Arbeitsbereiche starten, Prompts an andere Agenten delegieren und geplante Aufgaben verwalten. Fügt jeder Sitzung eine kleine Werkzeugbeschreibung hinzu. Gilt nach Speichern + Neuladen.',
+  'settings.pichamber.opencodeCli.field.agentControlToolInfo': 'Lässt Agenten deine Arbeit per Chat orchestrieren: Sitzungen und Arbeitsbereiche starten, Prompts an andere Agenten delegieren. Fügt jeder Sitzung eine kleine Werkzeugbeschreibung hinzu. Gilt nach Speichern + Neuladen.',
   'settings.pichamber.defaults.walkthroughModel.title': 'Walkthrough-Modell ändern',
   'settings.pichamber.defaults.walkthroughModel.description': 'Die KI-Prüfung deiner Änderungen benötigt strukturierten Output und Platz für einen ganzen Diff, den ein günstiges kleines Modell oft nicht liefern kann. Modelle, die der Katalog als nicht in der Lage zu strukturiertem Output meldet, werden in diesem Auswahlfeld ausgeblendet. Lasse es leer, dann wird das kleine Modell verwendet.',
   'settings.pichamber.defaults.walkthroughModel.overrideModel': 'Walkthrough-Modell',

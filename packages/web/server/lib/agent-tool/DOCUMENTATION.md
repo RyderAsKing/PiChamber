@@ -21,8 +21,8 @@ restart).
    OpenCode's authoritative session directory.
 5. The route delegates the fixed action allowlist directly to the shared
    PiChamber control service. The CLI uses the same service through its
-   authenticated HTTP adapter, so Goal Mode ordering, wait behavior,
-   partial-failure reporting, and scheduled-task contracts have one owner.
+   authenticated HTTP adapter, so wait behavior and partial-failure reporting
+   have one owner.
 6. Each action definition owns a short presentation title and a separate
    agent-facing description. The generated schema uses the description to state
    required inputs or one non-obvious behavior, while completed calls use the
@@ -38,13 +38,11 @@ restart).
   inferred from the field name.
 - Session dispatches do not wait by default. Agents are told to set `wait` only
   when the user asks or the next step requires the completed result.
-- The tool exposes only agent-relevant actions
-  (`OPENCHAMBER_AGENT_TOOL_ACTIONS`): `schedule.status` stays CLI-only because
-  `schedule.list` already returns scheduler status, and enable/disable are one
-  `schedule.toggle` action driven by the `disabled` boolean.
-- The tool description frames intent: created sessions and scheduled tasks are
-  user-facing work the user follows up with, never a channel for the agent to
-  delegate parts of its own current task.
+- The tool exposes only agent-relevant actions through
+  `OPENCHAMBER_AGENT_TOOL_ACTIONS`.
+- The tool description frames intent: created sessions are user-facing work
+  the user follows up with, never a channel for the agent to delegate parts of
+  its own current task.
 - Optional behavior switches (`worktree`, `goal`, `agent`, `variant`, `wait`)
   state their default and an explicit "only when the user asks" rule so agents
   do not invent worktrees, goal mode, or waits the user never requested.

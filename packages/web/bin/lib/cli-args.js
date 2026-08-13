@@ -91,20 +91,12 @@ function parseArgs(argv = process.argv.slice(2)) {
     lan: false,
     apiOnly: false,
     project: undefined,
-    task: undefined,
     session: undefined,
     message: undefined,
     prompt: undefined,
     model: undefined,
-    daily: undefined,
-    weekly: undefined,
-    once: undefined,
-    time: undefined,
-    cron: undefined,
-    timezone: undefined,
     agent: undefined,
     variant: undefined,
-    disabled: false,
     directory: undefined,
     role: undefined,
     last: false,
@@ -262,12 +254,6 @@ function parseArgs(argv = process.argv.slice(2)) {
         options.directory = typeof value === 'string' ? value : options.directory;
         break;
       }
-      case 'task': {
-        const { value, nextIndex } = consumeValue(i, inlineValue);
-        i = nextIndex;
-        options.task = typeof value === 'string' ? value : options.task;
-        break;
-      }
       case 'session': {
         const { value, nextIndex } = consumeValue(i, inlineValue);
         i = nextIndex;
@@ -292,57 +278,6 @@ function parseArgs(argv = process.argv.slice(2)) {
         options.model = typeof value === 'string' ? value : options.model;
         break;
       }
-      case 'daily': {
-        const { value, nextIndex } = consumeValue(i, inlineValue);
-        i = nextIndex;
-        options.daily = typeof value === 'string' ? value : options.daily;
-        break;
-      }
-      case 'weekly': {
-        const { value, nextIndex } = consumeValue(i, inlineValue);
-        i = nextIndex;
-        options.weekly = typeof value === 'string' ? value : options.weekly;
-        break;
-      }
-      case 'once': {
-        const { value, nextIndex } = consumeValue(i, inlineValue);
-        i = nextIndex;
-        options.once = typeof value === 'string' ? value : options.once;
-        break;
-      }
-      case 'time': {
-        const { value, nextIndex } = consumeValue(i, inlineValue);
-        i = nextIndex;
-        options.time = typeof value === 'string' ? value : options.time;
-        break;
-      }
-      case 'cron': {
-        const { value, nextIndex } = consumeValue(i, inlineValue);
-        i = nextIndex;
-        options.cron = typeof value === 'string' ? value : options.cron;
-        break;
-      }
-      case 'timezone': {
-        const { value, nextIndex } = consumeValue(i, inlineValue);
-        i = nextIndex;
-        options.timezone = typeof value === 'string' ? value : options.timezone;
-        break;
-      }
-      case 'agent': {
-        const { value, nextIndex } = consumeValue(i, inlineValue);
-        i = nextIndex;
-        options.agent = typeof value === 'string' ? value : options.agent;
-        break;
-      }
-      case 'variant': {
-        const { value, nextIndex } = consumeValue(i, inlineValue);
-        i = nextIndex;
-        options.variant = typeof value === 'string' ? value : options.variant;
-        break;
-      }
-      case 'disabled':
-        options.disabled = true;
-        break;
       case 'config': {
         const { value, nextIndex } = consumeValue(i, inlineValue);
         i = nextIndex;
@@ -525,7 +460,6 @@ function parseArgs(argv = process.argv.slice(2)) {
   const subcommand = command === 'tunnel' ? (positional[1] || 'help') : null;
   const tunnelAction = command === 'tunnel' ? (positional[2] || null) : null;
   const startupAction = command === 'startup' ? (positional[1] || 'status') : null;
-  const scheduleAction = command === 'schedule' ? (positional[1] || 'help') : null;
   const sessionAction = command === 'session' ? (positional[1] || 'help') : null;
   const controlAction = command === 'control' ? (positional[1] || 'help') : null;
 
@@ -542,7 +476,6 @@ function parseArgs(argv = process.argv.slice(2)) {
     subcommand,
     tunnelAction,
     startupAction,
-    scheduleAction,
     sessionAction,
     controlAction,
     options,
@@ -564,7 +497,6 @@ COMMANDS:
   stop           Stop running instance(s)
   restart        Stop and start the server
   status         Show server status
-  schedule       Manage scheduled tasks
   session        Create, inspect, and read PiChamber sessions
   models         Show default and favorite models
   projects       Show configured projects and IDs
@@ -625,7 +557,6 @@ COMMANDS:
   session                        Create, inspect, and read sessions
   models                         Show default and favorite models
   projects                       Show configured projects and IDs
-  schedule                       Manage scheduled tasks
   tunnel                         Inspect tunnel status/readiness
   logs                           Tail logs for CLI-managed runtimes
 
@@ -633,7 +564,6 @@ DETAILED HELP:
   openchamber session --help     Show session creation, status, and message options
   openchamber models --help      Show model defaults and favorites help
   openchamber projects --help    Show project list help
-  openchamber schedule --help    Show scheduled task actions and schedule options
   openchamber tunnel help        Show tunnel lifecycle/status commands
   openchamber status --help      Show runtime status options
 
@@ -648,7 +578,6 @@ EXAMPLES:
   openchamber models
   openchamber projects
   openchamber session --help
-  openchamber schedule --help
 `);
 }
 
@@ -813,7 +742,7 @@ _openchamber_tunnel() {
   cur="\${COMP_WORDS[COMP_CWORD]}"
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
-    commands="serve stop restart status schedule session models projects tunnel logs update"
+    commands="serve stop restart status session models projects tunnel logs update"
   tunnel_commands="help providers ready doctor status start stop profile completion"
   profile_commands="list show add remove"
   common_flags="--port --foreground --no-daemon --json --all --help --version --plain --quiet"
@@ -865,7 +794,6 @@ _openchamber() {
     'stop:Stop running instance(s)'
     'restart:Stop and start the server'
     'status:Show server status'
-    'schedule:Manage scheduled tasks'
     'session:Create sessions'
     'models:Show default and favorite models'
     'projects:Show configured projects and IDs'

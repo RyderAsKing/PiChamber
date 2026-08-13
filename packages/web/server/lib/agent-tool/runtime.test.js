@@ -48,11 +48,6 @@ describe('agent tool action allowlist', () => {
     'session.fork',
     'session.status',
     'session.messages',
-    'schedule.list',
-    'schedule.create',
-    'schedule.run',
-    'schedule.delete',
-    'schedule.toggle',
   ])('delegates %s to the shared control service', async (action) => {
     const { runtime, executeAction } = await createRuntime();
     const input = { action, projectId: 'project-1' };
@@ -62,7 +57,7 @@ describe('agent tool action allowlist', () => {
 
   it.each([
     'session.delete',
-    'schedule.status',
+    'schedule.create',
   ])('rejects %s outside the agent allowlist without invoking the service', async (action) => {
     const { runtime, executeAction } = await createRuntime();
     await expect(runtime.execute({ input: { action } })).resolves.toEqual(expect.objectContaining({
@@ -129,21 +124,6 @@ describe('managed agent tool runtime', () => {
       data: { projects: [] },
     });
     expect(executeAction).toHaveBeenCalledWith('projects.list', { action: 'projects.list' }, '/work/project', {});
-  });
-
-  it('keeps service failures as structured tool results', async () => {
-    const error = Object.assign(new Error('Task not found'), { statusCode: 404 });
-    const { runtime } = await createRuntime({ executeAction: vi.fn(async () => { throw error; }) });
-
-    await expect(runtime.execute({
-      input: { action: 'schedule.run', taskId: 'missing' },
-      contextDirectory: '/work/project',
-    })).resolves.toEqual(expect.objectContaining({
-      schemaVersion: 1,
-      ok: false,
-      action: 'schedule.run',
-      error: { message: 'Task not found', kind: 'usage' },
-    }));
   });
 
   it('forwards cancellation to the shared control service', async () => {
