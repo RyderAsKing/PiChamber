@@ -1,0 +1,45 @@
+export {
+  PWA_RECENT_SESSIONS_STORAGE_KEY,
+} from './pwaKeys';
+
+import { PWA_RECENT_SESSIONS_STORAGE_KEY as PWA_RECENT_SESSIONS_STORAGE_KEY_VALUE } from './pwaKeys';
+
+export type PWADisplayMode =
+  | 'browser'
+  | 'standalone'
+  | 'minimal-ui'
+  | 'fullscreen'
+  | 'window-controls-overlay'
+  | 'twa';
+
+const DISPLAY_MODES: Array<Exclude<PWADisplayMode, 'browser' | 'twa'>> = ['standalone', 'minimal-ui', 'fullscreen', 'window-controls-overlay'];
+
+// Re-exporting with the original identifier keeps the import surface stable
+// for the few remaining in-package readers while the constant value comes
+// from the shared PWA keys module.
+void PWA_RECENT_SESSIONS_STORAGE_KEY_VALUE;
+
+const matchesDisplayMode = (mode: Exclude<PWADisplayMode, 'browser' | 'twa'>): boolean => {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
+  return window.matchMedia(`(display-mode: ${mode})`).matches;
+};
+
+export const getPWADisplayMode = (): PWADisplayMode => {
+  if (typeof window === 'undefined') {
+    return 'browser';
+  }
+
+  if (typeof document !== 'undefined' && document.referrer.startsWith('android-app://')) {
+    return 'twa';
+  }
+
+  const navigatorStandalone = Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone);
+  if (navigatorStandalone) {
+    return 'standalone';
+  }
+
+  const matched = DISPLAY_MODES.find((mode) => matchesDisplayMode(mode));
+  return matched ?? 'browser';
+};

@@ -209,11 +209,7 @@ type VisibleRailSurfacesOptions = {
  */
 export const getVisibleContextRailSurfaces = (options: VisibleRailSurfacesOptions): ContextSurfaceDescriptor[] => {
   return sortContextSurfaces(options.railOrder).filter((surface) => {
-    if (surface.id === 'plan' && !options.planModeEnabled) {
-      return false;
-    }
-    // The walkthrough needs room for a stop list beside real code.
-    if (surface.id === 'walkthrough' && options.screenWidth < WALKTHROUGH_MIN_WIDTH) {
+    if (surface.id === 'plan' || surface.id === 'walkthrough') {
       return false;
     }
     if (surface.availability === 'has-content') {

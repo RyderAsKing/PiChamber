@@ -7,6 +7,7 @@ Use a store only for state shared across distant component trees or for a cache 
 ## Ownership
 
 - `useUIStore.ts`: local UI layout, dialogs, and presentation preferences.
+- `useDirectoryStore.ts`, `useProjectsStore.ts`, `useGitStore.ts`, `useTerminalStore.ts`, `useFilesStore.ts`: workspace chrome for Files/Git/Terminal against `/api/fs`, `/api/git`, `/api/terminal`.
 - `useSkillsStore.ts`: Pi resource-discovery state. Skill paths are opaque daemon identifiers, never filesystem paths.
 - `useSnippetsStore.ts` and `useMagicPromptsStore.ts`: Pi prompt-template and PiChamber magic-prompt UI state.
 

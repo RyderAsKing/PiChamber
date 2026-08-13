@@ -16,7 +16,9 @@
     "baseUrl": "./src",
     "paths": {
       "@/*": ["./*"],
-      "@pichamber/ui/*": ["./*"]
+      "@pichamber/ui/*": ["./*"],
+      "@opencode-ai/sdk/v2": ["./lib/chat/types.ts"],
+      "@opencode-ai/sdk/v2/client": ["./lib/chat/types.ts"]
     }
   },
   "include": ["src"]

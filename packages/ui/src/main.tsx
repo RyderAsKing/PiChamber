@@ -4,7 +4,10 @@ import './styles/fonts';
 import './index.css';
 import App from './App.tsx';
 import { SessionAuthGate } from './components/auth/SessionAuthGate';
+import { ThemeProvider } from './components/providers/ThemeProvider';
+import { ThemeSystemProvider } from './contexts/ThemeSystemContext';
 import { initializeLocale, I18nProvider } from './lib/i18n';
+import { getRegisteredRuntimeAPIs } from './contexts/runtimeAPIRegistry';
 
 initializeLocale();
 
@@ -16,9 +19,13 @@ if (!rootElement) {
 createRoot(rootElement).render(
   <StrictMode>
     <I18nProvider>
-      <SessionAuthGate>
-        <App />
-      </SessionAuthGate>
+      <ThemeSystemProvider>
+        <ThemeProvider>
+          <SessionAuthGate>
+            <App apis={getRegisteredRuntimeAPIs() ?? undefined} />
+          </SessionAuthGate>
+        </ThemeProvider>
+      </ThemeSystemProvider>
     </I18nProvider>
   </StrictMode>,
 );

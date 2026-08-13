@@ -5,23 +5,19 @@ import {
   setRuntimeUrlResolver,
   type RuntimeUrlResolver,
 } from '@pichamber/ui/lib/runtime-url';
+import { useDirectoryStore } from '@pichamber/ui/stores/useDirectoryStore';
+import { createWebTerminalAPI } from './terminal';
+import { createWebGitAPI } from './git';
+import { createWebFilesAPI } from './files';
+import { createWebSettingsAPI } from './settings';
+import { createWebPermissionsAPI } from './permissions';
+import { createWebNotificationsAPI } from './notifications';
+import { createWebToolsAPI } from './tools';
+import { createWebClientAuthAPI } from './clientAuth';
 
 export interface WebAPIsOptions {
   urls?: RuntimeUrlResolver;
 }
-
-/**
- * The mounted application uses the Pi HTTP facade directly. Retain the runtime
- * descriptor for shell compatibility without importing legacy runtime-backed
- * web API implementations into the browser bundle.
- */
-export const createWebAPIs = (options: WebAPIsOptions = {}): RuntimeAPIs => {
-  const urls = options.urls ?? createRuntimeUrlResolver();
-  setRuntimeUrlResolver(urls);
-  return {
-    runtime: { platform: 'web', isDesktop: false, label: 'web' },
-  } as RuntimeAPIs;
-};
 
 export const createActiveRuntimeUrlResolver = (): RuntimeUrlResolver => ({
   api: (...args) => getRuntimeUrlResolver().api(...args),
@@ -32,3 +28,21 @@ export const createActiveRuntimeUrlResolver = (): RuntimeUrlResolver => ({
   sse: (...args) => getRuntimeUrlResolver().sse(...args),
   websocket: (...args) => getRuntimeUrlResolver().websocket(...args),
 });
+
+export const createWebAPIs = (options: WebAPIsOptions = {}): RuntimeAPIs => {
+  const urls = options.urls ?? createRuntimeUrlResolver();
+  setRuntimeUrlResolver(urls);
+  const activeUrls = createActiveRuntimeUrlResolver();
+
+  return {
+    runtime: { platform: 'web', isDesktop: false, label: 'web' },
+    terminal: createWebTerminalAPI(),
+    git: createWebGitAPI(),
+    files: createWebFilesAPI({ urls: activeUrls, getDirectory: () => useDirectoryStore.getState().currentDirectory }),
+    settings: createWebSettingsAPI(),
+    permissions: createWebPermissionsAPI(),
+    notifications: createWebNotificationsAPI(),
+    clientAuth: createWebClientAuthAPI(),
+    tools: createWebToolsAPI(),
+  };
+};
