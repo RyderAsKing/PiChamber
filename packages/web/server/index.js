@@ -92,9 +92,6 @@ import { createPreviewProxyRuntime } from './lib/preview/proxy-runtime.js';
 import { attachRealtimeProxy } from './lib/realtime-proxy.js';
 import { createRelayService } from './lib/relay/service.js';
 import { createRelayHostLock } from './lib/relay/host-lock.js';
-import { createAgentToolRuntime } from './lib/agent-tool/runtime.js';
-import { createPiChamberSessionService } from './lib/openchamber-sessions/routes.js';
-import { createPiChamberControlService } from './lib/openchamber-control/service.js';
 import { createPiSessionDaemonSupervisor } from './lib/pi/session-daemon/supervisor.js';
 import { registerPiRuntimeRoutes } from './lib/pi/routes.js';
 import { createProxyMiddleware, responseInterceptor } from 'http-proxy-middleware';
@@ -107,7 +104,6 @@ const DEFAULT_PORT = 3000;
 const DESKTOP_NOTIFY_PREFIX = '[PiChamberDesktopNotify] ';
 const uiNotificationClients = new Set();
 const uiNotificationWsClients = new Set();
-const uiPiChamberEventClients = new Set();
 const HEALTH_CHECK_INTERVAL = 15000;
 const SHUTDOWN_TIMEOUT = 10000;
 const MODELS_DEV_API_URL = 'https://models.dev/api.json';
@@ -147,7 +143,6 @@ const SSE_PATH_PREFIXES = [
   '/api/event',
   '/api/global/event',
   '/api/notifications/stream',
-  '/api/openchamber/events',
   '/api/openchamber/realtime-proxy/sse',
 ];
 
@@ -265,7 +260,6 @@ const themeRuntime = createThemeRuntime({
 const readCustomThemesFromDisk = (...args) => themeRuntime.readCustomThemesFromDisk(...args);
 
 let notificationTemplateRuntime = null;
-let agentToolRuntime = null;
 
 const createTimeoutSignal = (...args) => notificationTemplateRuntime.createTimeoutSignal(...args);
 const formatProjectLabel = (...args) => notificationTemplateRuntime.formatProjectLabel(...args);
@@ -900,7 +894,6 @@ const bootstrapRuntime = createBootstrapRuntime({
   registerTtsRoutes,
   registerNotificationRoutes,
   registerPiChamberRoutes,
-  registerAgentToolRoutes: (app, options) => options.agentToolRuntime.registerRoutes(app, options.express),
   express,
 });
 const tunnelWiringRuntime = createTunnelWiringRuntime({
@@ -1030,12 +1023,7 @@ const openCodeLifecycleRuntime = createOpenCodeLifecycleRuntime({
       console.warn('Failed to rebind message stream after OpenCode restart:', error?.message ?? error);
     }
   },
-  getManagedOpenCodeEnv: async () => {
-    const settings = await readSettingsFromDiskMigrated().catch(() => null);
-    return settings?.agentControlToolEnabled === false
-      ? {}
-      : await (agentToolRuntime?.prepareManagedOpenCodeEnv() || {});
-  },
+  getManagedOpenCodeEnv: async () => ({}),
 });
 
 
@@ -1045,43 +1033,6 @@ const waitForAgentPresence = (...args) => openCodeLifecycleRuntime.waitForAgentP
 const refreshOpenCodeAfterConfigChange = (...args) => openCodeLifecycleRuntime.refreshOpenCodeAfterConfigChange(...args);
 const startHealthMonitoring = () => openCodeLifecycleRuntime.startHealthMonitoring(HEALTH_CHECK_INTERVAL);
 const triggerHealthCheck = () => openCodeLifecycleRuntime.triggerHealthCheck();
-const emitSessionCreatedEvent = (event) => {
-  for (const client of uiPiChamberEventClients) {
-    try {
-      writeSseEvent(client, {
-        type: 'openchamber:session-created',
-        properties: {
-          sessionId: event.sessionID,
-          directory: event.directory,
-          createdAt: event.createdAt,
-          promptDispatched: event.promptDispatched === true,
-          dispatchedAsCommand: event.dispatchedAsCommand === true,
-          ...(event.projectID ? { projectId: event.projectID } : {}),
-          ...(event.title ? { title: event.title } : {}),
-        },
-      });
-    } catch {
-      uiPiChamberEventClients.delete(client);
-    }
-  }
-};
-const openChamberSessionService = createPiChamberSessionService({
-  readSettingsFromDiskMigrated,
-  sanitizeProjects,
-  validateDirectoryPath,
-  buildOpenCodeUrl,
-  getOpenCodeAuthHeaders,
-  waitForOpenCodeReady,
-  emitSessionCreatedEvent,
-});
-const openChamberControlService = createPiChamberControlService({
-  readSettingsFromDiskMigrated,
-  sanitizeProjects,
-  buildOpenCodeUrl,
-  getOpenCodeAuthHeaders,
-  waitForOpenCodeReady,
-  sessionService: openChamberSessionService,
-});
 
 const ensureGlobalWatcherStarted = async () => {
   if (globalWatcherStartPromise) {
@@ -1174,18 +1125,6 @@ async function main(options = {}) {
     || (typeof process.env.OPENCHAMBER_HOST === 'string' && process.env.OPENCHAMBER_HOST.trim().length > 0
       ? process.env.OPENCHAMBER_HOST.trim()
       : '127.0.0.1');
-  agentToolRuntime = createAgentToolRuntime({
-    crypto,
-    fsPromises,
-    path,
-    dataDir: OPENCHAMBER_DATA_DIR,
-    env: process.env,
-    executeAction: (...args) => openChamberControlService.execute(...args),
-    getActivePort: () => {
-      const address = server?.address?.();
-      return typeof address === 'object' && address ? address.port : null;
-    },
-  });
   piSessionDaemonRuntime = createPiSessionDaemonSupervisor({
     cwd: process.cwd(),
     dataDir: OPENCHAMBER_DATA_DIR,
@@ -1487,7 +1426,6 @@ async function main(options = {}) {
     fetchFreeZenModels,
     getCachedZenModels,
     setAutoAcceptSession,
-    agentToolRuntime,
   });
   uiAuthController = bootstrapResult.uiAuthController;
   piAttachmentRuntime = registerPiRuntimeRoutes(app, {
@@ -1574,12 +1512,7 @@ async function main(options = {}) {
     getOpenCodeAuthHeaders,
     getOpenCodePort: () => openCodePort,
     buildAugmentedPath,
-    openChamberSessionService,
-    openChamberControlService,
     waitForOpenCodeReady,
-    emitSessionCreatedEvent,
-    getPiChamberEventClients: () => uiPiChamberEventClients,
-    writeSseEvent,
     permissionAutoAcceptRuntime,
   });
 

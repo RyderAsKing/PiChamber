@@ -548,7 +548,6 @@ const materializeAuthoritativeUiSettings = (settings: DesktopSettings): DesktopS
     maxLastMessageLength: defaults.maxLastMessageLength,
     inputSpellcheckEnabled: defaults.inputSpellcheckEnabled,
     showOpenCodeUpdateNotifications: defaults.showOpenCodeUpdateNotifications,
-    agentControlToolEnabled: defaults.agentControlToolEnabled,
     showToolFileIcons: defaults.showToolFileIcons,
     codeBlockLineWrap: defaults.codeBlockLineWrap,
     showTurnChangedFiles: defaults.showTurnChangedFiles,
@@ -703,12 +702,6 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
     && settings.showOpenCodeUpdateNotifications !== store.showOpenCodeUpdateNotifications
   ) {
     store.setShowOpenCodeUpdateNotifications(settings.showOpenCodeUpdateNotifications);
-  }
-  if (
-    typeof settings.agentControlToolEnabled === 'boolean'
-    && settings.agentControlToolEnabled !== store.agentControlToolEnabled
-  ) {
-    store.setAgentControlToolEnabled(settings.agentControlToolEnabled);
   }
   if (typeof settings.showToolFileIcons === 'boolean' && settings.showToolFileIcons !== store.showToolFileIcons) {
     store.setShowToolFileIcons(settings.showToolFileIcons);
@@ -1313,9 +1306,6 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
   }
   if (typeof candidate.showOpenCodeUpdateNotifications === 'boolean') {
     result.showOpenCodeUpdateNotifications = candidate.showOpenCodeUpdateNotifications;
-  }
-  if (typeof candidate.agentControlToolEnabled === 'boolean') {
-    result.agentControlToolEnabled = candidate.agentControlToolEnabled;
   }
   if (typeof candidate.openCodeUpdateToastDismissedVersion === 'string') {
     result.openCodeUpdateToastDismissedVersion = candidate.openCodeUpdateToastDismissedVersion.trim().slice(0, 128);

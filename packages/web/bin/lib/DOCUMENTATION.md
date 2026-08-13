@@ -7,7 +7,6 @@ This directory contains non-entrypoint PiChamber CLI implementation. `../cli.js`
 - `commands-serve.js`: server startup, PID/instance registry, and foreground/background lifecycle.
 - `commands-lifecycle.js`: stop and restart behavior.
 - `commands-status.js`: running-instance and tunnel status presentation.
-- `commands-models.js` and `commands-projects.js`: read-only preference and project listings.
 - `commands-logs.js`: log discovery, tailing, and follow behavior.
 - `commands-startup.js`: native startup service management.
 - `commands-connect-url.js`: authenticated direct/relay pairing links.

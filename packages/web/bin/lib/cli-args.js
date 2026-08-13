@@ -460,8 +460,6 @@ function parseArgs(argv = process.argv.slice(2)) {
   const subcommand = command === 'tunnel' ? (positional[1] || 'help') : null;
   const tunnelAction = command === 'tunnel' ? (positional[2] || null) : null;
   const startupAction = command === 'startup' ? (positional[1] || 'status') : null;
-  const sessionAction = command === 'session' ? (positional[1] || 'help') : null;
-  const controlAction = command === 'control' ? (positional[1] || 'help') : null;
 
   if (options.lan && typeof options.host !== 'string') {
     options.host = '0.0.0.0';
@@ -476,8 +474,6 @@ function parseArgs(argv = process.argv.slice(2)) {
     subcommand,
     tunnelAction,
     startupAction,
-    sessionAction,
-    controlAction,
     options,
     removedFlagErrors,
     helpRequested,
@@ -497,10 +493,6 @@ COMMANDS:
   stop           Stop running instance(s)
   restart        Stop and start the server
   status         Show server status
-  session        Create, inspect, and read PiChamber sessions
-  models         Show default and favorite models
-  projects       Show configured projects and IDs
-  control        Show PiChamber control-plane commands
   tunnel         Tunnel lifecycle commands
   startup        Manage launch at system startup
   logs           Tail PiChamber logs
@@ -538,46 +530,9 @@ EXAMPLES:
   openchamber serve --foreground # Start in foreground (for systemd Type=simple)
   openchamber connect-url --port 3000 --qr
   openchamber connect-url --server https://openchamber.example.com
-  openchamber control           # Show control-plane commands for agents/scripts
   openchamber startup enable     # Start PiChamber at user login
   openchamber tunnel help        # Show tunnel lifecycle help
   openchamber logs               # Follow logs for latest running instance
-`);
-}
-
-function showControlHelp() {
-  console.log(`
- PiChamber Control Commands
-
-USAGE:
-  openchamber <COMMAND> [OPTIONS]
-
-COMMANDS:
-  status                         Show running PiChamber runtimes
-  session                        Create, inspect, and read sessions
-  models                         Show default and favorite models
-  projects                       Show configured projects and IDs
-  tunnel                         Inspect tunnel status/readiness
-  logs                           Tail logs for CLI-managed runtimes
-
-DETAILED HELP:
-  openchamber session --help     Show session creation, status, and message options
-  openchamber models --help      Show model defaults and favorites help
-  openchamber projects --help    Show project list help
-  openchamber tunnel help        Show tunnel lifecycle/status commands
-  openchamber status --help      Show runtime status options
-
-COMMON OPTIONS:
-  --json                         Output machine-readable JSON
-  -q, --quiet                    Print minimal output
-  -p, --port <port>              Target a specific PiChamber runtime
-  --ui-password <password>       Authenticate to a password-protected runtime
-
-EXAMPLES:
-  openchamber status
-  openchamber models
-  openchamber projects
-  openchamber session --help
 `);
 }
 
@@ -742,7 +697,7 @@ _openchamber_tunnel() {
   cur="\${COMP_WORDS[COMP_CWORD]}"
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
-    commands="serve stop restart status session models projects tunnel logs update"
+    commands="serve stop restart status tunnel logs update"},{
   tunnel_commands="help providers ready doctor status start stop profile completion"
   profile_commands="list show add remove"
   common_flags="--port --foreground --no-daemon --json --all --help --version --plain --quiet"
@@ -794,9 +749,6 @@ _openchamber() {
     'stop:Stop running instance(s)'
     'restart:Stop and start the server'
     'status:Show server status'
-    'session:Create sessions'
-    'models:Show default and favorite models'
-    'projects:Show configured projects and IDs'
     'tunnel:Tunnel lifecycle commands'
     'logs:Tail PiChamber logs'
     'update:Check for and install updates'
@@ -894,7 +846,6 @@ export {
   DEFAULT_PORT,
   parseArgs,
   showHelp,
-  showControlHelp,
   showStartupHelp,
   showConnectUrlHelp,
   showTunnelHelp,

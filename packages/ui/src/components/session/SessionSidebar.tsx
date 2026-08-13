@@ -93,7 +93,6 @@ import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
 import { useNotificationStore } from '@/sync/notification-store';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { getGitHubPrStatusKey, useGitHubPrStatusStore } from '@/stores/useGitHubPrStatusStore';
-import { subscribeOpenchamberEvents } from '@/lib/pichamberEvents';
 import { buildSessionBootstrapDemands } from './sidebar/sessionBootstrapDemands';
 import { recordWorktreesSeen } from './sidebar/worktreeFirstSeen';
 import { getRuntimeKey } from '@/lib/runtime-switch';
@@ -534,31 +533,8 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     [projects, runtimeKey],
   );
   const [resolvedWorktreeTopologyKey, setResolvedWorktreeTopologyKey] = React.useState<string | null>(null);
-  const [worktreeDiscoveryRevision, requestWorktreeDiscovery] = React.useReducer((revision) => revision + 1, 0);
   const isWorktreeTopologyLoading = resolvedWorktreeTopologyKey !== projectWorktreeDiscoveryKey;
   const [unresolvedWorktreeProjectPaths, setUnresolvedWorktreeProjectPaths] = React.useState<ReadonlySet<string>>(new Set());
-
-  React.useEffect(() => {
-    let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
-    const sessionDirectories = new Set<string>();
-    const unsubscribe = subscribeOpenchamberEvents((event) => {
-      sessionDirectories.add(event.directory);
-      requestWorktreeDiscovery();
-      if (refreshTimeout) clearTimeout(refreshTimeout);
-      refreshTimeout = setTimeout(() => {
-        refreshTimeout = null;
-        const directories = [...sessionDirectories];
-        sessionDirectories.clear();
-        if (directories.length > 0) {
-          void refreshGlobalSessionsForDirectories(directories, syncSessionsSnapshotRef.current);
-        }
-      }, 500);
-    });
-    return () => {
-      if (refreshTimeout) clearTimeout(refreshTimeout);
-      unsubscribe();
-    };
-  }, []);
 
   const initialGlobalSessionsRefreshStartedRef = React.useRef(false);
   React.useEffect(() => {
@@ -659,7 +635,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [projectWorktreeDiscoveryKey, runtimeKey, worktreeDiscoveryRevision]);
+  }, [projectWorktreeDiscoveryKey, runtimeKey]);
 
   const isDesktopShellRuntime = React.useMemo(() => isDesktopShell(), []);
 
