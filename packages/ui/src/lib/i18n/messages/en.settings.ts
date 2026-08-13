@@ -276,7 +276,6 @@ export const settingsDict = {
   'settings.magicPrompts.sidebar.item.sessionFeaturePlan': 'Feature Planning',
   'settings.magicPrompts.sidebar.item.sessionCraftGoal': 'Goal Crafting',
   'settings.magicPrompts.page.group.sessionCraftGoal.title': 'Goal Crafting',
-  'settings.magicPrompts.page.group.sessionCraftGoal.description': 'Prompts used by the /craft-goal slash command: visible user message + hidden instructions. Turns an idea or task into a clear, evidence-verifiable Goal through guided discovery.',
   'settings.magicPrompts.sidebar.item.sessionCatchUp': 'Catch Up',
   'settings.magicPrompts.sidebar.item.sessionDebug': 'Debugging',
   'settings.magicPrompts.sidebar.item.sessionWeigh': 'Weigh Options',

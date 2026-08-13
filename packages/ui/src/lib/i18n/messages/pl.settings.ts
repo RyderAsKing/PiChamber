@@ -403,7 +403,6 @@ export const settingsDict = {
   'settings.magicPrompts.sidebar.item.sessionFeaturePlan': 'Planowanie funkcji',
   'settings.magicPrompts.sidebar.item.sessionCraftGoal': 'Tworzenie Goal',
   'settings.magicPrompts.page.group.sessionCraftGoal.title': 'Tworzenie Goal',
-  'settings.magicPrompts.page.group.sessionCraftGoal.description': 'Prompty używane przez polecenie /craft-goal: widoczna wiadomość użytkownika + ukryte instrukcje. Przekształca pomysł lub zadanie w jasny, oparty na dowodach Goal poprzez prowadzoną rozmowę.',
   'settings.magicPrompts.sidebar.item.sessionCatchUp': 'Nadrobienie kontekstu',
   'settings.magicPrompts.sidebar.item.sessionDebug': 'Debugowanie',
   'settings.magicPrompts.sidebar.item.sessionWeigh': 'Rozważanie opcji',

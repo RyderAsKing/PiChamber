@@ -217,7 +217,6 @@ export type DesktopSettings = {
   draftStarters?: DraftStarterRef[];
   draftStartersVisible?: boolean;
   // One-time migration marker: Craft a Goal was offered in the starter row.
-  draftStartersCraftGoalAdded?: boolean;
   draftStartersScheduleTaskAdded?: boolean;
 };
 

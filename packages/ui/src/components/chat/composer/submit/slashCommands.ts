@@ -53,7 +53,7 @@ const summaryVariables = (topic: string) => ({
     },
 });
 
-/** `/craft-goal <idea>` and `/schedule-task <idea>` seed the prompt with the idea. */
+/** `/schedule-task <idea>` seeds the prompt with the idea. */
 const ideaVariables = (idea: string) => ({
     visible: { idea_block: idea ? `\n\nHere is my initial idea:\n${idea}` : '' },
 });
@@ -81,14 +81,6 @@ export const MAGIC_PROMPT_COMMANDS: readonly MagicPromptCommand[] = [
         instructionsPrompt: 'session.plan.instructions',
         errorToastKey: 'chat.chatInput.toast.planFeatureFailed',
         requires: 'session-or-draft',
-    },
-    {
-        name: 'craft-goal',
-        visiblePrompt: 'session.craftGoal.visible',
-        instructionsPrompt: 'session.craftGoal.instructions',
-        errorToastKey: 'chat.chatInput.toast.craftGoalFailed',
-        requires: 'session-or-draft',
-        buildVariables: ideaVariables,
     },
     {
         name: 'schedule-task',

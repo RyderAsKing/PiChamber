@@ -536,7 +536,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const availableSkills = useSkillsStore((s) => s.skills);
     const knownSlashNames = React.useMemo(() => {
         const names = new Set<string>([
-            'init', 'review', 'undo', 'redo', 'timeline', 'compact', 'summary', 'workspace-review', 'plan-feature', 'craft-goal', 'schedule-task', 'catch-up', 'debug', 'weigh', 'explore',
+            'init', 'review', 'undo', 'redo', 'timeline', 'compact', 'summary', 'workspace-review', 'plan-feature', 'schedule-task', 'catch-up', 'debug', 'weigh', 'explore',
         ]);
         if (!isMobile) names.add('handoff-review');
         for (const command of availableCommands) names.add(command.name.toLowerCase());

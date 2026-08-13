@@ -689,7 +689,6 @@ export interface SettingsPayload {
   mobileKeyboardMode?: 'native' | 'resize-content';
   draftStarters?: DraftStarterRef[];
   draftStartersVisible?: boolean;
-  draftStartersCraftGoalAdded?: boolean;
 
   [key: string]: unknown;
 }

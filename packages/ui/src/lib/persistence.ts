@@ -815,19 +815,11 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
     store.setFontSize(settings.fontSize);
   }
   if (Array.isArray(settings.draftStarters)) {
-    let nextStarters = sanitizeStarterRefs(settings.draftStarters);
-    if (settings.draftStartersCraftGoalAdded !== true && !nextStarters.some((starter) => starter.type === 'command' && starter.name === 'craft-goal')) {
+    let nextStarters = sanitizeStarterRefs(settings.draftStarters)
+      .filter((starter) => starter.type !== 'command' || starter.name !== 'craft-goal');
+    if (settings.draftStartersScheduleTaskAdded !== true && !nextStarters.some((starter) => starter.type === 'command' && starter.name === 'schedule-task')) {
       const planIndex = nextStarters.findIndex((starter) => starter.type === 'command' && starter.name === 'plan-feature');
       const insertAt = planIndex >= 0 ? planIndex + 1 : nextStarters.length;
-      nextStarters = [
-        ...nextStarters.slice(0, insertAt),
-        { type: 'command', name: 'craft-goal' },
-        ...nextStarters.slice(insertAt),
-      ];
-    }
-    if (settings.draftStartersScheduleTaskAdded !== true && !nextStarters.some((starter) => starter.type === 'command' && starter.name === 'schedule-task')) {
-      const goalIndex = nextStarters.findIndex((starter) => starter.type === 'command' && starter.name === 'craft-goal');
-      const insertAt = goalIndex >= 0 ? goalIndex + 1 : nextStarters.length;
       nextStarters = [
         ...nextStarters.slice(0, insertAt),
         { type: 'command', name: 'schedule-task' },
@@ -837,21 +829,12 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
     if (JSON.stringify(store.globalDraftStarters) !== JSON.stringify(nextStarters)) {
       store.setGlobalDraftStarters(nextStarters);
     }
-    if (settings.draftStartersCraftGoalAdded !== true || settings.draftStartersScheduleTaskAdded !== true) {
-      settings.draftStarters = nextStarters;
-      settings.draftStartersCraftGoalAdded = true;
-      settings.draftStartersScheduleTaskAdded = true;
-    }
-  } else {
-    // The built-in default already contains Craft a Goal and Schedule a Task;
-    // only persist the markers so removing them later remains a durable user
-    // choice.
-    if (settings.draftStartersCraftGoalAdded !== true) {
-      settings.draftStartersCraftGoalAdded = true;
-    }
     if (settings.draftStartersScheduleTaskAdded !== true) {
+      settings.draftStarters = nextStarters;
       settings.draftStartersScheduleTaskAdded = true;
     }
+  } else if (settings.draftStartersScheduleTaskAdded !== true) {
+    settings.draftStartersScheduleTaskAdded = true;
   }
   if (typeof settings.draftStartersVisible === 'boolean' && settings.draftStartersVisible !== store.draftStartersVisible) {
     store.setDraftStartersVisible(settings.draftStartersVisible);
@@ -1062,9 +1045,6 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
   }
   if (typeof candidate.draftStartersVisible === 'boolean') {
     result.draftStartersVisible = candidate.draftStartersVisible;
-  }
-  if (typeof candidate.draftStartersCraftGoalAdded === 'boolean') {
-    result.draftStartersCraftGoalAdded = candidate.draftStartersCraftGoalAdded;
   }
   if (typeof candidate.draftStartersScheduleTaskAdded === 'boolean') {
     result.draftStartersScheduleTaskAdded = candidate.draftStartersScheduleTaskAdded;
@@ -1732,8 +1712,9 @@ export const syncDesktopSettings = async (): Promise<void> => {
   // prevent server settings from reaching the Zustand store.
   const applySettings = async (settings: DesktopSettings) => {
     if (!isSettingsRuntimeContextCurrent(context)) return;
-    const shouldPersistCraftGoalMigration = settings.draftStartersCraftGoalAdded !== true
-      || settings.draftStartersScheduleTaskAdded !== true;
+    const shouldPersistScheduleTaskMigration = settings.draftStartersScheduleTaskAdded !== true;
+    const shouldRemoveCraftGoalStarter = Array.isArray(settings.draftStarters)
+      && settings.draftStarters.some((starter) => starter?.type === 'command' && starter.name === 'craft-goal');
     // `autoSaveEnabled` is new to the settings backend. Until the server has a
     // value, materialize would invent the client default (true) and overwrite a
     // deliberate legacy "off" preference migrated from
@@ -1760,11 +1741,10 @@ export const syncDesktopSettings = async (): Promise<void> => {
       console.warn('applyDesktopUiPreferences failed:', error);
     }
     const migrationPatch: Partial<DesktopSettings> = {};
-    if (shouldPersistCraftGoalMigration) {
+    if (shouldPersistScheduleTaskMigration || shouldRemoveCraftGoalStarter) {
       if (authoritativeSettings.draftStarters) {
         migrationPatch.draftStarters = authoritativeSettings.draftStarters;
       }
-      migrationPatch.draftStartersCraftGoalAdded = true;
       migrationPatch.draftStartersScheduleTaskAdded = true;
     }
     if (shouldSeedAutoSaveEnabled) {
