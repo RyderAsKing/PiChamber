@@ -430,14 +430,6 @@ describe('settings helpers', () => {
       expect(helpers.sanitizeSettingsUpdate({ recentEfforts: { 'anthropic/claude-opus-4': [123, ''] } })).toEqual({});
     });
 
-    it('persists only boolean system prompt optimization values', () => {
-      const helpers = createTestHelpersWithRealSanitizers();
-
-      expect(helpers.sanitizeSettingsUpdate({ optimizeSystemPrompt: true })).toEqual({ optimizeSystemPrompt: true });
-      expect(helpers.sanitizeSettingsUpdate({ optimizeSystemPrompt: false })).toEqual({ optimizeSystemPrompt: false });
-      expect(helpers.sanitizeSettingsUpdate({ optimizeSystemPrompt: 'true' })).toEqual({});
-    });
-
     it('survives a full settings.json payload containing all four previously-dropped fields (regression)', () => {
       const helpers = createTestHelpersWithRealSanitizers();
       const payload = {

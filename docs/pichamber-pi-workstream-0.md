@@ -160,7 +160,7 @@ This is a baseline for deletion and port planning, not a compatibility commitmen
 - `packages/web/server/index.js` is the current composition root that wires the managed OpenCode lifecycle, proxy/event paths, session service, and control service.
 - `packages/electron/scripts/prepare-opencode-cli.mjs`, `verify-opencode-cli.mjs`, and `verify-linux-appimage.mjs`, plus the OpenCode CLI resources they stage, are OpenCode-binary deletion targets.
 - `packages/web/vite.config.ts` contains OpenCode SDK alias/vendor-chunk configuration and is a cutover consumer.
-- `packages/web/server/lib/agent-tool/`, `packages/web/server/lib/system-prompt/`, `packages/web/server/lib/scheduled-tasks/`, and their callers are OpenCode-coupled feature removal targets; they are not Pi daemon homes.
+- `packages/web/server/lib/system-prompt/` and its managed-launch injection path were removed as an OpenCode-coupled feature. `packages/web/server/lib/agent-tool/`, `packages/web/server/lib/scheduled-tasks/`, and their callers remain OpenCode-coupled feature removal targets; they are not Pi daemon homes.
 
 ### Existing API/event routes
 

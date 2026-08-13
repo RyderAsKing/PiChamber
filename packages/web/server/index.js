@@ -97,7 +97,6 @@ import { attachRealtimeProxy } from './lib/realtime-proxy.js';
 import { createRelayService } from './lib/relay/service.js';
 import { createRelayHostLock } from './lib/relay/host-lock.js';
 import { createAgentToolRuntime } from './lib/agent-tool/runtime.js';
-import { createSystemPromptRuntime } from './lib/system-prompt/runtime.js';
 import { createPiChamberSessionService } from './lib/openchamber-sessions/routes.js';
 import { createScheduledTaskService } from './lib/scheduled-tasks/service.js';
 import { createPiChamberControlService } from './lib/openchamber-control/service.js';
@@ -273,7 +272,6 @@ const readCustomThemesFromDisk = (...args) => themeRuntime.readCustomThemesFromD
 
 let notificationTemplateRuntime = null;
 let agentToolRuntime = null;
-let systemPromptRuntime = null;
 
 const createTimeoutSignal = (...args) => notificationTemplateRuntime.createTimeoutSignal(...args);
 const formatProjectLabel = (...args) => notificationTemplateRuntime.formatProjectLabel(...args);
@@ -1096,14 +1094,9 @@ const openCodeLifecycleRuntime = createOpenCodeLifecycleRuntime({
   },
   getManagedOpenCodeEnv: async () => {
     const settings = await readSettingsFromDiskMigrated().catch(() => null);
-    const managedEnv = settings?.agentControlToolEnabled === false
+    return settings?.agentControlToolEnabled === false
       ? {}
       : await (agentToolRuntime?.prepareManagedOpenCodeEnv() || {});
-    if (settings?.optimizeSystemPrompt !== true) return managedEnv;
-
-    const configContent = managedEnv.OPENCODE_CONFIG_CONTENT ?? process.env.OPENCODE_CONFIG_CONTENT;
-    const systemPromptEnv = await systemPromptRuntime.prepareManagedOpenCodeEnv(configContent);
-    return { ...managedEnv, ...systemPromptEnv };
   },
 });
 
@@ -1296,11 +1289,6 @@ async function main(options = {}) {
       const address = server?.address?.();
       return typeof address === 'object' && address ? address.port : null;
     },
-  });
-  systemPromptRuntime = createSystemPromptRuntime({
-    fsPromises,
-    path,
-    dataDir: OPENCHAMBER_DATA_DIR,
   });
   piSessionDaemonRuntime = createPiSessionDaemonSupervisor({
     cwd: process.cwd(),
