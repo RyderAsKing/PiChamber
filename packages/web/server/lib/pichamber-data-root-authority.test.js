@@ -45,7 +45,7 @@ describe('data root authority', () => {
         ['themes', 'a.json'],
         ['projects', 'p1.json'],
         ['quota', 'creds.json'],
-        ['managed-opencode', 'r.json'],
+        ['pi-session-daemon', 'r.json'],
         ['walkthroughs', 'pointers', 'x.json'],
         ['goals', 'ses.json'],
         ['tmp', 'session.json'],

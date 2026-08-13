@@ -137,12 +137,6 @@ const SHORTCUT_ACTIONS: ReadonlyArray<ShortcutAction> = [
     customizable: true,
   },
   {
-    id: 'open_status',
-    defaultCombo: 'mod+shift+o',
-    label: 'Open OpenCode status',
-    description: 'Open the OpenCode status dialog',
-  },
-  {
     id: 'open_settings',
     defaultCombo: 'mod+comma',
     label: 'Open settings',
@@ -230,13 +224,6 @@ const SHORTCUT_ACTIONS: ReadonlyArray<ShortcutAction> = [
     defaultCombo: 'mod+n',
     label: 'New session',
     description: 'Start a new session',
-    customizable: true,
-  },
-  {
-    id: 'new_chat_worktree',
-    defaultCombo: 'mod+shift+n',
-    label: 'New worktree draft',
-    description: 'Create a new worktree and open a draft in it',
     customizable: true,
   },
   {

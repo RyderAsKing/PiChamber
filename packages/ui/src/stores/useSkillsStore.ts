@@ -6,7 +6,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { createDeferredSafeJSONStorage } from './utils/safeStorage';
 
 export type SkillScope = 'user' | 'project';
-export type SkillSource = 'opencode' | 'claude' | 'agents';
+export type SkillSource = 'agents';
 
 /** A Pi-discovered skill. `path` is an opaque daemon id, never a filesystem path. */
 export interface DiscoveredSkill {
@@ -23,10 +23,7 @@ interface SkillsStore {
   selectedSkillName: string | null;
   skills: DiscoveredSkill[];
   isLoading: boolean;
-  /** Retained only for compatibility with dormant legacy catalog code. */
-  skillDraft: unknown;
   setSelectedSkill: (name: string | null) => void;
-  setSkillDraft: (draft: unknown) => void;
   loadSkills: () => Promise<boolean>;
   renameSkill: (name: string, newName: string) => Promise<boolean>;
   getSkillByName: (name: string) => DiscoveredSkill | undefined;
@@ -48,9 +45,7 @@ export const useSkillsStore = create<SkillsStore>()(
         selectedSkillName: null,
         skills: [],
         isLoading: false,
-        skillDraft: null,
         setSelectedSkill: (name) => set({ selectedSkillName: name }),
-        setSkillDraft: (skillDraft) => set({ skillDraft }),
         loadSkills: async () => {
           if (loadedAt > 0 && Date.now() - loadedAt < CACHE_TTL_MS) return true;
           if (inFlight) return inFlight;
@@ -101,10 +96,3 @@ export const useSkillsStore = create<SkillsStore>()(
     { name: 'skills-store' },
   ),
 );
-
-/** Legacy catalog callers can refresh the native discovery list without an OpenCode restart. */
-export async function refreshSkillsAfterOpenCodeRestart(_options?: unknown): Promise<void> {
-  void _options;
-  invalidateSkillsLoadCache();
-  await useSkillsStore.getState().loadSkills();
-}

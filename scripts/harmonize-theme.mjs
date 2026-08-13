@@ -22,7 +22,7 @@
  *   node scripts/harmonize-theme.mjs <theme.json> --out=x.json
  *   Overrides: --l=0.70 --c=0.085   (defaults are chosen per light/dark variant)
  *
- * No dependencies; math ported from the OpenCode desktop color engine.
+ * No dependencies; color math is implemented locally.
  */
 import fs from 'node:fs';
 

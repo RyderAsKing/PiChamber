@@ -291,26 +291,9 @@ const isWebSocketUpgrade = (req) => {
   return String(upgradeValue || '').toLowerCase() === 'websocket';
 };
 
-const isUrlAuthReadableHttpPath = (pathname) => {
-  return pathname === '/api/event'
-    || pathname === '/api/global/event'
-    || pathname === '/api/openchamber/realtime-proxy/sse'
-    || pathname === '/api/notifications/stream'
-    || pathname === '/api/fs/raw'
-    || pathname === '/api/fs/serve'
-    || pathname.startsWith('/api/fs/serve/')
-    || pathname.startsWith('/api/preview/proxy/')
-    || /^\/api\/projects\/[^/]+\/icon$/.test(pathname);
-};
+const isUrlAuthReadableHttpPath = (pathname) => pathname === '/api/pi/events';
 
-const isUrlAuthWebSocketPath = (pathname) => {
-  return pathname === '/api/event/ws'
-    || pathname === '/api/global/event/ws'
-    || pathname === '/api/openchamber/realtime-proxy/ws'
-    || pathname === '/api/terminal/ws'
-    || pathname === '/api/dictation/ws'
-    || pathname.startsWith('/api/preview/proxy/');
-};
+const isUrlAuthWebSocketPath = () => false;
 
 const canUseUrlAuthTokenForRequest = (req) => {
   const method = typeof req?.method === 'string' ? req.method.toUpperCase() : 'GET';

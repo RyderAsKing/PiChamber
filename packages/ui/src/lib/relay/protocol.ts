@@ -1,5 +1,5 @@
 // PiChamber private relay protocol constants and shared types.
-// Spec: .opencode/plans/private-relay/01-protocol-spec.md
+// Protocol: PiChamber private relay
 // Three layers: relay routing (Layer 1), E2EE channel (Layer 2), tunnel mux (Layer 3).
 // This module is isomorphic: browser, Node, and Cloudflare Workers.
 

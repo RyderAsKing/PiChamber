@@ -6,7 +6,7 @@ The mobile package reuses the web build, then rewrites `mobile.html` to `index.h
 
 ## Runtime Model
 
-- The native app bundles the mobile UI only; it does not embed the PiChamber web server or OpenCode server.
+- The native app bundles the mobile UI only; it connects to an existing PiChamber server and its Pi session daemon.
 - On first launch in Capacitor, the app shows a connection screen for an existing PiChamber server.
 - Connections are saved locally in the app and can be managed from `Instances` in the sessions drawer footer (a persistent left sidebar on tablets).
 - The connection screen and the `Instances` entry are Capacitor-only. Hosted `mobile.html` in a normal browser keeps the regular web behavior.

@@ -19,7 +19,7 @@ describe('useSkillsStore', () => {
       prompts: [], agents: [],
     });
     invalidateSkillsLoadCache();
-    useSkillsStore.setState({ selectedSkillName: null, skills: [], isLoading: false, skillDraft: null });
+    useSkillsStore.setState({ selectedSkillName: null, skills: [], isLoading: false });
   });
 
   test('maps Pi resource discovery without keeping a filesystem path in UI state', async () => {

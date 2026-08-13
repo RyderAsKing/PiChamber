@@ -299,7 +299,7 @@ const requestSessionOperation = async (req, res, getPiSessionDaemonRuntime, comm
 /**
  * Browser-visible Pi runtime and session-collection routes. The authenticated
  * /api middleware is registered by the server composition root before these
- * adapters; this function is mounted before the generic OpenCode proxy.
+ * adapters.
  */
 export const registerPiRuntimeRoutes = (app, {
   getPiSessionDaemonRuntime,

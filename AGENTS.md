@@ -2,9 +2,9 @@
 
 ## Purpose
 
-PiChamber provides shared web, desktop, hosted-mobile, and native-mobile UI surfaces for OpenCode.
+PiChamber provides web, desktop, hosted-mobile, and native-mobile UI surfaces for Pi Coding Agent.
 
-> PiChamber is currently a metadata-only community fork of [OpenChamber](https://github.com/openchamber/openchamber). The runtime behavior, SDK integration, and shared contracts are unchanged in this phase.
+> PiChamber is a community fork of [OpenChamber](https://github.com/openchamber/openchamber), now running through its Pi-native session daemon.
 
 This file contains only always-on repository rules and routing. Detailed workflows belong to project skills and module documentation.
 
@@ -25,7 +25,7 @@ read. Skill loading is a required part of the task, not optional guidance.
 ## Runtime Boundaries
 
 - `packages/ui`: shared React UI, state, sync, and runtime contracts.
-- `packages/web`: web surfaces, PiChamber server, managed/external OpenCode lifecycle, and CLI.
+- `packages/web`: web surfaces, PiChamber server, Pi session-daemon lifecycle, and CLI.
 - `packages/electron`: native desktop shell and privileged Electron boundary.
 - `packages/mobile`: Capacitor iOS/Android shell; bundles the mobile web surface and connects to an existing PiChamber server.
 - `packages/docs`: product documentation; not a Bun workspace.
@@ -85,7 +85,7 @@ process violation.
 |---|---|
 | Any source, dependency, export, build-config, generated-asset, package-contract, or module-ownership change | `openchamber-change-discipline` |
 | CLI commands, prompts, terminal output, non-TTY, `--quiet`, or `--json` behavior | `clack-cli-patterns` |
-| Shared UI data access, OpenCode SDK, `RuntimeAPIs`, runtime fetch/auth/URLs, bridges/proxies, runtime switching, or server API routes | `ui-api-decoupling` |
+| Shared UI data access, Pi API, `RuntimeAPIs`, runtime fetch/auth/URLs, bridges/proxies, runtime switching, or server API routes | `ui-api-decoupling` |
 | Electron main/preload, IPC, native UI, updater, deep links, SSH/tunnels, packaging, or child processes | `desktop-shell` |
 | Session sync, bootstrap/reconnect, reducers, polling, optimistic state, queues, live status, reconciliation, or directory-scoped caches | `sync-state-invariants` |
 | Render/store/event hot paths, large lists, caching/indexing, high CPU/memory, lag, jank, freezes, or performance regressions | `performance-engineering` |

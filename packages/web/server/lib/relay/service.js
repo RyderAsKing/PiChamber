@@ -3,8 +3,8 @@
 //
 // Config lives in the server settings file as `settings.privateRelay =
 // { enabled, relayUrl }` (same storage precedent as tunnels/notifications).
-// Routes are registered with the other PiChamber feature routes, before the
-// generic OpenCode proxy, and are covered by the same global UI auth gate.
+// Routes are registered with the PiChamber API and covered by the global UI
+// auth gate.
 //
 // Cross-runtime parity note: relay host mode intentionally targets the web
 // server runtime only in v1 (Electron shares this server in-process). The VS

@@ -12,7 +12,7 @@ export interface WebAPIsOptions {
 
 /**
  * The mounted application uses the Pi HTTP facade directly. Retain the runtime
- * descriptor for shell compatibility without importing legacy OpenCode-backed
+ * descriptor for shell compatibility without importing legacy runtime-backed
  * web API implementations into the browser bundle.
  */
 export const createWebAPIs = (options: WebAPIsOptions = {}): RuntimeAPIs => {

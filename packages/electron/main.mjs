@@ -130,7 +130,7 @@ log.transports.console.level = isDev ? 'debug' : 'warn';
 // The in-process web server runs in this same Node process and uses plain
 // `console.log/warn/error`. Without piping console through electron-log,
 // that output never lands in ~/Library/Logs/PiChamber/main.log and we
-// can't diagnose issues (e.g. OpenCode lifecycle, SSE disconnects) after
+// can't diagnose issues (for example, daemon lifecycle and SSE disconnects) after
 // the fact. Route all console calls through electron-log so server-side
 // diagnostics are persisted.
 Object.assign(console, log.functions);
@@ -400,9 +400,9 @@ const performConfirmedQuit = () => {
 };
 
 // Hard-stop signals (`Ctrl+C` on `electron:dev`, an external `kill`/SIGTERM,
-// terminal close) bypass the normal app-quit flow — which would orphan the
-// in-process web server's managed OpenCode child. Run the same background
-// teardown the quit path uses (which kills the sidecar), then exit. The startup
+// terminal close) bypass the normal app-quit flow — which would otherwise
+// skip in-process server cleanup. Run the same background teardown the quit
+// path uses, then exit. The startup
 // reaper remains the backstop for an unhandled hard crash (SIGKILL).
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.on(signal, () => {
@@ -1339,8 +1339,8 @@ const loadShellEnv = () => {
 import { pathLooksUserConfigured, mergePathValues } from '@pichamber/web/server/lib/server/path-utils.js';
 import { clearAppImageArgv0FromProcessEnv } from '@pichamber/web/server/lib/inherited-env.js';
 
-// import/start the server in-process. The server and its children (opencode
-// CLI, git, etc.) inherit process.env directly now — there is no sidecar
+// import/start the server in-process. The server and its subprocesses inherit
+// process.env directly — there is no sidecar
 // subprocess to hand a custom env to.
 const inheritUserShellEnv = () => {
   // Clear before probing/merging so login-shell snapshots and children never

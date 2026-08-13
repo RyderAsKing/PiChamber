@@ -1,11 +1,9 @@
 /**
  * Pi-native session and message data shapes.
  *
- * These types are the PiChamber-owned replacements for the legacy OpenCode SDK
- * types. The shapes intentionally mirror the workstream-0 protocol contract:
- * every session-scoped record carries the session id, the events are sequenced,
- * and the daemon-side identities are Pi session ids. They do not preserve any
- * OpenCode endpoint, event, or type-alias naming.
+ * These PiChamber-owned types mirror the public Pi protocol contract: every
+ * session-scoped record carries the session id, events are sequenced, and
+ * daemon-side identities are Pi session ids.
  *
  * The data model deliberately keeps a small, stable surface:
  *
@@ -16,9 +14,7 @@
  * - `PiSnapshot` is the reconnect baseline; it carries the last sequence so
  *   the UI knows it has no events to apply yet.
  *
- * The shapes are intentionally compatible with the existing `State` reducer in
- * `packages/ui/src/sync/` so that bootstrap can start to ship without forcing
- * a synchronous UI cutover; see `state-shape.ts` for the legacy interop type.
+ * The shapes are consumed directly by the Pi bootstrap and event reducers.
  */
 
 /**
@@ -52,7 +48,7 @@ export interface PiSession {
   thinking?: PiThinkingLevel;
   /**
    * The Pi `agent` is preserved for reference; PiChamber does not expose it
-   * as a user-facing agent selector the way OpenCode did.
+   * as a user-facing agent selector.
    */
   agent?: string;
   /** When the session is hidden from the PiChamber sidebar without modifying Pi JSONL. */

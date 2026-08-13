@@ -35,7 +35,6 @@ local-dev*
 *.njsproj
 *.sln
 *.sw?
-.opencode/plans/*
 .hive
 docs/personal/*
 SECURITY_HARDENING_IMPLEMENTATION_PLAN.md
