@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+
 class SessionRuntimeRegistryError extends Error {
   constructor(code, message) {
     super(message);
@@ -109,6 +111,32 @@ export function createSessionRuntimeRegistry({ onSessionEvent = () => {} } = {})
   };
 
   return {
+    get({ cwd, sessionId } = {}) {
+      if (typeof cwd !== 'string' || typeof sessionId !== 'string') return undefined;
+      return recordsByKey.get(identityKey({ cwd, sessionId }))?.runtime;
+    },
+    findBySessionId(sessionId) {
+      if (typeof sessionId !== 'string' || sessionId.length === 0) return undefined;
+      for (const record of recordsByKey.values()) {
+        if (record.identity.sessionId === sessionId) return record.runtime;
+      }
+      return undefined;
+    },
+    listByDirectory(cwd) {
+      if (typeof cwd !== 'string' || cwd.length === 0) return [];
+      const normalized = resolve(cwd);
+      const results = [];
+      for (const record of recordsByKey.values()) {
+        if (resolve(record.identity.cwd) === normalized) {
+          results.push(record.runtime);
+        }
+      }
+      return results;
+    },
+    has({ cwd, sessionId } = {}) {
+      if (typeof cwd !== 'string' || typeof sessionId !== 'string') return false;
+      return recordsByKey.has(identityKey({ cwd, sessionId }));
+    },
     register,
     dispose,
     disposeAll,

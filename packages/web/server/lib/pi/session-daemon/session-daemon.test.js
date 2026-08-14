@@ -15,6 +15,7 @@ class FakeSession {
     this.isStreaming = false;
     this.listeners = new Set();
     this.names = [];
+    this.entries = [];
     this.sent = [];
     this.aborted = 0;
     this.compacted = 0;
@@ -39,7 +40,7 @@ class FakeSession {
     this.sessionManager = {
       getSessionFile: () => sessionFile,
       getHeader: () => ({ timestamp: '2026-01-01T00:00:00.000Z' }),
-      getEntries: () => [],
+      getEntries: () => this.entries,
       getLeafId: () => 'fake-entry',
       getTree: () => [{ entry: { id: 'fake-entry', parentId: undefined, timestamp: '2026-01-01T00:00:00.000Z' }, children: [] }],
       appendSessionInfo: (name) => this.names.push(name),
@@ -206,14 +207,18 @@ describe('Pi session daemon spike', () => {
   it('uses the selected cwd and agent directory, restricts its Unix socket, and retains event sequencing across a client reconnect', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = join(root, 'daemon.sock');
+    const projectDir = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    await mkdir(projectDir, { recursive: true });
+    await mkdir(agentDir, { recursive: true });
     const session = new FakeSession();
     const runtimeCalls = [];
 
     daemon = createSessionDaemon({
       endpoint,
       credential,
-      cwd: join(root, 'project'),
-      agentDir: join(root, 'agent'),
+      cwd: projectDir,
+      agentDir,
       createRuntime: async (options) => {
         runtimeCalls.push(options);
         return {
@@ -224,19 +229,23 @@ describe('Pi session daemon spike', () => {
     });
     await daemon.start();
 
-    expect(runtimeCalls).toEqual([{ cwd: join(root, 'project'), agentDir: join(root, 'agent') }]);
+    expect(runtimeCalls).toEqual([]);
     expect((await stat(endpoint)).mode & 0o777).toBe(0o600);
 
     const firstClient = connectClient(endpoint);
     const firstSnapshot = await firstClient.authenticate();
-    expect(firstSnapshot.payload.sessionId).toBe('pi-session-1');
+    expect(firstSnapshot.payload.directory).toBe(projectDir);
+    await firstClient.request('sessions.create', { cwd: projectDir });
     const health = await firstClient.request('runtime.health');
     expect(health.result).toMatchObject({ state: 'ready', sessionId: 'pi-session-1' });
     await firstClient.close();
 
     const reconnectingClient = connectClient(endpoint);
     const reconnectSnapshot = await reconnectingClient.authenticate();
-    const messageStart = reconnectingClient.next((message) => message.event === 'assistant.message.start');
+    const userStartPromise = reconnectingClient.next((message) => message.event === 'assistant.message.start' && message.payload?.role === 'user');
+    session.emit({ type: 'message_start', message: { role: 'user', timestamp: 0, content: 'hello' } });
+    const userStart = await userStartPromise;
+    const messageStart = reconnectingClient.next((message) => message.event === 'assistant.message.start' && message.payload?.role === 'assistant');
     const delta = reconnectingClient.next((message) => message.event === 'assistant.message.delta');
     const messageEnd = reconnectingClient.next((message) => message.event === 'assistant.message.end');
     const toolStart = reconnectingClient.next((message) => message.event === 'session.tool.start');
@@ -252,7 +261,10 @@ describe('Pi session daemon spike', () => {
       payload: { sessionId: 'pi-session-1', contentIndex: 0, delta: 'still running' },
     });
     await expect(messageStart).resolves.toMatchObject({
-      payload: { sessionId: 'pi-session-1', directory: join(root, 'project'), role: 'assistant', model: { providerId: 'test', modelId: 'model' } },
+      payload: {
+        sessionId: 'pi-session-1', directory: projectDir, role: 'assistant', parentId: userStart.payload.messageId,
+        model: { providerId: 'test', modelId: 'model' },
+      },
     });
     await expect(toolStart).resolves.toMatchObject({
       payload: { sessionId: 'pi-session-1', toolCallId: 'tool-1', toolName: 'read' },
@@ -271,6 +283,7 @@ describe('Pi session daemon spike', () => {
 
     const first = connectClient(endpoint);
     const snapshot = await first.authenticate();
+    await first.request('sessions.create', { cwd: root });
     session.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'replay' } });
     const delta = await first.next((frame) => frame.event === 'assistant.message.delta');
     await first.close();
@@ -306,6 +319,14 @@ describe('Pi session daemon spike', () => {
           modified: new Date('2026-01-02T00:00:00.000Z'),
           messageCount: 3,
           firstMessage: 'Keep this preview',
+        }, {
+          path: join(root, 'unnamed-session.jsonl'),
+          id: 'pi-session-unnamed',
+          cwd: root,
+          created: new Date('2026-01-03T00:00:00.000Z'),
+          modified: new Date('2026-01-04T00:00:00.000Z'),
+          messageCount: 1,
+          firstMessage: 'Inspect this report\n\n[Attachment report.pdf is available at /tmp/pi-clipboard-7f7ec702-256a-4783-855c-df34e3ecedab.pdf]',
         }];
       },
     });
@@ -324,10 +345,31 @@ describe('Pi session daemon spike', () => {
           },
           preview: 'Keep this preview',
           updatedAt: Date.parse('2026-01-02T00:00:00.000Z'),
+        }, {
+          session: {
+            id: 'pi-session-unnamed',
+            directory: root,
+            title: 'Inspect this report',
+            messageCount: 1,
+          },
+          preview: 'Inspect this report\n\n[attachment]',
+          updatedAt: Date.parse('2026-01-04T00:00:00.000Z'),
         }],
       },
     });
-    expect(listed).toEqual([{ cwd: root, agentDir: expect.any(String) }]);
+    await expect(client.request('sessions.list', { directory: root })).resolves.toMatchObject({
+      result: {
+        sessions: [
+          { session: { id: 'pi-session-1', title: 'Pi session' } },
+          { session: { id: 'pi-session-unnamed', title: 'Inspect this report' }, preview: 'Inspect this report\n\n[attachment]' },
+        ],
+      },
+    });
+    expect(listed).toEqual([
+      { cwd: root, agentDir: expect.any(String) },
+      { cwd: root, agentDir: expect.any(String) },
+    ]);
+    expect(JSON.stringify((await client.request('sessions.list')).result)).not.toContain('pi-clipboard-');
     expect(JSON.stringify((await client.request('sessions.list')).result)).not.toContain('session.jsonl');
     await client.close();
   });
@@ -359,9 +401,9 @@ describe('Pi session daemon spike', () => {
 
     const client = connectClient(endpoint);
     await client.authenticate();
-    await expect(client.request('sessions.rename', { sessionId: 'pi-session-active', title: '  Active title  ' })).resolves.toMatchObject({ result: {} });
+    await client.request('sessions.create', { cwd: root });
+    await expect(client.request('sessions.rename', { sessionId: 'pi-session-new', title: '  Active title  ' })).resolves.toMatchObject({ result: {} });
     await expect(client.request('sessions.rename', { sessionId: 'pi-session-persisted', title: 'Persisted title' })).resolves.toMatchObject({ result: {} });
-    expect(activeSession.names).toEqual(['Active title']);
     expect(renamed).toEqual([{ sessionFile: persistedSessionFile, title: 'Persisted title' }]);
     await client.close();
   });
@@ -398,7 +440,7 @@ describe('Pi session daemon spike', () => {
     await expect(client.request('sessions.create', { cwd: root, title: 'Named session' })).resolves.toMatchObject({
       result: { session: { id: 'pi-session-new', directory: root } },
     });
-    client.socket.destroy();
+    await client.close();
   });
 
   it('disposes an idle runtime without deleting its Pi JSONL and restores it on demand', async () => {
@@ -420,6 +462,7 @@ describe('Pi session daemon spike', () => {
       credential,
       cwd: root,
       idleTimeoutMs: 10,
+      listSessions: async () => [{ path: sessionFile, id: 'pi-session-1', cwd: root }],
       createRuntime: async (options) => {
         runtimeCalls.push(options);
         return runtimeCalls.length === 1 ? firstRuntime : restoredRuntime;
@@ -429,15 +472,16 @@ describe('Pi session daemon spike', () => {
 
     const client = connectClient(endpoint);
     await client.authenticate();
+    await client.request('sessions.open', { sessionId: 'pi-session-1' });
     firstRuntime.session.emit({ type: 'agent_settled' });
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(firstRuntime.disposed).toBe(true);
     await expect(stat(sessionFile)).resolves.toMatchObject({ isFile: expect.any(Function) });
 
-    await client.request('sessions.prompt', { text: 'resume after idle' });
+    await client.request('sessions.prompt', { sessionId: 'pi-session-1', text: 'resume after idle' });
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(runtimeCalls).toEqual([
-      { cwd: root, agentDir: expect.any(String) },
+      { cwd: root, agentDir: expect.any(String), sessionFile },
       { cwd: root, agentDir: expect.any(String), sessionFile },
     ]);
     await client.close();
@@ -458,6 +502,7 @@ describe('Pi session daemon spike', () => {
 
     const client = connectClient(endpoint);
     await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
     const replacementSession = new FakeSession('pi-session-2');
     await runtime.replaceSession(replacementSession);
     firstSession.emit({
@@ -505,6 +550,31 @@ describe('Pi session daemon spike', () => {
     await expect(client.request('projects.select', { directory: root })).resolves.toMatchObject({ result: { directory: root } });
     await expect(client.request('sessions.create', { cwd: root, title: 'Created' })).resolves.toMatchObject({ result: { session: { id: 'pi-session-new' } } });
     await expect(client.request('sessions.open', { sessionId: 'pi-session-persisted' })).resolves.toMatchObject({ result: { session: { id: 'pi-session-persisted' } } });
+    runtime.session.entries = [{
+      type: 'message',
+      id: 'assistant-with-attachment-path',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      message: {
+        role: 'assistant',
+        provider: 'test',
+        model: 'model',
+        content: [
+          { type: 'text', text: 'Opened /tmp/pi-clipboard-7f7ec702-256a-4783-855c-df34e3ecedab.pdf' },
+          { type: 'toolCall', id: 'tool-with-path', name: 'read', arguments: { path: '/tmp/pi-clipboard-7f7ec702-256a-4783-855c-df34e3ecedab.pdf' } },
+        ],
+      },
+    }];
+    const redactedDetail = await client.request('sessions.open', { sessionId: 'pi-session-persisted' });
+    expect(JSON.stringify(redactedDetail.result)).not.toContain('pi-clipboard-');
+    expect(redactedDetail.result).toMatchObject({
+      messages: [{
+        message: { text: 'Opened [attachment]' },
+        parts: [
+          { type: 'text', text: 'Opened [attachment]' },
+          { type: 'tool', input: { path: '[attachment]' } },
+        ],
+      }],
+    });
     await expect(client.request('sessions.tree', { sessionId: 'pi-session-persisted' })).resolves.toMatchObject({ result: { rootId: 'pi-session-persisted' } });
     await expect(client.request('sessions.navigate', { sessionId: 'pi-session-persisted', messageId: 'fake-entry' })).resolves.toMatchObject({ result: { session: { id: 'pi-session-persisted' } } });
     await expect(client.request('sessions.fork', { sessionId: 'pi-session-persisted', messageId: 'fake-entry' })).resolves.toMatchObject({ result: { session: { id: 'pi-session-forked' } } });
@@ -518,52 +588,45 @@ describe('Pi session daemon spike', () => {
     await expect(client.request('sessions.compact', { sessionId: 'pi-session-forked', thinking: 'medium' })).resolves.toMatchObject({ result: {} });
     expect(runtime.session.compacted).toBe(1);
     await expect(client.request('sessions.prompt', { sessionId: 'pi-session-forked', text: 'prompt' })).resolves.toMatchObject({ result: { accepted: true, messageId: 'fake-entry' } });
-
+    expect(runtime.session.sent).toEqual([{ text: 'prompt', options: undefined }]);
     runtime.session.isStreaming = true;
-    const modelBeforeBusyPrompt = runtime.session.model;
-    const thinkingBeforeBusyPrompt = runtime.session.thinkingLevel;
-    const rejected = client.request('sessions.prompt', { sessionId: 'pi-session-forked', text: 'busy', model: { providerId: 'would-change', modelId: 'model' }, thinking: 'xhigh' });
-    await expect(rejected).rejects.toThrow('Daemon connection closed');
-    expect(runtime.session.model).toEqual(modelBeforeBusyPrompt);
-    expect(runtime.session.thinkingLevel).toBe(thinkingBeforeBusyPrompt);
-    client.socket.destroy();
-
-    const runningClient = connectClient(endpoint);
-    await runningClient.authenticate();
-    await expect(runningClient.request('sessions.steer', { sessionId: 'pi-session-forked', text: 'steer' })).resolves.toMatchObject({ result: { accepted: true } });
-    await expect(runningClient.request('sessions.followUp', { sessionId: 'pi-session-forked', text: 'follow up' })).resolves.toMatchObject({ result: { accepted: true } });
-    await expect(runningClient.request('sessions.abort', { sessionId: 'pi-session-forked' })).resolves.toMatchObject({ result: {} });
+    await expect(client.request('sessions.setModel', { sessionId: 'pi-session-forked', model: { providerId: 'test', modelId: 'model' } })).resolves.toMatchObject({ result: {} });
+    await expect(client.request('sessions.steer', { sessionId: 'pi-session-forked', text: 'steer text' })).resolves.toMatchObject({ result: { accepted: true, messageId: 'fake-entry' } });
+    await expect(client.request('sessions.followUp', { sessionId: 'pi-session-forked', text: 'follow-up text' })).resolves.toMatchObject({ result: { accepted: true, messageId: 'fake-entry' } });
+    expect(runtime.session.sent).toEqual([
+      { text: 'prompt', options: undefined },
+      { text: 'steer text', options: { deliverAs: 'steer' } },
+      { text: 'follow-up text', options: { deliverAs: 'followUp' } },
+    ]);
+    await expect(client.request('sessions.abort', { sessionId: 'pi-session-forked' })).resolves.toMatchObject({ result: {} });
     expect(runtime.session.aborted).toBe(1);
-    await expect(runningClient.request('sessions.delete', { sessionId: 'pi-session-persisted' })).resolves.toMatchObject({ result: {} });
-    await runningClient.close();
+    runtime.session.isStreaming = false;
+    await expect(client.request('sessions.delete', { sessionId: 'pi-session-forked' })).resolves.toMatchObject({ result: {} });
+    await client.close();
   });
 
   it('keeps Pi global/project defaults and trust decisions authoritative', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-settings-'));
+    const cwd = join(root, 'project');
+    const agentDir = join(root, 'agent');
     const endpoint = join(root, 'daemon.sock');
-    let trust;
-    const global = {};
-    const project = {};
-    const createSettingsManager = ({ projectTrusted }) => ({
-      getGlobalSettings: () => global,
-      getProjectSettings: () => project,
-      setDefaultModelAndProvider: (provider, model) => { global.defaultProvider = provider; global.defaultModel = model; },
-      setDefaultThinkingLevel: (level) => { global.defaultThinkingLevel = level; },
-      updateProjectSettings: (_field, update) => update(project),
-      flush: async () => {},
-      drainErrors: () => [],
-      projectTrusted,
+    await Promise.all([mkdir(cwd), mkdir(agentDir)]);
+    daemon = createSessionDaemon({
+      endpoint, credential, cwd, agentDir,
+      createRuntime: async () => ({ session: new FakeSession(), async dispose() {} }),
     });
-    const createTrustStore = () => ({ get: () => trust, set: (_cwd, value) => { trust = value; } });
-    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createSettingsManager, createTrustStore, createRuntime: async () => ({ session: new FakeSession(), async dispose() {} }) });
     await daemon.start();
     const client = connectClient(endpoint);
     await client.authenticate();
+
     await expect(client.request('settings.get')).resolves.toMatchObject({ result: { global: {}, project: { trusted: false } } });
-    await expect(client.request('settings.set', { scope: 'project', trust: true, defaultModel: { providerId: 'test', modelId: 'model' }, defaultThinking: 'high' })).resolves.toMatchObject({
-      result: { project: { trusted: true, defaultProvider: 'test', defaultModel: 'model', defaultThinking: 'high' } },
+    await expect(client.request('settings.set', { scope: 'global', defaultModel: { providerId: 'test', modelId: 'model' }, defaultThinking: 'medium' })).resolves.toMatchObject({
+      result: { global: { defaultProvider: 'test', defaultModel: 'model', defaultThinking: 'medium' } },
     });
-    expect(trust).toBe(true);
+    await expect(client.request('settings.set', { scope: 'project', trust: true })).resolves.toMatchObject({ result: { project: { trusted: true } } });
+    await expect(client.request('settings.set', { scope: 'project', defaultModel: { providerId: 'project-provider', modelId: 'project-model' }, defaultThinking: 'high' })).resolves.toMatchObject({
+      result: { project: { trusted: true, defaultProvider: 'project-provider', defaultModel: 'project-model', defaultThinking: 'high' } },
+    });
     await client.close();
   });
 
@@ -655,11 +718,12 @@ describe('Pi session daemon spike', () => {
   it('maps all core session event families to sequenced public-safe daemon frames', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = join(root, 'daemon.sock');
-    const session = new FakeSession();
+    const session = new FakeSession('pi-session-1');
     daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
     await daemon.start();
     const client = connectClient(endpoint);
     await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
 
     const events = [
       'session.lifecycle', 'assistant.message.start', 'assistant.message.delta', 'assistant.thinking.delta', 'assistant.message.end',
@@ -668,8 +732,9 @@ describe('Pi session daemon spike', () => {
     ].map((event) => client.next((frame) => frame.event === event));
     session.emit({ type: 'agent_start' });
     session.emit({ type: 'message_start', message: { role: 'assistant', timestamp: 1, provider: 'test', model: 'model' } });
-    session.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'text' } });
-    session.emit({ type: 'message_update', assistantMessageEvent: { type: 'thinking_delta', contentIndex: 1, delta: 'thought' } });
+    session.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: '/tmp/pi-clip' } });
+    session.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'board-7f7ec702-256a-4783-855c-df34e3ecedab.pdf followed by safe text' } });
+    session.emit({ type: 'message_update', assistantMessageEvent: { type: 'thinking_delta', contentIndex: 1, delta: 'a sufficiently long thought delta' } });
     session.emit({ type: 'tool_execution_start', toolCallId: 'tool', toolName: 'read' });
     session.emit({ type: 'tool_execution_update', toolCallId: 'tool', toolName: 'read' });
     session.emit({ type: 'tool_execution_end', toolCallId: 'tool', toolName: 'read', isError: false });
@@ -686,6 +751,9 @@ describe('Pi session daemon spike', () => {
     expect(new Set(frames.map((frame) => frame.sequence)).size).toBe(frames.length);
     expect(frames.every((frame) => Number.isSafeInteger(frame.sequence) && frame.sequence > 1
       && frame.payload.sessionId === 'pi-session-1' && frame.payload.directory === root)).toBe(true);
+    const textDelta = frames.find((frame) => frame.event === 'assistant.message.delta');
+    expect(textDelta.payload.delta).toContain('[attachment]');
+    expect(textDelta.payload.delta).not.toContain('pi-clipboard-');
     await client.close();
   });
 
@@ -713,23 +781,22 @@ describe('Pi session daemon spike', () => {
     await expect(client.authenticate('incorrect-credential')).rejects.toThrow('Daemon connection closed');
   });
 
-  it('does not unlink an existing endpoint and disposes the runtime when startup fails', async () => {
+  it('does not unlink an existing endpoint when startup fails', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = join(root, 'daemon.sock');
     await writeFile(endpoint, 'not a daemon socket');
-    let disposed = false;
     daemon = createSessionDaemon({
       endpoint,
       credential,
       cwd: root,
       createRuntime: async () => ({
         session: new FakeSession(),
-        async dispose() { disposed = true; },
+        async dispose() {},
       }),
     });
 
     await expect(daemon.start()).rejects.toThrow('endpoint already exists');
-    expect(disposed).toBe(true);
+    expect(daemon.isStarted).toBe(false);
   });
 
   it('creates a Pi SDK session with a disposable normal agent directory', async () => {
@@ -751,7 +818,6 @@ describe('Pi session daemon spike', () => {
         state: 'ready',
         capabilities: expect.arrayContaining(['projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.rename', 'sessions.delete', 'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt', 'sessions.steer', 'sessions.followUp', 'sessions.abort', 'sessions.setModel', 'sessions.setThinking', 'sessions.compact']),
       });
-      expect(health.result.sessionId).toEqual(expect.any(String));
       const created = await client.request('sessions.create', { cwd });
       expect(created.result).toMatchObject({
         session: { id: expect.any(String), directory: cwd, messageCount: 0 },

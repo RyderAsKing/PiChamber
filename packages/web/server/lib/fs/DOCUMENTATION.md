@@ -23,7 +23,7 @@ Own filesystem API behavior for the web server runtime, including workspace-boun
     - `GET /api/fs/exec/:jobId`
     - `GET /api/fs/list`
   - Owns exec job queue state (`execJobs`) and lifecycle/TTL pruning.
-  - Enforces workspace boundary checks with active project + worktree fallback support.
+  - Enforces workspace boundary checks with active project + worktree fallback support. An explicit `directory` query is authoritative over a stale runtime directory header, which lets user-confirmed directory-browser operations and project-local optional configuration probes scope themselves to the selected directory. `optional=true` converts only a missing file to an empty success; it never bypasses workspace policy.
 - `createFsSearchRuntime({ fsPromises, path, spawn, resolveGitBinaryForSpawn })` from `search.js`
   - Returns `{ searchFilesystemFiles(rootPath, options) }`.
   - Supports fuzzy matching, hidden-file handling, and optional `git check-ignore` filtering.

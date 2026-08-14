@@ -107,6 +107,7 @@ export const createPiSessionDaemonSupervisor = ({
 } = {}) => {
   const paths = resolvePiSessionDaemonPaths({ env, dataDir, platform });
   let startPromise = null;
+  let intentionallyStopped = false;
 
   const withOperationLock = async (operation) => {
     const deadline = Date.now() + startupTimeoutMs;
@@ -264,6 +265,7 @@ export const createPiSessionDaemonSupervisor = ({
   };
 
   const start = async () => {
+    intentionallyStopped = false;
     if (startPromise) return startPromise;
     startPromise = withOperationLock(async () => {
       const credential = await ensureCredential();
@@ -333,30 +335,40 @@ export const createPiSessionDaemonSupervisor = ({
     }
   };
 
-  const requestDaemon = async (command, payload) => {
-    const credential = await readCredential();
-    await probe(credential);
+  const ensureReady = async () => {
+    let credential = await readCredential();
     try {
+      const ready = await probe(credential);
+      return { credential, ready };
+    } catch {
+      if (intentionallyStopped) throw new PiSessionDaemonUnavailableError('DAEMON_UNAVAILABLE');
+      await start();
+      credential = await readCredential();
+      return { credential, ready: await probe(credential) };
+    }
+  };
+
+  const requestDaemon = async (command, payload) => {
+    try {
+      const { credential } = await ensureReady();
       return await request({ endpoint: paths.endpoint, credential, command, payload });
     } catch (error) {
       throw new PiSessionDaemonUnavailableError(
         error instanceof SessionDaemonClientError && error.code !== 'DAEMON_CONNECTION_REFUSED'
           ? error.code
-          : 'DAEMON_UNAVAILABLE',
+          : error instanceof PiSessionDaemonUnavailableError ? error.code : 'DAEMON_UNAVAILABLE',
       );
     }
   };
 
   const subscribe = async ({ sessionId, fromSequence, onEvent, onError }) => {
-    const credential = await readCredential();
-    await probe(credential);
+    const { credential } = await ensureReady();
     return subscribeSessionDaemon({ endpoint: paths.endpoint, credential, sessionId, fromSequence, onEvent, onError });
   };
 
   const health = async () => {
     try {
-      const credential = await readCredential();
-      const ready = await probe(credential);
+      const { ready } = await ensureReady();
       return { state: 'ready', protocolVersion: PROTOCOL_VERSION, capabilities: ready.health.capabilities ?? [] };
     } catch (error) {
       return {
@@ -383,6 +395,7 @@ export const createPiSessionDaemonSupervisor = ({
       while (Date.now() < deadline) {
         if (!isPidAlive(processLike, state.pid)) {
           await removeStaleState(state);
+          intentionallyStopped = true;
           return { state: 'stopped' };
         }
         await wait(RETRY_DELAY_MS);

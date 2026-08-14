@@ -77,19 +77,19 @@ export function createSessionDaemon({
   createRuntime = createPiSessionRuntime,
   healthMetadata = {},
   idleTimeoutMs = 5 * 60 * 1_000,
-  listSessions = ({ cwd: sessionCwd, agentDir: sessionAgentDir }) => SessionManager.list(
+  listSessions = ({ cwd: sessionCwd, agentDir: sessionAgentDir = agentDir }) => SessionManager.list(
     sessionCwd,
     getPiSessionDirectory({ cwd: sessionCwd, agentDir: sessionAgentDir }),
   ),
-  createSettingsManager = ({ cwd: settingsCwd, agentDir: settingsAgentDir, projectTrusted }) => SettingsManager.create(
+  createSettingsManager = ({ cwd: settingsCwd, agentDir: settingsAgentDir = agentDir, projectTrusted }) => SettingsManager.create(
     settingsCwd,
     settingsAgentDir,
     { projectTrusted },
   ),
-  createTrustStore = (settingsAgentDir) => new ProjectTrustStore(settingsAgentDir),
+  createTrustStore = (settingsAgentDir = agentDir) => new ProjectTrustStore(settingsAgentDir),
   modelConfigStore = createPiModelConfigStore({ file: join(agentDir, 'models.json') }),
-  renamePersistedSession = ({ sessionFile, title }) => {
-    const manager = SessionManager.open(sessionFile, getPiSessionDirectory({ cwd, agentDir }), cwd);
+  renamePersistedSession = ({ sessionFile, title, cwd: sessionCwd = cwd, agentDir: sessionAgentDir = agentDir }) => {
+    const manager = SessionManager.open(sessionFile, getPiSessionDirectory({ cwd: sessionCwd, agentDir: sessionAgentDir }), sessionCwd);
     manager.appendSessionInfo(title);
   },
   platform = process.platform,
@@ -115,16 +115,80 @@ export function createSessionDaemon({
   let dormantSession;
   let sequence = 0;
   let started = false;
+  const knownDirectories = new Set([cwd]);
+  let activeDirectory = cwd;
+  const servicesCache = new Map();
   const clients = new Set();
   // A reconnect replays only a contiguous retained gap; otherwise it receives
   // a new authoritative snapshot before later events can arrive.
   const eventLog = [];
   const streamingMessageIds = new Map();
+  const latestUserMessageIds = new Map();
+  const streamingRedactionBuffers = new Map();
   const loginAttempts = new Map();
   const MAX_REPLAY_EVENTS = 1_024;
 
-  const publish = (event, payload, sessionId = runtime?.session?.sessionId) => {
+  const validateDirectoryPath = async (dir) => {
+    if (typeof dir !== 'string' || dir.trim().length === 0) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The directory path is required.');
+    }
+    const normalized = dir.trim();
+    if (!isAbsolute(normalized)) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The directory path must be absolute.');
+    }
+    try {
+      const stats = await stat(normalized);
+      if (!stats.isDirectory()) {
+        throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The specified path is not a directory.');
+      }
+    } catch (error) {
+      if (error instanceof SessionDaemonProtocolError) throw error;
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The directory path does not exist or is inaccessible.');
+    }
+    return normalized;
+  };
+
+  const resolveDirectory = async (requested) => {
+    if (typeof requested === 'string' && requested.trim().length > 0) {
+      const validated = await validateDirectoryPath(requested);
+      knownDirectories.add(validated);
+      return validated;
+    }
+    return activeDirectory || cwd;
+  };
+
+  const deriveSessionTitle = (text, maxLength = 50) => {
+    if (!text || typeof text !== 'string') return '';
+    const cleaned = text
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/`[^`]+`/g, ' ')
+      .replace(/\[(?:attachment|file|image|audio|video):[^\]]*\]/gi, ' ')
+      .replace(/@\S+/g, ' ')
+      .replace(/^[#>\s*\-+]+/gm, '');
+    const lines = cleaned.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+    if (lines.length === 0) return '';
+    let title = lines[0].replace(/\s+/g, ' ').trim();
+    if (title.length > maxLength) {
+      title = `${title.slice(0, maxLength).trim()}…`;
+    }
+    return title;
+  };
+
+  const getServices = async (targetCwd = activeDirectory || cwd) => {
+    const existing = servicesCache.get(targetCwd);
+    if (existing) return existing;
+    const services = await createAgentSessionServices({
+      cwd: targetCwd,
+      agentDir,
+      resourceLoaderOptions: { noExtensions: true },
+    });
+    servicesCache.set(targetCwd, services);
+    return services;
+  };
+
+  const publish = (event, payload, sessionId = runtime?.session?.sessionId, directory) => {
     if (typeof sessionId !== 'string' || sessionId.length === 0) return;
+    const targetDirectory = directory || activeDirectory || cwd;
     const message = {
       protocolVersion: PROTOCOL_VERSION,
       kind: 'event',
@@ -132,7 +196,7 @@ export function createSessionDaemon({
       sequence: ++sequence,
       payload: {
         sessionId,
-        directory: cwd,
+        directory: targetDirectory,
         ...payload,
       },
     };
@@ -157,9 +221,8 @@ export function createSessionDaemon({
   const publishSnapshot = (socket, requestedSessionId) => {
     const session = getSessionState();
     if (requestedSessionId && requestedSessionId !== session.sessionId) return;
-    if (typeof session.sessionId !== 'string' || session.sessionId.length === 0) return;
     const activeSession = runtime?.session;
-    const messages = projectMessageEntries(activeSession);
+    const messages = activeSession ? projectMessageEntries(activeSession, activeDirectory || cwd) : [];
     const lastAssistant = [...messages].reverse().find((entry) => entry.message.role === 'assistant')?.message;
     const model = activeSession?.model;
     const snapshotSequence = ++sequence;
@@ -169,9 +232,9 @@ export function createSessionDaemon({
       event: 'session.snapshot',
       sequence: snapshotSequence,
       payload: {
-        sessionId: session.sessionId,
-        directory: cwd,
-        isStreaming: session.isStreaming,
+        ...(session.sessionId ? { sessionId: session.sessionId } : {}),
+        directory: activeDirectory || cwd,
+        isStreaming: session.isStreaming ?? false,
         lifecycle: session.isStreaming ? 'busy' : 'idle',
         queue: activeSession ? {
           steering: activeSession.getSteeringMessages?.().length ?? 0,
@@ -204,18 +267,25 @@ export function createSessionDaemon({
     runtime = undefined;
   };
 
-  const startRuntime = async ({ sessionFile } = {}) => {
+  const startRuntime = async ({ cwd: runtimeCwd = activeDirectory || cwd, sessionFile } = {}) => {
     if (sessionFile) await validatePiSessionJsonlFile(sessionFile);
-    runtime = await createRuntime({ cwd, agentDir, ...(sessionFile ? { sessionFile } : {}) });
-    bindSession();
+    const newRuntime = await createRuntime({ cwd: runtimeCwd, agentDir, ...(sessionFile ? { sessionFile } : {}) });
+    if (!runtimeRegistry) {
+      runtimeRegistry = createSessionRuntimeRegistry({
+        onSessionEvent: ({ cwd: eventCwd, sessionId: eventSessionId }, event) => publishSessionEvent(eventSessionId, event, eventCwd),
+      });
+    }
+    runtimeRegistry.register(newRuntime, { cwd: runtimeCwd });
+    runtime = newRuntime;
+    activeDirectory = runtimeCwd;
     rememberRuntimeSession();
-    return runtime;
+    return newRuntime;
   };
 
-  const ensureRuntime = () => {
+  const ensureRuntime = (targetCwd = activeDirectory || cwd) => {
     if (runtime) return Promise.resolve(runtime);
     if (!runtimeStartPromise) {
-      runtimeStartPromise = startRuntime({ sessionFile: dormantSession?.sessionFile }).finally(() => {
+      runtimeStartPromise = startRuntime({ cwd: targetCwd, sessionFile: dormantSession?.sessionFile }).finally(() => {
         runtimeStartPromise = undefined;
       });
     }
@@ -233,27 +303,47 @@ export function createSessionDaemon({
   };
 
   const listSessionItems = async (requestedDirectory) => {
-    if (requestedDirectory !== undefined && requestedDirectory !== cwd) {
-      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested session directory is invalid.');
-    }
-    await validatePiSessionJsonlDirectory({ cwd, agentDir });
-    const sessions = await listSessions({ cwd, agentDir });
+    const targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : (activeDirectory || cwd);
+    await validatePiSessionJsonlDirectory({ cwd: targetDir, agentDir });
+    const sessions = await listSessions({ cwd: targetDir, agentDir });
     if (!Array.isArray(sessions)) {
       throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi returned an invalid session collection.');
     }
 
     const idByPath = new Map(sessions.map((session) => [session?.path, session?.id]));
-    const items = sessions.map((session) => {
-      const createdAt = session?.created instanceof Date ? session.created.getTime() : NaN;
-      const updatedAt = session?.modified instanceof Date ? session.modified.getTime() : NaN;
+    const uncorrupted = sessions.filter((session) => !session?.corrupted && typeof session?.id === 'string');
+    const knownIds = new Set(uncorrupted.map((s) => s.id));
+    const activeEntries = runtimeRegistry ? runtimeRegistry.listByDirectory(targetDir) : (runtime && (runtime.cwd === targetDir || activeDirectory === targetDir) ? [runtime] : []);
+    const extra = [];
+    for (const entry of activeEntries) {
+      if (entry?.session?.sessionId && !knownIds.has(entry.session.sessionId)) {
+        extra.push({
+          id: entry.session.sessionId,
+          cwd: targetDir,
+          name: entry.session.sessionManager?.getSessionName?.() || entry.session.title || undefined,
+          messageCount: entry.session.messages?.length || 0,
+          created: new Date(),
+          modified: new Date(),
+        });
+      }
+    }
+
+    const allSessions = [...extra, ...uncorrupted];
+    return allSessions.map((session) => {
+      const createdAt = session?.created instanceof Date ? session.created.getTime() : (typeof session?.createdAt === 'number' ? session.createdAt : NaN);
+      const updatedAt = session?.modified instanceof Date ? session.modified.getTime() : (typeof session?.updatedAt === 'number' ? session.updatedAt : NaN);
       if (typeof session?.id !== 'string' || session.id.length === 0 || !Number.isFinite(createdAt) || !Number.isFinite(updatedAt)) {
         throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi returned an invalid session record.');
       }
+      const safeFirstMessage = redactAttachmentPaths(session.firstMessage);
+      const title = typeof session.name === 'string' && session.name.trim().length > 0
+        ? redactAttachmentPaths(session.name.trim())
+        : deriveSessionTitle(safeFirstMessage);
       return {
         session: {
           id: session.id,
-          directory: cwd,
-          ...(typeof session.name === 'string' && session.name.length > 0 ? { title: session.name } : {}),
+          directory: targetDir,
+          ...(title ? { title } : {}),
           ...(typeof session.parentSessionPath === 'string' && idByPath.get(session.parentSessionPath)
             ? { parentId: idByPath.get(session.parentSessionPath) }
             : {}),
@@ -261,35 +351,10 @@ export function createSessionDaemon({
           updatedAt,
           ...(Number.isSafeInteger(session.messageCount) && session.messageCount >= 0 ? { messageCount: session.messageCount } : {}),
         },
-        ...(typeof session.firstMessage === 'string' && session.firstMessage.length > 0 ? { preview: session.firstMessage } : {}),
+        ...(safeFirstMessage ? { preview: safeFirstMessage } : {}),
         updatedAt,
       };
     });
-
-    const activeSession = runtime?.session;
-    const activeSessionId = activeSession?.sessionId;
-    if (typeof activeSessionId !== 'string' || activeSessionId.length === 0 || items.some((item) => item.session.id === activeSessionId)) {
-      return items;
-    }
-    const manager = activeSession.sessionManager;
-    const header = manager?.getHeader?.();
-    const createdAt = Date.parse(header?.timestamp);
-    if (!Number.isFinite(createdAt)) {
-      throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi returned an invalid active session.');
-    }
-    const entries = manager?.getEntries?.();
-    items.unshift({
-      session: {
-        id: activeSessionId,
-        directory: cwd,
-        ...(typeof manager?.getSessionName?.() === 'string' ? { title: manager.getSessionName() } : {}),
-        createdAt,
-        updatedAt: createdAt,
-        ...(Array.isArray(entries) ? { messageCount: entries.filter((entry) => entry?.type === 'message').length } : {}),
-      },
-      updatedAt: createdAt,
-    });
-    return items;
   };
 
   const renameSession = async (payload) => {
@@ -299,55 +364,97 @@ export function createSessionDaemon({
     }
     const sessionId = payload.sessionId;
     const title = payload.title.trim();
-    const activeSession = runtime?.session;
-    if (activeSession?.sessionId === sessionId) {
-      const manager = activeSession.sessionManager;
+    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
+    const activeRuntime = runtimeRegistry?.get({ cwd: targetDir, sessionId })
+      || runtimeRegistry?.findBySessionId(sessionId)
+      || (runtime?.session?.sessionId === sessionId ? runtime : undefined);
+    if (activeRuntime?.session) {
+      const manager = activeRuntime.session.sessionManager;
       if (typeof manager?.appendSessionInfo !== 'function') {
         throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi returned an invalid active session.');
       }
       manager.appendSessionInfo(title);
+      publish('session.updated', { title }, sessionId, targetDir);
       return;
     }
 
-    await validatePiSessionJsonlDirectory({ cwd, agentDir });
-    const sessions = await listSessions({ cwd, agentDir });
+    await validatePiSessionJsonlDirectory({ cwd: targetDir, agentDir });
+    const sessions = await listSessions({ cwd: targetDir, agentDir });
     const target = Array.isArray(sessions) ? sessions.find((session) => session?.id === sessionId) : undefined;
     if (typeof target?.path !== 'string' || target.path.length === 0) {
       throw new SessionDaemonProtocolError('INVALID_SESSION', 'The Pi session does not exist.');
     }
     await validatePiSessionJsonlFile(target.path);
-    renamePersistedSession({ sessionFile: target.path, title });
+    renamePersistedSession({ sessionFile: target.path, title, cwd: targetDir });
+    publish('session.updated', { title }, sessionId, targetDir);
   };
 
-  const findPersistedSession = async (sessionId) => {
+  const findPersistedSession = async (sessionId, requestedDirectory) => {
     if (typeof sessionId !== 'string' || sessionId.length === 0) {
       throw new SessionDaemonProtocolError('INVALID_SESSION', 'The Pi session does not exist.');
     }
-    await validatePiSessionJsonlDirectory({ cwd, agentDir });
-    const sessions = await listSessions({ cwd, agentDir });
-    const target = Array.isArray(sessions) ? sessions.find((session) => session?.id === sessionId) : undefined;
-    if (typeof target?.path !== 'string' || target.path.length === 0) {
-      throw new SessionDaemonProtocolError('INVALID_SESSION', 'The Pi session does not exist.');
+    const candidateDirs = requestedDirectory
+      ? [await resolveDirectory(requestedDirectory)]
+      : Array.from(knownDirectories);
+    for (const dir of candidateDirs) {
+      try {
+        await validatePiSessionJsonlDirectory({ cwd: dir, agentDir });
+        const sessions = await listSessions({ cwd: dir, agentDir });
+        const target = Array.isArray(sessions) ? sessions.find((session) => session?.id === sessionId) : undefined;
+        if (target && typeof target.path === 'string' && target.path.length > 0) {
+          await validatePiSessionJsonlFile(target.path);
+          return { target, directory: dir };
+        }
+      } catch (err) {
+        if (requestedDirectory) throw err;
+      }
     }
-    await validatePiSessionJsonlFile(target.path);
-    return target;
+    throw new SessionDaemonProtocolError('INVALID_SESSION', 'The Pi session does not exist.');
   };
 
-  const activateSession = async (sessionId) => {
-    const activeRuntime = await ensureRuntime();
-    if (activeRuntime.session?.sessionId === sessionId) return activeRuntime;
-    const target = await findPersistedSession(sessionId);
-    const result = await activeRuntime.switchSession?.(target.path);
-    if (!result || result.cancelled || activeRuntime.session?.sessionId !== sessionId) {
-      throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi did not open the requested session.');
+  const activateSession = async (sessionId, requestedDirectory) => {
+    if (!runtimeRegistry) {
+      runtimeRegistry = createSessionRuntimeRegistry({
+        onSessionEvent: ({ cwd: eventCwd, sessionId: eventSessionId }, event) => publishSessionEvent(eventSessionId, event, eventCwd),
+      });
     }
+    if (requestedDirectory) {
+      const targetDir = await resolveDirectory(requestedDirectory);
+      const existing = runtimeRegistry.get({ cwd: targetDir, sessionId });
+      if (existing) {
+        runtime = existing;
+        activeDirectory = targetDir;
+        return existing;
+      }
+    } else {
+      const existing = runtimeRegistry.findBySessionId(sessionId);
+      if (existing) {
+        runtime = existing;
+        return existing;
+      }
+    }
+    const { target, directory } = await findPersistedSession(sessionId, requestedDirectory);
+    if (runtime && typeof runtime.switchSession === 'function') {
+      const result = await runtime.switchSession(target.path);
+      if (result && !result.cancelled) {
+        runtimeRegistry.register(runtime, { cwd: directory });
+        activeDirectory = directory;
+        rememberRuntimeSession();
+        return runtime;
+      }
+    }
+    const newRuntime = await createRuntime({ cwd: directory, agentDir, sessionFile: target.path });
+    runtimeRegistry.register(newRuntime, { cwd: directory });
+    runtime = newRuntime;
+    activeDirectory = directory;
     rememberRuntimeSession();
-    return activeRuntime;
+    return newRuntime;
   };
 
-  const projectMessageEntries = (session) => {
+  const projectMessageEntries = (session, targetDir = activeDirectory || cwd) => {
     const entries = session?.sessionManager?.getEntries?.();
     if (!Array.isArray(entries)) return [];
+    let latestUserMessageId;
     return entries.flatMap((entry) => {
       if (entry?.type !== 'message' || !entry.message || typeof entry.id !== 'string') return [];
       const timestamp = Date.parse(entry.timestamp);
@@ -358,30 +465,32 @@ export function createSessionDaemon({
           : Array.isArray(entry.message.content)
             ? entry.message.content.filter((part) => part?.type === 'text').map((part) => part.text).join('')
             : '');
-        return [{ message: { id: entry.id, sessionId: session.sessionId, directory: cwd, role: 'user', text, createdAt }, parts: [] }];
+        latestUserMessageId = entry.id;
+        return [{ message: { id: entry.id, sessionId: session.sessionId, directory: targetDir, role: 'user', text, createdAt }, parts: [] }];
       }
       if (entry.message.role !== 'assistant' || !Array.isArray(entry.message.content)) return [];
-      const text = entry.message.content.filter((part) => part?.type === 'text').map((part) => part.text).join('');
-      const thinking = entry.message.content.filter((part) => part?.type === 'thinking').map((part) => part.thinking).join('');
+      const text = redactAttachmentPaths(entry.message.content.filter((part) => part?.type === 'text').map((part) => part.text).join(''));
+      const thinking = redactAttachmentPaths(entry.message.content.filter((part) => part?.type === 'thinking').map((part) => part.thinking).join(''));
       const parts = entry.message.content.flatMap((part, index) => {
-        if (part?.type === 'text') return [{ type: 'text', id: `${entry.id}:${index}`, index, text: part.text }];
-        if (part?.type === 'thinking') return [{ type: 'thinking', id: `${entry.id}:${index}`, index, text: part.thinking }];
-        if (part?.type === 'toolCall') return [{ type: 'tool', id: `${entry.id}:${index}`, index, toolCallId: part.id, name: part.name, input: part.arguments, state: 'completed' }];
+        if (part?.type === 'text') return [{ type: 'text', id: `${entry.id}:${index}`, index, text: redactAttachmentPaths(part.text) }];
+        if (part?.type === 'thinking') return [{ type: 'thinking', id: `${entry.id}:${index}`, index, text: redactAttachmentPaths(part.thinking) }];
+        if (part?.type === 'toolCall') return [{ type: 'tool', id: `${entry.id}:${index}`, index, toolCallId: part.id, name: part.name, input: redactAttachmentValues(part.arguments), state: 'completed' }];
         return [];
       });
       return [{
         message: {
-          id: entry.id, sessionId: session.sessionId, directory: cwd, role: 'assistant', text, thinking, createdAt,
+          id: entry.id, sessionId: session.sessionId, directory: targetDir, role: 'assistant', text, thinking, createdAt,
+          ...(latestUserMessageId ? { parentId: latestUserMessageId } : {}),
           model: { providerId: entry.message.provider, modelId: entry.message.model },
-          ...(entry.message.errorMessage ? { error: { code: 'ASSISTANT_ERROR', message: entry.message.errorMessage } } : {}),
+          ...(entry.message.errorMessage ? { error: { code: 'ASSISTANT_ERROR', message: redactAttachmentPaths(entry.message.errorMessage) } } : {}),
         },
         parts,
       }];
     });
   };
 
-  const projectActiveSession = () => {
-    const session = runtime?.session;
+  const projectActiveSession = (activeRuntime = runtime, targetDir = activeRuntime?.cwd || activeDirectory || cwd) => {
+    const session = activeRuntime?.session;
     const manager = session?.sessionManager;
     const header = manager?.getHeader?.();
     const createdAt = Date.parse(header?.timestamp);
@@ -391,45 +500,66 @@ export function createSessionDaemon({
     const model = session.model;
     return {
       session: {
-        id: session.sessionId, directory: cwd, createdAt, updatedAt: createdAt,
+        id: session.sessionId, directory: targetDir, createdAt, updatedAt: createdAt,
         ...(session.sessionName ? { title: session.sessionName } : {}),
         ...(model?.provider && model?.id ? { model: { providerId: model.provider, modelId: model.id } } : {}),
         ...(session.thinkingLevel ? { thinking: session.thinkingLevel } : {}),
-        messageCount: projectMessageEntries(session).length,
+        messageCount: projectMessageEntries(session, targetDir).length,
       },
-      messages: projectMessageEntries(session),
+      messages: projectMessageEntries(session, targetDir),
       lastSequence: sequence,
     };
   };
 
   const createSession = async (payload) => {
-    if (!payload || typeof payload !== 'object' || payload.cwd !== cwd
+    if (!payload || typeof payload !== 'object'
+      || (payload.cwd !== undefined && (typeof payload.cwd !== 'string' || payload.cwd.length === 0))
       || (payload.title !== undefined && (typeof payload.title !== 'string' || payload.title.trim().length === 0 || payload.title.length > 256))
       || (payload.thinking !== undefined && !['off', 'low', 'medium', 'high', 'xhigh'].includes(payload.thinking))
       || (payload.model !== undefined && (!payload.model || typeof payload.model.providerId !== 'string' || typeof payload.model.modelId !== 'string'))) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested session creation options are invalid.');
     }
-    const activeRuntime = await ensureRuntime();
-    const parent = payload.parentId === undefined ? undefined : await findPersistedSession(payload.parentId);
-    const result = await activeRuntime.newSession?.({
-      ...(parent ? { parentSession: parent.path } : {}),
-      ...(payload.title ? { setup: async (manager) => manager.appendSessionInfo(payload.title.trim()) } : {}),
+    const targetCwd = await resolveDirectory(payload.cwd);
+    await validatePiSessionJsonlDirectory({ cwd: targetCwd, agentDir });
+    const parent = payload.parentId === undefined ? undefined : (await findPersistedSession(payload.parentId, targetCwd)).target;
+    if (!runtimeRegistry) {
+      runtimeRegistry = createSessionRuntimeRegistry({
+        onSessionEvent: ({ cwd: eventCwd, sessionId: eventSessionId }, event) => publishSessionEvent(eventSessionId, event, eventCwd),
+      });
+    }
+    const newRuntime = await createRuntime({
+      cwd: targetCwd,
+      agentDir,
+      ...(parent ? { sessionFile: parent.path } : {}),
     });
-    if (!result || result.cancelled) throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled session creation.');
+    let result = { cancelled: false };
+    if (typeof newRuntime.newSession === 'function') {
+      result = await newRuntime.newSession({
+        ...(parent ? { parentSession: parent.path } : {}),
+        ...(payload.title ? { setup: async (manager) => manager.appendSessionInfo(payload.title.trim()) } : {}),
+      });
+    } else if (payload.title && newRuntime.session?.sessionManager?.appendSessionInfo) {
+      newRuntime.session.sessionManager.appendSessionInfo(payload.title.trim());
+    }
+    if (result?.cancelled) throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled session creation.');
     if (payload.model) {
-      await setSessionModel(activeRuntime, payload.model);
-      publishSessionModel(activeRuntime.session);
+      await setSessionModel(newRuntime, payload.model);
+      publishSessionModel(newRuntime.session, newRuntime.session.sessionId, targetCwd);
     }
     if (payload.thinking) {
-      activeRuntime.session.setThinkingLevel(payload.thinking);
-      publish('session.thinking', { thinking: payload.thinking });
+      newRuntime.session.setThinkingLevel(payload.thinking);
+      publish('session.thinking', { thinking: payload.thinking }, newRuntime.session.sessionId, targetCwd);
     }
+    runtimeRegistry.register(newRuntime, { cwd: targetCwd });
+    runtime = newRuntime;
+    activeDirectory = targetCwd;
     rememberRuntimeSession();
-    return projectActiveSession();
+    return projectActiveSession(newRuntime, targetCwd);
   };
 
-  const listProviders = async () => {
-    const activeRuntime = await ensureRuntime();
+  const listProviders = async (requestedDirectory) => {
+    const targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : (activeDirectory || cwd);
+    const activeRuntime = await ensureRuntime(targetDir);
     const modelRuntime = activeRuntime.session?.modelRuntime;
     const models = modelRuntime?.getModels?.();
     if (!Array.isArray(models)) throw new SessionDaemonProtocolError('PROVIDER_UNAVAILABLE', 'Pi did not provide a model catalog.');
@@ -471,10 +601,10 @@ export function createSessionDaemon({
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The provider configuration is invalid.');
     }
     const activeRuntime = await ensureRuntime();
-    if (activeRuntime.session?.isStreaming) {
+    if (activeRuntime?.session?.isStreaming) {
       throw new SessionDaemonProtocolError('SESSION_BUSY', 'Provider configuration cannot change while a session is streaming.');
     }
-    if (typeof activeRuntime.session?.modelRuntime?.getError?.() === 'string') {
+    if (typeof activeRuntime?.session?.modelRuntime?.getError?.() === 'string') {
       throw new SessionDaemonProtocolError('PI_MODEL_CONFIG_INVALID', 'Pi models configuration is invalid.');
     }
     let config;
@@ -488,9 +618,12 @@ export function createSessionDaemon({
     }
     // ModelRuntime snapshots models.json at construction. Rehydrate only while
     // idle so catalog changes are authoritative immediately and never race a turn.
-    rememberRuntimeSession();
-    await disposeRuntime();
-    await ensureRuntime();
+    servicesCache.clear();
+    if (activeRuntime) {
+      rememberRuntimeSession();
+      await disposeRuntime();
+      await ensureRuntime();
+    }
     return { config };
   };
 
@@ -625,14 +758,15 @@ export function createSessionDaemon({
   const logoutProvider = async (providerId) => {
     const status = await providerStatus(providerId);
     const activeRuntime = await ensureRuntime();
-    await activeRuntime.session.modelRuntime.logout(providerId);
+    await activeRuntime.session?.modelRuntime?.logout?.(providerId);
     return { providerId: status.providerId, authenticated: false };
   };
 
-  const readPiSettings = () => {
+  const readPiSettings = (requestedDirectory) => {
+    const targetDir = requestedDirectory || activeDirectory || cwd;
     const trustStore = createTrustStore(agentDir);
-    const trust = trustStore.get(cwd);
-    const manager = createSettingsManager({ cwd, agentDir, projectTrusted: trust === true });
+    const trust = trustStore.get(targetDir);
+    const manager = createSettingsManager({ cwd: targetDir, agentDir, projectTrusted: trust === true });
     const global = manager.getGlobalSettings();
     const project = manager.getProjectSettings();
     return {
@@ -645,7 +779,7 @@ export function createSessionDaemon({
       project: {
         trusted: trust === true,
         ...(trust === false ? { denied: true } : {}),
-        ...(trust === null && hasTrustRequiringProjectResources(cwd) ? { requiresTrust: true } : {}),
+        ...(trust === null && hasTrustRequiringProjectResources(targetDir) ? { requiresTrust: true } : {}),
         ...(trust === true && typeof project.defaultProvider === 'string' ? { defaultProvider: project.defaultProvider } : {}),
         ...(trust === true && typeof project.defaultModel === 'string' ? { defaultModel: project.defaultModel } : {}),
         ...(trust === true && typeof project.defaultThinkingLevel === 'string' ? { defaultThinking: project.defaultThinkingLevel } : {}),
@@ -657,6 +791,7 @@ export function createSessionDaemon({
     if (!payload || typeof payload !== 'object' || !['global', 'project'].includes(payload.scope)) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi settings request is invalid.');
     }
+    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
     const hasModel = Object.hasOwn(payload, 'defaultModel');
     const hasThinking = Object.hasOwn(payload, 'defaultThinking');
     const hasTrust = Object.hasOwn(payload, 'trust');
@@ -675,20 +810,17 @@ export function createSessionDaemon({
       throw new SessionDaemonProtocolError('SESSION_BUSY', 'Project trust cannot change during an active session.');
     }
     const trustStore = createTrustStore(agentDir);
-    if (hasTrust) trustStore.set(cwd, payload.trust);
-    const trusted = trustStore.get(cwd) === true;
+    if (hasTrust) trustStore.set(targetDir, payload.trust);
+    const trusted = trustStore.get(targetDir) === true;
     if (payload.scope === 'project' && !trusted && (hasModel || hasThinking)) {
       throw new SessionDaemonProtocolError('PROJECT_UNTRUSTED', 'The project is not trusted.');
     }
     if (hasModel || hasThinking) {
-      const manager = createSettingsManager({ cwd, agentDir, projectTrusted: trusted });
+      const manager = createSettingsManager({ cwd: targetDir, agentDir, projectTrusted: trusted });
       if (payload.scope === 'global') {
         if (hasModel) manager.setDefaultModelAndProvider(payload.defaultModel?.providerId, payload.defaultModel?.modelId);
         if (hasThinking) manager.setDefaultThinkingLevel(payload.defaultThinking ?? undefined);
       } else {
-        // Pi has no public project-default setters. Its locked project update
-        // operation preserves the authoritative settings-file merge semantics;
-        // mark each touched top-level field so clears persist as removals.
         if (hasModel) {
           manager.updateProjectSettings('defaultProvider', (settings) => {
             if (payload.defaultModel === null) delete settings.defaultProvider;
@@ -707,13 +839,11 @@ export function createSessionDaemon({
       await manager.flush();
       if (manager.drainErrors().length > 0) throw new SessionDaemonProtocolError('PI_SETTINGS_INVALID', 'Pi settings could not be written.');
     }
-    if (hasTrust) {
-      // Trust changes alter which project resources Pi loads. Recreate the idle
-      // runtime so the next resource/session read is authoritative.
+    if (hasTrust && runtime) {
       await disposeRuntime();
       await ensureRuntime();
     }
-    return readPiSettings();
+    return readPiSettings(targetDir);
   };
 
   const resourceId = (kind, filePath) => `${kind}:${createHash('sha256').update(filePath).digest('base64url')}`;
@@ -725,8 +855,9 @@ export function createSessionDaemon({
     return 'path';
   };
 
-  const resourceCatalog = async () => {
-    const activeRuntime = await ensureRuntime();
+  const resourceCatalog = async (requestedDirectory) => {
+    const targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : (activeDirectory || cwd);
+    const activeRuntime = await ensureRuntime(targetDir);
     const loader = activeRuntime?.services?.resourceLoader;
     if (!loader || typeof loader.getSkills !== 'function' || typeof loader.getPrompts !== 'function' || typeof loader.getAgentsFiles !== 'function') {
       throw new SessionDaemonProtocolError('DAEMON_REQUEST_FAILED', 'Pi resource discovery is unavailable.');
@@ -747,7 +878,7 @@ export function createSessionDaemon({
       location: agent.path.startsWith(agentDir) ? 'global' : 'project', content: agent.content, editable: true, filePath: agent.path,
     }));
     const globalAgentsPath = join(agentDir, 'AGENTS.md');
-    const projectAgentsPath = join(cwd, 'AGENTS.md');
+    const projectAgentsPath = join(targetDir, 'AGENTS.md');
     for (const [location, filePath] of [['global', globalAgentsPath], ['project', projectAgentsPath]]) {
       if (!agents.some((agent) => agent.filePath === filePath)) {
         agents.push({ id: resourceId('agents', filePath), kind: 'agents', name: 'AGENTS.md', location, content: '', editable: true, filePath });
@@ -778,10 +909,13 @@ export function createSessionDaemon({
     }
   };
 
-  const refreshResources = async () => {
-    await disposeRuntime();
-    await ensureRuntime();
-    return publicResources(await resourceCatalog());
+  const refreshResources = async (targetDir) => {
+    servicesCache.delete(targetDir || activeDirectory || cwd);
+    if (runtime) {
+      await disposeRuntime();
+      await ensureRuntime();
+    }
+    return publicResources(await resourceCatalog(targetDir));
   };
 
   const updateResource = async (payload) => {
@@ -789,7 +923,8 @@ export function createSessionDaemon({
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi resource update is invalid.');
     }
     requireIdleResourceMutation();
-    const catalog = await resourceCatalog();
+    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
+    const catalog = await resourceCatalog(targetDir);
     const resource = [...catalog.prompts, ...catalog.agents].find((item) => item.id === payload.resourceId && item.editable === true);
     if (!resource?.filePath) throw new SessionDaemonProtocolError('RESOURCE_NOT_FOUND', 'The requested Pi resource is not editable.');
     let content = payload.content;
@@ -799,7 +934,7 @@ export function createSessionDaemon({
       content = `${frontmatter}${content}`;
     }
     await writeResourceFile(resource.filePath, content);
-    return refreshResources();
+    return refreshResources(targetDir);
   };
 
   const createPrompt = async (payload) => {
@@ -809,9 +944,10 @@ export function createSessionDaemon({
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template is invalid.');
     }
     requireIdleResourceMutation();
-    const trust = createTrustStore(agentDir).get(cwd);
+    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
+    const trust = createTrustStore(agentDir).get(targetDir);
     if (payload.location === 'project' && trust !== true) throw new SessionDaemonProtocolError('PROJECT_UNTRUSTED', 'The project is not trusted.');
-    const filePath = join(payload.location === 'global' ? agentDir : join(cwd, '.pi'), 'prompts', `${payload.name}.md`);
+    const filePath = join(payload.location === 'global' ? agentDir : join(targetDir, '.pi'), 'prompts', `${payload.name}.md`);
     try {
       await readFile(filePath, 'utf8');
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template already exists.');
@@ -819,17 +955,18 @@ export function createSessionDaemon({
       if (error?.code !== 'ENOENT') throw error;
     }
     await writeResourceFile(filePath, `---\ndescription: ${JSON.stringify(payload.description)}\n---\n${payload.content}`);
-    return refreshResources();
+    return refreshResources(targetDir);
   };
 
   const deletePrompt = async (payload) => {
     if (!payload || typeof payload.resourceId !== 'string') throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template is invalid.');
     requireIdleResourceMutation();
-    const catalog = await resourceCatalog();
+    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
+    const catalog = await resourceCatalog(targetDir);
     const resource = catalog.prompts.find((item) => item.id === payload.resourceId && item.editable === true);
     if (!resource?.filePath) throw new SessionDaemonProtocolError('RESOURCE_NOT_FOUND', 'The requested Pi prompt template is not editable.');
     await rm(resource.filePath);
-    return refreshResources();
+    return refreshResources(targetDir);
   };
 
   const setSessionModel = async (activeRuntime, model) => {
@@ -841,12 +978,12 @@ export function createSessionDaemon({
     await activeRuntime.session.setModel(selected);
   };
 
-  const publishSessionModel = (session, sessionId = session?.sessionId) => {
+  const publishSessionModel = (session, sessionId = session?.sessionId, directory) => {
     const model = session?.model;
     if (!model?.provider || !model?.id) {
       throw new SessionDaemonProtocolError('INVALID_MODEL', 'Pi did not select a valid model.');
     }
-    publish('session.model', { model: { providerId: model.provider, modelId: model.id } }, sessionId);
+    publish('session.model', { model: { providerId: model.provider, modelId: model.id } }, sessionId, directory);
   };
 
   const validateThinking = (thinking) => {
@@ -856,8 +993,69 @@ export function createSessionDaemon({
   };
 
   const redactAttachmentPaths = (text) => typeof text === 'string'
-    ? text.replace(/(?:[A-Za-z]:)?[^\s]*pi-clipboard-[0-9a-f-]{36}(?:\.[^\s\])]+)?/gi, '[attachment]')
+    ? text
+      .replace(/\[Attachment[^\]\r\n]*pi-clipboard-[0-9a-f-]{36}[^\]\r\n]*\]/gi, '[attachment]')
+      .replace(/(?:[A-Za-z]:)?[^\s[\](){}"'`]*pi-clipboard-[0-9a-f-]{36}(?:\.[^\s\])}\]"'`,;]+)?/gi, '[attachment]')
     : '';
+
+  const redactAttachmentValues = (value) => {
+    if (typeof value === 'string') return redactAttachmentPaths(value);
+    if (Array.isArray(value)) return value.map(redactAttachmentValues);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, redactAttachmentValues(entry)]));
+  };
+
+  // Deltas can split `pi-clipboard-` and its UUID across arbitrary frames.
+  // Hold a small suffix, then hold the complete sensitive token once its marker
+  // appears. This prevents the browser reducer from reconstructing a path that
+  // no individual frame contained in full.
+  const redactStreamingAttachmentDelta = (key, delta) => {
+    const marker = 'pi-clipboard-';
+    let pending = `${streamingRedactionBuffers.get(key) ?? ''}${typeof delta === 'string' ? delta : ''}`;
+    let output = '';
+    while (pending) {
+      const markerIndex = pending.toLowerCase().indexOf(marker);
+      if (markerIndex < 0) {
+        const lowerPending = pending.toLowerCase();
+        let partialLength = 0;
+        for (let length = Math.min(marker.length - 1, pending.length); length > 0; length -= 1) {
+          if (marker.startsWith(lowerPending.slice(-length))) {
+            partialLength = length;
+            break;
+          }
+        }
+        if (partialLength === 0) {
+          output += pending;
+          pending = '';
+          break;
+        }
+        let partialStart = pending.length - partialLength;
+        while (partialStart > 0 && !/[\s[\](){}"'`,;]/.test(pending[partialStart - 1])) partialStart -= 1;
+        output += pending.slice(0, partialStart);
+        pending = pending.slice(partialStart);
+        break;
+      }
+      let tokenStart = markerIndex;
+      while (tokenStart > 0 && !/[\s[\](){}"'`,;]/.test(pending[tokenStart - 1])) tokenStart -= 1;
+      output += redactAttachmentPaths(pending.slice(0, tokenStart));
+      const tokenEndOffset = pending.slice(markerIndex).search(/[\s[\](){}"'`,;]/);
+      if (tokenEndOffset < 0) {
+        pending = pending.slice(tokenStart);
+        break;
+      }
+      output += '[attachment]';
+      pending = pending.slice(markerIndex + tokenEndOffset);
+    }
+    streamingRedactionBuffers.set(key, pending);
+    return output;
+  };
+
+  const clearStreamingRedactionBuffers = (sessionId) => {
+    const prefix = `${sessionId}:`;
+    for (const key of streamingRedactionBuffers.keys()) {
+      if (key.startsWith(prefix)) streamingRedactionBuffers.delete(key);
+    }
+  };
 
   const prepareAttachmentContent = async (attachments) => {
     if (attachments === undefined) return { text: '', images: [] };
@@ -869,8 +1067,6 @@ export function createSessionDaemon({
         || typeof attachment.mime !== 'string' || !Number.isSafeInteger(attachment.size) || attachment.size <= 0) {
         throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session attachments are invalid.');
       }
-      // Paths come only from the server-local upload map. They never cross a
-      // public response and are redacted from persisted transcript projections.
       try {
         if (attachment.mime.startsWith('image/') && attachment.size <= 20 * 1024 * 1024) {
           const data = await readFile(attachment.path);
@@ -895,7 +1091,7 @@ export function createSessionDaemon({
       throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session prompt is invalid.');
     }
     if (payload.thinking !== undefined) validateThinking(payload.thinking);
-    const activeRuntime = await activateSession(payload.sessionId);
+    const activeRuntime = await activateSession(payload.sessionId, payload.directory);
     if (!delivery && activeRuntime.session.isStreaming) {
       throw new SessionDaemonProtocolError('SESSION_BUSY', 'The Pi session already has an active run.');
     }
@@ -904,12 +1100,23 @@ export function createSessionDaemon({
     }
     if (payload.model !== undefined) {
       await setSessionModel(activeRuntime, payload.model);
-      publishSessionModel(activeRuntime.session, payload.sessionId);
+      publishSessionModel(activeRuntime.session, payload.sessionId, activeRuntime.cwd);
     }
     if (payload.thinking !== undefined) {
       activeRuntime.session.setThinkingLevel(payload.thinking);
-      publish('session.thinking', { thinking: payload.thinking }, payload.sessionId);
+      publish('session.thinking', { thinking: payload.thinking }, payload.sessionId, activeRuntime.cwd);
     }
+
+    // Auto-assign deterministic title on first prompt if session manager has no name yet
+    const manager = activeRuntime.session?.sessionManager;
+    if (typeof payload.text === 'string' && payload.text.trim().length > 0 && !manager?.getSessionName?.()) {
+      const derived = deriveSessionTitle(payload.text);
+      if (derived && typeof manager?.appendSessionInfo === 'function') {
+        manager.appendSessionInfo(derived);
+        publish('session.updated', { title: derived }, payload.sessionId, activeRuntime.cwd);
+      }
+    }
+
     const attachments = await prepareAttachmentContent(payload.attachments);
     const text = [payload.text, attachments.text].filter(Boolean).join('\n\n');
     const content = attachments.images.length > 0
@@ -925,8 +1132,8 @@ export function createSessionDaemon({
     return { accepted: true, messageId };
   };
 
-  const treeForSession = async (sessionId) => {
-    const activeRuntime = await activateSession(sessionId);
+  const treeForSession = async (sessionId, requestedDirectory) => {
+    const activeRuntime = await activateSession(sessionId, requestedDirectory);
     const nodes = activeRuntime.session.sessionManager?.getTree?.();
     if (!Array.isArray(nodes)) throw new SessionDaemonProtocolError('SESSION_TREE_NOT_FOUND', 'Pi returned an invalid session tree.');
     const project = (node) => ({
@@ -939,33 +1146,25 @@ export function createSessionDaemon({
     return { rootId: sessionId, nodes: nodes.map(project) };
   };
 
-  const deleteSession = async (sessionId) => {
-    const activeRuntime = await ensureRuntime();
-    const wasActive = activeRuntime.session?.sessionId === sessionId;
-    if (wasActive) {
-      if (activeRuntime.session.isStreaming) await activeRuntime.session.abort();
-      const replacement = await activeRuntime.newSession?.();
-      if (!replacement || replacement.cancelled) throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled replacement session creation.');
-      rememberRuntimeSession();
+  const deleteSession = async (sessionId, requestedDirectory) => {
+    const active = runtimeRegistry?.findBySessionId(sessionId);
+    let targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : active?.cwd || activeDirectory || cwd;
+    if (active) {
+      if (active.session?.isStreaming) await active.session.abort();
+      await runtimeRegistry?.dispose(active);
+      if (runtime === active) runtime = undefined;
     }
-    // Pi persists a newly-created active session during the transition to its
-    // replacement. Resolve its JSONL path only after that transition so a
-    // create-then-delete operation cannot report a session that listing sees
-    // but deletion cannot yet locate.
     try {
-      const target = await findPersistedSession(sessionId);
+      const { target, directory } = await findPersistedSession(sessionId, targetDir);
+      targetDir = directory;
       await rm(target.path, { force: false });
     } catch (error) {
-      // An empty Pi session can be visible while it is active but not yet have
-      // a JSONL file. Replacing that active session already removes its only
-      // live representation, so deleting it is complete rather than a false
-      // INVALID_SESSION failure.
-      if (!wasActive || error?.code !== 'INVALID_SESSION') throw error;
+      if (!active || error?.code !== 'INVALID_SESSION') throw error;
     }
-    publish('session.lifecycle', { state: 'idle', deleted: true }, sessionId);
+    publish('session.lifecycle', { state: 'idle', deleted: true }, sessionId, targetDir);
   };
 
-  const publishSessionEvent = (sessionId, event) => {
+  const publishSessionEvent = (sessionId, event, directory = activeDirectory || cwd) => {
     switch (event.type) {
       case 'message_start': {
         if (event.message?.role === 'user') {
@@ -975,30 +1174,36 @@ export function createSessionDaemon({
             : Array.isArray(content)
               ? content.filter((part) => part?.type === 'text').map((part) => part.text).join('')
               : '');
+          const messageId = `user-${sessionId}-${sequence + 1}`;
+          latestUserMessageIds.set(sessionId, messageId);
           publish('assistant.message.start', {
-            messageId: `user-${sessionId}-${sequence + 1}`,
+            messageId,
             role: 'user',
             text,
             startedAt: Number.isFinite(event.message.timestamp) ? event.message.timestamp : Date.now(),
-          }, sessionId);
+          }, sessionId, directory);
         } else if (event.message?.role === 'assistant') {
           const messageId = `assistant-${sessionId}-${sequence + 1}`;
+          clearStreamingRedactionBuffers(sessionId);
           streamingMessageIds.set(sessionId, messageId);
           publish('assistant.message.start', {
             messageId,
             role: 'assistant',
+            ...(latestUserMessageIds.get(sessionId) ? { parentId: latestUserMessageIds.get(sessionId) } : {}),
             startedAt: Number.isFinite(event.message.timestamp) ? event.message.timestamp : Date.now(),
             ...(event.message.provider && event.message.model ? { model: { providerId: event.message.provider, modelId: event.message.model } } : {}),
-          }, sessionId);
+          }, sessionId, directory);
         }
         break;
       }
       case 'message_update': {
         const update = event.assistantMessageEvent;
         if (update.type === 'text_delta') {
-          publish('assistant.message.delta', { messageId: streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`, partId: `${streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`}:text:${update.contentIndex}`, contentIndex: update.contentIndex, delta: update.delta }, sessionId);
+          const delta = redactStreamingAttachmentDelta(`${sessionId}:text:${update.contentIndex}`, update.delta);
+          if (delta) publish('assistant.message.delta', { messageId: streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`, partId: `${streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`}:text:${update.contentIndex}`, contentIndex: update.contentIndex, delta }, sessionId, directory);
         } else if (update.type === 'thinking_delta') {
-          publish('assistant.thinking.delta', { messageId: streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`, partId: `${streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`}:thinking:${update.contentIndex}`, contentIndex: update.contentIndex, delta: update.delta }, sessionId);
+          const delta = redactStreamingAttachmentDelta(`${sessionId}:thinking:${update.contentIndex}`, update.delta);
+          if (delta) publish('assistant.thinking.delta', { messageId: streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`, partId: `${streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`}:thinking:${update.contentIndex}`, contentIndex: update.contentIndex, delta }, sessionId, directory);
         }
         break;
       }
@@ -1007,68 +1212,63 @@ export function createSessionDaemon({
           const content = Array.isArray(event.message.content) ? event.message.content : [];
           publish('assistant.message.end', {
             messageId: streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`,
-            text: content.filter((part) => part?.type === 'text').map((part) => part.text).join(''),
-            thinking: content.filter((part) => part?.type === 'thinking').map((part) => part.thinking).join(''),
+            text: redactAttachmentPaths(content.filter((part) => part?.type === 'text').map((part) => part.text).join('')),
+            thinking: redactAttachmentPaths(content.filter((part) => part?.type === 'thinking').map((part) => part.thinking).join('')),
             ...(event.message.errorMessage ? { error: { code: 'ASSISTANT_ERROR' } } : {}),
-          }, sessionId);
+          }, sessionId, directory);
           streamingMessageIds.delete(sessionId);
+          clearStreamingRedactionBuffers(sessionId);
         }
         break;
       }
       case 'tool_execution_start': {
         const messageId = streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
-        publish('session.tool.start', { toolCallId: event.toolCallId, partId: `${messageId}:tool:${event.toolCallId}`, messageId, name: event.toolName, toolName: event.toolName, state: 'running' }, sessionId);
+        publish('session.tool.start', { toolCallId: event.toolCallId, partId: `${messageId}:tool:${event.toolCallId}`, messageId, name: event.toolName, toolName: event.toolName, state: 'running' }, sessionId, directory);
         break;
       }
       case 'tool_execution_update': {
         const messageId = streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
-        publish('session.tool.update', { toolCallId: event.toolCallId, partId: `${messageId}:tool:${event.toolCallId}`, messageId, name: event.toolName, toolName: event.toolName, state: 'running' }, sessionId);
+        publish('session.tool.update', { toolCallId: event.toolCallId, partId: `${messageId}:tool:${event.toolCallId}`, messageId, name: event.toolName, toolName: event.toolName, state: 'running' }, sessionId, directory);
         break;
       }
       case 'tool_execution_end': {
         const messageId = streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
-        publish('session.tool.end', { toolCallId: event.toolCallId, partId: `${messageId}:tool:${event.toolCallId}`, messageId, name: event.toolName, toolName: event.toolName, state: event.isError ? 'error' : 'completed', isError: event.isError === true }, sessionId);
+        publish('session.tool.end', { toolCallId: event.toolCallId, partId: `${messageId}:tool:${event.toolCallId}`, messageId, name: event.toolName, toolName: event.toolName, state: event.isError ? 'error' : 'completed', isError: event.isError === true }, sessionId, directory);
         break;
       }
       case 'queue_update':
-        publish('session.queue', { steering: event.steering.length, followUp: event.followUp.length }, sessionId);
+        publish('session.queue', { steering: event.steering.length, followUp: event.followUp.length }, sessionId, directory);
         break;
       case 'agent_start':
         clearIdleDisposal();
-        publish('session.lifecycle', { state: 'busy' }, sessionId);
+        publish('session.lifecycle', { state: 'busy' }, sessionId, directory);
         break;
       case 'agent_end': {
+        latestUserMessageIds.delete(sessionId);
         const finalMessage = event.messages?.at?.(-1);
         if (finalMessage?.role === 'assistant' && finalMessage.stopReason === 'aborted') {
-          publish('session.interrupted', { reason: 'user-abort', streaming: false }, sessionId);
+          publish('session.interrupted', { reason: 'user-abort', streaming: false }, sessionId, directory);
         } else if (finalMessage?.role === 'assistant' && typeof finalMessage.errorMessage === 'string') {
-          publish('session.error', { code: 'ASSISTANT_ERROR' }, sessionId);
+          publish('session.error', { code: 'ASSISTANT_ERROR' }, sessionId, directory);
         }
         break;
       }
       case 'agent_settled':
-        publish('session.lifecycle', { state: 'idle' }, sessionId);
+        publish('session.lifecycle', { state: 'idle' }, sessionId, directory);
         scheduleIdleDisposal(sessionId);
         break;
       case 'thinking_level_changed':
-        publish('session.thinking', { thinking: event.level }, sessionId);
+        publish('session.thinking', { thinking: event.level }, sessionId, directory);
         break;
       case 'compaction_start':
-        publish('session.compaction', { running: true }, sessionId);
+        publish('session.compaction', { running: true }, sessionId, directory);
         break;
       case 'compaction_end':
-        publish('session.compaction', { running: false }, sessionId);
+        publish('session.compaction', { running: false }, sessionId, directory);
         break;
       default:
         break;
     }
-  };
-
-  const bindSession = () => {
-    runtimeRegistry = createSessionRuntimeRegistry({
-      onSessionEvent: ({ sessionId }, event) => publishSessionEvent(sessionId, event),
-    });
-    runtimeRegistry.register(runtime, { cwd });
   };
 
   const handleRequest = async (socket, message) => {
@@ -1099,14 +1299,26 @@ export function createSessionDaemon({
         });
         return;
       case 'projects.list':
-        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: { projects: [{ directory: cwd, selected: true }] } });
+        writeFrame(socket, {
+          protocolVersion: PROTOCOL_VERSION,
+          kind: 'response',
+          requestId: message.requestId,
+          result: {
+            projects: Array.from(knownDirectories).map((dir) => ({
+              directory: dir,
+              selected: dir === activeDirectory,
+            })),
+          },
+        });
         return;
-      case 'projects.select':
-        if (message.payload?.directory !== cwd) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested project directory is invalid.');
-        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: { directory: cwd } });
+      case 'projects.select': {
+        const targetDir = await resolveDirectory(message.payload?.directory);
+        activeDirectory = targetDir;
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: { directory: targetDir } });
         return;
+      }
       case 'providers.list': {
-        const result = await listProviders();
+        const result = await listProviders(message.payload?.directory);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
@@ -1150,7 +1362,7 @@ export function createSessionDaemon({
         return;
       }
       case 'settings.get': {
-        const result = readPiSettings();
+        const result = readPiSettings(message.payload?.directory);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
@@ -1160,7 +1372,7 @@ export function createSessionDaemon({
         return;
       }
       case 'resources.list': {
-        const result = publicResources(await resourceCatalog());
+        const result = publicResources(await resourceCatalog(message.payload?.directory));
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
@@ -1180,7 +1392,7 @@ export function createSessionDaemon({
         return;
       }
       case 'sessions.list': {
-        const sessions = await listSessionItems(message.payload?.directory);
+        const sessions = await listSessionItems(message.payload?.directory || message.payload?.cwd);
         writeFrame(socket, {
           protocolVersion: PROTOCOL_VERSION,
           kind: 'response',
@@ -1190,8 +1402,8 @@ export function createSessionDaemon({
         return;
       }
       case 'sessions.open': {
-        const activeRuntime = await activateSession(message.payload?.sessionId);
-        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: projectActiveSession(activeRuntime) });
+        const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: projectActiveSession(activeRuntime, activeRuntime.cwd) });
         return;
       }
       case 'sessions.rename': {
@@ -1200,33 +1412,33 @@ export function createSessionDaemon({
         return;
       }
       case 'sessions.delete': {
-        await deleteSession(message.payload?.sessionId);
+        await deleteSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
         return;
       }
       case 'sessions.tree': {
-        const result = await treeForSession(message.payload?.sessionId);
+        const result = await treeForSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
       case 'sessions.navigate': {
-        const activeRuntime = await activateSession(message.payload?.sessionId);
+        const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
         const messageId = message.payload?.messageId;
         if (typeof messageId !== 'string' || messageId.length === 0) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested tree entry is invalid.');
         const result = await activeRuntime.session.navigateTree(messageId);
         if (result.cancelled) throw new SessionDaemonProtocolError('SESSION_TREE_NOT_FOUND', 'Pi cancelled tree navigation.');
-        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: projectActiveSession() });
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: projectActiveSession(activeRuntime, activeRuntime.cwd) });
         return;
       }
       case 'sessions.fork':
       case 'sessions.clone': {
-        const activeRuntime = await activateSession(message.payload?.sessionId);
+        const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
         const entryId = message.command === 'sessions.fork' ? message.payload?.messageId : activeRuntime.session.sessionManager?.getLeafId?.();
         if (typeof entryId !== 'string' || entryId.length === 0) throw new SessionDaemonProtocolError('SESSION_TREE_NOT_FOUND', 'The Pi session has no fork point.');
         const result = await activeRuntime.fork(entryId, { position: 'at' });
         if (result.cancelled) throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled session creation.');
         rememberRuntimeSession();
-        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: projectActiveSession() });
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: projectActiveSession(activeRuntime, activeRuntime.cwd) });
         return;
       }
       case 'sessions.create': {
@@ -1242,47 +1454,45 @@ export function createSessionDaemon({
       case 'sessions.prompt':
       case 'sessions.steer':
       case 'sessions.followUp': {
-        // The browser route always supplies the path-selected identity. Keep the
-        // original private lifecycle smoke call compatible with the active runtime.
         const payload = message.payload?.sessionId ? message.payload : { ...message.payload, sessionId: getSessionState().sessionId };
         const result = await sessionInput(payload, message.command === 'sessions.steer' ? 'steer' : message.command === 'sessions.followUp' ? 'followUp' : undefined);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
       case 'sessions.abort': {
-        const activeRuntime = await activateSession(message.payload?.sessionId);
+        const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
         const streaming = activeRuntime.session.isStreaming;
         await activeRuntime.session.abort();
-        if (streaming) publish('session.interrupted', { reason: 'user-abort', streaming: true }, message.payload.sessionId);
+        if (streaming) publish('session.interrupted', { reason: 'user-abort', streaming: true }, message.payload.sessionId, activeRuntime.cwd);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
         return;
       }
       case 'sessions.setModel': {
-        const activeRuntime = await activateSession(message.payload?.sessionId);
+        const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
         await setSessionModel(activeRuntime, message.payload?.model);
-        publishSessionModel(activeRuntime.session, message.payload.sessionId);
+        publishSessionModel(activeRuntime.session, message.payload.sessionId, activeRuntime.cwd);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
         return;
       }
       case 'sessions.setThinking': {
-        const activeRuntime = await activateSession(message.payload?.sessionId);
+        const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
         const thinking = message.payload?.thinking;
         validateThinking(thinking);
         activeRuntime.session.setThinkingLevel(thinking);
-        publish('session.thinking', { thinking }, message.payload.sessionId);
+        publish('session.thinking', { thinking }, message.payload.sessionId, activeRuntime.cwd);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
         return;
       }
       case 'sessions.compact': {
         if (message.payload?.thinking !== undefined) validateThinking(message.payload.thinking);
-        const activeRuntime = await activateSession(message.payload?.sessionId);
+        const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
         if (message.payload?.model !== undefined) {
           await setSessionModel(activeRuntime, message.payload.model);
-          publishSessionModel(activeRuntime.session, message.payload.sessionId);
+          publishSessionModel(activeRuntime.session, message.payload.sessionId, activeRuntime.cwd);
         }
         if (message.payload?.thinking !== undefined) {
           activeRuntime.session.setThinkingLevel(message.payload.thinking);
-          publish('session.thinking', { thinking: message.payload.thinking }, message.payload.sessionId);
+          publish('session.thinking', { thinking: message.payload.thinking }, message.payload.sessionId, activeRuntime.cwd);
         }
         await activeRuntime.session.compact();
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
@@ -1369,7 +1579,9 @@ export function createSessionDaemon({
     async start() {
       if (started) return;
       await validatePiSessionJsonlDirectory({ cwd, agentDir });
-      await startRuntime();
+      runtimeRegistry = createSessionRuntimeRegistry({
+        onSessionEvent: ({ cwd: eventCwd, sessionId: eventSessionId }, event) => publishSessionEvent(eventSessionId, event, eventCwd),
+      });
 
       try {
         if (platform !== 'win32') {
@@ -1423,3 +1635,4 @@ export function createSessionDaemon({
 function writeFrame(socket, frame) {
   if (!socket.destroyed) socket.write(`${JSON.stringify(frame)}\n`);
 }
+
