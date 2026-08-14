@@ -216,12 +216,6 @@ function parseArgs(argv = process.argv.slice(2)) {
         options.title = typeof value === 'string' ? value : options.title;
         break;
       }
-      case 'worktree': {
-        const { value, nextIndex } = consumeValue(i, inlineValue);
-        i = nextIndex;
-        options.worktree = typeof value === 'string' ? value : options.worktree;
-        break;
-      }
       case 'branch': {
         const { value, nextIndex } = consumeValue(i, inlineValue);
         i = nextIndex;

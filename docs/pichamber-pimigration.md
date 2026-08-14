@@ -215,7 +215,8 @@ Remove the OpenCode system-prompt optimizer entirely. PiChamber provides an edit
 | Tunnels and E2EE relay | Retain product direction; port after direct connections are stable |
 | Skill package/catalog UI | Design after extension/package policy is mature |
 | Native Pi extension support and subagent workflow | Later, configurable and trust-gated |
-| Custom session folders and retention cleanup | Later; archive ships first |
+| Custom session folders | Restored as PiChamber host metadata with validated `/api/pi/session-folders` persistence |
+| Retention cleanup | Later |
 | VS Code and mobile Pi clients | Later, intentional runtime ports |
 
 ### Removed for this migration
@@ -492,7 +493,7 @@ This is a dependency-based implementation timeline, not a calendar commitment. E
 | Completed workstream | Update ownership | Workstream 8's Pi release SDK ownership, headless package install before restart, supervisor and Docker deployment safety, and OpenCode upgrade code removal pass focused CLI, server, route, and UI validation. |
 | Cutover gate | Pi core release | Remove released OpenCode runtime path, run regression and remote/desktop smoke tests, and update core documentation. This is the first Pi-native usable release gate. |
 | Follow-up | Retained product features | Walkthrough/small model first, then previews, GitHub, notifications, quota, archive UI refinements, mini-chat, tunnel/relay work, and updater hardening. |
-| Later | Intentional expansion | Pi package/skills UI, native extensions/subagents, folders/retention, VS Code, hosted mobile, Capacitor mobile, and optional modes/GUI extension API. |
+| Later | Intentional expansion | Pi package/skills UI, native extensions/subagents, retention, VS Code, hosted mobile, Capacitor mobile, and optional modes/GUI extension API. |
 
 ## Validation Plan
 
@@ -673,7 +674,7 @@ Snippets become native Pi prompt templates. Magic Prompts remain PiChamber-owned
 
 ### Q31 / Q35 — Session organization
 
-Pi native session history, naming, tree navigation, fork, clone, and deletion are used. PiChamber archive is retained as shared, host-level UI metadata that hides a Pi session only from PiChamber. Custom folders, retention cleanup, sharing, and OpenCode-style revert are not part of the core migration.
+Pi native session history, naming, tree navigation, fork, clone, and deletion are used. PiChamber archive is retained as shared, host-level UI metadata that hides a Pi session only from PiChamber. Custom folders remain PiChamber host metadata and use the restored server-backed sidecar rather than Pi JSONL. Retention cleanup, sharing, and OpenCode-style revert are not part of the core migration.
 
 ### Q32 / Q37 — Behavior settings
 
