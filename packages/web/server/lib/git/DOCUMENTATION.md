@@ -43,7 +43,7 @@ The following functions are exported and used by the web server:
 - `checkoutBranch(directory, branchName)`: Checkout an existing branch.
 - `deleteBranch(directory, branch, options)`: Delete a branch (supports force flag).
 - `renameBranch(directory, oldName, newName)`: Rename a branch and preserve upstream tracking.
-- `getRemotes(directory)`: Get list of configured remotes.
+- `getRemotes(directory)`: Get list of configured remotes. Non-repository directories return an empty list without logging an operational failure.
 
 ### Worktree Operations
 - `getWorktrees(directory)`: List all git worktrees for a repository.

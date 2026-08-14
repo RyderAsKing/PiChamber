@@ -10,7 +10,8 @@ import { isLocalSessionDaemonEndpoint } from './session-daemon.js';
 import { requestSessionDaemon, SessionDaemonClientError, subscribeSessionDaemon } from './ipc-client.js';
 
 const PROTOCOL_VERSION = 1;
-const STARTUP_TIMEOUT_MS = 5_000;
+const OPERATION_TIMEOUT_MS = 5_000;
+const DAEMON_READY_TIMEOUT_MS = 15_000;
 const RETRY_DELAY_MS = 100;
 const DAEMON_ENTRYPOINT = fileURLToPath(new URL('./daemon-process.js', import.meta.url));
 
@@ -103,7 +104,8 @@ export const createPiSessionDaemonSupervisor = ({
   request = requestSessionDaemon,
   spawn = spawnChildProcess,
   wait = delay,
-  startupTimeoutMs = STARTUP_TIMEOUT_MS,
+  startupTimeoutMs = OPERATION_TIMEOUT_MS,
+  daemonReadyTimeoutMs = DAEMON_READY_TIMEOUT_MS,
 } = {}) => {
   const paths = resolvePiSessionDaemonPaths({ env, dataDir, platform });
   let startPromise = null;
@@ -310,7 +312,9 @@ export const createPiSessionDaemonSupervisor = ({
       });
       child.unref?.();
 
-      const deadline = Date.now() + startupTimeoutMs;
+      // Loading Pi settings, providers, and a larger local model catalog can
+      // legitimately exceed the short lock/stop operation budget.
+      const deadline = Date.now() + daemonReadyTimeoutMs;
       while (Date.now() < deadline) {
         try {
           const started = await probe(credential);
