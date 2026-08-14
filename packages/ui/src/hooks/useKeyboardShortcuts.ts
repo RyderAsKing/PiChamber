@@ -150,7 +150,6 @@ export const useKeyboardShortcuts = () => {
         isCommandPaletteOpen,
         isHelpDialogOpen,
         isSessionSwitcherOpen,
-        isAboutDialogOpen,
         isImagePreviewOpen,
         activeMainTab,
         isPromptNavigatorPanelOpen,
@@ -180,7 +179,7 @@ export const useKeyboardShortcuts = () => {
         return;
       }
 
-      const hasOverlay = isCommandPaletteOpen || isHelpDialogOpen || isSessionSwitcherOpen || isAboutDialogOpen || isImagePreviewOpen;
+      const hasOverlay = isCommandPaletteOpen || isHelpDialogOpen || isSessionSwitcherOpen || isImagePreviewOpen;
       const isChatActive = activeMainTab === 'chat';
 
       if (hasOverlay || !isChatActive) {
@@ -249,7 +248,6 @@ export const useKeyboardShortcuts = () => {
           isCommandPaletteOpen,
           isHelpDialogOpen,
           isSessionSwitcherOpen,
-          isAboutDialogOpen,
           isTimelineDialogOpen,
           isImagePreviewOpen,
         } = useUIStore.getState();
@@ -262,7 +260,6 @@ export const useKeyboardShortcuts = () => {
           || isCommandPaletteOpen
           || isHelpDialogOpen
           || isSessionSwitcherOpen
-          || isAboutDialogOpen
           || isTimelineDialogOpen
           || isImagePreviewOpen;
 
@@ -463,7 +460,6 @@ export const useKeyboardShortcuts = () => {
           isCommandPaletteOpen,
           isHelpDialogOpen,
           isSessionSwitcherOpen,
-          isAboutDialogOpen,
           activeMainTab,
           isModelSelectorOpen,
         } = useUIStore.getState();
@@ -474,7 +470,7 @@ export const useKeyboardShortcuts = () => {
         }
 
         // Skip if any overlay open or not on chat tab
-        const hasOverlay = isCommandPaletteOpen || isHelpDialogOpen || isSessionSwitcherOpen || isAboutDialogOpen;
+        const hasOverlay = isCommandPaletteOpen || isHelpDialogOpen || isSessionSwitcherOpen;
         const isChatActive = activeMainTab === 'chat';
 
         if (hasOverlay || !isChatActive) {
@@ -493,7 +489,6 @@ export const useKeyboardShortcuts = () => {
           isCommandPaletteOpen,
           isHelpDialogOpen,
           isSessionSwitcherOpen,
-          isAboutDialogOpen,
           activeMainTab,
         } = useUIStore.getState();
 
@@ -501,7 +496,7 @@ export const useKeyboardShortcuts = () => {
           return;
         }
 
-        const hasOverlay = isCommandPaletteOpen || isHelpDialogOpen || isSessionSwitcherOpen || isAboutDialogOpen;
+        const hasOverlay = isCommandPaletteOpen || isHelpDialogOpen || isSessionSwitcherOpen;
         const isChatActive = activeMainTab === 'chat';
 
         if (hasOverlay || !isChatActive) {
@@ -540,7 +535,6 @@ export const useKeyboardShortcuts = () => {
           isCommandPaletteOpen,
           isHelpDialogOpen,
           isSessionSwitcherOpen,
-          isAboutDialogOpen,
           activeMainTab,
           favoriteModels,
           addRecentModel,
@@ -550,7 +544,7 @@ export const useKeyboardShortcuts = () => {
           return;
         }
 
-        const hasOverlay = isCommandPaletteOpen || isHelpDialogOpen || isSessionSwitcherOpen || isAboutDialogOpen;
+        const hasOverlay = isCommandPaletteOpen || isHelpDialogOpen || isSessionSwitcherOpen;
         const isChatActive = activeMainTab === 'chat';
 
         if (hasOverlay || !isChatActive || favoriteModels.length === 0) {

@@ -380,8 +380,8 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const setActiveMainTab = useUIStore((state) => state.setActiveMainTab);
   const openContextPanelTab = useUIStore((state) => state.openContextPanelTab);
   const setSettingsDialogOpen = useUIStore((state) => state.setSettingsDialogOpen);
+  const setSettingsPage = useUIStore((state) => state.setSettingsPage);
   const toggleHelpDialog = useUIStore((state) => state.toggleHelpDialog);
-  const setAboutDialogOpen = useUIStore((state) => state.setAboutDialogOpen);
   const setSessionSwitcherOpen = useUIStore((state) => state.setSessionSwitcherOpen);
   const setArchivePageOpen = useUIStore((state) => state.setArchivePageOpen);
   const notifyOnSubtasks = useUIStore((state) => state.notifyOnSubtasks);
@@ -1655,7 +1655,10 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       <SidebarFooter
         onOpenSettings={handleOpenSettings}
         onOpenShortcuts={toggleHelpDialog}
-        onOpenAbout={() => setAboutDialogOpen(true)}
+        onOpenAbout={() => {
+          setSettingsPage('about');
+          setSettingsDialogOpen(true);
+        }}
         onOpenUpdate={handleOpenUpdateDialog}
         showRuntimeButtons
         showUpdateButton={showSidebarUpdateButton}

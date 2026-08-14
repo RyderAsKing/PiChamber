@@ -1,4 +1,4 @@
-/* eslint-disable react-refresh/only-export-components, @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 import { useMemo } from 'react';
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { piProjectedToRecords, mapPart } from '@/lib/chat/pi-to-renderable';
@@ -35,25 +35,6 @@ export function setActiveSession(directory: string, sessionId: string) {
   void store.select(sessionId);
 }
 export function setExternallyViewedSession(_directory: string, _sessionId: string, _viewed: boolean) {}
-export function applySessionStatusSnapshot() {}
-export function needsSnapshotAfterStatusPoll() { return false; }
-export function shouldTriggerStaleResync() { return false; }
-export const createEventRoutingIndex = () => ({});
-export function handleEvent() {}
-export function interruptedTurnToolParts() { return []; }
-
-export { SyncProvider, PiSessionProvider } from './pi-session-context';
-
-export function useSessionMessageLoader() {
-  return {
-    ensureSessionRenderable: async () => undefined,
-    loadMore: async () => undefined,
-  };
-}
-
-export function useSessionMessageLoadState(_sessionID: string, _directory?: string) {
-  return { loading: false, complete: true, error: null as string | null };
-}
 
 const mapPiSessions = (): Session[] =>
   getPiSessionStore().getState().sessions.map((item) => ({
@@ -195,28 +176,18 @@ const piChildStoreManager = {
   ensureChild: (_directory?: string, _options?: unknown) => piDirectoryChildStore,
 };
 
+export function useSessionMessageLoadState(_sessionID: string, _directory?: string) {
+  return { loading: false, complete: true, status: 'ready' as const, cursor: undefined, error: null as string | null };
+}
+
 export function useChildStoreManager() {
   return piChildStoreManager;
 }
 
-export type SessionTextMessage = { id: string; text: string };
-
-export function dropCachedSessionMessageRecordsSnapshots() {}
 export function buildSessionMessageRecordsSnapshot(_state?: any, _sessionId?: any) { return { list: [] as any[] }; }
-
-export function useSessionMessageCount(sessionID: string): number {
-  return useSessionMessageRecords(sessionID).length;
-}
 
 export function useSessionRenderable(_sessionID: string, _directory?: string): boolean {
   return true;
-}
-
-export function useSessionTextMessages(sessionID: string): SessionTextMessage[] {
-  return useSessionMessageRecords(sessionID).map((record) => ({
-    id: record.info.id,
-    text: record.parts.filter((part) => part.type === 'text').map((part) => part.text ?? '').join(''),
-  }));
 }
 
 export function useUserMessageHistory(sessionID: string): string[] {
@@ -235,25 +206,13 @@ export function useSessionMessageRecords(sessionID: string, _directory?: string)
   }, [sessionID, state.reducer, store]);
 }
 
+export function useSessionMessageCount(sessionID: string): number {
+  return useSessionMessageRecords(sessionID).length;
+}
+
 export function useEnsureSessionMessages(sessionID: string, _directory?: string, enabled = true) {
   const store = usePiSessionStore();
   if (enabled && sessionID && store.getState().selectedSessionId !== sessionID) {
     void store.select(sessionID);
   }
 }
-
-export function resyncBlockingRequestsForDirectory() {}
-export function getAllSyncSessionMap(): ReadonlyMap<string, Session> {
-  const map = new Map<string, Session>();
-  for (const item of getPiSessionStore().getState().sessions) {
-    map.set(item.session.id, {
-      id: item.session.id,
-      directory: item.session.directory,
-      title: item.session.title,
-      time: { created: item.session.createdAt, updated: item.session.updatedAt, ...(item.session.archived ? { archived: item.session.timeArchived } : {}) },
-    });
-  }
-  return map;
-}
-
-export type { Message, Part };

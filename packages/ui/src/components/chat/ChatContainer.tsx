@@ -116,7 +116,6 @@ const shouldIgnoreChatNavigationForFocus = (activeElement: Element | null, scrol
 
 const hasBlockingChatOverlay = (): boolean => {
     const {
-        isAboutDialogOpen,
         isCommandPaletteOpen,
         isHelpDialogOpen,
         isImagePreviewOpen,
@@ -124,8 +123,7 @@ const hasBlockingChatOverlay = (): boolean => {
         isSettingsDialogOpen,
     } = useUIStore.getState();
 
-    return isAboutDialogOpen
-        || isCommandPaletteOpen
+    return isCommandPaletteOpen
         || isHelpDialogOpen
         || isImagePreviewOpen
         || isSessionSwitcherOpen

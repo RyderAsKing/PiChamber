@@ -14,16 +14,16 @@ import { useFilesViewTabsStore } from './useFilesViewTabsStore';
 export type MainTab = 'chat' | 'git' | 'diff' | 'terminal' | 'files' | 'context' | 'diagram';
 export type PendingDiffScope = 'working' | 'staged' | 'turn';
 export type ContextPanelMode = 'diff' | 'walkthrough' | 'file' | 'context' | 'chat' | 'preview' | 'browser' | 'git' | 'pr' | 'notes' | 'terminal';
-export type MermaidRenderingMode = 'svg' | 'ascii';
-export type UserMessageRenderingMode = 'markdown' | 'plain';
-export type ChatRenderMode = 'sorted' | 'live';
-export type ActivityRenderMode = 'collapsed' | 'summary';
-export type SessionRetentionAction = 'archive' | 'delete';
+type MermaidRenderingMode = 'svg' | 'ascii';
+type UserMessageRenderingMode = 'markdown' | 'plain';
+type ChatRenderMode = 'sorted' | 'live';
+type ActivityRenderMode = 'collapsed' | 'summary';
+type SessionRetentionAction = 'archive' | 'delete';
 export type TimeFormatPreference = 'auto' | '12h' | '24h';
-export type WeekStartPreference = 'auto' | 'sunday' | 'monday';
-export type DesktopWindowControlsPosition = 'left' | 'right';
-export type DesktopWindowControlsStyle = 'classic' | 'traffic-lights';
-export type FileEditorKeymap = 'default' | 'vim';
+type WeekStartPreference = 'auto' | 'sunday' | 'monday';
+type DesktopWindowControlsPosition = 'left' | 'right';
+type DesktopWindowControlsStyle = 'classic' | 'traffic-lights';
+type FileEditorKeymap = 'default' | 'vim';
 
 function normalizeFileEditorKeymap(value: unknown): FileEditorKeymap {
   return value === 'vim' ? 'vim' : 'default';
@@ -70,8 +70,8 @@ type PendingFileNavigation = {
   column: number;
 };
 
-export type MainTabGuard = (nextTab: MainTab) => boolean;
-export type EventStreamStatus =
+type MainTabGuard = (nextTab: MainTab) => boolean;
+type EventStreamStatus =
   | 'idle'
   | 'connecting'
   | 'connected'
@@ -616,7 +616,6 @@ interface UIStore {
   isMobile: boolean;
   isCommandPaletteOpen: boolean;
   isHelpDialogOpen: boolean;
-  isAboutDialogOpen: boolean;
   isSessionCreateDialogOpen: boolean;
   isArchivePageOpen: boolean;
   isSettingsDialogOpen: boolean;
@@ -776,7 +775,6 @@ interface UIStore {
   setCommandPaletteOpen: (open: boolean) => void;
   toggleHelpDialog: () => void;
   setHelpDialogOpen: (open: boolean) => void;
-  setAboutDialogOpen: (open: boolean) => void;
   setSessionCreateDialogOpen: (open: boolean) => void;
   setArchivePageOpen: (open: boolean) => void;
   /** Close every full-page surface. */
@@ -925,7 +923,6 @@ export const useUIStore = create<UIStore>()(
         isMobile: false,
         isCommandPaletteOpen: false,
         isHelpDialogOpen: false,
-        isAboutDialogOpen: false,
         isSessionCreateDialogOpen: false,
         isArchivePageOpen: false,
         isSettingsDialogOpen: false,
@@ -1592,10 +1589,6 @@ export const useUIStore = create<UIStore>()(
 
         setHelpDialogOpen: (open) => {
           set({ isHelpDialogOpen: open });
-        },
-
-        setAboutDialogOpen: (open) => {
-          set({ isAboutDialogOpen: open });
         },
 
         setSessionCreateDialogOpen: (open) => {

@@ -31,3 +31,10 @@ export interface ModelMetadata {
   release_date?: string;
   last_updated?: string;
 }
+
+export type UsageWindow = {
+  used?: number;
+  limit?: number;
+  reset?: number;
+  [key: string]: any;
+};

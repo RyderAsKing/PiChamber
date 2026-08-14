@@ -81,8 +81,7 @@ chrome does not expose an OpenCode agent selector.
 Chat, sidebar, and composer mutations go through `PiSessionStore` and `/api/pi/*`. Pi assistant projections preserve their owning user-message id end to end because the restored chat renderer groups assistant output into user turns by that identity. Tool parts preserve input, cumulative partial output, final output, error text, metadata, and start/end timestamps through the reducer and `pi-to-renderable`, satisfying the restored renderer's finalized-tool contract (a completed tool needs an end time and keeps its status verbatim, including `cancelled`).
 Settings chrome is the restored OpenChamber hub limited to Pi-owned pages
 (Providers, Skills, Snippets, Behavior/`AGENTS.md`, Magic Prompts, appearance
-and other PiChamber pages). `PiResourceSettings.tsx` remains the page bodies
-for those resource surfaces. A failed daemon probe must show an error banner,
+and other PiChamber pages). A failed daemon probe must show an error banner,
 never an empty idle session list.
 
 Native resource discovery is projected from Pi's resource loader without filesystem paths. Skills are browse-only; Pi prompt templates and applicable global/project instruction files are edited only through opaque daemon identifiers. Project-local resources remain hidden until the browser makes an explicit persisted Pi trust decision; extensions remain disabled by the daemon.

@@ -27,5 +27,3 @@ export const resolveProjectForSessionDirectory = (
   const targetDir = typeof _availableWorktrees === 'string' ? _availableWorktrees : directory;
   return resolveProjectForDirectory(projects, targetDir ?? null);
 };
-
-export const resolveDraftProjectForDirectory = resolveProjectForSessionDirectory;

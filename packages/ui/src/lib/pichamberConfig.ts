@@ -553,7 +553,7 @@ const formatProjectPlanMarkdown = (title: string, body: string): string => {
     : `# ${normalizedTitle}\n`;
 };
 
-export const parseProjectPlanMarkdown = (raw: string): { title: string; body: string } => {
+const parseProjectPlanMarkdown = (raw: string): { title: string; body: string } => {
   const text = typeof raw === 'string' ? raw : '';
   const normalized = text.replace(/\r\n?/g, '\n');
   const match = normalized.match(/^\s*#\s+(.+?)\s*(?:\n+|$)/);
@@ -711,28 +711,6 @@ async function updatePiChamberConfig(
 }
 
 /**
- * Get worktree setup commands from config.
- */
-export async function getWorktreeSetupCommands(project: ProjectRef): Promise<string[]> {
-  const config = await readPiChamberConfig(project);
-  return config?.['setup-worktree'] ?? [];
-}
-
-export async function saveWorktreeSetupCommands(project: ProjectRef, commands: string[]): Promise<boolean> {
-  const filtered = commands.filter((cmd) => cmd.trim().length > 0);
-  return updatePiChamberConfig(project, { 'setup-worktree': filtered });
-}
-
-export async function getWorktreeSetupWaitEnabled(project: ProjectRef): Promise<boolean> {
-  const config = await readPiChamberConfig(project);
-  return config?.['setup-worktree-wait'] === true;
-}
-
-export async function saveWorktreeSetupWaitEnabled(project: ProjectRef, enabled: boolean): Promise<boolean> {
-  return updatePiChamberConfig(project, { 'setup-worktree-wait': enabled });
-}
-
-/**
  * Get this project's pinned draft welcome starters.
  */
 export async function getProjectDraftStarters(project: ProjectRef): Promise<DraftStarterRef[]> {
@@ -869,7 +847,7 @@ export async function importProjectPlanFileFromContent(
   return createProjectPlanFile(project, { title, body: parsed.body });
 }
 
-export async function createProjectPlanFile(
+async function createProjectPlanFile(
   project: ProjectRef,
   value: { title: string; body: string }
 ): Promise<PiChamberProjectPlanFileLink | null> {
@@ -930,25 +908,6 @@ export async function saveProjectActionsState(
     projectActions: sanitized.actions,
     projectActionsPrimaryId: sanitized.primaryActionId ?? undefined,
   });
-}
-
-/**
- * Substitute variables in a command string.
- * Supported variables:
- * - $ROOT_PROJECT_PATH: The root project directory path
- * - $ROOT_WORKTREE_PATH: Legacy alias for $ROOT_PROJECT_PATH
- */
-export function substituteCommandVariables(
-  command: string,
-  variables: { rootWorktreePath: string }
-): string {
-  return command
-    // New preferred name
-    .replace(/\$ROOT_PROJECT_PATH/g, variables.rootWorktreePath)
-    .replace(/\$\{ROOT_PROJECT_PATH\}/g, variables.rootWorktreePath)
-    // Legacy
-    .replace(/\$ROOT_WORKTREE_PATH/g, variables.rootWorktreePath)
-    .replace(/\$\{ROOT_WORKTREE_PATH\}/g, variables.rootWorktreePath);
 }
 
 async function deleteLegacyPiChamberConfig(projectDirectory: string): Promise<void> {

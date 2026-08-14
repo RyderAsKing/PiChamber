@@ -470,6 +470,7 @@ export interface PiMessageEndPayload {
   /** Final thinking level the daemon persisted. */
   thinkingLevel?: PiThinkingLevel;
   durationMs?: number;
+  error?: PiError;
 }
 
 export interface PiAssistantMessageDeltaPayload {

@@ -1275,7 +1275,7 @@ export function createSessionDaemon({
             messageId,
             text: redactAttachmentPaths(content.filter((part) => part?.type === 'text').map((part) => part.text).join('')),
             thinking: redactAttachmentPaths(content.filter((part) => part?.type === 'thinking').map((part) => part.thinking).join('')),
-            ...(event.message.errorMessage ? { error: { code: 'ASSISTANT_ERROR' } } : {}),
+            ...(event.message.errorMessage ? { error: { code: 'ASSISTANT_ERROR', message: redactAttachmentPaths(event.message.errorMessage) } } : {}),
           }, sessionId, directory);
           streamingMessageIds.delete(sessionId);
           clearStreamingRedactionBuffers(sessionId);
@@ -1346,7 +1346,7 @@ export function createSessionDaemon({
         if (finalMessage?.role === 'assistant' && finalMessage.stopReason === 'aborted') {
           publish('session.interrupted', { reason: 'user-abort', streaming: false }, sessionId, directory);
         } else if (finalMessage?.role === 'assistant' && typeof finalMessage.errorMessage === 'string') {
-          publish('session.error', { code: 'ASSISTANT_ERROR' }, sessionId, directory);
+          publish('session.error', { code: 'ASSISTANT_ERROR', message: redactAttachmentPaths(finalMessage.errorMessage) }, sessionId, directory);
         }
         break;
       }

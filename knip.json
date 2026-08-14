@@ -17,7 +17,6 @@
     },
     "packages/ui": {
       "entry": [
-        "src/**/*.bench.{ts,tsx}",
         "src/**/*.{test,spec}.{js,cjs,mjs,jsx,ts,tsx}",
         "src/**/__tests__/**/*.{js,cjs,mjs,jsx,ts,tsx}"
       ],

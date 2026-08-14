@@ -70,7 +70,7 @@ export function ProjectLabel({ project, theme }: { project: DraftTargetProject; 
 }
 
 /** Desktop inline selects for the project and (when git) its branch. */
-export function DesktopDraftTargetSelectors(props: DraftTargetProps) {
+export function DraftTargetSelectors(props: DraftTargetProps) {
     const { t } = useI18n();
     const {
         projects,
@@ -176,7 +176,7 @@ export function MobileDraftTargetTriggers(
 }
 
 /** Mobile bottom sheet pickers for project / branch selection. */
-export function MobileDraftTargetPanels(
+export function MobileDraftTargetSheets(
     props: DraftTargetProps & {
         openPicker: 'project' | 'branch' | null;
         onOpenPickerChange: (picker: 'project' | 'branch' | null) => void;
@@ -310,7 +310,4 @@ export function MobileDraftTargetPanels(
         </>
     );
 }
-
-export const DraftTargetSelectors = DesktopDraftTargetSelectors;
-export const MobileDraftTargetSheets = MobileDraftTargetPanels;
 

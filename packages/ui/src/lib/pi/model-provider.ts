@@ -22,8 +22,6 @@ export const compareModelRefs = (a: PiModelRef | undefined, b: PiModelRef | unde
   return a.providerId === b.providerId && a.modelId === b.modelId;
 };
 
-export const areModelRefsEqual = compareModelRefs;
-
 export const modelRefKey = (model: PiModelRef | undefined): string | undefined => {
   if (!model) return undefined;
   return `${model.providerId}/${model.modelId}`;

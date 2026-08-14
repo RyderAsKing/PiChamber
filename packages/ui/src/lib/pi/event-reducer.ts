@@ -280,6 +280,7 @@ const reduceMessageEnd = (
     message.durationMs = payload.durationMs;
   }
   if (payload.thinkingLevel) message.thinkingLevel = payload.thinkingLevel;
+  if (payload.error) message.error = payload.error;
   session.streamingMessages.delete(payload.messageId);
 };
 

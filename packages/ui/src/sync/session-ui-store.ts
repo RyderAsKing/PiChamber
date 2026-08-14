@@ -32,7 +32,7 @@ import { normalizePath } from "@/lib/pathNormalization"
 import { flattenAssistantTextParts } from "@/lib/messages/messageText"
 import { composeForkSessionMessage } from "@/lib/messages/executionMeta"
 import { findLatestUserModelChoice } from "@/lib/messages/userModelChoice"
-import { resolveProjectForSessionDirectory, resolveDraftProjectForDirectory } from "@/lib/projectResolution"
+import { resolveProjectForSessionDirectory } from "@/lib/projectResolution"
 import {
   getSyncSessions,
   getAllSyncSessions,
@@ -164,13 +164,8 @@ type AssistantMessageSessionExecution = {
 }
 
 // ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
-export type { SyntheticContextPart } from "./input-store"
-export type { SessionMemoryState } from "./viewport-store"
-
-export type NewSessionDraftState = {
+type NewSessionDraftState = {
   open: boolean
   selectedProjectId?: string | null
   directoryOverride: string | null
@@ -183,12 +178,12 @@ export type NewSessionDraftState = {
   targetFolderId?: string
 }
 
-export type ViewportAnchor = {
+type ViewportAnchor = {
   sessionId: string
   value: number
 }
 
-export type SessionHistoryMeta = {
+type SessionHistoryMeta = {
   limit: number
   hasMore: boolean
   complete: boolean
@@ -197,7 +192,7 @@ export type SessionHistoryMeta = {
   nextCursor?: string
 }
 
-export type SessionUIState = {
+type SessionUIState = {
   currentSessionId: string | null
   currentSessionDirectory: string | null
   newSessionDraft: NewSessionDraftState
@@ -657,7 +652,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       ? projects.find((p) => p.id === options.selectedProjectId) ?? null
       : null
 
-    const inferredProjectFromDir = resolveDraftProjectForDirectory(projects, availableWorktreesByProject, explicitDirectory)
+    const inferredProjectFromDir = resolveProjectForSessionDirectory(projects, availableWorktreesByProject, explicitDirectory)
     const fallbackProject = (() => {
       if (activeProject) return activeProject
       if (projectsState.activeProjectId) return projects.find((p) => p.id === projectsState.activeProjectId) ?? null
@@ -667,8 +662,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const persistedProjectById = persistedTarget?.projectId
       ? projects.find((p) => p.id === persistedTarget.projectId) ?? null
       : null
-    const persistedProjectByDir = resolveDraftProjectForDirectory(projects, availableWorktreesByProject, persistedTarget?.directory ?? null)
-    const currentDirProject = resolveDraftProjectForDirectory(projects, availableWorktreesByProject, currentDirectory)
+    const persistedProjectByDir = resolveProjectForSessionDirectory(projects, availableWorktreesByProject, persistedTarget?.directory ?? null)
+    const currentDirProject = resolveProjectForSessionDirectory(projects, availableWorktreesByProject, currentDirectory)
 
     const selectedProject = (() => {
       if (explicitProject) return explicitProject

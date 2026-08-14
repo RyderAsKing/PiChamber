@@ -142,8 +142,6 @@ export const readLinuxDesktopEntries = async (options = {}) => {
   return entries.sort((left, right) => left.name.localeCompare(right.name));
 };
 
-export const discoverLinuxDesktopApps = readLinuxDesktopEntries;
-
 export const desktopEntryMatchesApp = (entry, appName, appId = '') => {
   const needles = uniqueStrings([appName, appId]).flatMap((value) => [normalizeComparable(value), normalizeCompactComparable(value)]).filter(Boolean);
   const haystacks = [entry.name, entry.id, path.basename(entry.filePath || ''), entry.exec]
