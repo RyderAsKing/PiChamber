@@ -8,16 +8,17 @@ import { getRegisteredRuntimeAPIs, registerRuntimeAPIs } from '@/contexts/runtim
 import { SyncAppEffects } from '@/apps/AppEffects';
 import { useAppFontEffects } from '@/apps/useAppFontEffects';
 import { PiSessionProvider } from '@/sync/pi-session-context';
+import { FireworksProvider } from '@/contexts/FireworksContext';
 import type { RuntimeAPIs } from '@/lib/api/types';
 
 const AppInner: React.FC = () => {
   useAppFontEffects();
   return (
-    <>
+    <FireworksProvider>
       <SyncAppEffects embeddedBackgroundWorkEnabled />
       <MainLayout />
       <Toaster />
-    </>
+    </FireworksProvider>
   );
 };
 

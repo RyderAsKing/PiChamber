@@ -271,7 +271,7 @@ describe('updateDesktopSettings', () => {
     try {
       globalThis.fetch = (async (input, init) => {
         const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-        if (init?.method === 'PUT' && url.includes('/api/config/settings')) fallbackRequests.push(url);
+        if (init?.method === 'PUT' && url.includes('/api/pi/ui-settings')) fallbackRequests.push(url);
         return new Response(null, { status: 404 });
       }) as typeof fetch;
       switchRuntimeEndpoint({ apiBaseUrl: 'https://failed-save-a.example', runtimeKey: 'failed-save-a' });
@@ -327,7 +327,6 @@ describe('updateDesktopSettings', () => {
       settings: {
         themeId: 'theme-a',
         directoryShowHidden: true,
-        sttModel: 'model-a',
         draftStartersScheduleTaskAdded: true,
       },
       source: 'web',
@@ -343,11 +342,9 @@ describe('updateDesktopSettings', () => {
 
     expect(localStorage.getItem('selectedThemeId')).toBeNull();
     expect(localStorage.getItem('directoryTreeShowHidden')).toBeNull();
-    expect(localStorage.getItem('sttModel')).toBeNull();
     expect(JSON.parse(localStorage.getItem(getRuntimeSettingsMirrorStorageKey('mirror-a')) ?? '{}')).toEqual({
       themeId: 'theme-a',
       directoryShowHidden: true,
-      sttModel: 'model-a',
     });
     expect(JSON.parse(localStorage.getItem(getRuntimeSettingsMirrorStorageKey('mirror-b')) ?? '{}')).toEqual({});
   });

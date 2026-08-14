@@ -48,8 +48,7 @@ describe("createPiEventStream", () => {
   })
 
 
-  test("falls back to authenticated SSE and preserves the snapshot cursor", async () => {
-    refreshRuntimeUrlAuthToken.mockRejectedValueOnce(new Error("no ws token"))
+  test("uses SSE directly in auto mode and preserves the snapshot cursor", async () => {
     const encoder = new TextEncoder()
     runtimeFetch.mockResolvedValueOnce(new Response(new ReadableStream({
       start(controller) {
@@ -64,7 +63,8 @@ describe("createPiEventStream", () => {
     }, { sessionId: "session-1", fromSequence: 7, transport: "auto" })
 
     await flush()
-    expect(switches).toEqual(["sse"])
+    expect(switches).toEqual([])
+    expect(refreshRuntimeUrlAuthToken.mock.calls).toEqual([])
     expect(streamUrls.some((entry) => entry.transport === "sse" && entry.query.sessionId === "session-1" && entry.query.fromSequence === "7")).toBe(true)
     expect(received).toEqual([8])
     expect(handle.eventsUrl).toBe("http://runtime/api/pi/events")

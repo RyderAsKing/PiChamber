@@ -1,5 +1,4 @@
 /* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -44,10 +43,6 @@ import { Button } from '@/components/ui/button';
 
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useUIStore } from '@/stores/useUIStore';
-import { useDetectedWorktreeMetadata } from '@/hooks/useDetectedWorktreeRoot';
-import { useSessionWorktreeStore } from '@/sync/session-worktree-store';
-import { getSessionWorktreeRepairActions, getMutationBlockingReasons } from '@/sync/session-worktree-contract';
-import { IntegrateCommitsSection } from './git/IntegrateCommitsSection';
 
 import { GitHeader } from './git/GitHeader';
 import { StashesDialog } from './git/StashesDialog';
@@ -63,9 +58,8 @@ import { deriveBaseBranch } from './git/baseBranch';
 import { getFreshestPrStatusForBranch, useGitHubPrStatusStore } from '@/stores/useGitHubPrStatusStore';
 import { createGitIndexMutationQueue, type GitIndexMutationDirection, type GitIndexMutationQueue } from './git/gitIndexMutationQueue';
 import type { GitRemote } from '@/lib/gitApi';
-import { getRootBranch } from '@/lib/worktrees/worktreeStatus';
 import { cn } from '@/lib/utils';
-import { generateCommitMessage as generateSessionCommitMessage, getGitWorktreeBootstrapStatus } from '@/lib/gitApi';
+import { generateCommitMessage as generateSessionCommitMessage } from '@/lib/gitApi';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { useI18n } from '@/lib/i18n';
 
@@ -201,45 +195,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
   const { t } = useI18n();
   const { git } = useRuntimeAPIs();
   const currentDirectory = useEffectiveDirectory();
-  const [worktreeBootstrapStatus, setWorktreeBootstrapStatus] = React.useState<'pending' | 'ready' | 'failed' | null>(null);
-  const [isWaitingForGitRefreshAfterBootstrap, setIsWaitingForGitRefreshAfterBootstrap] = React.useState(false);
   const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
-  const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
-  const setDraftBootstrapPendingDirectory = useSessionUIStore((s) => s.setDraftBootstrapPendingDirectory);
-  const worktreeMap = useSessionUIStore((s) => s.worktreeMetadata);
-  const availableWorktrees = useSessionUIStore((s) => s.availableWorktrees);
-  const normalizedCurrentDirectory = normalizePath(currentDirectory);
-  const inferredWorktreeMetadata = React.useMemo(() => {
-    if (!normalizedCurrentDirectory) {
-      return undefined;
-    }
-
-    const fromAvailable = availableWorktrees.find(
-      (metadata) => normalizePath(metadata.path) === normalizedCurrentDirectory
-    );
-    if (fromAvailable) {
-      return fromAvailable;
-    }
-
-    for (const metadata of worktreeMap.values()) {
-      if (normalizePath(metadata.path) === normalizedCurrentDirectory) {
-        return metadata;
-      }
-    }
-
-    return undefined;
-  }, [availableWorktrees, normalizedCurrentDirectory, worktreeMap]);
-  const storeWorktreeMetadata = React.useMemo(() => {
-    if (currentSessionId) {
-      return worktreeMap.get(currentSessionId) ?? inferredWorktreeMetadata;
-    }
-
-    if (newSessionDraft?.open) {
-      return inferredWorktreeMetadata;
-    }
-
-    return undefined;
-  }, [currentSessionId, inferredWorktreeMetadata, newSessionDraft?.open, worktreeMap]);
 
   const { profiles, globalIdentity, defaultGitIdentityId, loadProfiles, loadGlobalIdentity, loadDefaultGitIdentityId } =
     useGitIdentitiesStore(useShallow((s) => ({
@@ -253,20 +209,6 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
 
   const isGitRepo = useIsGitRepo(currentDirectory ?? null);
   const status = useGitStatus(currentDirectory ?? null);
-
-  // Authoritative session↔worktree attachment for repair action display
-  const worktreeAttachment = useSessionWorktreeStore((s) =>
-    currentSessionId ? s.getAttachment(currentSessionId) : undefined
-  );
-  const repairActions = worktreeAttachment ? getSessionWorktreeRepairActions(worktreeAttachment) : [];
-
-  // When an authoritative attachment exists, derive worktree-related fields from it
-  // rather than from the live detected worktree metadata.
-  const authoritativeProjectRoot = worktreeAttachment && !worktreeAttachment.degraded && !worktreeAttachment.legacy
-    ? worktreeAttachment.worktreeRoot ?? undefined
-    : undefined;
-
-  const worktreeMetadata = useDetectedWorktreeMetadata(currentDirectory, storeWorktreeMetadata, status?.current ?? undefined);
   const branches = useGitBranches(currentDirectory ?? null);
   const log = useGitLog(currentDirectory ?? null);
   const currentIdentity = useGitIdentity(currentDirectory ?? null);
@@ -306,12 +248,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
   const openContextSurface = useUIStore((state) => state.openContextSurface);
 
   const prStatusBranch = status?.current ?? null;
-  const prChipStatus = useGitHubPrStatusStore((state) => {
-    if (!currentDirectory || !prStatusBranch) {
-      return null;
-    }
-    return getFreshestPrStatusForBranch(state.entries, currentDirectory, prStatusBranch);
-  });
+  const prChipStatus = null;
   const navigateToDiff = useUIStore((state) => state.navigateToDiff);
 
   const previousBootstrapStatusRef = React.useRef<'pending' | 'ready' | 'failed' | null>(null);
@@ -420,111 +357,13 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
 
   React.useEffect(() => clearScheduledGitMutationFlush, [clearScheduledGitMutationFlush]);
 
-  React.useEffect(() => {
-    if (!isActive) return;
-    if (!currentDirectory) {
-      setWorktreeBootstrapStatus(null);
-      setIsWaitingForGitRefreshAfterBootstrap(false);
-      return;
-    }
-
-    let cancelled = false;
-    let timeoutId: number | null = null;
-
-    const poll = async () => {
-      try {
-        const next = await getGitWorktreeBootstrapStatus(currentDirectory);
-        if (cancelled) {
-          return;
-        }
-        setWorktreeBootstrapStatus(next.status);
-        if (next.status === 'pending') {
-          timeoutId = window.setTimeout(() => {
-            void poll();
-          }, 500);
-        }
-      } catch {
-        if (!cancelled) {
-          setWorktreeBootstrapStatus(null);
-        }
-      }
-    };
-
-    void poll();
-
-    return () => {
-      cancelled = true;
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
-    };
-  }, [isActive, currentDirectory]);
-
-  React.useEffect(() => {
-    const previous = previousBootstrapStatusRef.current;
-    previousBootstrapStatusRef.current = worktreeBootstrapStatus;
-
-    if (!currentDirectory || !git) {
-      return;
-    }
-
-    if (previous === 'pending' && worktreeBootstrapStatus === 'ready') {
-      setIsWaitingForGitRefreshAfterBootstrap(true);
-      void fetchAll(currentDirectory, git).finally(() => {
-        window.setTimeout(() => {
-          setIsWaitingForGitRefreshAfterBootstrap(false);
-        }, 1200);
-      });
-    }
-
-    if (worktreeBootstrapStatus === 'failed') {
-      setDraftBootstrapPendingDirectory(null);
-      setIsWaitingForGitRefreshAfterBootstrap(false);
-    }
-  }, [currentDirectory, fetchAll, git, setDraftBootstrapPendingDirectory, worktreeBootstrapStatus]);
-
-  const normalizedDraftBootstrapPendingDirectory = normalizePath(newSessionDraft?.bootstrapPendingDirectory ?? null);
-  const isDraftBootstrapPendingForCurrentDirectory = Boolean(
-    currentDirectory && normalizedDraftBootstrapPendingDirectory && normalizedDraftBootstrapPendingDirectory === normalizePath(currentDirectory)
-  );
-  const isPendingWorktreeSetup = Boolean(
-    currentDirectory && (worktreeBootstrapStatus === 'pending' || isDraftBootstrapPendingForCurrentDirectory)
-  );
-  const shouldHideNotGitState = isPendingWorktreeSetup || isWaitingForGitRefreshAfterBootstrap;
-
   const initialSnapshot = React.useMemo(() => {
     if (!currentDirectory) return null;
     return gitViewSnapshots.get(currentDirectory) ?? null;
   }, [currentDirectory]);
 
   const settingsGitmojiEnabled = useConfigStore((state) => state.settingsGitmojiEnabled);
-  const [rootBranchHint, setRootBranchHint] = React.useState<string | null>(null);
   const { gitmojis: gitmojiEmojis } = useGitmojiList(settingsGitmojiEnabled);
-
-  React.useEffect(() => {
-    const projectRoot = authoritativeProjectRoot || worktreeMetadata?.projectDirectory;
-    if (!projectRoot) {
-      setRootBranchHint(null);
-      return;
-    }
-
-    let cancelled = false;
-    void getRootBranch(projectRoot)
-      .then((branch) => {
-        if (cancelled) return;
-        const normalized = branch.trim();
-        setRootBranchHint(normalized && normalized !== 'HEAD' ? normalized : null);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setRootBranchHint(null);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [authoritativeProjectRoot, worktreeMetadata?.projectDirectory]);
 
   const [commitMessage, setCommitMessage] = React.useState(
     initialSnapshot?.commitMessage ?? ''
@@ -564,6 +403,8 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
   const [generatedHighlights, setGeneratedHighlights] = React.useState<string[]>(
     initialSnapshot?.generatedHighlights ?? []
   );
+  const clearGeneratedHighlights = React.useCallback(() => setGeneratedHighlights([]), []);
+  const [isUpdateBranchDialogOpen, setIsUpdateBranchDialogOpen] = React.useState(false);
   const hasPendingIndexMutation = movingChangePaths.size > 0 || gitIndexMutationQueue.size() > 0 || gitIndexMutationQueue.isRunning();
 
   const scrollActionPanelToBottom = React.useCallback(() => {
@@ -577,58 +418,14 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     });
   }, []);
 
-  const repoRootForIntegrate = authoritativeProjectRoot || worktreeMetadata?.projectDirectory || null;
-  const sourceBranchForIntegrate = status?.current || null;
-  const shouldShowIntegrateCommits = React.useMemo(() => {
-    // For PR worktrees from forks we set upstream to a non-origin remote (e.g. pr-<owner>-<repo>).
-    // Re-integrate commits is intended for local scratch branches -> base branch, not fork PR branches.
-    const tracking = status?.tracking;
-    if (!tracking) return true;
-    return tracking.startsWith('origin/');
-  }, [status?.tracking]);
-  const defaultTargetBranch = React.useMemo(() => {
-    const fromMeta = worktreeMetadata?.createdFromBranch;
-    const normalizedFromMeta = typeof fromMeta === 'string' ? fromMeta.trim() : '';
-    const current = typeof status?.current === 'string' ? status.current.trim() : '';
-    const normalizedRoot = typeof rootBranchHint === 'string' ? rootBranchHint.trim() : '';
-
-    if (normalizedFromMeta) {
-      const looksLikeCorruptedSelfTarget =
-        normalizedFromMeta === current &&
-        normalizedFromMeta.startsWith('opencode/') &&
-        normalizedRoot.length > 0 &&
-        normalizedRoot !== normalizedFromMeta;
-
-      if (looksLikeCorruptedSelfTarget) {
-        return normalizedRoot;
-      }
-
-      return normalizedFromMeta;
-    }
-    if (normalizedRoot) {
-      return normalizedRoot;
-    }
-    if (current) {
-      return current;
-    }
-    return 'HEAD';
-  }, [worktreeMetadata?.createdFromBranch, status, rootBranchHint]);
-  const clearGeneratedHighlights = React.useCallback(() => {
-    setGeneratedHighlights([]);
-  }, []);
   const [expandedCommitHashes, setExpandedCommitHashes] = React.useState<Set<string>>(new Set());
   const [commitFilesMap, setCommitFilesMap] = React.useState<Map<string, CommitFileEntry[]>>(new Map());
   const [loadingCommitHashes, setLoadingCommitHashes] = React.useState<Set<string>>(new Set());
-  const commitFilesMapRef = React.useRef(commitFilesMap);
-  const loadingCommitHashesRef = React.useRef(loadingCommitHashes);
-  const [historyBranchDivider, setHistoryBranchDivider] = React.useState<HistoryBranchDivider>(null);
-  const [remoteUrl, setRemoteUrl] = React.useState<string | null>(null);
-  const [gitmojiSearch, setGitmojiSearch] = React.useState('');
-  const [gitLogDialogMode, setGitLogDialogMode] = React.useState<GitLogDialogMode | null>(null);
+  const commitFilesMapRef = React.useRef<Map<string, CommitFileEntry[]>>(commitFilesMap);
+  const loadingCommitHashesRef = React.useRef<Set<string>>(loadingCommitHashes);
 
-  const [isUpdateBranchDialogOpen, setIsUpdateBranchDialogOpen] = React.useState(false);
-  const [isIntegrateCommitsDialogOpen, setIsIntegrateCommitsDialogOpen] = React.useState(false);
   const [remotes, setRemotes] = React.useState<GitRemote[]>([]);
+  const [remoteUrl, setRemoteUrl] = React.useState<string | null>(null);
   const [removingRemoteName, setRemovingRemoteName] = React.useState<string | null>(null);
   const [branchOperation, setBranchOperation] = React.useState<BranchOperation>(null);
   const [operationLogs, setOperationLogs] = React.useState<OperationLogEntry[]>([]);
@@ -639,6 +436,9 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
   const [graphLogLoading, setGraphLogLoading] = React.useState(false);
   const [graphLogMaxCount, setGraphLogMaxCount] = React.useState(100);
   const [graphLogRefreshToken, setGraphLogRefreshToken] = React.useState(0);
+  const [gitLogDialogMode, setGitLogDialogMode] = React.useState<GitLogDialogMode | null>(null);
+  const [historyBranchDivider, setHistoryBranchDivider] = React.useState<HistoryBranchDivider>(null);
+  const [gitmojiSearch, setGitmojiSearch] = React.useState('');
 
   // Conflict state persistence key
   const conflictStorageKey = React.useMemo(() => {
@@ -1246,24 +1046,8 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     }
   }, [currentDirectory, stagedChangeEntries, settingsGitmojiEnabled, gitmojiEmojis, scrollActionPanelToBottom, t]);
 
-  const formatBlockingReason = (reason: ReturnType<typeof getMutationBlockingReasons>[number]): string => {
-    if (reason.reason === 'attention') {
-      return `${reason.attentionReason} in progress`;
-    }
-    if (reason.reason === 'missing') {
-      return 'worktree is missing';
-    }
-    return 'worktree is invalid';
-  };
-
   const handleCreateBranch = async (branchName: string, remote?: GitRemote) => {
     if (!currentDirectory || !status) return;
-
-    const blockingReasons = getMutationBlockingReasons(worktreeAttachment);
-    if (blockingReasons.length > 0) {
-      toast.error(t('gitView.toast.cannotCreateBranch', { reason: formatBlockingReason(blockingReasons[0]) }));
-      return;
-    }
 
     const checkoutBase = status.current ?? null;
     const remoteName = remote?.name ?? 'origin';
@@ -1313,12 +1097,6 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
   const handleRenameBranch = async (oldName: string, newName: string) => {
     if (!currentDirectory) return;
 
-    const blockingReasons = getMutationBlockingReasons(worktreeAttachment);
-    if (blockingReasons.length > 0) {
-      toast.error(t('gitView.toast.cannotRenameBranch', { reason: formatBlockingReason(blockingReasons[0]) }));
-      return;
-    }
-
     try {
       await git.renameBranch(currentDirectory, oldName, newName);
       toast.success(t('gitView.toast.renamedBranch', { oldName, newName }));
@@ -1333,13 +1111,6 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
 
   const handleCheckoutBranch = async (branch: string) => {
     if (!currentDirectory) return;
-
-    // Block mutation if worktree is in an attention-required state
-    const blockingReasons = getMutationBlockingReasons(worktreeAttachment);
-    if (blockingReasons.length > 0) {
-      toast.error(t('gitView.toast.cannotCheckout', { reason: formatBlockingReason(blockingReasons[0]) }));
-      return;
-    }
 
     const normalized = branch.replace(/^remotes\//, '');
 
@@ -1433,8 +1204,6 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
   const baseBranch = React.useMemo(() => deriveBaseBranch({
     remoteNames: new Set(effectiveRemotes.map((remote) => remote.name)),
     localBranches,
-    worktreeCreatedFromBranch: worktreeMetadata?.createdFromBranch,
-    rootBranchHint,
     defaultBranch,
     headBranch: currentBranch,
   }), [
@@ -1442,8 +1211,6 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     defaultBranch,
     effectiveRemotes,
     localBranches,
-    rootBranchHint,
-    worktreeMetadata?.createdFromBranch,
   ]);
 
   const updateTargetBranch = React.useMemo(() => {
@@ -1533,18 +1300,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
 
   const stagedCount = stagedChangeEntries.length;
   const isBusy = isLoading || syncAction !== null || commitAction !== null;
-  const canShowIntegrateCommitsSection = Boolean(
-    worktreeMetadata && repoRootForIntegrate && sourceBranchForIntegrate && shouldShowIntegrateCommits
-  );
   const canShowBranchWorkflows = Boolean(currentBranch);
-  const integrateCommitsProps =
-    canShowIntegrateCommitsSection && repoRootForIntegrate && sourceBranchForIntegrate && worktreeMetadata
-      ? {
-          repoRoot: repoRootForIntegrate,
-          sourceBranch: sourceBranchForIntegrate,
-          worktreeMetadata,
-        }
-      : null;
 
   React.useEffect(() => {
     if (!currentDirectory || !git || !log?.all?.length || !currentBranch || !baseBranch || currentBranch === baseBranch) {
@@ -2300,20 +2056,6 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
   }
 
   if (isGitRepo === false) {
-    if (shouldHideNotGitState) {
-      return (
-        <div className="flex h-full flex-col items-center justify-center px-4 text-center">
-          <Icon name="loader-4" className="mb-3 size-6 animate-spin text-muted-foreground" />
-          <p className="typography-ui-label font-semibold text-foreground">
-            {t('gitView.empty.worktreeSetupInProgress')}
-          </p>
-          <p className="typography-meta mt-1 text-muted-foreground">
-            {t('gitView.empty.worktreeSetupDescription')}
-          </p>
-        </div>
-      );
-    }
-
     return (
       <div className="flex h-full flex-col items-center justify-center px-4 text-center">
         <Icon name="git-branch" className="mb-3 size-6 text-muted-foreground" />
@@ -2323,11 +2065,6 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
         <p className="typography-meta mt-1 text-muted-foreground">
           {t('gitView.empty.notGitRepositoryDescription')}
         </p>
-        {repairActions.includes('open-without-worktree-features') ? (
-          <p className="typography-meta mt-2 text-muted-foreground">
-            {t('gitView.empty.worktreeFeaturesUnavailable')}
-          </p>
-        ) : null}
       </div>
     );
   }
@@ -2352,18 +2089,17 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
         availableIdentities={availableIdentities}
         onSelectIdentity={handleApplyIdentity}
         isApplyingIdentity={isSettingIdentity}
-            isWorktreeMode={!!worktreeMetadata}
-            onOpenHistory={() => setGitLogDialogMode('history')}
-            onOpenGraph={() => setGitLogDialogMode('graph')}
-            onOpenStashes={openStashes}
-            onOpenUpdateBranch={canShowBranchWorkflows ? () => setIsUpdateBranchDialogOpen(true) : undefined}
-            onOpenReintegrateCommits={integrateCommitsProps ? () => setIsIntegrateCommitsDialogOpen(true) : undefined}
-            pullRequest={prChipStatus?.pr ?? null}
-            prChecks={prChipStatus?.checks ?? null}
-            onOpenPullRequest={
-              currentDirectory ? () => openContextSurface(currentDirectory, 'pr') : undefined
-            }
-          />
+        isWorktreeMode={false}
+        onOpenHistory={() => setGitLogDialogMode('history')}
+        onOpenGraph={() => setGitLogDialogMode('graph')}
+        onOpenStashes={openStashes}
+        onOpenUpdateBranch={canShowBranchWorkflows ? () => setIsUpdateBranchDialogOpen(true) : undefined}
+        pullRequest={null}
+        prChecks={null}
+        onOpenPullRequest={
+          currentDirectory ? () => openContextSurface(currentDirectory, 'pr') : undefined
+        }
+      />
 
       {/* In-progress operation banner */}
       {currentDirectory && (
@@ -2472,38 +2208,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isIntegrateCommitsDialogOpen} onOpenChange={setIsIntegrateCommitsDialogOpen}>
-        <DialogContent className="max-w-2xl min-h-[26rem]">
-          <DialogHeader>
-            <DialogTitle>{t('gitView.integrate.title')}</DialogTitle>
-            <DialogDescription>
-              {integrateCommitsProps ? (
-                <span className="font-mono text-foreground">
-                  {integrateCommitsProps.sourceBranch} → {defaultTargetBranch}
-                </span>
-              ) : null}
-            </DialogDescription>
-          </DialogHeader>
-          {integrateCommitsProps ? (
-            <IntegrateCommitsSection
-              key={integrateCommitsProps.worktreeMetadata.path}
-              repoRoot={integrateCommitsProps.repoRoot}
-              sourceBranch={integrateCommitsProps.sourceBranch}
-              worktreeMetadata={integrateCommitsProps.worktreeMetadata}
-              localBranches={localBranches}
-              defaultTargetBranch={defaultTargetBranch}
-              refreshKey={integrateRefreshKey}
-              showHeader={false}
-              onRefresh={() => {
-                if (!currentDirectory) return;
-                fetchStatus(currentDirectory, git);
-                fetchBranches(currentDirectory, git);
-                fetchLog(currentDirectory, git, logMaxCountLocal);
-              }}
-            />
-          ) : null}
-        </DialogContent>
-      </Dialog>
+
 
       <Dialog open={gitLogDialogMode !== null} onOpenChange={(open) => { if (!open) setGitLogDialogMode(null); }}>
         <DialogContent className="max-w-5xl h-[90vh] max-h-[90vh] flex flex-col overflow-hidden">

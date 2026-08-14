@@ -1,5 +1,4 @@
 /* eslint-disable */
-// @ts-nocheck
 /**
  * Session UI Store — ephemeral UI state only.
  *
@@ -16,8 +15,7 @@
 
 import { create } from "zustand"
 import type { Session, Part, Message, TextPart } from "@/lib/chat/types"
-import type { AttachedFile, SessionContextUsage, SessionWorktreeAttachment } from "@/stores/types/sessionTypes"
-import type { WorktreeMetadata } from "@/types/worktree"
+import type { AttachedFile, SessionContextUsage } from "@/stores/types/sessionTypes"
 import { opencodeClient } from "@/lib/pi/legacy-ui-client"
 import { getPiSessionStore } from "@/apps/pi-session-store"
 import { runtimeFetch } from "@/lib/runtime-fetch"
@@ -26,18 +24,15 @@ import { useProjectsStore } from "@/stores/useProjectsStore"
 import { useGlobalSessionsStore, resolveGlobalSessionDirectory } from "@/stores/useGlobalSessionsStore"
 import { useDirectoryStore } from "@/stores/useDirectoryStore"
 import { useSessionFoldersStore } from "@/stores/useSessionFoldersStore"
-import { useCommandsStore } from "@/stores/useCommandsStore"
 import { useSkillsStore } from "@/stores/useSkillsStore"
 import { getDeferredSafeStorage } from "@/stores/utils/safeStorage"
 import { markPendingUserSendAnimation } from "@/lib/userSendAnimation"
+import { deriveSessionTitle } from "@/lib/chat/deriveSessionTitle"
 import { normalizePath } from "@/lib/pathNormalization"
 import { flattenAssistantTextParts } from "@/lib/messages/messageText"
 import { composeForkSessionMessage } from "@/lib/messages/executionMeta"
 import { findLatestUserModelChoice } from "@/lib/messages/userModelChoice"
-import { waitForPendingDraftWorktreeRequest } from "@/lib/worktrees/pendingDraftWorktree"
-import { waitForWorktreeBootstrap } from "@/lib/worktrees/worktreeBootstrap"
-import { getWorktreeSetupWaitEnabled } from "@/lib/pichamberConfig"
-import { resolveProjectForSessionDirectory } from "@/lib/projectResolution"
+import { resolveProjectForSessionDirectory, resolveDraftProjectForDirectory } from "@/lib/projectResolution"
 import {
   getSyncSessions,
   getAllSyncSessions,
@@ -78,13 +73,11 @@ import {
 import { useInputStore, type SyntheticContextPart } from "./input-store"
 import { useSelectionStore } from "./selection-store"
 import { getViewportSessionMemory, useViewportStore, viewportSessionKey } from "./viewport-store"
-import { useSessionWorktreeStore } from "./session-worktree-store"
-import { getAttachedSessionDirectory } from "./session-worktree-contract"
 import { setSessionOpener } from "./session-navigation"
 import { getRuntimeKey } from "@/lib/runtime-switch"
 import { clearLastActiveSession, persistLastActiveSession, readLastActiveSession } from "./last-session-cache"
-import { persistWorktreeTopology, readPersistedWorktreeTopology } from "./worktree-topology-cache"
 import { rememberRuntimeLiveStatus } from "./runtime-live-memory"
+import { fileToBase64, sanitizeFilename } from "@/lib/pi/attachments"
 
 export type { AttachedFile }
 
@@ -110,15 +103,43 @@ export async function routeMessage(params: {
   const delivery = params.delivery === 'steer' || params.delivery === 'followUp' ? params.delivery : 'prompt'
   const sessionStore = getPiSessionStore()
   if (params.sessionId && params.providerID && params.modelID) {
-    await sessionStore.setModel(params.sessionId, params.providerID, params.modelID)
+    const currentSession = sessionStore.getState().sessions.find((s) => s.session.id === params.sessionId)?.session
+    const currentModel = currentSession?.model
+    if (!currentModel || currentModel.providerId !== params.providerID || currentModel.modelId !== params.modelID) {
+      try {
+        await sessionStore.setModel(params.sessionId, params.providerID, params.modelID)
+      } catch (err) {
+        console.warn("Failed to set model before sending prompt:", err)
+      }
+    }
   }
   if (
     params.sessionId
     && (params.variant === 'off' || params.variant === 'low' || params.variant === 'medium' || params.variant === 'high' || params.variant === 'xhigh')
   ) {
-    await sessionStore.setThinking(params.sessionId, params.variant)
+    const currentSession = sessionStore.getState().sessions.find((s) => s.session.id === params.sessionId)?.session
+    const currentThinking = currentSession?.thinking
+    if (currentThinking !== params.variant) {
+      try {
+        await sessionStore.setThinking(params.sessionId, params.variant)
+      } catch (err) {
+        console.warn("Failed to set thinking before sending prompt:", err)
+      }
+    }
   }
-  return sessionStore.prompt(params.sessionId, params.content, delivery)
+  const outgoingFiles = [
+    ...(params.files ?? []),
+    ...(params.additionalParts ?? []).flatMap((part) => part.files ?? []),
+  ]
+  const attachments = await Promise.all(outgoingFiles.map(async (file) => {
+    const attachment = await sessionStore.upload({
+      filename: sanitizeFilename(file.filename),
+      mime: file.mime,
+      base64: await fileToBase64(file),
+    })
+    return { id: attachment.id }
+  }))
+  await sessionStore.prompt(params.sessionId, params.content, delivery, attachments)
 }
 
 type CapturedSendTarget = {
@@ -140,12 +161,6 @@ type AssistantMessageSessionExecution = {
   variant: string
   agent: string
   instructions: string
-  createWorktree?: boolean
-}
-
-function notifyMessageSent(sessionId: string): void {
-  runtimeFetch(`/api/sessions/${sessionId}/message-sent`, { method: "POST" })
-    .catch(() => { /* ignore */ })
 }
 
 // ---------------------------------------------------------------------------
@@ -160,8 +175,6 @@ export type NewSessionDraftState = {
   selectedProjectId?: string | null
   directoryOverride: string | null
   permissionAutoAcceptEnabled?: boolean
-  pendingWorktreeRequestId?: string | null
-  bootstrapPendingDirectory?: string | null
   preserveDirectoryOverride?: boolean
   parentID: string | null
   title?: string
@@ -191,18 +204,11 @@ export type SessionUIState = {
   abortPromptSessionId: string | null
   abortPromptExpiresAt: number | null
   error: string | null
-  worktreeMetadata: Map<string, WorktreeMetadata>
-  availableWorktrees: WorktreeMetadata[]
-  availableWorktreesByProject: Map<string, WorktreeMetadata[]>
   webUICreatedSessions: Set<string>
   sessionAbortFlags: Map<string, { timestamp: number; acknowledged: boolean }>
   abortControllers: Map<string, AbortController>
   isLoading: boolean
   lastLoadedDirectory: string | null
-  // Plan mode - per-session plan file availability (set when plan_enter tool creates a plan)
-  sessionPlanAvailable: Map<string, boolean>
-  markSessionPlanAvailable: (sessionId: string) => void
-  isSessionPlanAvailable: (sessionId: string) => boolean
 
   // Non-Git mode: dismissed signature hash per session, hides bar until new turn arrives
   pendingChangesBarDismissed: Map<string, string>
@@ -225,12 +231,7 @@ export type SessionUIState = {
   isPiChamberCreatedSession: (sessionId: string) => boolean
   getContextUsage: (contextLimit: number, outputLimit: number) => SessionContextUsage | null
   initializeNewPiChamberSession: (sessionId: string, agents: unknown[]) => void
-  setWorktreeMetadata: (sessionId: string, metadata: WorktreeMetadata | null) => void
   overrideNewSessionDraftTarget: (options: Record<string, unknown>) => void
-  resolvePendingDraftWorktreeTarget: (requestId: string, directory: string | null, options?: Record<string, unknown>) => void
-  setDraftBootstrapPendingDirectory: (directory: string | null) => void
-  setPendingDraftWorktreeRequest: (requestId: string | null) => void
-  getWorktreeMetadata: (sessionId: string) => WorktreeMetadata | undefined
 
   // Actions — SDK-calling operations (read domain data from sync-refs)
   sendMessage: (
@@ -286,10 +287,8 @@ export type SessionUIState = {
 const resolveDirectoryKey = (session: Session): string | null => {
   const sessionRecord = session as Session & {
     directory?: string | null
-    project?: { worktree?: string | null } | null
   }
   return normalizePath(sessionRecord.directory ?? null)
-    ?? normalizePath(sessionRecord.project?.worktree ?? null)
 }
 
 const safeStorage = getDeferredSafeStorage()
@@ -317,28 +316,6 @@ const persistDraftTarget = (target: PersistedDraftTarget): void => {
   } catch { /* ignored */ }
 }
 
-const resolveDraftProjectForDirectory = resolveProjectForSessionDirectory
-
-const getAttachmentForSession = (sessionId: string | null | undefined): SessionWorktreeAttachment | undefined => {
-  if (!sessionId) return undefined
-  return useSessionWorktreeStore.getState().getAttachment(sessionId)
-}
-
-/**
- * The directory that owns a session, from the two server-backed signals.
- *
- * `null` means "not indexed yet", never "no directory" — callers must fall back
- * rather than treat it as empty.
- *
- * The session's own record wins. Holding a session in a child store proves
- * containment, not ownership: a project's session list legitimately includes
- * the sessions of its worktrees so the sidebar can group them, so the parent
- * repository holds worktree sessions too. Reading ownership from store
- * membership therefore reports the parent for a session that lives in a
- * worktree, and every fetch is then addressed to a directory that does not own
- * it. Store membership remains the fallback for a session whose record carries
- * no directory.
- */
 const getAuthoritativeSessionDirectory = (sessionId: string): string | null => {
   const target = getAllSyncSessions().find((s) => s.id === sessionId)
   const recordDirectory = target ? resolveDirectoryKey(target) : null
@@ -347,12 +324,6 @@ const getAuthoritativeSessionDirectory = (sessionId: string): string | null => {
   return owningDirectory ? normalizePath(owningDirectory) : null
 }
 
-/**
- * Directory remembered for a session in this runtime, plus the one persisted
- * across restarts. Exported for diagnostics: a stale persisted directory is the
- * hardest source to observe and the one that survives reloads, so a report that
- * cannot show it cannot rule it out.
- */
 export const getRememberedSessionDirectory = (sessionId: string): {
   runtime: string | null
   persisted: string | null
@@ -366,77 +337,25 @@ export const getRememberedSessionDirectory = (sessionId: string): {
   }
 }
 
-/**
- * Session whose `currentSessionDirectory` is only the active directory, used
- * because the session's own directory was not known at selection time. Such a
- * value must never outrank a worktree assignment or reach persistence — it is
- * a guess, not a selection.
- */
 let guessedSelectionSessionId: string | null = null
 
 const collectSessionDirectorySources = (
   sessionId: string,
-  getWtMeta: (id: string) => WorktreeMetadata | undefined,
   selected: string | null,
 ): SessionDirectorySources => ({
-  authoritative: getAuthoritativeSessionDirectory(sessionId),
-  selected: sessionId === guessedSelectionSessionId ? null : normalizePath(selected),
-  attachment: getAttachedSessionDirectory(getAttachmentForSession(sessionId)),
-  worktreeMetadata: normalizePath(getWtMeta(sessionId)?.path ?? null),
-  remembered: getRememberedSessionDirectory(sessionId).runtime,
+  session: getAllSyncSessions().find((s) => s.id === sessionId) ?? null,
+  currentDirectory: sessionId === guessedSelectionSessionId ? null : normalizePath(selected),
 })
-
-/**
- * Conflicts already warned about, so a stale directory logs once instead of on
- * every keystroke. Keyed by runtime *and* the exact pair of directories: the
- * same session ID means a different thing in another runtime, and a conflict
- * that reappears after being resolved is news worth logging again. Bounded so
- * a long-lived session cannot grow it without limit.
- */
-const reportedDirectoryConflicts = new Set<string>()
-const MAX_REPORTED_DIRECTORY_CONFLICTS = 200
-
-const reportSessionDirectoryConflict = (
-  sessionId: string,
-  resolution: SessionDirectoryResolution,
-): void => {
-  if (!resolution.conflict) return
-  const conflictKey = JSON.stringify([
-    runtimeMemoryKey(),
-    sessionId,
-    resolution.directory,
-    resolution.conflict.source,
-    resolution.conflict.directory,
-  ])
-  if (reportedDirectoryConflicts.has(conflictKey)) return
-  if (reportedDirectoryConflicts.size >= MAX_REPORTED_DIRECTORY_CONFLICTS) {
-    reportedDirectoryConflicts.clear()
-  }
-  reportedDirectoryConflicts.add(conflictKey)
-  console.warn(
-    "[session-directory] session directory sources disagree; using the higher-authority one. "
-    + "Run __opencodeDebug.diagnoseSessionDirectory() for the full picture.",
-    {
-      sessionId,
-      using: resolution.source,
-      directory: resolution.directory,
-      conflictingSource: resolution.conflict.source,
-      conflictingDirectory: resolution.conflict.directory,
-    },
-  )
-}
 
 const resolveSessionDirectory = (
   sessionId: string | null | undefined,
-  getWtMeta: (id: string) => WorktreeMetadata | undefined,
   selected: string | null = null,
 ): string | null => {
   if (!sessionId) return null
   const resolution = resolveSessionDirectoryFromSources(
-    collectSessionDirectorySources(sessionId, getWtMeta, selected),
+    collectSessionDirectorySources(sessionId, selected),
   )
-  reportSessionDirectoryConflict(sessionId, resolution)
-  return resolution.directory
+  return resolution?.directory ?? null
 }
 
 const activateConfigForDirectory = async (directory: string | null | undefined): Promise<void> => {
@@ -454,8 +373,8 @@ type RuntimeSessionMemory = {
   sessionId: string | null
   directory: string | null
   draft: NewSessionDraftState
-  worktreeMetadata: Map<string, WorktreeMetadata>
-  availableWorktreesByProject: Map<string, WorktreeMetadata[]>
+  worktreeMetadata: Map<string, any>
+  availableWorktreesByProject: Map<string, any[]>
 }
 const runtimeSessionMemory = new Map<string, RuntimeSessionMemory>()
 
@@ -485,29 +404,23 @@ type MaterializedDraftSession = {
   syntheticParts?: SyntheticContextPart[]
 }
 
-const resolveProjectRefForWorktreeDirectory = (directory: string | null, projectId?: string | null): { id: string; path: string } | null => {
+const resolveProjectRefForWorktreeDirectory = (_directory: string | null, projectId?: string | null): { id: string; path: string } | null => {
   const projectsState = useProjectsStore.getState()
   if (projectId) {
     const project = projectsState.projects.find((entry) => entry.id === projectId)
     if (project?.path) return { id: project.id, path: project.path }
   }
-  const resolved = resolveProjectForSessionDirectory(projectsState.projects, useSessionUIStore.getState().availableWorktreesByProject, directory)
-  return resolved?.path ? { id: resolved.id, path: resolved.path } : null
+  return null
 }
 
-const waitForWorktreeBootstrapIfConfigured = async (directory: string | null, projectId?: string | null): Promise<void> => {
-  if (!directory) return
-  const project = resolveProjectRefForWorktreeDirectory(directory, projectId)
-  if (project && await getWorktreeSetupWaitEnabled(project)) {
-    await waitForWorktreeBootstrap(directory)
-  }
-}
+const waitForWorktreeBootstrapIfConfigured = async (_directory: string | null, _projectId?: string | null): Promise<void> => {}
 
 export async function materializeOpenDraftSession(selection: {
   providerID: string
   modelID: string
   agent?: string
   variant?: string
+  initialPrompt?: string
 }): Promise<MaterializedDraftSession | null> {
   const store = useSessionUIStore.getState()
   const draft = store.newSessionDraft
@@ -517,23 +430,22 @@ export async function materializeOpenDraftSession(selection: {
   const trimmedAgent = typeof selection.agent === "string" && selection.agent.trim().length > 0
     ? selection.agent.trim()
     : undefined
-  let draftDirectoryOverride = draft.bootstrapPendingDirectory ?? draft.directoryOverride ?? null
+  const draftDirectoryOverride = draft.directoryOverride ?? null
   const draftProjectId = draft.selectedProjectId ?? null
 
-  if (draft.pendingWorktreeRequestId) {
-    draftDirectoryOverride = await waitForPendingDraftWorktreeRequest(draft.pendingWorktreeRequestId)
-    store.resolvePendingDraftWorktreeTarget(draft.pendingWorktreeRequestId, draftDirectoryOverride)
-  }
+  const derivedTitle = draft.title || (selection.initialPrompt ? deriveSessionTitle(selection.initialPrompt) : undefined)
 
-  await waitForWorktreeBootstrapIfConfigured(draftDirectoryOverride, draftProjectId)
-
-  const created = await store.createSession(draft.title, draftDirectoryOverride, draft.parentID ?? null)
+  const created = await store.createSession(
+    derivedTitle,
+    draftDirectoryOverride,
+    draft.parentID ?? null,
+    {
+      model: selection.providerID && selection.modelID ? { providerId: selection.providerID, modelId: selection.modelID } : undefined,
+      thinking: (selection.variant === 'off' || selection.variant === 'low' || selection.variant === 'medium' || selection.variant === 'high' || selection.variant === 'xhigh') ? selection.variant : undefined,
+    } as any
+  )
   if (!created?.id) throw new Error("Failed to create session")
 
-  // The server response is authoritative. It may canonicalize a requested
-  // worktree path (for example through a symlink or platform path casing).
-  // Sending with the pre-canonical draft path can target a different
-  // directory scope than the session that was just created.
   const createdDirectory = normalizePath(created.directory ?? draftDirectoryOverride ?? null)
 
   persistDraftTarget({
@@ -577,28 +489,6 @@ export async function materializeOpenDraftSession(selection: {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Persisted worktree map (stale-while-revalidate)
-//
-// Worktree discovery is async (git), so the worktree→project map isn't ready at
-// startup. Persist it so (a) the sidebar worktree list paints instantly, and
-// (b) useConfigStore.resolveConfigDirectory can map a worktree to its project on
-// the FIRST launch — yielding a single project-scoped config load instead of a
-// worktree+project double-load. Discovery refreshes it in the background.
-// ---------------------------------------------------------------------------
-const flattenWorktreeMap = (map: Map<string, WorktreeMetadata[]> | null | undefined): WorktreeMetadata[] => {
-  if (!map) return []
-  const out: WorktreeMetadata[] = []
-  for (const list of map.values()) out.push(...(list ?? []))
-  return out
-}
-
-const PERSISTED_WORKTREE_MAP = readPersistedWorktreeTopology(runtimeMemoryKey())
-
 export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   currentSessionId: null,
   currentSessionDirectory: null,
@@ -606,15 +496,11 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   abortPromptSessionId: null,
   abortPromptExpiresAt: null,
   error: null,
-  worktreeMetadata: new Map(),
-  availableWorktrees: flattenWorktreeMap(PERSISTED_WORKTREE_MAP),
-  availableWorktreesByProject: PERSISTED_WORKTREE_MAP,
   webUICreatedSessions: new Set(),
   sessionAbortFlags: new Map(),
   abortControllers: new Map(),
   isLoading: false,
   lastLoadedDirectory: null,
-  sessionPlanAvailable: new Map(),
   pendingChangesBarDismissed: new Map(),
 
   // ---------------------------------------------------------------------------
@@ -631,23 +517,15 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const previousSessionId = get().currentSessionId
     const directoryState = useDirectoryStore.getState()
 
-    const sessionDir = resolveSessionDirectory(
-      id,
-      (sid) => get().worktreeMetadata.get(sid),
-    )
+    const sessionDir = resolveSessionDirectory(id)
     const fallbackDir = opencodeClient.getDirectory() ?? directoryState.currentDirectory ?? null
     const knownDir = (directoryHint ? normalizePath(directoryHint) : null) ?? sessionDir
     const resolvedDir = knownDir ?? fallbackDir
-    // `fallbackDir` is the active directory, not this session's directory. It
-    // keeps routing usable while the owning directory store bootstraps, but it
-    // must never be remembered: a persisted guess outlives the race that
-    // produced it and survives reloads and restarts.
     const isGuessedDir = knownDir === null
     const projectsState = useProjectsStore.getState()
     const sessionProject = resolvedDir
       ? resolveProjectForSessionDirectory(
         projectsState.projects,
-        get().availableWorktreesByProject,
         resolvedDir,
       )
       : null
@@ -679,7 +557,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       if (sessionProject && projectsState.activeProjectId !== sessionProject.id) {
         projectsState.setActiveProjectIdOnly(sessionProject.id)
       }
-      opencodeClient.setDirectory(resolvedDir ?? undefined)
     } catch (e) {
       console.warn("Failed to set OpenCode directory for session switch:", e)
     }
@@ -722,8 +599,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       sessionId: currentSessionId,
       directory,
       draft: cloneDraft(get().newSessionDraft),
-      worktreeMetadata: new Map(get().worktreeMetadata),
-      availableWorktreesByProject: new Map(get().availableWorktreesByProject),
+      worktreeMetadata: new Map(),
+      availableWorktreesByProject: new Map(),
     })
   },
 
@@ -733,8 +610,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const restoredSessionId = memory?.sessionId ?? activeSessionByRuntime.get(key) ?? null
     const restoredDraft = memory?.draft ? cloneDraft(memory.draft) : { ...DEFAULT_DRAFT }
     const restoredDirectory = memory?.directory ?? null
-    const availableWorktreesByProject = memory?.availableWorktreesByProject
-      ?? readPersistedWorktreeTopology(key)
     if (restoredDirectory) {
       useDirectoryStore.getState().setDirectory(restoredDirectory, { showOverlay: false })
     }
@@ -745,9 +620,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       abortPromptSessionId: null,
       abortPromptExpiresAt: null,
       error: null,
-      worktreeMetadata: memory?.worktreeMetadata ?? new Map(),
-      availableWorktrees: flattenWorktreeMap(availableWorktreesByProject),
-      availableWorktreesByProject,
       sessionAbortFlags: new Map(),
       pendingChangesBarDismissed: new Map(),
     })
@@ -773,7 +645,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     }
     const projectsState = useProjectsStore.getState()
     const projects = projectsState.projects
-    const availableWorktreesByProject = get().availableWorktreesByProject
+    const availableWorktreesByProject = null
     const activeProject = projectsState.getActiveProject()
     const currentDirectory = normalizePath(useDirectoryStore.getState().currentDirectory ?? null)
     const persistedTarget = readPersistedDraftTarget()
@@ -820,8 +692,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       selectedProjectId: selectedProject?.id ?? null,
       directoryOverride: directory,
       permissionAutoAcceptEnabled: options?.permissionAutoAcceptEnabled === true,
-      pendingWorktreeRequestId: options?.pendingWorktreeRequestId ?? null,
-      bootstrapPendingDirectory: normalizePath(options?.bootstrapPendingDirectory ?? null),
       preserveDirectoryOverride: options?.preserveDirectoryOverride === true,
       parentID: options?.parentID ?? null,
       title: options?.title,
@@ -876,8 +746,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       !currentDraft.open
       && currentDraft.selectedProjectId == null
       && currentDraft.directoryOverride == null
-      && currentDraft.pendingWorktreeRequestId == null
-      && currentDraft.bootstrapPendingDirectory == null
       && !currentDraft.preserveDirectoryOverride
       && currentDraft.parentID == null
       && currentDraft.title === undefined
@@ -892,8 +760,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         open: false,
         selectedProjectId: null,
         directoryOverride: null,
-        pendingWorktreeRequestId: null,
-        bootstrapPendingDirectory: null,
         preserveDirectoryOverride: false,
         parentID: null,
         title: undefined,
@@ -1013,31 +879,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     // Stub — was a no-op in old store
   },
 
-  setWorktreeMetadata: (sessionId, metadata) => {
-    // Write to authoritative session-worktree-store
-    if (metadata) {
-      useSessionWorktreeStore.getState().setAttachment(sessionId, {
-        worktreeRoot: metadata.worktreeRoot ?? metadata.path ?? null,
-        cwd: metadata.path ?? null,
-        branch: metadata.branch ?? null,
-        headState: metadata.headState ?? (metadata.branch ? 'branch' : 'detached'),
-        worktreeStatus: metadata.worktreeStatus ?? 'ready',
-        worktreeSource: metadata.worktreeSource ?? null,
-        legacy: false,
-        degraded: false,
-      })
-    } else {
-      useSessionWorktreeStore.getState().clearAttachment(sessionId)
-    }
-    // Also keep local map for backward compatibility
-    set((s) => {
-      const map = new Map(s.worktreeMetadata)
-      if (metadata) map.set(sessionId, metadata)
-      else map.delete(sessionId)
-      return { worktreeMetadata: map }
-    })
-  },
-
   overrideNewSessionDraftTarget: (options) => {
     let nextDirectory: string | null = null
     set((s) => {
@@ -1053,35 +894,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       useDirectoryStore.getState().setDirectory(nextDirectory)
     }
   },
-
-  resolvePendingDraftWorktreeTarget: (requestId, directory, options) =>
-    set((s) => {
-      if (!s.newSessionDraft?.open || s.newSessionDraft.pendingWorktreeRequestId !== requestId) return s
-      return {
-        newSessionDraft: {
-          ...s.newSessionDraft,
-          selectedProjectId: (options as Record<string, unknown> | undefined)?.projectId as string ?? s.newSessionDraft.selectedProjectId ?? null,
-          directoryOverride: normalizePath(directory),
-          pendingWorktreeRequestId: null,
-          bootstrapPendingDirectory: normalizePath((options as Record<string, unknown> | undefined)?.bootstrapPendingDirectory as string ?? s.newSessionDraft.bootstrapPendingDirectory ?? null),
-          preserveDirectoryOverride: ((options as Record<string, unknown> | undefined)?.preserveDirectoryOverride ?? true) as boolean,
-        },
-      }
-    }),
-
-  setDraftBootstrapPendingDirectory: (directory) =>
-    set((s) => {
-      if (!s.newSessionDraft?.open) return s
-      return { newSessionDraft: { ...s.newSessionDraft, bootstrapPendingDirectory: normalizePath(directory) } }
-    }),
-
-  setPendingDraftWorktreeRequest: (requestId) =>
-    set((s) => {
-      if (!s.newSessionDraft?.open) return s
-      return { newSessionDraft: { ...s.newSessionDraft, pendingWorktreeRequestId: requestId } }
-    }),
-
-  getWorktreeMetadata: (sessionId) => get().worktreeMetadata.get(sessionId),
 
   dismissPendingChangesBar: (sessionId, signature) => {
     const map = new Map(get().pendingChangesBarDismissed);
@@ -1134,14 +946,13 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         modelID,
         agent: trimmedAgent,
         variant,
+        initialPrompt: content,
       })
       if (!createdDraftSession) throw new Error("Failed to create session")
 
       const mergedAdditionalParts = createdDraftSession.syntheticParts?.length
         ? [...(additionalParts || []), ...createdDraftSession.syntheticParts]
         : additionalParts
-
-      notifyMessageSent(createdDraftSession.sessionId)
 
       markPendingUserSendAnimation(createdDraftSession.sessionId)
 
@@ -1217,10 +1028,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       ? normalizePath(capturedTarget?.directory ?? options?.directory ?? get().getDirectoryForSession(targetSessionId))
       : null
     if (targetSessionId) {
-      notifyMessageSent(targetSessionId)
-    }
-
-    if (targetSessionId) {
       markPendingUserSendAnimation(targetSessionId)
     }
 
@@ -1288,17 +1095,17 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   // ---------------------------------------------------------------------------
   // deleteSession — calls SDK, SSE event updates child store
   // ---------------------------------------------------------------------------
-  deleteSession: (id, options) => deleteSessionAction(id, options),
+  deleteSession: (id, options) => deleteSessionAction(id, options as any),
 
-  deleteSessions: (ids, options) => deleteSessionsAction(ids, options),
+  deleteSessions: (ids, options) => deleteSessionsAction(ids, options as any),
 
   archiveSession: (id) => archiveSessionAction(id),
 
-  archiveSessions: (ids, options) => archiveSessionsAction(ids, options),
+  archiveSessions: (ids, options) => archiveSessionsAction(ids, options as any),
 
   unarchiveSession: (id) => unarchiveSessionAction(id),
 
-  unarchiveSessions: (ids, options) => unarchiveSessionsAction(ids, options),
+  unarchiveSessions: (ids, options) => unarchiveSessionsAction(ids, options as any),
 
   // ---------------------------------------------------------------------------
   // updateSessionTitle — calls SDK, SSE event updates child store
@@ -1336,7 +1143,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const userMessages = messages.filter((m) => m.role === "user")
     if (userMessages.length === 0) return
 
-    const revertToId = currentSession?.revert?.messageID
+    const revertToId = (currentSession as any)?.revert?.messageID
     let targetMessage: typeof messages[number] | undefined
     if (revertToId) {
       targetMessage = [...userMessages].reverse().find((m) => m.id < revertToId)
@@ -1380,7 +1187,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
 
     const sessions = getSyncSessions()
     const currentSession = sessions.find((s) => s.id === sessionId)
-    const revertToId = currentSession?.revert?.messageID
+    const revertToId = (currentSession as any)?.revert?.messageID
     if (!revertToId) return
 
     await refetchSessionMessages(sessionId)
@@ -1438,8 +1245,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     let sourceSessionId: string | undefined
     let sourceMessage: Message | undefined
 
-    for (const [sid, msgs] of Object.entries(state.message ?? {})) {
-      const found = msgs.find((m) => m.id === sourceMessageId)
+    for (const [sid, msgs] of Object.entries((state as any).message ?? {})) {
+      const found = (msgs as any[])?.find((m: any) => m.id === sourceMessageId)
       if (found) {
         sourceSessionId = sid
         sourceMessage = found
@@ -1453,78 +1260,15 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const assistantPlanText = flattenAssistantTextParts(sourceParts)
     if (!assistantPlanText.trim()) return
 
-    const directory = resolveSessionDirectory(
-      sourceSessionId ?? null,
-      (sid) => get().worktreeMetadata.get(sid),
-    )
-    const sourceWorktreeMetadata = sourceSessionId ? get().worktreeMetadata.get(sourceSessionId) : undefined
-
+    const directory = resolveSessionDirectory(sourceSessionId ?? null)
     const pID = execution.providerID || useSelectionStore.getState().lastUsedProvider?.providerID
     const mID = execution.modelID || useSelectionStore.getState().lastUsedProvider?.modelID
 
     if (!pID || !mID) return
 
     const sourceDirectory = normalizePath(directory ?? opencodeClient.getDirectory() ?? null)
-    let sessionDirectory = sourceDirectory
-    let createdWorktree: WorktreeMetadata | null = null
-    let createdWorktreeProject: { id: string; path: string } | null = null
-
-    if (execution.createWorktree) {
-      const projects = useProjectsStore.getState().projects
-      const project = resolveProjectForSessionDirectory(
-        projects,
-        get().availableWorktreesByProject,
-        sourceDirectory,
-      ) ?? resolveProjectForSessionDirectory(
-        projects,
-        get().availableWorktreesByProject,
-        sourceWorktreeMetadata?.projectDirectory ?? null,
-      )
-      if (!project?.path) {
-        throw new Error("Project is not registered in PiChamber")
-      }
-
-      const [branchNameModule, configModule, createModule] = await Promise.all([
-        import("@/lib/git/branchNameGenerator"),
-        import("@/lib/pichamberConfig"),
-        import("@/lib/worktrees/worktreeCreate"),
-      ])
-      const branchName = branchNameModule.generateBranchName()
-      createdWorktreeProject = { id: project.id, path: project.path }
-      const setupCommands = await configModule.getWorktreeSetupCommands(createdWorktreeProject)
-      createdWorktree = await createModule.createWorktreeWithDefaults(createdWorktreeProject, {
-        preferredName: branchName,
-        mode: "new",
-        branchName,
-        worktreeName: branchName,
-        setupCommands,
-        returnAfterDirectoryCreated: true,
-      })
-      sessionDirectory = normalizePath(createdWorktree.path)
-      if (!sessionDirectory) {
-        throw new Error("Worktree create missing name/path")
-      }
-      if (await configModule.getWorktreeSetupWaitEnabled(createdWorktreeProject)) {
-        await waitForWorktreeBootstrap(sessionDirectory)
-      }
-    }
-
-    const session = await get().createSession(undefined, sessionDirectory || null, null)
-    if (!session) {
-      if (createdWorktree && createdWorktreeProject) {
-        const { removeProjectWorktree } = await import("@/lib/worktrees/worktreeManager")
-        await removeProjectWorktree(createdWorktreeProject, createdWorktree, { deleteLocalBranch: true }).catch(() => undefined)
-      }
-      return
-    }
-
-    if (createdWorktree) {
-      get().setWorktreeMetadata(session.id, {
-        ...createdWorktree,
-        kind: "standard",
-      })
-      useDirectoryStore.getState().setDirectory(createdWorktree.path, { showOverlay: false })
-    }
+    const session = await get().createSession(undefined, sourceDirectory || null, null)
+    if (!session) return
 
     await get().sendMessage(
       composeForkSessionMessage(execution.instructions, assistantPlanText),
@@ -1560,7 +1304,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const selected = sessionId === get().currentSessionId ? get().currentSessionDirectory : null
     const resolved = resolveSessionDirectory(
       sessionId,
-      (sid) => get().worktreeMetadata.get(sid),
       selected,
     )
     if (resolved) return resolved
@@ -1644,43 +1387,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       writeRuntimeSessionMemory(runtimeMemoryKey(), { sessionId, directory: normalized })
     }
   },
-
-  // ---------------------------------------------------------------------------
-  // Plan mode availability tracking
-  // ---------------------------------------------------------------------------
-  markSessionPlanAvailable: (sessionId) => {
-    set((state) => {
-      if (state.sessionPlanAvailable.get(sessionId) === true) {
-        return state
-      }
-      const next = new Map(state.sessionPlanAvailable)
-      next.set(sessionId, true)
-      return { sessionPlanAvailable: next }
-    })
-  },
-
-  isSessionPlanAvailable: (sessionId) => {
-    return get().sessionPlanAvailable.get(sessionId) ?? false
-  },
 }))
 
 setSessionOpener((sessionID, directory) => {
   useSessionUIStore.getState().setCurrentSession(sessionID, directory)
-})
-
-// Write-through persist of the worktree map whenever discovery refreshes it.
-// Reference-equality guard filters hot session updates; the serialized
-// comparison avoids redundant localStorage writes when the Map reference
-// changed but the content is identical (e.g., re-discovery that found the
-// same worktrees).
-const lastPersistedWorktreeSerializedByRuntime = new Map<string, string>()
-useSessionUIStore.subscribe((state, prev) => {
-  if (state.availableWorktreesByProject !== prev.availableWorktreesByProject) {
-    const runtimeKey = runtimeMemoryKey()
-    const serialized = JSON.stringify([...state.availableWorktreesByProject.entries()])
-    if (serialized !== lastPersistedWorktreeSerializedByRuntime.get(runtimeKey)) {
-      lastPersistedWorktreeSerializedByRuntime.set(runtimeKey, serialized)
-      persistWorktreeTopology(runtimeKey, state.availableWorktreesByProject)
-    }
-  }
 })

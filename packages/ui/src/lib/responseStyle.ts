@@ -45,7 +45,7 @@ const buildResponseStyleInstruction = ({
 };
 
 export const fetchResponseStyleInstruction = async (): Promise<string | null> => {
-  const response = await runtimeFetch('/api/config/settings', {
+  const response = await runtimeFetch('/api/pi/ui-settings', {
     method: 'GET',
     headers: { Accept: 'application/json' },
   });

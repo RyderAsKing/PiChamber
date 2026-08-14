@@ -1,5 +1,4 @@
 /* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import type { Session } from '@/lib/chat/types';
 import { toast } from '@/components/ui';
@@ -20,7 +19,6 @@ import { useUIStore } from '@/stores/useUIStore';
 import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
 import { useGitStore, useGitAllBranches, useGitRepoStatusMap } from '@/stores/useGitStore';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { NewWorktreeDialog } from './NewWorktreeDialog';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useArchivedAutoFolders } from './sidebar/hooks/useArchivedAutoFolders';
@@ -45,16 +43,11 @@ import { SidebarActivitySections } from './sidebar/SidebarActivitySections';
 import { SidebarFooter } from './sidebar/SidebarFooter';
 import { SidebarProjectsList } from './sidebar/SidebarProjectsList';
 import { SessionNodeItem } from './sidebar/SessionNodeItem';
+import { buildSessionBootstrapDemands } from './sidebar/sessionBootstrapDemands';
 import type { SessionNodeRenderExtras } from './sidebar/sessionNodeItemUtils';
 import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useShallow } from 'zustand/react/shallow';
-import {
-  listProjectWorktrees,
-  partitionWorktreesByRegisteredProject,
-  worktreeMapsEqual,
-} from '@/lib/worktrees/worktreeManager';
 import { checkIsGitRepository } from '@/lib/gitApi';
-import type { WorktreeMetadata } from '@/types/worktree';
 import type { SortableDragHandleProps } from './sidebar/sortableItems';
 import {
   BulkSessionDeleteConfirmDialog,
@@ -96,8 +89,6 @@ import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
 import { useNotificationStore } from '@/sync/notification-store';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { getGitHubPrStatusKey, useGitHubPrStatusStore } from '@/stores/useGitHubPrStatusStore';
-import { buildSessionBootstrapDemands } from './sidebar/sessionBootstrapDemands';
-import { recordWorktreesSeen } from './sidebar/worktreeFirstSeen';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { streamPerfCount, streamPerfMark } from '@/stores/utils/streamDebug';
 import { runBackgroundNetworkTask } from '@/lib/background-network';
@@ -114,20 +105,20 @@ const SESSION_EXPANDED_STORAGE_KEY = 'oc.sessions.expandedParents.v3';
 
 const buildKnownSessionDirectories = (
   projects: Array<{ path: string }>,
-  availableWorktreesByProject: Map<string, WorktreeMetadata[]>,
+  availableWorktreesByProject?: Map<string, any[]> | null,
   options?: { includeWorktrees?: boolean },
 ): Set<string> => {
   const directories = new Set<string>();
-  for (const project of projects) {
-    const normalized = normalizePath(project.path)?.toLowerCase();
+  for (const project of projects || []) {
+    const normalized = normalizePath(project?.path)?.toLowerCase();
     if (normalized) directories.add(normalized);
   }
-  if (options?.includeWorktrees === false) {
+  if (options?.includeWorktrees === false || !availableWorktreesByProject) {
     return directories;
   }
   for (const worktrees of availableWorktreesByProject.values()) {
-    for (const worktree of worktrees) {
-      const normalized = normalizePath(worktree.path)?.toLowerCase();
+    for (const worktree of worktrees || []) {
+      const normalized = normalizePath(worktree?.path)?.toLowerCase();
       if (normalized) directories.add(normalized);
     }
   }
@@ -292,8 +283,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
   const [projectRepoStatus, setProjectRepoStatus] = React.useState<Map<string, boolean | null>>(new Map());
   const [visibleSessionCountByGroup, setVisibleSessionCountByGroup] = React.useState<Map<string, number>>(new Map());
-  const newWorktreeDialogOpen = useUIStore((state) => state.isNewWorktreeDialogOpen);
-  const setNewWorktreeDialogOpen = useUIStore((state) => state.setNewWorktreeDialogOpen);
   const [updateDialogOpen, setUpdateDialogOpen] = React.useState(false);
   const [openSidebarMenuKey, setOpenSidebarMenuKey] = React.useState<string | null>(null);
   const [renamingFolderId, setRenamingFolderId] = React.useState<string | null>(null);
@@ -395,8 +384,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const setAboutDialogOpen = useUIStore((state) => state.setAboutDialogOpen);
   const setSessionSwitcherOpen = useUIStore((state) => state.setSessionSwitcherOpen);
   const setArchivePageOpen = useUIStore((state) => state.setArchivePageOpen);
-  const setWorktreesPageProjectId = useUIStore((state) => state.setWorktreesPageProjectId);
-  const openMultiRunLauncher = useUIStore((state) => state.openMultiRunLauncher);
   const notifyOnSubtasks = useUIStore((state) => state.notifyOnSubtasks);
   const showDeletionDialog = useUIStore((state) => state.showDeletionDialog);
   const setShowDeletionDialog = useUIStore((state) => state.setShowDeletionDialog);
@@ -471,8 +458,8 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const shareSession = useSessionUIStore((state) => state.shareSession);
   const unshareSession = useSessionUIStore((state) => state.unshareSession);
   // sessionAttentionStates removed — now using notification-store directly in SessionNodeItem
-  const worktreeMetadata = useSessionUIStore((state) => state.worktreeMetadata);
-  const availableWorktreesByProject = useSessionUIStore((state) => state.availableWorktreesByProject);
+  const worktreeMetadata = null;
+  const availableWorktreesByProject = useSessionUIStore((state) => (state as any).availableWorktreesByProject) ?? new Map();
   const openNewSessionDraft = useSessionUIStore((state) => state.openNewSessionDraft);
   // The sidebar tree's +-buttons (project / group / folder) open a draft but,
   // unlike selecting an existing session, don't navigate. VS Code's compact view
@@ -549,97 +536,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     void refreshGlobalSessions(syncSessionsSnapshotRef.current);
   }, []);
 
-  React.useEffect(() => {
-    let cancelled = false;
 
-    const discoverWorktrees = async () => {
-      const discoveryRuntimeKey = runtimeKey;
-      const projectEntries = useProjectsStore.getState().projects;
-      if (projectEntries.length === 0) {
-        if (!cancelled) {
-          setUnresolvedWorktreeProjectPaths(new Set());
-          setResolvedWorktreeTopologyKey(projectWorktreeDiscoveryKey);
-        }
-        return;
-      }
-
-      const knownWorktreesByProject = useSessionUIStore.getState().availableWorktreesByProject;
-      const worktreesByProject = new Map(knownWorktreesByProject);
-      const unresolvedProjectPaths = new Set<string>();
-
-      // Constrain fanout: previously `Promise.all(projects.map(...))` could
-      // spawn dozens of concurrent `git worktree list` and
-      // `checkIsGitRepository` calls on cold start, each touching the
-      // worktree process. Concurrency=3 keeps startup latency low while
-      // bounding peak worktree-process load.
-      const worktreeConcurrency = 3;
-      let cursor = 0;
-      const workers = Array.from({ length: worktreeConcurrency }, async () => {
-        while (true) {
-          const nextIndex = cursor;
-          cursor += 1;
-          if (nextIndex >= projectEntries.length) return;
-          const project = projectEntries[nextIndex];
-          const projectPath = normalizePath(project.path);
-          if (!projectPath) continue;
-          try {
-            const worktrees = await runBackgroundNetworkTask(async () => {
-              // Use store-cached isGitRepo when available; fall back to
-              // a direct check for projects the Git store hasn't seen yet.
-              const cachedIsGitRepo = useGitStore.getState().directories.get(projectPath)?.isGitRepo;
-              const isGitRepo = cachedIsGitRepo ?? await checkIsGitRepository(projectPath);
-              if (!isGitRepo) return null;
-              return listProjectWorktrees({ id: project.id, path: projectPath });
-            });
-            if (worktrees === null) {
-              worktreesByProject.delete(projectPath);
-              continue;
-            }
-            if (cancelled) return;
-            if (worktrees.length === 0) {
-              worktreesByProject.delete(projectPath);
-            } else {
-              worktreesByProject.set(projectPath, worktrees);
-            }
-          } catch {
-            // Keep last-known worktrees when a project is temporarily unavailable.
-            unresolvedProjectPaths.add(projectPath);
-          }
-        }
-      });
-      await Promise.all(workers);
-
-      if (cancelled || getRuntimeKey() !== discoveryRuntimeKey) return;
-
-      const activeProjectPaths = new Set(projectEntries.map((project) => normalizePath(project.path)).filter(Boolean));
-      for (const projectPath of worktreesByProject.keys()) {
-        if (!activeProjectPaths.has(projectPath)) {
-          worktreesByProject.delete(projectPath);
-        }
-      }
-      const partitionedWorktreesByProject = partitionWorktreesByRegisteredProject(projectEntries, worktreesByProject);
-      const allWorktrees = [...partitionedWorktreesByProject.values()].flat();
-      // Newly appearing worktrees sort to the top of their project's
-      // worktree list (see worktreeFirstSeen.ts).
-      recordWorktreesSeen(allWorktrees.map((worktree) => worktree.path), Date.now());
-
-      // Skip update if nothing changed — see worktreeMapsEqual JSDoc.
-      if (!worktreeMapsEqual(partitionedWorktreesByProject, knownWorktreesByProject)) {
-        useSessionUIStore.setState({
-          availableWorktrees: allWorktrees,
-          availableWorktreesByProject: partitionedWorktreesByProject,
-        });
-      }
-      setUnresolvedWorktreeProjectPaths(unresolvedProjectPaths);
-      setResolvedWorktreeTopologyKey(projectWorktreeDiscoveryKey);
-    };
-
-    void discoverWorktrees();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [projectWorktreeDiscoveryKey, runtimeKey]);
 
   const isDesktopShellRuntime = React.useMemo(() => isDesktopShell(), []);
 
@@ -652,7 +549,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     buildGroupedSessions,
   } = useSessionGrouping({
     homeDirectory,
-    worktreeMetadata,
     pinnedSessionIds,
     sessionOrderRanks,
     gitBranches,
@@ -742,10 +638,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       defaultModel: data.defaultModel ?? null,
     });
   }, [editingProjectDialogId, updateProjectMeta]);
-
-  const openNewWorktreeDialog = React.useCallback(() => {
-    setNewWorktreeDialogOpen(true);
-  }, [setNewWorktreeDialogOpen]);
 
   const handleOpenUpdateDialog = React.useCallback(() => {
     const current = useUpdateStore.getState();
@@ -1001,10 +893,12 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
   const projectSessionDirectories = React.useMemo(() => {
     const directories = new Set(normalizedProjects.map((project) => project.normalizedPath));
-    for (const worktrees of availableWorktreesByProject.values()) {
-      for (const worktree of worktrees) {
-        const directory = normalizePath(worktree.path);
-        if (directory) directories.add(directory);
+    if (availableWorktreesByProject) {
+      for (const worktrees of availableWorktreesByProject.values()) {
+        for (const worktree of worktrees || []) {
+          const directory = normalizePath(worktree?.path);
+          if (directory) directories.add(directory);
+        }
       }
     }
     return [...directories].sort();
@@ -1016,6 +910,9 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     const previousDirectories = knownProjectSessionDirectoriesRef.current;
     knownProjectSessionDirectoriesRef.current = nextDirectories;
     if (!previousDirectories) {
+      if (projectSessionDirectories.length > 0) {
+        void refreshGlobalSessionsForDirectories(projectSessionDirectories, syncSessionsSnapshotRef.current);
+      }
       return;
     }
 
@@ -1027,13 +924,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     void refreshGlobalSessionsForDirectories(addedDirectories, syncSessionsSnapshotRef.current);
   }, [projectSessionDirectories]);
 
-  const { github } = useRuntimeAPIs();
-  const githubAuthStatus = useGitHubAuthStore((state) => state.status);
-  const githubAuthChecked = useGitHubAuthStore((state) => state.hasChecked);
   const gitRepoStatus = useGitRepoStatusMap(isVisible ? normalizedProjectPaths : EMPTY_STRING_ARRAY);
-  const ensurePrStatusEntry = useGitHubPrStatusStore((state) => state.ensureEntry);
-  const setPrStatusParams = useGitHubPrStatusStore((state) => state.setParams);
-  const refreshPrStatusTargets = useGitHubPrStatusStore((state) => state.refreshTargets);
 
   useProjectRepoStatus({
     enabled: isVisible,
@@ -1115,7 +1006,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     activeProjectId,
     manualProjectOrder,
     currentDirectory,
-    worktreeMetadata,
     availableWorktreesByProject,
     pinnedSessionIds,
     sessionOrderRanks,
@@ -1123,8 +1013,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     collapsedFolderIds,
     gitBranches,
     gitRepoStatus,
-    githubAuthStatus,
-    githubAuthChecked,
     updateStore,
     showRecentSection,
     showArchivedSessions,
@@ -1362,104 +1250,17 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   );
 
 
-  // 'by-worktree' renders the worktree-grouped sections (parallel-work
-  // overview); 'flat' renders the merged per-project list.
-  const sessionGroupingMode = useSessionDisplayStore((state) => state.sessionGroupingMode);
-  const useGroupedSections = sessionGroupingMode === 'by-worktree';
   const sectionsForSidebarRender = React.useMemo(() => {
-    const source = useGroupedSections ? sectionsForRender : flatSectionsForRender;
-    return source.map((section) => (
+    return flatSectionsForRender.map((section) => (
         section.groups.some((group) => group.isArchivedBucket)
           ? { ...section, groups: section.groups.filter((group) => !group.isArchivedBucket) }
           : section
       ));
-  }, [flatSectionsForRender, sectionsForRender, useGroupedSections]);
+  }, [flatSectionsForRender]);
 
   // Discover/refresh PR status for expanded projects' worktree branches so
   // session rows can tint their branch marker and show PR state in tooltips.
-  // The data source is the worktree-grouped projectSections (data layer), not
-  // the flat display sections.
-  const retriedNoPrStatusKeysRef = React.useRef<Set<string>>(new Set());
-  React.useEffect(() => {
-    if (!isVisible || !githubAuthChecked || !githubAuthStatus?.connected || !github) {
-      return;
-    }
 
-    const targetsByKey = new Map<string, { directory: string; branch: string }>();
-    const now = Date.now();
-
-    projectSections.forEach((section) => {
-      if (collapsedProjects.has(section.project.id)) {
-        return;
-      }
-
-      section.groups.forEach((group) => {
-        if (group.isArchivedBucket || group.isMain) {
-          return;
-        }
-        const directory = normalizePath(group.directory ?? null);
-        const branch = group.branch?.trim() || gitBranches.get(directory || '')?.trim();
-        if (!directory || !branch) {
-          return;
-        }
-        const key = getGitHubPrStatusKey(directory, branch);
-        const entry = useGitHubPrStatusStore.getState().entries[key];
-        const hasPr = Boolean(entry?.status?.pr);
-        const retryKey = `${directory}::${branch}`;
-        const noPrLastCheckedAt = Math.max(entry?.lastRefreshAt ?? 0, entry?.lastDiscoveryPollAt ?? 0);
-        const shouldRetryNoPr = Boolean(
-          entry?.isInitialStatusResolved
-          && !hasPr
-          && (
-            !retriedNoPrStatusKeysRef.current.has(retryKey)
-            || now - noPrLastCheckedAt >= SIDEBAR_PR_NO_PR_RETRY_MS
-          ),
-        );
-
-        if (!entry || !entry.isInitialStatusResolved || shouldRetryNoPr) {
-          if (shouldRetryNoPr) {
-            retriedNoPrStatusKeysRef.current.add(retryKey);
-          }
-          if (!targetsByKey.has(key)) {
-            targetsByKey.set(key, { directory, branch });
-          }
-        }
-      });
-    });
-
-    if (targetsByKey.size === 0) {
-      return;
-    }
-
-    targetsByKey.forEach((target, key) => {
-      ensurePrStatusEntry(key);
-      setPrStatusParams(key, {
-        directory: target.directory,
-        branch: target.branch,
-        remoteName: null,
-        canShow: true,
-        github,
-        githubAuthChecked,
-        githubConnected: githubAuthStatus.connected,
-      });
-    });
-
-    void refreshPrStatusTargets([...targetsByKey.values()], {
-      silent: true,
-      markInitialResolved: true,
-    });
-  }, [
-    collapsedProjects,
-    ensurePrStatusEntry,
-    github,
-    githubAuthChecked,
-    githubAuthStatus?.connected,
-    isVisible,
-    gitBranches,
-    projectSections,
-    refreshPrStatusTargets,
-    setPrStatusParams,
-  ]);
 
   const desktopHeaderActionButtonClass =
     'inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md leading-none text-foreground hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed';
@@ -1710,13 +1511,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     deleteSessions,
     setBulkDeleteConfirm,
   });
-  const handleOpenMultiRunFromHeader = React.useCallback(() => {
-    setActiveMainTab('chat');
-    if (mobileVariant) {
-      setSessionSwitcherOpen(false);
-    }
-    openMultiRunLauncher();
-  }, [mobileVariant, openMultiRunLauncher, setActiveMainTab, setSessionSwitcherOpen]);
 
   const handleOpenNewSessionDraftFromHeader = React.useCallback(() => {
     useUIStore.getState().closeMainSurfaces();
@@ -1766,7 +1560,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         enabled={isVisible}
         sortedSessions={orderedSessions}
         recentSessions={recentSessions}
-        prefetchSession={sync.prefetchSession}
+        prefetchSession={async (sessionId) => { await sync.syncSession(sessionId); }}
       />
       {!hideDirectoryControls ? (
         <SidebarNav onNewSession={handleOpenNewSessionDraftFromHeader} />
@@ -1776,8 +1570,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         hideDirectoryControls={hideDirectoryControls}
         showRecentControls
         handleOpenDirectoryDialog={handleOpenDirectoryDialog}
-        onOpenMultiRun={handleOpenMultiRunFromHeader}
-        canOpenMultiRun={projects.length > 0}
         onOpenArchive={() => {
           if (mobileVariant) setSessionSwitcherOpen(false);
           setArchivePageOpen(true);
@@ -1831,11 +1623,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         setActiveMainTab={setActiveMainTab}
         setSessionSwitcherOpen={setSessionSwitcherOpen}
         openNewSessionDraft={openNewSessionDraftFromTree}
-        openNewWorktreeDialog={openNewWorktreeDialog}
-        openWorktreesPage={(projectId) => {
-          if (mobileVariant) setSessionSwitcherOpen(false);
-          setWorktreesPageProjectId(projectId);
-        }}
         openProjectEditDialog={setEditingProjectDialogId}
         removeProject={removeProject}
         projectHeaderSentinelRefs={projectHeaderSentinelRefs}
@@ -1898,21 +1685,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         onSave={handleSaveProjectEdit}
       />
 
-      <NewWorktreeDialog
-        open={newWorktreeDialogOpen}
-        onOpenChange={setNewWorktreeDialogOpen}
-        onWorktreeCreated={(worktreePath, options) => {
-          setActiveMainTab('chat');
-          if (mobileVariant) {
-            setSessionSwitcherOpen(false);
-          }
-          if (options?.sessionId) {
-            setCurrentSession(options.sessionId, worktreePath);
-            return;
-          }
-          openNewSessionDraft({ directoryOverride: worktreePath, preserveDirectoryOverride: true });
-        }}
-      />
+
 
       <SessionDeleteConfirmDialog
         value={deleteSessionConfirm}

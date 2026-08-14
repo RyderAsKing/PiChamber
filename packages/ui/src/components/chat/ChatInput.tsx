@@ -1,7 +1,6 @@
 /* eslint-disable */
 // @ts-nocheck
 import React from 'react';
-import { ComposerDictation } from '@/components/dictation/ComposerDictation';
 // sessionStore removed — currentSessionId comes from useSessionUIStore
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
@@ -50,7 +49,7 @@ import { toast } from '@/components/ui';
 import { useTabletLayout } from '@/lib/device';
 import { useHardwareKeyboard } from '@/lib/hardwareKeyboard';
 import { isIMECompositionEvent } from '@/lib/ime';
-import { getCycledPrimaryAgentName, type MobileControlsPanel } from './mobileControlsUtils';
+import type { MobileControlsPanel } from './mobileControlsUtils';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { GitHubIssuePickerDialog } from '@/components/session/GitHubIssuePickerDialog';
@@ -62,7 +61,6 @@ import { piClient } from '@/lib/pi/client';
 import { useGitStore, useIsGitRepo } from '@/stores/useGitStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSkillsStore } from '@/stores/useSkillsStore';
-import { useCommandsStore } from '@/stores/useCommandsStore';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { usePermissionStore } from '@/stores/permissionStore';
@@ -203,7 +201,6 @@ const renderDraftTitle = (title: string, projectLabel: string | null): React.Rea
 };
 
 const MemoModelControls = React.memo(ModelControls);
-const MemoComposerDictation = React.memo(ComposerDictation);
 const MemoMobileModelButton = React.memo(MobileModelButton);
 const MemoStatusRow = React.memo(StatusRow);
 
@@ -313,7 +310,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const attachedFiles = useInputStore((s) => s.attachedFiles);
     const addAttachedFile = useInputStore((s) => s.addAttachedFile);
     const clearAttachedFiles = useInputStore((s) => s.clearAttachedFiles);
-    const saveSessionAgentSelection = useSelectionStore((s) => s.saveSessionAgentSelection);
     const consumePendingInputText = useInputStore((s) => s.consumePendingInputText);
     const pendingPresetSubmit = useInputStore((s) => s.pendingPresetSubmit);
     const pendingInputText = useInputStore((s) => s.pendingInputText);
@@ -350,10 +346,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const setExpandedInput = useUIStore((state) => state.setExpandedInput);
     const setTimelineDialogOpen = useUIStore((state) => state.setTimelineDialogOpen);
     const { git: runtimeGit } = useRuntimeAPIs();
-    const cycleAgentShortcutOverride = useUIStore((state) => state.shortcutOverrides.cycle_agent);
-    const cycleAgentShortcut = React.useMemo(() => (
-        getEffectiveShortcutCombo('cycle_agent', cycleAgentShortcutOverride ? { cycle_agent: cycleAgentShortcutOverride } : undefined)
-    ), [cycleAgentShortcutOverride]);
     const { currentTheme } = useThemeSystem();
     const chatSearchDirectory = useChatSearchDirectory();
     const isGitRepo = useIsGitRepo(currentDirectory);
@@ -494,18 +486,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const knownAgentNamesRef = React.useRef(knownAgentNames);
     knownAgentNamesRef.current = knownAgentNames;
 
-    // Known slash-invocations (commands + skills + built-ins) used to highlight
+    // Known slash-invocations (skills + built-ins) used to highlight
     // matching /tokens in the composer, the same way confirmed @files are.
-    const availableCommands = useCommandsStore((s) => s.commands);
     const availableSkills = useSkillsStore((s) => s.skills);
     const knownSlashNames = React.useMemo(() => {
         const names = new Set<string>([
             'init', 'review', 'undo', 'redo', 'timeline', 'compact', 'summary', 'plan-feature', 'catch-up', 'debug', 'weigh', 'explore',
         ]);
-        for (const command of availableCommands) names.add(command.name.toLowerCase());
         for (const skill of availableSkills) names.add(skill.name.toLowerCase());
         return names;
-    }, [availableCommands, availableSkills]);
+    }, [availableSkills]);
 
     const availableSnippets = useSnippetsStore((s) => s.snippets);
     const knownSnippetTriggers = React.useMemo(() => {
@@ -808,7 +798,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
     const hasContent = message.trim().length > 0 || attachedFiles.length > 0 || hasDrafts;
     const hasQueuedMessages = queuedMessages.length > 0;
-    const canSend = hasContent || hasQueuedMessages;
+    const hasUsableModel = Boolean(currentProviderId && currentModelId);
+    const canSend = (hasContent || hasQueuedMessages) && hasUsableModel;
 
     const canAbort = sessionPhase !== 'idle';
 
@@ -937,6 +928,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
         if (!providerIdToSend || !modelIdToSend) {
             console.warn('Cannot send message: provider or model not selected');
+            toast.error(t('chat.chatInput.toast.noModelSelected'));
             return;
         }
 
@@ -1287,27 +1279,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         void handleSubmitRef.current({ presetText });
     }, []);
 
-    // Dictation: insert the transcript inline; optionally submit immediately.
-    // getCurrentInputSnapshot reads composerRef.current.getValue() first, so setting
-    // it synchronously lets handleSubmit pick up the text in the same tick.
-    const handleDictationInsert = React.useCallback((text: string) => {
-        setMessage((prev) => {
-            // The editor is controlled by this state; getCurrentInputSnapshot
-            // reads it back, so no imperative write is needed.
-            return appendInlineText(prev, text);
-        });
-        setTimeout(() => {
-            composerRef.current?.focus();
-        }, 0);
-    }, []);
-
-    const handleDictationInsertAndSend = React.useCallback((text: string) => {
-        // Same as preset chips: the composed text goes into the submit as an
-        // explicit override instead of being staged in the textarea, which may
-        // not be mounted (collapsed mobile pill).
-        const next = appendInlineText(composerRef.current?.getValue() ?? messageRef.current, text);
-        void handleSubmitRef.current({ presetText: next });
-    }, []);
 
     // Preset chips rendered outside this component (e.g. under the welcome
     // message on narrow surfaces) request a submit via the input store; consume
@@ -1377,21 +1348,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             return;
         }
 
-        const cycleAgentBackwardShortcut = cycleAgentShortcut && !cycleAgentShortcut.includes('shift')
-            ? normalizeCombo(`shift+${cycleAgentShortcut}`)
-            : '';
-        const cycleAgentDirection = cycleAgentBackwardShortcut && eventMatchesShortcut(e, cycleAgentBackwardShortcut)
-            ? -1
-            : eventMatchesShortcut(e, cycleAgentShortcut)
-                ? 1
-                : 0;
-
-        if (cycleAgentDirection !== 0 && openAutocomplete === null) {
-            e.preventDefault();
-            e.stopPropagation();
-            handleCycleAgent(cycleAgentDirection);
-            return;
-        }
 
         // Handle ArrowUp/ArrowDown for message history navigation
         // ArrowUp: only when cursor at start (position 0) or input is empty
@@ -1525,25 +1481,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         void abortCurrentOperation(currentSessionId || undefined);
     }, [abortCurrentOperation, clearAbortPrompt, currentSessionId, startAbortIndicator]);
 
-    const handleCycleAgent = React.useCallback((direction: 1 | -1 = 1) => {
-        const nextAgentName = getCycledPrimaryAgentName(agents, currentAgentName, direction);
-        if (!nextAgentName) return;
 
-        setAgent(nextAgentName);
 
-        if (currentSessionId) {
-            saveSessionAgentSelection(currentSessionId, nextAgentName);
-        }
-    }, [agents, currentAgentName, currentSessionId, setAgent, saveSessionAgentSelection]);
-
-    // Height the dictation transcript needs (null when idle). Its overlay sits
-    // absolutely over the composer, so the composer must be able to grow for
-    // it. The editor sizes itself to its own content; this is the one external
-    // constraint, applied as a floor on the editor's container.
-    const [dictationContentHeight, setDictationContentHeight] = React.useState<number | null>(null);
-    const handleDictationContentHeightChange = React.useCallback((height: number | null) => {
-        setDictationContentHeight((prev) => (prev === height ? prev : height));
-    }, []);
 
     const updateAutocompleteState = React.useCallback((
         value: string,
@@ -2071,7 +2010,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         selectedDraftBranchLabel,
         selectedDraftBranchIsKnown,
         projectRootBranchOption,
-        worktreeBranchOptions,
         draftBranchItems,
         shouldShowDraftBranchSelector,
         handleDraftProjectChange,
@@ -2096,7 +2034,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         if (!showDraftTargetSelectors || !selectedDraftProject || !selectedDraftDirectory) {
             return;
         }
-        if (newSessionDraft?.pendingWorktreeRequestId || newSessionDraft?.bootstrapPendingDirectory || newSessionDraft?.preserveDirectoryOverride) {
+        if (newSessionDraft?.preserveDirectoryOverride) {
             return;
         }
         const valid = draftBranchItems.some((option) => option.value === selectedDraftDirectory);
@@ -2107,7 +2045,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             projectId: selectedDraftProject.id,
             directoryOverride: selectedDraftProject.path,
         });
-    }, [draftBranchItems, newSessionDraft?.bootstrapPendingDirectory, newSessionDraft?.pendingWorktreeRequestId, newSessionDraft?.preserveDirectoryOverride, selectedDraftDirectory, selectedDraftProject, setNewSessionDraftTarget, showDraftTargetSelectors]);
+    }, [draftBranchItems, newSessionDraft?.preserveDirectoryOverride, selectedDraftDirectory, selectedDraftProject, setNewSessionDraftTarget, showDraftTargetSelectors]);
 
 
     // Mobile pill composer: the collapse/expand state machine and the
@@ -2139,10 +2077,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         openNewSessionDraft(currentDirectory ? { directoryOverride: currentDirectory } : undefined);
     }, [newSessionDraftOpen, openNewSessionDraft, currentDirectory]);
 
-    /** The dictation engine listens for this globally; the composer only asks. */
-    const toggleDictation = React.useCallback(() => {
-        window.dispatchEvent(new CustomEvent('openchamber:dictation-toggle'));
-    }, []);
+
 
     const openMobileAttachSheet = React.useCallback(() => {
         // Same order as handleOpenMobilePanel: mark the sheet open BEFORE the
@@ -2326,7 +2261,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         selectedBranchLabel={selectedDraftBranchLabel}
                         selectedBranchIsKnown={selectedDraftBranchIsKnown}
                         projectRootBranchOption={projectRootBranchOption}
-                        worktreeBranchOptions={worktreeBranchOptions}
                         branchItems={draftBranchItems}
                         showBranchSelector={shouldShowDraftBranchSelector}
                         onProjectChange={handleDraftProjectChange}
@@ -2344,8 +2278,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     />
                 ) : null}
                 <div
-                    // Desktop: layout-transparent. Mobile: positioning host for
-                    // the wrapper-level dictation overlay across pill/full states.
                     className={cn(
                         !isMobile && 'contents',
                         isMobile && 'relative',
@@ -2369,7 +2301,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         onOpenIssuePicker={openIssuePicker}
                         onOpenPrPicker={openPrPicker}
                         onOpenAttachSheet={openMobileAttachSheet}
-                        onStartDictation={toggleDictation}
                         onAbort={handleAbort}
                     />
                 ) : (
@@ -2434,8 +2365,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         onAgentSelect={handleAgentSelect}
                         onClose={closeAutocomplete}
                     />
-                    {/* Positioning context for the dictation overlay: covers the
-                        text area + footer exactly. */}
                     <div className={cn('relative flex flex-col', isComposerExpanded && 'flex-1 min-h-0')}>
                     <div className={cn("overflow-hidden", isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
                         {isMobile ? (
@@ -2453,9 +2382,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                             onDropCapture={handleDropCapture}
                             onDrop={handleDrop}
                             onDragEnd={handleDragEnd}
-                            style={dictationContentHeight !== null
-                                ? { minHeight: `${dictationContentHeight}px` }
-                                : undefined}
                         >
                             <ComposerEditor
                                 ref={composerRef}
@@ -2465,9 +2391,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                 languageContext={languageContext}
                                 onChange={handleComposerChange}
                                 onKeyDown={(event) => {
-                                    // Every interception branch calls
-                                    // preventDefault, so the event itself
-                                    // reports whether the composer consumed it.
                                     handleKeyDown(event);
                                     return event.defaultPrevented;
                                 }}
@@ -2522,7 +2445,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         isExpandedInput={isExpandedInput}
                         permissionAutoAcceptEnabled={permissionAutoAcceptEnabled}
                         isPermissionAutoAcceptInteractive={isPermissionAutoAcceptInteractive}
-                        dictationActive={mobileShell.dictationActive}
                         onOpenSettings={onOpenSettings}
                         onPickLocalFiles={handlePickLocalFiles}
                         onOpenIssuePicker={openIssuePicker}
@@ -2533,35 +2455,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         onPrimaryAction={handlePrimaryAction}
                         onQueueMessage={handleQueueMessage}
                         onAbort={handleAbort}
-                        onStartDictation={toggleDictation}
-                        onDictationInsert={handleDictationInsert}
-                        onDictationInsertAndSend={handleDictationInsertAndSend}
-                        onDictationContentHeightChange={handleDictationContentHeightChange}
                     />
                     </div>
 
                 </div>
                 </>
                 )}
-                {/* Wrapper-level dictation engine + overlay: stays mounted across
-                    the pill ↔ composer swap so a recording started from the pill
-                    survives the morph. Its absolute overlay covers whichever
-                    shape the wrapper currently has. */}
-                {isMobile ? (
-                    <MemoComposerDictation
-                        radius={chatInputRadius}
-                        isMobile={isMobile}
-                        footerIconButtonClass={footerIconButtonClass}
-                        footerPaddingClass={footerPaddingClass}
-                        iconSizeClass={iconSizeClass}
-                        sendIconSizeClass={sendIconSizeClass}
-                        onInsert={handleDictationInsert}
-                        onInsertAndSend={handleDictationInsertAndSend}
-                        onActiveChange={mobileShell.onDictationActiveChange}
-                        onContentHeightChange={handleDictationContentHeightChange}
-                        renderTrigger={false}
-                    />
-                ) : null}
                 </div>
                 {/* Hidden host for the model/agent/variant bottom sheets. Kept
                     outside the pill conditional so an open panel survives (and
@@ -2688,7 +2587,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 selectedBranchLabel={selectedDraftBranchLabel}
                 selectedBranchIsKnown={selectedDraftBranchIsKnown}
                 projectRootBranchOption={projectRootBranchOption}
-                worktreeBranchOptions={worktreeBranchOptions}
                 branchItems={draftBranchItems}
                 showBranchSelector={shouldShowDraftBranchSelector}
                 onProjectChange={handleDraftProjectChange}

@@ -17,7 +17,7 @@ export const piSessionToUiSession = (session: PiSession): Session => ({
 
 export const piListItemToUiSession = (item: PiSessionListItem): Session => piSessionToUiSession(item.session);
 
-const mapPart = (part: PiProjectedMessagePart): Part => {
+export const mapPart = (part: PiProjectedMessagePart): Part => {
   if (part.type === 'thinking') {
     return { id: part.id, type: 'reasoning', text: part.text };
   }
@@ -36,11 +36,15 @@ const mapPart = (part: PiProjectedMessagePart): Part => {
       tool: part.tool?.name,
       callID: part.tool?.toolCallId,
       state: {
-        status: part.tool?.state === 'running' || part.tool?.state === 'pending' ? 'running' : part.tool?.state === 'error' ? 'error' : 'completed',
+        status: part.tool?.state === 'running' || part.tool?.state === 'pending' ? 'running'
+          : part.tool?.state === 'error' ? 'error'
+            : part.tool?.state === 'cancelled' ? 'cancelled'
+              : 'completed',
         input: part.tool?.input,
         output: part.tool?.output,
-        error: part.tool?.isError ? 'error' : undefined,
+        error: part.tool?.error,
         time: { start: part.tool?.startedAt, end: part.tool?.endedAt },
+        metadata: part.tool?.metadata,
       },
     };
   }
@@ -49,21 +53,35 @@ const mapPart = (part: PiProjectedMessagePart): Part => {
 
 export const piMessageToRecord = (message: PiProjectedMessage, sessionId: string): SessionMessageRecord => {
   const parts: Part[] = [];
-  if (message.thinking) {
-    parts.push({ id: `${message.id}:thinking`, type: 'reasoning', text: message.thinking });
-  }
   if (message.parts.length > 0) {
+    const hasThinking = message.parts.some((p) => p.type === 'thinking');
+    const hasText = message.parts.some((p) => p.type === 'text');
+    if (!hasThinking && message.thinking) {
+      parts.push({ id: `${message.id}:thinking`, type: 'reasoning', text: message.thinking });
+    }
     parts.push(...message.parts.map(mapPart));
-  } else if (message.text) {
-    parts.push({ id: `${message.id}:text`, type: 'text', text: message.text });
+    if (!hasText && message.text) {
+      parts.push({ id: `${message.id}:text`, type: 'text', text: message.text });
+    }
+  } else {
+    if (message.thinking) {
+      parts.push({ id: `${message.id}:thinking`, type: 'reasoning', text: message.thinking });
+    }
+    if (message.text) {
+      parts.push({ id: `${message.id}:text`, type: 'text', text: message.text });
+    }
   }
+  const isCompletedAssistant = message.role === 'assistant' && !message.streaming;
+  const finish = isCompletedAssistant ? (message.error ? 'error' : 'stop') : undefined;
   const info: Message = {
     id: message.id,
     sessionID: sessionId,
     role: message.role,
+    ...(message.parentId ? { parentID: message.parentId } : {}),
     time: { created: message.createdAt, ...(message.streaming ? {} : { completed: message.createdAt + (message.durationMs ?? 0) }) },
     ...(message.error ? { error: { name: message.error.code, message: message.error.message } } : {}),
     ...(message.model ? { model: { providerID: message.model.providerId, modelID: message.model.modelId } } : {}),
+    ...(finish ? { finish } : {}),
   };
   return { info, parts };
 };

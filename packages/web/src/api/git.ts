@@ -19,19 +19,12 @@ export const createWebGitAPI = (): GitAPI => ({
   stageGitHunk: gitApiHttp.stageGitHunk,
   unstageGitHunk: gitApiHttp.unstageGitHunk,
   revertGitHunk: gitApiHttp.revertGitHunk,
-  isLinkedWorktree: gitApiHttp.isLinkedWorktree,
   getGitBranches: gitApiHttp.getGitBranches,
   deleteGitBranch: gitApiHttp.deleteGitBranch as GitAPI['deleteGitBranch'],
   deleteRemoteBranch: gitApiHttp.deleteRemoteBranch as GitAPI['deleteRemoteBranch'],
   removeRemote: gitApiHttp.removeRemote as GitAPI['removeRemote'],
   generateCommitMessage: gitApiHttp.generateCommitMessage,
   generatePullRequestDescription: gitApiHttp.generatePullRequestDescription,
-  listGitWorktrees: gitApiHttp.listGitWorktrees,
-  validateGitWorktree: gitApiHttp.validateGitWorktree,
-  createGitWorktree: gitApiHttp.createGitWorktree,
-  deleteGitWorktree: gitApiHttp.deleteGitWorktree,
-  validateWorktreeDirectory: gitApiHttp.validateWorktreeDirectory,
-  canonicalizeWorktreeState: gitApiHttp.canonicalizeWorktreeState,
   createGitCommit(directory: string, message: string, options?: CreateGitCommitOptions) {
     return gitApiHttp.createGitCommit(directory, message, options);
   },
@@ -72,12 +65,4 @@ export const createWebGitAPI = (): GitAPI => ({
   stash: gitApiHttp.stash,
   stashPop: gitApiHttp.stashPop,
   getConflictDetails: gitApiHttp.getConflictDetails,
-  worktree: {
-    list: gitApiHttp.listGitWorktrees,
-    validate: gitApiHttp.validateGitWorktree,
-    bootstrapStatus: gitApiHttp.getGitWorktreeBootstrapStatus,
-    preview: gitApiHttp.previewGitWorktree,
-    create: gitApiHttp.createGitWorktree,
-    remove: gitApiHttp.deleteGitWorktree,
-  },
 });

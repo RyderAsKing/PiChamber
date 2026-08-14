@@ -1,24 +1,6 @@
-import { describe, expect, mock, test } from 'bun:test';
-
-const abort = mock(() => undefined);
-
-mock.module('@/apps/pi-session-store', () => ({
-  getPiSessionStore: () => ({
-    getState: () => ({ connection: 'ready', error: null, selectedSessionId: null, sessions: [] }),
-    abort,
-    create: mock(async () => undefined),
-    remove: mock(async () => undefined),
-    archive: mock(async () => undefined),
-    rename: mock(async () => undefined),
-    fork: mock(async () => undefined),
-    navigate: mock(async () => undefined),
-  }),
-}));
-mock.module('@/lib/chat/pi-to-renderable', () => ({
-  piSessionToUiSession: (session: unknown) => session,
-}));
-
-const sessionActions = await import('./session-actions');
+import { describe, expect, test } from 'bun:test';
+import { getPiSessionStore } from '@/apps/pi-session-store';
+import * as sessionActions from './session-actions';
 
 describe('session-actions Pi shims', () => {
   test('permission and question dismissals are no-ops so send can continue', async () => {
@@ -27,6 +9,7 @@ describe('session-actions Pi shims', () => {
   });
 
   test('waitForConnectionOrThrow succeeds when the Pi store is ready', async () => {
+    getPiSessionStore().clear();
     await sessionActions.waitForConnectionOrThrow();
   });
 });

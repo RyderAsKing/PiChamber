@@ -1,5 +1,4 @@
 /* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,11 +9,8 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
-import { ModelSelector } from '@/components/sections/agents/ModelSelector';
-import { AgentSelector } from '@/components/sections/commands/AgentSelector';
 import { ThinkingPill } from '@/components/session/ThinkingPill';
 import { useConfigStore } from '@/stores/useConfigStore';
-import { useAgentsStore } from '@/stores/useAgentsStore';
 import { isPrimaryMode } from '@/components/chat/mobileControlsUtils';
 import { EXECUTION_FORK_DEFAULT_INSTRUCTIONS } from '@/lib/messages/executionMeta';
 import { useI18n } from '@/lib/i18n';
@@ -42,7 +38,6 @@ export function ForkSessionDialog(props: ForkSessionDialogProps) {
 
   const loadProviders = useConfigStore((state) => state.loadProviders);
   const loadConfigAgents = useConfigStore((state) => state.loadAgents);
-  const loadAgentsStoreAgents = useAgentsStore((state) => state.loadAgents);
   const providers = useConfigStore((state) => state.providers);
   const currentProviderID = useConfigStore((state) => state.currentProviderId);
   const currentModelID = useConfigStore((state) => state.currentModelId);
@@ -60,8 +55,7 @@ export function ForkSessionDialog(props: ForkSessionDialogProps) {
     if (!open) return;
     void loadProviders({ directory: projectDirectory, source: 'forkSessionDialog' });
     void loadConfigAgents({ directory: projectDirectory });
-    void loadAgentsStoreAgents();
-  }, [open, loadProviders, loadConfigAgents, loadAgentsStoreAgents, projectDirectory]);
+  }, [open, loadProviders, loadConfigAgents, projectDirectory]);
 
   // Reset only when the dialog transitions to open. Reading the store snapshot
   // here (instead of subscribing) avoids clobbering in-progress user edits when
@@ -87,8 +81,8 @@ export function ForkSessionDialog(props: ForkSessionDialogProps) {
 
     if (provider?.id === providerID && hasModel) return;
 
-    setProviderID(provider?.id ?? '');
-    setModelID(hasModel ? modelID : fallbackModelID);
+    setProviderID(typeof provider?.id === 'string' ? provider.id : '');
+    setModelID(hasModel ? modelID : (typeof fallbackModelID === 'string' ? fallbackModelID : ''));
     setVariant('');
   }, [open, providers, providerID, modelID]);
 
@@ -142,20 +136,6 @@ export function ForkSessionDialog(props: ForkSessionDialogProps) {
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
-          <div className="flex min-w-0 flex-col gap-1.5">
-            <span className="typography-meta font-medium text-muted-foreground">{t('chat.modelControls.model')}</span>
-            <ModelSelector
-              providerId={providerID}
-              modelId={modelID}
-              className="max-w-[320px] justify-between"
-              dropdownPortalToBody
-              onChange={(nextProviderID, nextModelID) => {
-                setProviderID(nextProviderID);
-                setModelID(nextModelID);
-                setVariant('');
-              }}
-            />
-          </div>
           <div className="flex flex-col gap-1.5">
             <span className="typography-meta font-medium text-muted-foreground">{t('sessions.sessionOptions.thinkingLevel.label')}</span>
             <ThinkingPill
@@ -163,15 +143,6 @@ export function ForkSessionDialog(props: ForkSessionDialogProps) {
               options={variantOptions}
               disabled={!hasVariantOptions}
               onChange={setVariant}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <span className="typography-meta font-medium text-muted-foreground">{t('sessions.sessionOptions.agent.label')}</span>
-            <AgentSelector
-              agentName={agent}
-              filter={agentFilter}
-              dropdownPortalToBody
-              onChange={setAgent}
             />
           </div>
           <div className="flex flex-col gap-1.5">

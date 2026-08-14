@@ -42,42 +42,80 @@ export class PiSessionStore {
   private stream: { dispose: () => void } | null = null;
   private generation = 0;
   private recovering = false;
+  private pendingPreferredSessionId: PiSessionId | null = null;
   private unsubscribeRuntime = subscribeRuntimeEndpointChanged(() => this.resetForRuntime());
 
   getState = () => this.state;
   subscribe = (listener: Listener) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
-  dispose = () => { this.generation += 1; this.stream?.dispose(); this.stream = null; this.unsubscribeRuntime(); this.listeners.clear(); };
+  dispose = () => { this.generation += 1; this.pendingPreferredSessionId = null; this.stream?.dispose(); this.stream = null; this.unsubscribeRuntime(); this.listeners.clear(); };
   setShowArchived = (showArchived: boolean) => { if (showArchived !== this.state.showArchived) { this.state = { ...this.state, showArchived }; this.emit(); } };
   clearError = () => { if (this.state.error) { this.state = { ...this.state, error: null }; this.emit(); } };
   reportError = (error: unknown) => { this.state = { ...this.state, error: asError(error), connection: 'error' }; this.emit(); };
+  clear = () => {
+    this.generation += 1;
+    this.pendingPreferredSessionId = null;
+    this.stream?.dispose(); this.stream = null;
+    this.state = { ...initial(), connection: 'ready' };
+    this.emit();
+  };
 
   async start(options: { directory?: string | null; sessionId?: PiSessionId | null } = {}): Promise<void> {
     try {
+      const requestedDirectory = typeof options.directory === 'string' && options.directory.trim() ? options.directory : null;
+      if (requestedDirectory) {
+        await this.open(requestedDirectory, options.sessionId);
+        return;
+      }
       const projects = await piClient.listProjects({ runtimeKey: getRuntimeKey() });
-      const requestedDirectory = typeof options.directory === 'string' ? options.directory : null;
-      const directory = projects.projects.some((project) => project.directory === requestedDirectory)
-        ? requestedDirectory
-        : projects.projects.find((project) => project.selected)?.directory ?? projects.projects[0]?.directory;
+      const directory = projects.projects.find((project) => project.selected)?.directory ?? projects.projects[0]?.directory;
       if (!directory) throw new PiRequestError('DAEMON_UNAVAILABLE');
       await this.open(directory, options.sessionId);
     } catch (error) { this.reportError(error); }
   }
 
   async open(directory: string, preferredSessionId?: PiSessionId | null): Promise<void> {
+    if (directory === this.state.directory && this.state.connection === 'loading') {
+      if (preferredSessionId) {
+        this.pendingPreferredSessionId = preferredSessionId;
+        this.state = { ...this.state, selectedSessionId: preferredSessionId, error: null };
+        this.emit();
+      }
+      return;
+    }
+    if (directory === this.state.directory && this.state.connection === 'ready') {
+      if (preferredSessionId && preferredSessionId !== this.state.selectedSessionId) await this.select(preferredSessionId);
+      return;
+    }
     const expected = ++this.generation;
+    this.pendingPreferredSessionId = preferredSessionId ?? null;
     this.stream?.dispose(); this.stream = null;
-    this.state = { ...initial(), directory, connection: 'loading' }; this.emit();
-    const scope: PiClientScope = { directory, runtimeKey: getRuntimeKey() };
+    this.state = {
+      ...initial(),
+      directory,
+      selectedSessionId: preferredSessionId ?? null,
+      connection: 'loading',
+    };
+    this.emit();
+    const runtimeKey = getRuntimeKey();
     try {
+      const selected = await piClient.selectProject(directory, { runtimeKey });
+      if (expected !== this.generation) return;
+      const scope: PiClientScope = { directory: selected.directory, runtimeKey };
+      if (selected.directory !== directory) {
+        this.state = { ...this.state, directory: selected.directory };
+        this.emit();
+      }
       const health = await piClient.health(scope);
       if (expected !== this.generation) return;
       if (health.state !== 'ready') throw new PiRequestError(health.error?.code ?? 'DAEMON_UNAVAILABLE', health.error?.message);
       const result = await piClient.listSessions(scope);
       if (expected !== this.generation) return;
-      const selectedSessionId = result.sessions.find((item) => item.session.id === preferredSessionId)?.session.id
+      const desiredSessionId = this.pendingPreferredSessionId ?? preferredSessionId;
+      const selectedSessionId = result.sessions.find((item) => item.session.id === desiredSessionId)?.session.id
         ?? result.sessions.find((item) => !item.session.archived)?.session.id
         ?? result.sessions[0]?.session.id
         ?? null;
+      this.pendingPreferredSessionId = null;
       this.state = { ...this.state, sessions: result.sessions, selectedSessionId, connection: 'ready' }; this.emit();
       if (selectedSessionId) await this.hydrate(selectedSessionId, expected);
     } catch (error) { if (expected === this.generation) this.reportError(error); }
@@ -85,26 +123,35 @@ export class PiSessionStore {
 
   async select(sessionId: PiSessionId): Promise<void> {
     if (!this.state.directory || sessionId === this.state.selectedSessionId) return;
+    if (this.state.connection === 'loading') {
+      this.pendingPreferredSessionId = sessionId;
+      this.state = { ...this.state, selectedSessionId: sessionId, error: null };
+      this.emit();
+      return;
+    }
+    const expected = ++this.generation;
+    this.stream?.dispose(); this.stream = null;
     this.state = { ...this.state, selectedSessionId: sessionId, error: null }; this.emit();
-    await this.hydrate(sessionId, this.generation);
+    await this.hydrate(sessionId, expected);
   }
 
-  async create(title?: string): Promise<void> {
-    const directory = this.directory(); const expected = this.generation;
+  async create(title?: string, options?: { directory?: string; model?: { providerId: string; modelId: string }; thinking?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' }): Promise<string> {
+    const directory = options?.directory || this.directory(); const expected = this.generation;
     // PiChamber defaults are authoritative only when explicitly configured;
     // otherwise Pi's settings/model runtime performs its normal fallback.
     // A settings fetch failure aborts creation rather than silently creating a
     // session with an unknown default selection.
-    const settings = await piClient.getSettings(this.scope());
+    const settings = await piClient.getSettings({ directory, runtimeKey: getRuntimeKey() });
     const detail = await piClient.createSession({
       cwd: directory,
       ...(title ? { title } : {}),
-      ...(settings.pichamber.defaultModel ? { model: settings.pichamber.defaultModel } : {}),
-      ...(settings.pichamber.defaultThinking ? { thinking: settings.pichamber.defaultThinking } : {}),
-    }, this.scope());
-    if (expected !== this.generation) return;
+      ...(options?.model ? { model: options.model } : (settings.pichamber.defaultModel ? { model: settings.pichamber.defaultModel } : {})),
+      ...(options?.thinking ? { thinking: options.thinking } : (settings.pichamber.defaultThinking ? { thinking: settings.pichamber.defaultThinking } : {})),
+    }, { directory, runtimeKey: getRuntimeKey() });
+    if (expected !== this.generation) return detail.session.id;
     this.state = { ...this.state, sessions: [{ session: detail.session, updatedAt: detail.session.updatedAt }, ...this.state.sessions], selectedSessionId: detail.session.id }; this.emit();
     await this.hydrate(detail.session.id, expected, detail);
+    return detail.session.id;
   }
 
   async rename(sessionId: string, title: string) { await piClient.renameSession({ sessionId, title }, this.scope()); this.state = { ...this.state, sessions: this.state.sessions.map((item) => item.session.id === sessionId ? { ...item, session: { ...item.session, title } } : item) }; this.emit(); }
@@ -134,7 +181,10 @@ export class PiSessionStore {
       const detail = known ?? await piClient.getSession(sessionId, { directory, runtimeKey });
       let reducer = hydrateSessionFromDetail({ session: { id: detail.session.id, directory: detail.session.directory }, lastSequence: detail.lastSequence, messages: detail.messages }).state;
       for (const event of buffered) reducer = applyPiEvent(reducer, event).state;
-      ready = true; this.stream = bootstrap.stream; this.state = { ...this.state, reducer, connection: 'ready', error: null }; this.emit();
+      ready = true;
+      this.stream = bootstrap.stream;
+      this.state = { ...this.state, reducer, connection: 'ready', error: null };
+      this.emit();
     } catch (error) { if (expected === this.generation) this.reportError(error); }
   }
 
@@ -146,6 +196,6 @@ export class PiSessionStore {
   private async upsertAndHydrate(detail: Awaited<ReturnType<typeof piClient.getSession>>) { const expected = this.generation; this.state = { ...this.state, sessions: [{ session: detail.session, updatedAt: detail.session.updatedAt }, ...this.state.sessions.filter((item) => item.session.id !== detail.session.id)], selectedSessionId: detail.session.id }; this.emit(); await this.hydrate(detail.session.id, expected, detail); }
   private directory() { if (!this.state.directory) throw new PiRequestError('DAEMON_UNAVAILABLE'); return this.state.directory; }
   private scope(): PiClientScope { return { directory: this.directory(), runtimeKey: getRuntimeKey() }; }
-  private resetForRuntime() { const directory = this.state.directory; this.generation += 1; this.stream?.dispose(); this.stream = null; this.state = initial(); this.emit(); if (directory) void this.start(); }
+  private resetForRuntime() { const directory = this.state.directory; this.generation += 1; this.pendingPreferredSessionId = null; this.stream?.dispose(); this.stream = null; this.state = initial(); this.emit(); if (directory) void this.start({ directory }); }
   private emit() { for (const listener of this.listeners) listener(); }
 }

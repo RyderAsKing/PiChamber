@@ -11,9 +11,9 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import type { TerminalShell } from '@/lib/api/types';
 import { useFilesViewTabsStore } from './useFilesViewTabsStore';
 
-export type MainTab = 'chat' | 'plan' | 'git' | 'diff' | 'terminal' | 'files' | 'context' | 'diagram';
+export type MainTab = 'chat' | 'git' | 'diff' | 'terminal' | 'files' | 'context' | 'diagram';
 export type PendingDiffScope = 'working' | 'staged' | 'turn';
-export type ContextPanelMode = 'diff' | 'walkthrough' | 'file' | 'context' | 'plan' | 'chat' | 'preview' | 'browser' | 'git' | 'pr' | 'notes' | 'terminal';
+export type ContextPanelMode = 'diff' | 'walkthrough' | 'file' | 'context' | 'chat' | 'preview' | 'browser' | 'git' | 'pr' | 'notes' | 'terminal';
 export type MermaidRenderingMode = 'svg' | 'ascii';
 export type UserMessageRenderingMode = 'markdown' | 'plain';
 export type ChatRenderMode = 'sorted' | 'live';
@@ -287,7 +287,7 @@ const sanitizeContextPanelTabs = (tabs: unknown): ContextPanelTab[] => {
       touchedAt?: unknown;
     };
 
-    if (candidate.mode !== 'diff' && candidate.mode !== 'walkthrough' && candidate.mode !== 'file' && candidate.mode !== 'context' && candidate.mode !== 'plan' && candidate.mode !== 'chat' && candidate.mode !== 'preview' && candidate.mode !== 'browser' && candidate.mode !== 'git' && candidate.mode !== 'pr' && candidate.mode !== 'notes' && candidate.mode !== 'terminal') {
+    if (candidate.mode !== 'diff' && candidate.mode !== 'walkthrough' && candidate.mode !== 'file' && candidate.mode !== 'context' && candidate.mode !== 'chat' && candidate.mode !== 'preview' && candidate.mode !== 'browser' && candidate.mode !== 'git' && candidate.mode !== 'pr' && candidate.mode !== 'notes' && candidate.mode !== 'terminal') {
       continue;
     }
 
@@ -503,7 +503,7 @@ const sanitizeContextPanelByDirectory = (
     let tabs = sanitizeContextPanelTabs(candidate.tabs);
     let activeTabId = typeof candidate.activeTabId === 'string' ? candidate.activeTabId : null;
 
-    if (tabs.length === 0 && (candidate.mode === 'diff' || candidate.mode === 'file' || candidate.mode === 'context' || candidate.mode === 'plan' || candidate.mode === 'chat')) {
+    if (tabs.length === 0 && (candidate.mode === 'diff' || candidate.mode === 'file' || candidate.mode === 'context' || candidate.mode === 'chat')) {
       tabs = [createContextPanelTab({
         mode: candidate.mode,
         targetPath: typeof candidate.targetPath === 'string' ? candidate.targetPath : null,
@@ -522,7 +522,7 @@ const sanitizeContextPanelByDirectory = (
     if (candidate.widthByMode && typeof candidate.widthByMode === 'object') {
       for (const [mode, value] of Object.entries(candidate.widthByMode as Record<string, unknown>)) {
         if (
-          (mode === 'diff' || mode === 'file' || mode === 'context' || mode === 'plan' || mode === 'chat' || mode === 'preview' || mode === 'browser' || mode === 'git' || mode === 'pr' || mode === 'notes' || mode === 'terminal')
+          (mode === 'diff' || mode === 'file' || mode === 'context' || mode === 'chat' || mode === 'preview' || mode === 'browser' || mode === 'git' || mode === 'pr' || mode === 'notes' || mode === 'terminal')
           && typeof value === 'number'
           && Number.isFinite(value)
         ) {
@@ -566,8 +566,6 @@ const clampContextPanelRoots = (
 interface UIStore {
 
   theme: 'light' | 'dark' | 'system';
-  isMultiRunLauncherOpen: boolean;
-  multiRunLauncherPrefillPrompt: string;
   isSidebarOpen: boolean;
   sidebarWidth: number;
   hasManuallyResizedLeftSidebar: boolean;
@@ -740,7 +738,6 @@ interface UIStore {
   openContextFile: (directory: string, filePath: string) => void;
   openContextFileAtLine: (directory: string, filePath: string, line: number, column?: number) => void;
   openContextOverview: (directory: string) => void;
-  openContextPlan: (directory: string) => void;
   openContextPreview: (directory: string, url: string) => void;
   openContextBrowser: (directory: string, url?: string) => void;
   setContextPanelTabTargetPath: (directory: string, tabID: string, targetPath: string) => void;
@@ -841,7 +838,6 @@ interface UIStore {
   setDiffWrapLines: (wrap: boolean) => void;
   setWalkthroughTocWidth: (width: number) => void;
   setGitChangesViewMode: (mode: 'flat' | 'tree') => void;
-  setMultiRunLauncherOpen: (open: boolean) => void;
   setTimelineDialogOpen: (open: boolean) => void;
   setPromptNavigatorPanelOpen: (open: boolean) => void;
   togglePromptNavigatorPanel: () => void;
@@ -885,8 +881,6 @@ interface UIStore {
   setViewPagerPage: (page: 'left' | 'center' | 'right') => void;
   toggleExpandedInput: () => void;
   setExpandedInput: (value: boolean) => void;
-  openMultiRunLauncher: () => void;
-  openMultiRunLauncherWithPrompt: (prompt: string) => void;
   setReportUsage: (value: boolean) => void;
   setShortcutOverride: (actionId: string, combo: ShortcutCombo) => void;
   clearShortcutOverride: (actionId: string) => void;
@@ -901,8 +895,6 @@ export const useUIStore = create<UIStore>()(
       (set, get) => ({
 
         theme: 'system',
-        isMultiRunLauncherOpen: false,
-        multiRunLauncherPrefillPrompt: '',
         isSidebarOpen: true,
         sidebarWidth: LEFT_SIDEBAR_MIN_WIDTH,
         hasManuallyResizedLeftSidebar: false,
@@ -1207,15 +1199,6 @@ export const useUIStore = create<UIStore>()(
           }
 
           get().openContextPanelTab(normalizedDirectory, { mode: 'context' });
-        },
-
-        openContextPlan: (directory) => {
-          const normalizedDirectory = normalizeDirectoryPath((directory || '').trim());
-          if (!normalizedDirectory) {
-            return;
-          }
-
-          get().openContextPanelTab(normalizedDirectory, { mode: 'plan' });
         },
 
         openContextPreview: (directory, url) => {
@@ -1620,20 +1603,16 @@ export const useUIStore = create<UIStore>()(
         },
 
         setArchivePageOpen: (open) => {
-          set(open
-            ? { isArchivePageOpen: true, isMultiRunLauncherOpen: false }
-            : { isArchivePageOpen: false });
+          set({ isArchivePageOpen: open });
         },
 
         closeMainSurfaces: () => {
           const state = get();
-          if (!state.isArchivePageOpen && !state.isMultiRunLauncherOpen) {
+          if (!state.isArchivePageOpen) {
             return;
           }
           set({
             isArchivePageOpen: false,
-            isMultiRunLauncherOpen: false,
-            multiRunLauncherPrefillPrompt: '',
           });
         },
 
@@ -2083,33 +2062,7 @@ export const useUIStore = create<UIStore>()(
           }
         },
 
-        // Multi-run is one of the mutually exclusive full-page surfaces:
-        // opening it closes the other surfaces and vice versa.
-        setMultiRunLauncherOpen: (open) => {
-          set((state) => ({
-            isMultiRunLauncherOpen: open,
-            multiRunLauncherPrefillPrompt: open ? state.multiRunLauncherPrefillPrompt : '',
-            ...(open ? { isArchivePageOpen: false } : {}),
-          }));
-        },
 
-        openMultiRunLauncher: () => {
-          set({
-            isMultiRunLauncherOpen: true,
-            multiRunLauncherPrefillPrompt: '',
-            isSessionSwitcherOpen: false,
-            isArchivePageOpen: false,
-              });
-        },
-
-        openMultiRunLauncherWithPrompt: (prompt) => {
-          set({
-            isMultiRunLauncherOpen: true,
-            multiRunLauncherPrefillPrompt: prompt,
-            isSessionSwitcherOpen: false,
-            isArchivePageOpen: false,
-              });
-        },
 
         setTimelineDialogOpen: (open) => {
           set({ isTimelineDialogOpen: open });

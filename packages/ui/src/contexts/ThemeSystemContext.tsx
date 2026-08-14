@@ -258,7 +258,7 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
     const request = ++customThemesRequestRef.current;
     setCustomThemesLoading(true);
     try {
-      const res = await runtimeFetch('/api/config/themes', {
+      const res = await runtimeFetch('/api/pi/themes', {
         method: 'GET',
         credentials: isDesktopLocalOriginActive() ? 'omit' : 'include',
         headers: {

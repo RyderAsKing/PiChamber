@@ -74,12 +74,6 @@ const persistRuntimeSettingsMirror = (settings: DesktopSettings, runtimeKey: str
     pwaAppName: settings.pwaAppName,
     mobileKeyboardMode: settings.mobileKeyboardMode,
     openCodeUpdateToastDismissedVersion: settings.openCodeUpdateToastDismissedVersion,
-    dictationEnabled: settings.dictationEnabled,
-    sttProvider: settings.sttProvider,
-    sttServerUrl: settings.sttServerUrl,
-    sttModel: settings.sttModel,
-    sttLocalModel: settings.sttLocalModel,
-    sttLanguage: settings.sttLanguage,
   };
   localStorage.setItem(getRuntimeSettingsMirrorStorageKey(runtimeKey), JSON.stringify(mirror));
 
@@ -181,20 +175,6 @@ const persistToLocalStorage = (settings: DesktopSettings) => {
   } else {
     localStorage.removeItem('opencode-update-toast-dismissed-version');
   }
-  if (typeof settings.dictationEnabled === 'boolean') {
-    localStorage.setItem('dictationEnabled', String(settings.dictationEnabled));
-  } else {
-    localStorage.removeItem('dictationEnabled');
-  }
-  if (settings.sttProvider === 'local' || settings.sttProvider === 'openai-compatible') {
-    localStorage.setItem('sttProvider', settings.sttProvider);
-  } else {
-    localStorage.removeItem('sttProvider');
-  }
-  setOrRemoveLocalStorage('sttServerUrl', typeof settings.sttServerUrl === 'string' ? settings.sttServerUrl : null);
-  setOrRemoveLocalStorage('sttModel', typeof settings.sttModel === 'string' ? settings.sttModel : null);
-  setOrRemoveLocalStorage('sttLocalModel', typeof settings.sttLocalModel === 'string' ? settings.sttLocalModel : null);
-  setOrRemoveLocalStorage('sttLanguage', typeof settings.sttLanguage === 'string' ? settings.sttLanguage : null);
 };
 
 const dispatchSettingsSynced = (settings: DesktopSettings): void => {
@@ -594,12 +574,6 @@ const materializeAuthoritativeUiSettings = (settings: DesktopSettings): DesktopS
     gitChangesViewMode: defaults.gitChangesViewMode,
     directoryShowHidden: true,
     filesViewShowGitignored: false,
-    dictationEnabled: true,
-    sttProvider: 'local',
-    sttServerUrl: 'http://localhost:8001/v1',
-    sttModel: 'deepdml/faster-whisper-large-v3-turbo-ct2',
-    sttLocalModel: 'parakeet-tdt-0.6b-v2-int8',
-    sttLanguage: '',
     ...settings,
   };
 };
@@ -863,30 +837,6 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
       store.setMobileKeyboardMode(mode);
     }
   }
-  if (configStoreApi && configStore) {
-    const nextConfigState: Partial<typeof configStore> = {};
-    if (typeof settings.dictationEnabled === 'boolean' && settings.dictationEnabled !== configStore.dictationEnabled) {
-      nextConfigState.dictationEnabled = settings.dictationEnabled;
-    }
-    if ((settings.sttProvider === 'local' || settings.sttProvider === 'openai-compatible') && settings.sttProvider !== configStore.sttProvider) {
-      nextConfigState.sttProvider = settings.sttProvider;
-    }
-    if (typeof settings.sttServerUrl === 'string' && settings.sttServerUrl !== configStore.sttServerUrl) {
-      nextConfigState.sttServerUrl = settings.sttServerUrl;
-    }
-    if (typeof settings.sttModel === 'string' && settings.sttModel !== configStore.sttModel) {
-      nextConfigState.sttModel = settings.sttModel;
-    }
-    if (typeof settings.sttLocalModel === 'string' && settings.sttLocalModel !== configStore.sttLocalModel) {
-      nextConfigState.sttLocalModel = settings.sttLocalModel;
-    }
-    if (typeof settings.sttLanguage === 'string' && settings.sttLanguage !== configStore.sttLanguage) {
-      nextConfigState.sttLanguage = settings.sttLanguage;
-    }
-    if (Object.keys(nextConfigState).length > 0) {
-      configStoreApi.setState(nextConfigState);
-    }
-  }
 
   if (Array.isArray(settings.favoriteModels)) {
     const current = store.favoriteModels;
@@ -1108,9 +1058,6 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
   }
   if (typeof candidate.defaultVariant === 'string' && candidate.defaultVariant.length > 0) {
     result.defaultVariant = candidate.defaultVariant;
-  }
-  if (typeof candidate.defaultAgent === 'string' && candidate.defaultAgent.length > 0) {
-    result.defaultAgent = candidate.defaultAgent;
   }
   if (typeof candidate.smallModelUseDefault === 'boolean') {
     result.smallModelUseDefault = candidate.smallModelUseDefault;
@@ -1517,29 +1464,7 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
   if (typeof candidate.responseStyleCustomInstructions === 'string') {
     result.responseStyleCustomInstructions = candidate.responseStyleCustomInstructions;
   }
-  if (typeof candidate.dictationEnabled === 'boolean') {
-    result.dictationEnabled = candidate.dictationEnabled;
-  }
-  if (candidate.sttProvider === 'local' || candidate.sttProvider === 'openai-compatible') {
-    result.sttProvider = candidate.sttProvider;
-  } else if (candidate.sttProvider === 'server') {
-    // Legacy provider migration: 'server' was the OpenAI-compatible endpoint.
-    result.sttProvider = 'openai-compatible';
-  } else if (candidate.sttProvider === 'browser' || candidate.sttProvider === 'wasm') {
-    result.sttProvider = 'local';
-  }
-  if (typeof candidate.sttServerUrl === 'string') {
-    result.sttServerUrl = candidate.sttServerUrl.trim();
-  }
-  if (typeof candidate.sttModel === 'string') {
-    result.sttModel = candidate.sttModel.trim();
-  }
-  if (typeof candidate.sttLocalModel === 'string') {
-    result.sttLocalModel = candidate.sttLocalModel.trim();
-  }
-  if (typeof candidate.sttLanguage === 'string') {
-    result.sttLanguage = candidate.sttLanguage.trim();
-  }
+
 
   return result;
 };
@@ -1617,7 +1542,7 @@ const fetchWebSettings = async (context = captureSettingsRuntimeContext()): Prom
 
       if (!isSettingsRuntimeContextCurrent(context)) return null;
       try {
-        const response = await runtimeFetch('/api/config/settings', {
+        const response = await runtimeFetch('/api/pi/ui-settings', {
           method: 'GET',
           headers: { Accept: 'application/json' },
         });
@@ -1783,7 +1708,7 @@ async function _flushSettingsUpdate(): Promise<void> {
 
     if (!isSettingsRuntimeContextCurrent(context)) return;
     try {
-      const response = await runtimeFetch('/api/config/settings', {
+      const response = await runtimeFetch('/api/pi/ui-settings', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

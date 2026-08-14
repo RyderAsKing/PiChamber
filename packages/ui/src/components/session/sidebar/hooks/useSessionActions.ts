@@ -1,5 +1,4 @@
 /* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import type { Session } from '@/lib/chat/types';
 import { toast } from '@/components/ui';
@@ -138,11 +137,11 @@ export const useSessionActions = (args: Args) => {
 
   const handleShareSession = React.useCallback(async (session: Session) => {
     const result = await args.shareSession(session.id);
-    if (!result?.share?.url) {
+    if (!(result as any)?.share?.url) {
       toast.error(t('sessions.sidebar.session.share.error'));
       return;
     }
-    const copied = await copyShareUrl(result.share.url, session.id);
+    const copied = await copyShareUrl((result as any).share.url, session.id);
     toast[copied ? 'success' : 'warning'](t('sessions.sidebar.session.share.successTitle'), {
       description: t(copied
         ? 'sessions.sidebar.session.share.successDescription'

@@ -1,5 +1,4 @@
 /* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -8,15 +7,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ModelSelector } from '@/components/sections/agents/ModelSelector';
-import { AgentSelector } from '@/components/sections/commands/AgentSelector';
 import { ThinkingPill } from '@/components/session/ThinkingPill';
 import { useConfigStore } from '@/stores/useConfigStore';
-import { useAgentsStore } from '@/stores/useAgentsStore';
 import { isPrimaryMode } from '@/components/chat/mobileControlsUtils';
 import { useI18n } from '@/lib/i18n';
-
-type TodoSendTarget = 'session' | 'worktree';
 
 export type TodoSendExecution = {
   providerID: string;
@@ -28,7 +22,6 @@ export type TodoSendExecution = {
 type TodoSendDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  target: TodoSendTarget;
   projectDirectory: string | null;
   submitting?: boolean;
   onConfirm: (execution: TodoSendExecution) => Promise<void> | void;
@@ -48,11 +41,10 @@ const getInitialExecution = (params: {
 
 export function TodoSendDialog(props: TodoSendDialogProps) {
   const { t } = useI18n();
-  const { open, onOpenChange, target, projectDirectory, submitting = false, onConfirm } = props;
+  const { open, onOpenChange, projectDirectory, submitting = false, onConfirm } = props;
 
   const loadProviders = useConfigStore((state) => state.loadProviders);
   const loadConfigAgents = useConfigStore((state) => state.loadAgents);
-  const loadAgentsStoreAgents = useAgentsStore((state) => state.loadAgents);
   const providers = useConfigStore((state) => state.providers);
   const currentProviderID = useConfigStore((state) => state.currentProviderId);
   const currentModelID = useConfigStore((state) => state.currentModelId);
@@ -70,8 +62,7 @@ export function TodoSendDialog(props: TodoSendDialogProps) {
     if (!open) return;
     void loadProviders({ directory: projectDirectory, source: 'todoSendDialog' });
     void loadConfigAgents({ directory: projectDirectory });
-    void loadAgentsStoreAgents();
-  }, [open, loadProviders, loadConfigAgents, loadAgentsStoreAgents, projectDirectory]);
+  }, [open, loadProviders, loadConfigAgents, projectDirectory]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -95,8 +86,8 @@ export function TodoSendDialog(props: TodoSendDialogProps) {
 
     setExecution((prev) => ({
       ...prev,
-      providerID: provider?.id ?? '',
-      modelID: hasModel ? prev.modelID : fallbackModelID,
+      providerID: typeof provider?.id === 'string' ? provider.id : '',
+      modelID: typeof fallbackModelID === 'string' ? (hasModel ? prev.modelID : fallbackModelID) : '',
       variant: '',
     }));
   }, [open, providers, execution.providerID, execution.modelID]);
@@ -135,9 +126,7 @@ export function TodoSendDialog(props: TodoSendDialogProps) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, handleSubmit]);
 
-  const title = target === 'worktree'
-    ? t('rightSidebar.contextNotesTodo.sendDialog.title.newWorktree')
-    : t('rightSidebar.contextNotesTodo.sendDialog.title.newSession');
+  const title = t('rightSidebar.contextNotesTodo.sendDialog.title.newSession');
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!submitting) onOpenChange(nextOpen); }}>
@@ -147,18 +136,6 @@ export function TodoSendDialog(props: TodoSendDialogProps) {
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
-          <div className="flex min-w-0 flex-col gap-1.5">
-            <span className="typography-meta font-medium text-muted-foreground">{t('chat.modelControls.model')}</span>
-            <ModelSelector
-              providerId={execution.providerID}
-              modelId={execution.modelID}
-              className="max-w-[320px] justify-between"
-              dropdownPortalToBody
-              onChange={(providerID, modelID) => {
-                setExecution((prev) => ({ ...prev, providerID, modelID, variant: '' }));
-              }}
-            />
-          </div>
           <div className="flex flex-col gap-1.5">
             <span className="typography-meta font-medium text-muted-foreground">{t('sessions.sessionOptions.thinkingLevel.label')}</span>
             <ThinkingPill
@@ -166,15 +143,6 @@ export function TodoSendDialog(props: TodoSendDialogProps) {
               options={variantOptions}
               disabled={!hasVariantOptions}
               onChange={(variant) => setExecution((prev) => ({ ...prev, variant }))}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <span className="typography-meta font-medium text-muted-foreground">{t('sessions.sessionOptions.agent.label')}</span>
-            <AgentSelector
-              agentName={execution.agent}
-              filter={agentFilter}
-              dropdownPortalToBody
-              onChange={(agent) => setExecution((prev) => ({ ...prev, agent }))}
             />
           </div>
         </div>

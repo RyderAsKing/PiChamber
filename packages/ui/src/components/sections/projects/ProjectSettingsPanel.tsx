@@ -1,5 +1,4 @@
 import React from 'react';
-import { WorktreeSectionContent } from '@/components/sections/pichamber/WorktreeSectionContent';
 import { ProjectActionsSection } from '@/components/sections/projects/ProjectActionsSection';
 import { ProjectIdentityFields } from '@/components/sections/projects/ProjectIdentityFields';
 import {
@@ -12,18 +11,11 @@ import type { ProjectEntry } from '@/lib/api/types';
 type ProjectSettingsPanelProps = {
   project: ProjectEntry | null;
   onIdentitySave: (data: ProjectIdentitySaveData) => void | Promise<void>;
-  /**
-   * The project-edit dialog hides the worktree section — worktrees have
-   * their own full-page surface (project menu → Manage worktrees). Settings
-   * keeps the full panel.
-   */
-  showWorktrees?: boolean;
 };
 
 export const ProjectSettingsPanel: React.FC<ProjectSettingsPanelProps> = ({
   project,
   onIdentitySave,
-  showWorktrees = true,
 }) => {
   const form = useProjectIdentityForm(project);
 
@@ -48,7 +40,6 @@ export const ProjectSettingsPanel: React.FC<ProjectSettingsPanelProps> = ({
     <div className="space-y-0">
       <ProjectIdentityFields form={form} />
       <ProjectActionsSection projectRef={projectRef} />
-      {showWorktrees ? <WorktreeSectionContent projectRef={projectRef} /> : null}
     </div>
   );
 };

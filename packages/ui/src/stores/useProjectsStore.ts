@@ -9,7 +9,6 @@ import { getDeferredSafeStorage } from './utils/safeStorage';
 import { useDirectoryStore } from './useDirectoryStore';
 import { streamDebugEnabled } from '@/stores/utils/streamDebug';
 import { PROJECT_COLORS } from '@/lib/projectMeta';
-import { useSessionUIStore } from '@/sync/session-ui-store';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
 
@@ -427,13 +426,11 @@ export const useProjectsStore = create<ProjectsStore>()(
       }
 
       get().setActiveProject(entry.id);
-      void get().discoverProjectIcon(entry.id);
       return entry;
     },
 
     removeProject: (id: string) => {
       const current = get();
-      const project = current.projects.find((p) => p.id === id);
       const nextProjects = current.projects.filter((project) => project.id !== id);
       let nextActiveId = current.activeProjectId;
 
@@ -444,16 +441,6 @@ export const useProjectsStore = create<ProjectsStore>()(
       const nextManualOrder = get().manualProjectOrder.filter((oid) => oid !== id);
       set({ projects: nextProjects, activeProjectId: nextActiveId, manualProjectOrder: nextManualOrder });
       persistProjects(nextProjects, nextActiveId, nextManualOrder);
-
-      // Clean up worktree entries for the removed project
-      if (project) {
-        const normalizedPath = project.path.replace(/\\/g, '/').replace(/\/+$/, '') || '/';
-        useSessionUIStore.setState((s) => {
-          const next = new Map(s.availableWorktreesByProject);
-          next.delete(normalizedPath);
-          return { availableWorktreesByProject: next };
-        });
-      }
 
       if (nextActiveId) {
         const nextActive = nextProjects.find((project) => project.id === nextActiveId);
@@ -623,42 +610,11 @@ export const useProjectsStore = create<ProjectsStore>()(
       }
     },
 
-    discoverProjectIcon: async (id: string, options?: { force?: boolean }) => {
-
-      try {
-        const response = await runtimeFetch(`/api/projects/${encodeURIComponent(id)}/icon/discover`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-          },
-          body: JSON.stringify({ force: options?.force === true }),
-        });
-
-        const payload = (await response.json().catch(() => null)) as {
-          error?: string;
-          skipped?: boolean;
-          reason?: string;
-          settings?: DesktopSettings;
-        } | null;
-
-        if (!response.ok) {
-          return { ok: false, error: payload?.error || 'Failed to discover project icon' };
-        }
-
-        if (payload?.settings) {
-          get().synchronizeFromSettings(payload.settings);
-        }
-
-        return {
-          ok: true,
-          skipped: payload?.skipped === true,
-          reason: typeof payload?.reason === 'string' ? payload.reason : undefined,
-        };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return { ok: false, error: message || 'Failed to discover project icon' };
-      }
+    discoverProjectIcon: async () => {
+      // Automatic project-icon discovery belonged to the removed OpenChamber
+      // configuration backend. Keep the caller contract as an intentional
+      // unsupported no-op rather than probing a route that does not exist.
+      return { ok: true, skipped: true, reason: 'unsupported' };
     },
 
     reorderProjects: (fromIndex: number, toIndex: number) => {

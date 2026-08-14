@@ -1,7 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { Session } from '@/lib/chat/types';
+import { piClient } from '@/lib/pi/client';
 
 import {
   isGlobalSessionRecencyOnlyUpdate,
@@ -9,6 +10,7 @@ import {
   mergeLiveSessionWithGlobalSession,
   useGlobalSessionsStore,
 } from './useGlobalSessionsStore';
+import { useProjectsStore } from './useProjectsStore';
 
 type SessionExtra = Partial<Session> & {
   directory?: string | null;
@@ -24,7 +26,11 @@ const buildSession = (shareUrl: string, extra: SessionExtra = {}): Session => ({
 } as Session);
 
 describe('useGlobalSessionsStore', () => {
+  const originalListSessions = piClient.listSessions;
+
   beforeEach(() => {
+    piClient.listSessions = originalListSessions;
+    useProjectsStore.setState({ projects: [], activeProjectId: null });
     useGlobalSessionsStore.setState({
       activeSessions: [],
       archivedSessions: [],
@@ -32,6 +38,11 @@ describe('useGlobalSessionsStore', () => {
       hasLoaded: false,
       status: 'idle',
     });
+  });
+
+  afterEach(() => {
+    piClient.listSessions = originalListSessions;
+    useProjectsStore.setState({ projects: [], activeProjectId: null });
   });
 
   test('updates an existing session when the share URL changes', () => {
@@ -123,6 +134,26 @@ describe('useGlobalSessionsStore', () => {
     expect(useGlobalSessionsStore.getState().activeSessions).toBe(activeSessions);
   });
 
+  test('preserves sessions from other projects while refreshing directory snapshots', async () => {
+    const projectA = buildSession('https://share.example/a', { id: 'ses_a_old', directory: '/project-a' });
+    const projectB = buildSession('https://share.example/b', { id: 'ses_b', directory: '/project-b' });
+    useGlobalSessionsStore.getState().applySnapshot([projectA, projectB], []);
+
+    piClient.listSessions = async ({ directory } = {}) => {
+      if (directory === '/project-b') throw new Error('project B unavailable');
+      return {
+        sessions: [{
+          session: { id: 'ses_a_new', directory: '/project-a', title: 'New A', createdAt: 3, updatedAt: 4 },
+          updatedAt: 4,
+        }],
+      };
+    };
+
+    await useGlobalSessionsStore.getState().refreshSessionsForDirectories(['/project-a', '/project-b']);
+
+    expect(useGlobalSessionsStore.getState().activeSessions.map((session) => session.id).sort()).toEqual(['ses_a_new', 'ses_b']);
+  });
+
   test('applies a batch of session upserts in one store publication', () => {
     let publications = 0;
     const unsubscribe = useGlobalSessionsStore.subscribe(() => {
@@ -137,6 +168,75 @@ describe('useGlobalSessionsStore', () => {
     unsubscribe();
     expect(useGlobalSessionsStore.getState().activeSessions.map((session) => session.id)).toEqual(['ses_2', 'ses_1']);
     expect(publications).toBe(1);
+  });
+
+  test('loadSessions fetches sessions for all registered project directories', async () => {
+    useProjectsStore.setState({
+      projects: [
+        { id: 'proj-a', path: '/project-a' },
+        { id: 'proj-b', path: '/project-b' },
+      ],
+      activeProjectId: 'proj-a',
+    });
+
+    piClient.listSessions = async ({ directory } = {}) => {
+      if (directory === '/project-a') {
+        return {
+          sessions: [{
+            session: { id: 'ses_a_1', directory: '/project-a', title: 'Session A1', createdAt: 10, updatedAt: 20 },
+            updatedAt: 20,
+          }],
+        };
+      }
+      if (directory === '/project-b') {
+        return {
+          sessions: [{
+            session: { id: 'ses_b_1', directory: '/project-b', title: 'Session B1', createdAt: 15, updatedAt: 25 },
+            updatedAt: 25,
+          }],
+        };
+      }
+      return { sessions: [] };
+    };
+
+    const result = await useGlobalSessionsStore.getState().loadSessions();
+
+    expect(result.activeSessions.map((s) => s.id).sort()).toEqual(['ses_a_1', 'ses_b_1']);
+    expect(useGlobalSessionsStore.getState().status).toBe('ready');
+    expect(useGlobalSessionsStore.getState().hasLoaded).toBe(true);
+    expect(useGlobalSessionsStore.getState().sessionsByDirectory.get('/project-a')?.[0]?.id).toBe('ses_a_1');
+    expect(useGlobalSessionsStore.getState().sessionsByDirectory.get('/project-b')?.[0]?.id).toBe('ses_b_1');
+  });
+
+  test('loadSessions preserves successful project sessions when one project fails', async () => {
+    useProjectsStore.setState({
+      projects: [
+        { id: 'proj-a', path: '/project-a' },
+        { id: 'proj-b', path: '/project-b' },
+      ],
+      activeProjectId: 'proj-a',
+    });
+
+    piClient.listSessions = async ({ directory } = {}) => {
+      if (directory === '/project-a') {
+        return {
+          sessions: [{
+            session: { id: 'ses_a_1', directory: '/project-a', title: 'Session A1', createdAt: 10, updatedAt: 20 },
+            updatedAt: 20,
+          }],
+        };
+      }
+      if (directory === '/project-b') {
+        throw new Error('project B network error');
+      }
+      return { sessions: [] };
+    };
+
+    const result = await useGlobalSessionsStore.getState().loadSessions();
+
+    expect(result.activeSessions.map((s) => s.id)).toEqual(['ses_a_1']);
+    expect(useGlobalSessionsStore.getState().status).toBe('ready');
+    expect(useGlobalSessionsStore.getState().hasLoaded).toBe(true);
   });
 });
 

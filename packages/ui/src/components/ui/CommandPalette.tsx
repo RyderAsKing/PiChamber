@@ -35,7 +35,6 @@ import { getContextFileOpenFailureMessage, validateContextFileOpen } from '@/lib
 import { toast } from '@/components/ui';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import type { Session } from '@/lib/chat/types';
-import { createWorktreeSession } from '@/lib/worktreeSessionCreator';
 import { formatShortcutForDisplay, getEffectiveShortcutCombo } from '@/lib/shortcuts';
 import { canUseElectronDesktopIPC, invokeDesktop, isDesktopShell, isWebRuntime } from '@/lib/desktop';
 import { SETTINGS_PAGE_METADATA, type SettingsRuntimeContext } from '@/lib/settings/metadata';
@@ -43,7 +42,6 @@ import { SETTINGS_PAGE_METADATA, type SettingsRuntimeContext } from '@/lib/setti
 const EMPTY_PINNED_SESSION_IDS = new Set<string>();
 import { getSettingsNavIcon } from '@/lib/settings/metadata';
 import { Icon } from "@/components/icon/Icon";
-import { McpIcon } from '@/components/icons/McpIcon';
 import { scoreByFuzzyQuery } from '@/lib/search/fuzzySearch';
 import { truncatePathMiddle } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
@@ -175,16 +173,6 @@ export const CommandPalette: React.FC = () => {
         }),
       },
       {
-        id: 'new-worktree',
-        title: t('commandPalette.item.newWorktreeDraft'),
-        icon: <Icon name="git-branch" className="mr-2 h-4 w-4" />,
-        shortcutId: 'new_chat_worktree',
-        searchText: t('commandPalette.item.newWorktreeDraft'),
-        onSelect: run(() => {
-          void createWorktreeSession();
-        }),
-      },
-      {
         id: 'add-project',
         title: t('commandPalette.item.addProject'),
         icon: <Icon name="folder-add" className="mr-2 h-4 w-4" />,
@@ -292,9 +280,7 @@ export const CommandPalette: React.FC = () => {
         return {
           id: `settings:${page.slug}`,
           title: page.title,
-          icon: page.slug === 'mcp'
-            ? <McpIcon className="mr-2 h-4 w-4" />
-            : <Icon name={iconName} className="mr-2 h-4 w-4" />,
+          icon: <Icon name={iconName} className="mr-2 h-4 w-4" />,
           searchText: `${page.title} ${page.group} ${keywords}`,
           onSelect: run(() => {
             setSettingsPage(page.slug);
@@ -312,16 +298,13 @@ export const CommandPalette: React.FC = () => {
   }, [activeSessions, pinnedSessionIds, sessionOrderRanks]);
 
   const allBranches = useGitAllBranches();
-  const worktreeMetadata = useSessionUIStore((s) => s.worktreeMetadata);
 
   const branchForSession = React.useCallback(
-    (sessionId: string, dir: string | null): string | null => {
-      const meta = worktreeMetadata.get(sessionId);
-      if (meta?.branch) return meta.branch.trim() || null;
+    (_sessionId: string, dir: string | null): string | null => {
       if (dir) return allBranches.get(dir)?.trim() || null;
       return null;
     },
-    [worktreeMetadata, allBranches],
+    [allBranches],
   );
 
   // ---------------------------------------------------------------------------

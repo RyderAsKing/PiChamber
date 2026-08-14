@@ -4,7 +4,6 @@ import React from 'react';
 import { arrayMove } from '@dnd-kit/sortable';
 import { useI18n } from '@/lib/i18n';
 import { useUIStore } from '@/stores/useUIStore';
-import { useCommandsStore } from '@/stores/useCommandsStore';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { updateDesktopSettings } from '@/lib/persistence';
@@ -61,7 +60,6 @@ export type UseDraftStartersResult = {
 export function useDraftStarters(): UseDraftStartersResult {
     const { t } = useI18n();
     const globalRaw = useUIStore((s) => s.globalDraftStarters);
-    const commands = useCommandsStore((s) => s.commands);
     const skills = useSkillsStore((s) => s.skills);
     const activeProjectId = useProjectsStore((s) => s.activeProjectId);
     const projects = useProjectsStore((s) => s.projects);
@@ -91,19 +89,14 @@ export function useDraftStarters(): UseDraftStartersResult {
     }, [projectRef?.id]);
 
     const ensureLoaded = React.useCallback(() => {
-        void useCommandsStore.getState().loadCommands?.();
         void useSkillsStore.getState().loadSkills?.();
     }, []);
 
-    // Preload commands and skills on mount so that pinned command/skill starters
-    // resolve immediately without requiring the user to open the add dialog first.
-    // Both loaders are TTL-cached and in-flight-deduped, so this is a cheap no-op
-    // if they were already loaded.
+    // Preload skills on mount so that pinned skill starters resolve immediately.
     React.useEffect(() => {
         ensureLoaded();
     }, [ensureLoaded]);
 
-    const commandNames = React.useMemo(() => new Set(commands.map((c) => c.name)), [commands]);
     const skillNames = React.useMemo(() => new Set(skills.map((s) => s.name)), [skills]);
 
     const resolve = React.useCallback((ref: DraftStarterRef, group: StarterGroup): ResolvedStarter | null => {
@@ -112,12 +105,11 @@ export function useDraftStarters(): UseDraftStartersResult {
             if (builtin) {
                 return { id: chipId(group, ref), ref, group, label: t(builtin.labelKey), icon: builtin.icon, submitText: builtin.command };
             }
-            if (!commandNames.has(ref.name)) return null;
-            return { id: chipId(group, ref), ref, group, label: normalizeStarterLabel(ref.name), icon: COMMAND_FALLBACK_ICON, submitText: `/${ref.name}` };
+            return null;
         }
         if (!skillNames.has(ref.name)) return null;
         return { id: chipId(group, ref), ref, group, label: normalizeStarterLabel(ref.name), icon: SKILL_FALLBACK_ICON, submitText: `/${ref.name}` };
-    }, [t, commandNames, skillNames]);
+    }, [t, skillNames]);
 
     const globalRefs = React.useMemo<readonly DraftStarterRef[]>(
         () => globalRaw ?? DEFAULT_GLOBAL_STARTERS,
@@ -145,16 +137,12 @@ export function useDraftStarters(): UseDraftStartersResult {
         for (const b of BUILTIN_STARTERS) {
             items.push({ type: 'command', name: b.name, label: t(b.labelKey), icon: b.icon, section: 'built-in', scope: 'user' });
         }
-        for (const c of commands) {
-            if (c.isBuiltIn || c.source === 'skill' || getBuiltInStarter(c.name)) continue;
-            items.push({ type: 'command', name: c.name, label: normalizeStarterLabel(c.name), icon: COMMAND_FALLBACK_ICON, section: 'command', scope: c.scope === 'project' ? 'project' : 'user' });
-        }
         for (const sk of skills) {
             items.push({ type: 'skill', name: sk.name, label: normalizeStarterLabel(sk.name), icon: SKILL_FALLBACK_ICON, section: 'skill', scope: sk.scope === 'project' ? 'project' : 'user' });
         }
         // Only offer items that are not already pinned (removed built-ins reappear here).
         return items.filter((item) => !pinnedKeys.has(`${item.type}:${item.name}`));
-    }, [t, commands, skills, pinnedKeys]);
+    }, [t, skills, pinnedKeys]);
 
     const persistGlobal = React.useCallback((next: DraftStarterRef[]) => {
         useUIStore.getState().setGlobalDraftStarters(next);

@@ -1023,9 +1023,9 @@ export const registerCommonRequestMiddleware = (app, dependencies) => {
       express.json({ limit: '1mb' })(req, res, next);
     } else if (req.path.startsWith('/api/pi')) {
       express.json({ limit: '50mb' })(req, res, next);
-    } else if (req.path.startsWith('/api')) {
-      next();
     } else {
+      // Workspace, settings, Git, and Pi adapters all accept JSON bodies.
+      // Route-specific handlers still enforce their narrower payload limits.
       express.json({ limit: '50mb' })(req, res, next);
     }
   });

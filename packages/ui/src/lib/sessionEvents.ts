@@ -1,15 +1,12 @@
 import type { Session } from '@/lib/chat/types';
-import type { WorktreeMetadata } from '@/types/worktree';
 
 export type SessionDeleteRequest = {
   sessions: Session[];
   dateLabel?: string;
-  mode?: 'session' | 'worktree';
-  worktree?: WorktreeMetadata | null;
+  mode?: 'session';
 };
 
 export type SessionCreateRequest = {
-  worktreeMode?: 'main' | 'create' | 'reuse';
   parentID?: string | null;
   projectId?: string | null;
 };
@@ -33,7 +30,7 @@ export const sessionEvents = {
     };
   },
   requestDelete(payload: SessionDeleteRequest) {
-    if (!payload.sessions.length && payload.mode !== 'worktree') {
+    if (!payload.sessions.length) {
       return;
     }
     deleteListeners.forEach((listener) => listener(payload));

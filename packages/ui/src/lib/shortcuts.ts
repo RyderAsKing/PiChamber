@@ -253,13 +253,6 @@ const SHORTCUT_ACTIONS: ReadonlyArray<ShortcutAction> = [
     customizable: true,
   },
   {
-    id: 'toggle_context_plan',
-    defaultCombo: 'mod+shift+p',
-    label: 'Toggle plan context panel',
-    description: 'Open or close plan in the context panel',
-    customizable: true,
-  },
-  {
     id: 'toggle_services_menu',
     defaultCombo: 'mod+shift+s',
     label: 'Toggle services menu',
@@ -294,13 +287,6 @@ const SHORTCUT_ACTIONS: ReadonlyArray<ShortcutAction> = [
     description: 'Cycle thinking variant while in chat',
   },
   {
-    id: 'cycle_agent',
-    defaultCombo: 'tab',
-    label: 'Cycle agent',
-    description: 'Cycle agent while the model selector is open',
-    customizable: true,
-  },
-  {
     id: 'cycle_favorite_model_forward',
     defaultCombo: 'ctrl+]',
     label: 'Cycle favorite model forward',
@@ -319,13 +305,6 @@ const SHORTCUT_ACTIONS: ReadonlyArray<ShortcutAction> = [
     defaultCombo: 'mod+shift+e',
     label: 'Expand input',
     description: 'Toggle focus mode for the chat input',
-    customizable: true,
-  },
-  {
-    id: 'toggle_dictation',
-    defaultCombo: 'mod+alt+v',
-    label: 'Voice input',
-    description: 'Start dictation; press again to confirm and insert the transcript',
     customizable: true,
   },
   {

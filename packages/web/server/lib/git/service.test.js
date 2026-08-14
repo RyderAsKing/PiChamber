@@ -12,6 +12,7 @@ import {
   getWorktreeBootstrapStatus,
   getBranches,
   getRangeDiff,
+  getRemotes,
   getStatus,
   isGitRepository,
   populateWorktreeWithLockRecovery,
@@ -358,6 +359,12 @@ describe('getStatus', () => {
     } finally {
       process.chdir(previousCwd);
     }
+  });
+
+  it('returns an empty remote list for a non-git folder', async () => {
+    if (!canRunGit()) return;
+
+    await expect(getRemotes(createTempDir())).resolves.toEqual([]);
   });
 
   it('reads status for a git repo when process.cwd() is elsewhere', async () => {

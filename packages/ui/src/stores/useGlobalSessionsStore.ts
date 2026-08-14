@@ -1,12 +1,16 @@
 /* eslint-disable */
 // @ts-nocheck
 import { create } from 'zustand';
-import type { OpencodeClient, Session } from '@/lib/chat/types';
-import { opencodeClient } from '@/lib/pi/legacy-ui-client';
-import { listGlobalSessionPages, splitGlobalSessionsByArchived } from '@/stores/globalSessions';
+import type { Session } from '@/lib/chat/types';
+import { piClient } from '@/lib/pi/client';
+import { splitGlobalSessionsByArchived } from '@/stores/globalSessions';
 import { normalizePath } from '@/lib/pathNormalization';
 import { raiseSessionOrderingBaselines } from '@/sync/session-ordering';
 import { mapWithConcurrency } from '@/lib/concurrency';
+import { getPiSessionStore } from '@/apps/pi-session-store';
+import { useProjectsStore } from '@/stores/useProjectsStore';
+import { piListItemToUiSession } from '@/lib/chat/pi-to-renderable';
+import { getRuntimeKey } from '@/lib/runtime-switch';
 
 type GlobalSessionsStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -35,7 +39,6 @@ type GlobalSessionsState = {
   resetForRuntimeSwitch: () => void;
 };
 
-const PAGE_SIZE = 500;
 const DIRECTORY_SESSION_REFRESH_CONCURRENCY = 2;
 let directorySessionRefreshActive = 0;
 const directorySessionRefreshWaiters: Array<() => void> = [];
@@ -250,10 +253,10 @@ type DirectoryPageResult = {
 };
 
 const fetchDirectoryPages = async (
-  sdk: OpencodeClient,
   directories: Set<string>,
+  runtimeKey: string,
 ): Promise<DirectoryPageResult> => {
-  const currentDirectory = normalizePath(opencodeClient.getDirectory());
+  const currentDirectory = normalizePath(getPiSessionStore().getState().directory);
   const orderedDirectories = [...directories].sort((left, right) => {
     if (left === currentDirectory) return -1;
     if (right === currentDirectory) return 1;
@@ -261,16 +264,12 @@ const fetchDirectoryPages = async (
   });
   const results = await mapWithConcurrency(orderedDirectories, DIRECTORY_SESSION_REFRESH_CONCURRENCY, async (directory) => {
     try {
+      const result = await withDirectorySessionRefreshSlot(() => piClient.listSessions({ directory, runtimeKey }));
       return {
         status: 'fulfilled' as const,
         value: {
           directory,
-          // One inclusive request per directory: the server has no filter that
-          // returns only active sessions including restored (`time.archived`
-          // falsy-but-present) rows, so fetch everything and split client-side.
-          sessions: await withDirectorySessionRefreshSlot(() => (
-            listGlobalSessionPages(sdk, { directory, archived: true, narrowToArchived: false, pageSize: PAGE_SIZE })
-          )),
+          sessions: result.sessions.map(piListItemToUiSession),
         },
       };
     } catch (reason) {
@@ -479,6 +478,12 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
   resetForRuntimeSwitch: () => {
     loadGeneration += 1;
     inflightLoad = null;
+    // Unsubscribe from the previous Pi store instance so stale updates do not
+    // apply to the new runtime.
+    if (piStoreUnsubscribe) {
+      piStoreUnsubscribe();
+      piStoreUnsubscribe = null;
+    }
     set({
       activeSessions: [],
       archivedSessions: [],
@@ -495,22 +500,76 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
       return inflightLoad;
     }
 
+    // Ensure we stay in sync with the Pi session store going forward.
+    ensurePiStoreSync();
+
     set((state) => (state.status === 'loading' ? state : { status: 'loading' }));
 
     const generation = loadGeneration;
     const baselineRevision = get().mutationRevision;
     const loadPromise = (async () => {
       try {
-        const sdk = opencodeClient.getSdkClient();
-        // One inclusive fetch, split client-side. The server's
-        // `time_archived IS NULL` active filter would exclude restored
-        // sessions (`time.archived` falsy-but-present), so an
-        // `archived: false` request cannot produce a truthful active list.
-        const allSessions = await listGlobalSessionPages(sdk, {
-          archived: true,
-          narrowToArchived: false,
-          pageSize: PAGE_SIZE,
-        });
+        const runtimeKey = getRuntimeKey();
+        const projectDirectories = useProjectsStore.getState().projects
+          .map((p) => p.path)
+          .filter((path): path is string => typeof path === 'string' && path.length > 0);
+        const currentPiDir = getPiSessionStore().getState().directory;
+        const targetDirectories = normalizeDirectorySet([
+          ...projectDirectories,
+          ...(currentPiDir ? [currentPiDir] : []),
+        ]);
+
+        if (targetDirectories.size > 0) {
+          const result = await fetchDirectoryPages(targetDirectories, runtimeKey);
+
+          if (generation !== loadGeneration) {
+            return { activeSessions: [], archivedSessions: [] };
+          }
+
+          const { active, archived } = splitGlobalSessionsByArchived(result.sessions);
+
+          set((state) => {
+            let nextActiveSessions = replaceSessionsForDirectories(state.activeSessions, active, result.directories);
+            nextActiveSessions = mergeSessionLists(nextActiveSessions, fallbackActive);
+            if (sameSessionList(state.activeSessions, nextActiveSessions)) {
+              nextActiveSessions = state.activeSessions;
+            }
+
+            let nextArchivedSessions = replaceSessionsForDirectories(state.archivedSessions, archived, result.directories);
+            if (sameSessionList(state.archivedSessions, nextArchivedSessions)) {
+              nextArchivedSessions = state.archivedSessions;
+            }
+
+            const reconciled = overlayMutationsSince(state, nextActiveSessions, nextArchivedSessions, baselineRevision);
+            const status: GlobalSessionsStatus = result.directories.size > 0 ? 'ready' : (result.errors.length > 0 ? 'error' : 'ready');
+            return applySnapshot(state, reconciled.activeSessions, reconciled.archivedSessions, status);
+          });
+
+          const committed = get();
+          return { activeSessions: committed.activeSessions, archivedSessions: committed.archivedSessions };
+        }
+
+        const piStore = getPiSessionStore();
+        const piState = piStore.getState();
+
+        // If the Pi store hasn't loaded yet, wait briefly for it to become
+        // ready rather than applying an empty snapshot.
+        let sessions = piState.sessions;
+        if (piState.connection === 'loading' && sessions.length === 0) {
+          sessions = await new Promise<typeof sessions>((resolve) => {
+            const timeout = setTimeout(() => { unsub(); resolve([]); }, 5000);
+            const unsub = piStore.subscribe(() => {
+              const s = piStore.getState();
+              if (s.connection !== 'loading' || s.sessions.length > 0) {
+                clearTimeout(timeout);
+                unsub();
+                resolve(s.sessions);
+              }
+            });
+          });
+        }
+
+        const allSessions = sessions.map(piListItemToUiSession);
 
         if (generation !== loadGeneration) {
           // Runtime switched mid-load: this snapshot belongs to the previous
@@ -519,7 +578,15 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
         }
         const { active, archived } = splitGlobalSessionsByArchived(allSessions);
         set((state) => {
-          const reconciled = overlayMutationsSince(state, active, archived, baselineRevision);
+          const directory = normalizePath(piStore.getState().directory);
+          const directories = directory ? new Set([directory]) : new Set<string>();
+          const nextActive = directories.size > 0
+            ? replaceSessionsForDirectories(state.activeSessions, active, directories)
+            : mergeSessionLists(state.activeSessions, active);
+          const nextArchived = directories.size > 0
+            ? replaceSessionsForDirectories(state.archivedSessions, archived, directories)
+            : mergeSessionLists(state.archivedSessions, archived);
+          const reconciled = overlayMutationsSince(state, nextActive, nextArchived, baselineRevision);
           return applySnapshot(state, reconciled.activeSessions, reconciled.archivedSessions, 'ready');
         });
         const committed = get();
@@ -560,30 +627,31 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
       return { activeSessions: state.activeSessions, archivedSessions: state.archivedSessions };
     }
 
+    // Ensure the Pi store subscription is active so future updates flow through.
+    ensurePiStoreSync();
+
     const generation = loadGeneration;
     const baselineRevision = get().mutationRevision;
-    const sdk = opencodeClient.getSdkClient();
-    const fetched = await fetchDirectoryPages(sdk, directorySet);
+
+    const result = await fetchDirectoryPages(directorySet, getRuntimeKey());
 
     if (generation !== loadGeneration) {
       const state = get();
       return { activeSessions: state.activeSessions, archivedSessions: state.archivedSessions };
     }
 
-    if (fetched.errors.length > 0) {
-      console.warn('[GlobalSessions] Failed to refresh sessions for some directories:', fetched.errors[0]);
-    }
-
-    const { active, archived } = splitGlobalSessionsByArchived(fetched.sessions);
+    const { active, archived } = splitGlobalSessionsByArchived(result.sessions);
 
     set((state) => {
-      let nextActiveSessions = replaceSessionsForDirectories(state.activeSessions, active, fetched.directories);
+      // Only successful directory reads are authoritative. A failed project
+      // refresh must preserve that project's previously known sessions.
+      let nextActiveSessions = replaceSessionsForDirectories(state.activeSessions, active, result.directories);
       nextActiveSessions = mergeSessionLists(nextActiveSessions, fallbackActive);
       if (sameSessionList(state.activeSessions, nextActiveSessions)) {
         nextActiveSessions = state.activeSessions;
       }
 
-      let nextArchivedSessions = replaceSessionsForDirectories(state.archivedSessions, archived, fetched.directories);
+      let nextArchivedSessions = replaceSessionsForDirectories(state.archivedSessions, archived, result.directories);
       if (sameSessionList(state.archivedSessions, nextArchivedSessions)) {
         nextArchivedSessions = state.archivedSessions;
       }
@@ -690,6 +758,34 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
     });
   },
 }));
+
+// ---------------------------------------------------------------------------
+// Pi session store → global sessions store sync
+// ---------------------------------------------------------------------------
+let piStoreUnsubscribe: (() => void) | null = null;
+
+const syncFromPiStore = () => {
+  const piState = getPiSessionStore().getState();
+  // Do not sync while the Pi store is still loading — an empty snapshot from a
+  // loading state would be a false authoritative empty result.
+  if (piState.connection === 'loading') return;
+  const directory = normalizePath(piState.directory);
+  if (!directory) return;
+  const allSessions = piState.sessions.map(piListItemToUiSession);
+  const { active, archived } = splitGlobalSessionsByArchived(allSessions);
+  const directories = new Set([directory]);
+  useGlobalSessionsStore.setState((state) => {
+    const nextActive = replaceSessionsForDirectories(state.activeSessions, active, directories);
+    const nextArchived = replaceSessionsForDirectories(state.archivedSessions, archived, directories);
+    return applySnapshot(state, nextActive, nextArchived, 'ready');
+  });
+};
+
+const ensurePiStoreSync = () => {
+  if (!piStoreUnsubscribe) {
+    piStoreUnsubscribe = getPiSessionStore().subscribe(syncFromPiStore);
+  }
+};
 
 export const ensureGlobalSessionsLoaded = async (fallbackActive?: Session[]): Promise<LoadResult> => {
   const state = useGlobalSessionsStore.getState();

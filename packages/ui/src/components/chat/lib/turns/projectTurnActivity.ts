@@ -122,7 +122,7 @@ export const projectTurnActivity = (input: ProjectActivityInput): ProjectActivit
 
             const isConfirmedSummaryText = part.type === 'text'
                 && typeof text === 'string'
-                && finish === 'stop'
+                && (finish === 'stop' || typeof finish !== 'string')
                 && input.summarySourceMessageId === message.info.id
                 && input.summarySourcePartId === partId;
 

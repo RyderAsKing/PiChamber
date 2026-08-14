@@ -7,7 +7,6 @@ import { DefaultsSettings } from './DefaultsSettings';
 import { GitSettings } from './GitSettings';
 import { NotificationSettings } from './NotificationSettings';
 import { GitHubSettings } from './GitHubSettings';
-import { VoiceSettings } from './VoiceSettings';
 import { TunnelSettings } from './TunnelSettings';
 import { DesktopNetworkSettings } from './DesktopNetworkSettings';
 import { KeyboardShortcutsSettings } from './KeyboardShortcutsSettings';
@@ -75,8 +74,6 @@ export const PiChamberPage: React.FC<PiChamberPageProps> = ({ section }) => {
                 return <GitHubSectionContent />;
             case 'notifications':
                 return <NotificationSectionContent />;
-            case 'voice':
-                return <VoiceSectionContent />;
             case 'tunnel':
                 return <TunnelSectionContent />;
             default:
@@ -93,7 +90,6 @@ export const PiChamberPage: React.FC<PiChamberPageProps> = ({ section }) => {
         git: t('settings.page.git.title'),
         github: t('settings.page.git.title'),
         notifications: t('settings.page.notifications.title'),
-        voice: t('settings.page.voice.title'),
         tunnel: t('settings.page.tunnel.title'),
     }[section];
 
@@ -106,7 +102,6 @@ export const PiChamberPage: React.FC<PiChamberPageProps> = ({ section }) => {
         git: undefined,
         github: undefined,
         notifications: t('settings.page.notifications.description'),
-        voice: t('settings.page.voice.description'),
         tunnel: t('settings.page.tunnel.description'),
     }[section];
 
@@ -202,7 +197,7 @@ const ChatSectionContent: React.FC = () => {
     );
 };
 
-// Sessions section: Default model & agent, Session retention
+// Sessions section: Default model, Session retention
 const SessionsSectionContent: React.FC = () => {
     return (
         <>
@@ -212,7 +207,7 @@ const SessionsSectionContent: React.FC = () => {
     );
 };
 
-// Git section: Commit message model, Worktree settings
+// Git section: Commit message model
 const GitSectionContent: React.FC = () => {
     return <GitSettings />;
 };
@@ -225,11 +220,6 @@ const GitHubSectionContent: React.FC = () => {
 // Notifications section: Native browser notifications
 const NotificationSectionContent: React.FC = () => {
     return <NotificationSettings />;
-};
-
-// Voice section: Language selection and continuous mode
-const VoiceSectionContent: React.FC = () => {
-    return <VoiceSettings />;
 };
 
 const TunnelSectionContent: React.FC = () => {

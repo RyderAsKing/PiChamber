@@ -27,7 +27,7 @@ describe('Pi session daemon supervisor', () => {
     supervisor = undefined;
   });
 
-  it('recovers from a forced daemon crash only after verifying the stale socket is unreachable', async () => {
+  it('recovers a forced daemon crash during the next health probe', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-supervisor-'));
     const cwd = join(root, 'project');
     const agentDir = join(root, 'agent');
@@ -46,11 +46,7 @@ describe('Pi session daemon supervisor', () => {
     process.kill(state.pid, 'SIGKILL');
     await waitForExit(state.pid);
 
-    await expect(supervisor.health()).resolves.toMatchObject({
-      state: 'unavailable',
-      error: { code: 'DAEMON_UNAVAILABLE' },
-    });
-    await expect(supervisor.start()).resolves.toMatchObject({ state: 'ready', reused: false });
+    await expect(supervisor.health()).resolves.toMatchObject({ state: 'ready' });
   }, 20_000);
 
   it('reports malformed Pi session JSONL as a stable startup failure', async () => {

@@ -117,7 +117,6 @@ export type DesktopSettings = {
   managedRemoteTunnelPresetTokens?: Record<string, string>;
   defaultModel?: string; // format: "provider/model"
   defaultVariant?: string;
-  defaultAgent?: string;
   smallModelUseDefault?: boolean;
   smallModelOverride?: string; // format: "provider/model"
   // The walkthrough needs structured output and a roomy context, which the

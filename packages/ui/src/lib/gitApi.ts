@@ -23,12 +23,6 @@ export type {
   GitIdentitySummary,
   GitLogEntry,
   GitLogResponse,
-  GitWorktreeInfo,
-  CreateGitWorktreePayload,
-  GitWorktreeCreateResult,
-  RemoveGitWorktreePayload,
-  GitWorktreeValidationError,
-  GitWorktreeValidationResult,
   GitDeleteBranchPayload,
   GitDeleteRemoteBranchPayload,
   GitRemoveRemotePayload,
@@ -173,11 +167,6 @@ export async function revertGitHunk(directory: string, filePath: string, patch: 
   return gitHttp.revertGitHunk(directory, filePath, patch);
 }
 
-export async function isLinkedWorktree(directory: string): Promise<boolean> {
-  const runtime = getRuntimeGit();
-  if (runtime) return runtime.isLinkedWorktree(directory);
-  return gitHttp.isLinkedWorktree(directory);
-}
 
 export async function getGitBranches(directory: string): Promise<import('./api/types').GitBranch> {
   const runtime = getRuntimeGit();
@@ -629,92 +618,7 @@ const runStructuredGenerationInActiveSession = async ({
   return parsedOutput;
 };
 
-export async function listGitWorktrees(directory: string): Promise<import('./api/types').GitWorktreeInfo[]> {
-  const runtime = getRuntimeGit();
-  if (runtime?.worktree?.list) {
-    return runtime.worktree.list(directory);
-  }
-  if (runtime) return runtime.listGitWorktrees(directory);
-  return gitHttp.listGitWorktrees(directory);
-}
 
-export async function validateGitWorktree(
-  directory: string,
-  payload: import('./api/types').CreateGitWorktreePayload
-): Promise<import('./api/types').GitWorktreeValidationResult> {
-  const runtime = getRuntimeGit();
-  if (runtime?.worktree?.validate) {
-    return runtime.worktree.validate(directory, payload);
-  }
-  if (runtime?.validateGitWorktree) {
-    return runtime.validateGitWorktree(directory, payload);
-  }
-  return gitHttp.validateGitWorktree(directory, payload);
-}
-
-export async function getGitWorktreeBootstrapStatus(
-  directory: string,
-): Promise<import('./api/types').GitWorktreeBootstrapStatus> {
-  const runtime = getRuntimeGit();
-  if (runtime?.worktree?.bootstrapStatus) {
-    return runtime.worktree.bootstrapStatus(directory);
-  }
-  if (runtime?.getGitWorktreeBootstrapStatus) {
-    return runtime.getGitWorktreeBootstrapStatus(directory);
-  }
-  return gitHttp.getGitWorktreeBootstrapStatus(directory);
-}
-
-export async function previewGitWorktree(
-  directory: string,
-  payload: import('./api/types').CreateGitWorktreePayload
-): Promise<import('./api/types').GitWorktreeCreateResult> {
-  const runtime = getRuntimeGit();
-  if (runtime?.worktree?.preview) {
-    return runtime.worktree.preview(directory, payload);
-  }
-  if (runtime?.previewGitWorktree) {
-    return runtime.previewGitWorktree(directory, payload);
-  }
-  return gitHttp.previewGitWorktree(directory, payload);
-}
-
-export async function createGitWorktree(
-  directory: string,
-  payload: import('./api/types').CreateGitWorktreePayload
-): Promise<import('./api/types').GitWorktreeCreateResult> {
-  const runtime = getRuntimeGit();
-  if (runtime?.worktree?.create) {
-    return runtime.worktree.create(directory, payload);
-  }
-  if (runtime?.createGitWorktree) {
-    return runtime.createGitWorktree(directory, payload);
-  }
-  return gitHttp.createGitWorktree(directory, payload);
-}
-
-export async function deleteGitWorktree(
-  directory: string,
-  payload: import('./api/types').RemoveGitWorktreePayload
-): Promise<{ success: boolean }> {
-  const runtime = getRuntimeGit();
-  if (runtime?.worktree?.remove) {
-    return runtime.worktree.remove(directory, payload);
-  }
-  if (runtime?.deleteGitWorktree) {
-    return runtime.deleteGitWorktree(directory, payload);
-  }
-  return gitHttp.deleteGitWorktree(directory, payload);
-}
-
-export const git = {
-  worktree: {
-    list: listGitWorktrees,
-    validate: validateGitWorktree,
-    create: createGitWorktree,
-    remove: deleteGitWorktree,
-  },
-};
 
 export async function createGitCommit(
   directory: string,
@@ -1023,37 +927,4 @@ export async function getConflictDetails(directory: string): Promise<import('./a
   return gitHttp.getConflictDetails(directory);
 }
 
-export async function validateWorktreeDirectory(
-  directory: string,
-  worktreeRoot: string
-): Promise<{
-  valid: boolean;
-  insideWorktreeRoot: boolean;
-  resolvedWorktreeRoot: string | null;
-  resolvedCwd: string | null;
-}> {
-  const runtime = getRuntimeGit();
-  if (runtime?.validateWorktreeDirectory) {
-    return runtime.validateWorktreeDirectory(directory, worktreeRoot);
-  }
-  return gitHttp.validateWorktreeDirectory(directory, worktreeRoot);
-}
 
-export async function canonicalizeWorktreeState(
-  directory: string
-): Promise<{
-  worktreeRoot: string | null;
-  cwd: string | null;
-  branch: string | null;
-  headState: 'branch' | 'detached' | 'unborn';
-  worktreeStatus: 'pending' | 'ready' | 'missing' | 'invalid' | 'not-a-repo';
-  legacy: boolean;
-  degraded: boolean;
-  attentionReason?: 'merge' | 'rebase' | 'cherry-pick' | 'revert' | 'bisect' | null;
-}> {
-  const runtime = getRuntimeGit();
-  if (runtime?.canonicalizeWorktreeState) {
-    return runtime.canonicalizeWorktreeState(directory);
-  }
-  return gitHttp.canonicalizeWorktreeState(directory);
-}

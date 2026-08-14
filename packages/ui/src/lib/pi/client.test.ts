@@ -44,6 +44,10 @@ describe("PiService", () => {
       if (url.pathname === "/api/pi/projects" && call.init?.method === "GET") {
         return jsonResponse({ projects: [{ directory: "/work", selected: true }] })
       }
+      if (url.pathname === "/api/pi/projects/select" && call.init?.method === "POST") {
+        const body = JSON.parse((call.init?.body as string) ?? "{}") as { directory: string }
+        return jsonResponse({ directory: body.directory })
+      }
       if (url.pathname === "/api/pi/sessions" && call.init?.method === "GET") {
         return jsonResponse({ sessions: [] })
       }
@@ -72,6 +76,15 @@ describe("PiService", () => {
     expect(recordedCalls()[0].url).toBe("/api/pi/projects")
   })
 
+  test("selectProject explicitly adopts the user-selected directory", async () => {
+    const client = new PiService()
+    expect(await client.selectProject("/chosen")).toEqual({ directory: "/chosen" })
+    const call = recordedCalls()[0]
+    expect(call.url).toBe("/api/pi/projects/select")
+    expect(call.init?.method).toBe("POST")
+    expect(JSON.parse(call.init?.body as string)).toEqual({ directory: "/chosen" })
+  })
+
   test("createSession POSTs to /api/pi/sessions", async () => {
     const client = new PiService()
     const result = await client.createSession({ cwd: "/work", title: "demo" })
@@ -89,7 +102,22 @@ describe("PiService", () => {
     expect(await client.deleteSession({ sessionId: "s1" })).toBe(true)
   })
 
-  test("listSessions throws PiRequestError on a 5xx response", async () => {
+  test("listSessions retries transient 503 DAEMON_UNAVAILABLE and succeeds on second attempt", async () => {
+    let attempt = 0;
+    installFetchMock(() => {
+      attempt += 1;
+      if (attempt === 1) {
+        return jsonResponse({ error: { code: "DAEMON_UNAVAILABLE" } }, { status: 503 });
+      }
+      return jsonResponse({ sessions: [{ session: { id: "s1", directory: "/repo" } }] });
+    });
+    const client = new PiService();
+    const result = await client.listSessions();
+    expect(result.sessions).toHaveLength(1);
+    expect(attempt).toBe(2);
+  });
+
+  test("listSessions throws PiRequestError on persistent 5xx response", async () => {
     installFetchMock(() =>
       jsonResponse({ error: { code: "DAEMON_UNAVAILABLE" } }, { status: 503 }),
     )

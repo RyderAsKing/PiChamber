@@ -53,14 +53,16 @@ export interface PiReducerMessagePart {
   text: string;
   /** Set while the part is still accepting deltas. */
   streaming: boolean;
-  /** Last accepted canonical content index for streamed text/thinking. */
-  lastContentIndex?: number;
   /** For tool parts. */
   tool?: {
     toolCallId: string;
     name: string;
     input?: unknown;
     output?: unknown;
+    /** Error message when the tool ended in an error state. */
+    error?: string;
+    /** Renderer metadata (edit diffs, truncation notes). */
+    metadata?: Record<string, unknown>;
     isError?: boolean;
     state: 'pending' | 'running' | 'completed' | 'error' | 'cancelled';
     startedAt?: number;
@@ -75,6 +77,8 @@ export interface PiReducerMessage {
   sessionId: PiSessionId;
   directory: string;
   role: 'user' | 'assistant';
+  /** User message that owns this assistant turn. */
+  parentId?: string;
   /** Created-at (ms epoch) the reducer keeps for ordering. */
   createdAt: number;
   /** Assistant-only: model & thinking captured at creation time. */
@@ -163,6 +167,7 @@ const ensureMessage = (
     sessionId: session.sessionId,
     directory,
     role: payload.role,
+    ...(payload.parentId ? { parentId: payload.parentId } : {}),
     createdAt: payload.startedAt,
     text: payload.role === 'user' ? payload.text ?? '' : '',
     thinking: '',
@@ -189,7 +194,6 @@ const ensureTextPart = (
     type,
     text: '',
     streaming: true,
-    lastContentIndex: -1,
   };
   session.parts.set(id, part);
   const order = [...(session.partOrder.get(message.id) ?? [])];
@@ -249,16 +253,15 @@ const reduceAssistantDelta = (
   const partId = payload.partId ?? `${message.id}:${type}`;
   const existing = session.parts.get(partId);
   if (existing) {
-    if (existing.type !== type || (existing.lastContentIndex ?? -1) >= payload.contentIndex) return;
-    session.parts.set(partId, {
-      ...existing,
-      text: existing.text + payload.delta,
-      lastContentIndex: payload.contentIndex,
-    });
+    if (existing.type !== type) return;
+    // Pi's contentIndex identifies the content block; it is intentionally
+    // identical for every delta appended to that block. Event sequence owns
+    // replay and out-of-order rejection at the session boundary.
+    session.parts.set(partId, { ...existing, text: existing.text + payload.delta });
     return;
   }
   const part = ensureTextPart(session, message, type, partId);
-  session.parts.set(part.id, { ...part, text: payload.delta, lastContentIndex: payload.contentIndex });
+  session.parts.set(part.id, { ...part, text: payload.delta });
 };
 
 const reduceMessageEnd = (
@@ -321,19 +324,46 @@ const reduceTool = (
   }
   if (!part || part.type !== 'tool') return;
   const nextPart = { ...part };
+  const previous = part.tool;
   nextPart.tool = {
     toolCallId: payload.toolCallId,
     name: payload.name,
     ...(payload.input !== undefined
       ? { input: payload.input }
-      : part.tool?.input !== undefined
-        ? { input: part.tool.input }
+      : previous?.input !== undefined
+        ? { input: previous.input }
         : {}),
-    ...(payload.output !== undefined ? { output: payload.output } : {}),
-    ...(payload.isError !== undefined ? { isError: payload.isError } : {}),
+    ...(payload.output !== undefined
+      ? { output: payload.output }
+      : previous?.output !== undefined
+        ? { output: previous.output }
+        : {}),
+    ...(payload.error !== undefined
+      ? { error: payload.error }
+      : previous?.error !== undefined
+        ? { error: previous.error }
+        : {}),
+    ...(payload.metadata !== undefined
+      ? { metadata: payload.metadata }
+      : previous?.metadata !== undefined
+        ? { metadata: previous.metadata }
+        : {}),
+    ...(payload.isError !== undefined
+      ? { isError: payload.isError }
+      : previous?.isError !== undefined
+        ? { isError: previous.isError }
+        : {}),
     state: payload.state,
-    ...(payload.startedAt !== undefined ? { startedAt: payload.startedAt } : {}),
-    ...(payload.endedAt !== undefined ? { endedAt: payload.endedAt } : {}),
+    ...(payload.startedAt !== undefined
+      ? { startedAt: payload.startedAt }
+      : previous?.startedAt !== undefined
+        ? { startedAt: previous.startedAt }
+        : {}),
+    ...(payload.endedAt !== undefined
+      ? { endedAt: payload.endedAt }
+      : previous?.endedAt !== undefined
+        ? { endedAt: previous.endedAt }
+        : {}),
   };
   if (phase === 'end') nextPart.streaming = false;
   session.parts.set(nextPart.id, nextPart);
@@ -556,6 +586,7 @@ export interface PiProjectedMessagePart {
 export interface PiProjectedMessage {
   id: string;
   role: 'user' | 'assistant';
+  parentId?: string;
   text: string;
   thinking: string;
   streaming: boolean;
@@ -602,6 +633,7 @@ export const projectSession = (session: PiReducerSessionState): PiProjectedSessi
       return {
         id: message.id,
         role: message.role,
+        ...(message.parentId ? { parentId: message.parentId } : {}),
         text: message.text,
         thinking: message.thinking,
         streaming: message.streaming,
@@ -645,6 +677,8 @@ export const hydrateSessionFromDetail = (
         name?: string;
         input?: unknown;
         output?: unknown;
+        error?: string;
+        metadata?: Record<string, unknown>;
         isError?: boolean;
         state?: 'pending' | 'running' | 'completed' | 'error' | 'cancelled';
         startedAt?: number;
@@ -664,6 +698,7 @@ export const hydrateSessionFromDetail = (
       sessionId: detail.session.id,
       directory: detail.session.directory,
       role: message.role,
+      ...(message.parentId ? { parentId: message.parentId } : {}),
       createdAt: message.createdAt,
       text: message.text ?? '',
       thinking: message.role === 'assistant' ? message.thinking ?? '' : '',
@@ -686,7 +721,6 @@ export const hydrateSessionFromDetail = (
         type: part.type,
         text: part.text ?? '',
         streaming: false,
-        ...(part.type === 'text' || part.type === 'thinking' ? { lastContentIndex: Number.MAX_SAFE_INTEGER } : {}),
         ...(part.type === 'tool'
           ? {
               tool: {
@@ -694,6 +728,8 @@ export const hydrateSessionFromDetail = (
                 name: part.name ?? 'unknown',
                 ...(part.input !== undefined ? { input: part.input } : {}),
                 ...(part.output !== undefined ? { output: part.output } : {}),
+                ...(typeof part.error === 'string' ? { error: part.error } : {}),
+                ...(part.metadata !== undefined ? { metadata: part.metadata } : {}),
                 ...(part.isError !== undefined ? { isError: part.isError } : {}),
                 state: part.state ?? 'completed',
                 ...(part.startedAt !== undefined ? { startedAt: part.startedAt } : {}),

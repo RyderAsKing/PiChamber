@@ -10,7 +10,8 @@ import { isLocalSessionDaemonEndpoint } from './session-daemon.js';
 import { requestSessionDaemon, SessionDaemonClientError, subscribeSessionDaemon } from './ipc-client.js';
 
 const PROTOCOL_VERSION = 1;
-const STARTUP_TIMEOUT_MS = 5_000;
+const OPERATION_TIMEOUT_MS = 5_000;
+const DAEMON_READY_TIMEOUT_MS = 15_000;
 const RETRY_DELAY_MS = 100;
 const DAEMON_ENTRYPOINT = fileURLToPath(new URL('./daemon-process.js', import.meta.url));
 
@@ -103,10 +104,12 @@ export const createPiSessionDaemonSupervisor = ({
   request = requestSessionDaemon,
   spawn = spawnChildProcess,
   wait = delay,
-  startupTimeoutMs = STARTUP_TIMEOUT_MS,
+  startupTimeoutMs = OPERATION_TIMEOUT_MS,
+  daemonReadyTimeoutMs = DAEMON_READY_TIMEOUT_MS,
 } = {}) => {
   const paths = resolvePiSessionDaemonPaths({ env, dataDir, platform });
   let startPromise = null;
+  let intentionallyStopped = false;
 
   const withOperationLock = async (operation) => {
     const deadline = Date.now() + startupTimeoutMs;
@@ -264,6 +267,7 @@ export const createPiSessionDaemonSupervisor = ({
   };
 
   const start = async () => {
+    intentionallyStopped = false;
     if (startPromise) return startPromise;
     startPromise = withOperationLock(async () => {
       const credential = await ensureCredential();
@@ -308,7 +312,9 @@ export const createPiSessionDaemonSupervisor = ({
       });
       child.unref?.();
 
-      const deadline = Date.now() + startupTimeoutMs;
+      // Loading Pi settings, providers, and a larger local model catalog can
+      // legitimately exceed the short lock/stop operation budget.
+      const deadline = Date.now() + daemonReadyTimeoutMs;
       while (Date.now() < deadline) {
         try {
           const started = await probe(credential);
@@ -333,30 +339,40 @@ export const createPiSessionDaemonSupervisor = ({
     }
   };
 
-  const requestDaemon = async (command, payload) => {
-    const credential = await readCredential();
-    await probe(credential);
+  const ensureReady = async () => {
+    let credential = await readCredential();
     try {
+      const ready = await probe(credential);
+      return { credential, ready };
+    } catch {
+      if (intentionallyStopped) throw new PiSessionDaemonUnavailableError('DAEMON_UNAVAILABLE');
+      await start();
+      credential = await readCredential();
+      return { credential, ready: await probe(credential) };
+    }
+  };
+
+  const requestDaemon = async (command, payload) => {
+    try {
+      const { credential } = await ensureReady();
       return await request({ endpoint: paths.endpoint, credential, command, payload });
     } catch (error) {
       throw new PiSessionDaemonUnavailableError(
         error instanceof SessionDaemonClientError && error.code !== 'DAEMON_CONNECTION_REFUSED'
           ? error.code
-          : 'DAEMON_UNAVAILABLE',
+          : error instanceof PiSessionDaemonUnavailableError ? error.code : 'DAEMON_UNAVAILABLE',
       );
     }
   };
 
   const subscribe = async ({ sessionId, fromSequence, onEvent, onError }) => {
-    const credential = await readCredential();
-    await probe(credential);
+    const { credential } = await ensureReady();
     return subscribeSessionDaemon({ endpoint: paths.endpoint, credential, sessionId, fromSequence, onEvent, onError });
   };
 
   const health = async () => {
     try {
-      const credential = await readCredential();
-      const ready = await probe(credential);
+      const { ready } = await ensureReady();
       return { state: 'ready', protocolVersion: PROTOCOL_VERSION, capabilities: ready.health.capabilities ?? [] };
     } catch (error) {
       return {
@@ -383,6 +399,7 @@ export const createPiSessionDaemonSupervisor = ({
       while (Date.now() < deadline) {
         if (!isPidAlive(processLike, state.pid)) {
           await removeStaleState(state);
+          intentionallyStopped = true;
           return { state: 'stopped' };
         }
         await wait(RETRY_DELAY_MS);

@@ -8,7 +8,6 @@ import { ConfigUpdateOverlay } from '@/components/ui/ConfigUpdateOverlay';
 import { Button } from '@/components/ui/button';
 import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
 import { ChatView } from '@/components/views/ChatView';
-import { PlanView } from '@/components/views/PlanView';
 import { SettingsView } from '@/components/views/SettingsView';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { RuntimeAPIProvider } from '@/contexts/RuntimeAPIProvider';
@@ -31,20 +30,13 @@ import { clearLastActiveSession, readLastActiveSession } from '@/sync/last-sessi
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useFeatureFlagsStore } from '@/stores/useFeatureFlagsStore';
 import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
 import { useGitStore } from '@/stores/useGitStore';
-import { useMcpConfigStore, type McpDraft } from '@/stores/useMcpConfigStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import {
-  listProjectWorktrees,
-  partitionWorktreesByRegisteredProject,
-  worktreeMapsEqual,
-} from '@/lib/worktrees/worktreeManager';
 import { useUIStore } from '@/stores/useUIStore';
 import { useUpdateStore } from '@/stores/useUpdateStore';
-import { useSessionUIStore } from '@/sync/session-ui-store';
 import { PiSessionProvider } from '@/sync/pi-session-context';
+import { FireworksProvider } from '@/contexts/FireworksContext';
 
 import { SyncAppEffects } from './AppEffects';
 import { BusyDots } from '@/components/chat/message/parts/BusyDots';
@@ -108,7 +100,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   const [workspaceTab, setWorkspaceTab] = React.useState<MobileWorkspaceTab>('changes');
   // A plan opened from the workspace drawer's Notes tab, shown as a fullscreen
   // layer on top of it (back returns to the notes).
-  const [openPlan, setOpenPlan] = React.useState<{ path: string; title: string } | null>(null);
+
   const [settingsInitialMobileStage, setSettingsInitialMobileStage] = React.useState<'nav' | 'page-content'>('nav');
   // When set, the Changes surface opens directly into the per-file diff for this path.
   const [pendingChangesDiff, setPendingChangesDiff] = React.useState<{ path: string; staged: boolean } | null>(null);
@@ -117,9 +109,6 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   const updateAvailable = useUpdateStore((state) => state.available);
   const updateRuntimeType = useUpdateStore((state) => state.runtimeType);
   const showCapacitorOnlyFeatures = React.useMemo(() => isCapacitorMobileApp(), []);
-  const mcpServers = useMcpConfigStore((state) => state.mcpServers);
-  const setMcpDraft = useMcpConfigStore((state) => state.setMcpDraft);
-  const setSelectedMcp = useMcpConfigStore((state) => state.setSelectedMcp);
 
   // NOTE: pendingChangesDiff is intentionally NOT cleared on close — it keys
   // the persistent Changes pane in the workspace drawer, and clearing it would
@@ -250,14 +239,9 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         if (isTabletLayout) setSidebarOpen(true);
         else setSessionsSheetOpen(true);
       },
-      openView: (target: 'files' | 'mcp' | 'instances' | 'update') => {
+      openView: (target: 'files' | 'instances' | 'update') => {
         if (target === 'files') {
           openFilesSurface();
-          return;
-        }
-        if (target === 'mcp') {
-          setWorkspaceTab('mcp');
-          setWorkspaceOpen(true);
           return;
         }
         openSurface(target);
@@ -289,10 +273,6 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   // (opened from the drawer footer / workspace tabs), so they close before the
   // drawers underneath.
   const handleNativeBack = React.useCallback(() => {
-    if (openPlan) {
-      setOpenPlan(null);
-      return true;
-    }
     if (activeSurface) {
       closeSurface();
       return true;
@@ -306,7 +286,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       return true;
     }
     return false;
-  }, [activeSurface, closeSurface, closeWorkspace, openPlan, sessionsSheetOpen, workspaceOpen]);
+  }, [activeSurface, closeSurface, closeWorkspace, sessionsSheetOpen, workspaceOpen]);
 
   useNativeAndroidBackButton(handleNativeBack);
 
@@ -332,38 +312,6 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     }),
     [openSettingsSurface, openSurface, showCapacitorOnlyFeatures, showUpdateItem],
   );
-
-  const openMcpCreateSettings = React.useCallback(() => {
-    const baseName = 'new-mcp-server';
-    let newName = baseName;
-    let counter = 1;
-    while (mcpServers.some((server) => server.name === newName)) {
-      newName = `${baseName}-${counter}`;
-      counter += 1;
-    }
-
-    const draft: McpDraft = {
-      name: newName,
-      scope: 'user',
-      type: 'local',
-      command: [],
-      url: '',
-      environment: [],
-      headers: [],
-      oauthEnabled: true,
-      oauthClientId: '',
-      oauthClientSecret: '',
-      oauthScope: '',
-      oauthRedirectUri: '',
-      timeout: '',
-      enabled: true,
-    };
-
-    setMcpDraft(draft);
-    setSelectedMcp(newName);
-    setSettingsPage('mcp');
-    openSettingsSurface('page-content');
-  }, [mcpServers, openSettingsSurface, setMcpDraft, setSelectedMcp, setSettingsPage]);
 
   return (
     <DedicatedMobileAppProvider actions={mobileActions}>
@@ -501,8 +449,6 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
                   tab={workspaceTab}
                   onTabChange={setWorkspaceTab}
                   pendingChangesDiff={pendingChangesDiff}
-                  onOpenPlan={setOpenPlan}
-                  onOpenMcpSettings={openMcpCreateSettings}
                   variant={workspaceAsPanel ? 'panel' : 'drawer'}
                 />
               </ErrorBoundary>
@@ -523,31 +469,11 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             tab={workspaceTab}
             onTabChange={setWorkspaceTab}
             pendingChangesDiff={pendingChangesDiff}
-            onOpenPlan={setOpenPlan}
-            onOpenMcpSettings={openMcpCreateSettings}
           />
         )}
 
         {/* Layered above the workspace drawer's Notes tab, which opened it. */}
-        {openPlan ? (
-          <MobileFullscreenSurface
-            open
-            variant={surfaceVariant}
-            onClose={() => setOpenPlan(null)}
-            ariaLabel={openPlan.title}
-            title={openPlan.title}
-          >
-            <ErrorBoundary>
-              <PlanView
-                targetPath={openPlan.path}
-                onNavigatedToChat={() => {
-                  closeSurface();
-                  closeWorkspace();
-                }}
-              />
-            </ErrorBoundary>
-          </MobileFullscreenSurface>
-        ) : null}
+
 
         {activeSurface === 'instances' && showCapacitorOnlyFeatures ? (
           <MobileFullscreenSurface
@@ -626,7 +552,6 @@ export function MobileApp({ apis }: MobileAppProps) {
   const clearError = useSessionUIStore((state) => state.clearError);
   const setIsMobile = useUIStore((state) => state.setIsMobile);
   const refreshGitHubAuthStatus = useGitHubAuthStore((state) => state.refreshStatus);
-  const setPlanModeEnabled = useFeatureFlagsStore((state) => state.setPlanModeEnabled);
   const projects = useProjectsStore((state) => state.projects);
   const [connectionEpoch, setConnectionEpoch] = React.useState(0);
   const [runtimeEndpointEpoch, setRuntimeEndpointEpoch] = React.useState(0);
@@ -967,79 +892,7 @@ export function MobileApp({ apis }: MobileAppProps) {
     void refreshGitHubAuthStatus(apis.github, { force: true });
   }, [apis.github, isConnected, refreshGitHubAuthStatus]);
 
-  // Discover all worktrees for every known project so the draft session's
-  // worktree/branch dropdown can list every available branch — not only the
-  // current one. Mirrors ElectronMiniChatApp + desktop SessionSidebar.
-  // Gated on isConnected: running before the runtime is reachable made every
-  // per-project probe fail silently, leaving the map empty until some later
-  // projects-store update happened to re-run this effect (the "switch projects
-  // back and forth to see worktrees" bug).
-  React.useEffect(() => {
-    if (!isConnected || projects.length === 0) return;
-    let cancelled = false;
 
-    const run = async () => {
-      const worktreesByProject = new Map(useSessionUIStore.getState().availableWorktreesByProject);
-
-      await Promise.all(
-        projects.map(async (project) => {
-          const projectPath = project.path.replace(/\\/g, '/').replace(/\/+$/, '');
-          if (!projectPath) return;
-          try {
-            const cachedIsGitRepo = useGitStore.getState().directories.get(projectPath)?.isGitRepo;
-            const isGitRepo =
-              cachedIsGitRepo ?? (await import('@/lib/gitApi').then((m) => m.checkIsGitRepository(projectPath)));
-            if (!isGitRepo) return;
-            const worktrees = await listProjectWorktrees({ id: project.id, path: projectPath });
-            if (cancelled) return;
-            worktreesByProject.set(projectPath, worktrees);
-          } catch {
-            // Worktree discovery is best-effort per project: a failed probe keeps
-            // that project's previously known (persisted) worktrees instead of
-            // wiping the whole map.
-          }
-        }),
-      );
-
-      if (cancelled) return;
-
-      const partitionedWorktreesByProject = partitionWorktreesByRegisteredProject(projects, worktreesByProject);
-
-      // Skip update if nothing changed — see worktreeMapsEqual JSDoc.
-      const currentByProject = useSessionUIStore.getState().availableWorktreesByProject;
-      if (!worktreeMapsEqual(partitionedWorktreesByProject, currentByProject)) {
-        useSessionUIStore.setState({
-          availableWorktrees: [...partitionedWorktreesByProject.values()].flat(),
-          availableWorktreesByProject: partitionedWorktreesByProject,
-        });
-      }
-    };
-
-    void run();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isConnected, projects]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    const run = async () => {
-      const res = await runtimeFetch('/health', { method: 'GET' }).catch(() => null);
-      if (!res || !res.ok || cancelled) return;
-      const data = (await res.json().catch(() => null)) as null | { planModeExperimentalEnabled?: unknown };
-      if (!data || cancelled) return;
-      const raw = data.planModeExperimentalEnabled;
-      setPlanModeEnabled(raw === true || raw === 1 || raw === '1' || raw === 'true');
-    };
-
-    void run();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [setPlanModeEnabled]);
 
   React.useEffect(() => {
     if (!error) return;
@@ -1195,25 +1048,27 @@ export function MobileApp({ apis }: MobileAppProps) {
       <PiSessionProvider key={runtimeEndpointEpoch}>
         <RuntimeAPIProvider apis={apis}>
           <TooltipProvider delayDuration={300} skipDelayDuration={150}>
-            <div className="h-full bg-background text-foreground">
-              {/* Cold-launch continuity: keep the boot logo up over the shell
-                  until the last-session restore decides between session and
-                  draft — otherwise the auto-opened draft flashes first. The
-                  shell (and sync) still mounts and warms up underneath. */}
-              {isNativeMobileApp && lastSessionRestorePending ? (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background">
-                  <PiChamberLogo width={120} height={120} isAnimated />
-                </div>
-              ) : null}
-              <SyncAppEffects embeddedBackgroundWorkEnabled={isInitialized} />
-              <MobileAppUpdateToast />
-              <MobileShell onActiveConnectionDeleted={() => {
-                switchRuntimeEndpoint({ apiBaseUrl: '', clientToken: null, runtimeKey: 'mobile-disconnected' });
-                setConnectionEpoch((value) => value + 1);
-              }} />
-              <Toaster position="top-center" offset="calc(var(--oc-safe-area-top, 0px) + 16px)" />
-              {isInitialized ? <ConfigUpdateOverlay /> : null}
-            </div>
+            <FireworksProvider>
+              <div className="h-full bg-background text-foreground">
+                {/* Cold-launch continuity: keep the boot logo up over the shell
+                    until the last-session restore decides between session and
+                    draft — otherwise the auto-opened draft flashes first. The
+                    shell (and sync) still mounts and warms up underneath. */}
+                {isNativeMobileApp && lastSessionRestorePending ? (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-background">
+                    <PiChamberLogo width={120} height={120} isAnimated />
+                  </div>
+                ) : null}
+                <SyncAppEffects embeddedBackgroundWorkEnabled={isInitialized} />
+                <MobileAppUpdateToast />
+                <MobileShell onActiveConnectionDeleted={() => {
+                  switchRuntimeEndpoint({ apiBaseUrl: '', clientToken: null, runtimeKey: 'mobile-disconnected' });
+                  setConnectionEpoch((value) => value + 1);
+                }} />
+                <Toaster position="top-center" offset="calc(var(--oc-safe-area-top, 0px) + 16px)" />
+                {isInitialized ? <ConfigUpdateOverlay /> : null}
+              </div>
+            </FireworksProvider>
           </TooltipProvider>
         </RuntimeAPIProvider>
       </PiSessionProvider>

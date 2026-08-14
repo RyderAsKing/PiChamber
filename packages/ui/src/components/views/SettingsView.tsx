@@ -4,22 +4,11 @@ import React from 'react';
 import { cn, getModifierLabel } from '@/lib/utils';
 import { useUIStore } from '@/stores/useUIStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { useAgentsStore } from '@/stores/useAgentsStore';
-import { useCommandsStore } from '@/stores/useCommandsStore';
-import { useMcpConfigStore } from '@/stores/useMcpConfigStore';
 import { useSnippetsStore } from '@/stores/useSnippetsStore';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { Tooltip, TooltipTrigger } from '@/components/ui/tooltip';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
-import { AgentsSidebar } from '@/components/sections/agents/AgentsSidebar';
-import { AgentsPage } from '@/components/sections/agents/AgentsPage';
 import { BehaviorPage } from '@/components/sections/behavior/BehaviorPage';
-import { CommandsSidebar } from '@/components/sections/commands/CommandsSidebar';
-import { CommandsPage } from '@/components/sections/commands/CommandsPage';
-import { McpSidebar } from '@/components/sections/mcp/McpSidebar';
-import { McpPage } from '@/components/sections/mcp/McpPage';
-import { PluginsSidebar, PluginsPage } from '@/components/sections/plugins';
-import { usePluginsStore } from '@/stores/usePluginsStore';
 import { SkillsSidebar } from '@/components/sections/skills/SkillsSidebar';
 import { SkillsPage } from '@/components/sections/skills/SkillsPage';
 import { ProjectsSidebar } from '@/components/sections/projects/ProjectsSidebar';
@@ -27,8 +16,6 @@ import { ProjectsPage } from '@/components/sections/projects/ProjectsPage';
 import { RemoteInstancesPage } from '@/components/sections/remote-instances/RemoteInstancesPage';
 import { ProvidersSidebar } from '@/components/sections/providers/ProvidersSidebar';
 import { ProvidersPage } from '@/components/sections/providers/ProvidersPage';
-import { UsageSidebar } from '@/components/sections/usage/UsageSidebar';
-import { UsagePage } from '@/components/sections/usage/UsagePage';
 import { MagicPromptsSidebar } from '@/components/sections/magic-prompts/MagicPromptsSidebar';
 import { MagicPromptsPage } from '@/components/sections/magic-prompts/MagicPromptsPage';
 import { SnippetsSidebar } from '@/components/sections/snippets/SnippetsSidebar';
@@ -46,12 +33,6 @@ import { isDesktopLocalOriginActive, isDesktopShell, isWebRuntime } from '@/lib/
 import { isWindowsArm64 as isWindowsArm64Platform } from '@/lib/platform';
 import { useI18n } from '@/lib/i18n';
 import { Icon } from "@/components/icon/Icon";
-import { McpIcon } from '@/components/icons/McpIcon';
-import { OpenCodeReloadFooterAction } from '@/components/views/OpenCodeReloadFooterAction';
-import {
-  selectPendingOpenCodeRestartCount,
-  usePendingOpenCodeRestartStore,
-} from '@/stores/usePendingOpenCodeRestartStore';
 import {
   SETTINGS_PAGE_METADATA,
   getSettingsNavIcon,
@@ -105,7 +86,7 @@ const pageOrder: SettingsPageSlug[] = [
   'skills.installed',
 ];
 
-const NAV_GROUP_ORDER = ['general', 'projects', 'opencode', 'content'] as const;
+const NAV_GROUP_ORDER = ['general', 'projects', 'content'] as const;
 
 
 function buildRuntimeContext(isDesktop: boolean, isMobile: boolean): SettingsRuntimeContext {
@@ -167,7 +148,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
   const { t } = useI18n();
   const deviceInfo = useDeviceInfo();
   const isMobile = forceMobile ?? deviceInfo.isMobile;
-  const pendingRestartCount = usePendingOpenCodeRestartStore(selectPendingOpenCodeRestartCount);
 
   const settingsPageRaw = useUIStore((state) => state.settingsPage);
   const isSettingsDialogOpen = useUIStore((state) => state.isSettingsDialogOpen);
@@ -246,22 +226,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
       return;
     }
 
-    if (settingsSlug === 'agents') {
-      void useAgentsStore.getState().loadAgents();
-      return;
-    }
-    if (settingsSlug === 'commands') {
-      void useCommandsStore.getState().loadCommands();
-      return;
-    }
-    if (settingsSlug === 'mcp') {
-      void useMcpConfigStore.getState().loadMcpConfigs();
-      return;
-    }
-    if (settingsSlug === 'plugins') {
-      void usePluginsStore.getState().loadPlugins();
-      return;
-    }
     if (settingsSlug === 'skills.installed') {
       void useSkillsStore.getState().loadSkills();
     }
@@ -297,7 +261,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
     shortcuts: 'shortcuts',
     sessions: 'sessions',
     notifications: 'notifications',
-    voice: 'voice',
     tunnel: 'tunnel',
   }), []);
 
@@ -311,18 +274,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         return t('settings.page.remoteInstances.title');
       case 'providers':
         return t('settings.page.providers.title');
-      case 'usage':
-        return t('settings.page.usage.title');
-      case 'agents':
-        return t('settings.page.agents.title');
       case 'behavior':
         return t('settings.page.behavior.title');
-      case 'commands':
-        return t('settings.page.commands.title');
-      case 'mcp':
-        return t('settings.page.mcp.title');
-      case 'plugins':
-        return t('settings.page.plugins.title');
       case 'skills.installed':
         return t('settings.page.skills.title');
       case 'git':
@@ -341,8 +294,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         return t('settings.page.snippets.title');
       case 'notifications':
         return t('settings.page.notifications.title');
-      case 'voice':
-        return t('settings.page.voice.title');
       case 'tunnel':
         return t('settings.page.tunnel.title');
       case 'about':
@@ -364,45 +315,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
   }, [getPageTitle, isWindowsArm64, isDesktopLocalOrigin, isMac, isWindows, isLinux, runtimeCtx, settingsSearchQuery, t, visiblePageSlugs]);
 
   const prepareSettingsSearchTarget = React.useCallback((result: SettingsSearchResult): string => {
-    if (result.id.startsWith('agents.')) {
-      const store = useAgentsStore.getState();
-      const name = nextUniqueName('new-agent', store.agents.map((agent) => agent.name));
-      store.setAgentDraft({ name, scope: 'user' });
-      store.setSelectedAgent(name);
-      return result.id === 'agents.create' ? 'agents.name' : result.id;
-    }
-
-    if (result.id.startsWith('commands.')) {
-      const store = useCommandsStore.getState();
-      const name = nextUniqueName('new-command', store.commands.map((command) => command.name));
-      store.setCommandDraft({ name, scope: 'user' });
-      store.setSelectedCommand(name);
-      return result.id === 'commands.create' ? 'commands.name' : result.id;
-    }
-
-    if (result.id.startsWith('mcp.')) {
-      const store = useMcpConfigStore.getState();
-      const name = nextUniqueName('new-mcp-server', store.mcpServers.map((server) => server.name));
-      store.setMcpDraft({
-        name,
-        scope: 'user',
-        type: 'local',
-        command: [],
-        url: '',
-        environment: [],
-        headers: [],
-        oauthEnabled: true,
-        oauthClientId: '',
-        oauthClientSecret: '',
-        oauthScope: '',
-        oauthRedirectUri: '',
-        timeout: '',
-        enabled: true,
-      });
-      store.setSelectedMcp(name);
-      return result.id === 'mcp.create' ? 'mcp.server' : result.id;
-    }
-
     if (result.id.startsWith('snippets.')) {
       const store = useSnippetsStore.getState();
       const name = nextUniqueName('new-snippet', store.snippets.map((snippet) => snippet.name));
@@ -413,10 +325,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
 
     if (result.id === 'providers.connect') {
       usePiProviderSelectionStore.getState().setSelectedProviderId(null);
-    }
-
-    if (result.id === 'plugins.create') {
-      return 'plugins.spec';
     }
 
     return result.id;
@@ -464,11 +372,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
     openPage(result.page);
     if (isMobile) {
       setMobileStage('page-content');
-    }
-    if (result.id === 'plugins.create' && typeof window !== 'undefined') {
-      window.setTimeout(() => {
-        window.dispatchEvent(new CustomEvent('openchamber:settings-open-plugin-add'));
-      }, 50);
     }
   }, [isMobile, openPage, prepareSettingsSearchTarget]);
 
@@ -558,20 +461,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
     switch (slug) {
       case 'projects':
         return <ProjectsSidebar onItemSelect={opts.onItemSelect} />;
-      case 'agents':
-        return <AgentsSidebar onItemSelect={opts.onItemSelect} />;
-      case 'commands':
-        return <CommandsSidebar onItemSelect={opts.onItemSelect} />;
-      case 'mcp':
-        return <McpSidebar onItemSelect={opts.onItemSelect} />;
-      case 'plugins':
-        return <PluginsSidebar onItemSelect={opts.onItemSelect} />;
       case 'skills.installed':
         return <SkillsSidebar onItemSelect={opts.onItemSelect} />;
       case 'providers':
         return <ProvidersSidebar onItemSelect={opts.onItemSelect} />;
-      case 'usage':
-        return <UsageSidebar onItemSelect={opts.onItemSelect} />;
       case 'magic-prompts':
         return <MagicPromptsSidebar onItemSelect={opts.onItemSelect} />;
       case 'snippets':
@@ -592,22 +485,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         return <ProjectsPage />;
       case 'remote-instances':
         return <RemoteInstancesPage />;
-      case 'agents':
-        return <AgentsPage />;
       case 'behavior':
         return <BehaviorPage />;
-      case 'commands':
-        return <CommandsPage />;
-      case 'mcp':
-        return <McpPage />;
-      case 'plugins':
-        return <PluginsPage />;
       case 'skills.installed':
         return <SkillsPage />;
       case 'providers':
         return <ProvidersPage />;
-      case 'usage':
-        return <UsagePage />;
       case 'about':
         return (
           <SettingsPageLayout title={t('settings.page.about.title')} showSaveStatus={false}>
@@ -626,7 +509,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
       case 'shortcuts':
       case 'sessions':
       case 'notifications':
-      case 'voice':
       case 'tunnel': {
         const section = openChamberSectionBySlug[slug] ?? 'visual';
         return <PiChamberPage section={section} />;
@@ -852,7 +734,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
                     // page. Keeping it highlighted read as a stuck selection.
                     const selected = settingsSlug === page.slug && !(isMobile && mobileStage === 'nav');
                     const iconName = getSettingsNavIcon(page.slug);
-                    if (!iconName && page.slug !== 'mcp') return null;
+                    if (!iconName) return null;
 
                     return (
                       <Tooltip key={page.slug}>
@@ -868,9 +750,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
                                 : 'text-foreground hover:bg-interactive-hover'
                             )}
                           >
-                            {page.slug === 'mcp'
-                              ? <McpIcon className="h-[18px] w-[18px] shrink-0 sm:h-4 sm:w-4" />
-                              : <Icon name={iconName!} className="h-[18px] w-[18px] shrink-0 sm:h-4 sm:w-4" />}
+                            <Icon name={iconName} className="h-[18px] w-[18px] shrink-0 sm:h-4 sm:w-4" />
                             <span className="flex items-center gap-1.5 whitespace-nowrap overflow-hidden transition-opacity duration-150 opacity-100">
                               <span className="typography-ui-label font-normal truncate">{getPageTitle(page.slug)}</span>
                               {page.slug === 'tunnel' && (
@@ -887,15 +767,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
                 </div>
               ));
             })()}
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="overflow-hidden transition-opacity duration-150 opacity-100">
-          <div className="border-t border-border bg-background px-4 py-1.5 space-y-0.5 sm:bg-sidebar">
-            {(pendingRestartCount > 0) && (
-              <OpenCodeReloadFooterAction />
-            )}
           </div>
         </div>
       </div>

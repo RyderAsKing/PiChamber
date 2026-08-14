@@ -1,8 +1,7 @@
 import type { SettingsAPI, SettingsLoadResult, SettingsPayload } from '@pichamber/ui/lib/api/types';
 import { runtimeFetch } from '@pichamber/ui/lib/runtime-fetch';
 
-const SETTINGS_ENDPOINT = '/api/config/settings';
-const RELOAD_ENDPOINT = '/api/config/reload';
+const SETTINGS_ENDPOINT = '/api/pi/ui-settings';
 
 const sanitizePayload = (data: unknown): SettingsPayload => {
   if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Invalid settings response');
@@ -47,11 +46,6 @@ export const createWebSettingsAPI = (): SettingsAPI => ({
   },
 
   async restartOpenCode(): Promise<{ restarted: boolean }> {
-    const response = await runtimeFetch(RELOAD_ENDPOINT, { method: 'POST' });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(error.error || 'Failed to restart OpenCode');
-    }
-    return { restarted: true };
+    return { restarted: false };
   },
 });

@@ -1,21 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
-/**
- * Choosing where a new session will run.
- *
- * The new-session draft targets a project and a directory within it — the
- * project root or one of its worktrees. Both are discovered lazily: whether a
- * project is even a git repository is unknown until asked, and its branch list
- * is served stale-while-revalidate so a cached list appears instantly and
- * refreshes behind it.
- *
- * The awkward part this hook contains is that the draft can point at a
- * directory that does not exist yet — a worktree being created. Such a
- * directory must survive not appearing in the list, or the selector would snap
- * back to the project root mid-creation and the session would be started in
- * the wrong place.
- */
-
 import React from 'react';
 
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
@@ -23,7 +5,6 @@ import { formatDirectoryName } from '@/lib/utils';
 import { useGitBranches, useGitStore, useIsGitRepo } from '@/stores/useGitStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { buildSessionTargetOptions } from '@/sync/session-worktree-contract';
 import { normalizePath } from '../attachments/filePaths';
 
 /** How long a cached branch list is served before it is refreshed. */
@@ -50,7 +31,6 @@ export function useDraftTarget(enabled: boolean) {
     const setActiveProjectIdOnly = useProjectsStore((state) => state.setActiveProjectIdOnly);
     const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
     const setNewSessionDraftTarget = useSessionUIStore((s) => s.setNewSessionDraftTarget);
-    const availableWorktreesByProject = useSessionUIStore((s) => s.availableWorktreesByProject);
     const fetchGitStatus = useGitStore((state) => state.fetchStatus);
     const { git: runtimeGit } = useRuntimeAPIs();
 
@@ -101,10 +81,6 @@ export function useDraftTarget(enabled: boolean) {
             return;
         }
 
-        // Stale-while-revalidate: branches seeded from the persisted cache show
-        // instantly. Refresh based on staleness (not mere presence) so a cached
-        // list can't go stale, while only showing the discovering spinner when
-        // there is nothing to display yet.
         const isStale =
             !selectedDraftProjectBranchesFetchedAt ||
             Date.now() - selectedDraftProjectBranchesFetchedAt > BRANCHES_SWR_TTL_MS;
@@ -148,66 +124,27 @@ export function useDraftTarget(enabled: boolean) {
         };
     }, [selectedDraftProject, selectedDraftProjectCurrentBranch]);
 
-    const worktreeBranchOptions = React.useMemo(() => {
-        if (!selectedDraftProject) {
-            return [];
-        }
-
-        const worktrees = (() => {
-            if (!selectedDraftProjectPath) {
-                return [];
-            }
-            return availableWorktreesByProject.get(selectedDraftProjectPath)
-                ?? availableWorktreesByProject.get(selectedDraftProject.path)
-                ?? [];
-        })();
-
-        return buildSessionTargetOptions({
-            projectRoot: normalizePath(selectedDraftProject.path) ?? '',
-            rootBranch: selectedDraftProjectCurrentBranch,
-            worktrees,
-            pendingBootstrapDirectory: newSessionDraft?.bootstrapPendingDirectory ?? null,
-        }).filter((option) => option.kind === 'worktree');
-    }, [availableWorktreesByProject, newSessionDraft?.bootstrapPendingDirectory, selectedDraftProject, selectedDraftProjectCurrentBranch, selectedDraftProjectPath]);
-
     const selectedDraftDirectory = React.useMemo(
-        () => normalizePath(newSessionDraft?.bootstrapPendingDirectory ?? null)
-            ?? normalizePath(newSessionDraft?.directoryOverride ?? null)
-            ?? selectedDraftProjectPath,
-        [newSessionDraft?.bootstrapPendingDirectory, newSessionDraft?.directoryOverride, selectedDraftProjectPath],
+        () => normalizePath(newSessionDraft?.directoryOverride ?? null) ?? selectedDraftProjectPath,
+        [newSessionDraft?.directoryOverride, selectedDraftProjectPath],
     );
-
-    const shouldKeepMissingSelectedDraftDirectory = React.useMemo(() => {
-        const pendingDirectory = normalizePath(newSessionDraft?.bootstrapPendingDirectory ?? null);
-        return Boolean(
-            newSessionDraft?.preserveDirectoryOverride
-            ||
-            newSessionDraft?.pendingWorktreeRequestId
-            || (pendingDirectory && pendingDirectory === selectedDraftDirectory)
-        );
-    }, [newSessionDraft?.bootstrapPendingDirectory, newSessionDraft?.pendingWorktreeRequestId, newSessionDraft?.preserveDirectoryOverride, selectedDraftDirectory]);
 
     const draftBranchItems = React.useMemo(() => {
         const baseItems: Array<{ value: string; label: string }> = [];
         if (projectRootBranchOption) {
             baseItems.push(projectRootBranchOption);
         }
-        baseItems.push(...worktreeBranchOptions);
-
         if (!selectedDraftDirectory) {
             return baseItems;
         }
         if (baseItems.some((option) => option.value === selectedDraftDirectory)) {
             return baseItems;
         }
-        if (!shouldKeepMissingSelectedDraftDirectory) {
-            return baseItems;
-        }
         return [
             ...baseItems,
             { value: selectedDraftDirectory, label: formatDirectoryName(selectedDraftDirectory) },
         ];
-    }, [projectRootBranchOption, selectedDraftDirectory, shouldKeepMissingSelectedDraftDirectory, worktreeBranchOptions]);
+    }, [projectRootBranchOption, selectedDraftDirectory]);
 
     const selectedDraftBranchLabel = React.useMemo(() => {
         const selectedValue = selectedDraftDirectory ?? draftBranchItems[0]?.value ?? null;
@@ -217,26 +154,12 @@ export function useDraftTarget(enabled: boolean) {
         return draftBranchItems.find((item) => item.value === selectedValue)?.label ?? formatDirectoryName(selectedValue);
     }, [draftBranchItems, selectedDraftDirectory]);
 
-
     const selectedDraftBranchIsKnown = React.useMemo(() => {
         if (!selectedDraftDirectory) {
             return true;
         }
-        if (projectRootBranchOption?.value === selectedDraftDirectory) {
-            return true;
-        }
-        return worktreeBranchOptions.some((option) => option.value === selectedDraftDirectory);
-    }, [projectRootBranchOption?.value, selectedDraftDirectory, worktreeBranchOptions]);
-
-    React.useEffect(() => {
-        if (!newSessionDraft?.open || !newSessionDraft?.preserveDirectoryOverride) {
-            return;
-        }
-        if (!selectedDraftDirectory || !selectedDraftBranchIsKnown) {
-            return;
-        }
-        useSessionUIStore.getState().setDraftPreserveDirectoryOverride(false);
-    }, [newSessionDraft?.open, newSessionDraft?.preserveDirectoryOverride, selectedDraftBranchIsKnown, selectedDraftDirectory]);
+        return projectRootBranchOption?.value === selectedDraftDirectory;
+    }, [projectRootBranchOption?.value, selectedDraftDirectory]);
 
     const shouldShowDraftBranchSelector = React.useMemo(() => {
         if (selectedDraftProjectIsGitRepo !== true) {
@@ -245,17 +168,10 @@ export function useDraftTarget(enabled: boolean) {
         if (isDiscoveringDraftBranches) {
             return false;
         }
-        if (projectRootBranchOption) {
-            return true;
-        }
-        return worktreeBranchOptions.length > 0;
-    }, [isDiscoveringDraftBranches, projectRootBranchOption, selectedDraftProjectIsGitRepo, worktreeBranchOptions.length]);
+        return Boolean(projectRootBranchOption);
+    }, [isDiscoveringDraftBranches, projectRootBranchOption, selectedDraftProjectIsGitRepo]);
 
     const handleDraftProjectChange = React.useCallback((projectId: string) => {
-        const draft = useSessionUIStore.getState().newSessionDraft;
-        if (draft?.pendingWorktreeRequestId || draft?.bootstrapPendingDirectory || draft?.preserveDirectoryOverride) {
-            return;
-        }
         const project = projects.find((entry) => entry.id === projectId);
         if (!project) {
             return;
@@ -270,10 +186,6 @@ export function useDraftTarget(enabled: boolean) {
     }, [activeProjectId, projects, setActiveProjectIdOnly, setNewSessionDraftTarget]);
 
     const handleDraftDirectoryChange = React.useCallback((directory: string) => {
-        const draft = useSessionUIStore.getState().newSessionDraft;
-        if (draft?.pendingWorktreeRequestId || draft?.bootstrapPendingDirectory || draft?.preserveDirectoryOverride) {
-            return;
-        }
         if (!selectedDraftProject) {
             return;
         }
@@ -282,6 +194,7 @@ export function useDraftTarget(enabled: boolean) {
             directoryOverride: directory,
         }, { force: true });
     }, [selectedDraftProject, setNewSessionDraftTarget]);
+
     return {
         projects,
         selectedDraftProject,
@@ -291,7 +204,7 @@ export function useDraftTarget(enabled: boolean) {
         selectedDraftBranchLabel,
         selectedDraftBranchIsKnown,
         projectRootBranchOption,
-        worktreeBranchOptions,
+        worktreeBranchOptions: [] as Array<{ value: string; label: string; kind: 'worktree'; pending?: boolean }>,
         draftBranchItems,
         shouldShowDraftBranchSelector,
         handleDraftProjectChange,

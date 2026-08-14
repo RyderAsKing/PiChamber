@@ -5,7 +5,11 @@
 
 import { createPiArchiveStore } from './archive-store.js';
 import { createPiAttachmentStore } from './attachment-store.js';
+import { checkForUpdates } from '../package-manager.js';
+import { listPiCustomThemes } from './custom-themes.js';
 import { createPiSettingsStore } from './settings-store.js';
+import { createPiSessionFoldersStore } from './session-folders-store.js';
+import { createPiUiSettingsStore } from './ui-settings-store.js';
 
 const UNAVAILABLE_CODES = new Set([
   'DAEMON_UNAVAILABLE',
@@ -85,6 +89,7 @@ const projectSessionDetail = (value) => {
       || !Number.isFinite(message.createdAt) || (message.role !== 'user' && message.role !== 'assistant')) throw protocolMismatch();
     const projected = {
       id: message.id, sessionId: message.sessionId, directory: message.directory, role: message.role, createdAt: message.createdAt,
+      ...(typeof message.parentId === 'string' ? { parentId: message.parentId } : {}),
       ...(typeof message.text === 'string' ? { text: message.text } : {}),
       ...(message.role === 'assistant' && typeof message.thinking === 'string' ? { thinking: message.thinking } : {}),
       ...(message.model && typeof message.model.providerId === 'string' && typeof message.model.modelId === 'string' ? { model: { providerId: message.model.providerId, modelId: message.model.modelId } } : {}),
@@ -97,7 +102,17 @@ const projectSessionDetail = (value) => {
         return { type: part.type, id: part.id, index: part.index, text: part.text };
       }
       if (part.type === 'tool' && typeof part.toolCallId === 'string' && typeof part.name === 'string') {
-        return { type: 'tool', id: part.id, index: part.index, toolCallId: part.toolCallId, name: part.name, ...(part.input !== undefined ? { input: part.input } : {}), ...(part.output !== undefined ? { output: part.output } : {}), ...(part.isError === true ? { isError: true } : {}), state: ['pending', 'running', 'completed', 'error', 'cancelled'].includes(part.state) ? part.state : 'completed' };
+        return {
+          type: 'tool', id: part.id, index: part.index, toolCallId: part.toolCallId, name: part.name,
+          ...(part.input !== undefined ? { input: part.input } : {}),
+          ...(part.output !== undefined ? { output: part.output } : {}),
+          ...(typeof part.error === 'string' ? { error: part.error } : {}),
+          ...(part.metadata !== undefined ? { metadata: part.metadata } : {}),
+          ...(part.isError === true ? { isError: true } : {}),
+          ...(Number.isFinite(part.startedAt) ? { startedAt: part.startedAt } : {}),
+          ...(Number.isFinite(part.endedAt) ? { endedAt: part.endedAt } : {}),
+          state: ['pending', 'running', 'completed', 'error', 'cancelled'].includes(part.state) ? part.state : 'completed',
+        };
       }
       throw protocolMismatch();
     });
@@ -265,7 +280,7 @@ const projectEventFrame = (frame) => {
       } } };
     }
     case 'session.lifecycle': return { ...common, payload: { state: frame.payload.state } };
-    case 'assistant.message.start': return { ...common, payload: { messageId: frame.payload.messageId, role: frame.payload.role, startedAt: frame.payload.startedAt, ...(typeof frame.payload.text === 'string' ? { text: frame.payload.text } : {}), ...(frame.payload.model ? { model: frame.payload.model } : {}) } };
+    case 'assistant.message.start': return { ...common, payload: { messageId: frame.payload.messageId, role: frame.payload.role, startedAt: frame.payload.startedAt, ...(typeof frame.payload.parentId === 'string' ? { parentId: frame.payload.parentId } : {}), ...(typeof frame.payload.text === 'string' ? { text: frame.payload.text } : {}), ...(frame.payload.model ? { model: frame.payload.model } : {}) } };
     case 'assistant.message.delta':
     case 'assistant.thinking.delta': return { ...common, payload: { messageId: frame.payload.messageId, contentIndex: frame.payload.contentIndex, delta: frame.payload.delta, ...(typeof frame.payload.partId === 'string' ? { partId: frame.payload.partId } : {}) } };
     case 'assistant.message.end': return { ...common, payload: { messageId: frame.payload.messageId, ...(typeof frame.payload.text === 'string' ? { text: frame.payload.text } : {}), ...(typeof frame.payload.thinking === 'string' ? { thinking: frame.payload.thinking } : {}) } };
@@ -277,7 +292,19 @@ const projectEventFrame = (frame) => {
     case 'session.interrupted': return { ...common, payload: { reason: frame.payload.reason, streaming: frame.payload.streaming === true } };
     case 'session.tool.start':
     case 'session.tool.update':
-    case 'session.tool.end': return { ...common, payload: { toolCallId: frame.payload.toolCallId, partId: frame.payload.partId, messageId: frame.payload.messageId, name: frame.payload.name, state: frame.payload.state, ...(frame.payload.input !== undefined ? { input: frame.payload.input } : {}), ...(frame.payload.output !== undefined ? { output: frame.payload.output } : {}), ...(frame.payload.isError === true ? { isError: true } : {}) } };
+    case 'session.tool.end': return {
+      ...common,
+      payload: {
+        toolCallId: frame.payload.toolCallId, partId: frame.payload.partId, messageId: frame.payload.messageId, name: frame.payload.name, state: frame.payload.state,
+        ...(frame.payload.input !== undefined ? { input: frame.payload.input } : {}),
+        ...(frame.payload.output !== undefined ? { output: frame.payload.output } : {}),
+        ...(typeof frame.payload.error === 'string' ? { error: frame.payload.error } : {}),
+        ...(frame.payload.metadata !== undefined ? { metadata: frame.payload.metadata } : {}),
+        ...(frame.payload.isError === true ? { isError: true } : {}),
+        ...(Number.isFinite(frame.payload.startedAt) ? { startedAt: frame.payload.startedAt } : {}),
+        ...(Number.isFinite(frame.payload.endedAt) ? { endedAt: frame.payload.endedAt } : {}),
+      },
+    };
     default: return null;
   }
 };
@@ -288,8 +315,17 @@ const requestSessionOperation = async (req, res, getPiSessionDaemonRuntime, comm
     res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
     return undefined;
   }
+  const directory = typeof req.query?.directory === 'string' && req.query.directory.length > 0
+    ? req.query.directory
+    : (typeof req.body?.directory === 'string' && req.body.directory.length > 0
+      ? req.body.directory
+      : (typeof req.body?.cwd === 'string' && req.body.cwd.length > 0 ? req.body.cwd : undefined));
   try {
-    return await getDaemonRuntime(getPiSessionDaemonRuntime).request(command, { ...payload, sessionId });
+    return await getDaemonRuntime(getPiSessionDaemonRuntime).request(command, {
+      ...payload,
+      sessionId,
+      ...(directory ? { directory } : {}),
+    });
   } catch (error) {
     writeDaemonError(res, error);
     return undefined;
@@ -306,7 +342,64 @@ export const registerPiRuntimeRoutes = (app, {
   archiveStore = createPiArchiveStore(),
   attachmentStore = createPiAttachmentStore(),
   settingsStore = createPiSettingsStore(),
+  sessionFoldersStore = createPiSessionFoldersStore(),
+  uiSettingsStore = createPiUiSettingsStore(),
+  listCustomThemes = listPiCustomThemes,
+  updateChecker = checkForUpdates,
 }) => {
+  app.get('/api/pi/ui-settings', async (_req, res) => {
+    try {
+      res.json(await uiSettingsStore.read());
+    } catch {
+      res.status(500).json({ error: 'UI settings are unreadable' });
+    }
+  });
+
+  app.put('/api/pi/ui-settings', async (req, res) => {
+    try {
+      res.json(await uiSettingsStore.write(req.body));
+    } catch {
+      res.status(400).json({ error: 'Invalid UI settings' });
+    }
+  });
+
+  app.get('/api/pi/session-folders', async (_req, res) => {
+    try {
+      res.json(await sessionFoldersStore.read());
+    } catch {
+      res.status(500).json({ error: 'Session folders are unreadable' });
+    }
+  });
+
+  app.put('/api/pi/session-folders', async (req, res) => {
+    try {
+      res.json(await sessionFoldersStore.write(req.body));
+    } catch {
+      res.status(400).json({ error: 'Invalid session folders' });
+    }
+  });
+
+  app.get('/api/pi/themes', async (_req, res) => {
+    try {
+      res.json({ themes: await listCustomThemes() });
+    } catch {
+      res.status(500).json({ error: 'Custom themes are unavailable' });
+    }
+  });
+
+  app.get('/api/pi/update-check', async (req, res) => {
+    try {
+      res.json(await updateChecker({
+        currentVersion: typeof req.query.currentVersion === 'string' ? req.query.currentVersion : undefined,
+        appType: typeof req.query.appType === 'string' ? req.query.appType : undefined,
+        platform: typeof req.query.platform === 'string' ? req.query.platform : undefined,
+        reportUsage: req.query.reportUsage === 'true',
+      }));
+    } catch {
+      res.status(503).json({ error: 'Update check unavailable' });
+    }
+  });
+
   app.get('/api/pi/runtime', async (_req, res) => {
     const runtime = getPiSessionDaemonRuntime();
     if (!runtime) {
@@ -558,6 +651,7 @@ export const registerPiRuntimeRoutes = (app, {
 
   app.get('/api/pi/events', async (req, res) => {
     const sessionId = typeof req.query.sessionId === 'string' && req.query.sessionId.length > 0 ? req.query.sessionId : undefined;
+    const directory = typeof req.query.directory === 'string' && req.query.directory.length > 0 ? req.query.directory : undefined;
     const rawCursor = req.query.fromSequence;
     const fromSequence = rawCursor === undefined ? undefined : Number(rawCursor);
     if (rawCursor !== undefined && (!Number.isSafeInteger(fromSequence) || fromSequence < 0)) {
@@ -578,7 +672,7 @@ export const registerPiRuntimeRoutes = (app, {
         const event = projectEventFrame(frame);
         if (event) res.write(`data: ${JSON.stringify(event)}\n\n`);
       };
-      close = await runtime.subscribe({ sessionId, fromSequence, onEvent: send, onError: () => res.end() });
+      close = await runtime.subscribe({ sessionId, directory, fromSequence, onEvent: send, onError: () => res.end() });
       const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 15_000);
       const cleanup = () => {
         clearInterval(heartbeat);
@@ -618,13 +712,20 @@ export const registerPiRuntimeRoutes = (app, {
   app.patch('/api/pi/sessions/:sessionId', async (req, res) => {
     const sessionId = req.params.sessionId;
     const title = req.body?.title;
+    const directory = typeof req.body?.directory === 'string' && req.body.directory.length > 0
+      ? req.body.directory
+      : (typeof req.query?.directory === 'string' && req.query.directory.length > 0 ? req.query.directory : undefined);
     if (typeof sessionId !== 'string' || sessionId.length === 0 || typeof title !== 'string') {
       res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
       return;
     }
 
     try {
-      await getDaemonRuntime(getPiSessionDaemonRuntime).request('sessions.rename', { sessionId, title });
+      await getDaemonRuntime(getPiSessionDaemonRuntime).request('sessions.rename', {
+        sessionId,
+        title,
+        ...(directory ? { directory } : {}),
+      });
       res.status(204).end();
     } catch (error) {
       writeDaemonError(res, error);
@@ -738,13 +839,16 @@ export const registerPiRuntimeRoutes = (app, {
 
   app.post('/api/pi/sessions', async (req, res) => {
     const input = req.body;
-    if (!input || typeof input !== 'object' || Array.isArray(input) || typeof input.cwd !== 'string' || input.cwd.length === 0) {
+    const cwd = typeof input?.cwd === 'string' && input.cwd.length > 0
+      ? input.cwd
+      : (typeof input?.directory === 'string' && input.directory.length > 0 ? input.directory : undefined);
+    if (!input || typeof input !== 'object' || Array.isArray(input) || !cwd) {
       res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
       return;
     }
 
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('sessions.create', input);
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('sessions.create', { ...input, cwd });
       if (!result || typeof result !== 'object' || !Array.isArray(result.messages) || result.messages.length !== 0 || !Number.isSafeInteger(result.lastSequence)) {
         throw protocolMismatch();
       }

@@ -4383,7 +4383,6 @@ const buildMacMenu = () => {
         { label: 'New Window', accelerator: 'Cmd+Shift+Alt+N', click: () => void handleInvoke(null, 'desktop_new_window') },
         { type: 'separator' },
         { label: 'New Session', accelerator: 'Cmd+N', click: () => dispatchAction('new-session') },
-        { label: 'New Worktree', accelerator: 'Cmd+Shift+N', click: () => dispatchAction('new-worktree-session') },
         // registerAccelerator:false → show the shortcut hint but let the
         // renderer own the (customizable) key binding, avoiding a double open.
         { label: 'New Mini Chat', accelerator: 'Cmd+Alt+N', registerAccelerator: false, click: () => dispatchOpenMiniChat() },
@@ -4484,7 +4483,6 @@ const buildAutoHiddenMenu = () => {
         { label: 'New Window', accelerator: 'Ctrl+Shift+Alt+N', click: () => void handleInvoke(null, 'desktop_new_window') },
         { type: 'separator' },
         { label: 'New Session', accelerator: 'Ctrl+N', click: () => dispatchAction('new-session') },
-        { label: 'New Worktree', accelerator: 'Ctrl+Shift+N', click: () => dispatchAction('new-worktree-session') },
         { type: 'separator' },
         { label: 'Add Workspace', click: () => dispatchAction('change-workspace') },
         { type: 'separator' },

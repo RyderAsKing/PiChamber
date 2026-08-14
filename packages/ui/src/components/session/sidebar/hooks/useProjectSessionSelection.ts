@@ -1,5 +1,4 @@
 /* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import type { Session } from '@/lib/chat/types';
 import type { SessionGroup, SessionNode } from '../types';
@@ -58,8 +57,7 @@ export const useProjectSessionSelection = (args: Args): void => {
       const projectMap = metaByProject.get(projectId)!;
       nodes.forEach((node) => {
         const sessionDirectory = normalizePath(
-          node.worktree?.path
-          ?? (node.session as Session & { directory?: string | null }).directory
+          (node.session as Session & { directory?: string | null }).directory
           ?? fallbackDirectory
           ?? projectRoot,
         );
@@ -93,10 +91,6 @@ export const useProjectSessionSelection = (args: Args): void => {
       return;
     }
 
-    if (useUIStore.getState().isNewWorktreeDialogOpen) {
-      return;
-    }
-
     if (previousActiveProjectRef.current === activeProjectId) {
       return;
     }
@@ -120,12 +114,17 @@ export const useProjectSessionSelection = (args: Args): void => {
       return;
     }
 
-    // Path A' — currentSessionId is set but not in stale projectMap.
-    // Preserve user's explicit selection when the projectMap exists but
-    // is missing the session (worktree data not yet loaded). For
-    // empty projects (projectMap is undefined), fall through to Path B
-    // so a new session draft is opened.
-    if (currentSessionId && projectMap) {
+    const isSessionOfAnotherProject = currentSessionId
+      ? Array.from(projectSessionMeta.metaByProject.entries()).some(
+          ([projId, map]) => projId !== activeProjectId && map.has(currentSessionId),
+        )
+      : false;
+
+    // Path A' — currentSessionId is set, belongs to this project or is not indexed
+    // under any other project (e.g. worktree data not yet loaded into projectMap).
+    // Preserve user's explicit selection. For sessions belonging to another project,
+    // continue to select the target project's session below.
+    if (currentSessionId && projectMap && !isSessionOfAnotherProject) {
       return;
     }
 

@@ -148,7 +148,7 @@ describe('projectTurnRecords', () => {
         const assistant2 = createMessageEntry({ id: 'a2', role: 'assistant', parentID: 'u2', createdAt: 4 });
 
         const projection = projectTurnRecords([user1, assistant1, hiddenUser, assistant2], {
-            mergeHiddenUserTurns: { planModeEnabled: false },
+            mergeHiddenUserTurns: true,
         });
 
         expect(projection.turns).toHaveLength(1);
@@ -163,7 +163,9 @@ describe('projectTurnRecords', () => {
         const hiddenUser = createMessageEntry({ id: 'u2', role: 'user', createdAt: 3 });
         const assistant2 = createMessageEntry({ id: 'a2', role: 'assistant', parentID: 'u2', createdAt: 4 });
 
-        const projection = projectTurnRecords([user1, assistant1, hiddenUser, assistant2]);
+        const projection = projectTurnRecords([user1, assistant1, hiddenUser, assistant2], {
+            mergeHiddenUserTurns: false,
+        });
 
         expect(projection.turns).toHaveLength(2);
         expect(projection.turns[1]?.turnId).toBe('u2');
@@ -174,7 +176,7 @@ describe('projectTurnRecords', () => {
         const assistant = createMessageEntry({ id: 'a1', role: 'assistant', parentID: 'u1', createdAt: 2 });
 
         const projection = projectTurnRecords([hiddenUser, assistant], {
-            mergeHiddenUserTurns: { planModeEnabled: false },
+            mergeHiddenUserTurns: true,
         });
 
         expect(projection.turns).toHaveLength(1);
@@ -192,7 +194,7 @@ describe('projectTurnRecords', () => {
         const assistant3 = createMessageEntry({ id: 'a3', role: 'assistant', parentID: 'u3', createdAt: 6 });
 
         const projection = projectTurnRecords([user1, assistant1, hidden1, assistant2, hidden2, assistant3], {
-            mergeHiddenUserTurns: { planModeEnabled: false },
+            mergeHiddenUserTurns: true,
         });
 
         expect(projection.turns).toHaveLength(1);
@@ -218,6 +220,27 @@ describe('projectTurnRecords', () => {
         expect(turn?.summaryText).toBe('final answer');
         const compactionActivity = turn?.activityParts.find((activity) => activity.messageId === 'a1');
         expect(compactionActivity?.kind).toBe('justification');
+        const finalActivity = turn?.activityParts.find((activity) => activity.messageId === 'a2');
+        expect(finalActivity).toBe(undefined);
+    });
+
+    test('preserves model answer as turn summary and excludes it from activity in sorted mode when finish is undefined', () => {
+        const user = createMessageEntry({ id: 'u1', role: 'user', createdAt: 1 });
+        user.parts = [{ id: 'p1', type: 'text', text: 'run tool and answer' } as Part];
+        const assistantWithTool = createMessageEntry({ id: 'a1', role: 'assistant', parentID: 'u1', createdAt: 2 });
+        assistantWithTool.parts = [
+            { id: 'tp1', type: 'tool', tool: 'read', state: { status: 'completed' } } as Part,
+            { id: 'jp1', type: 'text', text: 'reading file' } as Part,
+        ];
+        const finalAssistant = createMessageEntry({ id: 'a2', role: 'assistant', parentID: 'u1', createdAt: 3 });
+        finalAssistant.parts = [{ id: 'ap1', type: 'text', text: 'actual answer of the model' } as Part];
+
+        const projection = projectTurnRecords([user, assistantWithTool, finalAssistant], {
+            showTextJustificationActivity: true,
+        });
+
+        const turn = projection.turns[0];
+        expect(turn?.summaryText).toBe('actual answer of the model');
         const finalActivity = turn?.activityParts.find((activity) => activity.messageId === 'a2');
         expect(finalActivity).toBe(undefined);
     });

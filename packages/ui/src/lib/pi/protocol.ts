@@ -102,6 +102,10 @@ export interface PiProjectListResponse {
   projects: PiProject[];
 }
 
+export interface PiProjectSelectResponse {
+  directory: string;
+}
+
 // ---------------------------------------------------------------------------
 // Sessions
 // ---------------------------------------------------------------------------
@@ -472,7 +476,7 @@ export interface PiAssistantMessageDeltaPayload {
   messageId: string;
   /** Optional part identity when the daemon exposes multiple text parts. */
   partId?: string;
-  /** Monotonic delta index within the assistant message. */
+  /** Pi content-block index; repeated deltas for one block share this value. */
   contentIndex: number;
   delta: string;
 }
@@ -481,7 +485,7 @@ export interface PiAssistantThinkingDeltaPayload {
   messageId: string;
   /** Optional part identity when the daemon exposes multiple thinking parts. */
   partId?: string;
-  /** Monotonic delta index within the thinking stream. */
+  /** Pi content-block index; repeated deltas for one block share this value. */
   contentIndex: number;
   delta: string;
 }
@@ -514,6 +518,10 @@ export interface PiToolUpdatePayload {
   state: 'pending' | 'running' | 'completed' | 'error' | 'cancelled';
   input?: unknown;
   output?: unknown;
+  /** Tool error message when the execution ended in an error state. */
+  error?: string;
+  /** Renderer metadata (edit diffs, truncation notes) without temp paths. */
+  metadata?: Record<string, unknown>;
   isError?: boolean;
   startedAt?: number;
   endedAt?: number;

@@ -395,7 +395,6 @@ export interface GitAPI {
   stageGitHunk?(directory: string, filePath: string, patch: string): Promise<void>;
   unstageGitHunk?(directory: string, filePath: string, patch: string): Promise<void>;
   revertGitHunk?(directory: string, filePath: string, patch: string): Promise<void>;
-  isLinkedWorktree?(directory: string): Promise<boolean>;
   getGitBranches(directory: string): Promise<GitBranch>;
   deleteGitBranch(directory: string, payload: GitDeleteBranchPayload): Promise<{ success: boolean }>;
   deleteRemoteBranch(directory: string, payload: GitDeleteRemoteBranchPayload): Promise<{ success: boolean }>;
@@ -445,13 +444,6 @@ export interface GitAPI {
   stash(directory: string, options?: { message?: string; includeUntracked?: boolean }): Promise<{ success: boolean }>;
   stashPop(directory: string): Promise<{ success: boolean }>;
   getConflictDetails(directory: string): Promise<MergeConflictDetails>;
-  listGitWorktrees?(directory: string): Promise<unknown>;
-  validateGitWorktree?(...args: unknown[]): Promise<unknown>;
-  createGitWorktree?(...args: unknown[]): Promise<unknown>;
-  deleteGitWorktree?(...args: unknown[]): Promise<unknown>;
-  validateWorktreeDirectory?(...args: unknown[]): Promise<unknown>;
-  canonicalizeWorktreeState?(...args: unknown[]): Promise<unknown>;
-  worktree?: Record<string, unknown>;
 }
 
 export interface FileListEntry {

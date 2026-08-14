@@ -36,16 +36,32 @@ export function getAllSyncSessionMap(): ReadonlyMap<string, Session> {
 export function getSyncSessionDirectory(sessionId: string): string | null {
   return getPiSessionStore().getState().sessions.find((item) => item.session.id === sessionId)?.session.directory ?? getPiSessionStore().getState().directory;
 }
-export function getSyncMessages(sessionId: string): Message[] {
+export function getSyncMessages(sessionId: string, _directory?: string): Message[] {
   void sessionId;
+  void _directory;
   return [];
 }
-export function getSyncSessionMaterializationStatus() {
+export function getSyncSessionMaterializationStatus(_sessionId?: string, _directory?: string) {
   return { hasMessages: true, renderable: true, missingPartMessageIDs: [] as string[] };
 }
-export function getSyncParts(): never[] {
+export function getSyncParts(_messageId?: string, _directory?: string): any[] {
   return [];
 }
 export function getSyncSessionStatus() {
   return undefined;
+}
+export function resolveSessionDirectory(_sessionId?: string | null, _wt?: any, selected?: string | null): string | null {
+  return selected ?? null;
+}
+export function resolveSessionDirectoryFromSources(..._args: any[]): string | null {
+  return null;
+}
+export function refetchSessionMessages(_sessionId?: string): Promise<void> {
+  return Promise.resolve();
+}
+export function unrevertSessionAction(_sessionId?: string): Promise<void> {
+  return Promise.resolve();
+}
+export function forkFromMessageAction(_sessionId?: string, _messageId?: string): Promise<void> {
+  return Promise.resolve();
 }

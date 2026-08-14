@@ -58,10 +58,8 @@ export interface MobileComposerShell {
     focused: boolean;
     /** A MobileOverlayPanel is mounted in the shared portal root. */
     overlayHostBusy: boolean;
-    dictationActive: boolean;
     /** Expand and focus, synchronously, from inside a user gesture. */
     expand: () => void;
-    onDictationActiveChange: (active: boolean) => void;
     onEditorFocus: () => void;
     onEditorBlur: () => void;
     /** Suppress the keyboard restore when another overlay opens next. */
@@ -78,10 +76,8 @@ export function useMobileComposerShell(
     const [expanded, setExpanded] = React.useState(alwaysExpanded && isMobile);
     const [focused, setFocused] = React.useState(false);
     const [overlayHostBusy, setOverlayHostBusy] = React.useState(false);
-    const [dictationActive, setDictationActive] = React.useState(false);
 
-    // Set while an expansion is settling (focus or dictation not yet active) so
-    // the collapse watcher does not immediately fold it back into the pill.
+    // Set while an expansion is settling so the collapse watcher does not immediately fold it back.
     const expandIntentRef = React.useRef<'focus' | null>(null);
     const lastBlurAtRef = React.useRef(0);
     const restoreKeyboardRef = React.useRef(false);
@@ -126,59 +122,17 @@ export function useMobileComposerShell(
 
     const expand = React.useCallback(() => {
         expandIntentRef.current = 'focus';
-        // flushSync so the editor exists NOW and focus() still runs inside the
-        // gesture's call stack: mobile browsers only open the soft keyboard for
-        // focus calls made synchronously from the tap (an rAF here worked in
-        // the Capacitor WebView but not in Safari or Chrome).
         flushSync(() => setExpanded(true));
 
         if (isCapacitorApp()) {
-            // Timing tuned on device, against WKWebView pausing frame
-            // presentation while the keyboard transition runs:
-            //  - focus in the same task as the swap → the pause starts before
-            //    the swap's first frame, so the pill stays on glass until the
-            //    keyboard is nearly up;
-            //  - focus two frames later → the swap is presented first and the
-            //    keyboard only then begins, a visibly sequential two-step.
-            // Focusing INSIDE the first frame after the commit threads the
-            // needle: the swap's frame is already in the rendering pipeline
-            // when the keyboard transaction starts, so the keyboard rises from
-            // the tap and the composer appears during the rise. The Capacitor
-            // WebView raises the keyboard for a focus() outside the gesture
-            // task (browsers do not, hence the split); the choreography
-            // positions everything, so preventScroll stays on.
             requestAnimationFrame(() => {
                 editorRef.current?.focus({ preventScroll: true });
             });
             return;
         }
 
-        // Mobile browsers only open the soft keyboard for focus calls made
-        // synchronously from the tap; their native reveal is also the only
-        // thing that positions the composer, so no preventScroll.
         editorRef.current?.focus({ preventScroll: false });
     }, [editorRef]);
-
-    const onDictationActiveChange = React.useCallback((active: boolean) => {
-        setDictationActive(active);
-        if (active) {
-            expandIntentRef.current = null;
-            // Dictation went live, possibly from the pill: switch straight into
-            // the voice variant of the full composer.
-            if (!expandedRef.current) setExpanded(true);
-            return;
-        }
-        // Dictation ended. The insert flow hands focus back a tick later — if
-        // that happened, stay expanded; otherwise (cancel, discard,
-        // insert-and-send) collapse straight back to the pill rather than
-        // parking on the normal composer for the usual grace period.
-        window.setTimeout(() => {
-            if (!expandedRef.current || alwaysExpandedRef.current) return;
-            if (editorRef.current?.isFocused()) return;
-            setExpanded(false);
-            setExpandedInput(false);
-        }, 30);
-    }, [editorRef, setExpandedInput]);
 
     // Watch the shared overlay portal root: any mounted MobileOverlayPanel
     // counts as busy. Observing the host catches overlays whose open state
@@ -301,7 +255,6 @@ export function useMobileComposerShell(
     // delay bridges focus moving between composer controls.
     const busy = focused
         || overlayHostBusy
-        || dictationActive
         || holders.controlsPanelOpen
         || holders.attachMenuOpen
         || holders.draftPickerOpen
@@ -367,7 +320,7 @@ export function useMobileComposerShell(
             const detail = (event as CustomEvent<{ open?: boolean }>).detail;
             if (!detail || detail.open !== false) return;
             if (!expandedRef.current || alwaysExpandedRef.current) return;
-            // Something still holds the composer open (dictation, an overlay
+            // Something still holds the composer open (an overlay
             // that closed the keyboard, a drag) — the fallback path handles it.
             if (busyRef.current) return;
             expandIntentRef.current = null;
@@ -378,7 +331,7 @@ export function useMobileComposerShell(
         };
         window.addEventListener('oc:keyboard-intent', handleIntent);
         return () => window.removeEventListener('oc:keyboard-intent', handleIntent);
-    }, [isMobile, setExpandedInput]);
+    }, [alwaysExpanded, isMobile, setExpandedInput]);
 
     const onEditorFocus = React.useCallback(() => {
         if (!isMobile) return;
@@ -449,9 +402,7 @@ export function useMobileComposerShell(
         expanded,
         focused,
         overlayHostBusy,
-        dictationActive,
         expand,
-        onDictationActiveChange,
         onEditorFocus,
         onEditorBlur,
         skipNextOverlayCloseRestore,

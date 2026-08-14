@@ -7,5 +7,4 @@ export type PiChamberSection =
   | 'git'
   | 'github'
   | 'notifications'
-  | 'voice'
   | 'tunnel';

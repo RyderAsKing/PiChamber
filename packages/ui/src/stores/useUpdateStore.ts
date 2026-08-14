@@ -127,7 +127,7 @@ async function checkForWebUpdates(runtime: ClientRuntime, currentVersion?: strin
   try {
     const params = mapRuntimeParams(runtime);
     if (currentVersion) params.set('currentVersion', currentVersion);
-    const response = await runtimeFetch(`/api/openchamber/update-check?${params.toString()}`, {
+    const response = await runtimeFetch(`/api/pi/update-check?${params.toString()}`, {
       method: 'GET',
       headers: { Accept: 'application/json' },
       // Background check — keep sockets free for interactive traffic at startup.

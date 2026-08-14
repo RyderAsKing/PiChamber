@@ -300,7 +300,7 @@ const resolvePairingServerUrl = async (): Promise<string> => {
 
   let response: Response;
   try {
-    response = await runtimeFetch('/api/config/settings', {
+    response = await runtimeFetch('/api/pi/ui-settings', {
       method: 'GET',
       headers: { Accept: 'application/json' },
     });

@@ -70,7 +70,7 @@ export const GitSettings: React.FC = () => {
 
         // 2. Fetch API (Web/server)
         if (!data) {
-          const response = await runtimeFetch('/api/config/settings', {
+          const response = await runtimeFetch('/api/pi/ui-settings', {
             method: 'GET',
             headers: { Accept: 'application/json' },
           });

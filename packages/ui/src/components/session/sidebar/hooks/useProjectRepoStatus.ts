@@ -1,8 +1,4 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
-import { getRootBranch } from '@/lib/worktrees/worktreeStatus';
-import { mapWithConcurrency } from '@/lib/concurrency';
 import { useGitStore } from '@/stores/useGitStore';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { runBackgroundNetworkTask } from '@/lib/background-network';
@@ -129,23 +125,16 @@ export const useProjectRepoStatus = (args: Args): void => {
           return;
         }
 
-        const entries = await mapWithConcurrency(pending, 2, async (project) => {
+        const resolved: Array<{ id: string; inputKey: string; branch: string }> = [];
+        normalizedProjects.forEach((project) => {
           const inputBranch = gitRepoStatus.get(project.normalizedPath)?.branch?.trim() ?? '';
           const inputKey = `${project.normalizedPath}\0${inputBranch}`;
-          const branch = await runBackgroundNetworkTask(() =>
-            getRootBranch(
-              project.normalizedPath,
-              inputBranch ? { knownBranch: inputBranch } : undefined,
-            )
-          ).catch(() => null);
-          return { id: project.id, inputKey, branch };
+          if (inputBranch) {
+            resolved.push({ id: project.id, inputKey, branch: inputBranch });
+          }
         });
-        if (cancelled) {
-          return;
-        }
 
-        const resolved = entries.filter((entry) => entry.branch);
-        if (resolved.length === 0) {
+        if (cancelled || resolved.length === 0) {
           return;
         }
 

@@ -70,12 +70,6 @@ export const HelpDialog: React.FC = () => {
           keys: '',
         },
         {
-          id: 'cycle_agent',
-          keys: '',
-          descriptionKey: "helpDialog.item.cycleAgent",
-          icon: "ai-agent",
-        },
-        {
           id: 'open_model_selector',
           descriptionKey: "helpDialog.item.openModelSelector",
           icon: "ai-generate-2",
@@ -111,12 +105,6 @@ export const HelpDialog: React.FC = () => {
           id: 'new_chat',
           descriptionKey: "helpDialog.item.createNewSession",
           icon: "add",
-          keys: '',
-        },
-        {
-          id: 'new_chat_worktree',
-          descriptionKey: "helpDialog.item.createNewWorktreeDraft",
-          icon: "git-branch",
           keys: '',
         },
         { id: 'focus_input', descriptionKey: "helpDialog.item.focusChatInput", icon: "text", keys: '' },
@@ -165,12 +153,6 @@ export const HelpDialog: React.FC = () => {
           id: 'toggle_terminal_expanded',
           descriptionKey: 'helpDialog.item.toggleTerminalExpanded',
           icon: "window",
-          keys: '',
-        },
-        {
-          id: 'toggle_context_plan',
-          descriptionKey: 'helpDialog.item.togglePlanContextPanel',
-          icon: "time",
           keys: '',
         },
         {

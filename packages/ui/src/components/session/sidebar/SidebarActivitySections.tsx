@@ -148,15 +148,19 @@ export function SidebarActivitySections(props: Props): React.ReactNode {
         const remainingCount = section.items.length - visibleItems.length;
         const canShowFewer = !flatVariant && section.items.length > initialVisibleCount && remainingCount === 0;
         const getRenderExtras = buildRenderExtras(visibleItems.map((item) => item.node));
-        const renderItem = (item: ActivityItem) => renderSessionNode(
-          item.node,
-          0,
-          item.groupDirectory,
-          item.projectId,
-          false,
-          item.secondaryMeta,
-          'recent',
-          getRenderExtras(item.node),
+        const renderItem = (item: ActivityItem) => (
+          <React.Fragment key={item.node.session.id}>
+            {renderSessionNode(
+              item.node,
+              0,
+              item.groupDirectory,
+              item.projectId,
+              false,
+              item.secondaryMeta,
+              'recent',
+              getRenderExtras(item.node),
+            )}
+          </React.Fragment>
         );
 
         if (flatVariant) {

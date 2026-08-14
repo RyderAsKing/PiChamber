@@ -90,7 +90,7 @@ interface ProjectTurnRecordsOptions {
      * e.g. synthetic subagent-completion nudges) is merged into the previous
      * turn instead of starting a new one.
      */
-    mergeHiddenUserTurns?: { planModeEnabled: boolean };
+    mergeHiddenUserTurns?: boolean;
 }
 
 const DEFAULT_OPTIONS: ProjectTurnRecordsOptions = {
@@ -211,7 +211,7 @@ export const projectTurnRecords = (
         if (
             mergeHiddenUserTurns
             && previousTurn
-            && isHiddenUserMessage(message, { planModeEnabled: mergeHiddenUserTurns.planModeEnabled })
+            && isHiddenUserMessage(message)
         ) {
             turnByUserId.set(message.info.id, previousTurn);
             previousTurn.messages.push(createTurnMessageRecord(message, index));

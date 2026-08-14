@@ -67,6 +67,39 @@ describe('Pi runtime route', () => {
     });
   });
 
+  it('serves PiChamber UI settings, session folders, custom themes, and update metadata without removed routes', async () => {
+    let settings = { themeMode: 'dark' };
+    let sessionFolders = { exists: false };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, {
+      getPiSessionDaemonRuntime: () => null,
+      uiSettingsStore: {
+        read: async () => settings,
+        write: async (changes) => (settings = { ...settings, ...changes }),
+      },
+      sessionFoldersStore: {
+        read: async () => sessionFolders,
+        write: async (snapshot) => (sessionFolders = { exists: true, ...snapshot }),
+      },
+      listCustomThemes: async () => [{ metadata: { id: 'custom' } }],
+      updateChecker: async () => ({ available: false, currentVersion: '1.0.0' }),
+    });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}`;
+
+    await expect((await fetch(`${base}/api/pi/ui-settings`)).json()).resolves.toEqual({ themeMode: 'dark' });
+    await expect((await fetch(`${base}/api/pi/ui-settings`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ language: 'en' }),
+    })).json()).resolves.toEqual({ themeMode: 'dark', language: 'en' });
+    await expect((await fetch(`${base}/api/pi/session-folders`)).json()).resolves.toEqual({ exists: false });
+    await expect((await fetch(`${base}/api/pi/session-folders`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version: 1, foldersMap: {}, collapsedFolderIds: [], updatedAt: 1 }),
+    })).json()).resolves.toEqual({ exists: true, version: 1, foldersMap: {}, collapsedFolderIds: [], updatedAt: 1 });
+    await expect((await fetch(`${base}/api/pi/themes`)).json()).resolves.toEqual({ themes: [{ metadata: { id: 'custom' } }] });
+    await expect((await fetch(`${base}/api/pi/update-check`)).json()).resolves.toEqual({ available: false, currentVersion: '1.0.0' });
+  });
+
   it('lists and selects only daemon-owned projects', async () => {
     const calls = [];
     const runtime = {
@@ -375,7 +408,7 @@ describe('Pi runtime route', () => {
     const detail = {
       session: { id: 'pi-session-4', directory: '/workspace', createdAt: 1, updatedAt: 2, sessionFile: '/private/session.jsonl' },
       messages: [{
-        message: { id: 'entry-1', sessionId: 'pi-session-4', directory: '/workspace', role: 'assistant', text: 'hello', thinking: '', createdAt: 2, secret: 'never-expose' },
+        message: { id: 'entry-1', sessionId: 'pi-session-4', directory: '/workspace', role: 'assistant', parentId: 'user-1', text: 'hello', thinking: '', createdAt: 2, secret: 'never-expose' },
         parts: [{ type: 'text', id: 'entry-1:0', index: 0, text: 'hello', privatePath: '/private' }],
       }],
       lastSequence: 9,
@@ -399,7 +432,7 @@ describe('Pi runtime route', () => {
     await expect(detailResponse.json()).resolves.toEqual({
       session: { id: 'pi-session-4', directory: '/workspace', createdAt: 1, updatedAt: 2 },
       messages: [{
-        message: { id: 'entry-1', sessionId: 'pi-session-4', directory: '/workspace', role: 'assistant', text: 'hello', thinking: '', createdAt: 2 },
+        message: { id: 'entry-1', sessionId: 'pi-session-4', directory: '/workspace', role: 'assistant', parentId: 'user-1', text: 'hello', thinking: '', createdAt: 2 },
         parts: [{ type: 'text', id: 'entry-1:0', index: 0, text: 'hello' }],
       }],
       lastSequence: 9,
@@ -474,6 +507,7 @@ describe('Pi runtime route', () => {
       health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
       subscribe: async ({ onEvent }) => {
         onEvent({ protocolVersion: 1, kind: 'event', event: 'session.snapshot', sequence: 4, payload: { sessionId: 'pi-session-5', directory: '/workspace', isStreaming: false, lifecycle: 'idle', queue: { steering: 0, followUp: 0 }, lastSequence: 4, endpoint: '/private/socket' } });
+        onEvent({ protocolVersion: 1, kind: 'event', event: 'assistant.message.start', sequence: 5, payload: { sessionId: 'pi-session-5', directory: '/workspace', messageId: 'assistant-1', parentId: 'user-1', role: 'assistant', startedAt: 1 } });
         return () => {};
       },
     };
@@ -483,10 +517,12 @@ describe('Pi runtime route', () => {
     const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-5&fromSequence=3`);
     const reader = response.body.getReader();
     const first = await reader.read();
+    const second = await reader.read();
     await reader.cancel();
-    const text = new TextDecoder().decode(first.value);
+    const text = new TextDecoder().decode(first.value) + new TextDecoder().decode(second.value);
     expect(text).toContain('"name":"session.snapshot"');
     expect(text).toContain('"lastSequence":4');
+    expect(text).toContain('"parentId":"user-1"');
     expect(text).not.toContain('/private/socket');
   });
 

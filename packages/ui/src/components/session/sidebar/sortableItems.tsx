@@ -109,8 +109,6 @@ export interface SortableProjectItemProps extends ProjectIdentityProps {
   alwaysShowActions: boolean;
   onToggle: () => void;
   onNewSession: () => void;
-  onNewWorktreeSession?: () => void;
-  onManageWorktrees?: () => void;
   onRenameStart: () => void;
   onClose: () => void;
   sentinelRef: (el: HTMLDivElement | null) => void;
@@ -139,8 +137,6 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
   alwaysShowActions,
   onToggle,
   onNewSession,
-  onNewWorktreeSession,
-  onManageWorktrees,
   onRenameStart,
   onClose,
   sentinelRef,
@@ -174,16 +170,10 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
 
   const renderProjectMenuItems = (Item: React.ElementType) => (
     <>
-      {showCreateButtons && !isRepo && !hideDirectoryControls && onNewSession && (
+      {showCreateButtons && !hideDirectoryControls && onNewSession && (
         <Item onClick={onNewSession}>
           <Icon name="add" className="mr-1.5 h-4 w-4" />
           {t('sessions.sidebar.project.actions.newSession')}
-        </Item>
-      )}
-      {isRepo && !hideDirectoryControls && onManageWorktrees && (
-        <Item onClick={onManageWorktrees}>
-          <Icon name="node-tree" className="mr-1.5 h-4 w-4" />
-          {t('sessions.sidebar.project.actions.manageWorktrees')}
         </Item>
       )}
       <Item onClick={onRenameStart}>
@@ -311,26 +301,26 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                 'absolute top-1/2 z-10 flex -translate-y-1/2 items-center gap-1',
                 showCreateButtons ? 'right-7' : 'right-0.5',
               )}>
-                {showCreateButtons && isRepo && !hideDirectoryControls && onNewWorktreeSession ? (
+                {showCreateButtons && !hideDirectoryControls && onNewSession ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onNewWorktreeSession();
+                          onNewSession();
                         }}
                         className={cn(
                         'inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 hover:text-foreground transition-opacity',
                           alwaysShowActions ? 'opacity-100' : 'opacity-0 pointer-events-none group-hover/project:opacity-100 group-hover/project:pointer-events-auto group-focus-within/project:opacity-100 group-focus-within/project:pointer-events-auto',
                         )}
-                        aria-label={t('sessions.sidebar.project.actions.newWorktree')}
+                        aria-label={t('sessions.sidebar.project.actions.newSession')}
                       >
-                        <Icon name="node-tree" className="h-4 w-4" />
+                        <Icon name="add" className="h-4 w-4" />
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" sideOffset={4}>
-                      <p>{t('sessions.sidebar.project.actions.newWorktreeEllipsis')}</p>
+                      <p>{t('sessions.sidebar.project.actions.newSession')}</p>
                     </TooltipContent>
                   </Tooltip>
                 ) : null}

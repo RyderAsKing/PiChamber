@@ -13,9 +13,7 @@ import {
   describeSessionDirectorySources,
   resolveSessionDirectoryFromSources,
 } from '@/sync/session-directory-resolution';
-import { useSessionWorktreeStore } from '@/sync/session-worktree-store';
 import { getRecentSendFailures } from '@/sync/send-failure-log';
-import { getAttachedSessionDirectory } from '@/sync/session-worktree-contract';
 import { useStreamingStore } from '@/sync/streaming';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
@@ -280,7 +278,7 @@ export const debugUtils = {
       projectInfo = { error: error instanceof Error ? error.message : String(error) };
     }
 
-    settingsInfo = await safeFetchJson('/api/config/settings');
+    settingsInfo = await safeFetchJson('/api/pi/ui-settings');
 
     try {
       const resp = await runtimeFetch('/api/health');
@@ -369,10 +367,6 @@ export const debugUtils = {
         directorySamples: Array.from(sessionDirectories).slice(0, 5),
         directoryCounts: sessionDirectoryCounts,
       },
-      worktrees: {
-        available: sessionState.availableWorktrees.length,
-        metadataEntries: sessionState.worktreeMetadata.size,
-      },
       git: gitCheck,
       localStorage: localStorageSnapshot,
       opencode: {
@@ -426,10 +420,6 @@ export const debugUtils = {
       return null;
     }
 
-    const attachment = getAttachedSessionDirectory(
-      useSessionWorktreeStore.getState().getAttachment(targetSessionId),
-    );
-    const worktreeMetadata = sessionState.worktreeMetadata.get(targetSessionId)?.path ?? null;
     const owningStoreDirectory = getSyncSessionDirectory(targetSessionId);
     const sessionRecord = getAllSyncSessions().find((session) => session.id === targetSessionId);
     const recordDirectory = (sessionRecord as { directory?: string | null } | undefined)?.directory ?? null;
@@ -437,18 +427,9 @@ export const debugUtils = {
       ? sessionState.currentSessionDirectory
       : null;
 
-    const remembered = getRememberedSessionDirectory(targetSessionId);
-
     const sources = {
-      attachment,
-      worktreeMetadata,
-      // Record first, matching the resolver: holding a session proves
-      // containment, not ownership, so the parent repository holds its
-      // worktrees' sessions too. Reporting membership first made this
-      // diagnostic contradict the routing it exists to explain.
-      authoritative: recordDirectory ?? owningStoreDirectory,
-      selected,
-      remembered: remembered.runtime,
+      session: sessionRecord ?? null,
+      currentDirectory: selected,
     };
 
     const resolution = resolveSessionDirectoryFromSources(sources);

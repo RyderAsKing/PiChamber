@@ -10,7 +10,6 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { Icon } from "@/components/icon/Icon";
-import { ArrowsMerge } from '@/components/icons/ArrowsMerge';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { useI18n } from '@/lib/i18n';
 
@@ -18,8 +17,6 @@ type Props = {
   hideDirectoryControls: boolean;
   showRecentControls: boolean;
   handleOpenDirectoryDialog: () => void;
-  onOpenMultiRun: () => void;
-  canOpenMultiRun: boolean;
   onOpenArchive: () => void;
   headerActionIconClass: string;
   headerActionButtonClass: string;
@@ -42,8 +39,6 @@ export function SidebarHeader(props: Props): React.ReactNode {
     hideDirectoryControls,
     showRecentControls,
     handleOpenDirectoryDialog,
-    onOpenMultiRun,
-    canOpenMultiRun,
     onOpenArchive,
     headerActionIconClass,
     headerActionButtonClass,
@@ -64,8 +59,6 @@ export function SidebarHeader(props: Props): React.ReactNode {
   const toggleRecentSection = useSessionDisplayStore((state) => state.toggleRecentSection);
   const projectSortOrder = useSessionDisplayStore((state) => state.projectSortOrder);
   const setProjectSortOrder = useSessionDisplayStore((state) => state.setProjectSortOrder);
-  const sessionGroupingMode = useSessionDisplayStore((state) => state.sessionGroupingMode);
-  const setSessionGroupingMode = useSessionDisplayStore((state) => state.setSessionGroupingMode);
   const stickyZoneHeaders = useSessionDisplayStore((state) => state.stickyZoneHeaders);
   const toggleStickyZoneHeaders = useSessionDisplayStore((state) => state.toggleStickyZoneHeaders);
 
@@ -96,20 +89,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
               <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.header.actions.addProject')}</p></TooltipContent>
             </Tooltip>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={onOpenMultiRun}
-                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
-                  aria-label={t('sessions.sidebar.header.actions.newMultiRun')}
-                  disabled={!canOpenMultiRun}
-                >
-                  <ArrowsMerge className={headerActionIconClass} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.header.actions.newMultiRun')}</p></TooltipContent>
-            </Tooltip>
+
 
             <Tooltip>
               <TooltipTrigger asChild>
@@ -194,21 +174,6 @@ export function SidebarHeader(props: Props): React.ReactNode {
                   >
                     <span>{t(labelKey)}</span>
                     {projectSortOrder === order ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel>{t('sessions.sidebar.header.grouping.label')}</DropdownMenuLabel>
-                {([
-                  ['by-worktree', 'sessions.sidebar.header.grouping.byWorktree'],
-                  ['flat', 'sessions.sidebar.header.grouping.flat'],
-                ] as const).map(([mode, labelKey]) => (
-                  <DropdownMenuItem
-                    key={mode}
-                    onClick={() => setSessionGroupingMode(mode)}
-                    className="flex items-center justify-between"
-                  >
-                    <span>{t(labelKey)}</span>
-                    {sessionGroupingMode === mode ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
                   </DropdownMenuItem>
                 ))}
                 <DropdownMenuSeparator />

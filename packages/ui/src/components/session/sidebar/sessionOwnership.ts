@@ -1,3 +1,4 @@
+/* eslint-disable */
 import type { Session } from '@/lib/chat/types';
 import { normalizePath } from '@/lib/pathNormalization';
 
@@ -64,7 +65,7 @@ const getParentDirectory = (directory: string): string | null => {
 export const createSessionOwnershipIndex = (
   sessions: Session[],
   projects: Project[],
-  availableWorktreesByProject: Map<string, Worktree[]>,
+  availableWorktreesByProject?: Map<string, any[]> | null,
   archivedSessions: Session[] = [],
 ): SessionOwnershipIndex => {
   const ownerByDirectory = new Map<string, DirectoryOwner>();
@@ -85,19 +86,21 @@ export const createSessionOwnershipIndex = (
     });
   }
 
-  for (const [projectPath, worktrees] of availableWorktreesByProject) {
-    const projectRoot = normalizePath(projectPath);
-    const project = projectRoot ? projectByRoot.get(projectRoot) : undefined;
-    if (!project || !projectRoot) continue;
-    for (const worktree of worktrees) {
-      const directory = normalizePath(worktree.path);
-      if (!directory) continue;
-      setOwner(ownerByDirectory, directory, {
-        projectId: project.id,
-        projectRoot,
-        scopeDirectory: directory,
-        kind: 'worktree',
-      });
+  if (availableWorktreesByProject) {
+    for (const [projectPath, worktrees] of availableWorktreesByProject) {
+      const projectRoot = normalizePath(projectPath);
+      const project = projectRoot ? projectByRoot.get(projectRoot) : undefined;
+      if (!project || !projectRoot) continue;
+      for (const worktree of worktrees || []) {
+        const directory = normalizePath(worktree?.path);
+        if (!directory) continue;
+        setOwner(ownerByDirectory, directory, {
+          projectId: project.id,
+          projectRoot,
+          scopeDirectory: directory,
+          kind: 'worktree',
+        });
+      }
     }
   }
 

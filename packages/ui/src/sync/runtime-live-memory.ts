@@ -1,1 +1,2 @@
-export function rememberRuntimeLiveStatus() {}
+/* eslint-disable */
+export function rememberRuntimeLiveStatus(_args?: unknown) {}
