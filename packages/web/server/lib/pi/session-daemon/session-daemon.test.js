@@ -254,7 +254,9 @@ describe('Pi session daemon spike', () => {
       type: 'message_update',
       assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'still running' },
     });
-    session.emit({ type: 'tool_execution_start', toolCallId: 'tool-1', toolName: 'read' });
+    session.emit({ type: 'tool_execution_start', toolCallId: 'tool-1', toolName: 'read', args: { path: 'file.txt' } });
+    const toolEnd = reconnectingClient.next((message) => message.event === 'session.tool.end');
+    session.emit({ type: 'tool_execution_end', toolCallId: 'tool-1', toolName: 'read', result: { content: [{ type: 'text', text: 'file contents' }] }, isError: false });
     session.emit({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'still running' }] } });
 
     await expect(delta).resolves.toMatchObject({
@@ -267,7 +269,10 @@ describe('Pi session daemon spike', () => {
       },
     });
     await expect(toolStart).resolves.toMatchObject({
-      payload: { sessionId: 'pi-session-1', toolCallId: 'tool-1', toolName: 'read' },
+      payload: { sessionId: 'pi-session-1', toolCallId: 'tool-1', toolName: 'read', input: { path: 'file.txt' }, startedAt: expect.any(Number) },
+    });
+    await expect(toolEnd).resolves.toMatchObject({
+      payload: { sessionId: 'pi-session-1', toolCallId: 'tool-1', state: 'completed', output: 'file contents', endedAt: expect.any(Number) },
     });
     await expect(messageEnd).resolves.toMatchObject({ payload: { sessionId: 'pi-session-1', text: 'still running' } });
     expect((await delta).sequence).toBeGreaterThan(reconnectSnapshot.sequence);
@@ -563,6 +568,19 @@ describe('Pi session daemon spike', () => {
           { type: 'toolCall', id: 'tool-with-path', name: 'read', arguments: { path: '/tmp/pi-clipboard-7f7ec702-256a-4783-855c-df34e3ecedab.pdf' } },
         ],
       },
+    }, {
+      type: 'message',
+      id: 'tool-result-entry',
+      timestamp: '2026-01-01T00:00:03.000Z',
+      message: {
+        role: 'toolResult',
+        toolCallId: 'tool-with-path',
+        toolName: 'read',
+        content: [{ type: 'text', text: 'file content for /tmp/pi-clipboard-7f7ec702-256a-4783-855c-df34e3ecedab.pdf' }],
+        details: { truncation: { truncated: false } },
+        isError: false,
+        timestamp: 2_000,
+      },
     }];
     const redactedDetail = await client.request('sessions.open', { sessionId: 'pi-session-persisted' });
     expect(JSON.stringify(redactedDetail.result)).not.toContain('pi-clipboard-');
@@ -571,7 +589,14 @@ describe('Pi session daemon spike', () => {
         message: { text: 'Opened [attachment]' },
         parts: [
           { type: 'text', text: 'Opened [attachment]' },
-          { type: 'tool', input: { path: '[attachment]' } },
+          {
+            type: 'tool',
+            input: { path: '[attachment]' },
+            output: 'file content for [attachment]',
+            state: 'completed',
+            metadata: { truncation: { truncated: false } },
+            endedAt: expect.any(Number),
+          },
         ],
       }],
     });
@@ -735,9 +760,24 @@ describe('Pi session daemon spike', () => {
     session.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: '/tmp/pi-clip' } });
     session.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'board-7f7ec702-256a-4783-855c-df34e3ecedab.pdf followed by safe text' } });
     session.emit({ type: 'message_update', assistantMessageEvent: { type: 'thinking_delta', contentIndex: 1, delta: 'a sufficiently long thought delta' } });
-    session.emit({ type: 'tool_execution_start', toolCallId: 'tool', toolName: 'read' });
-    session.emit({ type: 'tool_execution_update', toolCallId: 'tool', toolName: 'read' });
-    session.emit({ type: 'tool_execution_end', toolCallId: 'tool', toolName: 'read', isError: false });
+    session.emit({ type: 'tool_execution_start', toolCallId: 'tool', toolName: 'read', args: { path: '/tmp/pi-clipboard-7f7ec702-256a-4783-855c-df34e3ecedab.pdf' } });
+    session.emit({
+      type: 'tool_execution_update',
+      toolCallId: 'tool',
+      toolName: 'read',
+      args: { path: '/tmp/pi-clipboard-7f7ec702-256a-4783-855c-df34e3ecedab.pdf' },
+      partialResult: { content: [{ type: 'text', text: 'partial /tmp/pi-clipboard-7f7ec702-256a-4783-855c-df34e3ecedab.pdf output' }] },
+    });
+    session.emit({
+      type: 'tool_execution_end',
+      toolCallId: 'tool',
+      toolName: 'read',
+      result: {
+        content: [{ type: 'text', text: 'final /tmp/pi-clipboard-7f7ec702-256a-4783-855c-df34e3ecedab.pdf output' }],
+        details: { truncation: { truncated: true }, fullOutputPath: '/tmp/pi-bash-123' },
+      },
+      isError: false,
+    });
     session.emit({ type: 'queue_update', steering: ['one'], followUp: ['two'] });
     session.emit({ type: 'thinking_level_changed', level: 'high' });
     session.emit({ type: 'compaction_start' });
@@ -754,6 +794,17 @@ describe('Pi session daemon spike', () => {
     const textDelta = frames.find((frame) => frame.event === 'assistant.message.delta');
     expect(textDelta.payload.delta).toContain('[attachment]');
     expect(textDelta.payload.delta).not.toContain('pi-clipboard-');
+    const toolStart = frames.find((frame) => frame.event === 'session.tool.start');
+    expect(JSON.stringify(toolStart.payload)).not.toContain('pi-clipboard-');
+    expect(toolStart.payload.input).toEqual({ path: '[attachment]' });
+    const toolUpdate = frames.find((frame) => frame.event === 'session.tool.update');
+    expect(toolUpdate.payload.output).toContain('[attachment]');
+    expect(toolUpdate.payload.output).not.toContain('pi-clipboard-');
+    const toolEnd = frames.find((frame) => frame.event === 'session.tool.end');
+    expect(toolEnd.payload.output).toContain('[attachment]');
+    expect(toolEnd.payload.output).not.toContain('pi-clipboard-');
+    expect(toolEnd.payload.metadata).toEqual({ truncation: { truncated: true } });
+    expect(toolEnd.payload.endedAt).toBeTypeOf('number');
     await client.close();
   });
 

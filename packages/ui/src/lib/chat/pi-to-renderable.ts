@@ -36,11 +36,15 @@ const mapPart = (part: PiProjectedMessagePart): Part => {
       tool: part.tool?.name,
       callID: part.tool?.toolCallId,
       state: {
-        status: part.tool?.state === 'running' || part.tool?.state === 'pending' ? 'running' : part.tool?.state === 'error' ? 'error' : 'completed',
+        status: part.tool?.state === 'running' || part.tool?.state === 'pending' ? 'running'
+          : part.tool?.state === 'error' ? 'error'
+            : part.tool?.state === 'cancelled' ? 'cancelled'
+              : 'completed',
         input: part.tool?.input,
         output: part.tool?.output,
-        error: part.tool?.isError ? 'error' : undefined,
+        error: part.tool?.error,
         time: { start: part.tool?.startedAt, end: part.tool?.endedAt },
+        metadata: part.tool?.metadata,
       },
     };
   }

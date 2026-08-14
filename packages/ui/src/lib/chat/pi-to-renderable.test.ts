@@ -36,7 +36,7 @@ describe('pi-to-renderable', () => {
         { id: 'p1', type: 'text', text: 'hello', streaming: false },
         { id: 'p2', type: 'thinking', text: 'hidden', streaming: false },
         { id: 'p3', type: 'attachment', text: '', streaming: false, attachment: { id: 'a1', name: 'note.txt', mime: 'text/plain', size: 0 } },
-        { id: 'p4', type: 'tool', text: '', streaming: false, tool: { name: 'read', toolCallId: 'c1', state: 'completed', output: 'ok' } },
+        { id: 'p4', type: 'tool', text: '', streaming: false, tool: { name: 'read', toolCallId: 'c1', state: 'completed', output: 'ok', input: { path: 'a.txt' }, error: 'boom', metadata: { truncation: { truncated: false } }, startedAt: 5, endedAt: 9 } },
       ],
     };
     const record = piMessageToRecord(message, 'ses_1');
@@ -45,6 +45,28 @@ describe('pi-to-renderable', () => {
     expect(record.parts.some((part) => part.type === 'reasoning' && part.text === 'consider options')).toBe(true);
     expect(record.parts.some((part) => part.type === 'file' && part.filename === 'note.txt')).toBe(true);
     expect(record.parts.some((part) => part.type === 'tool' && part.tool === 'read')).toBe(true);
+    const toolPart = record.parts.find((part) => part.type === 'tool');
+    expect(toolPart?.state).toEqual({
+      status: 'completed',
+      input: { path: 'a.txt' },
+      output: 'ok',
+      error: 'boom',
+      time: { start: 5, end: 9 },
+      metadata: { truncation: { truncated: false } },
+    });
+  });
+
+  test('maps a running tool to the running status and a cancelled tool stays cancelled', () => {
+    const running: PiProjectedMessage = {
+      id: 'msg_2', role: 'assistant', createdAt: 1, streaming: true, text: '', thinking: '',
+      parts: [{ id: 'r', type: 'tool', text: '', streaming: true, tool: { name: 'bash', toolCallId: 'c2', state: 'running', input: { command: 'ls' } } }],
+    };
+    const cancelled: PiProjectedMessage = {
+      id: 'msg_3', role: 'assistant', createdAt: 1, streaming: false, text: '', thinking: '',
+      parts: [{ id: 'c', type: 'tool', text: '', streaming: false, tool: { name: 'bash', toolCallId: 'c3', state: 'cancelled' } }],
+    };
+    expect((piMessageToRecord(running, 'ses_1').parts[0] as { state?: { status?: string } }).state?.status).toBe('running');
+    expect((piMessageToRecord(cancelled, 'ses_1').parts[0] as { state?: { status?: string } }).state?.status).toBe('cancelled');
   });
 
   test('returns an empty list for a missing projected session instead of fabricating idle history', () => {

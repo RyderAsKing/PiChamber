@@ -44,7 +44,7 @@ caller can render the correct message.
 ## Sequencing and reconnect
 
 Every event the public stream publishes carries a monotonically increasing
-`sequence` number scoped to a session id. The reducer rejects any event
+`sequence` number scoped to a session id. Pi's delta `contentIndex` is a stable content-block identity and may repeat for every chunk in that block; reducers append those chunks and use event sequence for deduplication. The reducer rejects any event
 whose sequence is `<=` the last accepted sequence, so a reconnect that
 resumes from `snapshot.lastSequence` cannot double-apply events. A snapshot
 is itself an event with `name: 'session.snapshot'`; the snapshot reducer
@@ -66,7 +66,9 @@ reconnect begins.
 
 `packages/ui/src/apps/pi-session-store.ts` owns one active user-selected project,
 including explicit daemon project selection, bootstrap, sequenced event reduction,
-reconnect hydration, and runtime-switch disposal. The mounted provider follows the
+reconnect hydration, and runtime-switch disposal. It allocates a new hydration generation for every ready-state session selection, so stale rapid-click completions cannot replace the latest transcript. Cross-directory selection opens the target project and preferred session as one operation.
+
+The global session store separately retains authoritative per-directory snapshots for every added project; switching the active Pi runtime directory must not erase unrelated project sessions. The mounted provider follows the
 persisted PiChamber project store; with no project selected it clears session state
 instead of adopting the daemon process cwd or the filesystem home as a visible project. `App.tsx`, `MobileApp.tsx`, and `ElectronMiniChatApp.tsx`
 mount `PiSessionProvider` around `MainLayout` / the mobile shell / mini-chat.
@@ -76,7 +78,7 @@ must return `{ providers, default }` so the config store can leave the picker
 off the loading state. The picker only includes authenticated providers;
 unconfigured catalog entries stay on the Providers settings page. Composer
 chrome does not expose an OpenCode agent selector.
-Chat, sidebar, and composer mutations go through `PiSessionStore` and `/api/pi/*`. Pi assistant projections preserve their owning user-message id end to end because the restored chat renderer groups assistant output into user turns by that identity.
+Chat, sidebar, and composer mutations go through `PiSessionStore` and `/api/pi/*`. Pi assistant projections preserve their owning user-message id end to end because the restored chat renderer groups assistant output into user turns by that identity. Tool parts preserve input, cumulative partial output, final output, error text, metadata, and start/end timestamps through the reducer and `pi-to-renderable`, satisfying the restored renderer's finalized-tool contract (a completed tool needs an end time and keeps its status verbatim, including `cancelled`).
 Settings chrome is the restored OpenChamber hub limited to Pi-owned pages
 (Providers, Skills, Snippets, Behavior/`AGENTS.md`, Magic Prompts, appearance
 and other PiChamber pages). `PiResourceSettings.tsx` remains the page bodies

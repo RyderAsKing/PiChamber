@@ -123,6 +123,7 @@ export function createSessionDaemon({
   // a new authoritative snapshot before later events can arrive.
   const eventLog = [];
   const streamingMessageIds = new Map();
+  const toolStartedAt = new Map();
   const latestUserMessageIds = new Map();
   const streamingRedactionBuffers = new Map();
   const loginAttempts = new Map();
@@ -454,6 +455,15 @@ export function createSessionDaemon({
   const projectMessageEntries = (session, targetDir = activeDirectory || cwd) => {
     const entries = session?.sessionManager?.getEntries?.();
     if (!Array.isArray(entries)) return [];
+    const toolResults = new Map();
+    for (const entry of entries) {
+      if (entry?.type !== 'message' || !entry.message || entry.message.role !== 'toolResult' || typeof entry.message.toolCallId !== 'string') continue;
+      toolResults.set(entry.message.toolCallId, {
+        ...projectToolResult(entry.message, entry.message.isError === true),
+        isError: entry.message.isError === true,
+        endedAt: Date.parse(entry.timestamp),
+      });
+    }
     let latestUserMessageId;
     return entries.flatMap((entry) => {
       if (entry?.type !== 'message' || !entry.message || typeof entry.id !== 'string') return [];
@@ -474,7 +484,23 @@ export function createSessionDaemon({
       const parts = entry.message.content.flatMap((part, index) => {
         if (part?.type === 'text') return [{ type: 'text', id: `${entry.id}:${index}`, index, text: redactAttachmentPaths(part.text) }];
         if (part?.type === 'thinking') return [{ type: 'thinking', id: `${entry.id}:${index}`, index, text: redactAttachmentPaths(part.thinking) }];
-        if (part?.type === 'toolCall') return [{ type: 'tool', id: `${entry.id}:${index}`, index, toolCallId: part.id, name: part.name, input: redactAttachmentValues(part.arguments), state: 'completed' }];
+        if (part?.type === 'toolCall') {
+          const result = toolResults.get(part.id);
+          return [{
+            type: 'tool',
+            id: `${entry.id}:${index}`,
+            index,
+            toolCallId: part.id,
+            name: part.name,
+            input: redactAttachmentValues(part.arguments),
+            state: result?.isError ? 'error' : 'completed',
+            ...(result?.output ? { output: result.output } : {}),
+            ...(result?.error ? { error: result.error } : {}),
+            ...(result?.isError ? { isError: true } : {}),
+            ...(result?.metadata ? { metadata: result.metadata } : {}),
+            ...(Number.isFinite(result?.endedAt) ? { endedAt: result.endedAt } : {}),
+          }];
+        }
         return [];
       });
       return [{
@@ -1005,6 +1031,30 @@ export function createSessionDaemon({
     return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, redactAttachmentValues(entry)]));
   };
 
+  /**
+   * Normalize a Pi `AgentToolResult`-shaped value into public tool-part
+   * fields. Text content becomes `output`; `details` become renderer
+   * `metadata` (edit diffs, truncation notes); the temporary-output path is
+   * never exposed. An errored result surfaces its message as `error`.
+   */
+  const projectToolResult = (result, isError) => {
+    const content = result && typeof result === 'object' && Array.isArray(result.content) ? result.content : [];
+    const output = redactAttachmentPaths(content.filter((part) => part?.type === 'text').map((part) => part.text).join(''));
+    let metadata;
+    if (result && typeof result === 'object' && result.details && typeof result.details === 'object') {
+      const details = redactAttachmentValues(result.details);
+      if (details && typeof details === 'object') {
+        metadata = { ...details };
+        delete metadata.fullOutputPath;
+      }
+    }
+    return {
+      ...(output ? { output } : {}),
+      ...(metadata && Object.keys(metadata).length > 0 ? { metadata } : {}),
+      ...(isError && output ? { error: output } : {}),
+    };
+  };
+
   // Deltas can split `pi-clipboard-` and its UUID across arbitrary frames.
   // Hold a small suffix, then hold the complete sensitive token once its marker
   // appears. This prevents the browser reducer from reconstructing a path that
@@ -1223,17 +1273,52 @@ export function createSessionDaemon({
       }
       case 'tool_execution_start': {
         const messageId = streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
-        publish('session.tool.start', { toolCallId: event.toolCallId, partId: `${messageId}:tool:${event.toolCallId}`, messageId, name: event.toolName, toolName: event.toolName, state: 'running' }, sessionId, directory);
+        const startedAt = Date.now();
+        toolStartedAt.set(event.toolCallId, startedAt);
+        publish('session.tool.start', {
+          toolCallId: event.toolCallId,
+          partId: `${messageId}:tool:${event.toolCallId}`,
+          messageId,
+          name: event.toolName,
+          toolName: event.toolName,
+          state: 'running',
+          ...(event.args !== undefined ? { input: redactAttachmentValues(event.args) } : {}),
+          startedAt,
+        }, sessionId, directory);
         break;
       }
       case 'tool_execution_update': {
         const messageId = streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
-        publish('session.tool.update', { toolCallId: event.toolCallId, partId: `${messageId}:tool:${event.toolCallId}`, messageId, name: event.toolName, toolName: event.toolName, state: 'running' }, sessionId, directory);
+        const projected = projectToolResult(event.partialResult, false);
+        publish('session.tool.update', {
+          toolCallId: event.toolCallId,
+          partId: `${messageId}:tool:${event.toolCallId}`,
+          messageId,
+          name: event.toolName,
+          toolName: event.toolName,
+          state: 'running',
+          ...(event.args !== undefined ? { input: redactAttachmentValues(event.args) } : {}),
+          ...projected,
+        }, sessionId, directory);
         break;
       }
       case 'tool_execution_end': {
         const messageId = streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
-        publish('session.tool.end', { toolCallId: event.toolCallId, partId: `${messageId}:tool:${event.toolCallId}`, messageId, name: event.toolName, toolName: event.toolName, state: event.isError ? 'error' : 'completed', isError: event.isError === true }, sessionId, directory);
+        const startedAt = toolStartedAt.get(event.toolCallId);
+        toolStartedAt.delete(event.toolCallId);
+        const projected = projectToolResult(event.result, event.isError === true);
+        publish('session.tool.end', {
+          toolCallId: event.toolCallId,
+          partId: `${messageId}:tool:${event.toolCallId}`,
+          messageId,
+          name: event.toolName,
+          toolName: event.toolName,
+          state: event.isError ? 'error' : 'completed',
+          isError: event.isError === true,
+          ...projected,
+          ...(Number.isFinite(startedAt) ? { startedAt } : {}),
+          endedAt: Date.now(),
+        }, sessionId, directory);
         break;
       }
       case 'queue_update':

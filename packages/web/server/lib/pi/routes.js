@@ -102,7 +102,17 @@ const projectSessionDetail = (value) => {
         return { type: part.type, id: part.id, index: part.index, text: part.text };
       }
       if (part.type === 'tool' && typeof part.toolCallId === 'string' && typeof part.name === 'string') {
-        return { type: 'tool', id: part.id, index: part.index, toolCallId: part.toolCallId, name: part.name, ...(part.input !== undefined ? { input: part.input } : {}), ...(part.output !== undefined ? { output: part.output } : {}), ...(part.isError === true ? { isError: true } : {}), state: ['pending', 'running', 'completed', 'error', 'cancelled'].includes(part.state) ? part.state : 'completed' };
+        return {
+          type: 'tool', id: part.id, index: part.index, toolCallId: part.toolCallId, name: part.name,
+          ...(part.input !== undefined ? { input: part.input } : {}),
+          ...(part.output !== undefined ? { output: part.output } : {}),
+          ...(typeof part.error === 'string' ? { error: part.error } : {}),
+          ...(part.metadata !== undefined ? { metadata: part.metadata } : {}),
+          ...(part.isError === true ? { isError: true } : {}),
+          ...(Number.isFinite(part.startedAt) ? { startedAt: part.startedAt } : {}),
+          ...(Number.isFinite(part.endedAt) ? { endedAt: part.endedAt } : {}),
+          state: ['pending', 'running', 'completed', 'error', 'cancelled'].includes(part.state) ? part.state : 'completed',
+        };
       }
       throw protocolMismatch();
     });
@@ -282,7 +292,19 @@ const projectEventFrame = (frame) => {
     case 'session.interrupted': return { ...common, payload: { reason: frame.payload.reason, streaming: frame.payload.streaming === true } };
     case 'session.tool.start':
     case 'session.tool.update':
-    case 'session.tool.end': return { ...common, payload: { toolCallId: frame.payload.toolCallId, partId: frame.payload.partId, messageId: frame.payload.messageId, name: frame.payload.name, state: frame.payload.state, ...(frame.payload.input !== undefined ? { input: frame.payload.input } : {}), ...(frame.payload.output !== undefined ? { output: frame.payload.output } : {}), ...(frame.payload.isError === true ? { isError: true } : {}) } };
+    case 'session.tool.end': return {
+      ...common,
+      payload: {
+        toolCallId: frame.payload.toolCallId, partId: frame.payload.partId, messageId: frame.payload.messageId, name: frame.payload.name, state: frame.payload.state,
+        ...(frame.payload.input !== undefined ? { input: frame.payload.input } : {}),
+        ...(frame.payload.output !== undefined ? { output: frame.payload.output } : {}),
+        ...(typeof frame.payload.error === 'string' ? { error: frame.payload.error } : {}),
+        ...(frame.payload.metadata !== undefined ? { metadata: frame.payload.metadata } : {}),
+        ...(frame.payload.isError === true ? { isError: true } : {}),
+        ...(Number.isFinite(frame.payload.startedAt) ? { startedAt: frame.payload.startedAt } : {}),
+        ...(Number.isFinite(frame.payload.endedAt) ? { endedAt: frame.payload.endedAt } : {}),
+      },
+    };
     default: return null;
   }
 };

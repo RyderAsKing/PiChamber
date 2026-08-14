@@ -62,19 +62,25 @@ describe("applyPiEvent", () => {
       messageId: "m1", contentIndex: 0, delta: "Hello, ",
     })).state
     state = applyPiEvent(state, baseEvent("assistant.thinking.delta", 3, {
-      messageId: "m1", contentIndex: 0, delta: "thoughtful ",
+      messageId: "m1", contentIndex: 1, delta: "thoughtful ",
     })).state
     state = applyPiEvent(state, baseEvent("assistant.message.delta", 4, {
-      messageId: "m1", contentIndex: 1, delta: "world!",
+      messageId: "m1", contentIndex: 0, delta: "world!",
     })).state
-    state = applyPiEvent(state, baseEvent("assistant.message.end", 5, {
-      messageId: "m1", text: "Hello, world!", thinking: "thoughtful ",
+    state = applyPiEvent(state, baseEvent("assistant.thinking.delta", 5, {
+      messageId: "m1", contentIndex: 1, delta: "analysis",
+    })).state
+    state = applyPiEvent(state, baseEvent("assistant.message.end", 6, {
+      messageId: "m1", text: "Hello, world!", thinking: "thoughtful analysis",
     })).state
 
     const message = state.bySession.get("sess-1")?.messages.get("m1")
     expect(message?.text).toBe("Hello, world!")
-    expect(message?.thinking).toBe("thoughtful ")
+    expect(message?.thinking).toBe("thoughtful analysis")
     expect(message?.streaming).toBe(false)
+    const parts = state.bySession.get("sess-1")?.parts
+    expect(parts?.get("m1:text")?.text).toBe("Hello, world!")
+    expect(parts?.get("m1:thinking")?.text).toBe("thoughtful analysis")
   })
 
   test("tracks canonical tool start, update, and end", () => {
@@ -85,17 +91,46 @@ describe("applyPiEvent", () => {
     })).state
     state = applyPiEvent(state, baseEvent("session.tool.update", 3, {
       toolCallId: "t1", partId: "p-tool", messageId: "m1", name: "bash", state: "running",
-      input: { cmd: "ls" }, startedAt: 1_500,
+      input: { cmd: "ls" }, output: "partial", startedAt: 1_500,
     })).state
     state = applyPiEvent(state, baseEvent("session.tool.end", 4, {
       toolCallId: "t1", partId: "p-tool", messageId: "m1", name: "bash", state: "error",
-      isError: true, endedAt: 2_000,
+      error: "command failed", isError: true, endedAt: 2_000,
     })).state
 
     const part = state.bySession.get("sess-1")?.parts.get("p-tool")
     expect(part?.tool?.state).toBe("error")
     expect(part?.tool?.isError).toBe(true)
+    expect(part?.tool?.error).toBe("command failed")
+    expect(part?.tool?.input).toEqual({ cmd: "ls" })
+    expect(part?.tool?.startedAt).toBe(1_500)
+    expect(part?.tool?.endedAt).toBe(2_000)
     expect(part?.streaming).toBe(false)
+  })
+
+  test("preserves earlier tool output and metadata across partial updates", () => {
+    let state = applyPiEvent(createReducerState(), assistantStart()).state
+    state = applyPiEvent(state, baseEvent("session.tool.start", 2, {
+      toolCallId: "t1", partId: "p-tool", messageId: "m1", name: "bash", state: "running", startedAt: 1_500,
+    })).state
+    state = applyPiEvent(state, baseEvent("session.tool.update", 3, {
+      toolCallId: "t1", partId: "p-tool", messageId: "m1", name: "bash", state: "running",
+      output: "chunk-1", metadata: { truncation: { truncated: true } },
+    })).state
+    state = applyPiEvent(state, baseEvent("session.tool.update", 4, {
+      toolCallId: "t1", partId: "p-tool", messageId: "m1", name: "bash", state: "running",
+      output: "chunk-1 plus more",
+    })).state
+    state = applyPiEvent(state, baseEvent("session.tool.end", 5, {
+      toolCallId: "t1", partId: "p-tool", messageId: "m1", name: "bash", state: "completed", endedAt: 2_000,
+    })).state
+
+    const part = state.bySession.get("sess-1")?.parts.get("p-tool")
+    expect(part?.tool?.output).toBe("chunk-1 plus more")
+    expect(part?.tool?.metadata).toEqual({ truncation: { truncated: true } })
+    expect(part?.tool?.startedAt).toBe(1_500)
+    expect(part?.tool?.endedAt).toBe(2_000)
+    expect(part?.tool?.state).toBe("completed")
   })
 
   test("session.interrupted marks active assistant output as an error", () => {
