@@ -47,6 +47,33 @@ describe('routeMessage', () => {
     expect(prompts).toEqual([['session-1', 'hello', 'prompt', [{ id: 'attachment-1' }]]]);
   });
 
+  test('filters out non-data/server file references without throwing base64 errors', async () => {
+    const uploads: Array<{ filename: string; mime: string; base64: string }> = [];
+    const prompts: unknown[][] = [];
+    store.setModel = async () => undefined;
+    store.setThinking = async () => undefined;
+    store.upload = async (input) => {
+      uploads.push(input);
+      return { id: `attachment-${uploads.length}`, name: input.filename, mime: input.mime, size: 3 };
+    };
+    store.prompt = async (...args) => {
+      prompts.push(args);
+      return { accepted: true, messageId: 'message-2' };
+    };
+
+    await routeMessage({
+      sessionId: 'session-2',
+      directory: '/workspace',
+      content: 'How hard will it be for us to update @PiChamber/ entirely with this kind of UI: https://github.com/zeronsh/comet',
+      providerID: 'provider',
+      modelID: 'model',
+      files: [{ type: 'file', mime: 'text/plain', filename: 'PiChamber', url: 'file:///workspace/PiChamber' }],
+    });
+
+    expect(uploads).toEqual([]);
+    expect(prompts).toEqual([['session-2', 'How hard will it be for us to update @PiChamber/ entirely with this kind of UI: https://github.com/zeronsh/comet', 'prompt', undefined]]);
+  });
+
   test('setNewSessionDraftTarget preserves draft open state and updates target project/directory', () => {
     useProjectsStore.setState({
       projects: [

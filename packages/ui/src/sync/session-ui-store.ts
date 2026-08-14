@@ -130,7 +130,12 @@ export async function routeMessage(params: {
   const outgoingFiles = [
     ...(params.files ?? []),
     ...(params.additionalParts ?? []).flatMap((part) => part.files ?? []),
-  ]
+  ].filter((file) => {
+    if (!file || typeof file !== 'object') return false;
+    if (typeof file.url === 'string' && file.url.startsWith('data:')) return true;
+    if (typeof (file as { arrayBuffer?: unknown }).arrayBuffer === 'function') return true;
+    return false;
+  });
   const attachments = await Promise.all(outgoingFiles.map(async (file) => {
     const attachment = await sessionStore.upload({
       filename: sanitizeFilename(file.filename),
@@ -139,7 +144,7 @@ export async function routeMessage(params: {
     })
     return { id: attachment.id }
   }))
-  await sessionStore.prompt(params.sessionId, params.content, delivery, attachments)
+  await sessionStore.prompt(params.sessionId, params.content, delivery, attachments.length > 0 ? attachments : undefined)
 }
 
 type CapturedSendTarget = {
