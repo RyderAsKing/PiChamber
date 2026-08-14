@@ -1,5 +1,4 @@
 /* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Session } from '@/lib/chat/types';
@@ -347,7 +346,7 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
     if (group.isMain || group.isArchivedBucket || hideGroupLabel) return null;
     const directory = normalizePath(group.directory ?? null);
     const branch = group.branch?.trim();
-    return directory && branch ? getGitHubPrStatusKey(directory, branch) : null;
+    return directory && branch ? getGitHubPrStatusKey() : null;
   }, [group.branch, group.directory, group.isArchivedBucket, group.isMain, hideGroupLabel]);
   const groupPrSummary = usePrVisualSummary(groupPrKey);
   const groupPrColor = groupPrSummary ? `var(--pr-${groupPrSummary.visualState})` : undefined;
@@ -371,11 +370,11 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
     React.useCallback(() => '', []),
   );
   const bootstrapLoading = bootstrapDirectories.some((directory) => {
-    const state = childStores.getBootstrapState(directory);
+    const state = childStores.getBootstrapState(directory) as string;
     return state === 'queued' || state === 'running';
   });
   const failedBootstrapDirectory = bootstrapDirectories.find(
-    (directory) => childStores.getBootstrapState(directory) === 'failed',
+    (directory) => (childStores.getBootstrapState(directory) as string) === 'failed',
   ) ?? null;
   const bootstrapFailure = failedBootstrapDirectory
     ? childStores.getBootstrapFailure(failedBootstrapDirectory)
@@ -913,14 +912,9 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
     rootFolders.forEach((entry) => visit(entry, ''));
     return out;
   };
-  // Reserve room for the hover-revealed header actions (new draft + delete
-  // worktree) so they never overlap the label / PR badge.
-  const hasWorktreeDeleteAction = Boolean(!group.isMain && group.worktree);
   const groupHeaderRightPadding = alwaysShowActions
-    ? (hasWorktreeDeleteAction ? 'pr-14' : 'pr-7')
-    : (hasWorktreeDeleteAction
-        ? 'pr-2 group-hover/gh:pr-14 group-focus-within/gh:pr-14'
-        : 'pr-2 group-hover/gh:pr-7 group-focus-within/gh:pr-7');
+    ? 'pr-7'
+    : 'pr-2 group-hover/gh:pr-7 group-focus-within/gh:pr-7';
 
   const bootstrapFailureNotice = failedBootstrapDirectory ? (
     <span className="inline-flex flex-wrap items-center gap-1.5">
@@ -977,12 +971,16 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
             // re-renders synchronously before paint. Rendering the plain rows
             // meanwhile keeps the container's height real so the scroller
             // never collapses/clamps during the flip.
-            visibleSessions.map((node) => renderSessionNode(node, 0, group.directory, projectId, group.isArchivedBucket === true, undefined, 'project', {
-              subtreeContainsEditing,
-              menuOpenSessionId,
-              nodeStructureKey: resolveNodeStructureKey(node),
-              childRenderExtrasFor,
-            }))
+            visibleSessions.map((node) => (
+              <React.Fragment key={node.session.id}>
+                {renderSessionNode(node, 0, group.directory, projectId, group.isArchivedBucket === true, undefined, 'project', {
+                  subtreeContainsEditing,
+                  menuOpenSessionId,
+                  nodeStructureKey: resolveNodeStructureKey(node),
+                  childRenderExtrasFor,
+                })}
+              </React.Fragment>
+            ))
           ) : (
           <div style={{ height: sessionVirtualizer.getTotalSize(), position: 'relative' }}>
             {/* Absolutely positioned rows (canonical tanstack layout): with
@@ -1028,12 +1026,16 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
           )}
         </div>
       ) : (
-        visibleSessions.map((node) => renderSessionNode(node, 0, group.directory, projectId, group.isArchivedBucket === true, undefined, 'project', {
-          subtreeContainsEditing,
-          menuOpenSessionId,
-          nodeStructureKey: resolveNodeStructureKey(node),
-          childRenderExtrasFor,
-        }))
+        visibleSessions.map((node) => (
+          <React.Fragment key={node.session.id}>
+            {renderSessionNode(node, 0, group.directory, projectId, group.isArchivedBucket === true, undefined, 'project', {
+              subtreeContainsEditing,
+              menuOpenSessionId,
+              nodeStructureKey: resolveNodeStructureKey(node),
+              childRenderExtrasFor,
+            })}
+          </React.Fragment>
+        ))
       )}
       {totalSessions === 0 && allFoldersForGroup.length === 0 ? (
         // pl-[26px] lines the text up with the worktree sub-header label
@@ -1205,30 +1207,6 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.group.actions.deleteArchivedSessions')}</p></TooltipContent>
-            </Tooltip>
-          </div>
-        ) : null}
-        {group.directory && !group.isMain && group.worktree ? (
-          <div className={cn('absolute right-7 top-1/2 -translate-y-1/2 z-10 transition-opacity', alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover/gh:opacity-100 group-focus-within/gh:opacity-100')}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    sessionEvents.requestDelete({
-                      sessions: allGroupSessions,
-                      mode: 'worktree',
-                      worktree: group.worktree,
-                    });
-                  }}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                  aria-label={t('sessions.sidebar.group.actions.deleteGroupAria', { label: group.label })}
-                >
-                  <Icon name="delete-bin" className="h-4 w-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.group.actions.deleteWorktree')}</p></TooltipContent>
             </Tooltip>
           </div>
         ) : null}

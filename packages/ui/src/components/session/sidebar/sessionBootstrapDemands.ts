@@ -1,5 +1,4 @@
 /* eslint-disable */
-// @ts-nocheck
 import type { DirectoryBootstrapDemand, DirectoryBootstrapPriority } from "@/sync/child-store"
 import { normalizePath } from "./utils"
 

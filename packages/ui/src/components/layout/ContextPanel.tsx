@@ -1,5 +1,4 @@
 /* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
@@ -17,7 +16,6 @@ const WalkthroughView = lazyWithChunkRecovery(() => import('@/components/views/w
 const DiffView = lazyWithChunkRecovery(() => import('@/components/views/DiffView').then((m) => ({ default: m.DiffView })));
 const FilesView = lazyWithChunkRecovery(() => import('@/components/views/FilesView').then((m) => ({ default: m.FilesView })));
 const GitView = lazyWithChunkRecovery(() => import('@/components/views/GitView').then((m) => ({ default: m.GitView })));
-const PlanView = lazyWithChunkRecovery(() => import('@/components/views/PlanView').then((m) => ({ default: m.PlanView })));
 import { ProjectContextPanel } from './RightSidebarTabs';
 import { SidebarFilesTree } from './SidebarFilesTree';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
@@ -169,7 +167,6 @@ const getModeLabel = (
   if (mode === 'file') return t('contextPanel.mode.files');
   if (mode === 'diff') return t('contextPanel.mode.diff');
   if (mode === 'walkthrough') return t('contextPanel.mode.walkthrough');
-  if (mode === 'plan') return t('contextPanel.mode.plan');
   if (mode === 'preview') return t('contextPanel.mode.preview');
   if (mode === 'browser') return t('contextPanel.mode.browser');
   if (mode === 'git') return t('layout.rightSidebar.git');
@@ -276,10 +273,6 @@ const getTabIcon = (tab: { mode: ContextPanelMode; targetPath: string | null }):
 
   if (tab.mode === 'terminal') {
     return <Icon name="terminal-box" className="h-3.5 w-3.5" />;
-  }
-
-  if (tab.mode === 'plan') {
-    return <Icon name="file-text" className="h-3.5 w-3.5" />;
   }
 
   if (tab.mode === 'context') {
@@ -2711,8 +2704,6 @@ export const ContextPanel: React.FC = () => {
                 ? <PullRequestView />
             : activeTab?.mode === 'notes'
                 ? <ProjectContextPanel />
-        : activeTab?.mode === 'plan'
-            ? <React.Suspense fallback={null}><PlanView targetPath={activeTab.targetPath} /></React.Suspense>
             : activeTab?.mode === 'preview'
                 ? <PreviewPane rawUrl={activeTab.targetPath ?? ''} onNavigate={(url) => openContextPreview(effectiveDirectory, url)} />
                 : (
@@ -3012,7 +3003,7 @@ export const ContextPanel: React.FC = () => {
         {hasWalkthroughTab ? (
           <div className={cn('absolute inset-0', activeTab?.mode === 'walkthrough' ? 'block' : 'hidden')}>
             <React.Suspense fallback={null}>
-              <WalkthroughView directory={effectiveDirectory} />
+              <WalkthroughView />
             </React.Suspense>
           </div>
         ) : null}

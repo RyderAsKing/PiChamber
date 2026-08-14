@@ -15,20 +15,14 @@ import { WorkerHighlightedCode } from '@/components/code/WorkerHighlightedCode';
 import { isEmptyTextPart, extractTextContent } from './partUtils';
 import { FadeInOnReveal } from './FadeInOnReveal';
 import { Button } from '@/components/ui/button';
-import { SaveProjectPlanDialog } from '@/components/session/SaveProjectPlanDialog';
 import { ForkSessionDialog, type ForkSessionExecution } from '@/components/session/ForkSessionDialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { ArrowsMerge } from '@/components/icons/ArrowsMerge';
 import type { ContentChangeReason } from '@/hooks/useChatAutoFollow';
 
 import { SimpleMarkdownRenderer } from '../MarkdownRenderer';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useUIStore } from '@/stores/useUIStore';
-import { flattenAssistantTextParts, suggestPlanTitleFromText } from '@/lib/messages/messageText';
-import { MULTIRUN_EXECUTION_FORK_PROMPT_META_TEXT } from '@/lib/messages/executionMeta';
-import { useMessageTTS } from '@/hooks/useMessageTTS';
-import { useConfigStore } from '@/stores/useConfigStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
+import { flattenAssistantTextParts } from '@/lib/messages/messageText';
 import { TextSelectionMenu } from './TextSelectionMenu';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { useChatSurfaceMode } from '@/components/chat/useChatSurfaceMode';
@@ -39,8 +33,6 @@ import { ToolRevealOnMount } from './parts/ToolRevealOnMount';
 import { StaticToolRow } from './parts/ProgressiveGroup';
 import { isExpandableTool, isStandaloneTool } from './parts/toolRenderUtils';
 import TurnActivity from '../components/TurnActivity';
-import { createProjectPlanFile } from '@/lib/pichamberConfig';
-import { resolveProjectForSessionDirectory } from '@/lib/projectResolution';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useI18n } from '@/lib/i18n';
 import { extractLoopbackUrls } from '@/lib/url';
@@ -765,7 +757,6 @@ interface AssistantMessageActionButtonsProps {
     isTouchContext: boolean;
     onCopyMessage?: () => void | boolean | Promise<void | boolean>;
     onShareImage: (sourceElement?: HTMLElement | null) => Promise<void>;
-    ttsText: string;
 }
 
 const AssistantMessageActionButtons = React.memo(({
@@ -773,13 +764,9 @@ const AssistantMessageActionButtons = React.memo(({
     isTouchContext,
     onCopyMessage,
     onShareImage,
-    ttsText,
 }: AssistantMessageActionButtonsProps) => {
     const { t } = useI18n();
     const chatSurfaceMode = useChatSurfaceMode();
-    const { isPlaying: isTTSPlaying, play: playTTS, stop: stopTTS } = useMessageTTS();
-    const showMessageTTSButtons = useConfigStore((state) => state.showMessageTTSButtons);
-    const voiceProvider = useConfigStore((state) => state.voiceProvider);
     const [copyHintVisible, setCopyHintVisible] = React.useState(false);
     const [isMessageCopied, setIsMessageCopied] = React.useState(false);
     const [isSharing, setIsSharing] = React.useState(false);
@@ -881,37 +868,6 @@ const AssistantMessageActionButtons = React.memo(({
         [hasCopyableText, isSharing, onShareImage]
     );
 
-    const readAloudTooltip = React.useMemo(() => {
-        if (isTTSPlaying) {
-            return t('chat.messageBody.tts.stopSpeaking');
-        }
-        const providerLabel = voiceProvider === 'browser'
-            ? 'Browser'
-            : voiceProvider === 'openai'
-                ? 'OpenAI'
-                : voiceProvider === 'openai-compatible'
-                    ? 'Custom'
-                    : 'Say';
-        return t('chat.messageBody.tts.readAloudWithProvider', { provider: providerLabel });
-    }, [isTTSPlaying, t, voiceProvider]);
-
-    const handleTTSClick = React.useCallback(
-        (event: React.MouseEvent<HTMLButtonElement>) => {
-            event.stopPropagation();
-            event.preventDefault();
-
-            if (isTTSPlaying) {
-                stopTTS();
-                return;
-            }
-
-            if (ttsText.trim()) {
-                void playTTS(ttsText);
-            }
-        },
-        [isTTSPlaying, playTTS, stopTTS, ttsText]
-    );
-
     return (
         <>
             {onCopyMessage && (
@@ -979,31 +935,6 @@ const AssistantMessageActionButtons = React.memo(({
                 </TooltipTrigger>
                 <TooltipContent sideOffset={6}>{isSharing ? t('chat.messageBody.actions.savingImage') : t('chat.messageBody.actions.saveAsImage')}</TooltipContent>
             </Tooltip> : null}
-            {chatSurfaceMode !== 'mini-chat' && showMessageTTSButtons && hasCopyableText && (
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className={cn(
-                                'h-8 w-8 bg-transparent hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50',
-                                isTTSPlaying ? 'text-green-500' : 'text-muted-foreground hover:text-foreground'
-                            )}
-                            aria-label={isTTSPlaying ? t('chat.messageBody.tts.stopSpeaking') : t('chat.messageBody.tts.readAloud')}
-                            onPointerDown={(event) => event.stopPropagation()}
-                            onClick={handleTTSClick}
-                        >
-                            {isTTSPlaying ? (
-                                <Icon name="stop" className="h-3.5 w-3.5" />
-                            ) : (
-                                <Icon name="volume-up" className="h-3.5 w-3.5" />
-                            )}
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent sideOffset={6}>{readAloudTooltip}</TooltipContent>
-                </Tooltip>
-            )}
         </>
     );
 });
@@ -1153,12 +1084,9 @@ const AssistantMessageBody = React.memo(({
         return visibleParts.filter((part) => part.type === 'text');
     }, [visibleParts]);
     const assistantPlanText = React.useMemo(() => flattenAssistantTextParts(assistantTextParts), [assistantTextParts]);
-    const suggestedPlanTitle = React.useMemo(() => suggestPlanTitleFromText(assistantPlanText), [assistantPlanText]);
 
     const openContextPreview = useUIStore((state) => state.openContextPreview);
     const isMiniChatSurface = chatSurfaceMode === 'mini-chat';
-    const canUseProjectPlanActions = !isMiniChatSurface && !isMobile;
-    const canShowMultiRunAction = !isMiniChatSurface && !isMobile;
 
     const messagePreviewUrl = React.useMemo(() => {
         if (isMobile || isMiniChatSurface) {
@@ -1195,11 +1123,7 @@ const AssistantMessageBody = React.memo(({
     const createSessionFromAssistantMessage = useSessionUIStore((state) => state.createSessionFromAssistantMessage);
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
     const getDirectoryForSession = useSessionUIStore((state) => state.getDirectoryForSession);
-    const openMultiRunLauncherWithPrompt = useUIStore((state) => state.openMultiRunLauncherWithPrompt);
-    const projects = useProjectsStore((state) => state.projects);
     const effectiveDirectory = useEffectiveDirectory();
-    const [isPlanDialogOpen, setIsPlanDialogOpen] = React.useState(false);
-    const [isSavingPlan, setIsSavingPlan] = React.useState(false);
     const [isForkDialogOpen, setIsForkDialogOpen] = React.useState(false);
     const [isForkSubmitting, setIsForkSubmitting] = React.useState(false);
     const chatRenderMode = useUIStore((state) => state.chatRenderMode);
@@ -1211,19 +1135,6 @@ const AssistantMessageBody = React.memo(({
     const isLastAssistantInTurn = turnGroupingContext?.isLastAssistantInTurn ?? false;
     const hasStopFinish = messageFinish === 'stop';
     const effectiveStreamPhase: StreamPhase = hasStopFinish ? 'completed' : streamPhase;
-
-    const availableWorktreesByProject = useSessionUIStore((state) => state.availableWorktreesByProject);
-    const currentProjectRef = React.useMemo(() => {
-        if (!canUseProjectPlanActions) {
-            return null;
-        }
-
-        const directory = effectiveDirectory
-            ?? (currentSessionId ? getDirectoryForSession(currentSessionId) : null)
-            ?? '';
-        const resolved = resolveProjectForSessionDirectory(projects, availableWorktreesByProject, directory);
-        return resolved ? { id: resolved.id, path: resolved.path } : null;
-    }, [availableWorktreesByProject, canUseProjectPlanActions, currentSessionId, effectiveDirectory, getDirectoryForSession, projects]);
 
     const hasTools = toolParts.length > 0;
 
@@ -1371,65 +1282,6 @@ const AssistantMessageBody = React.memo(({
             }
         },
         [createSessionFromAssistantMessage, messageId]
-    );
-
-    const handleForkMultiRunClick = React.useCallback(
-        (event: React.MouseEvent<HTMLButtonElement>) => {
-            event.stopPropagation();
-            event.preventDefault();
-
-            if (!assistantPlanText.trim()) {
-                return;
-            }
-
-            const prefilledPrompt = `${MULTIRUN_EXECUTION_FORK_PROMPT_META_TEXT}\n\n${assistantPlanText}`;
-            openMultiRunLauncherWithPrompt(prefilledPrompt);
-        },
-        [assistantPlanText, openMultiRunLauncherWithPrompt]
-    );
-
-    const handleSaveAsPlanClick = React.useCallback(
-        (event: React.MouseEvent<HTMLButtonElement>) => {
-            event.stopPropagation();
-            event.preventDefault();
-            if (!assistantPlanText.trim()) {
-                return;
-            }
-            setIsPlanDialogOpen(true);
-        },
-        [assistantPlanText]
-    );
-
-    const handleConfirmSaveAsPlan = React.useCallback(
-        async (title: string) => {
-            if (!assistantPlanText.trim()) {
-                return;
-            }
-            if (!currentProjectRef) {
-                toast.error(t('chat.messageBody.toast.noProject'));
-                return;
-            }
-
-            setIsSavingPlan(true);
-            try {
-                const created = await createProjectPlanFile(currentProjectRef, {
-                    title,
-                    body: assistantPlanText,
-                });
-                if (!created) {
-                    toast.error(t('chat.messageBody.toast.savePlanFailed'));
-                    return;
-                }
-                window.dispatchEvent(new CustomEvent('openchamber:project-plan-saved', {
-                    detail: { projectId: currentProjectRef.id },
-                }));
-                setIsPlanDialogOpen(false);
-                toast.success(t('chat.messageBody.toast.planSaved'));
-            } finally {
-                setIsSavingPlan(false);
-            }
-        },
-        [assistantPlanText, currentProjectRef, t]
     );
 
     const shareMessageAsImage = React.useCallback(
@@ -1599,9 +1451,8 @@ const AssistantMessageBody = React.memo(({
             isTouchContext={isTouchContext}
             onCopyMessage={onCopyMessage}
             onShareImage={shareMessageAsImage}
-            ttsText={assistantPlanText}
         />
-    ), [assistantPlanText, hasCopyableText, isTouchContext, onCopyMessage, shareMessageAsImage]);
+    ), [hasCopyableText, isTouchContext, onCopyMessage, shareMessageAsImage]);
 
     const renderJustificationActions = React.useCallback((activity: NonNullable<TurnGroupingContext['activityParts']>[number]) => {
         if (!showSplitAssistantMessageActions || !isSortedRenderMode) {
@@ -1624,7 +1475,6 @@ const AssistantMessageBody = React.memo(({
                 isTouchContext={isTouchContext}
                 onCopyMessage={copyJustificationText}
                 onShareImage={shareMessageAsImage}
-                ttsText={text}
             />
         );
     }, [isSortedRenderMode, isTouchContext, shareMessageAsImage, showSplitAssistantMessageActions]);
@@ -1982,27 +1832,6 @@ const AssistantMessageBody = React.memo(({
                     <TooltipContent sideOffset={6}>{t('chat.messageBody.actions.openPreview')}</TooltipContent>
                 </Tooltip>
             ) : null}
-            {canUseProjectPlanActions ? (
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            disabled={!hasCopyableText || !currentProjectRef}
-                            className={cn(
-                                'h-8 w-8 text-muted-foreground bg-transparent hover:text-foreground hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50',
-                                (!hasCopyableText || !currentProjectRef) && 'opacity-50'
-                            )}
-                            onPointerDown={(event) => event.stopPropagation()}
-                            onClick={handleSaveAsPlanClick}
-                        >
-                            <Icon name="booklet" className="h-4 w-4" />
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent sideOffset={6}>{t('chat.messageBody.actions.saveAsPlan')}</TooltipContent>
-                </Tooltip>
-            ) : null}
             {onToggleContextPin && hasCopyableText ? (
                 <Tooltip>
                     <TooltipTrigger asChild>
@@ -2041,23 +1870,6 @@ const AssistantMessageBody = React.memo(({
                 </TooltipTrigger>
                 <TooltipContent sideOffset={6}>{t('chat.messageBody.actions.startNewSession')}</TooltipContent>
             </Tooltip> : null}
-            {canShowMultiRunAction ? (
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8 text-muted-foreground bg-transparent hover:text-foreground hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50"
-                            onPointerDown={(event) => event.stopPropagation()}
-                            onClick={handleForkMultiRunClick}
-                        >
-                            <ArrowsMerge className="h-4 w-4" />
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent sideOffset={6}>{t('chat.messageBody.actions.startNewMultiRun')}</TooltipContent>
-                </Tooltip>
-            ) : null}
         </>
     );
  
@@ -2072,16 +1884,6 @@ const AssistantMessageBody = React.memo(({
               style={CONTAIN_LAYOUT_STYLE}
           >
               <TextSelectionMenu containerRef={messageContentRef} />
-             {canUseProjectPlanActions ? (
-                 <SaveProjectPlanDialog
-                     open={isPlanDialogOpen}
-                     onOpenChange={setIsPlanDialogOpen}
-                     initialTitle={suggestedPlanTitle}
-                     sourceText={assistantPlanText}
-                     saving={isSavingPlan}
-                     onSave={handleConfirmSaveAsPlan}
-                 />
-             ) : null}
              {isForkDialogOpen ? (
                  <ForkSessionDialog
                      open={isForkDialogOpen}

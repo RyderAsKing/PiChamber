@@ -64,7 +64,6 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
   const setPendingInputText = useInputStore((state) => state.setPendingInputText);
   const isMobile = useUIStore((state) => state.isMobile);
   const projects = useProjectsStore((state) => state.projects);
-  const availableWorktreesByProject = useSessionUIStore((state) => state.availableWorktreesByProject);
   const effectiveDirectory = useEffectiveDirectory();
   const sessions = useSessions();
 
@@ -348,9 +347,9 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
   const currentProjectRef = React.useMemo(() => {
     const directory = effectiveDirectory
       ?? (typeof currentSession?.directory === 'string' ? currentSession.directory : '');
-    const resolved = resolveProjectForSessionDirectory(projects, availableWorktreesByProject, directory);
+    const resolved = resolveProjectForSessionDirectory(projects, directory);
     return resolved ? { id: resolved.id, path: resolved.path } : null;
-  }, [availableWorktreesByProject, currentSession?.directory, effectiveDirectory, projects]);
+  }, [currentSession?.directory, effectiveDirectory, projects]);
 
   const handleAddToNotes = React.useCallback(async () => {
     if (!selectedText || !currentProjectRef) {

@@ -83,8 +83,6 @@ type Props = {
   setActiveMainTab: (tab: MainTab) => void;
   setSessionSwitcherOpen: (open: boolean) => void;
   openNewSessionDraft: (options?: { selectedProjectId?: string | null; directoryOverride?: string | null }) => void;
-  openNewWorktreeDialog: () => void;
-  openWorktreesPage: (id: string) => void;
   openProjectEditDialog: (id: string) => void;
   removeProject: (id: string) => void;
   projectHeaderSentinelRefs: React.MutableRefObject<Map<string, HTMLDivElement | null>>;
@@ -308,12 +306,6 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
                       directoryOverride: project.normalizedPath,
                     });
                   }}
-                  onNewWorktreeSession={() => {
-                    if (projectKey !== props.activeProjectId) props.setActiveProjectIdOnly(projectKey);
-                    props.setActiveMainTab('chat');
-                    props.openNewWorktreeDialog();
-                  }}
-                  onManageWorktrees={() => props.openWorktreesPage(projectKey)}
                   onRenameStart={() => props.openProjectEditDialog(projectKey)}
                   onClose={() => props.removeProject(projectKey)}
                   sentinelRef={(el) => { props.projectHeaderSentinelRefs.current.set(projectKey, el); }}

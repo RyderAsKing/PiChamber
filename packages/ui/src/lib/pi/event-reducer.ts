@@ -75,6 +75,8 @@ export interface PiReducerMessage {
   sessionId: PiSessionId;
   directory: string;
   role: 'user' | 'assistant';
+  /** User message that owns this assistant turn. */
+  parentId?: string;
   /** Created-at (ms epoch) the reducer keeps for ordering. */
   createdAt: number;
   /** Assistant-only: model & thinking captured at creation time. */
@@ -163,6 +165,7 @@ const ensureMessage = (
     sessionId: session.sessionId,
     directory,
     role: payload.role,
+    ...(payload.parentId ? { parentId: payload.parentId } : {}),
     createdAt: payload.startedAt,
     text: payload.role === 'user' ? payload.text ?? '' : '',
     thinking: '',
@@ -556,6 +559,7 @@ export interface PiProjectedMessagePart {
 export interface PiProjectedMessage {
   id: string;
   role: 'user' | 'assistant';
+  parentId?: string;
   text: string;
   thinking: string;
   streaming: boolean;
@@ -602,6 +606,7 @@ export const projectSession = (session: PiReducerSessionState): PiProjectedSessi
       return {
         id: message.id,
         role: message.role,
+        ...(message.parentId ? { parentId: message.parentId } : {}),
         text: message.text,
         thinking: message.thinking,
         streaming: message.streaming,
@@ -664,6 +669,7 @@ export const hydrateSessionFromDetail = (
       sessionId: detail.session.id,
       directory: detail.session.directory,
       role: message.role,
+      ...(message.parentId ? { parentId: message.parentId } : {}),
       createdAt: message.createdAt,
       text: message.text ?? '',
       thinking: message.role === 'assistant' ? message.thinking ?? '' : '',

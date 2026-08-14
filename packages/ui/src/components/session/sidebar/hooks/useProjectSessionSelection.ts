@@ -1,5 +1,4 @@
 /* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import type { Session } from '@/lib/chat/types';
 import type { SessionGroup, SessionNode } from '../types';
@@ -58,8 +57,7 @@ export const useProjectSessionSelection = (args: Args): void => {
       const projectMap = metaByProject.get(projectId)!;
       nodes.forEach((node) => {
         const sessionDirectory = normalizePath(
-          node.worktree?.path
-          ?? (node.session as Session & { directory?: string | null }).directory
+          (node.session as Session & { directory?: string | null }).directory
           ?? fallbackDirectory
           ?? projectRoot,
         );
@@ -90,10 +88,6 @@ export const useProjectSessionSelection = (args: Args): void => {
     }
 
     if (newSessionDraftOpen) {
-      return;
-    }
-
-    if (useUIStore.getState().isNewWorktreeDialogOpen) {
       return;
     }
 

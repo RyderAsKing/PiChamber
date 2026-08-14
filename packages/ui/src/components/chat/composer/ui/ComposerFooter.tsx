@@ -7,15 +7,10 @@
  * has to stay reachable with one thumb.
  *
  * The dictation component is rendered here on desktop only: on mobile it lives
- * at the composer wrapper level so a recording started from the collapsed pill
- * survives the expand.
  */
 
 import React from 'react';
 
-import { ComposerDictation } from '@/components/dictation/ComposerDictation';
-import { Icon } from '@/components/icon/Icon';
-import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { ModelControls } from '../../ModelControls';
 import { ComposerActionButtons } from './ComposerActionButtons';
@@ -24,7 +19,6 @@ import { FocusModeButton } from './FocusModeButton';
 import { PermissionAutoAcceptButton } from './PermissionAutoAcceptButton';
 
 const MemoModelControls = React.memo(ModelControls);
-const MemoComposerDictation = React.memo(ComposerDictation);
 
 export interface ComposerFooterProps {
     isMobile: boolean;
@@ -47,7 +41,6 @@ export interface ComposerFooterProps {
     isExpandedInput: boolean;
     permissionAutoAcceptEnabled: boolean;
     isPermissionAutoAcceptInteractive: boolean;
-    dictationActive: boolean;
 
     onOpenSettings?: () => void;
     onPickLocalFiles: () => void;
@@ -59,14 +52,9 @@ export interface ComposerFooterProps {
     onPrimaryAction: () => void;
     onQueueMessage: () => void;
     onAbort: () => void;
-    onStartDictation: () => void;
-    onDictationInsert: (text: string) => void;
-    onDictationInsertAndSend: (text: string) => void;
-    onDictationContentHeightChange: (height: number | null) => void;
 }
 
 export function ComposerFooter(props: ComposerFooterProps) {
-    const { t } = useI18n();
     const {
         isMobile,
         sessionId: currentSessionId,
@@ -84,7 +72,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
         isExpandedInput,
         permissionAutoAcceptEnabled,
         isPermissionAutoAcceptInteractive,
-        dictationActive,
         onOpenSettings,
         onPickLocalFiles,
         onOpenIssuePicker,
@@ -95,10 +82,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
         onPrimaryAction,
         onQueueMessage,
         onAbort,
-        onStartDictation,
-        onDictationInsert,
-        onDictationInsertAndSend,
-        onDictationContentHeightChange,
     } = props;
 
     return (
@@ -115,66 +98,44 @@ export function ComposerFooter(props: ComposerFooterProps) {
             data-chat-input-footer="true"
         >
             {isMobile ? (
-                <>
-                    <div className="flex w-full items-center justify-between gap-x-1.5">
-                        <div className="composer-mobile-actions flex items-center gap-x-2 pl-1">
-                            <ComposerAttachmentControls
+                <div className="flex w-full items-center justify-between gap-x-1.5">
+                    <div className="composer-mobile-actions flex items-center gap-x-2 pl-1">
+                        <ComposerAttachmentControls
+                            footerIconButtonClass={footerIconButtonClass}
+                            iconSizeClass={iconSizeClass}
+                            handlePickLocalFiles={onPickLocalFiles}
+                            openIssuePicker={onOpenIssuePicker}
+                            openPrPicker={onOpenPrPicker}
+                            onOpenSettings={onOpenSettings}
+                            onOpenMobileSheet={onOpenAttachSheet}
+                        />
+                        <PermissionAutoAcceptButton
+                            footerIconButtonClass={footerIconButtonClass}
+                            iconSizeClass={iconSizeClass}
+                            isInteractive={isPermissionAutoAcceptInteractive}
+                            permissionAutoAcceptEnabled={permissionAutoAcceptEnabled}
+                            handlePermissionAutoAcceptToggle={onTogglePermissionAutoAccept}
+                        />
+                    </div>
+                    <div className="flex items-center min-w-0 gap-x-1 justify-end">
+                        <div className="flex items-center gap-x-1 flex-shrink-0">
+                            <ComposerActionButtons
+                                isMobile={isMobile}
                                 footerIconButtonClass={footerIconButtonClass}
-                                iconSizeClass={iconSizeClass}
-                                handlePickLocalFiles={onPickLocalFiles}
-                                openIssuePicker={onOpenIssuePicker}
-                                openPrPicker={onOpenPrPicker}
-                                onOpenSettings={onOpenSettings}
-                                onOpenMobileSheet={onOpenAttachSheet}
+                                sendIconSizeClass={sendIconSizeClass}
+                                stopIconSizeClass={stopIconSizeClass}
+                                canSend={canSend}
+                                canAbort={canAbort}
+                                hasContent={hasContent}
+                                currentSessionId={currentSessionId}
+                                newSessionDraftOpen={newSessionDraftOpen}
+                                onPrimaryAction={onPrimaryAction}
+                                onQueueMessage={onQueueMessage}
+                                onAbort={onAbort}
                             />
-                            <PermissionAutoAcceptButton
-                                footerIconButtonClass={footerIconButtonClass}
-                                iconSizeClass={iconSizeClass}
-                                isInteractive={isPermissionAutoAcceptInteractive}
-                                permissionAutoAcceptEnabled={permissionAutoAcceptEnabled}
-                                handlePermissionAutoAcceptToggle={onTogglePermissionAutoAccept}
-                            />
-                        </div>
-                        <div className="flex items-center min-w-0 gap-x-1 justify-end">
-                            <div className="flex items-center gap-x-1 flex-shrink-0">
-                                <button
-                                    type="button"
-                                    className={footerIconButtonClass}
-                                    // Keep the soft keyboard open (same guard as
-                                    // PermissionAutoAcceptButton); the recording
-                                    // engine lives in the wrapper-level
-                                    // ComposerDictation instance.
-                                    onMouseDown={(event) => event.preventDefault()}
-                                    onPointerDownCapture={(event) => {
-                                        if (event.pointerType === 'touch') {
-                                            event.preventDefault();
-                                        }
-                                    }}
-                                    onClick={onStartDictation}
-                                    disabled={dictationActive}
-                                    title={t('chat.dictation.start')}
-                                    aria-label={t('chat.dictation.start')}
-                                >
-                                    <Icon name="mic" className={cn(iconSizeClass, 'text-current')} />
-                                </button>
-                                <ComposerActionButtons
-                                    isMobile={isMobile}
-                                    footerIconButtonClass={footerIconButtonClass}
-                                    sendIconSizeClass={sendIconSizeClass}
-                                    stopIconSizeClass={stopIconSizeClass}
-                                    canSend={canSend}
-                                    canAbort={canAbort}
-                                    hasContent={hasContent}
-                                    currentSessionId={currentSessionId}
-                                    newSessionDraftOpen={newSessionDraftOpen}
-                                    onPrimaryAction={onPrimaryAction}
-                                    onQueueMessage={onQueueMessage}
-                                    onAbort={onAbort}
-                                />
-                            </div>
                         </div>
                     </div>
-                </>
+                </div>
             ) : (
                 <>
                     <div className={cn("flex items-center flex-shrink-0", footerGapClass)}>
@@ -203,17 +164,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
                     </div>
                     <div className={cn('flex items-center flex-1 justify-end', footerGapClass, 'md:gap-x-3')}>
                         <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} />
-                        <MemoComposerDictation
-                            radius={chatInputRadius}
-                            isMobile={isMobile}
-                            footerIconButtonClass={footerIconButtonClass}
-                            footerPaddingClass={footerPaddingClass}
-                            iconSizeClass={iconSizeClass}
-                            sendIconSizeClass={sendIconSizeClass}
-                            onInsert={onDictationInsert}
-                            onInsertAndSend={onDictationInsertAndSend}
-                            onContentHeightChange={onDictationContentHeightChange}
-                        />
                         <ComposerActionButtons
                             isMobile={isMobile}
                             footerIconButtonClass={footerIconButtonClass}

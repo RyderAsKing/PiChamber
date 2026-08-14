@@ -162,7 +162,7 @@ async function waitForUpdateApplied(
   for (let i = 0; i < maxAttempts; i++) {
     try {
       // Status-only poll while waiting for the update to apply; not a usage report.
-      const response = await runtimeFetch('/api/openchamber/update-check?reportUsage=false', {
+      const response = await runtimeFetch('/api/pi/update-check?reportUsage=false', {
         method: 'GET',
         headers: { Accept: 'application/json' },
       });

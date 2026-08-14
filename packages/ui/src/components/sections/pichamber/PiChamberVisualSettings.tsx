@@ -786,7 +786,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
 
         const loadPwaInstallName = async () => {
             try {
-                const response = await runtimeFetch('/api/config/settings', {
+                const response = await runtimeFetch('/api/pi/ui-settings', {
                     method: 'GET',
                     headers: { Accept: 'application/json' },
                     cache: 'no-store',

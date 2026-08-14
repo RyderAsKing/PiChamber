@@ -1,6 +1,4 @@
 import React from 'react';
-import { ModelSelector } from '@/components/sections/agents/ModelSelector';
-import { AgentSelector } from '@/components/sections/commands/AgentSelector';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   SettingsSection,
@@ -8,7 +6,6 @@ import {
   SettingsCheckboxRow,
   SettingsInset,
   SettingsGroupTitle,
-  SETTINGS_CUSTOM_TRIGGER_CLASS,
   SETTINGS_SELECT_ROW_TRIGGER_CLASS,
   SETTINGS_SELECT_SIZE,
   SETTINGS_OPTION_STACK_CLASS,
@@ -37,11 +34,9 @@ export const DefaultsSettings: React.FC = () => {
   const { t } = useI18n();
   const setProvider = useConfigStore((state) => state.setProvider);
   const setModel = useConfigStore((state) => state.setModel);
-  const setAgent = useConfigStore((state) => state.setAgent);
   const setCurrentVariant = useConfigStore((state) => state.setCurrentVariant);
   const setSettingsDefaultModel = useConfigStore((state) => state.setSettingsDefaultModel);
   const setSettingsDefaultVariant = useConfigStore((state) => state.setSettingsDefaultVariant);
-  const setSettingsDefaultAgent = useConfigStore((state) => state.setSettingsDefaultAgent);
   const showDeletionDialog = useUIStore((state) => state.showDeletionDialog);
   const setShowDeletionDialog = useUIStore((state) => state.setShowDeletionDialog);
   const providers = useConfigStore((state) => state.providers);
@@ -49,7 +44,6 @@ export const DefaultsSettings: React.FC = () => {
 
   const [defaultModel, setDefaultModel] = React.useState<string | undefined>();
   const [defaultVariant, setDefaultVariant] = React.useState<string | undefined>();
-  const [defaultAgent, setDefaultAgent] = React.useState<string | undefined>();
   const [smallModelUseDefault, setSmallModelUseDefault] = React.useState(true);
   const [smallModelOverride, setSmallModelOverride] = React.useState<string | undefined>();
   const [smallModelProviders, setSmallModelProviders] = React.useState<string[] | undefined>();
@@ -64,7 +58,6 @@ export const DefaultsSettings: React.FC = () => {
         let data: {
           defaultModel?: string;
           defaultVariant?: string;
-          defaultAgent?: string;
           smallModelUseDefault?: boolean;
           smallModelOverride?: string;
           walkthroughModelOverride?: string;
@@ -84,7 +77,6 @@ export const DefaultsSettings: React.FC = () => {
                     typeof raw.defaultVariant === 'string'
                       ? (raw.defaultVariant as string)
                       : undefined,
-                  defaultAgent: typeof settings.defaultAgent === 'string' ? settings.defaultAgent : undefined,
                   smallModelUseDefault: typeof raw.smallModelUseDefault === 'boolean' ? raw.smallModelUseDefault : undefined,
                   smallModelOverride: typeof raw.smallModelOverride === 'string' ? raw.smallModelOverride : undefined,
                   walkthroughModelOverride:
@@ -98,7 +90,7 @@ export const DefaultsSettings: React.FC = () => {
         }
 
         if (!data) {
-          const response = await runtimeFetch('/api/config/settings', {
+          const response = await runtimeFetch('/api/pi/ui-settings', {
             method: 'GET',
             headers: { Accept: 'application/json' },
           });
@@ -116,14 +108,9 @@ export const DefaultsSettings: React.FC = () => {
             typeof data.defaultVariant === 'string' && data.defaultVariant.trim().length > 0
               ? data.defaultVariant.trim()
               : undefined;
-          const agent =
-            typeof data.defaultAgent === 'string' && data.defaultAgent.trim().length > 0
-              ? data.defaultAgent.trim()
-              : undefined;
 
           if (model !== undefined) setDefaultModel(model);
           if (variant !== undefined) setDefaultVariant(variant);
-          if (agent !== undefined) setDefaultAgent(agent);
           if (typeof data.smallModelUseDefault === 'boolean') setSmallModelUseDefault(data.smallModelUseDefault);
           if (typeof data.smallModelOverride === 'string' && data.smallModelOverride.trim()) {
             setSmallModelOverride(data.smallModelOverride.trim());
@@ -160,7 +147,7 @@ export const DefaultsSettings: React.FC = () => {
 
       try {
         await updateDesktopSettings({ defaultModel: newValue ?? '', defaultVariant: '' });
-        const response = await runtimeFetch('/api/config/settings', {
+        const response = await runtimeFetch('/api/pi/ui-settings', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ defaultModel: newValue }),
@@ -200,25 +187,6 @@ export const DefaultsSettings: React.FC = () => {
     [setCurrentVariant, setSettingsDefaultVariant]
   );
 
-  const handleAgentChange = React.useCallback(
-    async (agentName: string) => {
-      const newValue = agentName || undefined;
-      setDefaultAgent(newValue);
-      setSettingsDefaultAgent(newValue);
-
-      if (agentName) {
-        setAgent(agentName);
-      }
-
-      try {
-        await updateDesktopSettings({ defaultAgent: newValue ?? '' });
-      } catch (error) {
-        console.warn('Failed to save default agent:', error);
-      }
-    },
-    [setAgent, setSettingsDefaultAgent]
-  );
-
   const handleSmallModelUseDefaultChange = React.useCallback(
     async (useDefault: boolean) => {
       setSmallModelUseDefault(useDefault);
@@ -249,8 +217,6 @@ export const DefaultsSettings: React.FC = () => {
       const newValue = providerId && modelId ? `${providerId}/${modelId}` : undefined;
       setWalkthroughModelOverride(newValue);
       try {
-        // Clearing the picker is how the user goes back to the small model, so
-        // an empty value is a real choice rather than a no-op.
         await updateDesktopSettings({ walkthroughModelOverride: newValue ?? '' });
       } catch (error) {
         console.warn('Failed to save walkthrough model override:', error);
@@ -259,10 +225,6 @@ export const DefaultsSettings: React.FC = () => {
     []
   );
 
-  // The walkthrough cannot work at all without schema-shaped output, so models
-  // the catalog says cannot do it are hidden rather than offered and then
-  // refused. A missing capability is not a "no": roughly half the catalog omits
-  // the field, and those models usually work.
   const isStructuredOutputCapable = React.useCallback(
     (providerId: string, modelId: string) =>
       modelsMetadata.get(`${providerId}/${modelId}`)?.structured_output !== false,
@@ -276,10 +238,6 @@ export const DefaultsSettings: React.FC = () => {
   );
 
   React.useEffect(() => {
-    // Both pickers filter by the same authenticated-provider list, so either
-    // one being open is reason enough to fetch it.
-    // Both pickers filter by the same authenticated-provider list, and the
-    // walkthrough picker is always visible, so this is always worth fetching.
     if (smallModelProviders !== undefined) return;
     let cancelled = false;
     (async () => {
@@ -291,7 +249,7 @@ export const DefaultsSettings: React.FC = () => {
           setSmallModelProviders(payload.authenticatedProviders.filter((id): id is string => typeof id === 'string'));
         }
       } catch {
-        // leave undefined — picker falls back to showing all providers
+        // leave undefined
       }
     })();
     return () => {
@@ -327,6 +285,21 @@ export const DefaultsSettings: React.FC = () => {
     return null;
   }
 
+  const modelOptions = providers.flatMap((p) =>
+    (p.models ?? []).map((m: { id?: string; name?: string }) => {
+      const modelId = String(m?.id ?? '');
+      const providerId = String(p.id ?? '');
+      const modelName = String(m?.name ?? modelId);
+      const providerName = String(p.name ?? providerId);
+      return {
+        value: `${providerId}/${modelId}`,
+        label: `${providerName} - ${modelName}`,
+        providerId,
+        modelId,
+      };
+    })
+  );
+
   return (
     <>
       <SettingsSection title={t('settings.pichamber.defaults.title')} divider={false}>
@@ -342,12 +315,6 @@ export const DefaultsSettings: React.FC = () => {
             ) : (
               <span className="text-foreground">{t('settings.pichamber.defaults.option.default')}</span>
             )}
-            {defaultAgent && (
-              <>
-                {' / '}
-                <span className="text-foreground">{defaultAgent}</span>
-              </>
-            )}
           </div>
 
           <div>
@@ -355,12 +322,31 @@ export const DefaultsSettings: React.FC = () => {
               settingsItem="sessions.default-model"
               label={t('settings.pichamber.defaults.field.defaultModel')}
             >
-              <ModelSelector
-                providerId={parsedModel.providerId}
-                modelId={parsedModel.modelId}
-                onChange={handleModelChange}
-                className={SETTINGS_CUSTOM_TRIGGER_CLASS}
-              />
+              <Select
+                value={parsedModel.providerId && parsedModel.modelId ? `${parsedModel.providerId}/${parsedModel.modelId}` : '__none__'}
+                onValueChange={(val) => {
+                  if (val === '__none__') {
+                    void handleModelChange('', '');
+                  } else {
+                    const slash = val.indexOf('/');
+                    void handleModelChange(val.slice(0, slash), val.slice(slash + 1));
+                  }
+                }}
+              >
+                <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}>
+                  <SelectValue placeholder={t('settings.pichamber.defaults.option.default')}>
+                    {parsedModel.providerId && parsedModel.modelId ? `${parsedModel.providerId}/${parsedModel.modelId}` : t('settings.pichamber.defaults.option.default')}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">{t('settings.pichamber.defaults.option.default')}</SelectItem>
+                  {modelOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </SettingsFieldRow>
 
             <SettingsFieldRow
@@ -382,17 +368,6 @@ export const DefaultsSettings: React.FC = () => {
                   ))}
                 </SelectContent>
               </Select>
-            </SettingsFieldRow>
-
-            <SettingsFieldRow
-              settingsItem="sessions.default-agent"
-              label={t('settings.pichamber.defaults.field.defaultAgent')}
-            >
-              <AgentSelector
-                agentName={defaultAgent || ''}
-                onChange={handleAgentChange}
-                className={SETTINGS_CUSTOM_TRIGGER_CLASS}
-              />
             </SettingsFieldRow>
           </div>
 
@@ -428,13 +403,33 @@ export const DefaultsSettings: React.FC = () => {
 
             {!smallModelUseDefault ? (
               <SettingsFieldRow label={t('settings.pichamber.defaults.smallModel.overrideModel')}>
-                <ModelSelector
-                  providerId={parsedSmallModel.providerId}
-                  modelId={parsedSmallModel.modelId}
-                  onChange={handleSmallModelOverrideChange}
-                  allowedProviderIds={smallModelProviders}
-                  className={SETTINGS_CUSTOM_TRIGGER_CLASS}
-                />
+                <Select
+                  value={parsedSmallModel.providerId && parsedSmallModel.modelId ? `${parsedSmallModel.providerId}/${parsedSmallModel.modelId}` : '__none__'}
+                  onValueChange={(val) => {
+                    if (val === '__none__') {
+                      void handleSmallModelOverrideChange('', '');
+                    } else {
+                      const slash = val.indexOf('/');
+                      void handleSmallModelOverrideChange(val.slice(0, slash), val.slice(slash + 1));
+                    }
+                  }}
+                >
+                  <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}>
+                    <SelectValue placeholder={t('settings.pichamber.defaults.option.default')}>
+                      {parsedSmallModel.providerId && parsedSmallModel.modelId ? `${parsedSmallModel.providerId}/${parsedSmallModel.modelId}` : t('settings.pichamber.defaults.option.default')}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">{t('settings.pichamber.defaults.option.default')}</SelectItem>
+                    {modelOptions
+                      .filter((opt) => !smallModelProviders || smallModelProviders.includes(opt.providerId))
+                      .map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
               </SettingsFieldRow>
             ) : null}
 
@@ -452,15 +447,33 @@ export const DefaultsSettings: React.FC = () => {
                 settingsItem="sessions.walkthrough-model"
                 label={t('settings.pichamber.defaults.walkthroughModel.overrideModel')}
               >
-                <ModelSelector
-                  providerId={parsedWalkthroughModel.providerId}
-                  modelId={parsedWalkthroughModel.modelId}
-                  onChange={handleWalkthroughModelOverrideChange}
-                  allowedProviderIds={smallModelProviders}
-                  isModelAllowed={isStructuredOutputCapable}
-                  placeholder={t('settings.pichamber.defaults.walkthroughModel.usesSmallModel')}
-                  className={SETTINGS_CUSTOM_TRIGGER_CLASS}
-                />
+                <Select
+                  value={parsedWalkthroughModel.providerId && parsedWalkthroughModel.modelId ? `${parsedWalkthroughModel.providerId}/${parsedWalkthroughModel.modelId}` : '__none__'}
+                  onValueChange={(val) => {
+                    if (val === '__none__') {
+                      void handleWalkthroughModelOverrideChange('', '');
+                    } else {
+                      const slash = val.indexOf('/');
+                      void handleWalkthroughModelOverrideChange(val.slice(0, slash), val.slice(slash + 1));
+                    }
+                  }}
+                >
+                  <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}>
+                    <SelectValue placeholder={t('settings.pichamber.defaults.walkthroughModel.usesSmallModel')}>
+                      {parsedWalkthroughModel.providerId && parsedWalkthroughModel.modelId ? `${parsedWalkthroughModel.providerId}/${parsedWalkthroughModel.modelId}` : t('settings.pichamber.defaults.walkthroughModel.usesSmallModel')}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">{t('settings.pichamber.defaults.walkthroughModel.usesSmallModel')}</SelectItem>
+                    {modelOptions
+                      .filter((opt) => (!smallModelProviders || smallModelProviders.includes(opt.providerId)) && isStructuredOutputCapable(opt.providerId, opt.modelId))
+                      .map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
               </SettingsFieldRow>
             </SettingsInset>
           </div>

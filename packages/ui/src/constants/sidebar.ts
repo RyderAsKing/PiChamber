@@ -1,1 +1,1 @@
-export type SidebarSection = 'sessions' | 'agents' | 'commands' | 'skills' | 'mcp' | 'providers' | 'usage' | 'git-identities' | 'settings';
+export type SidebarSection = 'sessions' | 'skills' | 'providers' | 'git-identities' | 'settings';

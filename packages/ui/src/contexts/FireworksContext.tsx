@@ -25,11 +25,13 @@ export const FireworksProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   );
 };
 
+const NOOP_FIREWORKS: FireworksContextValue = {
+  triggerFireworks: () => {},
+  dismissFireworks: () => {},
+};
+
 // eslint-disable-next-line react-refresh/only-export-components
 export const useFireworksCelebration = (): FireworksContextValue => {
   const context = React.useContext(FireworksContext);
-  if (!context) {
-    throw new Error('useFireworksCelebration must be used within FireworksProvider');
-  }
-  return context;
+  return context ?? NOOP_FIREWORKS;
 };

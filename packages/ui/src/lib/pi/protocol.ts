@@ -102,6 +102,10 @@ export interface PiProjectListResponse {
   projects: PiProject[];
 }
 
+export interface PiProjectSelectResponse {
+  directory: string;
+}
+
 // ---------------------------------------------------------------------------
 // Sessions
 // ---------------------------------------------------------------------------

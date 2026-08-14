@@ -1,5 +1,4 @@
 /* eslint-disable */
-// @ts-nocheck
 import * as React from 'react';
 import {
   Dialog,
@@ -16,7 +15,6 @@ import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
-import { validateWorktreeCreate } from '@/lib/worktrees/worktreeManager';
 import { SortableTabsStrip } from '@/components/ui/sortable-tabs-strip';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { Icon } from "@/components/icon/Icon";
@@ -26,7 +24,6 @@ import type {
   GitHubIssueSummary,
   GitHubPullRequestSummary,
 } from '@/lib/api/types';
-import type { ProjectRef } from '@/lib/worktrees/worktreeManager';
 import { useI18n } from '@/lib/i18n';
 
 type GitHubTab = 'issues' | 'prs';
@@ -61,7 +58,7 @@ export function GitHubIntegrationDialog({
   const activeProject = useProjectsStore((state) => state.getActiveProject());
   
   const projectDirectory = activeProject?.path ?? null;
-  const projectRef: ProjectRef | null = React.useMemo(() => {
+  const projectRef: { id: string; path: string } | null = React.useMemo(() => {
     if (projectDirectory && activeProject) {
       return { id: activeProject.id, path: projectDirectory };
     }
@@ -230,7 +227,6 @@ export function GitHubIntegrationDialog({
       setSelectedPr(null);
       setIncludeDiff(false);
       setError(null);
-      setValidations(new Map());
       setPage(1);
       setHasMore(false);
       return;
@@ -238,49 +234,6 @@ export function GitHubIntegrationDialog({
     
     void loadData();
   }, [open, loadData]);
-
-  // Validate branches for worktree creation
-  const validateBranch = React.useCallback(async (branchName: string) => {
-    if (!projectRef || !branchName) return;
-    
-    // Check cache first
-    if (validations.has(branchName)) return;
-    
-    try {
-      const result = await validateWorktreeCreate(projectRef, {
-        mode: 'new',
-        branchName,
-        worktreeName: branchName,
-      });
-      
-      const blockingError = result.errors.find((entry) => entry.code === 'branch_in_use');
-      
-      setValidations(prev => new Map(prev).set(branchName, {
-        isValid: !blockingError,
-        error: blockingError
-          ? t(blockingError.code === 'branch_exists'
-            ? 'session.githubIntegration.validation.branchAlreadyExists'
-            : 'session.githubIntegration.validation.branchAlreadyCheckedOut')
-          : null,
-      }));
-    } catch {
-      setValidations(prev => new Map(prev).set(branchName, {
-        isValid: false,
-        error: t('session.githubIntegration.validation.failed'),
-      }));
-    }
-  }, [projectRef, validations, t]);
-
-  // Validate PR branches when loaded
-  React.useEffect(() => {
-    if (!open || activeTab !== 'prs') return;
-    
-    prs.forEach(pr => {
-      if (pr.head) {
-        void validateBranch(pr.head);
-      }
-    });
-  }, [open, activeTab, prs, validateBranch]);
 
   // GitHub connection check
   const isGitHubConnected = githubAuthChecked && githubAuthStatus?.connected === true;
@@ -324,14 +277,7 @@ export function GitHubIntegrationDialog({
   };
 
   // Check if selection is valid
-  const canConfirm = selectedIssue || (selectedPr && validations.get(selectedPr.head ?? '')?.isValid !== false);
-
-  // Check if PR is blocked
-  const isPrBlocked = (pr: GitHubPullRequestSummary): boolean => {
-    if (!pr.head) return true;
-    const validation = validations.get(pr.head);
-    return validation?.isValid === false;
-  };
+  const canConfirm = Boolean(selectedIssue || selectedPr);
 
   // Content for the dialog (shared between mobile and desktop)
   const dialogContent = (
@@ -441,21 +387,15 @@ export function GitHubIntegrationDialog({
                 <div className="space-y-0.5 min-h-full">
                   {prs.length > 0 ? (
                     prs.map(pr => {
-                      const blocked = isPrBlocked(pr);
-                      const validation = pr.head ? validations.get(pr.head) : undefined;
-                      
                       return (
                         <button
                           key={`${pr.sourceRepo?.owner ?? ''}-${pr.sourceRepo?.repo ?? ''}-${pr.number}`}
-                          onClick={() => !blocked && handleSelectPr(pr)}
-                          disabled={blocked}
+                          onClick={() => handleSelectPr(pr)}
                           className={cn(
                             'w-full text-left px-2 py-1.5 rounded transition-colors',
                             selectedPr?.number === pr.number
                               ? 'bg-interactive-selection text-interactive-selection-foreground'
-                              : blocked
-                                ? 'opacity-50 cursor-not-allowed'
-                                : 'hover:bg-interactive-hover'
+                              : 'hover:bg-interactive-hover'
                           )}
                         >
                           <div className="flex items-start gap-2">
@@ -471,11 +411,6 @@ export function GitHubIntegrationDialog({
                                     {pr.sourceRepo.owner}/{pr.sourceRepo.repo}
                                   </span>
                                 ) : null}
-                                {blocked && validation?.error && (
-                                  <span className="typography-micro text-destructive">
-                                    {validation.error}
-                                  </span>
-                                )}
                               </div>
                             </div>
                           </div>

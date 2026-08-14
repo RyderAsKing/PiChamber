@@ -17,9 +17,7 @@ const normalize = (value: string): string => {
 
 /**
  * Resolves the active project ref + working directory used by
- * {@link ProjectActionsButton}. Directory priority mirrors the header:
- * worktree → session → draft → project path. A sticky ref keeps the last
- * good context so the actions button doesn't flicker during session switches.
+ * {@link ProjectActionsButton}. Directory priority: session → draft → project path.
  */
 export function useProjectActionsContext(): ProjectActionsContext | null {
   const activeProject = useProjectsStore((state) => {
@@ -32,24 +30,19 @@ export function useProjectActionsContext(): ProjectActionsContext | null {
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const currentSession = useSession(currentSessionId ?? null);
 
-  const worktreePath = useSessionUIStore((state) => {
-    if (!currentSessionId) return '';
-    return state.worktreeMetadata.get(currentSessionId)?.path ?? '';
-  });
   const draftDirectory = useSessionUIStore((state) => {
     if (!state.newSessionDraft?.open) {
       return '';
     }
-    return normalize(state.newSessionDraft.bootstrapPendingDirectory ?? state.newSessionDraft.directoryOverride ?? '');
+    return normalize(state.newSessionDraft.directoryOverride ?? '');
   });
 
-  const worktreeDirectory = React.useMemo(() => normalize(worktreePath || ''), [worktreePath]);
   const sessionDirectory = React.useMemo(() => {
     const raw = typeof currentSession?.directory === 'string' ? currentSession.directory : '';
     return normalize(raw || '');
   }, [currentSession?.directory]);
 
-  const openDirectory = worktreeDirectory || sessionDirectory || draftDirectory;
+  const openDirectory = sessionDirectory || draftDirectory;
   const actionDirectory = React.useMemo(
     () => normalize(openDirectory || activeProject?.path || ''),
     [activeProject?.path, openDirectory],
@@ -58,20 +51,21 @@ export function useProjectActionsContext(): ProjectActionsContext | null {
     if (!activeProject) {
       return null;
     }
-    return { id: activeProject.id, path: activeProject.path };
+    return {
+      id: activeProject.id,
+      path: normalize(activeProject.path),
+    };
   }, [activeProject]);
 
-  const lastContextRef = React.useRef<ProjectActionsContext | null>(null);
-  React.useEffect(() => {
-    if (activeProjectRef && actionDirectory) {
-      lastContextRef.current = { projectRef: activeProjectRef, directory: actionDirectory };
-    }
-  }, [actionDirectory, activeProjectRef]);
+  const stableContextRef = React.useRef<ProjectActionsContext | null>(null);
 
-  return React.useMemo(() => {
-    if (activeProjectRef && actionDirectory) {
-      return { projectRef: activeProjectRef, directory: actionDirectory };
-    }
-    return lastContextRef.current;
-  }, [activeProjectRef, actionDirectory]);
+  if (activeProjectRef && actionDirectory) {
+    stableContextRef.current = {
+      projectRef: activeProjectRef,
+      directory: actionDirectory,
+    };
+    return stableContextRef.current;
+  }
+
+  return stableContextRef.current;
 }

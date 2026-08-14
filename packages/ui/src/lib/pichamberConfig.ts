@@ -161,28 +161,17 @@ const mkdirp = async (path: string): Promise<boolean> => {
   return Boolean(res.ok);
 };
 
-const readTextFile = async (path: string): Promise<string | null> => {
-  const runtimeFiles = getRuntimeFilesAPI();
-  if (runtimeFiles?.readFile) {
-    try {
-      const result = await runtimeFiles.readFile(path);
-      const content = typeof result?.content === 'string' ? result.content : '';
-      return content;
-    } catch {
-      return null;
-    }
-  }
-
+const readTextFile = async (path: string, directory?: string): Promise<string | null> => {
   try {
-    const response = await runtimeFetch(`${getBaseUrl()}/fs/read?path=${encodeURIComponent(path)}`,
-      {
-        // Avoid conditional requests (304 + empty body).
-        cache: 'no-store',
-      }
-    );
-    if (!response.ok) {
-      return null;
-    }
+    const response = await runtimeFetch(`${getBaseUrl()}/fs/read`, {
+      // Configuration probes are optional; a missing file is an authoritative
+      // absence, not an exceptional 404 that should pollute browser diagnostics.
+      // Project-local legacy probes must carry their explicit workspace scope;
+      // the server process cwd is not a user-selected project authority.
+      query: { path, optional: 'true', ...(directory ? { directory } : {}) },
+      cache: 'no-store',
+    });
+    if (!response.ok) return null;
     return await response.text();
   } catch {
     return null;
@@ -596,9 +585,9 @@ async function readPiChamberConfig(project: ProjectRef): Promise<PiChamberConfig
 
   const configPath = await getUserConfigPath(project);
 
-  const readText = async (path: string): Promise<string | null> => {
+  const readText = async (path: string, directory?: string): Promise<string | null> => {
     // Keep behavior consistent with other helpers.
-    const text = await readTextFile(path);
+    const text = await readTextFile(path, directory);
     if (text === null) {
       return null;
     }
@@ -635,7 +624,7 @@ async function readPiChamberConfig(project: ProjectRef): Promise<PiChamberConfig
   // 2) Migrate legacy <project>/.openchamber/openchamber.json.
   // LEGACY_PROJECT_CONFIG: migrate project-local openchamber.json -> ~/.config/pichamber/projects/<projectId>.json
   const legacyPath = getLegacyConfigPath(projectDirectory);
-  const legacyConfig = parseConfig(await readText(legacyPath));
+  const legacyConfig = parseConfig(await readText(legacyPath, projectDirectory));
   if (!legacyConfig) {
     return null;
   }

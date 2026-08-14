@@ -1,5 +1,4 @@
 /* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import type { Session } from '@/lib/chat/types';
 import { ContextMenu } from '@base-ui/react/context-menu';
@@ -43,10 +42,6 @@ import { useI18n } from '@/lib/i18n';
 import { useShiftKeyHeld } from '@/hooks/useShiftKeyHeld';
 import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
-import { parseMultiRunSessionTitle } from '@/lib/multirun/title';
-import { MultiRunFusionDialog } from '@/components/multirun/MultiRunFusionDialog';
-import { FusionIcon } from '@/components/icons/FusionIcon';
-import { startSessionTreeWorktreeMove, useIsSessionWorktreeMovePending } from '@/lib/worktrees/sessionWorktreeMove';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 
@@ -335,20 +330,15 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   );
   const tooltipProjectLabel = secondaryMeta?.projectLabel
     ?? (projectLabelFromStore ? formatProjectLabel(projectLabelFromStore) : null);
-  const tooltipBranchLabel = secondaryMeta?.branchLabel ?? node.worktree?.branch ?? null;
+  const tooltipBranchLabel = secondaryMeta?.branchLabel ?? (node as any).worktree?.branch ?? null;
   const prLookupKey = React.useMemo(() => {
-    const branch = node.worktree?.branch?.trim();
-    const directory = normalizePath(node.worktree?.path ?? null);
-    return branch && directory ? getGitHubPrStatusKey(directory, branch) : null;
-  }, [node.worktree]);
+    const branch = (node as any).worktree?.branch?.trim();
+    const directory = normalizePath((node as any).worktree?.path ?? null);
+    return branch && directory ? getGitHubPrStatusKey() : null;
+  }, [(node as any).worktree]);
   const prSummary = usePrVisualSummary(prLookupKey);
   const prIconColor = prSummary ? `var(--pr-${prSummary.visualState})` : undefined;
-  const sessionGroupingMode = useSessionDisplayStore((state) => state.sessionGroupingMode);
-  // In by-worktree grouping the project tree already shows the branch on the
-  // group sub-header, so the per-row marker only appears in flat mode and in
-  // the mixed-context recent list.
-  const showInlineBranchMarker = Boolean(tooltipBranchLabel)
-    && (renderContext === 'recent' || sessionGroupingMode === 'flat');
+  const showInlineBranchMarker = Boolean(tooltipBranchLabel);
   const prStatusLabel = React.useMemo(() => {
     if (!prSummary) return null;
     switch (prSummary.visualState) {
@@ -428,8 +418,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   // Read as a boolean, not as the value: the row must not re-render on every
   // tick of the counter it only decides to mount.
   const hasActivityDuration = useHasSessionActivityDuration(session.id, isStreaming);
-  const isMovingToWorktree = useIsSessionWorktreeMovePending(session.id);
-  const sessionPermissions = useSessionPermissions(session.id, sessionDirectory ?? undefined, { bootstrap: false });
+  const sessionPermissions = useSessionPermissions(session.id, sessionDirectory ?? undefined);
   const sessionTitle = resolvedSession.title || t('sessions.sidebar.session.untitled');
   const hasChildren = node.children.length > 0;
   const isPinnedSession = isSessionPinned(pinnedSessionIds, sessionDirectory, session.id);
@@ -452,8 +441,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   const isMenuOpen = openSidebarMenuKey === menuInstanceKey;
   const [isContextMenuOpen, setIsContextMenuOpen] = React.useState(false);
   const isSessionMenuOpen = isMenuOpen || isContextMenuOpen;
-  const isMultiRunLikeSession = React.useMemo(() => parseMultiRunSessionTitle(resolvedSession.title) !== null, [resolvedSession.title]);
-  const [fusionDialogOpen, setFusionDialogOpen] = React.useState(false);
 
   const descendantCount = React.useMemo(() => collectNodeDescendantIds(node).length, [collectNodeDescendantIds, node]);
 
@@ -463,7 +450,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     for (const child of children) {
       try {
         if (!sessionDirectory) throw new Error('Session directory is required for export');
-        await sync.loadCompleteHistory(child.session.id, sessionDirectory);
+        await (sync as any).loadCompleteHistory?.(child.session.id, sessionDirectory);
         const childRecords = buildSessionMessageRecordsSnapshot(directoryStore.getState(), child.session.id).list;
         const childTitle = child.session.title || t('sessions.sidebar.session.export.untitledSubagent');
         const childAgent = (child.session as Session & { agent?: string }).agent;
@@ -496,7 +483,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     }
 
     try {
-      await sync.loadCompleteHistory(session.id, sessionDirectory);
+      await (sync as any).loadCompleteHistory?.(session.id, sessionDirectory);
     } catch {
       toast.error(t('sessions.sidebar.session.export.failedLoadHistory'));
       return;
@@ -652,7 +639,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   const pendingQuestionLabel = pendingQuestionCount === 1
     ? t('sessions.sidebar.session.status.questionPendingSingle')
     : t('sessions.sidebar.session.status.questionPendingMany', { count: pendingQuestionCount });
-  const showUnreadStatus = !isMovingToWorktree && !isStreaming && needsAttention && !isActive;
+  const showUnreadStatus = !isStreaming && needsAttention && !isActive;
   const showStatusMarker = isStreaming || showUnreadStatus;
   // Both states are the same static dot; only the color separates "running"
   // from "unread". The elapsed-turn readout on the right carries the motion
@@ -673,8 +660,8 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   // The settled duration lives exactly as long as the unread marker does, so a
   // session read (or watched) while it finishes never keeps a stale total.
   const showActivityDuration = (isStreaming || showUnreadStatus) && hasActivityDuration;
-  const hideLeadingIndicatorOnHover = !alwaysShowActions && hasChildren && (isMovingToWorktree || showStatusMarker || isPinnedSession);
-  const showPinnedMarker = isPinnedSession && !isMovingToWorktree && !showStatusMarker;
+  const hideLeadingIndicatorOnHover = !alwaysShowActions && hasChildren && (showStatusMarker || isPinnedSession);
+  const showPinnedMarker = isPinnedSession && !showStatusMarker;
   const pinnedMarkerContent = (
     <Icon
       name="pushpin"
@@ -682,7 +669,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
       aria-label={t('sessions.sidebar.session.status.pinned')}
     />
   );
-  const leadingIndicators = isMovingToWorktree || showStatusMarker || showPinnedMarker ? (
+  const leadingIndicators = showStatusMarker || showPinnedMarker ? (
     <span
       style={{ left: ROW_GUTTER_LEFT_PX + depth * ROW_DEPTH_STEP_PX }}
       className={cn(
@@ -690,16 +677,10 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
         hideLeadingIndicatorOnHover ? 'opacity-100 group-hover:opacity-0 group-focus-within:opacity-0' : '',
       )}
     >
-      {isMovingToWorktree ? (
-        <Icon
-          name="loader-4"
-          className="h-3 w-3 animate-spin text-primary"
-          aria-label={t('sessions.sidebar.session.status.movingToWorktree')}
-        />
-      ) : showStatusMarker ? statusMarkerContent : showPinnedMarker ? pinnedMarkerContent : null}
+      {showStatusMarker ? statusMarkerContent : showPinnedMarker ? pinnedMarkerContent : null}
     </span>
   ) : null;
-  const hideChevronUntilHover = hasChildren && !alwaysShowActions && (isMovingToWorktree || showStatusMarker || isPinnedSession);
+  const hideChevronUntilHover = hasChildren && !alwaysShowActions && (showStatusMarker || isPinnedSession);
   const subsessionChevron = hasChildren ? (
     <span
       role="button"
@@ -894,7 +875,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
         </Item>
       ) : (
         <>
-          <Item onClick={() => { if (resolvedSession.share?.url) handleCopyShareUrl(resolvedSession.share.url, session.id); }} className="[&>svg]:mr-1">
+          <Item onClick={() => { if ((resolvedSession.share as any)?.url) handleCopyShareUrl((resolvedSession.share as any).url, session.id); }} className="[&>svg]:mr-1">
             {copiedSessionId === session.id
               ? <><Icon name="check" className="mr-1 h-4 w-4"  style={{ color: 'var(--status-success)' }}/>{t('sessions.sidebar.session.menu.copied')}</>
               : <><Icon name="file-copy" className="mr-1 h-4 w-4" />{t('sessions.sidebar.session.menu.copyLink')}</>}
@@ -909,50 +890,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
         <Icon name="download" className="mr-1 h-4 w-4" />
         {t('sessions.sidebar.session.menu.exportMarkdown')}
       </Item>
-      {!isSubtaskSession && !archivedBucket ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="block">
-              <Item
-                disabled={!sessionDirectory || isStreaming || isMovingToWorktree}
-                onClick={() => {
-                  if (!sessionDirectory || isStreaming || isMovingToWorktree) return;
-                  startSessionTreeWorktreeMove({
-                    root: resolvedSession,
-                    descendants: collectNodeDescendantSessions(node),
-                    sourceDirectory: sessionDirectory,
-                    successMessage: t('sessions.sidebar.session.moveToWorktree.success'),
-                    failureMessage: t('sessions.sidebar.session.moveToWorktree.failed'),
-                  });
-                }}
-                className="w-full [&>svg]:mr-1"
-              >
-                <Icon name="folder-shared" className="mr-1 h-4 w-4" />
-                {t('sessions.sidebar.session.menu.moveToWorktree')}
-              </Item>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="right" className="max-w-72">
-            {isMovingToWorktree
-              ? t('sessions.sidebar.session.moveToWorktree.tooltipMoving')
-              : isStreaming
-                ? t('sessions.sidebar.session.moveToWorktree.tooltipBusy')
-                : t('sessions.sidebar.session.moveToWorktree.tooltip')}
-          </TooltipContent>
-        </Tooltip>
-      ) : null}
-      {isMultiRunLikeSession ? (
-        <Item onClick={() => setFusionDialogOpen(true)} className="[&>svg]:mr-1">
-          <FusionIcon className="mr-1 h-4 w-4" />
-          {t('sessions.sidebar.session.menu.runFusion')}
-        </Item>
-      ) : null}
-
       {sessionDirectory && !archivedBucket ? (() => {
-        // Folders are flat per project: list folders from every scope of the
-        // owning project (root + all worktrees) so sessions can be filed
-        // across worktrees. Each action targets the folder's owning scope,
-        // and moving between scopes clears the previous membership first.
         const scopes: string[] = [];
         const pushScope = (candidate: string | null | undefined) => {
           const normalized = normalizePath(candidate ?? null);
@@ -962,10 +900,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
           const project = useProjectsStore.getState().projects.find((entry) => entry.id === projectId);
           const projectRoot = normalizePath(project?.path ?? null);
           pushScope(projectRoot);
-          if (projectRoot) {
-            (useSessionUIStore.getState().availableWorktreesByProject.get(projectRoot) ?? [])
-              .forEach((worktree) => pushScope(worktree.path));
-          }
         }
         pushScope(sessionDirectory);
         const folderEntries = scopes.flatMap((scope) =>
@@ -1351,15 +1285,19 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                 menuOpenSessionId,
                 nodeStructureKey: '',
               };
-          return renderSessionNode(
-            child,
-            depth + 1,
-            sessionDirectory ?? groupDirectory,
-            projectId,
-            archivedBucket,
-            undefined,
-            renderContext,
-            childRenderExtras,
+          return (
+            <React.Fragment key={child.session.id}>
+              {renderSessionNode(
+                child,
+                depth + 1,
+                sessionDirectory ?? groupDirectory,
+                projectId,
+                archivedBucket,
+                undefined,
+                renderContext,
+                childRenderExtras,
+              )}
+            </React.Fragment>
           );
         })
         : null}
@@ -1404,13 +1342,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {isMultiRunLikeSession ? (
-        <MultiRunFusionDialog
-          session={resolvedSession}
-          open={fusionDialogOpen}
-          onOpenChange={setFusionDialogOpen}
-        />
-      ) : null}
     </React.Fragment>
   );
 }

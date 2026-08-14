@@ -44,7 +44,7 @@ type SessionFoldersStore = SessionFoldersState & SessionFoldersActions;
 const FOLDERS_STORAGE_KEY = 'oc.sessions.folders';
 const COLLAPSED_STORAGE_KEY = 'oc.sessions.folderCollapse';
 const STORAGE_INDEX_KEY = 'oc.sessions.folders.v2.index';
-const SESSION_FOLDERS_API_PATH = '/api/session-folders';
+const SESSION_FOLDERS_API_PATH = '/api/pi/session-folders';
 const DISK_WRITE_DEBOUNCE_MS = 250;
 
 const safeStorage = getDeferredSafeStorage();
@@ -131,7 +131,7 @@ const schedulePersistToDisk = (foldersMap: SessionFoldersMap, collapsedFolderIds
       updatedAt,
     };
     void runtimeFetch(SESSION_FOLDERS_API_PATH, {
-      method: 'POST',
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }).catch(() => { /* best-effort */ });

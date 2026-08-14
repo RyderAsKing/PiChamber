@@ -9,7 +9,6 @@ export type ContextSurfaceId =
   | 'diff'
   | 'walkthrough'
   | 'terminal'
-  | 'plan'
   | 'notes'
   | 'context'
   | 'browser'
@@ -111,15 +110,7 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
     labelKey: 'contextRail.surface.notes',
     availability: 'always',
   },
-  {
-    id: 'plan',
-    descriptionKey: 'contextRail.surface.plan.description',
-    defaultWidthFraction: 0.45,
-    mode: 'plan',
-    icon: 'file-text',
-    labelKey: 'contextPanel.mode.plan',
-    availability: 'always',
-  },
+
   {
     id: 'browser',
     descriptionKey: 'contextRail.surface.browser.description',
@@ -194,7 +185,6 @@ export const sortContextSurfaces = (railOrder: readonly string[]): ContextSurfac
 
 type VisibleRailSurfacesOptions = {
   railOrder: readonly string[];
-  planModeEnabled: boolean;
   screenWidth: number;
   tabs: readonly { mode: ContextPanelMode }[];
 };
@@ -209,7 +199,7 @@ type VisibleRailSurfacesOptions = {
  */
 export const getVisibleContextRailSurfaces = (options: VisibleRailSurfacesOptions): ContextSurfaceDescriptor[] => {
   return sortContextSurfaces(options.railOrder).filter((surface) => {
-    if (surface.id === 'plan' || surface.id === 'walkthrough') {
+    if (surface.id === 'walkthrough') {
       return false;
     }
     if (surface.availability === 'has-content') {

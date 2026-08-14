@@ -101,7 +101,7 @@ export function LocalSetupScreen({
     let cancelled = false;
     void (async () => {
       try {
-        const response = await runtimeFetch('/api/config/settings', { method: 'GET', headers: { Accept: 'application/json' } });
+        const response = await runtimeFetch('/api/pi/ui-settings', { method: 'GET', headers: { Accept: 'application/json' } });
         if (!response.ok) return;
         const data = (await response.json().catch(() => null)) as null | { opencodeBinary?: unknown };
         if (!data || cancelled) return;

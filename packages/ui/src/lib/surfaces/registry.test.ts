@@ -7,15 +7,13 @@ import {
 
 const baseOptions = {
   railOrder: [],
-  planModeEnabled: true,
   screenWidth: 1200,
   tabs: [],
 } as const;
 
 describe('getVisibleContextRailSurfaces', () => {
-  test('never restores plan or walkthrough on the Pi shell', () => {
-    const surfaces = getVisibleContextRailSurfaces({ ...baseOptions, planModeEnabled: true, screenWidth: 2400 });
-    expect(surfaces.some((surface) => surface.id === 'plan')).toBe(false);
+  test('never restores walkthrough on the Pi shell', () => {
+    const surfaces = getVisibleContextRailSurfaces({ ...baseOptions, screenWidth: 2400 });
     expect(surfaces.some((surface) => surface.id === 'walkthrough')).toBe(false);
     expect(surfaces.some((surface) => surface.id === 'context')).toBe(true);
   });

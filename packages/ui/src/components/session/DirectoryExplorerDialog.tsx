@@ -447,11 +447,15 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
         const data = (await response.json()) as { path?: string };
         selectedTarget = data.path || target;
       } else if (shouldCreateSelection) {
-        await runtimeFetch('/api/fs/mkdir', {
+        const response = await runtimeFetch('/api/fs/mkdir', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          query: browseDirectoryAbsolutePath ? { directory: browseDirectoryAbsolutePath } : undefined,
           body: JSON.stringify({ path: target }),
         });
+        if (!response.ok) {
+          throw new Error(t('directoryExplorerDialog.toast.failedToSelectDirectory'));
+        }
       }
       const project = addProject(selectedTarget);
       if (!project) {
@@ -468,7 +472,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     } finally {
       setIsConfirming(false);
     }
-  }, [addProject, addedProjectPaths, cloneRemoteUrl, isCloneMode, isConfirming, openProjectDraft, selectedGitIdentity?.id, shouldCreateTarget, targetPath, t]);
+  }, [addProject, addedProjectPaths, browseDirectoryAbsolutePath, cloneRemoteUrl, isCloneMode, isConfirming, openProjectDraft, selectedGitIdentity?.id, shouldCreateTarget, targetPath, t]);
 
   const browseToDisplayPath = React.useCallback((displayPath: string) => {
     setQuery(ensureBrowseDirectoryPath(displayPath));
@@ -653,43 +657,45 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
             {rows.map((row, index) => {
               const isActive = index === highlightedIndex;
               return (
-                <button
-                  key={row.value}
-                  ref={(node) => {
-                    if (node) {
-                      rowRefs.current.set(row.value, node);
-                    } else {
-                      rowRefs.current.delete(row.value);
-                    }
-                  }}
-                  type="button"
-                  disabled={row.type === 'directory' && row.disabled}
-                  onMouseEnter={() => setHighlightedIndex(index)}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => executeRow(row)}
-                  className={cn(
-                    'flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
-                    isActive && 'bg-interactive-selection text-interactive-selection-foreground',
-                    !isActive && 'hover:bg-interactive-hover/50',
-                    row.type === 'directory' && row.disabled && 'cursor-not-allowed opacity-45 hover:bg-transparent'
-                  )}
-                >
-                  {row.type === 'up' ? (
-                    <Icon name="arrow-left-s" className="h-4 w-4 flex-shrink-0 text-muted-foreground/80" />
-                  ) : (
-                    <Icon name="folder-6" className="h-4 w-4 flex-shrink-0 text-muted-foreground/80" />
-                  )}
-                  <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                    <span className="truncate typography-ui-label text-foreground">{row.name}</span>
-                  </span>
-                  {row.type === 'directory' && row.disabled ? (
-                    <span className="rounded-full border border-border/60 px-2 py-0.5 typography-meta text-muted-foreground">
-                      {t('directoryExplorerDialog.browse.addedBadge')}
+                <div key={row.value} className="flex w-full items-center gap-1">
+                  <button
+                    ref={(node) => {
+                      if (node) {
+                        rowRefs.current.set(row.value, node);
+                      } else {
+                        rowRefs.current.delete(row.value);
+                      }
+                    }}
+                    type="button"
+                    disabled={row.type === 'directory' && row.disabled}
+                    onMouseEnter={() => setHighlightedIndex(index)}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => executeRow(row)}
+                    className={cn(
+                      'flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+                      isActive && 'bg-interactive-selection text-interactive-selection-foreground',
+                      !isActive && 'hover:bg-interactive-hover/50',
+                      row.type === 'directory' && row.disabled && 'cursor-not-allowed opacity-45 hover:bg-transparent'
+                    )}
+                  >
+                    {row.type === 'up' ? (
+                      <Icon name="arrow-left-s" className="h-4 w-4 flex-shrink-0 text-muted-foreground/80" />
+                    ) : (
+                      <Icon name="folder-6" className="h-4 w-4 flex-shrink-0 text-muted-foreground/80" />
+                    )}
+                    <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                      <span className="truncate typography-ui-label text-foreground">{row.name}</span>
                     </span>
-                  ) : row.type === 'directory' ? (
+                    {row.type === 'directory' && row.disabled ? (
+                      <span className="rounded-full border border-border/60 px-2 py-0.5 typography-meta text-muted-foreground">
+                        {t('directoryExplorerDialog.browse.addedBadge')}
+                      </span>
+                    ) : null}
+                  </button>
+                  {row.type === 'directory' && !row.disabled ? (
                     <button
                       type="button"
-                      onMouseDown={(event) => event.stopPropagation()}
+                      onMouseDown={(event) => event.preventDefault()}
                       onClick={(event) => handleQuickAdd(event, row.path)}
                       className="flex-shrink-0 rounded-full p-1 text-muted-foreground transition-colors hover:bg-interactive-hover/60 hover:text-foreground"
                       title={t('directoryExplorerDialog.browse.quickAdd')}
@@ -697,7 +703,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
                       <Icon name="add" className="h-3.5 w-3.5" />
                     </button>
                   ) : null}
-                </button>
+                </div>
               );
             })}
           </div>

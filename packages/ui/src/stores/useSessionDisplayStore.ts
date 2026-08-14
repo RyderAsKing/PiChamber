@@ -1,15 +1,9 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-type ProjectSortOrder = 'manual' | 'a-z' | 'z-a' | 'date-added' | 'recent';
-
-// 'by-worktree' keeps per-worktree sub-headers inside each project zone
-// (parallel-work overview); 'flat' merges everything into one recency list.
-type SessionGroupingMode = 'by-worktree' | 'flat';
+export type ProjectSortOrder = 'manual' | 'a-z' | 'z-a' | 'date-added' | 'recent';
 
 type SessionDisplayStore = {
-  sessionGroupingMode: SessionGroupingMode;
-  setSessionGroupingMode: (mode: SessionGroupingMode) => void;
   /** Project/recent zone headers stick to the top while their zone scrolls. */
   stickyZoneHeaders: boolean;
   toggleStickyZoneHeaders: () => void;
@@ -32,6 +26,7 @@ export const migrateSessionDisplayState = (
 ): Partial<SessionDisplayStore> => {
   const state = (persisted ?? {}) as Partial<SessionDisplayStore> & {
     displayMode?: string;
+    sessionGroupingMode?: string;
   };
   if (version < 2) {
     state.projectSortOrder = 'manual';
@@ -40,9 +35,10 @@ export const migrateSessionDisplayState = (
     state.projectSortOrder = 'manual';
   }
   if (version < 4) {
-    // v4 removes the default/minimal display mode: the sidebar now has a
-    // single row layout. Drop the stale key from persisted state.
     delete state.displayMode;
+  }
+  if (version < 5) {
+    delete state.sessionGroupingMode;
   }
   return state;
 };
@@ -50,14 +46,9 @@ export const migrateSessionDisplayState = (
 export const useSessionDisplayStore = create<SessionDisplayStore>()(
   persist(
     (set) => ({
-      sessionGroupingMode: 'by-worktree',
-      setSessionGroupingMode: (mode) => set({ sessionGroupingMode: mode }),
       stickyZoneHeaders: true,
       toggleStickyZoneHeaders: () => set((state) => ({ stickyZoneHeaders: !state.stickyZoneHeaders })),
       showRecentSection: true,
-      // Default to HIDDEN so the pre-hydration state matches the quiet/safe
-      // option: archived sessions must never flash visible on startup and then
-      // disappear once the persisted preference rehydrates.
       showArchivedSessions: false,
       projectSortOrder: 'manual',
       setShowRecentSection: (show) => set({ showRecentSection: show }),
@@ -67,14 +58,9 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
       setProjectSortOrder: (order) => set({ projectSortOrder: order }),
     }),
     {
-      name: 'session-display-mode',
-      version: 4,
-      // v1→v2 adds projectSortOrder using the canonical manual ordering.
-      // v2→v3 replaces the previously shipped recent default with manual.
-      // v3→v4 removes displayMode (single sidebar row layout).
+      name: 'openchamber:session-display-settings',
+      version: 5,
       migrate: migrateSessionDisplayState,
     },
   ),
 );
-
-export type { ProjectSortOrder, SessionGroupingMode };

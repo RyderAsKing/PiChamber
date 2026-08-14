@@ -28,6 +28,7 @@ const baseEvent = <T extends PiSessionEvent["name"]>(
 const assistantStart = (sequence = 1) => baseEvent("assistant.message.start", sequence, {
   messageId: "m1",
   role: "assistant",
+  parentId: "u1",
   startedAt: 1_000,
 })
 
@@ -48,6 +49,11 @@ describe("applyPiEvent", () => {
     expect(message?.role).toBe("user")
     expect(message?.text).toBe("hello Pi")
     expect(message?.streaming).toBe(false)
+  })
+
+  test("preserves the user-message parent for an assistant turn", () => {
+    const state = applyPiEvent(createReducerState(), assistantStart()).state
+    expect(state.bySession.get("sess-1")?.messages.get("m1")?.parentId).toBe("u1")
   })
 
   test("assembles canonical assistant message and thinking deltas", () => {
@@ -150,13 +156,14 @@ describe("hydrateSessionFromDetail", () => {
       lastSequence: 5,
       messages: [{
         message: {
-          id: "m1", sessionId: "sess-1", directory: "/work", role: "assistant",
+          id: "m1", sessionId: "sess-1", directory: "/work", role: "assistant", parentId: "u1",
           text: "Hi", thinking: "", createdAt: 1_000,
         },
         parts: [{ id: "p1", index: 0, type: "text", text: "Hi" }],
       }],
     })
     expect(state.bySession.get("sess-1")?.messages.size).toBe(1)
+    expect(state.bySession.get("sess-1")?.messages.get("m1")?.parentId).toBe("u1")
     expect(applyPiEvent(state, baseEvent("session.lifecycle", 5, { state: "busy" })).didApply).toBe(false)
     expect(applyPiEvent(state, baseEvent("session.lifecycle", 6, { state: "busy" })).didApply).toBe(true)
   })
@@ -191,6 +198,7 @@ describe("projectSession", () => {
     const projected = projectSession(session)
     expect(projected.messages[0]?.parts[0]?.text).toBe("Hi")
     expect(projected.messages[0]?.parts[0]?.streaming).toBe(true)
+    expect(projected.messages[0]?.parentId).toBe("u1")
     expect((projected as unknown as { lastSequence?: number }).lastSequence).toBe(undefined)
   })
 })

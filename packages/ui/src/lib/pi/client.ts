@@ -36,6 +36,7 @@ import {
   type PiPromptTemplateCreateInput,
   type PiRuntimeHealth,
   type PiProjectListResponse,
+  type PiProjectSelectResponse,
   type PiSessionCreateInput,
   type PiSessionDetailResponse,
   type PiSessionListResponse,
@@ -189,6 +190,15 @@ export class PiService {
     assertRuntimeUnchanged(scope);
     return jsonRequest<undefined, PiProjectListResponse>('/api/pi/projects', {
       method: 'GET',
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  async selectProject(directory: string, scope?: PiClientScope): Promise<PiProjectSelectResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<{ directory: string }, PiProjectSelectResponse>('/api/pi/projects/select', {
+      method: 'POST',
+      body: { directory },
       ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
     });
   }

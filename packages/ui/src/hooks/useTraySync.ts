@@ -26,7 +26,6 @@ import { useGitStore } from '@/stores/useGitStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { resolveProjectForSessionDirectory, normalizeProjectPath } from '@/lib/projectResolution';
 import type { ProjectEntry } from '@/lib/api/types';
-import type { WorktreeMetadata } from '@/types/worktree';
 import { toast } from '@/components/ui';
 import type { PermissionRequest } from '@/types/permission';
 import type { QuestionRequest } from '@/types/question';
@@ -141,33 +140,22 @@ const basenameOf = (p: string): string => {
 // Resolve the "project · branch" metadata line for a session from its directory,
 // covering both project-root sessions and worktree sessions (which map back to
 // their parent project). Branch prefers the live VCS value; falls back to the
-// worktree's recorded branch when the directory isn't currently synced.
 const resolveSessionSubtitle = (
   directory: string,
   session: Session,
   projects: ProjectEntry[],
-  worktreesByProject: Map<string, WorktreeMetadata[]>,
   branchByDirectory: Map<string, string>,
 ): string => {
   if (!directory) return '';
-  const project = resolveProjectForSessionDirectory(projects, worktreesByProject, directory);
+  const project = resolveProjectForSessionDirectory(projects, new Map(), directory);
   const globalProjectName = (session as { project?: { name?: string } | null }).project?.name;
   const projectName = project?.label?.trim() || globalProjectName?.trim() || basenameOf(directory);
   const normDir = normalizeProjectPath(directory);
 
-  // Branch resolution, most-authoritative first: live VCS from the sync store,
-  // then the git store's cached status (covers project-root sessions whose
-  // directory isn't actively synced), then recorded worktree metadata.
   let branch = (normDir && branchByDirectory.get(normDir)) || '';
   if (!branch) {
     for (const [dir, gitState] of useGitStore.getState().directories) {
       if (normalizeProjectPath(dir) === normDir) { branch = gitState.status?.current ?? ''; break; }
-    }
-  }
-  if (!branch) {
-    for (const worktrees of worktreesByProject.values()) {
-      const match = worktrees.find((wt) => normalizeProjectPath(wt.path) === normDir);
-      if (match?.branch) { branch = match.branch; break; }
     }
   }
 
@@ -383,7 +371,6 @@ const buildSnapshot = (instanceName: string): TraySnapshot => {
   };
 
   const projects = useProjectsStore.getState().projects;
-  const worktreesByProject = useSessionUIStore.getState().availableWorktreesByProject;
 
   const sessions: TraySession[] = allSessions
     .filter((s) => s?.id && !s.parentID) // root rows; sub-session work rolls up
@@ -401,7 +388,7 @@ const buildSnapshot = (instanceName: string): TraySnapshot => {
         unseen: family.reduce((sum, id) => sum + (notif.unseenCount[id] ?? 0), 0),
         hasError: family.some((id) => notif.unseenHasError[id] ?? false),
         directory,
-        subtitle: resolveSessionSubtitle(directory, session, projects, worktreesByProject, live.branchByDirectory),
+        subtitle: resolveSessionSubtitle(directory, session, projects, live.branchByDirectory),
       };
     });
 

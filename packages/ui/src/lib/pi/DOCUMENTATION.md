@@ -6,9 +6,7 @@ This directory owns the Pi-native runtime boundary. It defines:
 
 - The Pi session / message / part data shapes (`types.ts`).
 - The public `/api/pi/` IPC envelope (`protocol.ts`).
-- The browser-side transport for `/api/pi/events` (`transport.ts`), using the
-  shared authenticated runtime HTTP/SSE/WS helpers and one active connection
-  per stream generation.
+- The browser-side transport for `/api/pi/events` (`transport.ts`), using authenticated SSE by default and one active connection per stream generation. Explicit WebSocket mode remains only for runtimes that provide a matching upgrade endpoint; SSE comment heartbeats count as liveness.
 - The service facade that wraps every `/api/pi/*` call (`client.ts`).
 - The snapshot reducer helpers (`snapshot.ts`).
 - The event reducer helpers (`event-reducer.ts`).
@@ -66,9 +64,11 @@ reconnect begins.
 
 ## Mounted UI ownership
 
-`packages/ui/src/apps/pi-session-store.ts` owns one active daemon project,
-including bootstrap, sequenced event reduction, reconnect hydration, and
-runtime-switch disposal. `App.tsx`, `MobileApp.tsx`, and `ElectronMiniChatApp.tsx`
+`packages/ui/src/apps/pi-session-store.ts` owns one active user-selected project,
+including explicit daemon project selection, bootstrap, sequenced event reduction,
+reconnect hydration, and runtime-switch disposal. The mounted provider follows the
+persisted PiChamber project store; with no project selected it clears session state
+instead of adopting the daemon process cwd or the filesystem home as a visible project. `App.tsx`, `MobileApp.tsx`, and `ElectronMiniChatApp.tsx`
 mount `PiSessionProvider` around `MainLayout` / the mobile shell / mini-chat.
 The restored web shell bootstraps provider/model config through
 `initializeApp()` in `SyncAppEffects`; `legacy-ui-client.getProvidersForConfig`
@@ -76,7 +76,7 @@ must return `{ providers, default }` so the config store can leave the picker
 off the loading state. The picker only includes authenticated providers;
 unconfigured catalog entries stay on the Providers settings page. Composer
 chrome does not expose an OpenCode agent selector.
-Chat, sidebar, and composer mutations go through `PiSessionStore` and `/api/pi/*`.
+Chat, sidebar, and composer mutations go through `PiSessionStore` and `/api/pi/*`. Pi assistant projections preserve their owning user-message id end to end because the restored chat renderer groups assistant output into user turns by that identity.
 Settings chrome is the restored OpenChamber hub limited to Pi-owned pages
 (Providers, Skills, Snippets, Behavior/`AGENTS.md`, Magic Prompts, appearance
 and other PiChamber pages). `PiResourceSettings.tsx` remains the page bodies
@@ -94,6 +94,6 @@ responses omit credentials and headers, which are write-only. PiChamber
 new-session model/thinking plus small-model and walkthrough-model defaults
 live in its own sidecar. Only the explicit new-session overrides are passed to
 the daemon, so Pi's normal settings fallback remains authoritative otherwise.
-Attachment uploads return opaque identifiers; their temporary paths cross only
+Composer attachments are uploaded before prompt dispatch and the returned opaque identifiers are forwarded with that captured send. Attachment uploads return opaque identifiers; their temporary paths cross only
 the private daemon IPC and are redacted from public transcript/event output.
 The browser never receives a path, endpoint, credential, or daemon identity.

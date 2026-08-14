@@ -26,11 +26,8 @@ export const VALID_TABS: readonly MainTab[] = ['chat', 'git', 'diff', 'terminal'
  */
 export const VALID_SETTINGS_SECTIONS: readonly SidebarSection[] = [
   'settings',
-  'agents',
-  'commands',
   'skills',
   'providers',
-  'usage',
   'git-identities',
 ] as const;
 

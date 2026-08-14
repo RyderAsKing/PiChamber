@@ -4,7 +4,6 @@ import React from 'react';
 import { cn, fuzzyMatch } from '@/lib/utils';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionMessages } from '@/sync/sync-context';
-import { useCommandsStore } from '@/stores/useCommandsStore';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Icon } from "@/components/icon/Icon";
@@ -76,8 +75,6 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
 
   const [commands, setCommands] = React.useState<CommandInfo[]>([]);
   const [loading, setLoading] = React.useState(false);
-  const commandsWithMetadata = useCommandsStore((s) => s.commands);
-  const refreshCommands = useCommandsStore((s) => s.loadCommands);
   const skills = useSkillsStore((s) => s.skills);
   const refreshSkills = useSkillsStore((s) => s.loadSkills);
   const [selectedIndex, setSelectedIndex] = React.useState(0);
@@ -110,26 +107,13 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
 
   React.useEffect(() => {
     // Force refresh to get latest project context when mounting
-    void refreshCommands();
     void refreshSkills();
-  }, [refreshCommands, refreshSkills]);
+  }, [refreshSkills]);
 
   React.useEffect(() => {
     const loadCommands = async () => {
       setLoading(true);
       try {
-        const skillNames = new Set(skills.map((skill) => skill.name));
-        const customCommands: CommandInfo[] = commandsWithMetadata.map((cmd, index) => ({
-          id: `opencode:${cmd.scope ?? 'global'}:${cmd.name}:${cmd.agent ?? ''}:${cmd.model ?? ''}:${index}`,
-          name: cmd.name,
-          source: 'opencode',
-          description: cmd.description,
-          agent: cmd.agent ?? undefined,
-          model: cmd.model ?? undefined,
-          isBuiltIn: cmd.name === 'init' || cmd.name === 'review',
-          isSkill: cmd.source === 'skill' || skillNames.has(cmd.name),
-          scope: cmd.scope,
-        }));
         const skillCommands: CommandInfo[] = skills.map((skill, index) => ({
           id: `skill:${skill.scope}:${skill.source ?? 'opencode'}:${skill.name}:${index}`,
           name: skill.name,
@@ -178,7 +162,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
             : []
           ),
         ];
-        const allCommands = mergeCommandAutocompleteItems(builtInCommands, customCommands, skillCommands);
+        const allCommands = mergeCommandAutocompleteItems(builtInCommands, [], skillCommands);
 
         const allowInitCommand = !hasMessagesInCurrentSession;
         const filtered = (searchQuery
@@ -251,7 +235,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
     };
 
     loadCommands();
-  }, [searchQuery, hasMessagesInCurrentSession, hasSession, canStartSessionCommand, canUseReviewHandoffFlow, commandsWithMetadata, skills, t]);
+  }, [searchQuery, hasMessagesInCurrentSession, hasSession, canStartSessionCommand, canUseReviewHandoffFlow, skills, t]);
 
   React.useEffect(() => {
     setSelectedIndex(0);

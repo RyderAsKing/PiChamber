@@ -346,9 +346,17 @@ export const HistoryCommitRow = React.memo(({
 
   return (
     <li>
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={isExpanded}
         onClick={onToggle}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onToggle();
+          }
+        }}
         className={cn(
           'w-full flex items-start gap-3 px-3 py-2 text-left transition-colors',
           isGraphMode
@@ -425,7 +433,7 @@ export const HistoryCommitRow = React.memo(({
             </Tooltip>
           </div>
         </div>
-      </button>
+      </div>
 
       {isExpanded && (
         <div className="px-3 pb-2 pl-8 border-t border-border/40">

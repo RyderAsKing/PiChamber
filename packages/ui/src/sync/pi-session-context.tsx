@@ -1,7 +1,7 @@
 /* eslint-disable */
 import React, { useEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { getPiSessionStore, type PiSessionStore } from '@/apps/pi-session-store';
-import { useDirectoryStore } from '@/stores/useDirectoryStore';
+import { useProjectsStore } from '@/stores/useProjectsStore';
 
 const PiSessionContext = React.createContext<PiSessionStore | null>(null);
 
@@ -10,12 +10,19 @@ export const usePiSessionStore = (): PiSessionStore => {
   return store ?? getPiSessionStore();
 };
 
-export const PiSessionProvider = ({ children }: { children: ReactNode }) => {
+export const PiSessionProvider = ({ children, directory }: { children: ReactNode; directory?: string }) => {
   const store = React.useMemo(() => getPiSessionStore(), []);
-  const directory = useDirectoryStore((state) => state.currentDirectory);
+  const activeProjectDirectory = useProjectsStore((state) => (
+    state.projects.find((project) => project.id === state.activeProjectId)?.path ?? null
+  ));
+  const targetDirectory = directory?.trim() || activeProjectDirectory;
   useEffect(() => {
-    void store.start({ directory: directory || undefined });
-  }, [store, directory]);
+    if (!targetDirectory) {
+      store.clear();
+      return;
+    }
+    void store.start({ directory: targetDirectory });
+  }, [store, targetDirectory]);
   return <PiSessionContext.Provider value={store}>{children}</PiSessionContext.Provider>;
 };
 
@@ -25,6 +32,6 @@ export const usePiSessionSnapshot = () => {
 };
 
 /** @deprecated OpenCode SyncProvider name kept for restored shell call sites. */
-export const SyncProvider = ({ children }: { children?: ReactNode; sdk?: unknown; directory?: string }) => (
-  <PiSessionProvider>{children}</PiSessionProvider>
+export const SyncProvider = ({ children, directory }: { children?: ReactNode; sdk?: unknown; directory?: string }) => (
+  <PiSessionProvider directory={directory}>{children}</PiSessionProvider>
 );

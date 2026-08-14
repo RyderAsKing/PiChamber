@@ -8,7 +8,7 @@ import type { SessionNodeChildRenderExtras, SessionNodeRenderExtras } from './si
 import { CollapsedActivityIndicator } from './sidebar/collapsedActivityIndicator';
 import type { CollapsedActivityState } from './sidebar/collapsedActivityState';
 
-interface SessionFolderItemProps<TSessionNode> {
+interface SessionFolderItemProps<TSessionNode extends { session: { id: string } }> {
   folder: SessionFolder;
   /**
    * Optional display label override. Flat folder rendering shows nested
@@ -64,7 +64,7 @@ interface SessionFolderItemProps<TSessionNode> {
   archivedBucket?: boolean;
 }
 
-const SessionFolderItemBase = <TSessionNode,>({
+const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },>({
   folder,
   displayName,
   sessions,
@@ -346,9 +346,11 @@ const SessionFolderItemBase = <TSessionNode,>({
           {subFolderItems}
           {/* Then sessions */}
           {sessions.length > 0 ? (
-            sessions.map((node) =>
-              renderSessionNode(node, 0, groupDirectory ?? null, projectId ?? null, archivedBucket, undefined, 'project', getRenderExtras?.(node)),
-            )
+            sessions.map((node) => (
+              <React.Fragment key={node.session.id}>
+                {renderSessionNode(node, 0, groupDirectory ?? null, projectId ?? null, archivedBucket, undefined, 'project', getRenderExtras?.(node))}
+              </React.Fragment>
+            ))
           ) : !subFolderItems ? (
             <div className="py-1 pl-1.5 text-left typography-micro text-muted-foreground/70">
               {t('sessions.sidebar.folderItem.emptyFolder')}
@@ -360,6 +362,6 @@ const SessionFolderItemBase = <TSessionNode,>({
   );
 };
 
-export const SessionFolderItem = React.memo(SessionFolderItemBase) as <TSessionNode>(
+export const SessionFolderItem = React.memo(SessionFolderItemBase) as <TSessionNode extends { session: { id: string } }>(
   props: SessionFolderItemProps<TSessionNode>,
 ) => React.ReactElement;

@@ -44,7 +44,6 @@ import {
     useSession,
 } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
-import { usePlanDetection } from '@/hooks/usePlanDetection';
 import { useI18n } from '@/lib/i18n';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import { WorkStatusPanel } from './work-status/WorkStatusPanel';
@@ -121,7 +120,6 @@ const hasBlockingChatOverlay = (): boolean => {
         isCommandPaletteOpen,
         isHelpDialogOpen,
         isImagePreviewOpen,
-        isMultiRunLauncherOpen,
         isSessionSwitcherOpen,
         isSettingsDialogOpen,
     } = useUIStore.getState();
@@ -130,7 +128,6 @@ const hasBlockingChatOverlay = (): boolean => {
         || isCommandPaletteOpen
         || isHelpDialogOpen
         || isImagePreviewOpen
-        || isMultiRunLauncherOpen
         || isSessionSwitcherOpen
         || isSettingsDialogOpen;
 };
@@ -593,8 +590,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         return firstVisiblePerformance.schedule(currentSessionKey, sessionMessages.length);
     }, [active, currentSessionKey, firstVisiblePerformance, hasRenderableSessionSnapshot, sessionMessages.length]);
 
-    // Plan detection - watches messages for plan creation and signals store
-    usePlanDetection(currentSessionId ?? '', sessionMessages);
+
 
     // Session status from sync system
     const sessionStatusForCurrent = useSessionStatus(currentSessionId ?? '', effectiveSessionDirectory) ?? IDLE_SESSION_STATUS;

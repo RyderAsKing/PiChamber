@@ -106,7 +106,7 @@ export function useSessionPermissions(_sessionID: string, _directory?: string): 
 export function useSessionQuestions(_sessionID: string, _directory?: string): QuestionRequest[] {
   return EMPTY_QUESTIONS;
 }
-export function useSessionQuestionCount() { return 0; }
+export function useSessionQuestionCount(_scopes?: unknown) { return 0; }
 export function useSessions(): Session[] {
   return useAllLiveSessions();
 }
@@ -160,13 +160,13 @@ export function useChildStoreManager() {
 export type SessionTextMessage = { id: string; text: string };
 
 export function dropCachedSessionMessageRecordsSnapshots() {}
-export function buildSessionMessageRecordsSnapshot() { return []; }
+export function buildSessionMessageRecordsSnapshot(_state?: any, _sessionId?: any) { return { list: [] as any[] }; }
 
 export function useSessionMessageCount(sessionID: string): number {
   return useSessionMessageRecords(sessionID).length;
 }
 
-export function useSessionRenderable(_sessionID: string): boolean {
+export function useSessionRenderable(_sessionID: string, _directory?: string): boolean {
   return true;
 }
 

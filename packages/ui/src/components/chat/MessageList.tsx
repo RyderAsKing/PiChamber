@@ -12,7 +12,6 @@ import { applyRetryOverlay } from './lib/turns/applyRetryOverlay';
 import { buildLiveStreamingEntry } from './lib/turns/streamingTailEntry';
 import { getNormalizedMessageForDisplay, hasCompactionPart } from './lib/messageDisplayNormalization';
 import { useUIStore } from '@/stores/useUIStore';
-import { useFeatureFlagsStore } from '@/stores/useFeatureFlagsStore';
 import { isHiddenUserMessage } from './message/hiddenUserMessage';
 import { FadeInDisabledProvider } from './message/FadeInOnReveal';
 import { hasPendingUserSendAnimation, consumePendingUserSendAnimation } from '@/lib/userSendAnimation';
@@ -499,10 +498,9 @@ const TurnBlock = React.memo(({
     activeStreamingMessageId,
     activeStreamingPhase,
 }: TurnBlockProps) => {
-    const planModeEnabled = useFeatureFlagsStore((state) => state.planModeEnabled);
     const userMessageHidden = React.useMemo(
-        () => isHiddenUserMessage(turn.userMessage, { planModeEnabled }),
-        [planModeEnabled, turn.userMessage]
+        () => isHiddenUserMessage(turn.userMessage),
+        [turn.userMessage]
     );
     const turnUiState = turnUiStates.get(turn.turnId) ?? { isExpanded: defaultActivityExpanded };
     const handleToggleTurnGroup = React.useCallback(() => {
@@ -1199,14 +1197,13 @@ const StreamingTailContent: React.FC<{
     activeStreamingPhase,
 }) => {
     const liveParts = useSessionParts(activeStreamingMessageId ?? '', directory);
-    const planModeEnabled = useFeatureFlagsStore((state) => state.planModeEnabled);
     const liveEntry = React.useMemo(() => buildLiveStreamingEntry(entry, {
         activeStreamingMessageId,
         liveParts,
         showTextJustificationActivity: chatRenderMode === 'sorted',
         showTurnChangedFiles,
-        mergeHiddenUserTurns: { planModeEnabled },
-    }), [activeStreamingMessageId, chatRenderMode, entry, liveParts, showTurnChangedFiles, planModeEnabled]);
+        mergeHiddenUserTurns: true,
+    }), [activeStreamingMessageId, chatRenderMode, entry, liveParts, showTurnChangedFiles]);
 
     return (
         <MessageListEntry
@@ -1352,12 +1349,10 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         });
     }), [baseDisplayMessages, retryOverlay]);
 
-    const planModeEnabled = useFeatureFlagsStore((state) => state.planModeEnabled);
     const { projection, staticTurns, streamingTurn } = useTurnRecords(displayMessages, {
         sessionKey,
         showTextJustificationActivity: chatRenderMode === 'sorted',
         showTurnChangedFiles,
-        planModeEnabled,
     });
     const hasUngroupedStaticEntries = projection.ungroupedMessageIds.size > 0;
     const staticEntryMessages = hasUngroupedStaticEntries ? displayMessages : EMPTY_STATIC_ENTRY_MESSAGES;

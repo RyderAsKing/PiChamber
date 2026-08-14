@@ -8,7 +8,6 @@ import * as sessionActions from '@/sync/session-actions';
 import { normalizeContextPanelDirectoryKey, useUIStore } from '@/stores/useUIStore';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useCurrentSessionActivity } from '@/hooks/useSessionActivity';
-import { createWorktreeSession } from '@/lib/worktreeSessionCreator';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { canUseElectronDesktopIPC, invokeDesktop } from '@/lib/desktop';
 import { showOpenCodeStatus } from '@/lib/openCodeStatus';
@@ -23,9 +22,7 @@ import { getVisibleContextRailSurfaces } from '@/lib/surfaces/registry';
 import { readEmbeddedThemeSearchParams } from '@/contexts/theme-embedded-bootstrap';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { useFeatureFlagsStore } from '@/stores/useFeatureFlagsStore';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
-import { getCycledPrimaryAgentName } from '@/components/chat/mobileControlsUtils';
 import { focusChatInput } from '@/components/chat/composer/editor/dom';
 import { addSelectionToChat } from '@/lib/addSelectionToChat';
 import { hasOpenDropdown } from './keyboard-shortcut-dom';
@@ -154,7 +151,6 @@ export const useKeyboardShortcuts = () => {
         isHelpDialogOpen,
         isSessionSwitcherOpen,
         isAboutDialogOpen,
-        isMultiRunLauncherOpen,
         isImagePreviewOpen,
         activeMainTab,
         isPromptNavigatorPanelOpen,
@@ -184,7 +180,7 @@ export const useKeyboardShortcuts = () => {
         return;
       }
 
-      const hasOverlay = isCommandPaletteOpen || isHelpDialogOpen || isSessionSwitcherOpen || isAboutDialogOpen || isMultiRunLauncherOpen || isImagePreviewOpen;
+      const hasOverlay = isCommandPaletteOpen || isHelpDialogOpen || isSessionSwitcherOpen || isAboutDialogOpen || isImagePreviewOpen;
       const isChatActive = activeMainTab === 'chat';
 
       if (hasOverlay || !isChatActive) {
@@ -255,7 +251,6 @@ export const useKeyboardShortcuts = () => {
           isSessionSwitcherOpen,
           isAboutDialogOpen,
           isTimelineDialogOpen,
-          isMultiRunLauncherOpen,
           isImagePreviewOpen,
         } = useUIStore.getState();
 
@@ -269,7 +264,6 @@ export const useKeyboardShortcuts = () => {
           || isSessionSwitcherOpen
           || isAboutDialogOpen
           || isTimelineDialogOpen
-          || isMultiRunLauncherOpen
           || isImagePreviewOpen;
 
         if (hasOverlay) {
@@ -305,19 +299,12 @@ export const useKeyboardShortcuts = () => {
       }
 
       const matchedNewSessionShortcut = eventMatchesShortcut(e, combo('new_chat'));
-      const matchedWorktreeShortcut = eventMatchesShortcut(e, combo('new_chat_worktree'));
 
-      if (matchedNewSessionShortcut || matchedWorktreeShortcut) {
+      if (matchedNewSessionShortcut) {
         e.preventDefault();
 
         setActiveMainTab('chat');
         setSessionSwitcherOpen(false);
-
-        if (matchedWorktreeShortcut) {
-          createWorktreeSession();
-          return;
-        }
-
         openNewSessionDraft();
         return;
       }
@@ -377,52 +364,6 @@ export const useKeyboardShortcuts = () => {
         return;
       }
 
-      const cycleAgentCombo = combo('cycle_agent');
-      const cycleAgentBackwardCombo = cycleAgentCombo && !cycleAgentCombo.includes('shift')
-        ? normalizeCombo(`shift+${cycleAgentCombo}`)
-        : '';
-      const cycleAgentDirection = cycleAgentBackwardCombo && eventMatchesShortcut(e, cycleAgentBackwardCombo)
-        ? -1
-        : eventMatchesShortcut(e, cycleAgentCombo)
-          ? 1
-          : 0;
-
-      if (cycleAgentDirection !== 0) {
-        const {
-          isSettingsDialogOpen,
-          isCommandPaletteOpen,
-          isHelpDialogOpen,
-          isSessionSwitcherOpen,
-          isAboutDialogOpen,
-          activeMainTab,
-        } = useUIStore.getState();
-
-        const hasOverlay = isSettingsDialogOpen || isCommandPaletteOpen || isHelpDialogOpen || isSessionSwitcherOpen || isAboutDialogOpen;
-        if (hasOverlay || activeMainTab !== 'chat' || !isChatInputTarget(e.target)) {
-          return;
-        }
-
-        const configState = useConfigStore.getState();
-        const nextAgentName = getCycledPrimaryAgentName(
-          configState.getVisibleAgents(),
-          configState.currentAgentName,
-          cycleAgentDirection,
-        );
-
-        if (!nextAgentName) {
-          return;
-        }
-
-        e.preventDefault();
-        configState.setAgent(nextAgentName);
-        useUIStore.getState().addRecentAgent(nextAgentName);
-
-        const sessionId = useSessionUIStore.getState().currentSessionId;
-        if (sessionId) {
-          useSelectionStore.getState().saveSessionAgentSelection(sessionId, nextAgentName);
-        }
-        return;
-      }
 
       // Legacy right-sidebar shortcuts now target the context surfaces that
       // replaced the sidebar's tabs.
@@ -503,7 +444,6 @@ export const useKeyboardShortcuts = () => {
         const panelState = state.contextPanelByDirectory[directory];
         const visibleSurfaces = getVisibleContextRailSurfaces({
           railOrder: state.contextRailOrder,
-          planModeEnabled: useFeatureFlagsStore.getState().planModeEnabled,
           screenWidth: window.innerWidth,
           tabs: panelState?.tabs ?? [],
         });
@@ -641,19 +581,6 @@ export const useKeyboardShortcuts = () => {
         toggleExpandedInput();
         return;
       }
-
-      if (eventMatchesShortcut(e, combo('toggle_dictation'))) {
-        const { activeMainTab, isCommandPaletteOpen, isHelpDialogOpen, isSessionSwitcherOpen, isSettingsDialogOpen } = useUIStore.getState();
-        if (activeMainTab !== 'chat' || isCommandPaletteOpen || isHelpDialogOpen || isSessionSwitcherOpen || isSettingsDialogOpen) {
-          return;
-        }
-        e.preventDefault();
-        // Dictation state lives inside the composer's isolated component;
-        // toggle it via an event instead of subscribing this hot hook to it.
-        window.dispatchEvent(new CustomEvent('openchamber:dictation-toggle'));
-        return;
-      }
-
     };
 
     // Track held physical keys so chord prefixes (e.g. a configured

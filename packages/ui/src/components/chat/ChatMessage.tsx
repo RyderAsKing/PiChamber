@@ -6,7 +6,6 @@ import { useShallow } from 'zustand/react/shallow';
 
 import { MessageFreshnessDetector } from '@/lib/messageFreshness';
 import { useConfigStore } from '@/stores/useConfigStore';
-import { useFeatureFlagsStore } from '@/stores/useFeatureFlagsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useContextStore } from '@/stores/contextStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -204,7 +203,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     const showStickyInlineHoverRow = isUser && !isMobile && stickyUserHeader && !useExternalUserActionsRow;
 
     const sessionId = message.info.sessionID;
-    const planModeEnabled = useFeatureFlagsStore((state) => state.planModeEnabled);
 
     // Keep non-active-turn rows detached from context-store churn.
     const { currentContextAgent, savedSessionAgentSelection } = useContextStore(
@@ -220,8 +218,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             return safeParts;
         }
 
-        return normalizeUserDisplayParts(safeParts, { planModeEnabled });
-    }, [isUser, message.parts, planModeEnabled]);
+        return normalizeUserDisplayParts(safeParts);
+    }, [isUser, message.parts]);
 
     const previousUserMetadata = React.useMemo(() => {
         if (isUser || !previousMessage) {
@@ -260,32 +258,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         };
     }, [isUser, previousMessage]);
 
-    const previousIsModeSwitchMessage = React.useMemo(() => {
-        if (!planModeEnabled) return false;
-        if (isUser || !previousMessage) return false;
-        const parts = Array.isArray(previousMessage.parts) ? previousMessage.parts : [];
-        for (let i = 0; i < parts.length; i++) {
-            const part = parts[i] as unknown as { type?: string; text?: string; synthetic?: boolean };
-            if (part?.type !== 'text') continue;
-            if (part?.synthetic !== true) continue;
-            const text = typeof part.text === 'string' ? part.text.trim() : '';
-            if (text.startsWith('User has requested to enter plan mode') || text.startsWith('The plan at ')) {
-                return true;
-            }
-        }
-        return false;
-    }, [isUser, planModeEnabled, previousMessage]);
-
     const agentName = React.useMemo(() => {
         if (isUser) return undefined;
-
-        // While the assistant message is streaming, if the immediately previous user message is a
-        // synthetic mode switch, trust that mode for the badge.
-        const timeInfo = message.info.time as { completed?: number } | undefined;
-        const isCompleted = typeof timeInfo?.completed === 'number' && timeInfo.completed > 0;
-        if (!isCompleted && previousIsModeSwitchMessage && previousUserMetadata?.agentName) {
-            return previousUserMetadata.agentName;
-        }
 
         const messageMode = getMessageInfoProp(message.info, 'mode');
         if (typeof messageMode === 'string' && messageMode.trim().length > 0) {
@@ -310,7 +284,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         }
 
         return savedSessionAgentSelection ?? undefined;
-    }, [isUser, message.info, previousIsModeSwitchMessage, previousUserMetadata, sessionId, currentContextAgent, savedSessionAgentSelection]);
+    }, [isUser, message.info, previousUserMetadata, sessionId, currentContextAgent, savedSessionAgentSelection]);
 
     const messageProviderID = !isUser ? getMessageInfoProp(message.info, 'providerID') : null;
     const messageModelID = !isUser ? getMessageInfoProp(message.info, 'modelID') : null;
@@ -587,13 +561,13 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     const isLastAssistantInTurn = turnGroupingContext?.isLastAssistantInTurn ?? false;
 
     const previousIsHiddenUserMessage = React.useMemo(
-        () => !isUser && isHiddenUserMessage(previousMessage, { planModeEnabled }),
-        [isUser, planModeEnabled, previousMessage]
+        () => !isUser && isHiddenUserMessage(previousMessage),
+        [isUser, previousMessage]
     );
 
     const nextIsHiddenUserMessage = React.useMemo(
-        () => !isUser && isHiddenUserMessage(nextMessage, { planModeEnabled }),
-        [isUser, planModeEnabled, nextMessage]
+        () => !isUser && isHiddenUserMessage(nextMessage),
+        [isUser, nextMessage]
     );
 
     const isFollowedByAssistant = React.useMemo(() => {

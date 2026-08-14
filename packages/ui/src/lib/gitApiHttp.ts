@@ -12,11 +12,6 @@ import type {
   GitDeleteRemoteBranchPayload,
   GitRemoveRemotePayload,
   GeneratedCommitMessage,
-  GitWorktreeInfo,
-  CreateGitWorktreePayload,
-  GitWorktreeCreateResult,
-  RemoveGitWorktreePayload,
-  GitWorktreeValidationResult,
   CreateGitCommitOptions,
   GitCommitResult,
   GitPushResult,
@@ -384,17 +379,6 @@ async function applyGitHunk(
   invalidateGitStatusCache(directory);
 }
 
-export async function isLinkedWorktree(directory: string): Promise<boolean> {
-  if (!directory) {
-    return false;
-  }
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/worktree-type`, directory));
-  if (!response.ok) {
-    throw new Error(`Failed to detect worktree type: ${response.statusText}`);
-  }
-  const data = await response.json();
-  return Boolean(data.linked);
-}
 
 export async function getGitBranches(directory: string): Promise<GitBranch> {
   const response = await runtimeFetch(buildUrl(`${API_BASE}/branches`, directory));
@@ -569,83 +553,6 @@ export async function generatePullRequestDescription(
   return { title, body };
 }
 
-export async function listGitWorktrees(directory: string): Promise<GitWorktreeInfo[]> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/worktrees`, directory));
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to list worktrees');
-  }
-  return response.json();
-}
-
-export async function validateGitWorktree(directory: string, payload: CreateGitWorktreePayload): Promise<GitWorktreeValidationResult> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/worktrees/validate`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload ?? {}),
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to validate worktree');
-  }
-
-  return response.json();
-}
-
-export async function getGitWorktreeBootstrapStatus(directory: string): Promise<import('./api/types').GitWorktreeBootstrapStatus> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/worktrees/bootstrap-status`, directory));
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to get worktree bootstrap status');
-  }
-  return response.json();
-}
-
-export async function previewGitWorktree(directory: string, payload: CreateGitWorktreePayload): Promise<GitWorktreeCreateResult> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/worktrees/preview`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload ?? {}),
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to preview worktree');
-  }
-
-  return response.json();
-}
-
-export async function createGitWorktree(directory: string, payload: CreateGitWorktreePayload): Promise<GitWorktreeCreateResult> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/worktrees`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload ?? {}),
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to create worktree');
-  }
-
-  return response.json();
-}
-
-export async function deleteGitWorktree(directory: string, payload: RemoveGitWorktreePayload): Promise<{ success: boolean }> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/worktrees`, directory), {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload ?? {}),
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to delete worktree');
-  }
-
-  return response.json();
-}
 
 export async function createGitCommit(
   directory: string,
@@ -1174,45 +1081,3 @@ export async function getConflictDetails(directory: string): Promise<MergeConfli
   return response.json();
 }
 
-export async function validateWorktreeDirectory(
-  directory: string,
-  worktreeRoot: string
-): Promise<{
-  valid: boolean;
-  insideWorktreeRoot: boolean;
-  resolvedWorktreeRoot: string | null;
-  resolvedCwd: string | null;
-}> {
-  const response = await runtimeFetch(`${API_BASE}/validate-directory`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ directory, worktreeRoot }),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to validate worktree directory: ${response.statusText}`);
-  }
-  return response.json();
-}
-
-export async function canonicalizeWorktreeState(
-  directory: string
-): Promise<{
-  worktreeRoot: string | null;
-  cwd: string | null;
-  branch: string | null;
-  headState: 'branch' | 'detached' | 'unborn';
-  worktreeStatus: 'pending' | 'ready' | 'missing' | 'invalid' | 'not-a-repo';
-  legacy: boolean;
-  degraded: boolean;
-  attentionReason?: 'merge' | 'rebase' | 'cherry-pick' | 'revert' | 'bisect' | null;
-}> {
-  const response = await runtimeFetch(`${API_BASE}/canonicalize-worktree-state`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ directory }),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to canonicalize worktree state: ${response.statusText}`);
-  }
-  return response.json();
-}

@@ -1,10 +1,3 @@
-export const MULTIRUN_EXECUTION_FORK_PROMPT_META_TEXT =
-    "This message bellow comes from an AI agent in another session. I want you to act according to its content: " +
-    "if it is an implementation plan, your task is to implement that plan; " +
-    "if it is a conclusion or summary, your task is to verify it, explain whether you agree or disagree, and correct it if needed; " +
-    "if it is a bug description, find the root cause and fix it. " +
-    "Proceed with actions right away based on your understanding of the task. " +
-    "Here is the content of the message: ";
 
 // Default, user-editable instructions prefilled in the "Start new session from
 // this answer" dialog. Mirrors the previous fixed fork instruction so existing

@@ -1,10 +1,9 @@
 import type { Session } from '@/lib/chat/types';
-import type { WorktreeMetadata } from '@/types/worktree';
 
 export type SessionNode = {
   session: Session;
   children: SessionNode[];
-  worktree: WorktreeMetadata | null;
+  worktree?: null;
 };
 
 export type SessionGroupFolderScope = {
@@ -19,15 +18,9 @@ export type SessionGroup = {
   description: string | null;
   isMain: boolean;
   isArchivedBucket?: boolean;
-  worktree: WorktreeMetadata | null;
+  worktree?: null;
   directory: string | null;
   folderScopeKey?: string | null;
-  /**
-   * Flat display groups merge sessions from the project root and every
-   * worktree; their folders come from all of these scopes. When present, the
-   * group section gathers folders across every listed scope (in order)
-   * instead of reading the single folderScopeKey.
-   */
   folderScopes?: SessionGroupFolderScope[];
   sessions: SessionNode[];
 };

@@ -61,6 +61,7 @@ export const piMessageToRecord = (message: PiProjectedMessage, sessionId: string
     id: message.id,
     sessionID: sessionId,
     role: message.role,
+    ...(message.parentId ? { parentID: message.parentId } : {}),
     time: { created: message.createdAt, ...(message.streaming ? {} : { completed: message.createdAt + (message.durationMs ?? 0) }) },
     ...(message.error ? { error: { name: message.error.code, message: message.error.message } } : {}),
     ...(message.model ? { model: { providerID: message.model.providerId, modelID: message.model.modelId } } : {}),

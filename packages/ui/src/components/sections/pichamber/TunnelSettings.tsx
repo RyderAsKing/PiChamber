@@ -527,7 +527,7 @@ export const TunnelSettings: React.FC = () => {
       const [checkRes, statusRes, settingsRes, providersRes] = await Promise.all([
         runtimeFetch('/api/openchamber/tunnel/check', { signal }),
         runtimeFetch('/api/openchamber/tunnel/status', { signal }),
-        runtimeFetch('/api/config/settings', { signal, headers: { Accept: 'application/json' } }),
+        runtimeFetch('/api/pi/ui-settings', { signal, headers: { Accept: 'application/json' } }),
         runtimeFetch('/api/openchamber/tunnel/providers', { signal }),
       ]);
 

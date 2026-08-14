@@ -1,5 +1,4 @@
 import { getRuntimeKey } from '@/lib/runtime-switch';
-import { normalizePath } from '@/lib/pathNormalization';
 import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { getPinnedSessionKey } from '@/stores/useSessionPinnedStore';
 import type { SessionNode } from './types';
@@ -93,7 +92,6 @@ export const selectQuestionBadgeSessionScopes = (
   const sessionIDsByDirectory = new Map<string, string[]>();
   const visit = (current: SessionNode): void => {
     const directory = resolveGlobalSessionDirectory(current.session)
-      ?? normalizePath(current.worktree?.path)
       ?? fallbackDirectory;
     if (directory) {
       const sessionIDs = sessionIDsByDirectory.get(directory) ?? [];

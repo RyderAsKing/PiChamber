@@ -22,13 +22,6 @@ import { useSync } from '@/sync/use-sync';
 import { SyncRuntimeEffects } from './AppEffects';
 import { useAppFontEffects } from './useAppFontEffects';
 import { useMiniChatKeyboardShortcuts } from '@/hooks/useMiniChatKeyboardShortcuts';
-import {
-  listProjectWorktrees,
-  partitionWorktreesByRegisteredProject,
-  worktreeMapsEqual,
-} from '@/lib/worktrees/worktreeManager';
-import type { WorktreeMetadata } from '@/types/worktree';
-
 const MINI_CHAT_PRESENCE_CHANNEL = 'openchamber:mini-chat-presence';
 
 type MiniChatMode = 'session' | 'draft';
@@ -176,48 +169,6 @@ const MiniChatBootstrap: React.FC<{ config: MiniChatConfig }> = ({ config }) => 
     });
   }, [config, currentSessionId, draftOpen, openNewSessionDraft]);
 
-  React.useEffect(() => {
-    if (projects.length === 0) return;
-    let cancelled = false;
-
-    const discoverWorktrees = async () => {
-      const worktreesByProject = new Map<string, WorktreeMetadata[]>();
-
-      await Promise.all(projects.map(async (project) => {
-        const projectPath = project.path.replace(/\\/g, '/').replace(/\/+$/, '');
-        if (!projectPath) return;
-        try {
-          const cachedIsGitRepo = useGitStore.getState().directories.get(projectPath)?.isGitRepo;
-          const isGitRepo = cachedIsGitRepo ?? await import('@/lib/gitApi').then((m) => m.checkIsGitRepository(projectPath));
-          if (!isGitRepo) return;
-          const worktrees = await listProjectWorktrees({ id: project.id, path: projectPath });
-          if (cancelled || worktrees.length === 0) return;
-          worktreesByProject.set(projectPath, worktrees);
-        } catch {
-          // Worktree discovery is best-effort; draft selector falls back to the project root.
-        }
-      }));
-
-      if (cancelled) return;
-
-      const partitionedWorktreesByProject = partitionWorktreesByRegisteredProject(projects, worktreesByProject);
-
-      // Skip update if nothing changed — see worktreeMapsEqual JSDoc.
-      const currentByProject = useSessionUIStore.getState().availableWorktreesByProject;
-      if (!worktreeMapsEqual(partitionedWorktreesByProject, currentByProject)) {
-        useSessionUIStore.setState({
-          availableWorktrees: [...partitionedWorktreesByProject.values()].flat(),
-          availableWorktreesByProject: partitionedWorktreesByProject,
-        });
-      }
-    };
-
-    void discoverWorktrees();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [projects]);
 
   // Dismiss the HTML splash (see mini-chat.html) once the real content is ready,
   // so the window doesn't flash through white/connecting states. Fades out when
@@ -319,7 +270,7 @@ export function ElectronMiniChatApp({ apis }: ElectronMiniChatAppProps) {
 
   return (
     <ErrorBoundary>
-      <PiSessionProvider>
+      <PiSessionProvider directory={currentDirectory || config.directory}>
         <RuntimeAPIProvider apis={apis}>
           <TooltipProvider delayDuration={300} skipDelayDuration={150}>
             <div className="h-full text-foreground bg-background">

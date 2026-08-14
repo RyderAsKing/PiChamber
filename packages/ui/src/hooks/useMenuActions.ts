@@ -8,7 +8,6 @@ import { normalizeContextPanelDirectoryKey, useUIStore } from '@/stores/useUISto
 import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { sessionEvents } from '@/lib/sessionEvents';
-import { createWorktreeSession } from '@/lib/worktreeSessionCreator';
 import { showOpenCodeStatus } from '@/lib/openCodeStatus';
 import { addSelectionToChat } from '@/lib/addSelectionToChat';
 
@@ -70,7 +69,6 @@ type MenuAction =
   | 'command-palette'
   | 'quick-open'
   | 'new-session'
-  | 'new-worktree-session'
   | 'change-workspace'
   | 'toggle-right-sidebar'
   | 'open-right-sidebar-git'
@@ -194,12 +192,6 @@ export const useMenuActions = (
           setActiveMainTab('chat');
           setSessionSwitcherOpen(false);
           openNewSessionDraft();
-          break;
-
-        case 'new-worktree-session':
-          setActiveMainTab('chat');
-          setSessionSwitcherOpen(false);
-          createWorktreeSession();
           break;
 
         case 'change-workspace':

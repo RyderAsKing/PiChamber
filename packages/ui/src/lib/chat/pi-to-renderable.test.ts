@@ -27,6 +27,7 @@ describe('pi-to-renderable', () => {
     const message: PiProjectedMessage = {
       id: 'msg_1',
       role: 'assistant',
+      parentId: 'user_1',
       createdAt: 10,
       streaming: false,
       thinking: 'consider options',
@@ -40,6 +41,7 @@ describe('pi-to-renderable', () => {
     };
     const record = piMessageToRecord(message, 'ses_1');
     expect(record.info.role).toBe('assistant');
+    expect(record.info.parentID).toBe('user_1');
     expect(record.parts.some((part) => part.type === 'reasoning' && part.text === 'consider options')).toBe(true);
     expect(record.parts.some((part) => part.type === 'file' && part.filename === 'note.txt')).toBe(true);
     expect(record.parts.some((part) => part.type === 'tool' && part.tool === 'read')).toBe(true);

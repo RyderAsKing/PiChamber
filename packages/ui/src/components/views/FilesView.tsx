@@ -69,7 +69,6 @@ import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { Icon } from "@/components/icon/Icon";
-import { useMessageTTS } from '@/hooks/useMessageTTS';
 import { ensurePierreThemeRegistered } from '@/lib/shiki/appThemeRegistry';
 import { getDefaultTheme } from '@/lib/theme/themes';
 import { isBrowserClientRuntime, openDesktopFileInApp, openDesktopPath } from '@/lib/desktop';
@@ -900,7 +899,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
   const [searching, setSearching] = React.useState(false);
 
   const [fileContent, setFileContent] = React.useState<string>('');
-  const { isPlaying: isTTSPlaying, play: playTTS, stop: stopTTS } = useMessageTTS();
   const [fileLoading, setFileLoading] = React.useState(false);
   const [fileError, setFileError] = React.useState<string | null>(null);
   const [desktopImageSrc, setDesktopImageSrc] = React.useState<string>('');
@@ -1027,7 +1025,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
   const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
   const fileEditorKeymap = useUIStore((state) => state.fileEditorKeymap);
   const settingsDefaultFileViewerPreview = useConfigStore((state) => state.settingsDefaultFileViewerPreview);
-  const showMessageTTSButtons = useConfigStore((state) => state.showMessageTTSButtons);
   const settingsExpandedEditorToolbar = useUIStore((state) => state.expandedEditorToolbar);
 
   // Global mouseup to end drag selection
@@ -3392,35 +3389,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
               saveHtmlViewMode(getHtmlViewMode() === 'preview' ? 'edit' : 'preview');
             }}
           />
-        )}
-
-        {isMarkdown && getMdViewMode() === 'preview' && showMessageTTSButtons && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="size-6 p-0 text-muted-foreground opacity-65 hover:bg-transparent hover:opacity-100 focus-visible:bg-transparent active:bg-transparent"
-                aria-label={isTTSPlaying ? t('filesView.tts.stopSpeaking') : t('filesView.tts.readAloud')}
-                onClick={() => {
-                  if (isTTSPlaying) {
-                    stopTTS();
-                  } else if (fileContent.trim()) {
-                    void playTTS(fileContent);
-                  }
-                }}
-              >
-                {isTTSPlaying ? (
-                  <Icon name="stop" className="size-4 text-[color:var(--status-success)]" />
-                ) : (
-                  <Icon name="volume-up" className="size-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent sideOffset={8}>
-              {isTTSPlaying ? t('filesView.tts.stopSpeaking') : t('filesView.tts.readAloud')}
-            </TooltipContent>
-          </Tooltip>
         )}
 
         {isDrawio && (

@@ -7,12 +7,7 @@ export type SettingsPageSlug =
   | 'projects'
   | 'remote-instances'
   | 'providers'
-  | 'usage'
-  | 'agents'
   | 'behavior'
-  | 'commands'
-  | 'mcp'
-  | 'plugins'
   | 'skills.installed'
   | 'git'
   | 'appearance'
@@ -22,14 +17,12 @@ export type SettingsPageSlug =
   | 'magic-prompts'
   | 'snippets'
   | 'notifications'
-  | 'voice'
   | 'tunnel'
   | 'about';
 
 type SettingsPageGroup =
   | 'general'
   | 'projects'
-  | 'opencode'
   | 'content';
 
 export interface SettingsRuntimeContext {
@@ -81,56 +74,16 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
   {
     slug: 'providers',
     title: 'Providers',
-    group: 'opencode',
+    group: 'content',
     kind: 'split',
     keywords: ['provider', 'providers', 'models', 'model', 'api key', 'api keys', 'openai', 'anthropic', 'ollama', 'credentials'],
   },
   {
-    slug: 'usage',
-    title: 'Usage',
-    group: 'general',
-    kind: 'split',
-    keywords: ['quota', 'billing', 'tokens', 'usage', 'limits'],
-    isAvailable: () => false,
-  },
-  {
-    slug: 'agents',
-    title: 'Agents',
-    group: 'opencode',
-    kind: 'split',
-    keywords: ['agent', 'agents', 'prompts', 'tools', 'permissions'],
-    isAvailable: () => false,
-  },
-  {
     slug: 'behavior',
     title: 'Behavior',
-    group: 'opencode',
+    group: 'content',
     kind: 'single',
     keywords: ['behavior', 'agents.md', 'system prompt', 'global rules', 'instructions', 'override'],
-  },
-  {
-    slug: 'commands',
-    title: 'Commands',
-    group: 'opencode',
-    kind: 'split',
-    keywords: ['command', 'commands', 'slash', 'macros', 'automation'],
-    isAvailable: () => false,
-  },
-  {
-    slug: 'mcp',
-    title: 'MCP',
-    group: 'opencode',
-    kind: 'split',
-    keywords: ['mcp', 'model context protocol', 'servers', 'tools', 'remote', 'stdio'],
-    isAvailable: () => false,
-  },
-  {
-    slug: 'plugins',
-    title: 'Plugins',
-    group: 'opencode',
-    kind: 'split',
-    keywords: ['plugin', 'plugins', 'extensions', 'addons', 'npm', 'opencode-wakatime'],
-    isAvailable: () => false,
   },
   {
     slug: 'skills.installed',
@@ -190,19 +143,14 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
   },
 
   { slug: 'notifications', title: 'Notifications', group: 'general', kind: 'single', keywords: ['alerts', 'native', 'summary', 'summarization'], },
-  { slug: 'voice', title: 'Voice', group: 'general', kind: 'single', keywords: ['tts', 'speech', 'voice'], isAvailable: () => false },
   { slug: 'tunnel', title: 'External Tunnel', group: 'projects', kind: 'single', keywords: ['tunnel', 'external', 'cloudflare', 'qr', 'remote', 'mobile', 'share'] },
   { slug: 'about', title: 'About', group: 'general', kind: 'single', keywords: ['about', 'version', 'updates', 'release', 'changelog'], isAvailable: (ctx) => ctx.isMobile },
 ] as const;
 
 const LEGACY_SIDEBAR_SECTION_TO_SETTINGS_SLUG: Record<SidebarSection, SettingsPageSlug> = {
   sessions: 'sessions',
-  agents: 'agents',
-  commands: 'commands',
-  mcp: 'mcp',
   skills: 'skills.installed',
   providers: 'providers',
-  usage: 'usage',
   'git-identities': 'git',
   settings: 'home',
 };
@@ -259,16 +207,8 @@ export function getSettingsNavIcon(slug: SettingsPageSlug): IconName | null {
 
     case 'providers':
       return 'cloud';
-    case 'agents':
-      return 'ai-agent';
     case 'behavior':
       return 'brain';
-    case 'commands':
-      return 'slash-commands-2';
-    case 'mcp':
-      return null;
-    case 'plugins':
-      return 'plug-2';
 
     case 'skills.installed':
       return 'book-open';
@@ -276,10 +216,6 @@ export function getSettingsNavIcon(slug: SettingsPageSlug): IconName | null {
     case 'git':
       return 'git-branch';
 
-    case 'usage':
-      return 'bar-chart-2';
-    case 'voice':
-      return 'mic';
     case 'tunnel':
       return 'home-office';
     case 'about':

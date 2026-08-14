@@ -34,7 +34,6 @@ export interface MobilePillComposerProps {
     onOpenIssuePicker: () => void;
     onOpenPrPicker: () => void;
     onOpenAttachSheet: () => void;
-    onStartDictation: () => void;
     onAbort: () => void;
 }
 
@@ -55,7 +54,6 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
         onOpenIssuePicker,
         onOpenPrPicker,
         onOpenAttachSheet,
-        onStartDictation,
         onAbort,
     } = props;
 
@@ -92,21 +90,7 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
                                 : t('chat.chatInput.placeholder.selectSession')}
                     </span>
                 </button>
-                <button
-                    type="button"
-                    className={footerIconButtonClass}
-                    // Starts recording in place; the composer morphs into the
-                    // voice variant once dictation actually goes live.
-                    onClick={onStartDictation}
-                    title={t('chat.dictation.start')}
-                    aria-label={t('chat.dictation.start')}
-                >
-                    <Icon name="mic" className={cn(iconSizeClass, 'text-current')} />
-                </button>
-                {/* Same visibility rule as the full composer's stop control:
-                    while a turn is running the stop button takes the mic's
-                    end slot and the mic shifts one slot left. Instant swap —
-                    no shape animation (WKWebView). */}
+                {/* While a turn is running the stop button appears in the end slot. */}
                 {canAbort ? (
                     <button
                         type="button"

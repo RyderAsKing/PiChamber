@@ -1,5 +1,4 @@
 /* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import {
   Dialog,
@@ -27,8 +26,6 @@ import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
 import { renderMagicPrompt } from '@/lib/magicPrompts';
 import { parseModelIdentifier } from '@/lib/modelIdentifier';
 import { useDeviceInfo } from '@/lib/device';
-import { createWorktreeSessionForNewBranch } from '@/lib/worktreeSessionCreator';
-import { generateBranchSlug } from '@/lib/git/branchNameGenerator';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import type { GitHubIssue, GitHubIssueComment, GitHubIssuesListResult, GitHubIssueSummary, GitHubRepoSelector } from '@/lib/api/types';
 import { useI18n } from '@/lib/i18n';
@@ -93,7 +90,6 @@ export function GitHubIssuePickerDialog({
   }, [activeProject?.path, currentDirectory]);
 
   const [query, setQuery] = React.useState('');
-  const [createInWorktree, setCreateInWorktree] = React.useState(false);
   const [result, setResult] = React.useState<GitHubIssuesListResult | null>(null);
   const [issues, setIssues] = React.useState<GitHubIssueSummary[]>([]);
   const [page, setPage] = React.useState(1);
@@ -204,7 +200,6 @@ export function GitHubIssuePickerDialog({
   React.useEffect(() => {
     if (!open) {
       setQuery('');
-      setCreateInWorktree(false);
       setStartingIssueNumber(null);
       setError(null);
       setResult(null);
@@ -240,8 +235,9 @@ export function GitHubIssuePickerDialog({
     const configState = useConfigStore.getState();
     const visibleAgents = configState.getVisibleAgents();
 
-    if (configState.settingsDefaultAgent) {
-      const settingsAgent = visibleAgents.find((a) => a.name === configState.settingsDefaultAgent);
+    const defaultAgentName = (configState as any).settingsDefaultAgent || configState.currentAgentName;
+    if (defaultAgentName) {
+      const settingsAgent = visibleAgents.find((a) => a.name === defaultAgentName);
       if (settingsAgent) {
         return settingsAgent.name;
       }
@@ -398,30 +394,12 @@ export function GitHubIssuePickerDialog({
 
       const sessionTitle = `#${issue.number} ${issue.title}`.trim();
 
-      const { sessionId, sessionDirectory } = await (async () => {
-        if (createInWorktree) {
-          const preferred = `issue-${issue.number}-${generateBranchSlug()}`;
-          const created = await createWorktreeSessionForNewBranch(
-            projectDirectory,
-            preferred,
-            undefined,
-            { returnAfterDirectoryCreated: true }
-          );
-          if (!created?.id) {
-            throw new Error('Failed to create worktree session');
-          }
-          return { sessionId: created.id, sessionDirectory: created.path };
-        }
-
-        const session = await sessionActions.createSession(sessionTitle, projectDirectory, null);
-        if (!session?.id) {
-          throw new Error('Failed to create session');
-        }
-        return { sessionId: session.id, sessionDirectory: session.directory ?? projectDirectory };
-      })();
-
-      // Ensure worktree-based sessions also get the issue title.
-      void sessionActions.updateSessionTitle(sessionId, sessionTitle).catch(() => undefined);
+      const session = await sessionActions.createSession(sessionTitle, projectDirectory, null);
+      if (!session?.id) {
+        throw new Error('Failed to create session');
+      }
+      const sessionId = session.id;
+      const sessionDirectory = session.directory ?? projectDirectory;
 
       try {
         useSessionUIStore.getState().initializeNewPiChamberSession(sessionId, useConfigStore.getState().agents);
@@ -497,7 +475,7 @@ export function GitHubIssuePickerDialog({
     } finally {
       setStartingIssueNumber(null);
     }
-  }, [createInWorktree, github, mode, onOpenChange, onSelect, projectDirectory, resolveDefaultAgentName, resolveDefaultModelSelection, resolveDefaultVariant, startingIssueNumber, t]);
+  }, [github, mode, onOpenChange, onSelect, projectDirectory, resolveDefaultAgentName, resolveDefaultModelSelection, resolveDefaultVariant, startingIssueNumber, t]);
 
   const title = mode === 'select' ? t('session.githubIssuePicker.title.select') : t('session.githubIssuePicker.title.createSession');
   const description = mode === 'select'
@@ -642,41 +620,7 @@ export function GitHubIssuePickerDialog({
 
       {mode !== 'select' && (
         <div className="mt-4 p-3 bg-muted/30 rounded-lg">
-          <p className="typography-meta text-muted-foreground font-medium mb-2">{t('session.githubIssuePicker.actions.sectionTitle')}</p>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
-            <div
-              className="flex items-center gap-2 cursor-pointer"
-              role="button"
-              tabIndex={0}
-              aria-pressed={createInWorktree}
-              onClick={() => setCreateInWorktree((v) => !v)}
-              onKeyDown={(e) => {
-                if (e.key === ' ' || e.key === 'Enter') {
-                  e.preventDefault();
-                  setCreateInWorktree((v) => !v);
-                }
-              }}
-            >
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setCreateInWorktree((v) => !v);
-                }}
-                aria-label={t('session.githubIssuePicker.actions.toggleWorktreeAria')}
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                {createInWorktree ? (
-                  <Icon name="checkbox" className="h-4 w-4 text-primary" />
-                ) : (
-                  <Icon name="checkbox-blank" className="h-4 w-4" />
-                )}
-              </button>
-              <span className="typography-meta text-muted-foreground">{t('session.githubIssuePicker.actions.createInWorktree')}</span>
-              <span className="typography-meta text-muted-foreground/70 hidden sm:inline">(issue-&lt;number&gt;-&lt;slug&gt;)</span>
-            </div>
-            <div className="hidden sm:block sm:flex-1" />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2 justify-end">
             <div className="flex items-center gap-2">
               {repoUrl ? (
                 <Button variant="outline" size="sm" asChild>

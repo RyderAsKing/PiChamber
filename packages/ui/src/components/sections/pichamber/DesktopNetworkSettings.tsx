@@ -64,7 +64,7 @@ export const DesktopNetworkSettings: React.FC = () => {
     let cancelled = false;
     void (async () => {
       try {
-        const response = await runtimeFetch('/api/config/settings', {
+        const response = await runtimeFetch('/api/pi/ui-settings', {
           method: 'GET',
           headers: { Accept: 'application/json' },
         });
@@ -310,7 +310,7 @@ export const DesktopNetworkSettings: React.FC = () => {
     setError(null);
 
     try {
-      const response = await runtimeFetch('/api/config/settings', {
+      const response = await runtimeFetch('/api/pi/ui-settings', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

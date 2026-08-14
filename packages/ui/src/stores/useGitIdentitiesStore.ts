@@ -162,7 +162,7 @@ export const useGitIdentitiesStore = create<GitIdentitiesStore>()(
 
             if (defaultId === null) {
               try {
-                const response = await runtimeFetch('/api/config/settings', {
+                const response = await runtimeFetch('/api/pi/ui-settings', {
                   method: 'GET',
                   headers: { Accept: 'application/json' },
                 });

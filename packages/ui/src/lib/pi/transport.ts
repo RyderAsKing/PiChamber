@@ -147,6 +147,7 @@ const createSseConnection = (
   query: Record<string, string>,
   signal: AbortSignal,
   onReady: () => void,
+  onActivity: () => void,
   onEvent: (event: PiSessionEvent) => void,
   onDisconnect: (reason: string) => void,
 ): ConnectionCleanup => {
@@ -192,6 +193,7 @@ const createSseConnection = (
           onDisconnect('sse-eof');
           return;
         }
+        onActivity();
         buffer += decoder.decode(value, { stream: true });
         let newline = buffer.indexOf('\n');
         while (newline !== -1) {
@@ -293,7 +295,9 @@ export const createPiEventStream = (
   let lastSequence = typeof options.fromSequence === 'number' && Number.isFinite(options.fromSequence)
     ? Math.max(0, Math.floor(options.fromSequence))
     : 0;
-  let mode: 'ws' | 'sse' = options.transport === 'sse' ? 'sse' : 'ws';
+  // The Pi event endpoint is SSE-only. WebSocket remains available only when
+  // explicitly requested by a runtime that provides a matching upgrade path.
+  let mode: 'ws' | 'sse' = options.transport === 'ws' ? 'ws' : 'sse';
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
   let activeAbort: ConnectionCleanup | null = null;
@@ -420,7 +424,7 @@ export const createPiEventStream = (
       : createSseConnection(resolveStreamQuery({
           fromSequence: lastSequence,
           ...(options.sessionId ? { sessionId: options.sessionId } : {}),
-        }), signal, onReady, onEvent, onDisconnect);
+        }), signal, onReady, () => resetHeartbeat(connectionId), onEvent, onDisconnect);
   };
 
   void connect();

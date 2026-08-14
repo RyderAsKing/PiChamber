@@ -13,7 +13,6 @@ import { useSync } from '@/sync/use-sync';
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useConfigStore } from '@/stores/useConfigStore';
 
 const MINI_CHAT_PRESENCE_CHANNEL = 'openchamber:mini-chat-presence';
@@ -79,44 +78,34 @@ export function SyncRuntimeEffects({ embeddedBackgroundWorkEnabled }: {
 }
 
 /**
- * Bridges the Pi-native runtime into the legacy directory/project/session UI
- * stores. PiSessionStore is authoritative: it adopts the daemon's selected
- * project and auto-selects the first session. The legacy stores still drive the
- * composer and provider/agent config, so we converge them onto the Pi store's
- * resolved directory and selected session.
+ * Bridges the Pi-native runtime into the restored session UI stores. The
+ * user-owned project store chooses the directory; the daemon must never create
+ * or resurrect a visible project from its process working directory.
  */
 const PiSessionBootstrapBridge: React.FC = () => {
   const store = React.useMemo(() => getPiSessionStore(), []);
   const snapshot = React.useSyncExternalStore(store.subscribe, store.getState, store.getState);
   const { selectedSessionId, directory } = snapshot;
 
-  // Converge the legacy directory + project stores onto the daemon's project
-  // so provider/agent config and session listing resolve against it.
   React.useEffect(() => {
     if (!directory) return;
-    const projects = useProjectsStore.getState();
-    const existing = projects.projects.find((project) => project.path === directory);
-    if (!existing) {
-      projects.addProject(directory);
-    } else if (projects.activeProjectId !== existing.id) {
-      projects.setActiveProject(existing.id);
-    } else if (useDirectoryStore.getState().currentDirectory !== directory) {
+    if (useDirectoryStore.getState().currentDirectory !== directory) {
       useDirectoryStore.getState().setDirectory(directory, { showOverlay: false });
     }
-    // Re-activate provider/agent config against the daemon's authoritative
-    // directory. If initializeApp ran before the Pi store resolved its
-    // project (or had no legacy project to fall back to), this is what loads
-    // the composer's provider/model selection.
     void useConfigStore.getState().activateDirectory(directory);
   }, [directory]);
 
-  // Bridge the Pi auto-selected session into the legacy session UI store, whose
-  // `currentSessionId` the composer still reads. Without this the composer has
-  // no target session and silently drops sends.
+  // The composer still reads the restored session UI store. Keep its complete
+  // identity synchronized, including project switches and the no-project state.
   React.useEffect(() => {
-    if (!selectedSessionId || !directory) return;
     const ui = useSessionUIStore.getState();
-    if (ui.currentSessionId === null) {
+    if (!selectedSessionId || !directory) {
+      if (ui.currentSessionId !== null || ui.currentSessionDirectory !== null) {
+        useSessionUIStore.setState({ currentSessionId: null, currentSessionDirectory: null });
+      }
+      return;
+    }
+    if (ui.currentSessionId !== selectedSessionId || ui.currentSessionDirectory !== directory) {
       useSessionUIStore.setState({
         currentSessionId: selectedSessionId,
         currentSessionDirectory: directory,
@@ -129,6 +118,8 @@ const PiSessionBootstrapBridge: React.FC = () => {
 };
 
 const ConfigStoreBootstrap: React.FC = () => {
+  const store = React.useMemo(() => getPiSessionStore(), []);
+  const pi = React.useSyncExternalStore(store.subscribe, store.getState, store.getState);
   const initializeApp = useConfigStore((state) => state.initializeApp);
   const isInitialized = useConfigStore((state) => state.isInitialized);
   const isConnected = useConfigStore((state) => state.isConnected);
@@ -136,34 +127,14 @@ const ConfigStoreBootstrap: React.FC = () => {
   const providersCount = useConfigStore((state) => state.providers.length);
 
   React.useEffect(() => {
+    if (!pi.directory || pi.connection !== 'ready' || isInitialized) return;
     void initializeApp();
-  }, [initializeApp]);
+  }, [initializeApp, isInitialized, pi.connection, pi.directory]);
 
   React.useEffect(() => {
-    if (isInitialized) return;
-    let active = true;
-    let retryCount = 0;
-    const id = window.setInterval(() => {
-      if (!active) return;
-      retryCount += 1;
-      if (retryCount > 10) {
-        window.clearInterval(id);
-        return;
-      }
-      if (!useConfigStore.getState().isInitialized) {
-        void useConfigStore.getState().initializeApp();
-      }
-    }, 1000);
-    return () => {
-      active = false;
-      window.clearInterval(id);
-    };
-  }, [isInitialized]);
-
-  React.useEffect(() => {
-    if (!isConnected) return;
+    if (!pi.directory || pi.connection !== 'ready' || !isConnected) return;
     if (providersCount === 0) void loadProviders({ source: 'webApp:recovery' });
-  }, [isConnected, loadProviders, providersCount]);
+  }, [isConnected, loadProviders, pi.connection, pi.directory, providersCount]);
 
   return null;
 };

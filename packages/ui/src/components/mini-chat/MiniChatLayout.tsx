@@ -10,7 +10,6 @@ import { useI18n } from '@/lib/i18n';
 import { invokeDesktop, isElectronShell } from '@/lib/desktop';
 import { useDesktopWindowControlsLayout } from '@/hooks/useDesktopWindowControlsLayout';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useSessionWorktreeStore } from '@/sync/session-worktree-store';
 import { useSessionMessages, useSessions } from '@/sync/sync-context';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -60,12 +59,9 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
   const currentSessionMessages = useSessionMessages(currentSessionId ?? '');
   const runtimeApis = useRuntimeAPIs();
   const ensureGitStatus = useGitStore((state) => state.ensureStatus);
-  const worktreePath = useSessionUIStore((state) => currentSessionId ? state.worktreeMetadata.get(currentSessionId)?.path ?? '' : '');
-  const worktreeMetadataBranch = useSessionUIStore((state) => currentSessionId ? state.worktreeMetadata.get(currentSessionId)?.branch?.trim() ?? null : null);
-  const worktreeAttachment = useSessionWorktreeStore((state) => currentSessionId ? state.getAttachment(currentSessionId) : undefined);
   const draftDirectory = useSessionUIStore((state) => {
     if (!state.newSessionDraft?.open) return '';
-    return normalizePath(state.newSessionDraft.bootstrapPendingDirectory ?? state.newSessionDraft.directoryOverride ?? '');
+    return normalizePath(state.newSessionDraft.directoryOverride ?? '');
   });
   const [pinned, setPinned] = React.useState(false);
   const macosMajor = typeof window !== 'undefined' ? window.__OPENCHAMBER_MACOS_MAJOR__ ?? 0 : 0;
@@ -83,7 +79,6 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
     () => currentSessionId ? sessions.find((entry) => entry.id === currentSessionId) ?? null : null,
     [currentSessionId, sessions],
   );
-  const sessionWorktreeMetadata = (session as { worktreeMetadata?: { path?: string | null; branch?: string | null; projectDirectory?: string | null } } | null)?.worktreeMetadata ?? null;
 
   React.useEffect(() => {
     if (!isElectronShell()) return;
@@ -95,34 +90,23 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
   const title = session?.title?.trim()
     || (draftOpen || mode === 'draft' ? t('miniChat.header.newSession') : t('miniChat.header.session'));
   const sessionDirectory = normalizePath((session as { directory?: string | null } | null)?.directory ?? null);
-  const worktreeDirectory = normalizePath(worktreePath || sessionWorktreeMetadata?.path || worktreeAttachment?.cwd || worktreeAttachment?.worktreeRoot || '');
   const currentDirectoryNormalized = normalizePath(currentDirectory);
-  const openDirectory = worktreeDirectory || sessionDirectory || draftDirectory || currentDirectoryNormalized;
+  const openDirectory = sessionDirectory || draftDirectory || currentDirectoryNormalized;
   const directoryLabel = compactPath(openDirectory);
-  const catalogWorktreeBranch = useSessionUIStore((state) => {
-    const candidateDirectory = normalizePath(worktreeDirectory || sessionDirectory || '');
-    if (!candidateDirectory) return null;
-    for (const worktrees of state.availableWorktreesByProject.values()) {
-      const match = worktrees.find((worktree) => normalizePath(worktree.path) === candidateDirectory);
-      const branch = match?.branch?.trim();
-      if (branch) return branch;
-    }
-    return null;
-  });
+
   React.useEffect(() => {
     if (!openDirectory) return;
     void ensureGitStatus(openDirectory, runtimeApis.git).catch(() => {});
   }, [ensureGitStatus, openDirectory, runtimeApis.git]);
 
   const pathMatchedProject = React.useMemo(() => {
-    const projectDirectory = normalizePath(sessionWorktreeMetadata?.projectDirectory ?? worktreeAttachment?.worktreeRoot ?? null);
-    const candidateDirectory = projectDirectory || openDirectory;
+    const candidateDirectory = openDirectory;
     if (!candidateDirectory) return null;
     return projects
       .map((entry) => ({ ...entry, normalizedPath: normalizePath(entry.path) }))
       .filter((entry) => entry.normalizedPath && (entry.normalizedPath === candidateDirectory || candidateDirectory.startsWith(`${entry.normalizedPath}/`)))
       .sort((left, right) => right.path.length - left.path.length)[0] ?? null;
-  }, [openDirectory, projects, sessionWorktreeMetadata?.projectDirectory, worktreeAttachment?.worktreeRoot]);
+  }, [openDirectory, projects]);
   const projectLabel = React.useMemo(() => {
     const project = pathMatchedProject ?? activeProject;
     if (!project) return directoryLabel || 'PiChamber';
@@ -132,7 +116,7 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
     return segments.at(-1) ?? project.path;
   }, [activeProject, directoryLabel, pathMatchedProject]);
   const gitBranchForDirectory = useGitBranchLabel(openDirectory || null);
-  const rawBranchLabel = gitBranchForDirectory || worktreeMetadataBranch || sessionWorktreeMetadata?.branch?.trim() || worktreeAttachment?.branch?.trim() || catalogWorktreeBranch;
+  const rawBranchLabel = gitBranchForDirectory;
   const branchLabel = rawBranchLabel && rawBranchLabel !== 'HEAD' ? rawBranchLabel : null;
   const currentModel = getCurrentModel();
   const latestAssistantModel = React.useMemo(() => {
