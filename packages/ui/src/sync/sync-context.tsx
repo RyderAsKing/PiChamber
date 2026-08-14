@@ -26,8 +26,13 @@ export function useAllLiveSessions(): Session[] {
     time: { created: item.session.createdAt, updated: item.session.updatedAt },
   }));
 }
-export function setActiveSession(_directory: string, sessionId: string) {
-  void getPiSessionStore().select(sessionId);
+export function setActiveSession(directory: string, sessionId: string) {
+  const store = getPiSessionStore();
+  if (directory && store.getState().directory !== directory) {
+    void store.open(directory, sessionId);
+    return;
+  }
+  void store.select(sessionId);
 }
 export function setExternallyViewedSession(_directory: string, _sessionId: string, _viewed: boolean) {}
 export function applySessionStatusSnapshot() {}

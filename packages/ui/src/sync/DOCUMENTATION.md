@@ -47,7 +47,7 @@ So:
 | `session-ordering.ts` | Ephemeral lifecycle rank used by every user-visible session list | All known sessions in the active runtime |
 | `session-activity-timing.ts` | Elapsed time of the running turn and of the turn that just finished, plus the persisted starts that survive a reload | All known sessions in the active runtime |
 | `session-ui-store.ts` | Session selection, draft lifecycle, abort prompts, action entrypoints | App UI state |
-| `useGlobalSessionsStore.ts` | Global active sessions, global archived sessions, `sessionsByDirectory` | All opened project session lists |
+| `useGlobalSessionsStore.ts` | Global active sessions, global archived sessions, `sessionsByDirectory` | All added project session lists; each successful directory refresh replaces only that directory while failures preserve its prior sessions |
 | `viewport-store.ts` | Scroll anchors, session memory, loading indicators | App UI state |
 | `attachment-files.ts` | Attachment picker allowlists, MIME/content validation, structured-text sanitization, and HEIC conversion | Local chat attachments across shared UI runtimes |
 | `document-attachments.ts` | Bounded Office/OpenDocument extraction, document text serialization, embedded-image extraction, and positional citations | DOCX, PPTX, XLSX, ODT, ODP, and ODS chat attachments |
@@ -195,6 +195,8 @@ High-frequency sync diagnostics are separately disabled by default. Set `localSt
 Browser profiling also enables `localStorage.openchamber_stream_perf` to capture bounded aggregate timings and render counts for chat projections, message components, and major sidebar boundaries. These metrics contain no session IDs or user content and are reset immediately before each recording.
 
 The profiler also emits a user-timing mark when pending global-session recency is committed at a lifecycle edge. `summary.json.longTaskAttribution` correlates that mark with enclosing long tasks without recording session data.
+
+Pi streaming `contentIndex` identifies a content block, not an individual delta. Repeated text or thinking deltas for the same block share an index and append in event-sequence order; sequence rejection, rather than `contentIndex`, owns replay protection.
 
 Streaming assistant and reasoning text is throttled once before reaching the markdown renderer. The renderer incrementally reconciles changed markdown blocks but does not add a second character-pacing timer, which would multiply parse/morph work while catching up on large streamed chunks.
 

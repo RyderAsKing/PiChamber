@@ -42,16 +42,18 @@ export class PiSessionStore {
   private stream: { dispose: () => void } | null = null;
   private generation = 0;
   private recovering = false;
+  private pendingPreferredSessionId: PiSessionId | null = null;
   private unsubscribeRuntime = subscribeRuntimeEndpointChanged(() => this.resetForRuntime());
 
   getState = () => this.state;
   subscribe = (listener: Listener) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
-  dispose = () => { this.generation += 1; this.stream?.dispose(); this.stream = null; this.unsubscribeRuntime(); this.listeners.clear(); };
+  dispose = () => { this.generation += 1; this.pendingPreferredSessionId = null; this.stream?.dispose(); this.stream = null; this.unsubscribeRuntime(); this.listeners.clear(); };
   setShowArchived = (showArchived: boolean) => { if (showArchived !== this.state.showArchived) { this.state = { ...this.state, showArchived }; this.emit(); } };
   clearError = () => { if (this.state.error) { this.state = { ...this.state, error: null }; this.emit(); } };
   reportError = (error: unknown) => { this.state = { ...this.state, error: asError(error), connection: 'error' }; this.emit(); };
   clear = () => {
     this.generation += 1;
+    this.pendingPreferredSessionId = null;
     this.stream?.dispose(); this.stream = null;
     this.state = { ...initial(), connection: 'ready' };
     this.emit();
@@ -72,7 +74,20 @@ export class PiSessionStore {
   }
 
   async open(directory: string, preferredSessionId?: PiSessionId | null): Promise<void> {
+    if (directory === this.state.directory && this.state.connection === 'loading') {
+      if (preferredSessionId) {
+        this.pendingPreferredSessionId = preferredSessionId;
+        this.state = { ...this.state, selectedSessionId: preferredSessionId, error: null };
+        this.emit();
+      }
+      return;
+    }
+    if (directory === this.state.directory && this.state.connection === 'ready') {
+      if (preferredSessionId && preferredSessionId !== this.state.selectedSessionId) await this.select(preferredSessionId);
+      return;
+    }
     const expected = ++this.generation;
+    this.pendingPreferredSessionId = preferredSessionId ?? null;
     this.stream?.dispose(); this.stream = null;
     this.state = { ...initial(), directory, connection: 'loading' }; this.emit();
     const runtimeKey = getRuntimeKey();
@@ -89,10 +104,12 @@ export class PiSessionStore {
       if (health.state !== 'ready') throw new PiRequestError(health.error?.code ?? 'DAEMON_UNAVAILABLE', health.error?.message);
       const result = await piClient.listSessions(scope);
       if (expected !== this.generation) return;
-      const selectedSessionId = result.sessions.find((item) => item.session.id === preferredSessionId)?.session.id
+      const desiredSessionId = this.pendingPreferredSessionId ?? preferredSessionId;
+      const selectedSessionId = result.sessions.find((item) => item.session.id === desiredSessionId)?.session.id
         ?? result.sessions.find((item) => !item.session.archived)?.session.id
         ?? result.sessions[0]?.session.id
         ?? null;
+      this.pendingPreferredSessionId = null;
       this.state = { ...this.state, sessions: result.sessions, selectedSessionId, connection: 'ready' }; this.emit();
       if (selectedSessionId) await this.hydrate(selectedSessionId, expected);
     } catch (error) { if (expected === this.generation) this.reportError(error); }
@@ -100,8 +117,16 @@ export class PiSessionStore {
 
   async select(sessionId: PiSessionId): Promise<void> {
     if (!this.state.directory || sessionId === this.state.selectedSessionId) return;
+    if (this.state.connection === 'loading') {
+      this.pendingPreferredSessionId = sessionId;
+      this.state = { ...this.state, selectedSessionId: sessionId, error: null };
+      this.emit();
+      return;
+    }
+    const expected = ++this.generation;
+    this.stream?.dispose(); this.stream = null;
     this.state = { ...this.state, selectedSessionId: sessionId, error: null }; this.emit();
-    await this.hydrate(sessionId, this.generation);
+    await this.hydrate(sessionId, expected);
   }
 
   async create(title?: string, options?: { directory?: string; model?: { providerId: string; modelId: string }; thinking?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' }): Promise<string> {
@@ -150,7 +175,10 @@ export class PiSessionStore {
       const detail = known ?? await piClient.getSession(sessionId, { directory, runtimeKey });
       let reducer = hydrateSessionFromDetail({ session: { id: detail.session.id, directory: detail.session.directory }, lastSequence: detail.lastSequence, messages: detail.messages }).state;
       for (const event of buffered) reducer = applyPiEvent(reducer, event).state;
-      ready = true; this.stream = bootstrap.stream; this.state = { ...this.state, reducer, connection: 'ready', error: null }; this.emit();
+      ready = true;
+      this.stream = bootstrap.stream;
+      this.state = { ...this.state, reducer, connection: 'ready', error: null };
+      this.emit();
     } catch (error) { if (expected === this.generation) this.reportError(error); }
   }
 
@@ -162,6 +190,6 @@ export class PiSessionStore {
   private async upsertAndHydrate(detail: Awaited<ReturnType<typeof piClient.getSession>>) { const expected = this.generation; this.state = { ...this.state, sessions: [{ session: detail.session, updatedAt: detail.session.updatedAt }, ...this.state.sessions.filter((item) => item.session.id !== detail.session.id)], selectedSessionId: detail.session.id }; this.emit(); await this.hydrate(detail.session.id, expected, detail); }
   private directory() { if (!this.state.directory) throw new PiRequestError('DAEMON_UNAVAILABLE'); return this.state.directory; }
   private scope(): PiClientScope { return { directory: this.directory(), runtimeKey: getRuntimeKey() }; }
-  private resetForRuntime() { const directory = this.state.directory; this.generation += 1; this.stream?.dispose(); this.stream = null; this.state = initial(); this.emit(); if (directory) void this.start({ directory }); }
+  private resetForRuntime() { const directory = this.state.directory; this.generation += 1; this.pendingPreferredSessionId = null; this.stream?.dispose(); this.stream = null; this.state = initial(); this.emit(); if (directory) void this.start({ directory }); }
   private emit() { for (const listener of this.listeners) listener(); }
 }

@@ -10,7 +10,7 @@
 - Session rows have a single layout; rows show an inline branch label when the session lives in a branch or sub-directory, and bold titles while unread.
 - Folders render **flat** after loose sessions: nested folders display at one level with a "Parent / Child" path label (`SessionFolderItem.displayName`); collapsing a folder hides its whole subtree.
 - Archived sessions are not shown in the web/desktop sidebar; the Archive page (`ArchiveView`, `useUIStore.isArchivePageOpen`) replaces the old toggle. VS Code keeps inline archived buckets behind `showArchivedSessions` (compact webview has no page surfaces). Restore (unarchive) is available per session (row context menu, Archive page row) and in bulk (selection bar) and writes `time.archived = 0`.
-- Directory loading is demand-driven: the sidebar publishes one complete priority plan for all known project directories, while the sync layer owns bounded execution.
+- Directory loading is demand-driven: the sidebar publishes one complete priority plan for all known project directories, while the sync layer owns bounded execution. The global cache keeps each successful project snapshot independently, so activating or opening a session in one project never removes sessions belonging to another; a failed project refresh preserves that project's prior snapshot.
 
 ## VS Code grouping
 

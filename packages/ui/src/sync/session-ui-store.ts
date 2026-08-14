@@ -557,7 +557,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       if (sessionProject && projectsState.activeProjectId !== sessionProject.id) {
         projectsState.setActiveProjectIdOnly(sessionProject.id)
       }
-      opencodeClient.setDirectory(resolvedDir ?? undefined)
     } catch (e) {
       console.warn("Failed to set OpenCode directory for session switch:", e)
     }

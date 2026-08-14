@@ -1,7 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { Session } from '@/lib/chat/types';
+import { piClient } from '@/lib/pi/client';
 
 import {
   isGlobalSessionRecencyOnlyUpdate,
@@ -24,7 +25,10 @@ const buildSession = (shareUrl: string, extra: SessionExtra = {}): Session => ({
 } as Session);
 
 describe('useGlobalSessionsStore', () => {
+  const originalListSessions = piClient.listSessions;
+
   beforeEach(() => {
+    piClient.listSessions = originalListSessions;
     useGlobalSessionsStore.setState({
       activeSessions: [],
       archivedSessions: [],
@@ -32,6 +36,10 @@ describe('useGlobalSessionsStore', () => {
       hasLoaded: false,
       status: 'idle',
     });
+  });
+
+  afterEach(() => {
+    piClient.listSessions = originalListSessions;
   });
 
   test('updates an existing session when the share URL changes', () => {
@@ -121,6 +129,26 @@ describe('useGlobalSessionsStore', () => {
       time: { created: 1, updated: 4, archived: 3 },
     });
     expect(useGlobalSessionsStore.getState().activeSessions).toBe(activeSessions);
+  });
+
+  test('preserves sessions from other projects while refreshing directory snapshots', async () => {
+    const projectA = buildSession('https://share.example/a', { id: 'ses_a_old', directory: '/project-a' });
+    const projectB = buildSession('https://share.example/b', { id: 'ses_b', directory: '/project-b' });
+    useGlobalSessionsStore.getState().applySnapshot([projectA, projectB], []);
+
+    piClient.listSessions = async ({ directory } = {}) => {
+      if (directory === '/project-b') throw new Error('project B unavailable');
+      return {
+        sessions: [{
+          session: { id: 'ses_a_new', directory: '/project-a', title: 'New A', createdAt: 3, updatedAt: 4 },
+          updatedAt: 4,
+        }],
+      };
+    };
+
+    await useGlobalSessionsStore.getState().refreshSessionsForDirectories(['/project-a', '/project-b']);
+
+    expect(useGlobalSessionsStore.getState().activeSessions.map((session) => session.id).sort()).toEqual(['ses_a_new', 'ses_b']);
   });
 
   test('applies a batch of session upserts in one store publication', () => {
