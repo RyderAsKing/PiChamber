@@ -19,7 +19,7 @@ import { createSessionRuntimeRegistry } from './runtime-registry.js';
 import { getPiSessionDirectory, validatePiSessionJsonlDirectory, validatePiSessionJsonlFile } from './session-jsonl.js';
 
 const PROTOCOL_VERSION = 1;
-const MAX_FRAME_BYTES = 1024 * 1024;
+const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 
 class SessionDaemonProtocolError extends Error {
   constructor(code, message) {

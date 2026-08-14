@@ -3,7 +3,7 @@ import { createConnection } from 'node:net';
 import { StringDecoder } from 'node:string_decoder';
 
 const PROTOCOL_VERSION = 1;
-const MAX_FRAME_BYTES = 1024 * 1024;
+const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 
 export class SessionDaemonClientError extends Error {
   constructor(code, message = 'The Pi session daemon is unavailable.') {
@@ -16,7 +16,7 @@ export class SessionDaemonClientError extends Error {
  * Send one authenticated request to the private daemon. This module is server
  * infrastructure: callers must never return its endpoint or credential.
  */
-export const requestSessionDaemon = ({ endpoint, credential, command, payload, timeoutMs = 5_000 }) => new Promise((resolve, reject) => {
+export const requestSessionDaemon = ({ endpoint, credential, command, payload, timeoutMs = 30_000 }) => new Promise((resolve, reject) => {
   const requestId = randomUUID();
   const decoder = new StringDecoder('utf8');
   let buffer = '';
@@ -89,7 +89,7 @@ export const requestSessionDaemon = ({ endpoint, credential, command, payload, t
  * Open an authenticated server-only event subscription. The caller owns the
  * returned close function and must relay only projected frames to browsers.
  */
-export const subscribeSessionDaemon = ({ endpoint, credential, sessionId, fromSequence, onEvent, onError, timeoutMs = 5_000 }) => {
+export const subscribeSessionDaemon = ({ endpoint, credential, sessionId, fromSequence, onEvent, onError, timeoutMs = 30_000 }) => {
   const decoder = new StringDecoder('utf8');
   let buffer = '';
   let authenticated = false;

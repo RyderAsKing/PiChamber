@@ -35,6 +35,7 @@ export interface Message {
   error?: { name?: string; message?: string; data?: { message?: string } };
   agent?: string;
   model?: { providerID?: string; modelID?: string } | string;
+  finish?: string;
   [key: string]: unknown;
 }
 

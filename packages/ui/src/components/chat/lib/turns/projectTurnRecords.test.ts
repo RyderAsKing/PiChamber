@@ -223,4 +223,25 @@ describe('projectTurnRecords', () => {
         const finalActivity = turn?.activityParts.find((activity) => activity.messageId === 'a2');
         expect(finalActivity).toBe(undefined);
     });
+
+    test('preserves model answer as turn summary and excludes it from activity in sorted mode when finish is undefined', () => {
+        const user = createMessageEntry({ id: 'u1', role: 'user', createdAt: 1 });
+        user.parts = [{ id: 'p1', type: 'text', text: 'run tool and answer' } as Part];
+        const assistantWithTool = createMessageEntry({ id: 'a1', role: 'assistant', parentID: 'u1', createdAt: 2 });
+        assistantWithTool.parts = [
+            { id: 'tp1', type: 'tool', tool: 'read', state: { status: 'completed' } } as Part,
+            { id: 'jp1', type: 'text', text: 'reading file' } as Part,
+        ];
+        const finalAssistant = createMessageEntry({ id: 'a2', role: 'assistant', parentID: 'u1', createdAt: 3 });
+        finalAssistant.parts = [{ id: 'ap1', type: 'text', text: 'actual answer of the model' } as Part];
+
+        const projection = projectTurnRecords([user, assistantWithTool, finalAssistant], {
+            showTextJustificationActivity: true,
+        });
+
+        const turn = projection.turns[0];
+        expect(turn?.summaryText).toBe('actual answer of the model');
+        const finalActivity = turn?.activityParts.find((activity) => activity.messageId === 'a2');
+        expect(finalActivity).toBe(undefined);
+    });
 });

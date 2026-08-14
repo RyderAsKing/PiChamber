@@ -64,6 +64,10 @@ import type {
 import { fetchPiRuntimeHealth } from './transport';
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const MAX_TRANSIENT_RETRIES = 1;
+const TRANSIENT_RETRY_DELAY_MS = 300;
+
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 interface JsonRequestInit<TBody> {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -88,39 +92,80 @@ const jsonRequest = async <TBody, TResponse>(
     : '';
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (init.body !== undefined) headers['Content-Type'] = 'application/json';
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), DEFAULT_REQUEST_TIMEOUT_MS);
-  const externalSignal = init.signal;
-  if (externalSignal) {
-    if (externalSignal.aborted) controller.abort();
-    else externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
-  }
-  try {
-    const response = await runtimeFetch(path + query, {
-      method: init.method,
-      headers,
-      body: init.body === undefined ? undefined : JSON.stringify(init.body),
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      const errorBody = (await response.json().catch(() => null)) as { error?: PiError } | null;
-      const error: PiError = errorBody?.error ?? { code: 'DAEMON_REQUEST_FAILED' };
-      throw new PiRequestError(error.code, error.message, response.status);
-    }
-    if (response.status === 204) {
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt += 1) {
+    if (attempt > 0) {
+      if (init.signal?.aborted) break;
       if (requestRuntimeKey && requestRuntimeKey !== getRuntimeKey()) {
         throw new PiRequestError('DAEMON_UNAVAILABLE', 'Runtime changed during request');
       }
-      return undefined as TResponse;
+      await wait(TRANSIENT_RETRY_DELAY_MS);
+      if (init.signal?.aborted) break;
+      if (requestRuntimeKey && requestRuntimeKey !== getRuntimeKey()) {
+        throw new PiRequestError('DAEMON_UNAVAILABLE', 'Runtime changed during request');
+      }
     }
-    const result = (await response.json()) as TResponse;
-    if (requestRuntimeKey && requestRuntimeKey !== getRuntimeKey()) {
-      throw new PiRequestError('DAEMON_UNAVAILABLE', 'Runtime changed during request');
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_REQUEST_TIMEOUT_MS);
+    const externalSignal = init.signal;
+    const onAbort = () => controller.abort();
+    if (externalSignal) {
+      if (externalSignal.aborted) controller.abort();
+      else externalSignal.addEventListener('abort', onAbort, { once: true });
     }
-    return result;
-  } finally {
-    clearTimeout(timeoutId);
+
+    try {
+      const response = await runtimeFetch(path + query, {
+        method: init.method,
+        headers,
+        body: init.body === undefined ? undefined : JSON.stringify(init.body),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const errorBody = (await response.json().catch(() => null)) as { error?: PiError } | null;
+        const error: PiError = errorBody?.error ?? { code: 'DAEMON_REQUEST_FAILED' };
+        const isTransient = response.status === 503 && (error.code === 'DAEMON_UNAVAILABLE' || error.code === 'DAEMON_TIMEOUT');
+        if (isTransient && attempt < MAX_TRANSIENT_RETRIES && !externalSignal?.aborted) {
+          lastError = new PiRequestError(error.code, error.message, response.status);
+          continue;
+        }
+        throw new PiRequestError(error.code, error.message, response.status);
+      }
+      if (response.status === 204) {
+        if (requestRuntimeKey && requestRuntimeKey !== getRuntimeKey()) {
+          throw new PiRequestError('DAEMON_UNAVAILABLE', 'Runtime changed during request');
+        }
+        return undefined as TResponse;
+      }
+      const result = (await response.json()) as TResponse;
+      if (requestRuntimeKey && requestRuntimeKey !== getRuntimeKey()) {
+        throw new PiRequestError('DAEMON_UNAVAILABLE', 'Runtime changed during request');
+      }
+      return result;
+    } catch (err) {
+      lastError = err;
+      if (err instanceof PiRequestError) {
+        throw err;
+      }
+      const isAbort = externalSignal?.aborted || (err instanceof DOMException && err.name === 'AbortError');
+      if (isAbort) {
+        throw err;
+      }
+      if (attempt < MAX_TRANSIENT_RETRIES && !externalSignal?.aborted) {
+        continue;
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+      if (externalSignal) {
+        externalSignal.removeEventListener('abort', onAbort);
+      }
+    }
   }
+
+  throw lastError;
 };
 
 export class PiRequestError extends Error {

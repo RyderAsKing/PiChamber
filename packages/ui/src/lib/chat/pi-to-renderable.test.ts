@@ -83,7 +83,9 @@ describe('pi-to-renderable', () => {
       parts: [{ id: 'c', type: 'tool', text: '', streaming: false, tool: { name: 'bash', toolCallId: 'c3', state: 'cancelled' } }],
     };
     expect((piMessageToRecord(running, 'ses_1').parts[0] as { state?: { status?: string } }).state?.status).toBe('running');
+    expect(piMessageToRecord(running, 'ses_1').info.finish).toBe(undefined);
     expect((piMessageToRecord(cancelled, 'ses_1').parts[0] as { state?: { status?: string } }).state?.status).toBe('cancelled');
+    expect(piMessageToRecord(cancelled, 'ses_1').info.finish).toBe('stop');
   });
 
   test('returns an empty list for a missing projected session instead of fabricating idle history', () => {

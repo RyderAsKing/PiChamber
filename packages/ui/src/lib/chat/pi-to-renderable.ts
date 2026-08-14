@@ -71,6 +71,8 @@ export const piMessageToRecord = (message: PiProjectedMessage, sessionId: string
       parts.push({ id: `${message.id}:text`, type: 'text', text: message.text });
     }
   }
+  const isCompletedAssistant = message.role === 'assistant' && !message.streaming;
+  const finish = isCompletedAssistant ? (message.error ? 'error' : 'stop') : undefined;
   const info: Message = {
     id: message.id,
     sessionID: sessionId,
@@ -79,6 +81,7 @@ export const piMessageToRecord = (message: PiProjectedMessage, sessionId: string
     time: { created: message.createdAt, ...(message.streaming ? {} : { completed: message.createdAt + (message.durationMs ?? 0) }) },
     ...(message.error ? { error: { name: message.error.code, message: message.error.message } } : {}),
     ...(message.model ? { model: { providerID: message.model.providerId, modelID: message.model.modelId } } : {}),
+    ...(finish ? { finish } : {}),
   };
   return { info, parts };
 };

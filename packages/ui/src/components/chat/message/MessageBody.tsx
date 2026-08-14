@@ -1133,7 +1133,7 @@ const AssistantMessageBody = React.memo(({
     const isSortedRenderMode = chatRenderMode === 'sorted';
     const collapsedPreviewCount = 7;
     const isLastAssistantInTurn = turnGroupingContext?.isLastAssistantInTurn ?? false;
-    const hasStopFinish = messageFinish === 'stop';
+    const hasStopFinish = messageFinish === 'stop' || (isMessageCompleted && !errorMessage);
     const effectiveStreamPhase: StreamPhase = hasStopFinish ? 'completed' : streamPhase;
 
     const hasTools = toolParts.length > 0;
@@ -1198,8 +1198,8 @@ const AssistantMessageBody = React.memo(({
         });
     }, [reasoningParts]);
 
-    // Message is considered to have an "open step" if info.finish is not yet present
-    const hasOpenStep = typeof messageFinish !== 'string';
+    // Message is considered to have an "open step" if not completed and info.finish is not yet present
+    const hasOpenStep = !isMessageCompleted && typeof messageFinish !== 'string';
 
     const shouldHoldForReasoning =
         reasoningParts.length > 0 &&

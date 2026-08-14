@@ -520,8 +520,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
 
     const shouldHideUserMessage = isUser && displayParts.length === 0;
 
-    // Message is considered to have an "open step" if info.finish is not yet present
-    const hasOpenStep = typeof messageFinish !== 'string';
+    // Message is considered to have an "open step" if not completed and info.finish is not yet present
+    const hasOpenStep = !isMessageCompleted && typeof messageFinish !== 'string';
 
     const shouldCoordinateRendering = React.useMemo(() => {
         if (isUser) {

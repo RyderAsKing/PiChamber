@@ -102,7 +102,22 @@ describe("PiService", () => {
     expect(await client.deleteSession({ sessionId: "s1" })).toBe(true)
   })
 
-  test("listSessions throws PiRequestError on a 5xx response", async () => {
+  test("listSessions retries transient 503 DAEMON_UNAVAILABLE and succeeds on second attempt", async () => {
+    let attempt = 0;
+    installFetchMock(() => {
+      attempt += 1;
+      if (attempt === 1) {
+        return jsonResponse({ error: { code: "DAEMON_UNAVAILABLE" } }, { status: 503 });
+      }
+      return jsonResponse({ sessions: [{ session: { id: "s1", directory: "/repo" } }] });
+    });
+    const client = new PiService();
+    const result = await client.listSessions();
+    expect(result.sessions).toHaveLength(1);
+    expect(attempt).toBe(2);
+  });
+
+  test("listSessions throws PiRequestError on persistent 5xx response", async () => {
     installFetchMock(() =>
       jsonResponse({ error: { code: "DAEMON_UNAVAILABLE" } }, { status: 503 }),
     )
