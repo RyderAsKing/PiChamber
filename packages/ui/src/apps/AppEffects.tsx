@@ -105,6 +105,12 @@ const PiSessionBootstrapBridge: React.FC = () => {
       }
       return;
     }
+    // When a new session draft is intentionally open, background directory switches
+    // (such as changing the project picker on the new session page) must not force-open
+    // the project's last session and dismiss the draft.
+    if (ui.newSessionDraft?.open && ui.currentSessionId === null) {
+      return;
+    }
     if (ui.currentSessionId !== selectedSessionId || ui.currentSessionDirectory !== directory) {
       // Close any open draft together with the session switch. The bridge
       // intentionally uses setState (not setCurrentSession) to avoid

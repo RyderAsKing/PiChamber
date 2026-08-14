@@ -272,6 +272,9 @@ export function createSessionDaemon({
   const startRuntime = async ({ cwd: runtimeCwd = activeDirectory || cwd, sessionFile } = {}) => {
     if (sessionFile) await validatePiSessionJsonlFile(sessionFile);
     const newRuntime = await createRuntime({ cwd: runtimeCwd, agentDir, ...(sessionFile ? { sessionFile } : {}) });
+    if (!newRuntime.cwd) {
+      newRuntime.cwd = runtimeCwd;
+    }
     if (!runtimeRegistry) {
       runtimeRegistry = createSessionRuntimeRegistry({
         onSessionEvent: ({ cwd: eventCwd, sessionId: eventSessionId }, event) => publishSessionEvent(eventSessionId, event, eventCwd),
@@ -315,7 +318,9 @@ export function createSessionDaemon({
     const idByPath = new Map(sessions.map((session) => [session?.path, session?.id]));
     const uncorrupted = sessions.filter((session) => !session?.corrupted && typeof session?.id === 'string');
     const knownIds = new Set(uncorrupted.map((s) => s.id));
-    const activeEntries = runtimeRegistry ? runtimeRegistry.listByDirectory(targetDir) : (runtime && (runtime.cwd === targetDir || activeDirectory === targetDir) ? [runtime] : []);
+    const activeEntries = runtimeRegistry
+      ? runtimeRegistry.listByDirectory(targetDir)
+      : (runtime && typeof runtime.cwd === 'string' && (runtime.cwd === targetDir || resolve(runtime.cwd) === resolve(targetDir)) ? [runtime] : []);
     const extra = [];
     for (const entry of activeEntries) {
       if (entry?.session?.sessionId && !knownIds.has(entry.session.sessionId)) {
@@ -446,6 +451,7 @@ export function createSessionDaemon({
       }
     }
     const newRuntime = await createRuntime({ cwd: directory, agentDir, sessionFile: target.path });
+    if (!newRuntime.cwd) newRuntime.cwd = directory;
     runtimeRegistry.register(newRuntime, { cwd: directory });
     runtime = newRuntime;
     activeDirectory = directory;
@@ -559,6 +565,7 @@ export function createSessionDaemon({
       agentDir,
       ...(parent ? { sessionFile: parent.path } : {}),
     });
+    if (!newRuntime.cwd) newRuntime.cwd = targetCwd;
     let result = { cancelled: false };
     if (typeof newRuntime.newSession === 'function') {
       result = await newRuntime.newSession({

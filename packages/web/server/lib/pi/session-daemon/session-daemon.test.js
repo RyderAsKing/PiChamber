@@ -379,6 +379,48 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  it('does not include in-memory sessions from another directory when listing a newly selected project directory', async () => {
+    const rootA = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-a-'));
+    const rootB = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-b-'));
+    const endpoint = join(rootA, 'daemon.sock');
+    const activeSessionA = new FakeSession('pi-session-a');
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: rootA,
+      createRuntime: async ({ cwd }) => ({ cwd, session: cwd === rootA ? activeSessionA : new FakeSession('pi-session-b'), async dispose() {} }),
+      listSessions: async ({ cwd }) => {
+        if (cwd === rootA) {
+          return [{
+            path: join(rootA, 'session-a.jsonl'),
+            id: 'pi-session-a',
+            cwd: rootA,
+            name: 'Session A',
+            created: new Date('2026-01-01T00:00:00.000Z'),
+            modified: new Date('2026-01-02T00:00:00.000Z'),
+            messageCount: 1,
+            firstMessage: 'Session in project A',
+          }];
+        }
+        return [];
+      },
+    });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+
+    await client.request('projects.select', { directory: rootA });
+    const listA = await client.request('sessions.list', { directory: rootA });
+    expect(listA.result.sessions).toHaveLength(1);
+    expect(listA.result.sessions[0].session.directory).toBe(rootA);
+
+    await client.request('projects.select', { directory: rootB });
+    const listB = await client.request('sessions.list', { directory: rootB });
+    expect(listB.result.sessions).toHaveLength(0);
+    await client.close();
+  });
+
   it('renames active and persisted sessions without exposing their JSONL paths', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = join(root, 'daemon.sock');
