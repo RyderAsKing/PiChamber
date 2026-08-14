@@ -85,7 +85,7 @@ export function SyncRuntimeEffects({ embeddedBackgroundWorkEnabled }: {
 const PiSessionBootstrapBridge: React.FC = () => {
   const store = React.useMemo(() => getPiSessionStore(), []);
   const snapshot = React.useSyncExternalStore(store.subscribe, store.getState, store.getState);
-  const { selectedSessionId, directory } = snapshot;
+  const { selectedSessionId, directory, connection } = snapshot;
 
   React.useEffect(() => {
     if (!directory) return;
@@ -100,6 +100,9 @@ const PiSessionBootstrapBridge: React.FC = () => {
   React.useEffect(() => {
     const ui = useSessionUIStore.getState();
     if (!selectedSessionId || !directory) {
+      if (connection === 'loading') {
+        return;
+      }
       if (ui.currentSessionId !== null || ui.currentSessionDirectory !== null) {
         useSessionUIStore.setState({ currentSessionId: null, currentSessionDirectory: null });
       }
@@ -140,7 +143,7 @@ const PiSessionBootstrapBridge: React.FC = () => {
       });
       markSessionViewed(selectedSessionId);
     }
-  }, [selectedSessionId, directory]);
+  }, [selectedSessionId, directory, connection]);
 
   return null;
 };

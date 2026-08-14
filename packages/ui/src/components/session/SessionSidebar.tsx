@@ -910,6 +910,9 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     const previousDirectories = knownProjectSessionDirectoriesRef.current;
     knownProjectSessionDirectoriesRef.current = nextDirectories;
     if (!previousDirectories) {
+      if (projectSessionDirectories.length > 0) {
+        void refreshGlobalSessionsForDirectories(projectSessionDirectories, syncSessionsSnapshotRef.current);
+      }
       return;
     }
 

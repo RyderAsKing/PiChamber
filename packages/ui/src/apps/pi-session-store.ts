@@ -89,7 +89,13 @@ export class PiSessionStore {
     const expected = ++this.generation;
     this.pendingPreferredSessionId = preferredSessionId ?? null;
     this.stream?.dispose(); this.stream = null;
-    this.state = { ...initial(), directory, connection: 'loading' }; this.emit();
+    this.state = {
+      ...initial(),
+      directory,
+      selectedSessionId: preferredSessionId ?? null,
+      connection: 'loading',
+    };
+    this.emit();
     const runtimeKey = getRuntimeKey();
     try {
       const selected = await piClient.selectProject(directory, { runtimeKey });

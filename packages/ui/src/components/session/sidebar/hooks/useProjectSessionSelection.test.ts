@@ -164,4 +164,29 @@ describe('computeProjectMeta helper', () => {
     expect(p2Map).toBeDefined();
     expect(p2Map.has('project-2-session-1')).toBe(true);
   });
+
+  test('distinguishes sessions belonging to another project vs active project', () => {
+    const allSections = [...staleSections, ...project2Sections];
+    const { metaByProject } = computeProjectMeta(allSections);
+
+    const activeProjectId = 'project-2';
+    const currentSessionId = 'root-session-1'; // Belongs to project-1
+
+    const isSessionOfAnotherProject = Array.from(metaByProject.entries()).some(
+      ([projId, map]) => projId !== activeProjectId && map.has(currentSessionId),
+    );
+    expect(isSessionOfAnotherProject).toBe(true);
+
+    const sameProjectSessionId = 'project-2-session-2';
+    const isSameProjectSessionAnother = Array.from(metaByProject.entries()).some(
+      ([projId, map]) => projId !== activeProjectId && map.has(sameProjectSessionId),
+    );
+    expect(isSameProjectSessionAnother).toBe(false);
+
+    const unindexedSessionId = 'new-worktree-session';
+    const isUnindexedAnother = Array.from(metaByProject.entries()).some(
+      ([projId, map]) => projId !== activeProjectId && map.has(unindexedSessionId),
+    );
+    expect(isUnindexedAnother).toBe(false);
+  });
 });

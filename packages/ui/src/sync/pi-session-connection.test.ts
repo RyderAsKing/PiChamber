@@ -34,6 +34,23 @@ describe('PiSessionStore connection and selection', () => {
     store.dispose();
   });
 
+  test('retains preferred session ID during initial directory opening state', async () => {
+    const store = new PiSessionStore();
+    const internal = store as unknown as { state: ReturnType<PiSessionStore['getState']> };
+    internal.state = { ...store.getState(), directory: '/repo-1', connection: 'ready', selectedSessionId: 'sess-1' };
+
+    // When opening a new directory with a preferred session, the loading state preserves that session
+    const openPromise = store.open('/repo-2', 'sess-2-target');
+    const loadingState = store.getState();
+
+    expect(loadingState.directory).toBe('/repo-2');
+    expect(loadingState.selectedSessionId).toBe('sess-2-target');
+    expect(loadingState.connection).toBe('loading');
+
+    await openPromise.catch(() => undefined);
+    store.dispose();
+  });
+
   test('start without a daemon reports error instead of an empty ready list', async () => {
     const store = new PiSessionStore();
     await store.start();

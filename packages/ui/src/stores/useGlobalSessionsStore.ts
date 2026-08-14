@@ -8,6 +8,7 @@ import { normalizePath } from '@/lib/pathNormalization';
 import { raiseSessionOrderingBaselines } from '@/sync/session-ordering';
 import { mapWithConcurrency } from '@/lib/concurrency';
 import { getPiSessionStore } from '@/apps/pi-session-store';
+import { useProjectsStore } from '@/stores/useProjectsStore';
 import { piListItemToUiSession } from '@/lib/chat/pi-to-renderable';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 
@@ -508,6 +509,46 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
     const baselineRevision = get().mutationRevision;
     const loadPromise = (async () => {
       try {
+        const runtimeKey = getRuntimeKey();
+        const projectDirectories = useProjectsStore.getState().projects
+          .map((p) => p.path)
+          .filter((path): path is string => typeof path === 'string' && path.length > 0);
+        const currentPiDir = getPiSessionStore().getState().directory;
+        const targetDirectories = normalizeDirectorySet([
+          ...projectDirectories,
+          ...(currentPiDir ? [currentPiDir] : []),
+        ]);
+
+        if (targetDirectories.size > 0) {
+          const result = await fetchDirectoryPages(targetDirectories, runtimeKey);
+
+          if (generation !== loadGeneration) {
+            return { activeSessions: [], archivedSessions: [] };
+          }
+
+          const { active, archived } = splitGlobalSessionsByArchived(result.sessions);
+
+          set((state) => {
+            let nextActiveSessions = replaceSessionsForDirectories(state.activeSessions, active, result.directories);
+            nextActiveSessions = mergeSessionLists(nextActiveSessions, fallbackActive);
+            if (sameSessionList(state.activeSessions, nextActiveSessions)) {
+              nextActiveSessions = state.activeSessions;
+            }
+
+            let nextArchivedSessions = replaceSessionsForDirectories(state.archivedSessions, archived, result.directories);
+            if (sameSessionList(state.archivedSessions, nextArchivedSessions)) {
+              nextArchivedSessions = state.archivedSessions;
+            }
+
+            const reconciled = overlayMutationsSince(state, nextActiveSessions, nextArchivedSessions, baselineRevision);
+            const status: GlobalSessionsStatus = result.directories.size > 0 ? 'ready' : (result.errors.length > 0 ? 'error' : 'ready');
+            return applySnapshot(state, reconciled.activeSessions, reconciled.archivedSessions, status);
+          });
+
+          const committed = get();
+          return { activeSessions: committed.activeSessions, archivedSessions: committed.archivedSessions };
+        }
+
         const piStore = getPiSessionStore();
         const piState = piStore.getState();
 
