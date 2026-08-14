@@ -808,6 +808,41 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  it('preserves assistant messageId for tool executions occurring after message_end', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
+    const endpoint = join(root, 'daemon.sock');
+    const session = new FakeSession('pi-session-tool-seq');
+    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
+
+    const messageStartPromise = client.next((frame) => frame.event === 'assistant.message.start');
+    const messageEndPromise = client.next((frame) => frame.event === 'assistant.message.end');
+    const toolStartPromise = client.next((frame) => frame.event === 'session.tool.start');
+    const toolEndPromise = client.next((frame) => frame.event === 'session.tool.end');
+
+    session.emit({ type: 'message_start', message: { role: 'assistant', timestamp: 1 } });
+    session.emit({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'Calling tool' }] } });
+    session.emit({ type: 'tool_execution_start', toolCallId: 'tool-call-1', toolName: 'bash', args: { command: 'echo hi' } });
+    session.emit({ type: 'tool_execution_end', toolCallId: 'tool-call-1', toolName: 'bash', result: { content: [{ type: 'text', text: 'hi' }] }, isError: false });
+
+    const messageStart = await messageStartPromise;
+    const messageEnd = await messageEndPromise;
+    const toolStart = await toolStartPromise;
+    const toolEnd = await toolEndPromise;
+
+    expect(messageStart.payload.messageId).toMatch(/^assistant-pi-session-tool-seq-\d+$/);
+    expect(messageEnd.payload.messageId).toBe(messageStart.payload.messageId);
+    expect(toolStart.payload.messageId).toBe(messageStart.payload.messageId);
+    expect(toolStart.payload.partId).toBe(`${messageStart.payload.messageId}:tool:tool-call-1`);
+    expect(toolEnd.payload.messageId).toBe(messageStart.payload.messageId);
+    expect(toolEnd.payload.partId).toBe(`${messageStart.payload.messageId}:tool:tool-call-1`);
+
+    await client.close();
+  });
+
   it('rejects non-local endpoints and unauthenticated clients before a request can reach the runtime', async () => {
     expect(() => createSessionDaemon({
       endpoint: 'http://127.0.0.1:3000',

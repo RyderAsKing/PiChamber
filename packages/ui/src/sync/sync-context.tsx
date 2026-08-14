@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components, @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 import { useMemo } from 'react';
 import { getPiSessionStore } from '@/apps/pi-session-store';
-import { piProjectedToRecords } from '@/lib/chat/pi-to-renderable';
+import { piProjectedToRecords, mapPart } from '@/lib/chat/pi-to-renderable';
 import type { Message, Part, PermissionRequest, QuestionRequest, Session, SessionStatus } from '@/lib/chat/types';
 import { projectSession } from '@/lib/pi/event-reducer';
 import { usePiSessionSnapshot, usePiSessionStore } from './pi-session-context';
@@ -92,8 +92,45 @@ export function useSessionMessagesResolved(_sessionID: string, _directory?: stri
   return true;
 }
 
-export function useSessionParts(_messageID: string, _directory?: string): Part[] {
-  return [];
+export function useSessionParts(messageID: string, _directory?: string): Part[] {
+  const state = usePiSessionSnapshot();
+  return useMemo(() => {
+    if (!messageID) return [];
+    for (const session of state.reducer.bySession.values()) {
+      const message = session.messages.get(messageID);
+      if (message) {
+        const order = session.partOrder.get(messageID) ?? [];
+        if (order.length > 0) {
+          const parts: Part[] = [];
+          for (const partId of order) {
+            const part = session.parts.get(partId);
+            if (part) {
+              parts.push(
+                mapPart({
+                  id: part.id,
+                  type: part.type,
+                  text: part.text,
+                  streaming: part.streaming,
+                  ...(part.tool ? { tool: part.tool } : {}),
+                  ...(part.attachment ? { attachment: part.attachment } : {}),
+                }),
+              );
+            }
+          }
+          return parts;
+        }
+        const fallback: Part[] = [];
+        if (message.thinking) {
+          fallback.push({ id: `${message.id}:thinking`, type: 'reasoning', text: message.thinking });
+        }
+        if (message.text) {
+          fallback.push({ id: `${message.id}:text`, type: 'text', text: message.text });
+        }
+        return fallback;
+      }
+    }
+    return [];
+  }, [messageID, state.reducer]);
 }
 
 export function useSessionStatus(sessionID: string, _directory?: string): SessionStatus {

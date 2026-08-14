@@ -17,7 +17,7 @@ export const piSessionToUiSession = (session: PiSession): Session => ({
 
 export const piListItemToUiSession = (item: PiSessionListItem): Session => piSessionToUiSession(item.session);
 
-const mapPart = (part: PiProjectedMessagePart): Part => {
+export const mapPart = (part: PiProjectedMessagePart): Part => {
   if (part.type === 'thinking') {
     return { id: part.id, type: 'reasoning', text: part.text };
   }
@@ -53,13 +53,23 @@ const mapPart = (part: PiProjectedMessagePart): Part => {
 
 export const piMessageToRecord = (message: PiProjectedMessage, sessionId: string): SessionMessageRecord => {
   const parts: Part[] = [];
-  if (message.thinking) {
-    parts.push({ id: `${message.id}:thinking`, type: 'reasoning', text: message.thinking });
-  }
   if (message.parts.length > 0) {
+    const hasThinking = message.parts.some((p) => p.type === 'thinking');
+    const hasText = message.parts.some((p) => p.type === 'text');
+    if (!hasThinking && message.thinking) {
+      parts.push({ id: `${message.id}:thinking`, type: 'reasoning', text: message.thinking });
+    }
     parts.push(...message.parts.map(mapPart));
-  } else if (message.text) {
-    parts.push({ id: `${message.id}:text`, type: 'text', text: message.text });
+    if (!hasText && message.text) {
+      parts.push({ id: `${message.id}:text`, type: 'text', text: message.text });
+    }
+  } else {
+    if (message.thinking) {
+      parts.push({ id: `${message.id}:thinking`, type: 'reasoning', text: message.thinking });
+    }
+    if (message.text) {
+      parts.push({ id: `${message.id}:text`, type: 'text', text: message.text });
+    }
   }
   const info: Message = {
     id: message.id,

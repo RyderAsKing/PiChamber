@@ -123,6 +123,7 @@ export function createSessionDaemon({
   // a new authoritative snapshot before later events can arrive.
   const eventLog = [];
   const streamingMessageIds = new Map();
+  const latestAssistantMessageIds = new Map();
   const toolStartedAt = new Map();
   const latestUserMessageIds = new Map();
   const streamingRedactionBuffers = new Map();
@@ -1236,6 +1237,7 @@ export function createSessionDaemon({
           const messageId = `assistant-${sessionId}-${sequence + 1}`;
           clearStreamingRedactionBuffers(sessionId);
           streamingMessageIds.set(sessionId, messageId);
+          latestAssistantMessageIds.set(sessionId, messageId);
           publish('assistant.message.start', {
             messageId,
             role: 'assistant',
@@ -1248,20 +1250,22 @@ export function createSessionDaemon({
       }
       case 'message_update': {
         const update = event.assistantMessageEvent;
+        const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
         if (update.type === 'text_delta') {
           const delta = redactStreamingAttachmentDelta(`${sessionId}:text:${update.contentIndex}`, update.delta);
-          if (delta) publish('assistant.message.delta', { messageId: streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`, partId: `${streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`}:text:${update.contentIndex}`, contentIndex: update.contentIndex, delta }, sessionId, directory);
+          if (delta) publish('assistant.message.delta', { messageId, partId: `${messageId}:text:${update.contentIndex}`, contentIndex: update.contentIndex, delta }, sessionId, directory);
         } else if (update.type === 'thinking_delta') {
           const delta = redactStreamingAttachmentDelta(`${sessionId}:thinking:${update.contentIndex}`, update.delta);
-          if (delta) publish('assistant.thinking.delta', { messageId: streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`, partId: `${streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`}:thinking:${update.contentIndex}`, contentIndex: update.contentIndex, delta }, sessionId, directory);
+          if (delta) publish('assistant.thinking.delta', { messageId, partId: `${messageId}:thinking:${update.contentIndex}`, contentIndex: update.contentIndex, delta }, sessionId, directory);
         }
         break;
       }
       case 'message_end': {
         if (event.message?.role === 'assistant') {
           const content = Array.isArray(event.message.content) ? event.message.content : [];
+          const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
           publish('assistant.message.end', {
-            messageId: streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`,
+            messageId,
             text: redactAttachmentPaths(content.filter((part) => part?.type === 'text').map((part) => part.text).join('')),
             thinking: redactAttachmentPaths(content.filter((part) => part?.type === 'thinking').map((part) => part.thinking).join('')),
             ...(event.message.errorMessage ? { error: { code: 'ASSISTANT_ERROR' } } : {}),
@@ -1272,7 +1276,7 @@ export function createSessionDaemon({
         break;
       }
       case 'tool_execution_start': {
-        const messageId = streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
+        const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
         const startedAt = Date.now();
         toolStartedAt.set(event.toolCallId, startedAt);
         publish('session.tool.start', {
@@ -1288,7 +1292,7 @@ export function createSessionDaemon({
         break;
       }
       case 'tool_execution_update': {
-        const messageId = streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
+        const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
         const projected = projectToolResult(event.partialResult, false);
         publish('session.tool.update', {
           toolCallId: event.toolCallId,
@@ -1303,7 +1307,7 @@ export function createSessionDaemon({
         break;
       }
       case 'tool_execution_end': {
-        const messageId = streamingMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
+        const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
         const startedAt = toolStartedAt.get(event.toolCallId);
         toolStartedAt.delete(event.toolCallId);
         const projected = projectToolResult(event.result, event.isError === true);
@@ -1330,6 +1334,7 @@ export function createSessionDaemon({
         break;
       case 'agent_end': {
         latestUserMessageIds.delete(sessionId);
+        latestAssistantMessageIds.delete(sessionId);
         const finalMessage = event.messages?.at?.(-1);
         if (finalMessage?.role === 'assistant' && finalMessage.stopReason === 'aborted') {
           publish('session.interrupted', { reason: 'user-abort', streaming: false }, sessionId, directory);

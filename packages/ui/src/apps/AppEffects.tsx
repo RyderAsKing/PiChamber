@@ -106,9 +106,31 @@ const PiSessionBootstrapBridge: React.FC = () => {
       return;
     }
     if (ui.currentSessionId !== selectedSessionId || ui.currentSessionDirectory !== directory) {
+      // Close any open draft together with the session switch. The bridge
+      // intentionally uses setState (not setCurrentSession) to avoid
+      // duplicating session lifecycle work, but that bypasses
+      // closeNewSessionDraft(). Without this, ChatInput still sees
+      // newSessionDraft.open === true and renders draft-mode UI (welcome
+      // title, preset chips) even after the session has loaded.
+      const draftUpdate = ui.newSessionDraft?.open
+        ? {
+            newSessionDraft: {
+              open: false as const,
+              selectedProjectId: null,
+              directoryOverride: null,
+              preserveDirectoryOverride: false,
+              parentID: null,
+              title: undefined,
+              initialPrompt: undefined,
+              syntheticParts: undefined,
+              targetFolderId: undefined,
+            },
+          }
+        : {};
       useSessionUIStore.setState({
         currentSessionId: selectedSessionId,
         currentSessionDirectory: directory,
+        ...draftUpdate,
       });
       markSessionViewed(selectedSessionId);
     }

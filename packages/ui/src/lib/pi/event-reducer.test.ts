@@ -108,6 +108,26 @@ describe("applyPiEvent", () => {
     expect(part?.streaming).toBe(false)
   })
 
+  test("tracks tool execution started after assistant.message.end", () => {
+    let state = applyPiEvent(createReducerState(), assistantStart()).state
+    state = applyPiEvent(state, baseEvent("assistant.message.end", 2, {
+      messageId: "m1", text: "Running tool", thinking: "need to run tool",
+    })).state
+    state = applyPiEvent(state, baseEvent("session.tool.start", 3, {
+      toolCallId: "t1", partId: "m1:tool:t1", messageId: "m1", name: "bash", state: "running",
+      input: { cmd: "pwd" }, startedAt: 1_000,
+    })).state
+    state = applyPiEvent(state, baseEvent("session.tool.end", 4, {
+      toolCallId: "t1", partId: "m1:tool:t1", messageId: "m1", name: "bash", state: "completed",
+      output: "/workspace", endedAt: 1_200,
+    })).state
+
+    const session = state.bySession.get("sess-1")
+    expect(session?.parts.get("m1:tool:t1")?.tool?.state).toBe("completed")
+    expect(session?.parts.get("m1:tool:t1")?.tool?.output).toBe("/workspace")
+    expect(session?.partOrder.get("m1")).toContain("m1:tool:t1")
+  })
+
   test("preserves earlier tool output and metadata across partial updates", () => {
     let state = applyPiEvent(createReducerState(), assistantStart()).state
     state = applyPiEvent(state, baseEvent("session.tool.start", 2, {
