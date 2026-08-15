@@ -34,13 +34,6 @@ interface SettingsSearchAvailabilityContext extends SettingsRuntimeContext {
 
 const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
-    id: 'appearance.language',
-    page: 'appearance',
-    titleKey: 'settings.appearance.language.label',
-    descriptionKey: 'settings.appearance.language.description',
-    keywords: ['locale', 'translation', 'ui language'],
-  },
-  {
     id: 'appearance.time-format',
     page: 'appearance',
     titleKey: 'settings.pichamber.visual.field.timeFormat',

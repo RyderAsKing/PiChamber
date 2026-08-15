@@ -10,14 +10,13 @@ import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { startAppearanceAutoSave } from '@/lib/appearanceAutoSave';
 import { applyPersistedDirectoryPreferences } from '@/lib/directoryPersistence';
-import { initializeLocale, I18nProvider } from '@/lib/i18n';
+import { I18nProvider } from '@/lib/i18n';
 import { initializeAppearancePreferences, syncDesktopSettings } from '@/lib/persistence';
 import { startModelPrefsAutoSave } from '@/lib/modelPrefsAutoSave';
 import { startTypographyWatcher } from '@/lib/typographyWatcher';
 import { ElectronMiniChatApp } from './ElectronMiniChatApp';
 
 const initializeSharedPreferences = () => {
-  initializeLocale();
 
   void initializeAppearancePreferences().then(() => {
     void Promise.all([
