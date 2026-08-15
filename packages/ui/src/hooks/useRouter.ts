@@ -7,6 +7,8 @@ import type { MainTab } from '@/stores/useUIStore';
 import { resolveSettingsSlug } from '@/lib/settings/metadata';
 import { isEmbeddedSessionChat } from '@/components/layout/contextPanelEmbeddedChat';
 
+import { getPiSessionStore } from '@/apps/pi-session-store';
+
 /**
  * Hook that provides bidirectional URL routing for PiChamber.
  *
@@ -56,7 +58,8 @@ export function useRouter(): void {
         // 1. Apply session first (may trigger async operations)
         if (route.sessionId) {
           const currentSessionId = useSessionUIStore.getState().currentSessionId;
-          if (route.sessionId !== currentSessionId) {
+          const piSelectedId = getPiSessionStore().getState().selectedSessionId;
+          if (route.sessionId !== currentSessionId || route.sessionId !== piSelectedId) {
             const directoryHint = useSessionUIStore.getState().getDirectoryForSession(route.sessionId);
             setCurrentSession(route.sessionId, directoryHint);
           }
@@ -96,10 +99,11 @@ export function useRouter(): void {
    */
   const getCurrentAppState = React.useCallback((): AppRouteState => {
     const sessionState = useSessionUIStore.getState();
+    const piState = getPiSessionStore().getState();
     const uiState = useUIStore.getState();
 
     return {
-      sessionId: sessionState.currentSessionId,
+      sessionId: sessionState.currentSessionId ?? piState.selectedSessionId,
       tab: uiState.activeMainTab,
       isSettingsOpen: uiState.isSettingsDialogOpen,
       settingsPath: uiState.settingsPage,
@@ -148,7 +152,7 @@ export function useRouter(): void {
       if (!isEmbeddedChat) {
         updateBrowserURL({
           ...getCurrentAppState(),
-          sessionId: route.sessionId ?? useSessionUIStore.getState().currentSessionId,
+          sessionId: route.sessionId ?? useSessionUIStore.getState().currentSessionId ?? getPiSessionStore().getState().selectedSessionId,
           tab: route.tab ?? useUIStore.getState().activeMainTab,
           settingsPath: route.settingsPath ?? useUIStore.getState().settingsPage,
           diffFile: route.diffFile ?? useUIStore.getState().pendingDiffFile,
@@ -165,21 +169,28 @@ export function useRouter(): void {
       return;
     }
 
-    let prevSessionId: string | null = useSessionUIStore.getState().currentSessionId;
+    let prevSessionId: string | null = useSessionUIStore.getState().currentSessionId ?? getPiSessionStore().getState().selectedSessionId;
 
-    const unsubscribe = useSessionUIStore.subscribe((state) => {
-      const sessionId = state.currentSessionId;
-
-      // Skip if no change or if we're currently applying a route
-      if (sessionId === prevSessionId || isApplyingRouteRef.current) {
+    const syncIfChanged = (newSessionId: string | null) => {
+      if (!newSessionId || newSessionId === prevSessionId || isApplyingRouteRef.current) {
         return;
       }
+      prevSessionId = newSessionId;
+      syncURLFromState({ replace: true });
+    };
 
-      prevSessionId = sessionId;
-      syncURLFromState();
+    const unsubscribeUI = useSessionUIStore.subscribe((state) => {
+      syncIfChanged(state.currentSessionId);
     });
 
-    return unsubscribe;
+    const unsubscribePi = getPiSessionStore().subscribe(() => {
+      syncIfChanged(getPiSessionStore().getState().selectedSessionId);
+    });
+
+    return () => {
+      unsubscribeUI();
+      unsubscribePi();
+    };
   }, [isEmbeddedChat, syncURLFromState]);
 
   // Subscribe to UI store changes (tab, settings)
