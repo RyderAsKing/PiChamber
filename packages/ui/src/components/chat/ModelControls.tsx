@@ -1,7 +1,5 @@
-/* eslint-disable */
 import React from 'react';
 import { focusChatInput } from './composer/editor/dom';
-import type { EditPermissionMode } from '@/stores/types/sessionTypes';
 import type { ModelMetadata } from '@/types';
 import {
     DropdownMenu,
@@ -14,7 +12,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
-import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from "@/components/icon/Icon";
 import type { IconName } from "@/components/icon/icons";
@@ -23,8 +20,7 @@ import { isDesktopShell } from '@/lib/desktop';
 import { useDeviceInfo } from '@/lib/device';
 import { mergeModelMetadataWithLiveModel } from '@/lib/modelMetadata';
 import { getModelDisplayName as getSharedModelDisplayName } from '@/lib/modelDisplay';
-import { getEditModeColors } from '@/lib/permissions/editModeColors';
-import { cn, fuzzyMatch } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { useContextStore } from '@/stores/contextStore';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -47,56 +43,11 @@ type IconComponent = IconName;
 
 type ProviderModel = Record<string, unknown> & { id?: string; name?: string };
 
-type PermissionAction = 'allow' | 'ask' | 'deny';
-type PermissionRule = { permission: string; pattern: string; action: PermissionAction };
 type MobileVariantTarget = { providerId: string; modelId: string };
 
 const buildModelRefKey = (providerID: string, modelID: string) => `${providerID}:${modelID}`;
 const MAX_INLINE_MOBILE_VARIANT_OPTIONS = 6;
 
-const asPermissionRuleset = (value: unknown): PermissionRule[] | null => {
-    if (!Array.isArray(value)) {
-        return null;
-    }
-    const rules: PermissionRule[] = [];
-    for (const entry of value) {
-        if (!entry || typeof entry !== 'object') {
-            continue;
-        }
-        const candidate = entry as Partial<PermissionRule>;
-        if (typeof candidate.permission !== 'string' || typeof candidate.pattern !== 'string' || typeof candidate.action !== 'string') {
-            continue;
-        }
-        if (candidate.action !== 'allow' && candidate.action !== 'ask' && candidate.action !== 'deny') {
-            continue;
-        }
-        rules.push({ permission: candidate.permission, pattern: candidate.pattern, action: candidate.action });
-    }
-    return rules;
-};
-
-const resolveWildcardPermissionAction = (ruleset: unknown, permission: string): PermissionAction | undefined => {
-    const rules = asPermissionRuleset(ruleset);
-    if (!rules || rules.length === 0) {
-        return undefined;
-    }
-
-    for (let i = rules.length - 1; i >= 0; i -= 1) {
-        const rule = rules[i];
-        if (rule.permission === permission && rule.pattern === '*') {
-            return rule.action;
-        }
-    }
-
-    for (let i = rules.length - 1; i >= 0; i -= 1) {
-        const rule = rules[i];
-        if (rule.permission === '*' && rule.pattern === '*') {
-            return rule.action;
-        }
-    }
-
-    return undefined;
-};
 
 interface CapabilityDefinition {
     key: 'tool_call' | 'reasoning';
@@ -201,23 +152,7 @@ const IconBadge: React.FC<{ iconName: IconComponent; label: string }> = ({ iconN
     </span>
 );
 
-const EditModeIcon: React.FC<{ mode: EditPermissionMode; className?: string }> = ({ mode, className }) => {
-    const combinedClassName = cn(className, 'flex-shrink-0');
-    const modeColors = getEditModeColors(mode);
-    const iconColor = modeColors ? modeColors.text : 'var(--foreground)';
-    const iconStyle = { color: iconColor };
 
-    if (mode === 'full') {
-        return <Icon name="pencil-ai" className={combinedClassName} style={iconStyle} />;
-    }
-    if (mode === 'allow') {
-        return <Icon name="checkbox-circle" className={combinedClassName} style={iconStyle} />;
-    }
-    if (mode === 'deny') {
-        return <Icon name="close-circle" className={combinedClassName} style={iconStyle} />;
-    }
-    return <Icon name="question" className={combinedClassName} style={iconStyle} />;
-};
 
 const formatTokens = (value?: number | null) => {
     if (typeof value !== 'number' || Number.isNaN(value)) {
@@ -542,8 +477,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         { label: 'Output', value: formatTokens(currentMetadata?.limit?.output) },
     ];
 
-    const prevAgentNameRef = React.useRef<string | undefined>(undefined);
-    const explicitAgentSwitchRef = React.useRef<string | null>(null);
     const latestLoadedUserChoiceRestoreRef = React.useRef<string | null>(null);
 
     const currentSessionDirectory = currentSessionId ? getDirectoryForSession(currentSessionId) : undefined;
@@ -761,9 +694,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         }
 
         if (!hasRenderableCurrentSessionSnapshot) {
-            if (!(sync as any).isLoading?.(currentSessionId)) {
-                void sync.ensureSessionRenderable(currentSessionId);
-            }
+            void sync.ensureSessionRenderable(currentSessionId);
             return;
         }
 
@@ -1020,139 +951,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         );
     };
 
-    const capitalizeAgentName = (name: string) => name ? name.charAt(0).toUpperCase() + name.slice(1) : '';
-
-    const renderMobileAgentTooltip = () => {
-        if (!isCompact || mobileTooltipOpen !== 'agent') return null;
-        const currentAgent: any = currentAgentName ? { name: currentAgentName } : null;
-        if (!currentAgent) return null;
-
-        const hasCustomPrompt = Boolean(currentAgent.prompt && currentAgent.prompt.trim().length > 0);
-        const hasModelConfig = currentAgent.model?.providerID && currentAgent.model?.modelID;
-        const hasTemperatureOrTopP = currentAgent.temperature !== undefined || currentAgent.topP !== undefined;
-
-        const summarizePermission = (permissionName: string): { mode: EditPermissionMode; label: string } => {
-            const rules = asPermissionRuleset(currentAgent.permission) ?? [];
-            const hasCustom = rules.some((rule) => rule.permission === permissionName && rule.pattern !== '*');
-            const action = resolveWildcardPermissionAction(rules, permissionName) ?? 'ask';
-
-            if (hasCustom) {
-                return { mode: 'ask', label: "Custom" };
-            }
-
-            if (action === 'allow') return { mode: 'allow', label: "Allow" };
-            if (action === 'deny') return { mode: 'deny', label: "Deny" };
-            return { mode: 'ask', label: "Ask" };
-        };
-
-        const editPermissionSummary = summarizePermission('edit');
-        const bashPermissionSummary = summarizePermission('bash');
-        const webfetchPermissionSummary = summarizePermission('webfetch');
-
-        return (
-            <MobileOverlayPanel
-                open={true}
-                onClose={closeMobileTooltip}
-                title={capitalizeAgentName(currentAgent.name)}
-            >
-                <div className="flex flex-col gap-1.5">
-                    {}
-                    {currentAgent.description && (
-                        <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-                            <div className="typography-meta text-foreground">{currentAgent.description}</div>
-                        </div>
-                    )}
-
-                    {}
-                    <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-                        <div className="typography-micro text-muted-foreground mb-0.5">{"Mode"}</div>
-                        <div className="typography-meta text-foreground font-medium">
-                            {currentAgent.mode === 'primary'
-                                ? "Primary"
-                                : currentAgent.mode === 'subagent'
-                                    ? "Subagent"
-                                    : currentAgent.mode === 'all'
-                                        ? "All"
-                                        : "—"}
-                        </div>
-                    </div>
-
-                    {}
-                    {(hasModelConfig || hasTemperatureOrTopP) && (
-                        <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-                            <div className="typography-micro text-muted-foreground mb-1">{"Model"}</div>
-                            {hasModelConfig && (
-                                <div className="typography-meta text-foreground font-medium mb-1">
-                                    {currentAgent.model!.providerID} / {currentAgent.model!.modelID}
-                                </div>
-                            )}
-                            {hasTemperatureOrTopP && (
-                                <div className="flex flex-col gap-0.5">
-                                    {currentAgent.temperature !== undefined && (
-                                        <div className="flex items-center justify-between">
-                                            <span className="typography-meta text-muted-foreground/80">{"Temperature"}</span>
-                                            <span className="typography-meta font-medium text-foreground">{currentAgent.temperature}</span>
-                                        </div>
-                                    )}
-                                    {currentAgent.topP !== undefined && (
-                                        <div className="flex items-center justify-between">
-                                            <span className="typography-meta text-muted-foreground/80">{"Top P"}</span>
-                                            <span className="typography-meta font-medium text-foreground">{currentAgent.topP}</span>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {}
-                    <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-                        <div className="typography-micro text-muted-foreground mb-1">{"Permissions"}</div>
-                        <div className="flex flex-col gap-1">
-                            <div className="flex items-center justify-between">
-                                <span className="typography-meta text-muted-foreground/80">{"Edit"}</span>
-                                <div className="flex items-center gap-1.5">
-                                    <EditModeIcon mode={editPermissionSummary.mode} className="size-3.5" />
-                                    <span className="typography-meta font-medium text-foreground">
-                                        {editPermissionSummary.label}
-                                    </span>
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span className="typography-meta text-muted-foreground/80">{"Bash"}</span>
-                                <div className="flex items-center gap-1.5">
-                                    <EditModeIcon mode={bashPermissionSummary.mode} className="size-3.5" />
-                                    <span className="typography-meta font-medium text-foreground">
-                                        {bashPermissionSummary.label}
-                                    </span>
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span className="typography-meta text-muted-foreground/80">{"WebFetch"}</span>
-                                <div className="flex items-center gap-1.5">
-                                    <EditModeIcon mode={webfetchPermissionSummary.mode} className="size-3.5" />
-                                    <span className="typography-meta font-medium text-foreground">
-                                        {webfetchPermissionSummary.label}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {}
-                    {hasCustomPrompt && (
-                        <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-                            <div className="flex items-center justify-between">
-                                <span className="typography-meta text-muted-foreground/80">{"Custom Prompt"}</span>
-                                <Icon name="checkbox-circle" className="size-4 text-foreground" />
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </MobileOverlayPanel>
-        );
-    };
-
     const renderMobileModelPanel = () => {
         if (!isCompact) return null;
 
@@ -1184,7 +982,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             const providerModels = Array.isArray(provider.models) ? provider.models : [];
             const matchesProvider = normalizedQuery.length === 0
                 ? true
-                : matchesModelSearch(String((provider as any).name || ''), normalizedQuery) || matchesModelSearch(String((provider as any).id || ''), normalizedQuery);
+                : matchesModelSearch(String(provider.name || ''), normalizedQuery) || matchesModelSearch(String(provider.id || ''), normalizedQuery);
             const matchingModels = normalizedQuery.length === 0
                 ? providerModels
                 : providerModels.filter((model: ProviderModel) => {
@@ -1465,34 +1263,36 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                         </div>
                     )}
 
-                    {(filteredProviders as any[]).map(({ provider, providerModels }: any) => {
+                    {filteredProviders.map(({ provider, providerModels }) => {
                         if (providerModels.length === 0) {
                             return null;
                         }
 
-                        const isActiveProvider = provider.id === currentProviderId;
-                        const isExpanded = expandedMobileProviders.has(provider.id) || normalizedQuery.length > 0;
+                        const providerId = String(provider.id || '');
+                        const providerName = String(provider.name || providerId);
+                        const isActiveProvider = providerId === currentProviderId;
+                        const isExpanded = expandedMobileProviders.has(providerId) || normalizedQuery.length > 0;
 
                          return (
-                             <div key={provider.id} className="rounded-xl border border-border/40 bg-[var(--surface-elevated)] overflow-hidden">
+                             <div key={providerId} className="rounded-xl border border-border/40 bg-[var(--surface-elevated)] overflow-hidden">
                                 <button
                                     type="button"
                                     onClick={() => {
                                         if (normalizedQuery.length > 0) {
                                             return;
                                         }
-                                        toggleMobileProviderExpansion(provider.id);
+                                        toggleMobileProviderExpansion(providerId);
                                     }}
                                     className="flex w-full items-center justify-between gap-1.5 px-2 py-1.5 text-left"
                                     aria-expanded={isExpanded}
                                 >
                                     <div className="flex items-center gap-2">
                                         <ProviderLogo
-                                            providerId={provider.id}
+                                            providerId={providerId}
                                             className="size-3.5"
                                         />
                                         <span className="typography-meta font-medium text-foreground">
-                                            {provider.name}
+                                            {providerName}
                                         </span>
                                         {isActiveProvider && (
                                             <span className="typography-micro text-primary/80">{"Current"}</span>
@@ -1748,7 +1548,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                 : undefined);
         };
 
-        const handleModelShortcutKeyDownCapture = (_e: React.KeyboardEvent) => {};
+        const handleModelShortcutKeyDownCapture = (_e: React.KeyboardEvent) => {
+            void _e;
+        };
 
         const handleModelMenuOpenChange = (nextOpen: boolean) => {
             setModelSelectorOpen(nextOpen);

@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import { arrayMove } from '@dnd-kit/sortable';
 import { useUIStore } from '@/stores/useUIStore';
@@ -11,7 +9,6 @@ import type { IconName } from '@/components/icon/icons';
 import {
     BUILTIN_STARTERS,
     DEFAULT_GLOBAL_STARTERS,
-    COMMAND_FALLBACK_ICON,
     SKILL_FALLBACK_ICON,
     getBuiltInStarter,
     normalizeStarterLabel,
@@ -81,9 +78,7 @@ export function useDraftStarters(): UseDraftStartersResult {
             .then((refs) => { if (!cancelled) setProjectStarters(refs); })
             .catch(() => { if (!cancelled) setProjectStarters([]); });
         return () => { cancelled = true; };
-        // Keyed on project id to avoid reloading when the memoized ref object
-        // changes identity but still points at the same project.
-    }, [projectRef?.id]);
+    }, [projectRef]);
 
     const ensureLoaded = React.useCallback(() => {
         void useSkillsStore.getState().loadSkills?.();

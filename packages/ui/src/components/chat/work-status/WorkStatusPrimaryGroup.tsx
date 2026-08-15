@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import { useGitStore } from '@/stores/useGitStore';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
@@ -10,10 +8,15 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { normalizeProjectPath } from '@/lib/projectResolution';
-import { resolveUsageTone } from '@/lib/quota';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { normalizePath } from '@/lib/pathNormalization';
 import { computeContextUsage } from './contextUsage';
+
+const resolveUsageTone = (pct: number): 'safe' | 'warn' | 'critical' => {
+  if (pct >= 90) return 'critical';
+  if (pct >= 75) return 'warn';
+  return 'safe';
+};
 import {
   WorkStatusCallout,
   WorkStatusMeter,
@@ -120,8 +123,6 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
   // calling it in render subscribes to nothing. Subscribe to the selected model
   // ids and recompute the limits from those.
   const getCurrentModel = useConfigStore((state) => state.getCurrentModel);
-  const currentProviderId = useConfigStore((state) => state.currentProviderId);
-  const currentModelId = useConfigStore((state) => state.currentModelId);
   const sessionMessages = useSessionMessages(sessionId ?? '', directory ?? undefined);
 
   const contextLimit = React.useMemo(() => {
@@ -130,7 +131,7 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
       ? (currentModel.limit as Record<string, unknown>)
       : null;
     return limit && typeof limit.context === 'number' ? limit.context : 0;
-  }, [getCurrentModel, currentProviderId, currentModelId]);
+  }, [getCurrentModel]);
 
   // Computed from this session's own messages rather than through
   // `useSessionUIStore.getContextUsage`, which reads the *current* directory's
@@ -302,7 +303,7 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
                   </WorkStatusPill>
                 )}
               />
-              {prSummary.checks && prSummary.checks.total > 0 ? (
+              {prSummary.checks && (prSummary.checks.total ?? 0) > 0 ? (
                 <WorkStatusRow
                   icon="checkbox-circle"
                   onClick={directory ? () => openSurface('pr') : undefined}
@@ -311,19 +312,19 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
                   muted
                   value={(
                     <>
-                      {prSummary.checks.failure > 0 ? (
+                      {(prSummary.checks.failure ?? 0) > 0 ? (
                         <WorkStatusValue tone="error">
                           {`${prSummary.checks.failure} failed`}
                         </WorkStatusValue>
                       ) : null}
-                      {prSummary.checks.pending > 0 ? (
+                      {(prSummary.checks.pending ?? 0) > 0 ? (
                         <WorkStatusValue tone="warning">
                           {`${prSummary.checks.pending} running`}
                         </WorkStatusValue>
                       ) : null}
-                      {prSummary.checks.failure === 0 && prSummary.checks.pending === 0 ? (
+                      {(prSummary.checks.failure ?? 0) === 0 && (prSummary.checks.pending ?? 0) === 0 ? (
                         <WorkStatusValue tone="success">
-                          {`${prSummary.checks.success} passed`}
+                          {`${prSummary.checks.success ?? 0} passed`}
                         </WorkStatusValue>
                       ) : null}
                     </>

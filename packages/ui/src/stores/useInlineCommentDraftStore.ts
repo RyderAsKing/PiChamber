@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 
-export type InlineCommentDraft = Record<string, unknown>;
+export type InlineCommentDraft = {
+  id?: string;
+  code?: string;
+  fileLabel?: string;
+  startLine?: number;
+  endLine?: number;
+  [key: string]: unknown;
+};
 export type InlineCommentDraftTarget = Record<string, unknown>;
 export type InlineCommentSource = string;
 export const EMPTY_INLINE_COMMENT_DRAFTS: readonly InlineCommentDraft[] = [];

@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from "react";
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { cn } from "@/lib/utils";
@@ -63,14 +61,16 @@ interface TodoItemRowProps {
 }
 
 const TodoItemRow: React.FC<TodoItemRowProps> = ({ todo }) => {
-  const config = statusConfig[todo.status] || statusConfig.pending;
-  const statusKey = statusLabel[todo.status] ?? statusLabel.pending;
-  const priorityKey = priorityLabel[todo.priority] ?? priorityLabel.medium;
+  const status = String(todo.status || 'pending');
+  const priority = String(todo.priority || 'medium');
+  const config = statusConfig[status] || statusConfig.pending;
+  const statusKey = statusLabel[status] ?? statusLabel.pending;
+  const priorityKey = priorityLabel[priority] ?? priorityLabel.medium;
 
   const statusIcon =
-    todo.status === "in_progress" ? (
+    status === "in_progress" ? (
       <Icon name="record-circle" className="h-3.5 w-3.5 text-[var(--status-info)]"  aria-hidden="true"/>
-    ) : todo.status === "completed" ? (
+    ) : status === "completed" ? (
       <Icon name="checkbox-circle" className="h-3.5 w-3.5 text-[var(--status-success)]"  aria-hidden="true"/>
     ) : (
       <Icon name="time" className="h-3.5 w-3.5 text-muted-foreground"  aria-hidden="true"/>
@@ -99,10 +99,10 @@ const TodoItemRow: React.FC<TodoItemRowProps> = ({ todo }) => {
           <span
             className={cn(
               "typography-meta flex items-center justify-center flex-shrink-0 leading-none",
-              priorityClassName[todo.priority] ?? priorityClassName.medium
+              priorityClassName[priority as TodoPriority] ?? priorityClassName.medium
             )}
           >
-            {priorityIcon[todo.priority] ?? priorityIcon.medium}
+            {priorityIcon[priority as TodoPriority] ?? priorityIcon.medium}
           </span>
         </TooltipTrigger>
         <TooltipContent side="right" sideOffset={6}>

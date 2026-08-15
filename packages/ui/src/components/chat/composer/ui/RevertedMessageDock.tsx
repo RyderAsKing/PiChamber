@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 /**
  * The reverted-messages dock.
  *
@@ -54,7 +52,7 @@ type RevertedMessageDockProps = {
     directory?: string;
 };
 
-export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.memo(({ sessionId, directory }) => {
+export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.memo(({ sessionId }) => {
     
     const revertToMessage = useSessionUIStore((s) => s.revertToMessage);
     const forkFromMessage = useSessionUIStore((s) => s.forkFromMessage);
@@ -69,7 +67,6 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
             revertedStateRef.current = next;
             return next;
         }, [sessionId]),
-        directory,
     );
     const revertMessageID = revertedState.revertMessageID;
     const userMessages = React.useMemo(

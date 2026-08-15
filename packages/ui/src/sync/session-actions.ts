@@ -1,4 +1,3 @@
-/* eslint-disable */
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import type { Session } from '@/lib/chat/types';
 import { piSessionToUiSession } from '@/lib/chat/pi-to-renderable';
@@ -16,6 +15,7 @@ export async function createSession(
   _parentID?: string | null,
   creationOptions?: { model?: { providerId: string; modelId: string }; thinking?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' }
 ): Promise<Session | null> {
+  void _parentID;
   const newId = await store().create(title, {
     ...(directoryOverride ? { directory: directoryOverride } : {}),
     ...(creationOptions?.model ? { model: creationOptions.model } : {}),
@@ -25,12 +25,14 @@ export async function createSession(
   return selected ? piSessionToUiSession(selected.session) : null;
 }
 
-export async function deleteSession(id: string, _options?: any): Promise<boolean> {
+export async function deleteSession(id: string, _options?: unknown): Promise<boolean> {
+  void _options;
   await store().remove(id);
   return true;
 }
 
-export async function deleteSessions(ids: string[], _options?: any): Promise<{ deletedIds: string[]; failedIds: string[] }> {
+export async function deleteSessions(ids: string[], _options?: unknown): Promise<{ deletedIds: string[]; failedIds: string[] }> {
+  void _options;
   const deletedIds: string[] = [];
   const failedIds: string[] = [];
   for (const id of ids) {
@@ -49,7 +51,8 @@ export async function archiveSession(id: string): Promise<boolean> {
   return true;
 }
 
-export async function archiveSessions(ids: string[], _options?: any): Promise<{ archivedIds: string[]; failedIds: string[] }> {
+export async function archiveSessions(ids: string[], _options?: unknown): Promise<{ archivedIds: string[]; failedIds: string[] }> {
+  void _options;
   for (const id of ids) await store().archive(id, true);
   return { archivedIds: ids, failedIds: [] };
 }
@@ -59,7 +62,8 @@ export async function unarchiveSession(id: string): Promise<boolean> {
   return true;
 }
 
-export async function unarchiveSessions(ids: string[], _options?: any): Promise<{ restoredIds: string[]; failedIds: string[] }> {
+export async function unarchiveSessions(ids: string[], _options?: unknown): Promise<{ restoredIds: string[]; failedIds: string[] }> {
+  void _options;
   for (const id of ids) await store().archive(id, false);
   return { restoredIds: ids, failedIds: [] };
 }
@@ -68,35 +72,84 @@ export async function updateSessionTitle(sessionId: string, title: string): Prom
   await store().rename(sessionId, title);
 }
 
-export async function shareSession(_id?: string): Promise<any> { return null; }
-export async function unshareSession(_id?: string): Promise<any> { return null; }
-export async function optimisticSend() {}
-export async function refetchSessionMessages(_id?: string): Promise<void> {}
+export async function shareSession(_id?: string): Promise<null> {
+  void _id;
+  return null;
+}
+
+export async function unshareSession(_id?: string): Promise<null> {
+  void _id;
+  return null;
+}
+
+export async function optimisticSend(): Promise<void> {}
+
+export async function refetchSessionMessages(_id?: string): Promise<void> {
+  void _id;
+}
+
 export async function revertToMessage(sessionId: string, messageId: string): Promise<void> {
   await store().navigate(sessionId, messageId);
 }
-export async function unrevertSession(_id?: string): Promise<void> {}
+
+export async function unrevertSession(_id?: string): Promise<void> {
+  void _id;
+}
+
 export async function forkFromMessage(sessionId: string, _messageId?: string): Promise<void> {
+  void _messageId;
   await store().fork(sessionId);
 }
-export async function fetchMessagesForSession(_sessionId?: string, _directory?: string | null) { return []; }
-export function rememberRuntimeLiveStatus(_args?: any) {}
-export function setContextObligatoryMessage(..._args: unknown[]) {}
-export async function dismissOpenPermissionsForSession(_sessionId: string): Promise<boolean> { return false; }
-export async function dismissOpenQuestionsForSession(_sessionId: string): Promise<boolean> { return false; }
+
+export async function fetchMessagesForSession(_sessionId?: string, _directory?: string | null): Promise<never[]> {
+  void _sessionId;
+  void _directory;
+  return [];
+}
+
+export function rememberRuntimeLiveStatus(_args?: unknown): void {
+  void _args;
+}
+
+export function setContextObligatoryMessage(..._args: unknown[]): void {
+  void _args;
+}
+
+export async function dismissOpenPermissionsForSession(_sessionId: string): Promise<boolean> {
+  void _sessionId;
+  return false;
+}
+
+export async function dismissOpenQuestionsForSession(_sessionId: string): Promise<boolean> {
+  void _sessionId;
+  return false;
+}
+
 export async function waitForConnectionOrThrow(): Promise<void> {
   const snapshot = store().getState();
   if (snapshot.connection === 'ready') return;
   throw snapshot.error ?? new Error('Pi runtime is unavailable');
 }
-export async function setLinkedIssue(..._args: unknown[]): Promise<void> {}
-export function abortCurrentOperation(sessionId?: string) {
+
+export async function setLinkedIssue(..._args: unknown[]): Promise<void> {
+  void _args;
+}
+
+export function abortCurrentOperation(sessionId?: string): void {
   if (sessionId) void store().abort(sessionId);
 }
-export function getSessionLastAssistantModel(..._args: unknown[]) { return null; }
+
+export function getSessionLastAssistantModel(..._args: unknown[]): null {
+  void _args;
+  return null;
+}
 
 export function setOptimisticRefs(
-  _add?: unknown,
-  _remove?: unknown,
-  _confirm?: unknown,
-) {}
+  _add?: (input: unknown) => unknown,
+  _remove?: (input: unknown) => unknown,
+  _confirm?: (input: unknown) => unknown,
+): void {
+  void _add;
+  void _remove;
+  void _confirm;
+}

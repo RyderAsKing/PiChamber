@@ -24,7 +24,6 @@ import { useSessionMessages } from '@/sync/sync-context';
 import { buildSessionMessageRecordsSnapshot, useDirectoryStore, useGlobalSessionStatus, useSessionMessagesResolved } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { useQuotaAutoRefresh, useQuotaStore } from '@/stores/useQuotaStore';
 import { useGitBranchLabel } from '@/stores/useGitStore';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
@@ -38,22 +37,9 @@ import { UpdateDialog } from '@/components/ui/UpdateDialog';
 import { useDeviceInfo, useTabletStandalonePwaRuntime } from '@/lib/device';
 import { cn, hasModifier } from '@/lib/utils';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
-import { formatQuotaValueLabel, formatQuotaResetLabel, formatWindowLabel, QUOTA_PROVIDERS, calculatePace, calculateExpectedUsagePercent } from '@/lib/quota';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { formatTimeForPreference } from '@/lib/timeFormat';
 import { eventMatchesShortcut, formatShortcutForDisplay, getEffectiveShortcutCombo } from '@/lib/shortcuts';
-import {
-  getAllModelFamilies,
-  getDisplayModelName,
-  groupModelsByFamily,
-  sortModelFamilies,
-} from '@/lib/quota/model-families';
-
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
 
 type UsageWindow = any;
 import type { GitHubAuthStatus } from '@/lib/api/types';
@@ -440,18 +426,6 @@ interface TabConfig {
   showDot?: boolean;
 }
 
-interface RateLimitGroup {
-  providerId: string;
-  providerName: string;
-  entries: Array<[string, UsageWindow]>;
-  error?: string;
-  modelFamilies?: Array<{
-    familyId: string | null;
-    familyLabel: string;
-    models: Array<[string, UsageWindow]>;
-  }>;
-}
-
 interface HeaderProps {
   onToggleLeftDrawer?: () => void;
   onToggleRightDrawer?: () => void;
@@ -530,15 +504,6 @@ export const Header: React.FC<HeaderProps> = ({
     const pathSegments = activeProject.path.split(/[\\/]/).filter(Boolean);
     return pathSegments[pathSegments.length - 1] ?? null;
   }, [activeProject]);
-  const quotaResults = useQuotaStore((state) => state.results);
-  const fetchAllQuotas = useQuotaStore((state) => state.fetchAllQuotas);
-  const isQuotaLoading = useQuotaStore((state) => state.isLoading);
-  const quotaLastUpdated = useQuotaStore((state) => state.lastUpdated);
-  const quotaDisplayMode = useQuotaStore((state) => state.displayMode);
-  const showPredValues = useQuotaStore((state) => state.showPredValues);
-  const dropdownProviderIds = useQuotaStore((state) => state.dropdownProviderIds);
-  const loadQuotaSettings = useQuotaStore((state) => state.loadSettings);
-  const setQuotaDisplayMode = useQuotaStore((state) => state.setDisplayMode);
 
   const { isMobile } = useDeviceInfo();
   const githubAuthStatus = null;
@@ -628,9 +593,7 @@ export const Header: React.FC<HeaderProps> = ({
   const githubLogin = null;
   const githubAccounts: any[] = [];
   const [isSwitchingGitHubAccount, setIsSwitchingGitHubAccount] = React.useState(false);
-  const [isMobileRateLimitsOpen, setIsMobileRateLimitsOpen] = React.useState(false);
   const [isDesktopServicesOpen, setIsDesktopServicesOpen] = React.useState(false);
-  const [isUsageRefreshSpinning, setIsUsageRefreshSpinning] = React.useState(false);
   const [currentInstanceLabel, setCurrentInstanceLabel] = React.useState('Local');
   const [currentInstanceIsLocal, setCurrentInstanceIsLocal] = React.useState(true);
   const [remoteUpdateDialogOpen, setRemoteUpdateDialogOpen] = React.useState(false);
@@ -796,128 +759,6 @@ export const Header: React.FC<HeaderProps> = ({
     }
     void checkRemoteInstanceUpdate();
   }, [checkRemoteInstanceUpdate, remoteUpdateInfo?.available]);
-
-  useQuotaAutoRefresh();
-  const selectedModels = useQuotaStore((state) => state.selectedModels);
-  const expandedFamilies = useQuotaStore((state) => state.expandedFamilies);
-  const toggleFamilyExpanded = useQuotaStore((state) => state.toggleFamilyExpanded);
-
-  const rateLimitGroups = React.useMemo(() => {
-    const groups: RateLimitGroup[] = [];
-
-    for (const provider of QUOTA_PROVIDERS) {
-      if (!dropdownProviderIds.includes(provider.id)) {
-        continue;
-      }
-      const result = quotaResults.find((entry) => entry.providerId === provider.id);
-      const windows = (result?.usage?.windows ?? {}) as Record<string, UsageWindow>;
-      const models = result?.usage?.models;
-      const entries = Object.entries(windows);
-
-      const group: RateLimitGroup = {
-        providerId: provider.id,
-        providerName: provider.name,
-        entries,
-        error: (result && !result.ok && result.configured) ? result.error : undefined,
-      };
-
-      // Add model families if provider has per-model quotas
-      if (models && Object.keys(models).length > 0) {
-        const providerSelectedModels = selectedModels[provider.id] ?? [];
-        // hasExplicitSelection = true means user has selected specific models to show
-        // If the array exists but is empty, treat as "show all" (user cleared selection)
-        const hasExplicitSelection = providerSelectedModels.length > 0;
-        const modelGroups = groupModelsByFamily(models, provider.id);
-        const families = getAllModelFamilies(provider.id);
-        const sortedFamilies = sortModelFamilies(families);
-
-        group.modelFamilies = [];
-
-        // Add predefined families first
-        for (const family of sortedFamilies) {
-          const modelNames = modelGroups.get(family.id) ?? [];
-          if (modelNames.length === 0) continue;
-
-          // Filter to selected models only, OR show all if nothing selected
-          const selectedModelNames = hasExplicitSelection
-            ? modelNames.filter((m: string) => providerSelectedModels.includes(m))
-            : modelNames;
-          if (selectedModelNames.length === 0) continue;
-
-          const familyModels: Array<[string, UsageWindow]> = [];
-          for (const modelName of selectedModelNames) {
-            const modelUsage = models[modelName] as { windows?: Record<string, UsageWindow> } | undefined;
-            if (modelUsage?.windows) {
-              const windowEntries = Object.entries(modelUsage.windows);
-              if (windowEntries.length > 0) {
-                familyModels.push([modelName, windowEntries[0][1]]);
-              }
-            }
-          }
-
-          if (familyModels.length > 0) {
-            group.modelFamilies.push({
-              familyId: family.id,
-              familyLabel: family.label,
-              models: familyModels,
-            });
-          }
-        }
-
-        // Add "Other" family for remaining models
-        const otherModelNames = modelGroups.get(null) ?? [];
-        const selectedOtherModels = hasExplicitSelection
-          ? otherModelNames.filter((m: string) => providerSelectedModels.includes(m))
-          : otherModelNames;
-        if (selectedOtherModels.length > 0) {
-          const otherModels: Array<[string, UsageWindow]> = [];
-          for (const modelName of selectedOtherModels) {
-            const modelUsage = models[modelName] as { windows?: Record<string, UsageWindow> } | undefined;
-            if (modelUsage?.windows) {
-              const windowEntries = Object.entries(modelUsage.windows);
-              if (windowEntries.length > 0) {
-                otherModels.push([modelName, windowEntries[0][1]]);
-              }
-            }
-          }
-          if (otherModels.length > 0) {
-            group.modelFamilies.push({
-              familyId: null,
-              familyLabel: "Other",
-              models: otherModels,
-            });
-          }
-        }
-      }
-
-      if (entries.length > 0 || (group.modelFamilies && group.modelFamilies.length > 0) || group.error) {
-        groups.push(group);
-      }
-    }
-
-    return groups;
-  }, [dropdownProviderIds, quotaResults, selectedModels]);
-  const hasRateLimits = rateLimitGroups.length > 0;
-  React.useEffect(() => {
-    void loadQuotaSettings();
-  }, [loadQuotaSettings]);
-  const handleDisplayModeChange = React.useCallback(async (mode: 'usage' | 'remaining') => {
-    setQuotaDisplayMode(mode);
-    try {
-      await updateDesktopSettings({ usageDisplayMode: mode });
-    } catch (error) {
-      console.warn('Failed to update usage display mode:', error);
-    }
-  }, [setQuotaDisplayMode]);
-
-  const handleUsageRefresh = React.useCallback(() => {
-    if (isUsageRefreshSpinning) return;
-    setIsUsageRefreshSpinning(true);
-    const minSpinPromise = new Promise(resolve => setTimeout(resolve, 500));
-    Promise.all([fetchAllQuotas(), minSpinPromise]).finally(() => {
-      setIsUsageRefreshSpinning(false);
-    });
-  }, [fetchAllQuotas, isUsageRefreshSpinning]);
 
   const currentSessionSnapshot = currentSessionId
     ? currentGlobalSession ?? null
@@ -1288,9 +1129,6 @@ export const Header: React.FC<HeaderProps> = ({
   const desktopHeaderIconButtonClass = DESKTOP_HEADER_ICON_BUTTON_CLASS;
   const mobileHeaderIconButtonClass = MOBILE_HEADER_ICON_BUTTON_CLASS;
   const mobileActiveHeaderItem = React.useMemo(() => {
-    if (isMobileRateLimitsOpen) {
-      return 'services';
-    }
     if (leftDrawerOpen) {
       return 'sessions';
     }
@@ -1298,10 +1136,9 @@ export const Header: React.FC<HeaderProps> = ({
       return 'git';
     }
     return activeMainTab;
-  }, [activeMainTab, isMobileRateLimitsOpen, leftDrawerOpen, rightDrawerOpen]);
+  }, [activeMainTab, leftDrawerOpen, rightDrawerOpen]);
 
   const closeMobileHeaderPanels = React.useCallback(() => {
-    setIsMobileRateLimitsOpen(false);
     if (leftDrawerOpen && onToggleLeftDrawer) {
       onToggleLeftDrawer();
     }
@@ -1314,18 +1151,12 @@ export const Header: React.FC<HeaderProps> = ({
   }, [isSessionSwitcherOpen, leftDrawerOpen, onToggleLeftDrawer, onToggleRightDrawer, rightDrawerOpen, setSessionSwitcherOpen]);
 
   const handleMobileLeftDrawerToggle = React.useCallback(() => {
-    if (!leftDrawerOpen) {
-      setIsMobileRateLimitsOpen(false);
-    }
     onToggleLeftDrawer?.();
-  }, [leftDrawerOpen, onToggleLeftDrawer]);
+  }, [onToggleLeftDrawer]);
 
   const handleMobileRightDrawerToggle = React.useCallback(() => {
-    if (!rightDrawerOpen) {
-      setIsMobileRateLimitsOpen(false);
-    }
     onToggleRightDrawer?.();
-  }, [onToggleRightDrawer, rightDrawerOpen]);
+  }, [onToggleRightDrawer]);
 
   // Left padding the header needs to clear the OS window controls (macOS
   // traffic lights / window-controls-overlay). When the sidebar is open this
@@ -1583,8 +1414,6 @@ export const Header: React.FC<HeaderProps> = ({
     shortcutOverrides,
     isDesktopServicesOpen,
     servicesTabs,
-    quotaResults.length,
-    fetchAllQuotas,
     refreshCurrentInstanceLabel,
   ]);
 
@@ -2021,243 +1850,6 @@ export const Header: React.FC<HeaderProps> = ({
                 className="h-9"
               />
             )}
-
-            {/* Mobile Services Menu (Usage + MCP) */}
-            <DropdownMenu
-              open={isMobileRateLimitsOpen}
-              onOpenChange={(open) => {
-                if (open) {
-                  if (leftDrawerOpen && onToggleLeftDrawer) {
-                    onToggleLeftDrawer();
-                  }
-                  if (rightDrawerOpen && onToggleRightDrawer) {
-                    onToggleRightDrawer();
-                  }
-                }
-                setIsMobileRateLimitsOpen(open);
-                if (open && quotaResults.length === 0) {
-                  fetchAllQuotas();
-                }
-              }}
-            >
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={"View services"}
-                      className={cn(
-                        mobileHeaderIconButtonClass,
-                        mobileActiveHeaderItem === 'services' && 'bg-interactive-selection text-interactive-selection-foreground'
-                      )}
-                    >
-                      <Icon name="stack" className="h-5 w-5" />
-                    </button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{"Services"}</p>
-                </TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent
-                align="end"
-                sideOffset={0}
-                positionerClassName="!fixed !bottom-0 !left-0 !right-0 !top-[var(--oc-header-height,56px)] !transform-none"
-                className="h-full w-screen max-h-none rounded-none border-0 p-0 pt-1 overflow-hidden"
-              >
-                <div className="flex h-full flex-col bg-[var(--surface-elevated)]">
-                  <div className="sticky top-0 z-20 bg-[var(--surface-elevated)] px-2 py-px">
-                    <div className="flex items-center justify-between gap-2 px-3 py-1">
-                      <span className="typography-ui-header font-semibold text-foreground">{"Rate limits"}</span>
-                      <button
-                        type="button"
-                        onClick={() => setIsMobileRateLimitsOpen(false)}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-interactive-hover"
-                        aria-label={"Close services"}
-                      >
-                        <Icon name="close" className="h-5 w-5" />
-                      </button>
-                    </div>
-                  </div>
-
-                    <div className="flex-1 overflow-y-auto overflow-x-hidden pb-[calc(4rem+env(safe-area-inset-bottom))]">
-                      {/* Mobile usage header */}
-                      <div className="border-b border-[var(--interactive-border)]">
-                        <div className="flex items-center justify-between gap-3 px-4 py-3">
-                          <div className="flex flex-col min-w-0 gap-0.5">
-                            <span className="typography-ui-header font-semibold text-foreground">{"Rate limits"}</span>
-                            <span className="truncate typography-micro text-muted-foreground">
-                              {formatTime(quotaLastUpdated, timeFormatPreference)}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <div className="flex items-center h-6">
-                              <button
-                                type="button"
-                                onClick={() => handleDisplayModeChange('usage')}
-                                className={cn(
-                                  'typography-ui-label px-1 pb-0.5 transition-colors',
-                                  quotaDisplayMode === 'usage'
-                                    ? 'text-foreground border-b-2 border-[var(--primary-base)]'
-                                    : 'text-muted-foreground hover:text-foreground'
-                                )}
-                              >
-                                {"Used"}
-                              </button>
-                              <span className="text-muted-foreground typography-ui-label px-0.5">·</span>
-                              <button
-                                type="button"
-                                onClick={() => handleDisplayModeChange('remaining')}
-                                className={cn(
-                                  'typography-ui-label px-1 pb-0.5 transition-colors',
-                                  quotaDisplayMode === 'remaining'
-                                    ? 'text-foreground border-b-2 border-[var(--primary-base)]'
-                                    : 'text-muted-foreground hover:text-foreground'
-                                )}
-                              >
-                                {"Remaining"}
-                              </button>
-                            </div>
-                            <button
-                              type="button"
-                              className={cn(
-                                'inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors',
-                                'hover:text-foreground hover:bg-interactive-hover',
-                                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
-                              )}
-                              onClick={handleUsageRefresh}
-                              disabled={isQuotaLoading || isUsageRefreshSpinning}
-                              aria-label={"Refresh rate limits"}
-                            >
-                              <Icon name="refresh" className={cn('h-4 w-4', isUsageRefreshSpinning && 'animate-spin')} />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      {!hasRateLimits && (
-                        <div className="px-4 py-6 text-center">
-                          <span className="typography-ui-label text-muted-foreground">{"No rate limits available."}</span>
-                        </div>
-                      )}
-
-                      {/* Mobile provider groups */}
-                      <div className="py-1">
-                        {rateLimitGroups.map((group, index) => (
-                          <React.Fragment key={group.providerId}>
-                            {index > 0 ? (
-                              <div className="mx-4 my-1 border-t border-[var(--interactive-border)]" />
-                            ) : null}
-
-                            {/* Provider header */}
-                            <div className="flex items-center gap-2 px-4 py-2">
-                              <ProviderLogo providerId={group.providerId} className="h-4 w-4" />
-                              <span className="typography-ui-label font-medium text-foreground">{group.providerName}</span>
-                            </div>
-
-                            {group.entries.length === 0 && (!group.modelFamilies || group.modelFamilies.length === 0) ? (
-                              <div className="px-4 pb-2">
-                                <span className="typography-ui-label text-muted-foreground">
-                                  {group.error ?? "No rate limits reported."}
-                                </span>
-                              </div>
-                            ) : (
-                              <div className="space-y-3 px-4 pb-2">
-                                {/* Window-level entries */}
-                                {group.entries.map(([label, window]) => {
-                                  const displayPercent = quotaDisplayMode === 'remaining'
-                                    ? window.remainingPercent
-                                    : window.usedPercent;
-                                  const metricLabel = formatQuotaValueLabel(window.valueLabel, displayPercent);
-                                  const resetLabel = formatQuotaResetLabel(window.resetAt, window.resetAfterFormatted ?? window.resetAtFormatted, timeFormatPreference);
-                                  return (
-                                    <div key={`${group.providerId}-${label}`} className="flex flex-col gap-1.5">
-                                      <div className="flex min-w-0 items-center justify-between gap-3">
-                                        <div className="min-w-0 flex items-center gap-2">
-                                          <span className="truncate typography-ui-label text-foreground">{formatWindowLabel(label)}</span>
-                                          {resetLabel ? (
-                                            <span className="truncate typography-micro text-muted-foreground">
-                                              {resetLabel}
-                                            </span>
-                                          ) : null}
-                                        </div>
-                                        <span className="typography-ui-label text-foreground tabular-nums">
-                                          {metricLabel === '-' ? '' : metricLabel}
-                                        </span>
-                                      </div>
-                                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
-                                        <div
-                                          className="h-full bg-primary transition-all duration-300"
-                                          style={{ width: `${Math.min(100, Math.max(0, displayPercent ?? 0))}%` }}
-                                        />
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-
-                                {/* Model family collapsibles */}
-                                {group.modelFamilies && group.modelFamilies.length > 0 && (
-                                  <div className="space-y-0.5">
-                                    {group.modelFamilies.map((family) => {
-                                      const providerExpandedFamilies = (expandedFamilies as any)?.[group.providerId] ?? [];
-                                      const isExpanded = Array.isArray(providerExpandedFamilies) && providerExpandedFamilies.includes(family.familyId ?? 'other');
-
-                                      return (
-                                        <Collapsible
-                                          key={family.familyId ?? 'other'}
-                                          open={isExpanded}
-                                          onOpenChange={() => toggleFamilyExpanded(group.providerId, family.familyId ?? 'other')}
-                                        >
-                                          <CollapsibleTrigger className="flex w-full items-center justify-between rounded-md px-1 py-1.5 text-left hover:bg-[var(--interactive-hover)]/50 transition-colors">
-                                            <span className="typography-ui-label font-medium text-foreground">
-                                              {family.familyLabel}
-                                            </span>
-                                            {isExpanded ? (
-                                              <Icon name="arrow-down-s" className="h-4 w-4 text-muted-foreground" />
-                                            ) : (
-                                              <Icon name="arrow-right-s" className="h-4 w-4 text-muted-foreground" />
-                                            )}
-                                          </CollapsibleTrigger>
-                                          <CollapsibleContent>
-                                            <div className="space-y-2.5 pb-1 pl-1 pt-1">
-                                              {family.models.map(([modelName, window]) => {
-                                                const displayPercent = quotaDisplayMode === 'remaining'
-                                                  ? window.remainingPercent
-                                                  : window.usedPercent;
-                                                const metricLabel = formatQuotaValueLabel(window.valueLabel, displayPercent);
-                                                return (
-                                                  <div key={`${group.providerId}-${modelName}`} className="flex flex-col gap-1.5">
-                                                    <div className="flex min-w-0 items-center justify-between gap-3">
-                                                      <span className="truncate typography-micro text-muted-foreground">{getDisplayModelName(modelName)}</span>
-                                                      <span className="typography-ui-label text-foreground tabular-nums">
-                                                        {metricLabel === '-' ? '' : metricLabel}
-                                                      </span>
-                                                    </div>
-                                                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
-                                                      <div
-                                                        className="h-full bg-primary transition-all duration-300"
-                                                        style={{ width: `${Math.min(100, Math.max(0, displayPercent ?? 0))}%` }}
-                                                      />
-                                                    </div>
-                                                  </div>
-                                                );
-                                              })}
-                                            </div>
-                                          </CollapsibleContent>
-                                        </Collapsible>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </React.Fragment>
-                        ))}
-                      </div>
-                    </div>
-                </div>
-              </DropdownMenuContent>
-            </DropdownMenu>
 
             {onToggleRightDrawer ? (
               <Tooltip>

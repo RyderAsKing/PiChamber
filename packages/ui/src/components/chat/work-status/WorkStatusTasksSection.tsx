@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import { Icon } from '@/components/icon/Icon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -63,7 +61,9 @@ export const WorkStatusTasksSection: React.FC<Props> = ({ sessionId, directory }
     // the status grouping is imposed on top of it.
     return kept
       .sort((left, right) => {
-        const rank = (STATUS_RANK[left.todo.status] ?? 1) - (STATUS_RANK[right.todo.status] ?? 1);
+        const leftStatus = left.todo.status ?? '';
+        const rightStatus = right.todo.status ?? '';
+        const rank = (STATUS_RANK[leftStatus] ?? 1) - (STATUS_RANK[rightStatus] ?? 1);
         return rank !== 0 ? rank : left.index - right.index;
       })
       .map(({ todo }) => todo);
@@ -82,7 +82,7 @@ export const WorkStatusTasksSection: React.FC<Props> = ({ sessionId, directory }
     >
       {visibleTodos.map((todo, index) => {
         const done = todo.status === 'completed';
-        const icon = statusIcon(todo.status);
+        const icon = statusIcon(todo.status ?? '');
         return (
           <Tooltip key={`${todo.status}-${index}-${todo.content}`} delayDuration={600}>
             <TooltipTrigger asChild>

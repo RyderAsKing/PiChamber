@@ -310,7 +310,7 @@ export const createPiSessionDaemonSupervisor = ({
         windowsHide: true,
         env,
       });
-      child.unref?.();
+      child?.unref?.();
 
       // Loading Pi settings, providers, and a larger local model catalog can
       // legitimately exceed the short lock/stop operation budget.
@@ -344,8 +344,11 @@ export const createPiSessionDaemonSupervisor = ({
     try {
       const ready = await probe(credential);
       return { credential, ready };
-    } catch {
+    } catch (probeError) {
       if (intentionallyStopped) throw new PiSessionDaemonUnavailableError('DAEMON_UNAVAILABLE');
+      if (probeError instanceof PiSessionDaemonUnavailableError && isPermanentStartupFailure(probeError.code)) {
+        throw probeError;
+      }
       await start();
       credential = await readCredential();
       return { credential, ready: await probe(credential) };

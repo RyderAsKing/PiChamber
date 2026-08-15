@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 /**
  * Context chips above the composer.
  *
@@ -97,7 +95,7 @@ export function ComposerContextChips(props: ComposerContextChipsProps) {
                     <button
                         type="button"
                         className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-[var(--surface-mutedForeground)] hover:bg-[var(--interactive-hover)] hover:text-[var(--surface-foreground)]"
-                        onClick={() => draftTarget && onRemoveDraft(draftTarget, draft.id)}
+                        onClick={() => draftTarget && draft.id && onRemoveDraft(draftTarget, draft.id)}
                         aria-label={"Remove terminal context"}
                         title={"Remove terminal context"}
                     >

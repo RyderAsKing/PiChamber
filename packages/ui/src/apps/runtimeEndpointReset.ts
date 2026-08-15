@@ -1,6 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
-import { opencodeClient } from '@/lib/pi/legacy-ui-client';
 import type { RuntimeEndpointChangedDetail } from '@/lib/runtime-switch';
 import { disposeTerminalInputTransport } from '@/lib/terminalApi';
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -31,7 +28,6 @@ import { syncDesktopSettings } from '@/lib/persistence';
 // no bounce back to the draft.
 export const reconnectAppForTransportSwitch = (): void => {
   disposeTerminalInputTransport();
-  opencodeClient?.reconnectToRuntimeBaseUrl?.();
   resetStreamingState();
 };
 
@@ -40,7 +36,6 @@ export const resetAppForRuntimeEndpointChange = (detail: RuntimeEndpointChangedD
   useUIStore.getState().prepareForRuntimeSwitch(detail.previousRuntimeKey);
   disposeTerminalInputTransport();
   useTerminalStore.getState().clearAll();
-  opencodeClient?.reconnectToRuntimeBaseUrl?.();
   useConfigStore.setState({
     providers: [],
     agents: [],

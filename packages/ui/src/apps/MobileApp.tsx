@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 
 import { AboutSettings } from '@/components/sections/pichamber/AboutSettings';
@@ -22,7 +20,6 @@ import { opencodeClient } from '@/lib/pi/legacy-ui-client';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { readTabletLayout, useOrientation, useTabletLayout } from '@/lib/device';
 import { useHardwareKeyboard } from '@/lib/hardwareKeyboard';
-import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged, switchRuntimeEndpoint } from '@/lib/runtime-switch';
 import { refreshGlobalSessions, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { clearLastActiveSession, readLastActiveSession } from '@/sync/last-session-cache';
@@ -30,12 +27,12 @@ import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
-import { useGitStore } from '@/stores/useGitStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useUpdateStore } from '@/stores/useUpdateStore';
+import { useSessionUIStore } from '@/sync/session-ui-store';
 import { PiSessionProvider } from '@/sync/pi-session-context';
 import { FireworksProvider } from '@/contexts/FireworksContext';
+import type { ViewTarget } from './deepLinks';
 
 import { SyncAppEffects } from './AppEffects';
 import { BusyDots } from '@/components/chat/message/parts/BusyDots';
@@ -114,7 +111,6 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   // remount the pane (losing its navigation) on every close.
   const closeSurface = React.useCallback(() => {
     setActiveSurface(null);
-    setOpenPlan(null);
   }, []);
 
   const openSurface = React.useCallback((surface: MobileSurface) => {
@@ -238,12 +234,14 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         if (isTabletLayout) setSidebarOpen(true);
         else setSessionsSheetOpen(true);
       },
-      openView: (target: 'files' | 'instances' | 'update') => {
+      openView: (target: ViewTarget) => {
         if (target === 'files') {
           openFilesSurface();
           return;
         }
-        openSurface(target);
+        if (target === 'instances' || target === 'update' || target === 'mcp') {
+          openSurface(target as MobileSurface);
+        }
       },
       openChanges: ({ path, staged }: { path?: string; staged?: boolean } = {}) => {
         openChangesSurface(path ? { path, staged: staged === true } : null);
@@ -551,7 +549,6 @@ export function MobileApp({ apis }: MobileAppProps) {
   const clearError = useSessionUIStore((state) => state.clearError);
   const setIsMobile = useUIStore((state) => state.setIsMobile);
   const refreshGitHubAuthStatus = useGitHubAuthStore((state) => state.refreshStatus);
-  const projects = useProjectsStore((state) => state.projects);
   const [connectionEpoch, setConnectionEpoch] = React.useState(0);
   const [runtimeEndpointEpoch, setRuntimeEndpointEpoch] = React.useState(0);
   const [showConnectionRecovery, setShowConnectionRecovery] = React.useState(false);
@@ -741,6 +738,7 @@ export function MobileApp({ apis }: MobileAppProps) {
       cancelled = true;
     };
     // Run once on mount — auto-connect is a cold-launch concern only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Cold launch with a PERSISTED runtime endpoint (the auto-connect effect
@@ -791,6 +789,7 @@ export function MobileApp({ apis }: MobileAppProps) {
     };
     // Run once on mount — a cold-launch classification only; live drops are
     // handled by the resume/online re-probe paths.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   React.useEffect(() => {

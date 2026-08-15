@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 
 import React from 'react';
 import { useMobileAppActions } from '@/apps/mobileAppContext';
@@ -434,7 +432,7 @@ const getToolDescriptionPath = (part: ToolPartType, state: ToolStateUnion, curre
         }
     }
 
-    if (['write', 'create', 'file_write'].includes(part.tool) && input) {
+    if (part.tool && ['write', 'create', 'file_write'].includes(part.tool) && input) {
         const filePath = input?.filePath || input?.file_path || input?.path;
         if (typeof filePath === 'string') {
             return getRelativePath(filePath, currentDirectory);
@@ -599,7 +597,7 @@ const getToolOutputLanguage = (
         return 'bash';
     }
 
-    return detectLanguageFromOutput(formatEditOutput(output, part.tool, metadata), part.tool, input);
+    return detectLanguageFromOutput(formatEditOutput(output, part.tool || '', metadata), part.tool || '', input);
 };
 
 const getToolOutputText = (
@@ -611,7 +609,7 @@ const getToolOutputText = (
         return output;
     }
 
-    return formatEditOutput(output, part.tool, metadata);
+    return formatEditOutput(output, part.tool || '', metadata);
 };
 
 const StreamingPlainTextOutput: React.FC<{ output: string }> = ({ output }) => {
@@ -1228,7 +1226,7 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
     const stateWithData = state as ToolStateWithMetadata;
     const metadata = stateWithData.metadata;
     const input = stateWithData.input;
-    const rawOutput = getToolOutput(part.tool, stateWithData.output, metadata?.output, state.status);
+    const rawOutput = getToolOutput(part.tool || '', stateWithData.output, metadata?.output, state.status);
     const hasStringOutput = typeof rawOutput === 'string' && rawOutput.length > 0;
     const rawOutputString = typeof rawOutput === 'string' ? rawOutput : '';
     const isStreamingBash = part.tool === 'bash' && state.status === 'running';
@@ -1256,7 +1254,7 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
         || part.tool === 'edit'
         || part.tool === 'multiedit';
     const diagnosticSection = React.useMemo(
-        () => getToolDiagnosticSection(part.tool, input, metadata, currentDirectory),
+        () => getToolDiagnosticSection(part.tool || '', input, metadata, currentDirectory),
         [currentDirectory, input, metadata, part.tool],
     );
 
@@ -1881,7 +1879,7 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
         if (!Array.isArray(childSessionMessages) || childSessionMessages.length === 0) {
             return [];
         }
-        return buildTaskSummaryEntriesFromSession(childSessionMessages);
+        return buildTaskSummaryEntriesFromSession(childSessionMessages as unknown as Parameters<typeof buildTaskSummaryEntriesFromSession>[0]);
     }, [childSessionMessages, isTaskTool, taskSessionId]);
 
     React.useEffect(() => {
@@ -1946,9 +1944,9 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
     }, [input, normalizedPartTool]);
     const isMultiFileApplyPatch = normalizedPartTool === 'apply_patch' && Array.isArray(metadata?.files) && (metadata?.files as []).length > 1;
     const normalizedPart = normalizedPartTool !== part.tool ? ({ ...part, tool: normalizedPartTool } as ToolPartType) : part;
-    const descriptionPath = getToolDescriptionPath(normalizedPart, state, currentDirectory);
-    const description = getToolDescription(normalizedPart, state, currentDirectory);
-    const displayName = getToolMetadata(normalizedPartTool || part.tool).displayName;
+    const descriptionPath = state ? getToolDescriptionPath(normalizedPart, state, currentDirectory) : undefined;
+    const description = state ? getToolDescription(normalizedPart, state, currentDirectory) : undefined;
+    const displayName = getToolMetadata(normalizedPartTool || part.tool || '').displayName;
     
     // Tool title/description — shown inline as context
     const justificationText = React.useMemo(() => {
@@ -2116,7 +2114,7 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
                                     )}
                                     style={iconStyle}
                                 >
-                                    {getToolIcon(normalizedPartTool || part.tool)}
+                                    {getToolIcon(normalizedPartTool || part.tool || '')}
                                 </div>
                                 <div
                                     className={cn(
@@ -2232,13 +2230,15 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
                                 className="pointer-events-none absolute left-0 top-px bottom-0 w-px"
                                 style={{ backgroundColor: 'var(--tools-border)' }}
                             />
-                            <ToolExpandedContent
-                                part={part}
-                                state={state}
-                                currentDirectory={currentDirectory}
-                                isExpanded={isExpanded}
-                                onShowPopup={onShowPopup}
-                            />
+                            {state ? (
+                                <ToolExpandedContent
+                                    part={part}
+                                    state={state}
+                                    currentDirectory={currentDirectory}
+                                    isExpanded={isExpanded}
+                                    onShowPopup={onShowPopup}
+                                />
+                            ) : null}
                         </div>
                     ) : null}
                 </div>

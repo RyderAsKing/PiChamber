@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import {
     Dialog,
@@ -275,11 +273,11 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
                     ) : (
                         filteredMessages.map(({ message }, index) => {
                             const preview = getMessagePreview(message.parts);
-                            const timestamp = message.info.time.created;
+                            const timestamp = message.info.time?.created ?? 0;
                             const dateGroup = formatDateGroup(timestamp);
                             const previous = filteredMessages[index - 1];
                             const previousDateGroup = previous
-                                ? formatDateGroup(previous.message.info.time.created)
+                                ? formatDateGroup(previous.message.info.time?.created ?? 0)
                                 : null;
                             const showDateGroup = dateGroup !== previousDateGroup;
                             const messageTime = formatMessageTime(timestamp);

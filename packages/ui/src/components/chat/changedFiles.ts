@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import type { ToolPart } from '@/lib/chat/types';
 import { getRelativeFilePath, toAbsoluteFilePath } from '@/lib/path-utils';
 
@@ -49,14 +47,19 @@ export const extractChangedFiles = (parts: ToolPart[]): ChangedFile[] => {
     const seen = new Set<string>();
 
     for (const part of parts) {
-        if (part.type !== 'tool') continue;
+        if (part.type !== 'tool' || !part.tool) continue;
         if (!FILE_EDIT_TOOLS.has(part.tool)) continue;
 
+        const toolName = part.tool;
+        const messageId = (part as { messageId?: string; messageID?: string }).messageId
+            ?? (part as { messageId?: string; messageID?: string }).messageID
+            ?? '';
+
         const state = part.state as { metadata?: Record<string, unknown>; input?: Record<string, unknown>; status?: string };
-        if (state.status && state.status !== 'completed') continue;
+        if (state?.status && state.status !== 'completed') continue;
 
         const sizeBeforeThisPart = files.length;
-        const metadata = state.metadata;
+        const metadata = state?.metadata;
 
         const metaFiles = Array.isArray(metadata?.files) ? metadata.files : [];
         for (const file of metaFiles) {
@@ -67,9 +70,9 @@ export const extractChangedFiles = (parts: ToolPart[]): ChangedFile[] => {
             seen.add(rawPath);
             files.push({
                 path: rawPath,
-                tool: part.tool,
+                tool: toolName,
                 partId: part.id,
-                messageID: part.messageID,
+                messageID: messageId,
                 additions: parseCount(record.additions) ?? undefined,
                 deletions: parseCount(record.deletions) ?? undefined,
                 patch: typeof record.patch === 'string' ? record.patch : undefined,
@@ -83,9 +86,9 @@ export const extractChangedFiles = (parts: ToolPart[]): ChangedFile[] => {
                 seen.add(rawPath);
                 files.push({
                     path: rawPath,
-                    tool: part.tool,
+                    tool: toolName,
                     partId: part.id,
-                    messageID: part.messageID,
+                    messageID: messageId,
                     additions: parseCount(fd.additions) ?? undefined,
                     deletions: parseCount(fd.deletions) ?? undefined,
                     patch: typeof fd.patch === 'string' ? fd.patch : undefined,
@@ -103,9 +106,9 @@ export const extractChangedFiles = (parts: ToolPart[]): ChangedFile[] => {
                 seen.add(rawPath);
                 files.push({
                     path: rawPath,
-                    tool: part.tool,
+                    tool: toolName,
                     partId: part.id,
-                    messageID: part.messageID,
+                    messageID: messageId,
                     additions: parseCount(fd.additions) ?? undefined,
                     deletions: parseCount(fd.deletions) ?? undefined,
                     patch: typeof fd.patch === 'string' ? fd.patch : undefined,
@@ -114,7 +117,7 @@ export const extractChangedFiles = (parts: ToolPart[]): ChangedFile[] => {
         }
 
         if (files.length === sizeBeforeThisPart) {
-            const input = state.input;
+            const input = state?.input;
             const filePath = typeof input?.filePath === 'string' ? input.filePath
                 : typeof input?.file_path === 'string' ? input.file_path
                 : typeof input?.path === 'string' ? input.path
@@ -123,9 +126,9 @@ export const extractChangedFiles = (parts: ToolPart[]): ChangedFile[] => {
                 seen.add(filePath);
                 files.push({
                     path: filePath,
-                    tool: part.tool,
+                    tool: toolName,
                     partId: part.id,
-                    messageID: part.messageID,
+                    messageID: messageId,
                 });
             }
         }
@@ -138,9 +141,9 @@ export const extractChangedFiles = (parts: ToolPart[]): ChangedFile[] => {
                 const parsed = parsePatchStats(patchText);
                 files.push({
                     path: 'Diff',
-                    tool: part.tool,
+                    tool: toolName,
                     partId: part.id,
-                    messageID: part.messageID,
+                    messageID: messageId,
                     additions: parsed.added,
                     deletions: parsed.removed,
                 });

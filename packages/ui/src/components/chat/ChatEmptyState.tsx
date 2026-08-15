@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
@@ -18,7 +16,7 @@ const ChatEmptyState: React.FC = () => {
                 <div className="flex flex-col items-center gap-2 max-w-md text-center px-4">
                     <span className="text-body-md font-medium text-destructive">{"PiChamber is not reachable"}</span>
                     <span className="text-body-sm" style={{ color: textColor }}>
-                        {initError.message}
+                        {typeof initError === 'string' ? initError : (initError as { message?: string })?.message || String(initError)}
                     </span>
                 </div>
             ) : (

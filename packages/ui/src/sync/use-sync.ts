@@ -12,9 +12,9 @@ export function useSync() {
     },
     recoverPendingQuestions: async () => undefined,
     optimistic: {
-      add: () => undefined,
-      remove: () => undefined,
-      confirm: () => undefined,
+      add: (_input?: unknown) => { void _input; return undefined; },
+      remove: (_input?: unknown) => { void _input; return undefined; },
+      confirm: (_input?: unknown) => { void _input; return undefined; },
     },
   };
 }

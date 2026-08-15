@@ -4,7 +4,6 @@ import { ScrollShadow } from '@/components/ui/ScrollShadow';
 import { useUIStore } from '@/stores/useUIStore';
 import { WORK_STATUS_PANEL_WIDTH } from './useWorkStatusVisibility';
 import { WorkStatusPrimaryGroup } from './WorkStatusPrimaryGroup';
-import { WorkStatusUsageSection } from './WorkStatusUsageSection';
 import { WorkStatusSubagentsSection } from './WorkStatusSubagentsSection';
 import { WorkStatusTasksSection } from './WorkStatusTasksSection';
 import { WorkStatusPinnedSection } from './WorkStatusPinnedSection';
@@ -232,7 +231,6 @@ export const WorkStatusPanel: React.FC<Props> = ({ sessionId, directory, visible
           showSession={sectionVisible('session')}
           showRepository={sectionVisible('repository')}
         />
-        {sectionVisible('usage') ? <WorkStatusUsageSection /> : null}
         {sectionVisible('subagents') ? <WorkStatusSubagentsSection sessionId={sessionId} directory={directory} /> : null}
         {sectionVisible('tasks') ? <WorkStatusTasksSection sessionId={sessionId} directory={directory} /> : null}
         {sectionVisible('pinned') ? <WorkStatusPinnedSection sessionId={sessionId} directory={directory} /> : null}

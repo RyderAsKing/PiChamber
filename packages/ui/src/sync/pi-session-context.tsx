@@ -1,4 +1,4 @@
-/* eslint-disable */
+/* eslint-disable react-refresh/only-export-components */
 import React, { useEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { getPiSessionStore, type PiSessionStore } from '@/apps/pi-session-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -10,7 +10,7 @@ export const usePiSessionStore = (): PiSessionStore => {
   return store ?? getPiSessionStore();
 };
 
-export const PiSessionProvider = ({ children, directory }: { children: ReactNode; directory?: string }) => {
+export const PiSessionProvider = ({ children, directory }: { children: ReactNode; directory?: string | null }) => {
   const store = React.useMemo(() => getPiSessionStore(), []);
   const activeProjectDirectory = useProjectsStore((state) => (
     state.projects.find((project) => project.id === state.activeProjectId)?.path ?? null
@@ -32,6 +32,6 @@ export const usePiSessionSnapshot = () => {
 };
 
 /** @deprecated OpenCode SyncProvider name kept for restored shell call sites. */
-export const SyncProvider = ({ children, directory }: { children?: ReactNode; sdk?: unknown; directory?: string }) => (
+export const SyncProvider = ({ children, directory }: { children?: ReactNode; sdk?: unknown; directory?: string | null }) => (
   <PiSessionProvider directory={directory}>{children}</PiSessionProvider>
 );

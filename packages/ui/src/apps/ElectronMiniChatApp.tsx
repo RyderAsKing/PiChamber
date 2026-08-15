@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { RuntimeAPIProvider } from '@/contexts/RuntimeAPIProvider';
@@ -13,8 +11,6 @@ import { opencodeClient } from '@/lib/pi/legacy-ui-client';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useConfigStore } from '@/stores/useConfigStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
-import { useGitStore } from '@/stores/useGitStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { PiSessionProvider } from '@/sync/pi-session-context';
 import { useSessions } from '@/sync/sync-context';
@@ -50,12 +46,13 @@ const MiniChatBootstrap: React.FC<{ config: MiniChatConfig }> = ({ config }) => 
   const sessions = useSessions();
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
   const setDirectory = useDirectoryStore((state) => state.setDirectory);
-  const projects = useProjectsStore((state) => state.projects);
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const draftOpen = useSessionUIStore((state) => Boolean(state.newSessionDraft?.open));
   const draftDirectory = useSessionUIStore((state) => {
     if (!state.newSessionDraft?.open) return '';
-    return state.newSessionDraft.bootstrapPendingDirectory ?? state.newSessionDraft.directoryOverride ?? '';
+    return (state.newSessionDraft as { bootstrapPendingDirectory?: string; directoryOverride?: string | null }).bootstrapPendingDirectory
+      ?? state.newSessionDraft.directoryOverride
+      ?? '';
   });
   const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
   const openNewSessionDraft = useSessionUIStore((state) => state.openNewSessionDraft);

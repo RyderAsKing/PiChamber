@@ -1,21 +1,25 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
 import type { IconName } from '@/components/icon/icons';
-import { preloadProviderLogos } from '@/hooks/useProviderLogo';
 import { useTabletLayout } from '@/lib/device';
-import { clampPercent, resolveUsageTone } from '@/lib/quota';
-import { useUsageProviderGroups, type UsageProviderGroup } from '@/components/usage/usageGroups';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/useConfigStore';
-import { useQuotaAutoRefresh, useQuotaStore } from '@/stores/useQuotaStore';
-import { useUIStore, type TimeFormatPreference } from '@/stores/useUIStore';
 import { useSelectionStore } from '@/sync/selection-store';
 import { useSessionMessages } from '@/sync/sync-context';
 
 const TABLET_METADATA_POPOVER_WIDTH = 380;
+
+const clampPercent = (value: number | null): number => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+};
+
+const resolveUsageTone = (pct: number): 'safe' | 'warn' | 'critical' => {
+  if (pct >= 90) return 'critical';
+  if (pct >= 75) return 'warn';
+  return 'safe';
+};
 
 const getNumericLimit = (limit: unknown, key: 'context' | 'output'): number | undefined => {
   if (!limit || typeof limit !== 'object') return undefined;
@@ -40,7 +44,7 @@ type ContextDisplay = {
 } | null;
 
 const ContextProgressIcon: React.FC<{ percentage: number }> = ({ percentage }) => {
-  const progressPct = clampPercent(percentage) ?? 0;
+  const progressPct = clampPercent(percentage);
   const tone = resolveUsageTone(percentage);
   const progressColor = tone === 'critical'
     ? 'var(--status-error)'
@@ -107,25 +111,14 @@ const SessionMetadataOverlay: React.FC<{
   onClose: () => void;
   anchorRef: React.RefObject<HTMLElement | null>;
   contextDisplay: ContextDisplay;
-  usageGroups: UsageProviderGroup[];
-  usageDisplayMode: 'usage' | 'remaining';
-  isUsageLoading: boolean;
-  timeFormatPreference: TimeFormatPreference;
-}> = ({ open, onClose, anchorRef, contextDisplay, usageGroups, usageDisplayMode, isUsageLoading, timeFormatPreference }) => {
-  
+}> = ({ open, onClose, anchorRef, contextDisplay }) => {
   const panelRef = React.useRef<HTMLDivElement>(null);
   const [shouldRender, setShouldRender] = React.useState(open);
   const [isExiting, setIsExiting] = React.useState(false);
-  // Tablet: a phone-width sheet stretched across the whole chat column looks
-  // broken — render a popover anchored to the metadata button instead.
   const { enabled: isTabletLayout } = useTabletLayout();
   const wrapperRef = React.useRef<HTMLDivElement>(null);
   const [anchorLeft, setIpadAnchorLeft] = React.useState<number | null>(null);
 
-  // The shell has transformed ancestors, so the fixed wrapper's containing
-  // block is the chat column, NOT the viewport. Anchor the popover in the
-  // wrapper's own coordinate space — viewport-based lefts would double-count
-  // the sidebar offset.
   React.useLayoutEffect(() => {
     if (!open || !isTabletLayout || !shouldRender) return;
     const compute = () => {
@@ -143,8 +136,6 @@ const SessionMetadataOverlay: React.FC<{
       setIpadAnchorLeft(left);
     };
     compute();
-    // Re-anchor if the chat column shifts while the popover is open (sidebar
-    // toggle/resize, orientation change) — the header buttons move with it.
     const wrapper = wrapperRef.current;
     if (typeof ResizeObserver === 'undefined' || !wrapper) return;
     const observer = new ResizeObserver(compute);
@@ -237,12 +228,6 @@ const SessionMetadataOverlay: React.FC<{
               </span>
             </MetadataRow>
           ) : null}
-          <MobileUsageLimits
-            groups={usageGroups}
-            displayMode={usageDisplayMode}
-            isLoading={isUsageLoading}
-            timeFormatPreference={timeFormatPreference}
-          />
         </div>
       </div>
       <style>{`
@@ -255,45 +240,6 @@ const SessionMetadataOverlay: React.FC<{
           to { opacity: 0; transform: translateY(-6px) scale(0.985); }
         }
       `}</style>
-    </div>
-  );
-};
-
-const MobileUsageLimits: React.FC<{
-  groups: UsageProviderGroup[];
-  displayMode: 'usage' | 'remaining';
-  isLoading: boolean;
-  timeFormatPreference: TimeFormatPreference;
-}> = ({ groups, displayMode, isLoading, timeFormatPreference }) => {
-  
-  const modeLabel = displayMode === 'remaining' ? "Remaining" : "Used";
-
-  // First open often races the quota fetch (~2s) — show an explicit loading
-  // row instead of collapsing to an empty overlay.
-  if (groups.length === 0) {
-    if (!isLoading) return null;
-    return (
-      <div className="flex items-center justify-center gap-2 px-2.5 py-6 text-muted-foreground">
-        <Icon name="loader-4" className="size-4 animate-spin" aria-hidden />
-        <span className="typography-ui-label">{"Loading..."}</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="pt-2.5">
-      <div className="flex min-w-0 items-center gap-3 px-2.5 pb-1.5">
-        <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
-          <Icon name="timer" className="size-[18px]" />
-        </span>
-        <span className="shrink-0 typography-ui-label text-muted-foreground">
-          {"Usage"}
-        </span>
-        <span className="inline-flex min-w-0 flex-1 items-center justify-end gap-1.5 typography-ui-label text-muted-foreground">
-          {isLoading ? <Icon name="refresh" className="size-3.5 animate-spin" /> : null}
-          <span className="truncate">{modeLabel}</span>
-        </span>
-      </div>
     </div>
   );
 };
@@ -311,9 +257,8 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
   effectiveDirectory: string | null;
   isNewSessionDraftOpen: boolean;
 }) {
-  
   const metadataTriggerRef = React.useRef<HTMLButtonElement>(null);
-  const activeSessionMessages = useSessionMessages(currentSessionId ?? '', effectiveDirectory || undefined);
+  const activeSessionMessages = useSessionMessages(currentSessionId ?? '', effectiveDirectory ?? undefined);
   const providers = useConfigStore((state) => state.providers);
   const currentProviderId = useConfigStore((state) => state.currentProviderId);
   const currentModelId = useConfigStore((state) => state.currentModelId);
@@ -325,32 +270,6 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
       [currentSessionId],
     ),
   );
-  const quotaResults = useQuotaStore((state) => state.results);
-  const loadQuotaSettings = useQuotaStore((state) => state.loadSettings);
-  const fetchAllQuotas = useQuotaStore((state) => state.fetchAllQuotas);
-  const isQuotaLoading = useQuotaStore((state) => state.isLoading);
-  const quotaDisplayMode = useQuotaStore((state) => state.displayMode);
-  const dropdownProviderIds = useQuotaStore((state) => state.dropdownProviderIds);
-  const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
-
-  useQuotaAutoRefresh();
-
-  React.useEffect(() => {
-    void loadQuotaSettings();
-  }, [loadQuotaSettings]);
-
-  React.useEffect(() => {
-    preloadProviderLogos(dropdownProviderIds);
-  }, [dropdownProviderIds]);
-
-  React.useEffect(() => {
-    if (!open || isQuotaLoading) return;
-    const missingEnabledProvider = dropdownProviderIds.some((providerId) => (
-      !quotaResults.some((result) => result.providerId === providerId)
-    ));
-    if (!missingEnabledProvider) return;
-    void fetchAllQuotas();
-  }, [dropdownProviderIds, fetchAllQuotas, isQuotaLoading, open, quotaResults]);
 
   const latestMessageModel = React.useMemo(() => {
     for (let i = activeSessionMessages.length - 1; i >= 0; i -= 1) {
@@ -418,13 +337,6 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
     ? { percentage: contextPercentage, tokens: contextTokens, colorClass: contextColorClass }
     : null;
 
-  const usageGroups = useUsageProviderGroups();
-
-  React.useEffect(() => {
-    if (!open || usageGroups.length === 0) return;
-    preloadProviderLogos(usageGroups.map((group) => group.providerId));
-  }, [open, usageGroups]);
-
   return (
     <>
       <button
@@ -436,8 +348,6 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
         onClick={() => onOpenChange((currentOpen) => !currentOpen)}
         style={{ touchAction: 'manipulation' }}
       >
-        {/* Live context gauge doubles as the metadata trigger: filled by the
-            session's context usage, an empty ring on a fresh draft. */}
         <ContextProgressIcon percentage={contextDisplay?.percentage ?? 0} />
       </button>
       <SessionMetadataOverlay
@@ -445,10 +355,6 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
         onClose={() => onOpenChange(false)}
         anchorRef={metadataTriggerRef}
         contextDisplay={contextDisplay}
-        usageGroups={usageGroups}
-        usageDisplayMode={quotaDisplayMode}
-        isUsageLoading={isQuotaLoading}
-        timeFormatPreference={timeFormatPreference}
       />
     </>
   );

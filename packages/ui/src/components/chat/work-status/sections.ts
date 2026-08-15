@@ -11,7 +11,6 @@
 export const WORK_STATUS_SECTION_IDS = [
   'session',
   'repository',
-  'usage',
   'subagents',
   'tasks',
   'pinned',
@@ -23,7 +22,6 @@ type WorkStatusSectionId = (typeof WORK_STATUS_SECTION_IDS)[number];
 export const WORK_STATUS_SECTION_LABELS: Record<WorkStatusSectionId, string> = {
   session: "Session",
   repository: "Repository",
-  usage: "Usage",
   subagents: "Subagents",
   tasks: "Tasks",
   pinned: "Pinned messages",

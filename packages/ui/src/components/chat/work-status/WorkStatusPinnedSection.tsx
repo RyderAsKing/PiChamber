@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import { toast } from 'sonner';
 import { Icon } from '@/components/icon/Icon';

@@ -19,30 +19,30 @@ describe('isWorkStatusSectionVisible', () => {
   test('everything is visible by default', () => {
     // Storing the hidden set means a section added later is on for everyone,
     // rather than invisible to whoever had settings saved before it existed.
-    expect(isWorkStatusSectionVisible([], 'usage')).toBe(true);
-    expect(isWorkStatusSectionVisible(undefined, 'usage')).toBe(true);
-    expect(isWorkStatusSectionVisible(null, 'usage')).toBe(true);
+    expect(isWorkStatusSectionVisible([], 'subagents')).toBe(true);
+    expect(isWorkStatusSectionVisible(undefined, 'subagents')).toBe(true);
+    expect(isWorkStatusSectionVisible(null, 'subagents')).toBe(true);
   });
 
   test('hides exactly the listed section', () => {
-    expect(isWorkStatusSectionVisible(['usage'], 'usage')).toBe(false);
-    expect(isWorkStatusSectionVisible(['usage'], 'tasks')).toBe(true);
+    expect(isWorkStatusSectionVisible(['subagents'], 'subagents')).toBe(false);
+    expect(isWorkStatusSectionVisible(['subagents'], 'tasks')).toBe(true);
   });
 });
 
 describe('sanitizeWorkStatusHiddenSections', () => {
   test('keeps known ids and drops everything else', () => {
-    expect(sanitizeWorkStatusHiddenSections(['usage', 'nope', 42, null, 'tasks']))
-      .toEqual(['usage', 'tasks']);
+    expect(sanitizeWorkStatusHiddenSections(['subagents', 'nope', 42, null, 'tasks']))
+      .toEqual(['subagents', 'tasks']);
   });
 
   test('deduplicates', () => {
-    expect(sanitizeWorkStatusHiddenSections(['usage', 'usage'])).toEqual(['usage']);
+    expect(sanitizeWorkStatusHiddenSections(['subagents', 'subagents'])).toEqual(['subagents']);
   });
 
   test('treats a non-array payload as no preference', () => {
     expect(sanitizeWorkStatusHiddenSections(undefined)).toEqual([]);
-    expect(sanitizeWorkStatusHiddenSections('usage')).toEqual([]);
-    expect(sanitizeWorkStatusHiddenSections({ usage: true })).toEqual([]);
+    expect(sanitizeWorkStatusHiddenSections('subagents')).toEqual([]);
+    expect(sanitizeWorkStatusHiddenSections({ subagents: true })).toEqual([]);
   });
 });

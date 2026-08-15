@@ -142,7 +142,7 @@ export function useScopedBlockingQuestions(): QuestionRequest[] {
 export function useParentSession(): Session | null {
   return null;
 }
-export function useSession(sessionID?: string | null): Session | undefined {
+export function useSession(sessionID?: string | null, _directory?: string): Session | undefined {
   const state = usePiSessionSnapshot();
   const item = state.sessions.find((entry) => entry.session.id === sessionID);
   if (!item) return undefined;

@@ -517,9 +517,12 @@ describe('Pi runtime route', () => {
     const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-5&fromSequence=3`);
     const reader = response.body.getReader();
     const first = await reader.read();
-    const second = await reader.read();
+    let text = new TextDecoder().decode(first.value);
+    if (!text.includes('"parentId":"user-1"')) {
+      const second = await reader.read();
+      text += new TextDecoder().decode(second.value);
+    }
     await reader.cancel();
-    const text = new TextDecoder().decode(first.value) + new TextDecoder().decode(second.value);
     expect(text).toContain('"name":"session.snapshot"');
     expect(text).toContain('"lastSequence":4');
     expect(text).toContain('"parentId":"user-1"');

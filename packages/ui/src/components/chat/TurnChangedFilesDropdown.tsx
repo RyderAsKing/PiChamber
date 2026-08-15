@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import type { ToolPart } from '@/lib/chat/types';
 import { Popover } from '@base-ui/react/popover';
@@ -37,9 +35,9 @@ export const TurnChangedFilesDropdown: React.FC<TurnChangedFilesDropdownProps> =
         const toolParts: ToolPart[] = [];
         for (const activity of activityParts) {
             const part = activity.part;
-            if (part.type !== 'tool') continue;
+            if (part.type !== 'tool' || typeof part.tool !== 'string') continue;
             if (!FILE_EDIT_TOOLS.has(part.tool)) continue;
-            toolParts.push(part);
+            toolParts.push(part as ToolPart);
         }
         if (toolParts.length === 0) return [];
         return extractChangedFiles(toolParts);

@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import { cn, truncatePathMiddle } from '@/lib/utils';
 import { useFileSearchStore } from '@/stores/useFileSearchStore';
@@ -266,13 +264,13 @@ export const FileMentionAutocomplete = React.forwardRef<FileMentionHandle, FileM
       .filter((agent) => agent.mode && agent.mode !== 'primary')
       .filter((agent) => {
         if (!normalizedQuery) return true;
-        const haystack = `${agent.name} ${agent.description ?? ''}`.toLowerCase();
+        const haystack = `${agent.name ?? ''} ${agent.description ?? ''}`.toLowerCase();
         return haystack.includes(normalizedQuery);
       })
       .map((agent) => ({
-        name: agent.name,
-        description: agent.description,
-        mode: agent.mode,
+        name: agent.name ?? '',
+        description: typeof agent.description === 'string' ? agent.description : undefined,
+        mode: typeof agent.mode === 'string' ? agent.mode : undefined,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
     setAgents(filtered);

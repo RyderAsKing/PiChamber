@@ -1,11 +1,19 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { Icon } from "@/components/icon/Icon";
-import { clampPercent, resolveUsageTone } from '@/lib/quota';
+
+const clampPercent = (value: number | null): number => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+};
+
+const resolveUsageTone = (pct: number): 'safe' | 'warn' | 'critical' => {
+  if (pct >= 90) return 'critical';
+  if (pct >= 75) return 'warn';
+  return 'safe';
+};
 
 interface ContextUsageDisplayProps {
   totalTokens: number;

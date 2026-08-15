@@ -1,13 +1,11 @@
-/* eslint-disable */
-// @ts-nocheck
 import type { Agent } from '@/lib/chat/types';
 import { getProviderModelDisplayName, type DisplayProvider } from '@/lib/modelDisplay';
 
 export type MobileControlsPanel = 'model' | 'agent' | 'variant' | null;
 
-export const isPrimaryMode = (mode?: string) => mode === 'primary' || mode === 'all' || mode === undefined || mode === null;
+export const isPrimaryMode = (mode?: unknown) => mode === 'primary' || mode === 'all' || mode === undefined || mode === null;
 
-const getCyclablePrimaryAgents = (agents: Agent[]) => agents.filter((agent) => isPrimaryMode(agent.mode));
+export const getCyclablePrimaryAgents = (agents: Agent[]) => agents.filter((agent) => isPrimaryMode(agent.mode));
 
 const capitalizeLabel = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
