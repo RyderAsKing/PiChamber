@@ -161,8 +161,8 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
       <div
         ref={droppableRef}
         className={cn(
-          'group/folder relative flex items-center justify-between gap-1.5 py-1 min-w-0 rounded-md',
-          'cursor-pointer',
+          'group/folder relative flex items-center justify-between gap-2 px-2.5 py-1.5 min-w-0 rounded-lg transition-colors',
+          'cursor-pointer hover:bg-interactive-hover',
           isDropTarget && 'bg-primary/10 ring-1 ring-inset ring-primary/30',
         )}
         onClick={renaming ? undefined : (event) => {
@@ -186,7 +186,7 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
           : `Collapse folder ${folder.name}`}
       >
         <div className={cn(
-          'min-w-0 flex items-center gap-1.5 pl-1.5 flex-1 transition-[padding]',
+          'min-w-0 flex items-center gap-2 flex-1 transition-[padding]',
           archivedBucket
             ? (alwaysShowActions ? 'pr-7' : 'group-hover/folder:pr-7 group-focus-within/folder:pr-7')
             // Actions overlay on hover (new session, rename, delete = three
@@ -254,7 +254,7 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
             <div className="min-w-0 flex items-center gap-1.5 flex-1">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className={cn('typography-ui-label font-semibold truncate', isDropTarget ? 'text-primary' : 'text-muted-foreground')}>
+                  <span className={cn('typography-ui-label font-normal truncate', isDropTarget ? 'text-primary' : 'text-muted-foreground')}>
                     {displayName ?? folder.name}
                   </span>
                 </TooltipTrigger>

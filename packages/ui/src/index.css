@@ -1006,6 +1006,45 @@ html:not(.dark) .chat-scroll {
   margin-bottom: 0;
 }
 
+/* Streaming text reveal animation */
+.markdown-content.markdown-streaming {
+  position: relative;
+}
+
+.markdown-content.markdown-streaming > [data-md-block]:last-child > * {
+  animation: stream-text-reveal 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.stream-text-reveal {
+  animation: stream-text-reveal 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.stream-text-fade {
+  animation: stream-text-fade 0.22s ease-out both;
+}
+
+@keyframes stream-text-reveal {
+  0% {
+    opacity: 0.25;
+    transform: translateY(2px);
+    filter: blur(0.5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes stream-text-fade {
+  0% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
 /* Tool cards (code size) and reasoning (meta size, dimmed) are intentionally
    compact — keep their paragraphs tight, matching prior behavior. */
 .markdown-content.markdown-tool p,

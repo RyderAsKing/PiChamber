@@ -103,7 +103,7 @@ function SwitcherContent({ onSelect, variant, scopeProjectId }: SwitcherContentP
           )}
         >
           <Icon name="chat-new" className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-          <span className="truncate text-[14px] font-normal leading-tight text-foreground">
+          <span className="truncate typography-ui-label font-normal leading-tight text-foreground">
             {"New session"}
           </span>
         </BaseMenu.Item>
@@ -252,15 +252,12 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
               {isExpanded ? <Icon name="arrow-down-s" className="h-3.5 w-3.5" /> : <Icon name="arrow-right-s" className="h-3.5 w-3.5" />}
             </span>
           ) : null}
-          <span className={cn('truncate text-[14px] font-normal leading-tight', isActive ? 'text-primary' : 'text-foreground')}>
+          <span className={cn('truncate typography-ui-label font-normal leading-tight', isActive ? 'text-primary' : 'text-foreground')}>
             {sessionTitle}
           </span>
         </div>
         {variant === 'default' ? (
-          <div
-            className="flex min-w-0 items-center gap-1.5 truncate text-muted-foreground/70 leading-tight"
-            style={{ fontSize: 'calc(var(--text-ui-label) * 0.85)' }}
-          >
+          <div className="flex min-w-0 items-center gap-1.5 truncate text-muted-foreground/70 leading-tight typography-micro">
             {hasChildren ? (
               <span
                 role="button"

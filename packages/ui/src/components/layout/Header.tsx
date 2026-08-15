@@ -1550,7 +1550,7 @@ export const Header: React.FC<HeaderProps> = ({
                       }
                     }}
                     placeholder={"Rename"}
-                    className="min-w-0 flex-1 bg-transparent typography-ui-label text-[14px] font-normal leading-tight outline-none placeholder:text-muted-foreground"
+                    className="min-w-0 flex-1 bg-transparent typography-ui-label font-normal leading-tight outline-none placeholder:text-muted-foreground"
                   />
                   <button
                     type="submit"
@@ -1571,7 +1571,7 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 </form>
               ) : (
-                <span className="truncate typography-ui-label text-[14px] font-normal leading-tight text-foreground max-w-full">
+                <span className="truncate typography-ui-label font-normal leading-tight text-foreground max-w-full">
                   {isNewSessionDraftOpen ? "New session" : currentSessionTitle}
                 </span>
               )}

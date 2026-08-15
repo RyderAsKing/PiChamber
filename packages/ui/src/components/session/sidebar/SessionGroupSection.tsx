@@ -1151,7 +1151,7 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
                       {isCollapsed ? <Icon name="arrow-right-s" className="h-3.5 w-3.5" /> : <Icon name="arrow-down-s" className="h-3.5 w-3.5" />}
                     </span>
                   </span>
-                  <span className="min-w-0 truncate typography-ui-label font-semibold text-muted-foreground">
+                  <span className="min-w-0 truncate typography-ui-label font-normal text-muted-foreground">
                     {renderHighlightedText(group.label, normalizedSessionSearchQuery)}
                   </span>
                   {groupActivityIndicator}

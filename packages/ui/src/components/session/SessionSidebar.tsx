@@ -38,6 +38,7 @@ import { UpdateDialog } from '@/components/ui/UpdateDialog';
 import { SessionGroupSection } from './sidebar/SessionGroupSection';
 import { SidebarHeader } from './sidebar/SidebarHeader';
 import { SidebarNav } from './sidebar/SidebarNav';
+import { SidebarSpacesBar } from './sidebar/SidebarSpacesBar';
 import { SidebarActivitySections } from './sidebar/SidebarActivitySections';
 import { SidebarFooter } from './sidebar/SidebarFooter';
 import { SidebarProjectsList } from './sidebar/SidebarProjectsList';
@@ -277,6 +278,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const [expandedParents, setExpandedParents] = React.useState<Set<string>>(new Set());
   const safeStorage = React.useMemo(() => getDeferredSafeStorage(), []);
   const [collapsedProjects, setCollapsedProjects] = React.useState<Set<string>>(new Set());
+  const [selectedSpaceId, setSelectedSpaceId] = React.useState<string | null>(null);
 
   const [projectRepoStatus, setProjectRepoStatus] = React.useState<Map<string, boolean | null>>(new Map());
   const [visibleSessionCountByGroup, setVisibleSessionCountByGroup] = React.useState<Map<string, number>>(new Map());
@@ -1254,6 +1256,57 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       ));
   }, [flatSectionsForRender]);
 
+  const filteredSectionsForSidebarRender = React.useMemo(() => {
+    if (!selectedSpaceId) {
+      return sectionsForSidebarRender;
+    }
+    return sectionsForSidebarRender.filter((section) => section.project.id === selectedSpaceId);
+  }, [sectionsForSidebarRender, selectedSpaceId]);
+
+  const totalSessionCount = React.useMemo(() => {
+    let count = 0;
+    for (const section of projectSections) {
+      for (const group of section.groups) {
+        if (!group.isArchivedBucket) {
+          count += group.sessions.length;
+        }
+      }
+    }
+    return count;
+  }, [projectSections]);
+
+  const sessionCountByProject = React.useMemo(() => {
+    const map = new Map<string, number>();
+    for (const section of projectSections) {
+      let count = 0;
+      for (const group of section.groups) {
+        if (!group.isArchivedBucket) {
+          count += group.sessions.length;
+        }
+      }
+      map.set(section.project.id, count);
+    }
+    return map;
+  }, [projectSections]);
+
+  const hasActiveSessionByProject = React.useCallback((projectId: string) => {
+    const section = projectSections.find((s) => s.project.id === projectId);
+    if (!section) return false;
+    return section.groups.some((group) => {
+      if (group.isArchivedBucket) return false;
+      return group.sessions.some((node) => activeSessionIdSet.has(node.session.id));
+    });
+  }, [activeSessionIdSet, projectSections]);
+
+  const hasUnseenByProject = React.useCallback((projectId: string) => {
+    const section = projectSections.find((s) => s.project.id === projectId);
+    if (!section) return false;
+    return section.groups.some((group) => {
+      if (group.isArchivedBucket) return false;
+      return group.sessions.some((node) => unreadSessionIdSet.has(node.session.id));
+    });
+  }, [projectSections, unreadSessionIdSet]);
+
   // Discover/refresh PR status for expanded projects' worktree branches so
   // session rows can tint their branch marker and show PR state in tooltips.
 
@@ -1594,16 +1647,40 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         </div>
       ) : null}
 
+      {!hideDirectoryControls && projectSections.length > 0 ? (
+        <SidebarSpacesBar
+          projects={projectSections.map((s) => s.project)}
+          selectedProjectId={selectedSpaceId}
+          onSelectProject={(id) => {
+            setSelectedSpaceId(id);
+            if (id) {
+              setActiveProjectIdOnly(id);
+            }
+          }}
+          onOpenDirectoryDialog={handleOpenDirectoryDialog}
+          onOpenProjectEditDialog={setEditingProjectDialogId}
+          onRemoveProject={removeProject}
+          totalSessionCount={totalSessionCount}
+          getSessionCountForProject={(id) => sessionCountByProject.get(id) ?? 0}
+          hasActiveSessionByProject={hasActiveSessionByProject}
+          hasUnseenByProject={hasUnseenByProject}
+          homeDirectory={homeDirectory}
+        />
+      ) : null}
+
       {isVisible ? <SidebarProjectsList
         topContent={topContent}
         hasSharedSessions={hasActivitySectionItems}
-        sectionsForRender={sectionsForSidebarRender}
+        sectionsForRender={filteredSectionsForSidebarRender}
         projectSections={projectSections}
         activeProjectId={activeProjectId}
         showOnlyMainWorkspace={showOnlyMainWorkspace}
         hasSessionSearchQuery={hasSessionSearchQuery}
         emptyState={emptyState}
         searchEmptyState={searchEmptyState}
+        isAllFoldersView={selectedSpaceId === null}
+        pinnedSessionIds={pinnedSessionIds}
+        renderSessionNode={renderSessionNode}
         renderGroupSessions={renderGroupSessions}
         homeDirectory={homeDirectory}
         collapsedProjects={collapsedProjects}

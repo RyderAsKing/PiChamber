@@ -11,7 +11,7 @@ import {
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { formatDirectoryName, formatPathForDisplay, cn } from '@/lib/utils';
-import type { SessionGroup } from './types';
+import type { SessionGroup, SessionNode } from './types';
 import type { SortableDragHandleProps } from './sortableItems';
 import { ProjectHeaderIdentity, SortableGroupItem, SortableProjectItem } from './sortableItems';
 import { formatProjectLabel } from './utils';
@@ -56,6 +56,17 @@ type Props = {
   hasSessionSearchQuery: boolean;
   emptyState: React.ReactNode;
   searchEmptyState: React.ReactNode;
+  isAllFoldersView?: boolean;
+  pinnedSessionIds?: Set<string>;
+  renderSessionNode?: (
+    node: SessionNode,
+    depth?: number,
+    groupDirectory?: string | null,
+    projectId?: string | null,
+    archivedBucket?: boolean,
+    secondaryMeta?: { projectLabel?: string | null; branchLabel?: string | null; showFolderLabel?: boolean } | null,
+    renderContext?: 'project' | 'recent',
+  ) => React.ReactNode;
   renderGroupSessions: (
     group: SessionGroup,
     groupKey: string,
@@ -180,6 +191,54 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
     stuckProject ?? (props.hasSharedSessions ? null : props.sectionsForRender[0]?.project ?? null);
   const leadingProjectLabel = leadingProject ? getProjectLabel(leadingProject, props.homeDirectory) : null;
 
+  const allFolderSessions = React.useMemo(() => {
+    if (!props.isAllFoldersView) return [];
+    const items: Array<{
+      node: SessionNode;
+      project: ProjectSection['project'];
+      projectLabel: string;
+      isPinned: boolean;
+      timestamp: number;
+    }> = [];
+
+    for (const section of props.sectionsForRender) {
+      const projectLabel = getProjectLabel(section.project, props.homeDirectory);
+      for (const group of section.groups) {
+        if (group.isArchivedBucket) continue;
+        for (const node of group.sessions) {
+          const isPinned = Boolean(props.pinnedSessionIds?.has(node.session.id));
+          const timestamp = node.session.time?.updated || node.session.time?.created || 0;
+          items.push({
+            node,
+            project: section.project,
+            projectLabel,
+            isPinned,
+            timestamp,
+          });
+        }
+      }
+    }
+
+    // Purely order based on time, keeping pinned sessions at top
+    items.sort((a, b) => {
+      if (a.isPinned !== b.isPinned) {
+        return a.isPinned ? -1 : 1;
+      }
+      return b.timestamp - a.timestamp;
+    });
+
+    return items;
+  }, [props.isAllFoldersView, props.sectionsForRender, props.homeDirectory, props.pinnedSessionIds]);
+
+  const [allFoldersLimit, setAllFoldersLimit] = React.useState(30);
+
+  React.useEffect(() => {
+    setAllFoldersLimit(30);
+  }, [props.hasSessionSearchQuery]);
+
+  const visibleAllFolderSessions = allFolderSessions.slice(0, allFoldersLimit);
+  const remainingAllFoldersCount = allFolderSessions.length - visibleAllFolderSessions.length;
+
   if (props.sharedSessionsOnly) {
     return (
       <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('space-y-1 pb-1 pr-2', props.mobileVariant ? '' : '')}>
@@ -215,7 +274,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
       hideTopScrollShadow={!enableStickyFade}
       scrollShadowSize={96}
       outerClassName="flex-1 min-h-0"
-      className={cn('oc-sidebar-scroller oc-sticky-fade-scroller space-y-1.5 pb-1 pl-2.5 pr-2 [overflow-anchor:none]', props.mobileVariant ? '' : '')}
+      className={cn('oc-sidebar-scroller oc-sticky-fade-scroller space-y-1 pb-1 px-2 [overflow-anchor:none]', props.mobileVariant ? '' : '')}
       style={enableStickyFade ? { '--scroll-shadow-top-size': '0px' } as React.CSSProperties : undefined}
       onScroll={enableStickyFade ? (event) => syncTopFade(event.currentTarget) : undefined}
     >
@@ -252,120 +311,74 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
             });
           })()}
         </div>
-      ) : (
-        <DndContext
-          sensors={projectSensors}
-          collisionDetection={closestCenter}
-          onDragEnd={(event) => {
-            if (props.isInlineEditing) return;
-            // Drag only allowed in manual sort mode - indices from visual order don't match store order in other modes
-            if (props.projectSortOrder !== 'manual') return;
-            const { active, over } = event;
-            if (!over || active.id === over.id) return;
-            const oldIndex = props.sectionsForRender.findIndex((section) => section.project.id === active.id);
-            const newIndex = props.sectionsForRender.findIndex((section) => section.project.id === over.id);
-            if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
-            props.reorderProjects(oldIndex, newIndex);
-          }}
-        >
-          <SortableContext items={props.sectionsForRender.map((section) => section.project.id)} strategy={verticalListSortingStrategy}>
-            {props.sectionsForRender.map((section) => {
-              const project = section.project;
-              const projectKey = project.id;
-              const projectLabel = getProjectLabel(project, props.homeDirectory);
-              const projectDescription = formatPathForDisplay(project.normalizedPath, props.homeDirectory);
-              const isCollapsed = props.collapsedProjects.has(projectKey);
-              const isRepo = props.projectRepoStatus.get(projectKey);
-
-              return (
-                <SortableProjectItem
-                  key={projectKey}
-                  id={projectKey}
-                  disabled={props.projectSortOrder !== 'manual'}
-                  projectLabel={projectLabel}
-                  projectDescription={projectDescription}
-                  projectIcon={project.icon}
-                  projectColor={project.color}
-                  projectIconImage={project.iconImage}
-                  projectIconBackground={project.iconBackground}
-                  isCollapsed={isCollapsed}
-                  isRepo={Boolean(isRepo)}
-                  isDesktopShell={props.isDesktopShellRuntime}
-                  hideDirectoryControls={props.hideDirectoryControls}
-                  mobileVariant={props.mobileVariant}
-                  alwaysShowActions={props.alwaysShowActions}
-                  statusIndicator={isCollapsed ? props.renderProjectStatusIndicator?.(projectKey, section.groups) : null}
-                  onToggle={() => props.toggleProject(projectKey)}
-                  onNewSession={() => {
-                    if (projectKey !== props.activeProjectId) props.setActiveProjectIdOnly(projectKey);
-                    props.setActiveMainTab('chat');
-                    if (props.mobileVariant) props.setSessionSwitcherOpen(false);
-                    props.openNewSessionDraft({
-                      selectedProjectId: projectKey,
-                      directoryOverride: project.normalizedPath,
-                    });
-                  }}
-                  onRenameStart={() => props.openProjectEditDialog(projectKey)}
-                  onClose={() => props.removeProject(projectKey)}
-                  sentinelRef={(el) => { props.projectHeaderSentinelRefs.current.set(projectKey, el); }}
-                  showCreateButtons
-                  openSidebarMenuKey={props.openSidebarMenuKey}
-                  setOpenSidebarMenuKey={props.setOpenSidebarMenuKey}
+      ) : props.isAllFoldersView && props.renderSessionNode ? (
+        <div className="space-y-1 py-1">
+          {allFolderSessions.length === 0 ? (
+            props.hasSessionSearchQuery ? props.searchEmptyState : props.emptyState
+          ) : (
+            <>
+              {visibleAllFolderSessions.map(({ node, project, projectLabel }) => {
+                const groupDirectory = node.session.directory ?? project.normalizedPath;
+                return (
+                  <React.Fragment key={node.session.id}>
+                    {props.renderSessionNode!(
+                      node,
+                      0,
+                      groupDirectory,
+                      project.id,
+                      false,
+                      { projectLabel, showFolderLabel: true },
+                      'project',
+                    )}
+                  </React.Fragment>
+                );
+              })}
+              {remainingAllFoldersCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setAllFoldersLimit((prev) => prev + 30)}
+                  className="mt-1 flex items-center justify-start rounded-md pl-[26px] pr-1.5 py-0.5 text-left text-xs text-muted-foreground/70 leading-tight hover:text-foreground hover:underline"
                 >
-                  {!isCollapsed ? (
-                    <div className="space-y-0 pt-0.5 pb-0.5">
-                      {(() => {
-                        const orderedGroups = cachedGetOrderedGroups(projectKey, section.groups);
-                        const rootGroup = orderedGroups.find((group) => group.isMain) ?? null;
-                        const nestedGroups = rootGroup
-                          ? orderedGroups.filter((group) => group.id !== rootGroup.id)
-                          : orderedGroups;
-                        return (
-                          <DndContext
-                            sensors={groupSensors}
-                            collisionDetection={closestCenter}
-                            onDragEnd={(event) => {
-                              if (props.isInlineEditing) return;
-                              const { active, over } = event;
-                              if (!over || active.id === over.id) return;
-                              const oldIndex = nestedGroups.findIndex((item) => item.id === active.id);
-                              const newIndex = nestedGroups.findIndex((item) => item.id === over.id);
-                              if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
-                              const nextNested = arrayMove(nestedGroups, oldIndex, newIndex).map((item) => item.id);
-                              const next = rootGroup ? [rootGroup.id, ...nextNested] : nextNested;
-                              props.setGroupOrderByProject((prev) => {
-                                const map = new Map(prev);
-                                map.set(projectKey, next);
-                                return map;
-                              });
-                            }}
-                          >
-                            {/* Root/flat sessions render directly under the
-                                project zone header; worktree and archived
-                                groups keep their own slim sortable sub-header. */}
-                            {rootGroup ? props.renderGroupSessions(rootGroup, `${projectKey}:${rootGroup.id}`, projectKey, true, null, undefined, scrollContainerRef) : null}
-                            <SortableContext items={nestedGroups.map((group) => group.id)} strategy={verticalListSortingStrategy}>
-                              {nestedGroups.map((group) => {
-                                const groupKey = `${projectKey}:${group.id}`;
-                                return (
-                                  <SortableGroupItem key={group.id} id={group.id} disabled={props.isInlineEditing}>
-                                    {(dragHandleProps) => props.renderGroupSessions(group, groupKey, projectKey, false, dragHandleProps, undefined, scrollContainerRef)}
-                                  </SortableGroupItem>
-                                );
-                              })}
-                            </SortableContext>
-                            <DragOverlay dropAnimation={null} />
-                          </DndContext>
-                        );
-                      })()}
-                    </div>
-                  ) : null}
-                </SortableProjectItem>
-              );
-            })}
-          </SortableContext>
-          <DragOverlay dropAnimation={null} />
-        </DndContext>
+                  {"Show more sessions"}
+                </button>
+              ) : null}
+              {allFoldersLimit > 30 && allFolderSessions.length > 30 ? (
+                <button
+                  type="button"
+                  onClick={() => setAllFoldersLimit(30)}
+                  className="mt-0.5 flex items-center justify-start rounded-md pl-[26px] pr-1.5 py-0.5 text-left text-xs text-muted-foreground/70 leading-tight hover:text-foreground hover:underline"
+                >
+                  {"Show fewer sessions"}
+                </button>
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-1 py-1">
+          {props.sectionsForRender.map((section) => {
+            const projectKey = section.project.id;
+            const orderedGroups = cachedGetOrderedGroups(projectKey, section.groups);
+            const rootGroup = orderedGroups.find((group) => group.isMain) ?? null;
+            const nestedGroups = rootGroup
+              ? orderedGroups.filter((group) => group.id !== rootGroup.id)
+              : orderedGroups;
+
+            return (
+              <div key={projectKey} className="space-y-1">
+                {rootGroup ? props.renderGroupSessions(rootGroup, `${projectKey}:${rootGroup.id}`, projectKey, true, null, undefined, scrollContainerRef) : null}
+                {nestedGroups.map((group) => {
+                  const groupKey = `${projectKey}:${group.id}`;
+                  return (
+                    <React.Fragment key={group.id}>
+                      {props.renderGroupSessions(group, groupKey, projectKey, false, null, undefined, scrollContainerRef)}
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
       )}
     </ScrollableOverlay>
       {enableStickyFade && (leadingProject || props.hasSharedSessions) ? (
