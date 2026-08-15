@@ -19,7 +19,6 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } 
 import { useGitIdentitiesStore, type GitIdentityProfile, type DiscoveredGitCredential } from '@/stores/useGitIdentitiesStore';
 import { useShallow } from 'zustand/react/shallow';
 import { GitSettings } from '@/components/sections/pichamber/GitSettings';
-import { GitHubSettings } from '@/components/sections/pichamber/GitHubSettings';
 import { GitIdentityEditorDialog } from './GitIdentityEditorDialog';
 import { Icon } from "@/components/icon/Icon";
 import type { IconName } from "@/components/icon/icons";
@@ -120,8 +119,6 @@ export const GitPage: React.FC = () => {
         title={"Git"}
         showSaveStatus
       >
-        <GitHubSettings />
-
         <SettingsSection
           title={"Identities"}
           headerAction={(

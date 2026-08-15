@@ -6,7 +6,6 @@ export type ContextSurfaceId =
   | 'git'
   | 'pr'
   | 'diff'
-  | 'walkthrough'
   | 'terminal'
   | 'notes'
   | 'context'
@@ -71,15 +70,6 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
     mode: 'diff',
     icon: 'arrow-left-right',
     label: "Changes",
-    availability: 'always',
-  },
-  {
-    id: 'walkthrough',
-    description: "An AI-guided walkthrough of your changes",
-    defaultWidthFraction: 3 / 5,
-    mode: 'walkthrough',
-    icon: 'route',
-    label: "Walkthrough",
     availability: 'always',
   },
   {
@@ -197,9 +187,6 @@ type VisibleRailSurfacesOptions = {
  */
 export const getVisibleContextRailSurfaces = (options: VisibleRailSurfacesOptions): ContextSurfaceDescriptor[] => {
   return sortContextSurfaces(options.railOrder).filter((surface) => {
-    if (surface.id === 'walkthrough') {
-      return false;
-    }
     if (surface.availability === 'has-content') {
       return options.tabs.some((tab) => tab.mode === surface.mode);
     }

@@ -4,14 +4,12 @@ import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { DiffViewIcon } from '@/components/icons/DiffIcon';
 import { Button } from '@/components/ui/button';
 import { SortableTabsStrip } from '@/components/ui/sortable-tabs-strip';
-import { PullRequestView } from '@/components/views/PullRequestView';
 import { TerminalView } from '@/components/views/TerminalView';
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 
 // Heavy views stay on-demand (same as MainLayout): importing DiffView/FilesView
 // or the walkthrough statically pulls the CodeMirror and @pierre/diffs stacks
 // into the eager startup graph even when no such tab is open.
-const WalkthroughView = lazyWithChunkRecovery(() => import('@/components/views/walkthrough/WalkthroughView').then((m) => ({ default: m.WalkthroughView })));
 const DiffView = lazyWithChunkRecovery(() => import('@/components/views/DiffView').then((m) => ({ default: m.DiffView })));
 const FilesView = lazyWithChunkRecovery(() => import('@/components/views/FilesView').then((m) => ({ default: m.FilesView })));
 const GitView = lazyWithChunkRecovery(() => import('@/components/views/GitView').then((m) => ({ default: m.GitView })));
@@ -161,7 +159,6 @@ const getModeLabel = (mode: ContextPanelMode): string => {
   if (mode === 'chat') return "Chat";
   if (mode === 'file') return "Files";
   if (mode === 'diff') return "Changes";
-  if (mode === 'walkthrough') return "Walkthrough";
   if (mode === 'preview') return "Preview";
   if (mode === 'browser') return "Browser";
   if (mode === 'git') return "Git";
@@ -247,10 +244,6 @@ const getTabIcon = (tab: { mode: ContextPanelMode; targetPath: string | null }):
 
   if (tab.mode === 'diff') {
     return <DiffViewIcon className="h-3.5 w-3.5" />;
-  }
-
-  if (tab.mode === 'walkthrough') {
-    return <Icon name="route" className="h-3.5 w-3.5" />;
   }
 
   if (tab.mode === 'git') {
@@ -2688,7 +2681,13 @@ export const ContextPanel: React.FC = () => {
         : activeTab?.mode === 'git'
             ? <React.Suspense fallback={null}><GitView isActive={isOpen} /></React.Suspense>
             : activeTab?.mode === 'pr'
-                ? <PullRequestView />
+                ? (
+                  <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+                    <Icon name="github" className="h-12 w-12 text-muted-foreground/50" />
+                    <div className="typography-ui-header text-foreground">{"Pull Request"}</div>
+                    <div className="max-w-sm typography-micro text-muted-foreground">{"GitHub pull request integration is not configured."}</div>
+                  </div>
+                )
             : activeTab?.mode === 'notes'
                 ? <ProjectContextPanel />
             : activeTab?.mode === 'preview'
@@ -2715,12 +2714,6 @@ export const ContextPanel: React.FC = () => {
   );
   const hasTerminalTab = React.useMemo(
     () => tabs.some((tab) => tab.mode === 'terminal'),
-    [tabs],
-  );
-  // Keep-alive: the walkthrough holds reading progress and scroll position that
-  // a remount would silently throw away.
-  const hasWalkthroughTab = React.useMemo(
-    () => tabs.some((tab) => tab.mode === 'walkthrough'),
     [tabs],
   );
   const BrowserPane = isElectronBrowserRuntime() ? DesktopBrowserPane : IframeBrowserPane;
@@ -2987,14 +2980,7 @@ export const ContextPanel: React.FC = () => {
             <TerminalView visible={isOpen && activeTab?.mode === 'terminal'} />
           </div>
         ) : null}
-        {hasWalkthroughTab ? (
-          <div className={cn('absolute inset-0', activeTab?.mode === 'walkthrough' ? 'block' : 'hidden')}>
-            <React.Suspense fallback={null}>
-              <WalkthroughView />
-            </React.Suspense>
-          </div>
-        ) : null}
-        {activeTab?.mode !== 'chat' && !isFileTabActive && activeTab?.mode !== 'browser' && activeTab?.mode !== 'diff' && activeTab?.mode !== 'terminal' && activeTab?.mode !== 'walkthrough' ? activeNonChatContent : null}
+        {activeTab?.mode !== 'chat' && !isFileTabActive && activeTab?.mode !== 'browser' && activeTab?.mode !== 'diff' && activeTab?.mode !== 'terminal' ? activeNonChatContent : null}
       </div>
       </div>
     </aside>

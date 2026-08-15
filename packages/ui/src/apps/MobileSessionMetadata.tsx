@@ -7,7 +7,6 @@ import type { IconName } from '@/components/icon/icons';
 import { preloadProviderLogos } from '@/hooks/useProviderLogo';
 import { useTabletLayout } from '@/lib/device';
 import { clampPercent, resolveUsageTone } from '@/lib/quota';
-import { UsageProviderCards } from '@/components/usage/UsageProviderCards';
 import { useUsageProviderGroups, type UsageProviderGroup } from '@/components/usage/usageGroups';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -295,12 +294,6 @@ const MobileUsageLimits: React.FC<{
           <span className="truncate">{modeLabel}</span>
         </span>
       </div>
-
-      <UsageProviderCards
-        groups={groups}
-        displayMode={displayMode}
-        timeFormatPreference={timeFormatPreference}
-      />
     </div>
   );
 };

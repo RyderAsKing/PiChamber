@@ -6,7 +6,6 @@ import { PasskeySettings } from './PasskeySettings';
 import { DefaultsSettings } from './DefaultsSettings';
 import { GitSettings } from './GitSettings';
 import { NotificationSettings } from './NotificationSettings';
-import { GitHubSettings } from './GitHubSettings';
 import { TunnelSettings } from './TunnelSettings';
 import { DesktopNetworkSettings } from './DesktopNetworkSettings';
 import { KeyboardShortcutsSettings } from './KeyboardShortcutsSettings';
@@ -211,9 +210,9 @@ const GitSectionContent: React.FC = () => {
     return <GitSettings />;
 };
 
-// GitHub section: Connect account for PR/issue workflows
+// Git & GitHub section fallback
 const GitHubSectionContent: React.FC = () => {
-    return <GitHubSettings />;
+    return <GitSettings />;
 };
 
 // Notifications section: Native browser notifications

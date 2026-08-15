@@ -12,9 +12,9 @@ const baseOptions = {
 } as const;
 
 describe('getVisibleContextRailSurfaces', () => {
-  test('never restores walkthrough on the Pi shell', () => {
+  test('does not include removed surfaces like walkthrough', () => {
     const surfaces = getVisibleContextRailSurfaces({ ...baseOptions, screenWidth: 2400 });
-    expect(surfaces.some((surface) => surface.id === 'walkthrough')).toBe(false);
+    expect(CONTEXT_SURFACES.some((surface: { id: string }) => surface.id === 'walkthrough')).toBe(false);
     expect(surfaces.some((surface) => surface.id === 'context')).toBe(true);
   });
 
