@@ -19,18 +19,15 @@ The actual tunnel start implementations live in
 ## Entrypoints and structure
 - `packages/web/server/lib/tunnels/executable-search.js`: cross-platform executable discovery, including Windows Store app aliases. Consumed by the tunnel providers and `packages/web/server/lib/workspace/host.js`.
 - `packages/web/server/lib/tunnels/install-help.js`: provider/platform install command metadata (`getTunnelDependencyInstallInfo`) for missing tunnel dependencies.
-- `packages/web/server/lib/tunnels/types.js`: tunnel constants, normalization, and shared type helpers (`TunnelServiceError`, `normalizeTunnelStartRequest`, `validateTunnelStartRequest`, ...).
-- `packages/web/server/lib/tunnels/providers/cloudflare.js`: Cloudflare provider capability metadata (`cloudflareTunnelProviderCapabilities`).
-- `packages/web/server/lib/tunnels/providers/ngrok.js`: Ngrok provider capability metadata (`ngrokTunnelProviderCapabilities`).
+- `packages/web/server/lib/tunnels/types.js`: shared tunnel provider constants (`TUNNEL_PROVIDER_CLOUDFLARE`, `TUNNEL_PROVIDER_NGROK`).
 
 ## Public exports
-- `providers/cloudflare.js` → `cloudflareTunnelProviderCapabilities`
-- `providers/ngrok.js` → `ngrokTunnelProviderCapabilities`
 - `install-help.js` → `getTunnelDependencyInstallInfo(provider, platform)`
 - `executable-search.js` → `getExecutableSearchDirectories`, `createExecutableSearchEnv`, `findExecutableOnPath`, `resolveExecutableLaunchTarget`
-- `types.js` → `TUNNEL_*` constants, `TunnelServiceError`, `isPathWithinDirectory`, `resolveTunnelConfigPath`, `normalizeTunnelProvider`, `normalizeOptionalPath`, `isSupportedTunnelMode`, `normalizeTunnelStartRequest`, `validateTunnelStartRequest`
+- `types.js` → `TUNNEL_PROVIDER_CLOUDFLARE`, `TUNNEL_PROVIDER_NGROK`
 
 ## Consumers
 - `packages/web/bin/lib/cli-tunnel-capabilities.js`: provider capability metadata for CLI tunnel commands.
-- `packages/web/server/lib/cloudflare-tunnel.js` / `packages/web/server/lib/ngrok-tunnel.js`: executable discovery and install-help metadata.
+- `packages/web/server/lib/cloudflare-tunnel.js` / `packages/web/server/lib/ngrok-tunnel.js`: executable discovery, install-help metadata, and provider constants.
 - `packages/web/server/lib/workspace/host.js`: executable discovery.
+

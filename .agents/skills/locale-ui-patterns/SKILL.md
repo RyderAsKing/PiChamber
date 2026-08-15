@@ -3,105 +3,35 @@ name: locale-ui-patterns
 description: Use when creating or modifying PiChamber UI text, labels, buttons, placeholders, aria labels, empty states, toasts, dialogs, settings copy, navigation labels, or any user-facing strings.
 ---
 
-# Locale UI Patterns
+# Locale & UI Copy Patterns
 
 ## Core Rule
 
-User-facing UI text must go through `@/lib/i18n`; do not hardcode English strings in components.
+PiChamber renders clean, direct, and user-friendly copy directly within components.
 
 Use this skill for any React UI change that adds or edits visible text, accessible labels, placeholders, tooltips, toasts, dialogs, settings labels, navigation labels, or empty/error states.
 
-## Translate everything immediately (no English placeholders)
+## Tone & Style Guidelines
 
-Every key you add to a non-English dictionary MUST contain a real translation in that language — never the English source string as a stand-in. There is NO "leave it in English for now" convention in this project; if an agent told you there was, it was wrong. Copying the English value into `es.ts`/`fr.ts`/`ko.ts`/`pl.ts`/`pt-BR.ts`/`uk.ts`/`zh-CN.ts`/`zh-TW.ts` is a defect, not a deferral. The app ships every locale at once, so an untranslated key is a visible bug for those users.
-
-If you genuinely cannot translate a language, say so explicitly to the user instead of silently pasting English. Do not invent a fallback policy.
-
-## Required Flow
-
-1. Add or reuse a key in `packages/ui/src/lib/i18n/messages/en.ts`.
-2. Add the same key — fully translated, not the English text — to every non-English dictionary in `packages/ui/src/lib/i18n/messages/`.
-3. In components, call `const { t } = useI18n()` from `@/lib/i18n` and render `t('key')`.
-4. For locale names or language picker labels, use `label(locale)` from `useI18n()`.
-5. Keep locale state in `packages/ui/src/lib/i18n/*`; do not add locale fields to broad stores like `useUIStore`.
-6. Do not remount the app to update language. Components must re-render through `useI18n()`.
+- **Concise & Direct**: Keep button labels, titles, and prompts short and action-oriented (e.g., "Save Changes", "Discard", "New Session").
+- **Consistent Capitalization**: Use Sentence case for headings and titles, Title Case for buttons/actions if local precedent uses it, and lowercase for badges/status where established.
+- **Accurate Terminology**: Use `PiChamber` for the app name and `Pi` for the underlying agent/session engine.
+- **Accessible Text**: Always provide `aria-label` or `title` attributes on icon-only buttons or interactive elements lacking visible text.
 
 ## Component Usage Rules
 
-- Import from `@/lib/i18n`, not deep files.
-- Keep `t(...)` calls inside React render/hook scope so locale changes re-render text.
-- Do not resolve translated text at module scope.
-- For static option arrays, store `labelKey` / `descriptionKey`; resolve with `t(...)` inside the component.
-- For non-React helpers, pass translated strings in from the component or pass `t` explicitly.
-
-## Key Style
-
-Use stable semantic keys, not English text as keys.
-
-Keys should describe location + UI role + meaning. They should not encode current copy wording.
-
-Use existing nearby naming when extending a surface. If no nearby pattern exists, choose a short path that mirrors the UI ownership.
-
-Namespaces like `layout.*`, `settings.*`, `chat.*`, `git.*`, `session.*`, `toast.*`, and `dialog.*` are examples, not a fixed exhaustive list.
-
-Good:
-```ts
-'settings.appearance.language.label': 'Language'
-'layout.mainTab.chat': 'Chat'
-'chat.input.placeholder': 'Ask PiChamber...'
-```
-
-Bad:
-```ts
-'Language': 'Language'
-'chatLabel': 'Chat'
-'askPiChamberDotDotDot': 'Ask PiChamber...'
-```
-
-Avoid overly generic keys unless the text is truly global and context-independent. Prefer specific keys when button meaning can vary by surface.
-
-## Parameters
-
-Use `{name}` placeholders for dynamic values.
-
-```ts
-'toast.language.changed': 'Language changed to {language}'
-```
-
-```tsx
-t('toast.language.changed', { language: label(locale) })
-```
-
-Do not pass grammar fragments as params. Never use params like `{suffix}`, `{plural}`, `{article}`, `{prefix}`, `{dateSuffix}`, or pieces of words/sentences.
-
-Bad:
-```tsx
-t('dialog.delete.description', { count, suffix: count === 1 ? '' : 's' })
-```
+- Use direct, inline strings in JSX, keeping copy co-located with the component.
+- For dynamic strings, use clear template literals with proper pluralization and boundary handling.
+- Handle singular vs plural forms explicitly rather than appending an awkward `(s)` suffix.
 
 Good:
 ```tsx
-count === 1
-  ? t('dialog.delete.descriptionSingle', { count })
-  : t('dialog.delete.descriptionPlural', { count })
+const message = count === 1 ? '1 file changed' : `${count} files changed`;
 ```
-
-Plural/count-dependent text must use separate complete-message keys unless all supported locales can use one identical complete sentence. Placeholders are only for real values (`{count}`, `{name}`, `{path}`), not grammar.
-
-Optional clauses must also be complete-message keys. Do not build a sentence by injecting a translated phrase into another translated sentence.
 
 Bad:
 ```tsx
-t('dialog.delete.description', {
-  dateLabel: date ? t('dialog.delete.dateSuffix', { date }) : '',
-})
-```
-
-Good:
-```tsx
-date
-  ? t('dialog.delete.descriptionWithDate', { count, date })
-  : t('dialog.delete.description', { count })
+const message = `${count} file(s) changed`;
 ```
 
 ## What Counts As UI Text
@@ -110,25 +40,24 @@ date
 - Settings labels and descriptions
 - Placeholder text
 - Tooltip content
-- Dialog titles/descriptions/actions
-- Toast title/description/action labels
-- Empty/error/loading states
-- `aria-label`, `title`, image `alt` text when user-facing
+- Dialog titles, descriptions, and actions
+- Toast title, description, and action labels
+- Empty, error, and loading states
+- `aria-label`, `title`, and image `alt` text
 
 ## Exceptions
 
-Do not translate:
+Do not alter:
 
-- Product names: `PiChamber`, `OpenCode`, `GitHub`
 - Protocol/tool acronyms: `MCP`, `SSE`, `WebSocket`, `API`
-- Model/provider names
-- File paths, command names, environment variables
-- User/generated content
+- Model/provider identifiers
+- File paths, command names, and environment variable names
+- Raw user content or streamed agent responses
 
 ## Review Checklist
 
-- No new hardcoded user-facing English in changed UI files.
-- Every new key exists in all dictionaries.
-- No locale state added to broad/shared stores.
-- No full app remount for locale changes.
-- Locale switch preserves current UI state.
+- Clear, grammatically correct copy in changed UI files.
+- Accessible `aria-label` on all icon buttons.
+- Proper pluralization for counts.
+- No dangling or broken placeholder interpolation.
+
