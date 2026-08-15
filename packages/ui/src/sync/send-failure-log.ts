@@ -11,9 +11,6 @@
  * in-memory only: never persisted, never sent anywhere, and dropped on reload.
  */
 
-const MAX_RECORDED_SEND_FAILURES = 20
-const MAX_REASON_LENGTH = 200
-
 export type SendFailureRecord = {
   at: number
   sessionId: string
@@ -30,17 +27,6 @@ export type SendFailureRecord = {
 }
 
 const records: SendFailureRecord[] = []
-
-export function recordSendFailure(record: Omit<SendFailureRecord, 'at' | 'reason'> & { reason: string }): void {
-  records.push({
-    ...record,
-    reason: record.reason.slice(0, MAX_REASON_LENGTH),
-    at: Date.now(),
-  })
-  if (records.length > MAX_RECORDED_SEND_FAILURES) {
-    records.splice(0, records.length - MAX_RECORDED_SEND_FAILURES)
-  }
-}
 
 /** Newest first. */
 export function getRecentSendFailures(): SendFailureRecord[] {

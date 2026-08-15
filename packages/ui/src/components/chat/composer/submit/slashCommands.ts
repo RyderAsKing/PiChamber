@@ -13,7 +13,6 @@
  * open UI rather than producing a message.
  */
 
-import type { I18nKey } from '@/lib/i18n';
 import type { MagicPromptId } from '@/lib/magicPrompts';
 
 /** What a command needs before it can run. */
@@ -26,8 +25,8 @@ export interface MagicPromptCommand {
     visiblePrompt: MagicPromptId;
     /** Magic prompt attached as synthetic instructions for the model. */
     instructionsPrompt: MagicPromptId;
-    /** i18n key for the toast shown when the command fails. */
-    errorToastKey: I18nKey;
+    /** Fallback message shown when the command fails. */
+    errorToastKey: string;
     requires: CommandRequirement;
     /**
      * Turn the text typed after the command name into template variables.
@@ -59,7 +58,7 @@ export const MAGIC_PROMPT_COMMANDS: readonly MagicPromptCommand[] = [
         name: 'summary',
         visiblePrompt: 'session.summary.visible',
         instructionsPrompt: 'session.summary.instructions',
-        errorToastKey: 'chat.chatInput.toast.summaryFailed',
+        errorToastKey: "Failed to generate summary",
         // Summarizing needs a conversation to summarize.
         requires: 'session',
         buildVariables: summaryVariables,
@@ -68,35 +67,35 @@ export const MAGIC_PROMPT_COMMANDS: readonly MagicPromptCommand[] = [
         name: 'plan-feature',
         visiblePrompt: 'session.plan.visible',
         instructionsPrompt: 'session.plan.instructions',
-        errorToastKey: 'chat.chatInput.toast.planFeatureFailed',
+        errorToastKey: "Failed to start feature planning",
         requires: 'session-or-draft',
     },
     {
         name: 'catch-up',
         visiblePrompt: 'session.catchup.visible',
         instructionsPrompt: 'session.catchup.instructions',
-        errorToastKey: 'chat.chatInput.toast.catchUpFailed',
+        errorToastKey: "Failed to catch up",
         requires: 'session-or-draft',
     },
     {
         name: 'debug',
         visiblePrompt: 'session.debug.visible',
         instructionsPrompt: 'session.debug.instructions',
-        errorToastKey: 'chat.chatInput.toast.debugFailed',
+        errorToastKey: "Failed to start debugging",
         requires: 'session-or-draft',
     },
     {
         name: 'weigh',
         visiblePrompt: 'session.weigh.visible',
         instructionsPrompt: 'session.weigh.instructions',
-        errorToastKey: 'chat.chatInput.toast.weighFailed',
+        errorToastKey: "Failed to weigh options",
         requires: 'session-or-draft',
     },
     {
         name: 'explore',
         visiblePrompt: 'session.explore.visible',
         instructionsPrompt: 'session.explore.instructions',
-        errorToastKey: 'chat.chatInput.toast.exploreFailed',
+        errorToastKey: "Failed to start the tour",
         requires: 'session-or-draft',
     },
 ];

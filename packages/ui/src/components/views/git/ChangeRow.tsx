@@ -3,7 +3,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { Icon } from "@/components/icon/Icon";
 import type { GitStatus } from '@/lib/api/types';
-import { useI18n } from '@/lib/i18n';
 
 type ChangeDescriptor = {
   code: string;
@@ -68,7 +67,7 @@ export const ChangeRow = React.memo<ChangeRowProps>(function ChangeRow({
   showRevert = true,
 }) {
   const descriptor = useMemo(() => describeChange(file), [file]);
-  const { t } = useI18n();
+  
   const indicatorLabel = descriptor.description;
   const insertions = stats?.insertions ?? 0;
   const deletions = stats?.deletions ?? 0;
@@ -175,7 +174,7 @@ export const ChangeRow = React.memo<ChangeRowProps>(function ChangeRow({
                 onClick={handleRevertClick}
                 disabled={isReverting}
                 className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label={t('gitView.changes.revertFileAria', { path: file.path })}
+                aria-label={`Revert changes in ${file.path}`}
               >
                 {isReverting ? (
                   <Icon name="loader-4" className="size-3.5 animate-spin" />
@@ -184,7 +183,7 @@ export const ChangeRow = React.memo<ChangeRowProps>(function ChangeRow({
                 )}
               </button>
             </TooltipTrigger>
-            <TooltipContent sideOffset={8}>{t('gitView.changes.revertFileTooltip')}</TooltipContent>
+            <TooltipContent sideOffset={8}>{"Revert changes"}</TooltipContent>
           </Tooltip>
         ) : null}
         {actionAtStart ? null : actionButton}

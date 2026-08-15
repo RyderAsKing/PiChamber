@@ -1118,5 +1118,3 @@ export interface RuntimeAPIs {
   tools: ToolsAPI;
   editor?: EditorAPI;
 }
-
-export type RuntimeAPISelector<TValue> = (apis: RuntimeAPIs) => TValue;

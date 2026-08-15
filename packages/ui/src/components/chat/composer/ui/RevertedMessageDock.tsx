@@ -14,7 +14,6 @@ import type { Part } from '@/lib/chat/types';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
-import { useI18n } from '@/lib/i18n';
 import { isSyntheticPart } from '@/lib/messages/synthetic';
 import { cn } from '@/lib/utils';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -56,7 +55,7 @@ type RevertedMessageDockProps = {
 };
 
 export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.memo(({ sessionId, directory }) => {
-    const { t } = useI18n();
+    
     const revertToMessage = useSessionUIStore((s) => s.revertToMessage);
     const forkFromMessage = useSessionUIStore((s) => s.forkFromMessage);
     const handleSlashRedo = useSessionUIStore((s) => s.handleSlashRedo);
@@ -77,7 +76,7 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
         () => revertedState.records.map((record) => record.message),
         [revertedState],
     );
-    const noTextContent = t('chat.revertPopover.noTextContent');
+    const noTextContent = "No text content";
     const items = React.useMemo(() => {
         if (!revertMessageID) return [];
         return revertedState.records.map((record) => ({
@@ -128,7 +127,7 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
                     aria-expanded={!collapsed}
                 >
                     <span className="typography-ui-label font-medium text-foreground flex-shrink-0">
-                        {t('chat.revertPopover.title')} messages {items.length}
+                        {"Reverted"} messages {items.length}
                     </span>
                     <Icon
                         name="arrow-down-s"
@@ -155,7 +154,7 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
                                     ) : (
                                         <Icon name="git-branch" className="h-3 w-3" aria-hidden="true" />
                                     )}
-                                    {t('chat.revertPopover.fork')}
+                                    {"Fork"}
                                 </Button>
                                 <Button
                                     type="button"
@@ -169,7 +168,7 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
                                     ) : (
                                         <Icon name="arrow-go-forward" className="h-3 w-3" aria-hidden="true" />
                                     )}
-                                    {t('chat.revertPopover.restore')}
+                                    {"Restore"}
                                 </Button>
                             </div>
                         ))}

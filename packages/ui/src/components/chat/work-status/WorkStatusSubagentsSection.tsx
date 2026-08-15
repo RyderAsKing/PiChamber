@@ -1,7 +1,6 @@
 /* eslint-disable */
 // @ts-nocheck
 import React from 'react';
-import { useI18n } from '@/lib/i18n';
 import { useAllLiveSessions, useAllSessionStatuses, useDirectorySync } from '@/sync/sync-context';
 import { useUIStore } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -23,7 +22,7 @@ const SECTION_ID = 'subagents';
  * panel is the only place it becomes visible.
  */
 export const WorkStatusSubagentsSection: React.FC<Props> = ({ sessionId, directory }) => {
-  const { t } = useI18n();
+  
   const isMobile = useUIStore((state) => state.isMobile);
 
   const liveSessions = useAllLiveSessions();
@@ -78,7 +77,7 @@ export const WorkStatusSubagentsSection: React.FC<Props> = ({ sessionId, directo
   return (
     <WorkStatusCollapsibleSection
       id={SECTION_ID}
-      title={t('chat.workStatus.section.subagents')}
+      title={"Subagents"}
       icon="ai-agent"
       defaultExpanded
       summary={busyChildren > 0 ? `${busyChildren}/${children.length}` : children.length}
@@ -87,21 +86,21 @@ export const WorkStatusSubagentsSection: React.FC<Props> = ({ sessionId, directo
         const blocked = (permissions[child.id]?.length ?? 0) > 0;
         const asked = (questions[child.id]?.length ?? 0) > 0;
         const busy = statuses[child.id]?.type === 'busy';
-        const label = child.title?.trim() || t('chat.workStatus.subagent.untitled');
+        const label = child.title?.trim() || "Subagent";
         return (
           <WorkStatusRow
             key={child.id}
             onClick={directory ? () => openChildSession(child.id, label) : undefined}
-            ariaLabel={t('chat.workStatus.action.openSubagent', { name: label })}
+            ariaLabel={`Open ${label}`}
             label={label}
             value={blocked ? (
-              <WorkStatusValue tone="warning">{t('chat.workStatus.subagent.needsPermission')}</WorkStatusValue>
+              <WorkStatusValue tone="warning">{"needs permission"}</WorkStatusValue>
             ) : asked ? (
-              <WorkStatusValue tone="warning">{t('chat.workStatus.subagent.askedQuestion')}</WorkStatusValue>
+              <WorkStatusValue tone="warning">{"asked a question"}</WorkStatusValue>
             ) : busy ? (
-              <WorkStatusValue tone="info">{t('chat.workStatus.subagent.working')}</WorkStatusValue>
+              <WorkStatusValue tone="info">{"is working"}</WorkStatusValue>
             ) : (
-              <WorkStatusValue tone="muted">{t('chat.workStatus.subagent.done')}</WorkStatusValue>
+              <WorkStatusValue tone="muted">{"Done"}</WorkStatusValue>
             )}
           />
         );

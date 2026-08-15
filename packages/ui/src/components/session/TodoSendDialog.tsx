@@ -10,7 +10,6 @@ import {
 import { ThinkingPill } from '@/components/session/ThinkingPill';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { isPrimaryMode } from '@/components/chat/mobileControlsUtils';
-import { useI18n } from '@/lib/i18n';
 
 export type TodoSendExecution = {
   providerID: string;
@@ -40,7 +39,7 @@ const getInitialExecution = (params: {
 });
 
 export function TodoSendDialog(props: TodoSendDialogProps) {
-  const { t } = useI18n();
+  
   const { open, onOpenChange, projectDirectory, submitting = false, onConfirm } = props;
 
   const loadProviders = useConfigStore((state) => state.loadProviders);
@@ -126,7 +125,7 @@ export function TodoSendDialog(props: TodoSendDialogProps) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, handleSubmit]);
 
-  const title = t('rightSidebar.contextNotesTodo.sendDialog.title.newSession');
+  const title = "Send to new session";
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!submitting) onOpenChange(nextOpen); }}>
@@ -137,7 +136,7 @@ export function TodoSendDialog(props: TodoSendDialogProps) {
 
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <span className="typography-meta font-medium text-muted-foreground">{t('sessions.sessionOptions.thinkingLevel.label')}</span>
+            <span className="typography-meta font-medium text-muted-foreground">{"Thinking level"}</span>
             <ThinkingPill
               value={execution.variant}
               options={variantOptions}
@@ -150,12 +149,12 @@ export function TodoSendDialog(props: TodoSendDialogProps) {
         <div className="flex items-center justify-end gap-3">
           <div className="flex items-center justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} disabled={submitting}>
-            {t('rightSidebar.contextNotesTodo.sendDialog.actions.cancel')}
+            {"Cancel"}
           </Button>
           <Button size="sm" onClick={handleSubmit} disabled={!canConfirm || submitting}>
             {submitting
-              ? t('rightSidebar.contextNotesTodo.sendDialog.actions.sending')
-              : t('rightSidebar.contextNotesTodo.sendDialog.actions.send')}
+              ? "Sending"
+              : "Send"}
           </Button>
           </div>
         </div>

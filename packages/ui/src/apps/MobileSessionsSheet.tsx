@@ -40,7 +40,6 @@ import { ScrollShadow } from '@/components/ui/ScrollShadow';
 import { toast } from '@/components/ui';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { getProjectLabel, normalizePath } from './mobilePaths';
-import { useI18n } from '@/lib/i18n';
 import { PROJECT_COLOR_MAP, PROJECT_ICON_MAP, ProjectIconImage } from '@/lib/projectMeta';
 import { cn } from '@/lib/utils';
 import { mergeLiveSessionWithGlobalSession, refreshGlobalSessions, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
@@ -330,8 +329,8 @@ const SessionRow: React.FC<{
   onCancelRename = () => {},
   contextLabel,
 }) => {
-  const { t } = useI18n();
-  const title = (session.title || t('sessions.sidebar.session.untitled')).trim();
+  
+  const title = (session.title || "Untitled Session").trim();
   const timestamp = getSessionTimestamp(session);
   const relativeTime = formatRelativeShort(timestamp);
   const sessionStatus = useGlobalSessionStatus(session.id);
@@ -368,7 +367,7 @@ const SessionRow: React.FC<{
         type="button"
         tabIndex={revealed ? 0 : -1}
         className="flex flex-1 items-center justify-center text-muted-foreground transition-colors active:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
-        aria-label={t('mobile.sessions.renameSessionAria', { title })}
+        aria-label={`Rename ${title}`}
         onClick={onRequestRename}
         style={{ touchAction: 'manipulation' }}
       >
@@ -378,7 +377,7 @@ const SessionRow: React.FC<{
         type="button"
         tabIndex={revealed ? 0 : -1}
         className="flex flex-1 items-center justify-center text-muted-foreground transition-colors active:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
-        aria-label={t('mobile.sessions.archiveSessionAria', { title })}
+        aria-label={`Archive ${title}`}
         onClick={onArchive}
         style={{ touchAction: 'manipulation' }}
       >
@@ -393,7 +392,7 @@ const SessionRow: React.FC<{
             ? 'rounded-lg bg-destructive text-destructive-foreground'
             : 'text-[var(--status-error)] active:opacity-80',
         )}
-        aria-label={confirmingDelete ? t('mobile.sessions.confirmDeleteSessionAria', { title }) : t('mobile.sessions.deleteSessionAria', { title })}
+        aria-label={confirmingDelete ? `Confirm deleting ${title}` : `Delete ${title}`}
         onClick={confirmingDelete ? onConfirmDelete : onRequestDelete}
         style={{ touchAction: 'manipulation' }}
       >
@@ -426,7 +425,7 @@ const SessionRow: React.FC<{
               onToggleChildren?.();
             }}
             aria-expanded={expanded}
-            aria-label={expanded ? t('sessions.sidebar.group.collapseAria', { label: title }) : t('sessions.sidebar.group.expandAria', { label: title })}
+            aria-label={expanded ? `Collapse ${title}` : `Expand ${title}`}
             style={{ touchAction: 'manipulation' }}
           >
             <RiArrowDownSLine className={cn('size-4 transition-transform', !expanded && '-rotate-90')} />
@@ -490,7 +489,7 @@ const SessionRow: React.FC<{
 };
 
 const ShowMoreRow: React.FC<{ indent: number; onClick: () => void }> = ({ indent, onClick }) => {
-  const { t } = useI18n();
+  
   return (
     <button
       type="button"
@@ -499,13 +498,13 @@ const ShowMoreRow: React.FC<{ indent: number; onClick: () => void }> = ({ indent
       style={{ paddingLeft: indent, touchAction: 'manipulation' }}
     >
       <RiArrowDownSLine className="size-4" />
-      <span>{t('mobile.sessions.showMore')}</span>
+      <span>{"Show {count} more"}</span>
     </button>
   );
 };
 
 const ShowFewerRow: React.FC<{ indent: number; onClick: () => void }> = ({ indent, onClick }) => {
-  const { t } = useI18n();
+  
   return (
     <button
       type="button"
@@ -514,7 +513,7 @@ const ShowFewerRow: React.FC<{ indent: number; onClick: () => void }> = ({ inden
       style={{ paddingLeft: indent, touchAction: 'manipulation' }}
     >
       <RiArrowUpSLine className="size-4" />
-      <span>{t('mobile.sessions.hideArchived')}</span>
+      <span>{"Hide archived"}</span>
     </button>
   );
 };
@@ -536,7 +535,7 @@ const SortableProjectRow: React.FC<{
   project: ProjectMeta;
   totalSessions: number;
 }> = ({ project, totalSessions }) => {
-  const { t } = useI18n();
+  
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: project.id });
 
   return (
@@ -552,7 +551,7 @@ const SortableProjectRow: React.FC<{
         <button
           type="button"
           className="flex size-9 shrink-0 cursor-grab touch-none items-center justify-center rounded-xl text-muted-foreground/70 transition-colors hover:text-foreground active:cursor-grabbing"
-          aria-label={t('mobile.sessions.dragHandleAria', { label: project.label })}
+          aria-label={`Drag ${project.label} to reorder`}
           {...attributes}
           {...listeners}
         >
@@ -574,7 +573,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
   variant = 'drawer',
   footer,
 }) => {
-  const { t } = useI18n();
+  
   const liveSessions = useAllLiveSessions();
   const globalActiveSessions = useGlobalSessionsStore((state) => state.activeSessions);
   const pinnedSessionIds = useSessionPinnedStore(React.useCallback(
@@ -818,16 +817,16 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
     setRevealedSessionId(null);
     setConfirmingDeleteSessionId(null);
     const ok = await archiveSession(session.id);
-    if (ok) toast.success(t('sessions.sidebar.session.archive.success'));
-    else toast.error(t('sessions.sidebar.session.archive.error'));
+    if (ok) toast.success("Session archived");
+    else toast.error("Failed to archive session");
   };
 
   const handleConfirmDelete = async (session: Session) => {
     setRevealedSessionId(null);
     setConfirmingDeleteSessionId(null);
     const ok = await deleteSession(session.id);
-    if (ok) toast.success(t('sessions.sidebar.session.delete.success'));
-    else toast.error(t('sessions.sidebar.session.delete.error'));
+    if (ok) toast.success("Session deleted");
+    else toast.error("Failed to delete session");
   };
 
   const handleRequestRename = (sessionId: string) => {
@@ -841,7 +840,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
     try {
       await updateSessionTitle(sessionId, title);
     } catch {
-      toast.error(t('mobile.sessions.renameError'));
+      toast.error("Failed to rename session");
     }
   };
 
@@ -925,7 +924,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
       type="button"
       variant="chip"
       size="sm"
-      aria-label={editingOrder ? t('mobile.sessions.doneEditing') : t('mobile.sessions.editOrder')}
+      aria-label={editingOrder ? "Done" : "Reorder projects"}
       aria-pressed={editingOrder}
       onClick={() => setEditingOrder((value) => !value)}
       style={{ touchAction: 'manipulation' }}
@@ -940,12 +939,12 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
         type="button"
         variant="default"
         size="sm"
-        aria-label={t('mobile.sessions.newChat')}
+        aria-label={"New chat"}
         onClick={handleStartNewChat}
         style={{ touchAction: 'manipulation' }}
       >
         <RiAddLine className="size-4" />
-        {t('mobile.sessions.newChat')}
+        {"New chat"}
       </Button>
     ) : null;
 
@@ -954,8 +953,8 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
       type="button"
       variant="chip"
       size="sm"
-      aria-label={t('sessions.sidebar.header.actions.addProject')}
-      title={t('sessions.sidebar.header.actions.addProject')}
+      aria-label={"Add project"}
+      title={"Add project"}
       onClick={() => setDirectoryDialogOpen(true)}
       style={{ touchAction: 'manipulation' }}
     >
@@ -981,14 +980,14 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={t('mobile.sessions.search.placeholder')}
+              placeholder={"Search sessions"}
               className={cn('h-11 pl-9', query && 'pr-10')}
             />
             {query ? (
               <button
                 type="button"
                 className="absolute right-1.5 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                aria-label={t('mobile.sessions.clearSearchAria')}
+                aria-label={"Clear search"}
                 onClick={() => setQuery('')}
                 style={{ touchAction: 'manipulation' }}
               >
@@ -999,8 +998,8 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
         </div>
         {projectsMeta.length === 0 ? (
           <MobileSessionsEmpty
-            title={t('mobile.sessions.empty.noProjectsTitle')}
-            description={t('mobile.sessions.empty.noProjectsDescription')}
+            title={"No projects yet"}
+            description={"Add a project to start chatting with your code."}
             action={
               <button
                 type="button"
@@ -1008,14 +1007,14 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
                 onClick={() => setDirectoryDialogOpen(true)}
               >
                 <RiFolderAddLine className="size-4" />
-                {t('sessions.sidebar.header.actions.addProject')}
+                {"Add project"}
               </button>
             }
           />
         ) : hasNoMatches ? (
           <MobileSessionsEmpty
-            title={t('mobile.sessions.empty.searchTitle')}
-            description={t('mobile.sessions.empty.searchDescription')}
+            title={"No matches"}
+            description={"Try a different search term."}
           />
         ) : normalizedQuery && !editingOrder ? (
           <div className="flex flex-col gap-3 px-3 pt-2">
@@ -1023,7 +1022,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
               <section>
                 <div className="flex items-center justify-between px-1 pb-1.5">
                   <span className="typography-micro font-semibold uppercase tracking-wider text-muted-foreground">
-                    {t('mobile.sessions.search.section.sessions')}
+                    {"Sessions"}
                   </span>
                   <span className="typography-micro text-muted-foreground tabular-nums">
                     {searchSessionMatches.length}
@@ -1049,7 +1048,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
               <section>
                 <div className="flex items-center justify-between px-1 pb-1.5">
                   <span className="typography-micro font-semibold uppercase tracking-wider text-muted-foreground">
-                    {t('mobile.sessions.search.section.projects')}
+                    {"Projects"}
                   </span>
                   <span className="typography-micro text-muted-foreground tabular-nums">
                     {searchProjectMatches.length}
@@ -1084,7 +1083,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
         ) : editingOrder ? (
           <div className="flex flex-col gap-2 px-3 py-2">
             <p className="px-1 typography-micro text-muted-foreground">
-              {t('mobile.sessions.editOrderHint')}
+              {"Drag the handle to reorder projects. Tap a project to show its worktrees and drag those too. Tap the check to finish."}
             </p>
             <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleReorderDragEnd}>
               <SortableContext
@@ -1125,7 +1124,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
                           type="button"
                           tabIndex={revealedRowId === `project:${node.project.id}` ? 0 : -1}
                           className="flex flex-1 items-center justify-center text-muted-foreground transition-colors active:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
-                          aria-label={t('mobile.sessions.editProjectAria', { label: node.project.label })}
+                          aria-label={`Edit ${node.project.label}`}
                           onClick={() => {
                             setRevealedRowId(null);
                             setEditingProjectId(node.project.id);
@@ -1144,14 +1143,14 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
                               : 'text-[var(--status-error)] active:opacity-80',
                           )}
                           aria-label={confirmingRemoveProjectId === node.project.id
-                            ? t('mobile.sessions.confirmRemoveProjectAria', { label: node.project.label })
-                            : t('mobile.sessions.removeProjectAria', { label: node.project.label })}
+                            ? `Confirm removing ${node.project.label}`
+                            : `Remove ${node.project.label}`}
                           onClick={() => {
                             if (confirmingRemoveProjectId === node.project.id) {
                               setRevealedRowId(null);
                               setConfirmingRemoveProjectId(null);
                               removeProject(node.project.id);
-                              toast.success(t('mobile.sessions.toast.projectRemoved', { label: node.project.label }));
+                              toast.success(`Removed ${node.project.label}`);
                               return;
                             }
                             setConfirmingRemoveProjectId(node.project.id);
@@ -1177,8 +1176,8 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
                         aria-expanded={projectExpanded}
                         aria-label={
                           projectExpanded
-                            ? t('sessions.sidebar.group.collapseAria', { label: node.project.label })
-                            : t('sessions.sidebar.group.expandAria', { label: node.project.label })
+                            ? `Collapse ${node.project.label}`
+                            : `Expand ${node.project.label}`
                         }
                         style={{ touchAction: 'manipulation' }}
                       >
@@ -1186,7 +1185,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
                         <span className="block min-w-0 flex-1 truncate typography-ui-label font-semibold text-foreground">
                           {node.project.label}
                         </span>
-                        {node.isActive ? <ActiveDot ariaLabel={t('mobile.sessions.activeProjectAria')} /> : null}
+                        {node.isActive ? <ActiveDot ariaLabel={"Active project"} /> : null}
                         <span className="shrink-0 typography-micro text-muted-foreground tabular-nums">
                           {node.totalSessions}
                         </span>
@@ -1220,7 +1219,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
               size="lg"
               className="min-w-0 shrink justify-start"
               onClick={footer.onOpenInstances}
-              aria-label={t('mobile.menu.instances')}
+              aria-label={"Instances"}
               style={{ touchAction: 'manipulation' }}
             >
               <Icon name="server" className="size-[18px]" />
@@ -1237,8 +1236,8 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
                 size="lg"
                 className="w-10 px-0"
                 onClick={footer.onOpenUpdate}
-                aria-label={t('mobile.menu.update')}
-                title={t('mobile.menu.update')}
+                aria-label={"Update"}
+                title={"Update"}
                 style={{ touchAction: 'manipulation' }}
               >
                 <Icon name="download" className="size-5" />
@@ -1251,8 +1250,8 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
               size="lg"
               className="w-10 px-0"
               onClick={footer.onOpenSettings}
-              aria-label={t('mobile.menu.settings')}
-              title={t('mobile.menu.settings')}
+              aria-label={"Settings"}
+              title={"Settings"}
               style={{ touchAction: 'manipulation' }}
             >
               <Icon name="settings-3" className="size-5" />
@@ -1293,7 +1292,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
     return (
       <aside className="flex h-full w-full flex-col bg-[var(--surface-base)]">
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-border/70 px-4">
-          <h1 className="typography-ui-label font-bold text-foreground">{t('mobile.sessions.sheet.title')}</h1>
+          <h1 className="typography-ui-label font-bold text-foreground">{"Sessions"}</h1>
           <div className="flex items-center gap-1">{trailingActions}</div>
         </header>
         {surfaceContent}
@@ -1315,13 +1314,13 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
               type="button"
               variant="chip"
               size="sm"
-              aria-label={t('mobile.sessions.closeSheetAria')}
+              aria-label={"Close sessions and projects"}
               onClick={() => onOpenChange(false)}
               style={{ touchAction: 'manipulation' }}
             >
               <RiCloseLine className="size-4" />
             </Button>
-            <h1 className="typography-ui-label font-bold text-foreground">{t('mobile.sessions.sheet.title')}</h1>
+            <h1 className="typography-ui-label font-bold text-foreground">{"Sessions"}</h1>
           </div>
           <div className="flex items-center gap-1">{trailingActions}</div>
         </header>

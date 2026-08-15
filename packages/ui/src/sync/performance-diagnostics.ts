@@ -116,10 +116,6 @@ export function countSyncPersistenceSerialization(serialized: string): void {
   counters.persistenceUtf8Bytes += new TextEncoder().encode(serialized).byteLength
 }
 
-export function countSyncPersistenceStorageWrite(): void {
-  if (activeCounters) activeCounters.persistenceStorageWrites += 1
-}
-
 if (typeof window !== "undefined") {
   window.__openchamberSyncPerformance = {
     getSnapshot: getSyncPerformanceDiagnostics,

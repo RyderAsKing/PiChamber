@@ -8,7 +8,6 @@ import { useSkillsStore } from '@/stores/useSkillsStore';
 import { Icon } from "@/components/icon/Icon";
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { getDirectoryForFilePath } from '@/lib/path-utils';
-import { useI18n } from '@/lib/i18n';
 import {
     buildAgentMentionUrl,
     parseSkillHref,
@@ -43,7 +42,7 @@ const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMenti
     const skills = useSkillsStore((state) => state.skills);
     const openContextFile = useUIStore((state) => state.openContextFile);
     const effectiveDirectory = useEffectiveDirectory();
-    const { t } = useI18n();
+    
     const normalizedRenderingMode = normalizeUserMessageRenderingMode(userMessageRenderingMode);
     const isCollapsed = collapsibleUserMessages && !isExpanded;
     const textRef = React.useRef<HTMLDivElement>(null);
@@ -204,7 +203,7 @@ const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMenti
                     type="button"
                     onClick={handleCollapse}
                     className="absolute top-0 right-0 z-10 flex items-center justify-center rounded-sm bg-[var(--surface-elevated)] p-0.5 text-[var(--surface-mutedForeground)] hover:text-[var(--surface-foreground)] hover:bg-[var(--interactive-hover)] transition-colors"
-                    aria-label={t('chat.message.userText.collapseAria')}
+                    aria-label={"Collapse user message"}
                 >
                     <Icon name="arrow-up-s" className="h-3.5 w-3.5" />
                 </button>
@@ -253,7 +252,7 @@ const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMenti
                     {terminalContextState.contexts.map((context, index) => (
                         <details key={`${context.terminalLabel}-${context.startLine}-${index}`} className="rounded-md border border-[var(--interactive-border)] bg-[var(--surface-elevated)] px-2 py-1.5 text-xs">
                             <summary className="cursor-pointer text-[var(--surface-mutedForeground)]">
-                                {t('chat.message.terminalContext', { terminal: context.terminalLabel, start: context.startLine, end: context.endLine })}
+                                {`${context.terminalLabel}, lines ${context.startLine}-${context.endLine}`}
                             </summary>
                             <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[var(--surface-foreground)]">{context.text}</pre>
                         </details>

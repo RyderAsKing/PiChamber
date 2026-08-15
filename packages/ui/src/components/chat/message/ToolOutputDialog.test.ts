@@ -13,8 +13,7 @@ describe('getMermaidDataUrlSourcePromise', () => {
             (error) => {
                 expect(error).toBeInstanceOf(Error);
                 expect(error).toBeInstanceOf(MermaidLoadFailure);
-                expect(error.key).toBe('chat.toolOutputDialog.mermaid.dataUrlMalformed');
-                expect(error.params).toBe(undefined);
+                expect(error.message).toBe('The Mermaid data URL is malformed.');
             },
         );
     });

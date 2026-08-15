@@ -25,7 +25,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { I18nProvider } from "@/lib/i18n";
 import { NumberInput } from "./number-input";
 
 // --- Minimal DOM stub ----------------------------------------------------
@@ -277,17 +276,13 @@ function mountControlled(props: ControlledProps): ControlledHandle {
   const recorded: number[] = [];
 
   const Controlled = () =>
-    React.createElement(
-      I18nProvider,
-      null,
-      React.createElement(NumberInput, {
+    React.createElement(NumberInput, {
         value: currentValue,
         min: props.min,
         max: props.max,
         step: props.step,
         onValueChange: (v: number) => recorded.push(v),
-      }),
-    );
+      });
 
   act(() => {
     root.render(React.createElement(Controlled));
@@ -427,17 +422,13 @@ function withHandle<T>(props: ControlledProps, body: (h: ControlledHandle) => T)
 describe("NumberInput rapid-click stepper", () => {
   test("markup: decrease and increase buttons render with correct aria-labels", () => {
     const markup = renderToStaticMarkup(
-      React.createElement(
-        I18nProvider,
-        null,
-        React.createElement(NumberInput, {
+      React.createElement(NumberInput, {
           value: 100,
           min: 0,
           max: 200,
           step: 5,
           onValueChange: () => {},
-        }),
-      ),
+        })
     );
     expect(markup).toContain('aria-label="Decrease value"');
     expect(markup).toContain('aria-label="Increase value"');

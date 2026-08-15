@@ -14,7 +14,6 @@ import { cn } from '@/lib/utils';
 import { PROJECT_COLOR_MAP, PROJECT_ICON_MAP, ProjectIconImage } from '@/lib/projectMeta';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
-import { useI18n } from '@/lib/i18n';
 
 export type SortableDragHandleProps = {
   listeners: ReturnType<typeof useSortable>['listeners'];
@@ -147,7 +146,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
   setOpenSidebarMenuKey,
   statusIndicator = null,
 }) => {
-  const { t } = useI18n();
+  
   const stickyZoneHeaders = useSessionDisplayStore((state) => state.stickyZoneHeaders);
   const {
     attributes,
@@ -173,16 +172,16 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
       {showCreateButtons && !hideDirectoryControls && onNewSession && (
         <Item onClick={onNewSession}>
           <Icon name="add" className="mr-1.5 h-4 w-4" />
-          {t('sessions.sidebar.project.actions.newSession')}
+          {"New session"}
         </Item>
       )}
       <Item onClick={onRenameStart}>
         <Icon name="pencil-ai" className="mr-1.5 h-4 w-4" />
-        {t('sessions.sidebar.project.actions.edit')}
+        {"Edit"}
       </Item>
       <Item onClick={onClose} className="text-destructive focus:text-destructive">
         <Icon name="close" className="mr-1.5 h-4 w-4" />
-        {t('sessions.sidebar.project.actions.closeProject')}
+        {"Close project"}
       </Item>
     </>
   );
@@ -314,13 +313,13 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                         'inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 hover:text-foreground transition-opacity',
                           alwaysShowActions ? 'opacity-100' : 'opacity-0 pointer-events-none group-hover/project:opacity-100 group-hover/project:pointer-events-auto group-focus-within/project:opacity-100 group-focus-within/project:pointer-events-auto',
                         )}
-                        aria-label={t('sessions.sidebar.project.actions.newSession')}
+                        aria-label={"New session"}
                       >
                         <Icon name="add" className="h-4 w-4" />
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" sideOffset={4}>
-                      <p>{t('sessions.sidebar.project.actions.newSession')}</p>
+                      <p>{"New session"}</p>
                     </TooltipContent>
                   </Tooltip>
                 ) : null}
@@ -341,7 +340,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                               ? 'opacity-100'
                               : 'opacity-0 pointer-events-none group-hover/project:opacity-100 group-hover/project:pointer-events-auto group-focus-within/project:opacity-100 group-focus-within/project:pointer-events-auto',
                         )}
-                        aria-label={t('sessions.sidebar.project.actions.projectMenu')}
+                        aria-label={"Project menu"}
                         onPointerDown={handleMenuTriggerPointerDown}
                         onMouseDown={handleMenuTriggerMouseDown}
                         onClick={handleMenuTriggerClick}
@@ -371,16 +370,16 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                           alwaysShowActions ? 'opacity-100' : 'opacity-0 pointer-events-none group-hover/project:opacity-100 group-hover/project:pointer-events-auto group-focus-within/project:opacity-100 group-focus-within/project:pointer-events-auto',
                         )}
                         aria-label={isRepo
-                          ? t('sessions.sidebar.project.actions.newDraftSession')
-                          : t('sessions.sidebar.project.actions.newSession')}
+                          ? "New draft session"
+                          : "New session"}
                       >
                         <Icon name="add" className="h-4 w-4" />
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" sideOffset={4}>
                       <p>{isRepo
-                        ? t('sessions.sidebar.project.actions.newDraftSession')
-                        : t('sessions.sidebar.project.actions.newSession')}</p>
+                        ? "New draft session"
+                        : "New session"}</p>
                     </TooltipContent>
                   </Tooltip>
                 </div>

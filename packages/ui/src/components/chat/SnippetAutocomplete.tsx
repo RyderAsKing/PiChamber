@@ -4,7 +4,6 @@ import { useSnippetsStore } from '@/stores/useSnippetsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Icon } from '@/components/icon/Icon';
-import { useI18n } from '@/lib/i18n';
 import type { Snippet } from '@/types/snippet';
 import { useMobileAutocompleteMaxHeight } from './useMobileAutocompleteMaxHeight';
 
@@ -29,7 +28,6 @@ export const SnippetAutocomplete = React.forwardRef<SnippetAutocompleteHandle, S
   onClose,
   style,
 }, ref) => {
-  const { t } = useI18n();
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const isMobile = useUIStore((state) => state.isMobile);
   const mobileMaxHeight = useMobileAutocompleteMaxHeight(containerRef, isMobile);
@@ -132,7 +130,7 @@ export const SnippetAutocomplete = React.forwardRef<SnippetAutocompleteHandle, S
           onMouseMove={() => setSelectedIndex(0)}
         >
           <Icon name="add" className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="font-medium text-foreground">{t('chat.snippetAutocomplete.action.addNew')}</span>
+          <span className="font-medium text-foreground">{"+ Add new snippet"}</span>
         </div>
         {filteredSnippets.length ? filteredSnippets.map((snippet, index) => (
           <div
@@ -145,7 +143,7 @@ export const SnippetAutocomplete = React.forwardRef<SnippetAutocompleteHandle, S
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="font-semibold truncate">/{snippet.name}</span>
-                <span className="text-[10px] leading-none uppercase font-bold tracking-tight px-1.5 py-1 rounded border flex-shrink-0 bg-[var(--surface-muted)] text-muted-foreground border-[var(--interactive-border)]/60">{t(`snippets.source.${snippet.source}`)}</span>
+                <span className="text-[10px] leading-none uppercase font-bold tracking-tight px-1.5 py-1 rounded border flex-shrink-0 bg-[var(--surface-muted)] text-muted-foreground border-[var(--interactive-border)]/60">{(snippet.source === 'global' ? 'global' : 'project')}</span>
               </div>
               {!isMobile && (
                 <div className="typography-meta text-muted-foreground mt-0.5 truncate">{snippetPreview(snippet)}</div>
@@ -153,11 +151,11 @@ export const SnippetAutocomplete = React.forwardRef<SnippetAutocompleteHandle, S
             </div>
           </div>
         )) : (
-          <div className="px-3 py-2 typography-ui-label text-muted-foreground">{t('chat.snippetAutocomplete.empty')}</div>
+          <div className="px-3 py-2 typography-ui-label text-muted-foreground">{"No snippets found"}</div>
         )}
       </ScrollableOverlay>
       {!isMobile && (
-        <div className="px-3 pt-1 pb-1.5 border-t typography-meta text-muted-foreground">{t('chat.snippetAutocomplete.footer')}</div>
+        <div className="px-3 pt-1 pb-1.5 border-t typography-meta text-muted-foreground">{"↑↓ navigate • Enter select • Esc close"}</div>
       )}
     </div>
   );

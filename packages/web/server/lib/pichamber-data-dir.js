@@ -41,7 +41,9 @@ function resolvePiChamberDataDir(deps = defaultDeps) {
   const homedir = deps?.homedir ?? defaultDeps.homedir;
   const pathModule = deps?.path ?? defaultDeps.path;
 
-  const override = typeof env?.OPENCHAMBER_DATA_DIR === 'string' ? env.OPENCHAMBER_DATA_DIR.trim() : '';
+  const override = typeof env?.PICHAMBER_DATA_DIR === 'string'
+    ? env.PICHAMBER_DATA_DIR.trim()
+    : (typeof env?.OPENCHAMBER_DATA_DIR === 'string' ? env.OPENCHAMBER_DATA_DIR.trim() : '');
   if (override.length > 0) {
     return pathModule.resolve(override);
   }

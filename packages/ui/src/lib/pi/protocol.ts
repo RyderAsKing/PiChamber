@@ -201,9 +201,6 @@ export interface PiPromptResult {
   messageId: string;
 }
 
-export type PiSteerInput = PiPromptInput;
-export type PiFollowUpInput = PiPromptInput;
-
 export interface PiAbortInput {
   sessionId: PiSessionId;
 }

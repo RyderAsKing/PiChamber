@@ -1,7 +1,6 @@
 import React, { useEffect } from 'react';
 
 import { Icon } from '@/components/icon/Icon';
-import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { getDesktopWindowControlsOrder, invokeDesktop } from '@/lib/desktop';
 import type { DesktopWindowControlAction, DesktopWindowControlsSide } from '@/lib/desktop';
@@ -38,16 +37,16 @@ type TrafficLightButtonProps = {
 };
 
 const TrafficLightButton: React.FC<TrafficLightButtonProps> = ({ action, isMaximized, onActivate }) => {
-  const { t } = useI18n();
+  
   const fill = TRAFFIC_LIGHT_FILL[action];
   const label =
     action === 'close'
-      ? t('header.windowControls.close')
+      ? "Close window"
       : action === 'minimize'
-        ? t('header.windowControls.minimize')
+        ? "Minimize window"
         : isMaximized
-          ? t('header.windowControls.restore')
-          : t('header.windowControls.maximize');
+          ? "Restore window"
+          : "Maximize window";
   return (
     <button
       type="button"
@@ -80,7 +79,7 @@ export const WindowsWindowControls = React.memo(function WindowsWindowControls({
   visible,
   position = 'right',
 }: WindowsWindowControlsProps) {
-  const { t } = useI18n();
+  
   const [isMaximized, setIsMaximized] = React.useState(false);
   const desktopWindowControlsStyle = useUIStore((state) => state.desktopWindowControlsStyle);
 
@@ -144,7 +143,7 @@ export const WindowsWindowControls = React.memo(function WindowsWindowControls({
           'app-region-no-drag group/wctl flex h-8 shrink-0 items-center',
           isLeft ? 'mr-1' : 'ml-1',
         )}
-        aria-label={t('header.windowControls.groupAria')}
+        aria-label={"Window controls"}
       >
         {order.map((action) => (
           <TrafficLightButton key={action} action={action} isMaximized={isMaximized} onActivate={activate} />
@@ -174,8 +173,8 @@ export const WindowsWindowControls = React.memo(function WindowsWindowControls({
           type="button"
           className={buttonClassName}
           onClick={() => { void invokeDesktop('desktop_minimize_current_window'); }}
-          title={t('header.windowControls.minimize')}
-          aria-label={t('header.windowControls.minimize')}
+          title={"Minimize window"}
+          aria-label={"Minimize window"}
         >
           <Icon name="subtract" className="h-4 w-4" />
         </button>
@@ -193,8 +192,8 @@ export const WindowsWindowControls = React.memo(function WindowsWindowControls({
               .then((state) => setIsMaximized(Boolean(state?.maximized)))
               .catch(() => {});
           }}
-          title={isMaximized ? t('header.windowControls.restore') : t('header.windowControls.maximize')}
-          aria-label={isMaximized ? t('header.windowControls.restore') : t('header.windowControls.maximize')}
+          title={isMaximized ? "Restore window" : "Maximize window"}
+          aria-label={isMaximized ? "Restore window" : "Maximize window"}
         >
           <Icon name={isMaximized ? 'fullscreen-exit' : 'checkbox-blank'} className="h-3.5 w-3.5" />
         </button>
@@ -207,8 +206,8 @@ export const WindowsWindowControls = React.memo(function WindowsWindowControls({
         type="button"
         className={cn(buttonClassName, 'hover:bg-status-error hover:text-status-error-foreground')}
         onClick={() => { void invokeDesktop('desktop_close_current_window'); }}
-        title={t('header.windowControls.close')}
-        aria-label={t('header.windowControls.close')}
+        title={"Close window"}
+        aria-label={"Close window"}
       >
         <Icon name="close" className="h-4 w-4" />
       </button>
@@ -216,7 +215,7 @@ export const WindowsWindowControls = React.memo(function WindowsWindowControls({
   };
 
   return (
-    <div className={containerClassName} aria-label={t('header.windowControls.groupAria')}>
+    <div className={containerClassName} aria-label={"Window controls"}>
       {order.map(renderControl)}
     </div>
   );

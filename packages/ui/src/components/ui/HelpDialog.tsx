@@ -14,18 +14,17 @@ import {
   getModifierLabel,
   formatShortcutForDisplay,
 } from "@/lib/shortcuts";
-import { useI18n, type I18nKey } from "@/lib/i18n";
 import type { IconName } from "@/components/icon/icons";
 
 type ShortcutItem = {
   id?: string;
   keys: string | string[];
-  descriptionKey: I18nKey;
+  descriptionKey: string;
   icon: IconName | null;
 };
 
 type ShortcutSection = {
-  categoryKey: I18nKey;
+  categoryKey: string;
   items: ShortcutItem[];
 };
 
@@ -35,7 +34,6 @@ const renderShortcut = (id: string, fallbackCombo: string, overrides: Record<str
 };
 
 export const HelpDialog: React.FC = () => {
-  const { t } = useI18n();
   const isHelpDialogOpen = useUIStore((state) => state.isHelpDialogOpen);
   const setHelpDialogOpen = useUIStore((state) => state.setHelpDialogOpen);
   const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
@@ -43,87 +41,87 @@ export const HelpDialog: React.FC = () => {
 
   const shortcuts: ShortcutSection[] = [
     {
-      categoryKey: "helpDialog.section.navigationCommands",
+      categoryKey: "Navigation & Commands",
       items: [
         {
           id: 'open_command_palette',
-          descriptionKey: "helpDialog.item.openCommandPalette",
+          descriptionKey: "Open Command Palette",
           icon: "command",
           keys: '',
         },
         {
           id: 'open_help',
-          descriptionKey: "helpDialog.item.showKeyboardShortcuts",
+          descriptionKey: "Show Keyboard Shortcuts (this dialog)",
           icon: "question",
           keys: '',
         },
         {
           id: 'toggle_sidebar',
-          descriptionKey: "helpDialog.item.toggleSessionSidebar",
+          descriptionKey: "Toggle Session Sidebar",
           icon: "layout-left",
           keys: '',
         },
         {
           id: 'add_selection_to_chat',
-          descriptionKey: "helpDialog.item.addSelectionToChat",
+          descriptionKey: "Add Selection to Chat",
           icon: "add",
           keys: '',
         },
         {
           id: 'open_model_selector',
-          descriptionKey: "helpDialog.item.openModelSelector",
+          descriptionKey: "Open Model Selector",
           icon: "ai-generate-2",
           keys: '',
         },
         {
           keys: ["↑↓"],
-          descriptionKey: "helpDialog.item.navigateModels",
+          descriptionKey: "Navigate Models (in picker)",
           icon: "ai-generate-2",
         },
         {
           keys: ["←→"],
-          descriptionKey: "helpDialog.item.adjustThinkingMode",
+          descriptionKey: "Adjust Thinking Mode (in picker, when supported)",
           icon: "brain-ai-3",
         },
         {
           id: 'cycle_thinking_variant',
-          descriptionKey: "helpDialog.item.cycleThinkingVariant",
+          descriptionKey: "Cycle Thinking Variant (global shortcut)",
           icon: "brain-ai-3",
           keys: '',
         },
         {
           keys: [`Shift + Alt + ${mod} + N`],
-          descriptionKey: "helpDialog.item.newWindow",
+          descriptionKey: "New Window (desktop only)",
           icon: "window",
         },
       ],
     },
     {
-      categoryKey: "helpDialog.section.sessionManagement",
+      categoryKey: "Session Management",
       items: [
         {
           id: 'new_chat',
-          descriptionKey: "helpDialog.item.createNewSession",
+          descriptionKey: "Create New Session",
           icon: "add",
           keys: '',
         },
-        { id: 'focus_input', descriptionKey: "helpDialog.item.focusChatInput", icon: "text", keys: '' },
+        { id: 'focus_input', descriptionKey: "Focus Chat Input", icon: "text", keys: '' },
         {
           id: 'toggle_prompt_navigator',
-          descriptionKey: "helpDialog.item.togglePromptNavigator",
+          descriptionKey: "Toggle Prompt Navigator",
           icon: "list-unordered",
           keys: '',
         },
         {
           id: 'abort_run',
-          descriptionKey: "helpDialog.item.abortActiveRun",
+          descriptionKey: "Abort active run (double press)",
           icon: "close-circle",
           keys: '',
         },
       ],
     },
     {
-      categoryKey: "helpDialog.section.panels",
+      categoryKey: "Panels",
       items: [
         {
           id: 'toggle_right_sidebar',
@@ -157,17 +155,17 @@ export const HelpDialog: React.FC = () => {
         },
         {
           keys: [`${mod} + 1...0`],
-          descriptionKey: "helpDialog.item.switchContextSurface",
+          descriptionKey: "Switch Context Panel Surface (number key)",
           icon: "layout-right",
         },
       ],
     },
     {
-      categoryKey: "helpDialog.section.interface",
+      categoryKey: "Interface",
       items: [
         {
           id: 'cycle_theme',
-          descriptionKey: "helpDialog.item.cycleTheme",
+          descriptionKey: "Cycle Theme (Light → Dark → System)",
           icon: "palette",
           keys: '',
         },
@@ -185,7 +183,7 @@ export const HelpDialog: React.FC = () => {
         },
         {
           id: 'open_settings',
-          descriptionKey: "helpDialog.item.openSettings",
+          descriptionKey: "Open Settings",
           icon: "settings-3",
           keys: '',
         },
@@ -199,10 +197,10 @@ export const HelpDialog: React.FC = () => {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Icon name="command" className="h-5 w-5" />
-            {t('helpDialog.title')}
+            {"Keyboard Shortcuts"}
           </DialogTitle>
           <DialogDescription>
-            {t('helpDialog.description')}
+            {"Use these keyboard shortcuts to navigate PiChamber efficiently"}
           </DialogDescription>
         </DialogHeader>
 
@@ -211,7 +209,7 @@ export const HelpDialog: React.FC = () => {
             {shortcuts.map((section) => (
               <div key={section.categoryKey}>
                 <h3 className="typography-meta font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                  {t(section.categoryKey)}
+                  {section.categoryKey}
                 </h3>
                 <div className="space-y-1">
                   {section.items
@@ -230,7 +228,7 @@ export const HelpDialog: React.FC = () => {
                             <Icon name={shortcut.icon} className="h-3.5 w-3.5 text-muted-foreground" />
                           )}
                           <span className="typography-meta">
-                            {t(shortcut.descriptionKey)}
+                            {shortcut.descriptionKey}
                           </span>
                         </div>
                         <div className="flex items-center gap-1">
@@ -238,7 +236,7 @@ export const HelpDialog: React.FC = () => {
                             <React.Fragment key={`${keyCombo}-${i}`}>
                               {i > 0 && (
                                 <span className="typography-meta text-muted-foreground mx-1">
-                                  {t('helpDialog.keyCombiner.or')}
+                                  {"or"}
                                 </span>
                               )}
                               <kbd className="inline-flex items-center gap-1 px-1.5 py-0.5 typography-meta font-mono bg-muted rounded border border-border/20">
@@ -259,18 +257,16 @@ export const HelpDialog: React.FC = () => {
             <div className="flex items-start gap-2">
               <Icon name="question" className="h-3.5 w-3.5 text-muted-foreground mt-0.5" />
               <div className="typography-meta text-muted-foreground">
-                <p className="font-medium mb-1">{t('helpDialog.proTips.title')}</p>
+                <p className="font-medium mb-1">{"Pro Tips:"}</p>
                 <ul className="space-y-0.5 typography-meta">
                   <li>
-                    • {t('helpDialog.proTips.commandPalette', {
-                      shortcut: renderShortcut('open_command_palette', `${mod} P`, shortcutOverrides),
-                    })}
+                    • {`Use Command Palette (${renderShortcut('open_command_palette', `${mod} P`, shortcutOverrides)}) to quickly access all actions`}
                   </li>
                   <li>
-                    • {t('helpDialog.proTips.recentSessions')}
+                    • {"The 5 most recent sessions appear in the Command Palette"}
                   </li>
                   <li>
-                    • {t('helpDialog.proTips.themeCycling')}
+                    • {"Theme cycling remembers your preference across sessions"}
                   </li>
                 </ul>
               </div>

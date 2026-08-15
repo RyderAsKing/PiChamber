@@ -10,5 +10,3 @@ export interface PermissionRequest {
     callID: string;
   };
 }
-
-export type PermissionResponse = 'once' | 'always' | 'reject';

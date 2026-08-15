@@ -108,39 +108,6 @@ const ACCEPTED_ATTACHMENT_TYPES = [
 
 export const ATTACHMENT_ACCEPT = ACCEPTED_ATTACHMENT_TYPES.join(",")
 
-const PICKER_MIME_EXTENSIONS = new Map<string, string>([
-  ["image/png", "png"],
-  ["image/jpeg", "jpg"],
-  ["image/gif", "gif"],
-  ["image/webp", "webp"],
-  ["image/heic", "heic"],
-  ["image/heif", "heif"],
-  ["application/pdf", "pdf"],
-  ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"],
-  ["application/vnd.openxmlformats-officedocument.presentationml.presentation", "pptx"],
-  ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx"],
-  ["application/vnd.oasis.opendocument.text", "odt"],
-  ["application/vnd.oasis.opendocument.presentation", "odp"],
-  ["application/vnd.oasis.opendocument.spreadsheet", "ods"],
-  ["application/json", "json"],
-  ["application/ld+json", "jsonld"],
-  ["application/toml", "toml"],
-  ["application/x-toml", "toml"],
-  ["application/x-yaml", "yaml"],
-  ["application/xml", "xml"],
-  ["application/yaml", "yaml"],
-])
-const TEXT_ATTACHMENT_EXTENSIONS = ["txt", "text", "md", "markdown", "log", "csv"]
-
-export const ACCEPTED_ATTACHMENT_EXTENSIONS = Array.from(new Set(
-  ACCEPTED_ATTACHMENT_TYPES.flatMap((type) => {
-    if (type.startsWith(".")) return [type.slice(1)]
-    if (type === "text/*") return TEXT_ATTACHMENT_EXTENSIONS
-    const extension = PICKER_MIME_EXTENSIONS.get(type)
-    return extension ? [extension] : []
-  })
-)).sort()
-
 type OpenCodeAttachmentMimeType =
   | "image/png"
   | "image/jpeg"

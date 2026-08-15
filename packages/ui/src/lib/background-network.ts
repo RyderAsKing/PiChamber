@@ -54,8 +54,3 @@ export const runBackgroundNetworkTask = async <T>(task: () => Promise<T>): Promi
 }
 
 /** Test-only visibility into the gate. */
-export const getBackgroundNetworkState = () => ({
-  active: backgroundNetworkActive,
-  waiting: backgroundNetworkWaiters.length,
-  limit: BACKGROUND_NETWORK_CONCURRENCY,
-})

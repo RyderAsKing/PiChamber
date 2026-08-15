@@ -1,8 +1,7 @@
 import type { Message, Part } from '@/lib/chat/types';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
-import { getCurrentIntlLocale } from '@/lib/i18n';
 import { openDesktopPath, revealDesktopPath, saveDesktopMarkdownFile } from '@/lib/desktop';
-import { getRevealLabelKey } from '@/lib/utils';
+import { getRevealLabel } from '@/lib/utils';
 
 type SessionMessageRecord = { info: Message; parts: Part[] };
 
@@ -23,7 +22,7 @@ function formatTimestamp(timestamp: number | undefined): string {
     return '';
   }
 
-  const monthPart = date.toLocaleString(getCurrentIntlLocale(), { month: 'short' });
+  const monthPart = date.toLocaleString('en-US', { month: 'short' });
   const dayPart = date.getDate();
   const yearPart = date.getFullYear();
   const hours = String(date.getHours()).padStart(2, '0');
@@ -158,8 +157,8 @@ export async function revealExportedMarkdown(path: string): Promise<boolean> {
   return openDesktopPath(path);
 }
 
-export function getExportRevealLabelKey() {
-  return getRevealLabelKey();
+export function getExportRevealLabel() {
+  return getRevealLabel();
 }
 
 export function buildExportFilename(sessionTitle?: string | null): string {

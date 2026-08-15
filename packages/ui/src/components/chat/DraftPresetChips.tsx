@@ -28,7 +28,6 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { useI18n } from '@/lib/i18n';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useDeviceInfo } from '@/lib/device';
 import { cn } from '@/lib/utils';
@@ -58,10 +57,10 @@ const TRASH_DROPPABLE_ID = '__draft-starter-trash__';
 const ROUND_ICON_BUTTON_CLASS =
     'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition-colors';
 
-const PICKER_SECTIONS: { key: PinnableSection; headingKey: 'chat.draftStarters.sectionBuiltIn' | 'chat.draftStarters.sectionCommands' | 'chat.draftStarters.sectionSkills' }[] = [
-    { key: 'built-in', headingKey: 'chat.draftStarters.sectionBuiltIn' },
-    { key: 'command', headingKey: 'chat.draftStarters.sectionCommands' },
-    { key: 'skill', headingKey: 'chat.draftStarters.sectionSkills' },
+const PICKER_SECTIONS: { key: PinnableSection; headingKey: string }[] = [
+    { key: 'built-in', headingKey: 'Built-in' },
+    { key: 'command', headingKey: 'Commands' },
+    { key: 'skill', headingKey: 'Skills' },
 ];
 
 const SortableChip: React.FC<{
@@ -71,7 +70,6 @@ const SortableChip: React.FC<{
     /** Hide the per-chip hover "x" (mobile uses the trash drop-zone instead). */
     hideRemove?: boolean;
 }> = ({ item, onSubmit, onRemove, hideRemove }) => {
-    const { t } = useI18n();
     const { currentTheme } = useThemeSystem();
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
     const chipStyle: React.CSSProperties = {
@@ -102,8 +100,8 @@ const SortableChip: React.FC<{
                 <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); onRemove(); }}
-                    aria-label={t('chat.draftStarters.remove')}
-                    title={t('chat.draftStarters.remove')}
+                    aria-label={"Remove"}
+                    title={"Remove"}
                     className="absolute -right-1.5 -top-1.5 hidden h-4 w-4 items-center justify-center rounded-full border text-muted-foreground shadow-sm hover:text-foreground group-hover/chip:flex"
                     style={chipStyle}
                 >
@@ -139,7 +137,6 @@ const StarterGroup: React.FC<{
  * add ("+") button so the swap reads as the same affordance toggling purpose.
  */
 const TrashDropZone: React.FC = () => {
-    const { t } = useI18n();
     const { currentTheme } = useThemeSystem();
     const { setNodeRef, isOver } = useDroppable({ id: TRASH_DROPPABLE_ID });
 
@@ -147,8 +144,8 @@ const TrashDropZone: React.FC = () => {
         <button
             type="button"
             ref={setNodeRef}
-            aria-label={t('chat.draftStarters.remove')}
-            title={t('chat.draftStarters.remove')}
+            aria-label={"Remove"}
+            title={"Remove"}
             // Same box as the "+" button so the swap never shifts layout; on-hover
             // feedback is color-only (no resize).
             className={cn(
@@ -170,17 +167,16 @@ const StarterPickerList: React.FC<{
     onPick: (item: PinnableItem) => void;
     className?: string;
 }> = ({ pinnable, onPick, className }) => {
-    const { t } = useI18n();
     return (
         <Command className={cn('min-h-0', className)}>
-            <CommandInput placeholder={t('chat.draftStarters.searchPlaceholder')} />
+            <CommandInput placeholder={"Search commands and skills…"} />
             <CommandList>
-                <CommandEmpty>{t('chat.draftStarters.empty')}</CommandEmpty>
+                <CommandEmpty>{"Nothing to add"}</CommandEmpty>
                 {PICKER_SECTIONS.map((section) => {
                     const list = pinnable.filter((item) => item.section === section.key);
                     if (list.length === 0) return null;
                     return (
-                        <CommandGroup key={section.key} heading={t(section.headingKey)}>
+                        <CommandGroup key={section.key} heading={section.headingKey}>
                             {list.map((item) => (
                                 <CommandItem
                                     key={`${item.type}:${item.name}`}
@@ -204,7 +200,6 @@ const AddStarterPicker: React.FC<{
     onOpen: () => void;
     onAdd: (item: PinnableItem) => void;
 }> = ({ pinnable, onOpen, onAdd }) => {
-    const { t } = useI18n();
     const { currentTheme } = useThemeSystem();
     const [open, setOpen] = React.useState(false);
 
@@ -219,8 +214,8 @@ const AddStarterPicker: React.FC<{
             <DialogTrigger asChild>
                 <button
                     type="button"
-                    aria-label={t('chat.draftStarters.add')}
-                    title={t('chat.draftStarters.add')}
+                    aria-label={"Add a starter"}
+                    title={"Add a starter"}
                     className={cn(ROUND_ICON_BUTTON_CLASS, 'text-muted-foreground hover:bg-[var(--interactive-hover)] hover:text-foreground')}
                     style={{
                         backgroundColor: currentTheme?.colors?.surface?.elevated,
@@ -232,7 +227,7 @@ const AddStarterPicker: React.FC<{
             </DialogTrigger>
             <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-sm">
                 <DialogHeader className="px-4 pb-2 pt-4 text-left">
-                    <DialogTitle>{t('chat.draftStarters.add')}</DialogTitle>
+                    <DialogTitle>{"Add a starter"}</DialogTitle>
                 </DialogHeader>
                 <StarterPickerList
                     pinnable={pinnable}

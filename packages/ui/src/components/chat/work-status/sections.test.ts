@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   WORK_STATUS_SECTION_IDS,
-  WORK_STATUS_SECTION_LABEL_KEYS,
+  WORK_STATUS_SECTION_LABELS,
   isWorkStatusSectionVisible,
   sanitizeWorkStatusHiddenSections,
 } from './sections';
@@ -10,7 +10,7 @@ describe('section registry', () => {
   test('every section has a label, and every label a section', () => {
     // One list drives the panel and the dialog; a mismatch means a section the
     // user cannot switch, or a switch for nothing.
-    expect(Object.keys(WORK_STATUS_SECTION_LABEL_KEYS).sort())
+    expect(Object.keys(WORK_STATUS_SECTION_LABELS).sort())
       .toEqual([...WORK_STATUS_SECTION_IDS].sort());
   });
 });

@@ -9,12 +9,11 @@ import { SettingsFieldRow, SettingsSection, SettingsStackedField, SETTINGS_SELEC
 import { ProjectTrustDialog } from '@/components/sections/shared/ProjectTrustDialog';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
 import { Icon } from '@/components/icon/Icon';
-import { useI18n } from '@/lib/i18n';
 import { useSnippetsStore, type SnippetScope } from '@/stores/useSnippetsStore';
 
 /** Native Pi prompt-template editor. Templates expand as `/name` in Pi. */
 export const SnippetsPage: React.FC = () => {
-  const { t } = useI18n();
+  
   const selectedName = useSnippetsStore((state) => state.selectedSnippetName);
   const draft = useSnippetsStore((state) => state.snippetDraft);
   const snippets = useSnippetsStore((state) => state.snippets);
@@ -48,8 +47,8 @@ export const SnippetsPage: React.FC = () => {
 
   const save = async () => {
     const normalizedName = name.trim().replace(/\s+/g, '-');
-    if (!normalizedName) { toast.error(t('settings.promptTemplates.page.toast.nameRequired')); return; }
-    if (!content.trim()) { toast.error(t('settings.snippets.page.toast.contentRequired')); return; }
+    if (!normalizedName) { toast.error("Template name is required"); return; }
+    if (!content.trim()) { toast.error("Snippet content is required"); return; }
     setSaving(true);
     const success = isNew
       ? await createSnippet(normalizedName, content, { description, scope })
@@ -57,28 +56,28 @@ export const SnippetsPage: React.FC = () => {
     setSaving(false);
     if (success) {
       setSnippetDraft(null);
-      toast.success(t(isNew ? 'settings.promptTemplates.page.toast.created' : 'settings.promptTemplates.page.toast.updated'));
+      toast.success((isNew ? "Template created" : "Template updated"));
     } else {
-      toast.error(t(isNew ? 'settings.promptTemplates.page.toast.createFailed' : 'settings.promptTemplates.page.toast.updateFailed'));
+      toast.error((isNew ? "Failed to create template" : "Failed to update template"));
     }
   };
 
   if (!selectedName) {
-    return <><ProjectTrustDialog onResolved={() => { void useSnippetsStore.getState().loadSnippets(); }} /><div className="flex h-full items-center justify-center px-4 text-center text-muted-foreground"><div><Icon name="file-text" className="mx-auto mb-3 size-10 opacity-50" /><p className="typography-body">{t('settings.promptTemplates.page.empty.title')}</p><p className="typography-meta mt-1">{t('settings.promptTemplates.page.empty.description')}</p></div></div></>;
+    return <><ProjectTrustDialog onResolved={() => { void useSnippetsStore.getState().loadSnippets(); }} /><div className="flex h-full items-center justify-center px-4 text-center text-muted-foreground"><div><Icon name="file-text" className="mx-auto mb-3 size-10 opacity-50" /><p className="typography-body">{"Select a template"}</p><p className="typography-meta mt-1">{"Choose a template from the sidebar to edit it."}</p></div></div></>;
   }
 
   return (
-    <><ProjectTrustDialog onResolved={() => { void useSnippetsStore.getState().loadSnippets(); }} /><SettingsPageLayout title={isNew ? t('settings.promptTemplates.page.title.new') : `/${name}`} description={isNew ? t('settings.promptTemplates.page.subtitle.new') : description} showSaveStatus={false}>
-      {isNew ? <SettingsSection title={t('settings.promptTemplates.page.section.identity')} divider={false}>
-        <SettingsFieldRow label={t('settings.promptTemplates.page.field.name')}>
-          <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('settings.promptTemplates.page.field.namePlaceholder')} className="h-8 w-full max-w-48" />
-          <Select value={scope} onValueChange={(value) => setScope(value as SnippetScope)}><SelectTrigger size={SETTINGS_SELECT_SIZE} className="w-full max-w-48"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="global">{t('settings.common.scope.global')}</SelectItem><SelectItem value="project">{t('settings.common.scope.project')}</SelectItem></SelectContent></Select>
+    <><ProjectTrustDialog onResolved={() => { void useSnippetsStore.getState().loadSnippets(); }} /><SettingsPageLayout title={isNew ? "New template" : `/${name}`} description={isNew ? "Create a new prompt template" : description} showSaveStatus={false}>
+      {isNew ? <SettingsSection title={"Identity"} divider={false}>
+        <SettingsFieldRow label={"Name"}>
+          <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={"Template name"} className="h-8 w-full max-w-48" />
+          <Select value={scope} onValueChange={(value) => setScope(value as SnippetScope)}><SelectTrigger size={SETTINGS_SELECT_SIZE} className="w-full max-w-48"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="global">{"Global"}</SelectItem><SelectItem value="project">{"Project"}</SelectItem></SelectContent></Select>
         </SettingsFieldRow>
-        <SettingsStackedField label={t('settings.common.field.description')}><Input value={description} onChange={(event) => setDescription(event.target.value)} className="h-8 w-full" /></SettingsStackedField>
+        <SettingsStackedField label={"Description"}><Input value={description} onChange={(event) => setDescription(event.target.value)} className="h-8 w-full" /></SettingsStackedField>
       </SettingsSection> : null}
-      <SettingsSection title={t('settings.promptTemplates.page.section.template')} divider={!isNew} settingsItem="snippets.content" contentClassName="space-y-3">
-        <Textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder={t('settings.promptTemplates.page.field.templatePlaceholder')} rows={14} disabled={!isNew && selected?.editable !== true} className="min-h-[220px] w-full font-mono typography-meta bg-transparent" />
-        {isNew || selected?.editable === true ? <Button size="xs" onClick={() => void save()} disabled={saving || (!isNew && content === originalContent.current)}>{saving ? t('settings.common.actions.saving') : t('settings.common.actions.saveChanges')}</Button> : null}
+      <SettingsSection title={"Template"} divider={!isNew} settingsItem="snippets.content" contentClassName="space-y-3">
+        <Textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder={"Enter the prompt template text..."} rows={14} disabled={!isNew && selected?.editable !== true} className="min-h-[220px] w-full font-mono typography-meta bg-transparent" />
+        {isNew || selected?.editable === true ? <Button size="xs" onClick={() => void save()} disabled={saving || (!isNew && content === originalContent.current)}>{saving ? "Saving..." : "Save Changes"}</Button> : null}
       </SettingsSection>
     </SettingsPageLayout></>
   );

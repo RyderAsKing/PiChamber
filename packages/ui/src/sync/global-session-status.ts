@@ -69,45 +69,6 @@ const setStatus = (sessionId: string, directory: string, status: SessionStatus |
 // Event-driven path: called by the sync dispatcher for status-bearing events
 // whose directory has no child store. Mirrors the child reducer's semantics
 // (`session.idle` / `session.error` both resolve to idle).
-export const applyGlobalSessionStatusEvent = (directory: string, payload: Event): void => {
-  switch (payload.type) {
-    case 'session.status': {
-      const props = payload.properties as { sessionID?: string; status?: { type?: string } } | undefined;
-      if (typeof props?.sessionID !== 'string' || !props.sessionID) return;
-      const type = normalizeStatusType(props.status?.type);
-      setStatus(
-        props.sessionID,
-        normalizeDirectory(directory),
-        type === 'idle' ? { type: 'idle' } : { ...(props.status ?? {}), type } as SessionStatus,
-      );
-      observeSessionActivityEvent(props.sessionID, type === 'idle' ? 'settled' : 'active');
-      // `retry` is still a running turn, so the elapsed counter keeps going.
-      observeSessionActivityTiming(props.sessionID, type === 'idle' ? 'settled' : 'active');
-      return;
-    }
-    case 'session.idle':
-    case 'session.error': {
-      const props = payload.properties as { sessionID?: string } | undefined;
-      if (typeof props?.sessionID === 'string' && props.sessionID) {
-        setStatus(props.sessionID, normalizeDirectory(directory), { type: 'idle' });
-        observeSessionActivityEvent(props.sessionID, 'settled');
-        observeSessionActivityTiming(props.sessionID, 'settled');
-      }
-      return;
-    }
-    case 'session.deleted': {
-      const props = payload.properties as { sessionID?: string; info?: { id?: string } } | undefined;
-      const sessionId = props?.sessionID ?? props?.info?.id;
-      if (sessionId) {
-        removeSessionOrdering(sessionId);
-        removeSessionActivityTiming(sessionId);
-      }
-      return;
-    }
-    default:
-      return;
-  }
-};
 
 // Polled path: an authoritative `/session/status?directory=X` snapshot. Entries
 // missing from the snapshot are idle now — cleared both by directory key and by

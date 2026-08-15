@@ -16,7 +16,6 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS as DndCSS } from '@dnd-kit/utilities';
 
-import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/useUIStore';
 import { useDeviceInfo } from '@/lib/device';
@@ -108,7 +107,7 @@ export const SortableTabsStrip: React.FC<SortableTabsStripProps> = ({
   nonCompositedIndicator = false,
   className,
 }) => {
-  const { t } = useI18n();
+  
   const isMobile = useUIStore((state) => state.isMobile);
   const { isTablet } = useDeviceInfo();
   const alwaysShowCloseControls = isMobile || isTablet;
@@ -405,7 +404,7 @@ export const SortableTabsStrip: React.FC<SortableTabsStripProps> = ({
         )}
         style={isScrollable ? { scrollbarWidth: 'none', msOverflowStyle: 'none' } : undefined}
         role="tablist"
-        aria-label={t('sortableTabsStrip.aria.tabs')}
+        aria-label={"Tabs"}
       >
         {usesActivePillIndicator && pillRect ? (
           <div

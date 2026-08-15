@@ -106,7 +106,8 @@ describe('the command table', () => {
         for (const command of MAGIC_PROMPT_COMMANDS) {
             expect(command.visiblePrompt.startsWith('session.')).toBe(true);
             expect(command.instructionsPrompt.startsWith('session.')).toBe(true);
-            expect(command.errorToastKey.startsWith('chat.chatInput.toast.')).toBe(true);
+            expect(typeof command.errorToastKey).toBe('string');
+            expect(command.errorToastKey.length).toBeGreaterThan(0);
         }
     });
 });

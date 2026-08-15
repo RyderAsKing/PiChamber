@@ -5,15 +5,9 @@
  */
 
 export const CUSTOM_PROVIDER_NPM = '@ai-sdk/openai-compatible';
-export const CUSTOM_PROVIDER_ID = '__custom_provider__';
 export const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9-_]*$/;
 export const BASE_URL_PATTERN = /^https?:\/\//;
 export const ENV_KEY_PATTERN = /^\{env:([^}]+)\}$/;
-
-export type CustomProviderTranslator = (
-  key: string,
-  vars?: Record<string, string | number | boolean>,
-) => string;
 
 export type ModelRow = {
   row: string;
@@ -74,7 +68,6 @@ export type CustomProviderPersistPlan = {
 
 export type ValidateCustomProviderInput = {
   form: CustomProviderFormState;
-  t: CustomProviderTranslator;
   existingProviderIDs: ReadonlySet<string>;
   disabledProviders?: readonly string[];
   /** When editing this provider id, treat it as an allowed update target. */
@@ -260,47 +253,47 @@ export function validateCustomProvider(input: ValidateCustomProviderInput): Vali
   const editingProviderID = input.editingProviderID?.trim();
 
   const idError = !providerID
-    ? input.t('settings.providers.page.custom.error.providerID.required')
+    ? "Provider ID is required"
     : !PROVIDER_ID_PATTERN.test(providerID)
-      ? input.t('settings.providers.page.custom.error.providerID.format')
+      ? "Use lowercase letters, numbers, hyphens, or underscores"
       : undefined;
 
   const nameError = !name
-    ? input.t('settings.providers.page.custom.error.name.required')
+    ? "Display name is required"
     : undefined;
 
   const urlError = !baseURL
-    ? input.t('settings.providers.page.custom.error.baseURL.required')
+    ? "Base URL is required"
     : !BASE_URL_PATTERN.test(baseURL)
-      ? input.t('settings.providers.page.custom.error.baseURL.format')
+      ? "Base URL must start with http:// or https://"
       : undefined;
 
   const credentialsSatisfied = Boolean(env || key || (editingProviderID && input.allowExistingAuth && editingProviderID === providerID));
   const apiKeyError = credentialsSatisfied
     ? undefined
-    : input.t('settings.providers.page.custom.error.apiKey.required');
+    : "API key or {env:VAR_NAME} is required";
 
   const disabled = disabledProviders.includes(providerID);
   const isSelfEdit = Boolean(editingProviderID && editingProviderID === providerID);
   const existsError = idError || isSelfEdit
     ? undefined
     : input.existingProviderIDs.has(providerID) && !disabled
-      ? input.t('settings.providers.page.custom.error.providerID.exists')
+      ? "A provider with this ID is already connected"
       : undefined;
 
   const seenModels = new Set<string>();
   const modelErrors = input.form.models.map((model) => {
     const id = model.id.trim();
     const modelIdError = !id
-      ? input.t('settings.providers.page.custom.error.required')
+      ? "Required"
       : seenModels.has(id)
-        ? input.t('settings.providers.page.custom.error.duplicate')
+        ? "Duplicate"
         : (() => {
             seenModels.add(id);
             return undefined;
           })();
     const modelNameError = !model.name.trim()
-      ? input.t('settings.providers.page.custom.error.required')
+      ? "Required"
       : undefined;
     return { id: modelIdError, name: modelNameError };
   });
@@ -318,15 +311,15 @@ export function validateCustomProvider(input: ValidateCustomProviderInput): Vali
       return {};
     }
     const keyError = !headerKey
-      ? input.t('settings.providers.page.custom.error.required')
+      ? "Required"
       : seenHeaders.has(headerKey.toLowerCase())
-        ? input.t('settings.providers.page.custom.error.duplicate')
+        ? "Duplicate"
         : (() => {
             seenHeaders.add(headerKey.toLowerCase());
             return undefined;
           })();
     const valueError = !headerValue
-      ? input.t('settings.providers.page.custom.error.required')
+      ? "Required"
       : undefined;
     return { key: keyError, value: valueError };
   });

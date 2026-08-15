@@ -11,7 +11,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Icon } from '@/components/icon/Icon';
-import { useI18n } from '@/lib/i18n';
 import {
   createEmptyCustomProviderForm,
   createHeaderRow,
@@ -19,7 +18,6 @@ import {
   validateCustomProvider,
   type CustomProviderFormState,
   type CustomProviderPersistPlan,
-  type CustomProviderTranslator,
   type FieldErrors,
   type HeaderFieldErrors,
   type ModelFieldErrors,
@@ -50,8 +48,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
   onCancel,
   onDisconnect,
 }) => {
-  const { t } = useI18n();
-  const isEdit = mode === 'edit';
+    const isEdit = mode === 'edit';
   const [form, setForm] = React.useState<CustomProviderFormState>(
     () => initialValues ?? createEmptyCustomProviderForm(),
   );
@@ -113,7 +110,6 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
 
     const output = validateCustomProvider({
       form,
-      t: ((key, vars) => t(key as Parameters<typeof t>[0], vars)) as CustomProviderTranslator,
       existingProviderIDs,
       disabledProviders,
       editingProviderID: isEdit ? form.providerID : undefined,
@@ -131,12 +127,12 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
   return (
     <form onSubmit={handleSubmit} className="space-y-0">
       <SettingsSection
-        title={isEdit ? t('settings.providers.page.custom.editTitle') : t('settings.providers.page.custom.title')}
+        title={isEdit ? "Edit custom provider" : "Custom provider"}
         divider={false}
         settingsItem="providers.custom"
         contentClassName={SETTINGS_FIELDS_STACK_CLASS}
       >
-        <p className={SETTINGS_HELPER_CLASS}>{t('settings.providers.page.custom.description')}</p>
+        <p className={SETTINGS_HELPER_CLASS}>{"Add an OpenAI-compatible provider with a base URL, credentials, and model list. Saved to Pi so it is available in chat like any other provider."}</p>
 
         {authFailureHint ? (
           <p className="typography-meta text-[var(--status-warning)]" role="status">
@@ -145,58 +141,58 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
         ) : null}
 
         <SettingsStackedField
-          label={t('settings.providers.page.custom.field.providerID.label')}
-          info={t('settings.providers.page.custom.field.providerID.info')}
+          label={"Provider ID"}
+          info={"Lowercase letters, numbers, hyphens, and underscores. Used as the Pi provider id."}
         >
           <Input
             value={form.providerID}
             onChange={(event) => setField('providerID', event.target.value)}
-            placeholder={t('settings.providers.page.custom.field.providerID.placeholder')}
+            placeholder={"my-provider"}
             className="h-8 rounded-md px-3 font-mono text-xs"
             autoFocus={!isEdit}
             disabled={isEdit || busy}
             aria-invalid={Boolean(err.providerID)}
-            aria-label={t('settings.providers.page.custom.field.providerID.label')}
+            aria-label={"Provider ID"}
           />
           {err.providerID ? <p className="mt-1 typography-meta text-[var(--status-error)]">{err.providerID}</p> : null}
         </SettingsStackedField>
 
         <SettingsStackedField
-          label={t('settings.providers.page.custom.field.name.label')}
-          info={t('settings.providers.page.custom.field.name.info')}
+          label={"Display name"}
+          info={"Shown in the provider and model pickers."}
         >
           <Input
             value={form.name}
             onChange={(event) => setField('name', event.target.value)}
-            placeholder={t('settings.providers.page.custom.field.name.placeholder')}
+            placeholder={"My Provider"}
             className="h-8 rounded-md px-3"
             aria-invalid={Boolean(err.name)}
-            aria-label={t('settings.providers.page.custom.field.name.label')}
+            aria-label={"Display name"}
           />
           {err.name ? <p className="mt-1 typography-meta text-[var(--status-error)]">{err.name}</p> : null}
         </SettingsStackedField>
 
         <SettingsStackedField
-          label={t('settings.providers.page.custom.field.baseURL.label')}
-          info={t('settings.providers.page.custom.field.baseURL.info')}
+          label={"Base URL"}
+          info={"OpenAI-compatible API base URL. Must start with http:// or https://."}
         >
           <Input
             value={form.baseURL}
             onChange={(event) => setField('baseURL', event.target.value)}
-            placeholder={t('settings.providers.page.custom.field.baseURL.placeholder')}
+            placeholder={"https://api.example.com/v1"}
             className="h-8 rounded-md px-3 font-mono text-xs"
             aria-invalid={Boolean(err.baseURL)}
-            aria-label={t('settings.providers.page.custom.field.baseURL.label')}
+            aria-label={"Base URL"}
           />
           {err.baseURL ? <p className="mt-1 typography-meta text-[var(--status-error)]">{err.baseURL}</p> : null}
         </SettingsStackedField>
 
         <SettingsStackedField
-          label={t('settings.providers.page.custom.field.apiKey.label')}
+          label={"API key"}
           info={
             isEdit && allowExistingAuth
-              ? t('settings.providers.page.custom.field.apiKey.editInfo')
-              : t('settings.providers.page.custom.field.apiKey.info')
+              ? "Leave blank to keep the existing credential, or enter a new key / {env:VAR_NAME}."
+              : "Stored in Pi authentication, not by PiChamber. Use {env:VAR_NAME} to read a key from the environment instead."
           }
         >
           <Input
@@ -205,19 +201,19 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
             onChange={(event) => setField('apiKey', event.target.value)}
             placeholder={
               isEdit && allowExistingAuth
-                ? t('settings.providers.page.custom.field.apiKey.editPlaceholder')
-                : t('settings.providers.page.custom.field.apiKey.placeholder')
+                ? "Leave blank to keep existing key"
+                : "sk-... or {env:VAR_NAME}"
             }
             className="h-8 rounded-md px-3 font-mono text-xs"
             aria-invalid={Boolean(err.apiKey)}
-            aria-label={t('settings.providers.page.custom.field.apiKey.label')}
+            aria-label={"API key"}
           />
           {err.apiKey ? <p className="mt-1 typography-meta text-[var(--status-error)]">{err.apiKey}</p> : null}
         </SettingsStackedField>
       </SettingsSection>
 
       <SettingsSection
-        title={t('settings.providers.page.custom.models.title')}
+        title={"Models"}
         contentClassName={SETTINGS_FIELDS_STACK_CLASS}
       >
         {form.models.map((model, index) => (
@@ -226,14 +222,14 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
               <div className="min-w-0 flex-1 space-y-2">
                 <div>
                   <label className={SETTINGS_FIELD_LABEL_CLASS}>
-                    {t('settings.providers.page.custom.models.idLabel')}
+                    {"Model ID"}
                   </label>
                   <Input
                     value={model.id}
                     onChange={(event) => setModel(index, 'id', event.target.value)}
-                    placeholder={t('settings.providers.page.custom.models.idPlaceholder')}
+                    placeholder={"gpt-4o"}
                     className="mt-1 h-8 rounded-md px-3 font-mono text-xs"
-                    aria-label={t('settings.providers.page.custom.models.idLabel')}
+                    aria-label={"Model ID"}
                   />
                   {modelErrors[index]?.id ? (
                     <p className="mt-1 typography-meta text-[var(--status-error)]">{modelErrors[index]?.id}</p>
@@ -241,14 +237,14 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
                 </div>
                 <div>
                   <label className={SETTINGS_FIELD_LABEL_CLASS}>
-                    {t('settings.providers.page.custom.models.nameLabel')}
+                    {"Model name"}
                   </label>
                   <Input
                     value={model.name}
                     onChange={(event) => setModel(index, 'name', event.target.value)}
-                    placeholder={t('settings.providers.page.custom.models.namePlaceholder')}
+                    placeholder={"GPT-4o"}
                     className="mt-1 h-8 rounded-md px-3"
-                    aria-label={t('settings.providers.page.custom.models.nameLabel')}
+                    aria-label={"Model name"}
                   />
                   {modelErrors[index]?.name ? (
                     <p className="mt-1 typography-meta text-[var(--status-error)]">{modelErrors[index]?.name}</p>
@@ -269,7 +265,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
                   }));
                   setModelErrors((prev) => prev.filter((_, rowIndex) => rowIndex !== index));
                 }}
-                aria-label={t('settings.providers.page.custom.models.remove')}
+                aria-label={"Remove model"}
               >
                 <Icon name="delete-bin" className="size-4" />
               </Button>
@@ -286,29 +282,29 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
             setModelErrors((prev) => [...prev, {}]);
           }}
         >
-          {t('settings.providers.page.custom.models.add')}
+          {"Add model"}
         </Button>
       </SettingsSection>
 
       <SettingsSection
-        title={t('settings.providers.page.custom.headers.title')}
+        title={"Headers"}
         contentClassName={SETTINGS_FIELDS_STACK_CLASS}
       >
-        <p className={SETTINGS_HELPER_CLASS}>{t('settings.providers.page.custom.headers.description')}</p>
+        <p className={SETTINGS_HELPER_CLASS}>{"Optional request headers sent with every call."}</p>
         {form.headers.map((header, index) => (
           <div key={header.row} className={`${SETTINGS_CONTROL_CLUSTER_CLASS} space-y-2`}>
             <div className="flex items-start gap-2">
               <div className="min-w-0 flex-1 space-y-2">
                 <div>
                   <label className={SETTINGS_FIELD_LABEL_CLASS}>
-                    {t('settings.providers.page.custom.headers.keyLabel')}
+                    {"Header name"}
                   </label>
                   <Input
                     value={header.key}
                     onChange={(event) => setHeader(index, 'key', event.target.value)}
-                    placeholder={t('settings.providers.page.custom.headers.keyPlaceholder')}
+                    placeholder={"X-Custom-Header"}
                     className="mt-1 h-8 rounded-md px-3 font-mono text-xs"
-                    aria-label={t('settings.providers.page.custom.headers.keyLabel')}
+                    aria-label={"Header name"}
                   />
                   {headerErrors[index]?.key ? (
                     <p className="mt-1 typography-meta text-[var(--status-error)]">{headerErrors[index]?.key}</p>
@@ -316,14 +312,14 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
                 </div>
                 <div>
                   <label className={SETTINGS_FIELD_LABEL_CLASS}>
-                    {t('settings.providers.page.custom.headers.valueLabel')}
+                    {"Header value"}
                   </label>
                   <Input
                     value={header.value}
                     onChange={(event) => setHeader(index, 'value', event.target.value)}
-                    placeholder={t('settings.providers.page.custom.headers.valuePlaceholder')}
+                    placeholder={"value"}
                     className="mt-1 h-8 rounded-md px-3 font-mono text-xs"
-                    aria-label={t('settings.providers.page.custom.headers.valueLabel')}
+                    aria-label={"Header value"}
                   />
                   {headerErrors[index]?.value ? (
                     <p className="mt-1 typography-meta text-[var(--status-error)]">{headerErrors[index]?.value}</p>
@@ -344,7 +340,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
                   }));
                   setHeaderErrors((prev) => prev.filter((_, rowIndex) => rowIndex !== index));
                 }}
-                aria-label={t('settings.providers.page.custom.headers.remove')}
+                aria-label={"Remove header"}
               >
                 <Icon name="delete-bin" className="size-4" />
               </Button>
@@ -361,14 +357,14 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
             setHeaderErrors((prev) => [...prev, {}]);
           }}
         >
-          {t('settings.providers.page.custom.headers.add')}
+          {"Add header"}
         </Button>
       </SettingsSection>
 
       <div className="flex flex-wrap items-center gap-2 py-4">
         {onCancel ? (
           <Button type="button" variant="outline" size="xs" className="!font-normal" onClick={onCancel} disabled={busy}>
-            {t('settings.providers.page.custom.actions.back')}
+            {"Back"}
           </Button>
         ) : null}
         {onDisconnect ? (
@@ -380,15 +376,15 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
             onClick={() => void onDisconnect()}
             disabled={busy}
           >
-            {t('settings.providers.page.actions.disconnect')}
+            {"Disconnect"}
           </Button>
         ) : null}
         <Button type="submit" size="xs" className="!font-normal" disabled={busy}>
           {busy
-            ? t('settings.providers.page.actions.saving')
+            ? "Saving..."
             : isEdit
-              ? t('settings.providers.page.custom.actions.update')
-              : t('settings.providers.page.custom.actions.save')}
+              ? "Update provider"
+              : "Save provider"}
         </Button>
       </div>
     </form>

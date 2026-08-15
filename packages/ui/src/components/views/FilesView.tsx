@@ -45,7 +45,7 @@ import {
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useFileSearchStore } from '@/stores/useFileSearchStore';
 import { useDeviceInfo } from '@/lib/device';
-import { cn, getModifierLabel, getRevealLabelKey, hasModifier } from '@/lib/utils';
+import { cn, getModifierLabel, getRevealLabel, hasModifier } from '@/lib/utils';
 import { getLanguageFromExtension, getImageMimeType, isBinaryFile, isDrawioFile, isImageFile, isPdfFile, isSvgFile, looksLikeBinaryText } from '@/lib/toolHelpers';
 import { shouldAllowFileDraftSave, shouldScheduleFileAutosave } from '@/lib/fileEditorAutosave';
 import { getRuntimeUrlResolver } from '@/lib/runtime-url';
@@ -74,7 +74,6 @@ import { getDefaultTheme } from '@/lib/theme/themes';
 import { isBrowserClientRuntime, openDesktopFileInApp, openDesktopPath } from '@/lib/desktop';
 import { useOpenInAppsStore } from '@/stores/useOpenInAppsStore';
 import { eventMatchesShortcut, getEffectiveShortcutCombo } from '@/lib/shortcuts';
-import { useI18n } from '@/lib/i18n';
 import { sessionEvents } from '@/lib/sessionEvents';
 
 type FileNode = {
@@ -405,7 +404,6 @@ const FileRow: React.FC<FileRowProps> = ({
   onRevealPath,
   onOpenDialog,
 }) => {
-  const { t } = useI18n();
   const isDir = node.type === 'directory';
   const { canRename, canCreateFile, canCreateFolder, canDelete, canReveal } = permissions;
   const canDownload = !isDir && Boolean(downloadFile);
@@ -444,48 +442,48 @@ const FileRow: React.FC<FileRowProps> = ({
     <>
       {canRename && (
         <Item onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('rename', node); }}>
-          <Icon name="edit" className="mr-2 size-4" /> {t('sidebarFilesTree.menu.rename')}
+          <Icon name="edit" className="mr-2 size-4" /> {"Rename"}
         </Item>
       )}
       <Item onClick={(e: React.MouseEvent) => {
         e.stopPropagation();
         void copyTextToClipboard(node.path).then((result) => {
           if (result.ok) {
-            toast.success(t('sidebarFilesTree.toast.pathCopied'));
+            toast.success("Path copied");
             return;
           }
-          toast.error(t('sidebarFilesTree.toast.copyFailed'));
+          toast.error("Copy failed");
         });
       }}>
-        <Icon name="file-copy" className="mr-2 size-4" /> {t('sidebarFilesTree.menu.copyPath')}
+        <Icon name="file-copy" className="mr-2 size-4" /> {"Copy Path"}
       </Item>
       <Item onClick={(e: React.MouseEvent) => {
         e.stopPropagation();
         const relativePath = getDisplayPath(root, node.path) || node.path;
         void copyTextToClipboard(relativePath).then((result) => {
           if (result.ok) {
-            toast.success(t('filesView.toast.relativePathCopied'));
+            toast.success("Relative path copied");
             return;
           }
-          toast.error(t('sidebarFilesTree.toast.copyFailed'));
+          toast.error("Copy failed");
         });
       }}>
-        <Icon name="file-copy-2" className="mr-2 size-4" /> {t('filesView.tree.menu.copyRelativePath')}
+        <Icon name="file-copy-2" className="mr-2 size-4" /> {"Copy Relative Path"}
       </Item>
       {!isDir && downloadFile && (
         <Item onClick={(e: React.MouseEvent) => {
           e.stopPropagation();
           void downloadFile(node.path).catch((error) => {
             console.error('Download failed:', error);
-            toast.error(t('sidebarFilesTree.toast.operationFailed'));
+            toast.error("Operation failed");
           });
         }}>
-          <Icon name="download" className="mr-2 size-4" /> {t(isBrowserClient ? 'sidebarFilesTree.menu.download' : 'sidebarFilesTree.menu.save')}
+          <Icon name="download" className="mr-2 size-4" /> {(isBrowserClient ? "Download" : "Save")}
         </Item>
       )}
       {canRevealPath && (
         <Item onClick={(e: React.MouseEvent) => { e.stopPropagation(); onRevealPath(node.path); }}>
-          <Icon name="folder-received" className="mr-2 size-4" /> {t(getRevealLabelKey())}
+          <Icon name="folder-received" className="mr-2 size-4" /> {getRevealLabel()}
         </Item>
       )}
       {isDir && (canCreateFile || canCreateFolder) && (
@@ -493,12 +491,12 @@ const FileRow: React.FC<FileRowProps> = ({
           <Separator />
           {canCreateFile && (
             <Item onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('createFile', node); }}>
-              <Icon name="file-add" className="mr-2 size-4" /> {t('sidebarFilesTree.menu.newFile')}
+              <Icon name="file-add" className="mr-2 size-4" /> {"New File"}
             </Item>
           )}
           {canCreateFolder && (
             <Item onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('createFolder', node); }}>
-              <Icon name="folder-add" className="mr-2 size-4" /> {t('sidebarFilesTree.menu.newFolder')}
+              <Icon name="folder-add" className="mr-2 size-4" /> {"New Folder"}
             </Item>
           )}
         </>
@@ -510,7 +508,7 @@ const FileRow: React.FC<FileRowProps> = ({
             onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('delete', node); }}
             className="text-destructive focus:text-destructive"
           >
-            <Icon name="delete-bin" className="mr-2 size-4" /> {t('sidebarFilesTree.menu.delete')}
+            <Icon name="delete-bin" className="mr-2 size-4" /> {"Delete"}
           </Item>
         </>
       )}
@@ -606,23 +604,22 @@ const Dialogs: React.FC<DialogsProps> = ({
   onClose,
   inputRef,
 }) => {
-  const { t } = useI18n();
 
   return (
     <Dialog open={!!activeDialog} onOpenChange={(open) => !open && onClose()}>
       <DialogContent initialFocus={inputRef}>
         <DialogHeader>
           <DialogTitle>
-            {activeDialog === 'createFile' && t('filesView.dialog.createFile.title')}
-            {activeDialog === 'createFolder' && t('filesView.dialog.createFolder.title')}
-            {activeDialog === 'rename' && t('filesView.dialog.rename.title')}
-            {activeDialog === 'delete' && t('filesView.dialog.delete.title')}
+            {activeDialog === 'createFile' && "Create File"}
+            {activeDialog === 'createFolder' && "Create Folder"}
+            {activeDialog === 'rename' && "Rename"}
+            {activeDialog === 'delete' && "Delete"}
           </DialogTitle>
           <DialogDescription>
-            {activeDialog === 'createFile' && t('filesView.dialog.createFile.description', { path: dialogData?.path ?? t('filesView.dialog.rootFallback') })}
-            {activeDialog === 'createFolder' && t('filesView.dialog.createFolder.description', { path: dialogData?.path ?? t('filesView.dialog.rootFallback') })}
-            {activeDialog === 'rename' && t('filesView.dialog.rename.description', { name: dialogData?.name ?? '' })}
-            {activeDialog === 'delete' && t('filesView.dialog.delete.description', { name: dialogData?.name ?? '' })}
+            {activeDialog === 'createFile' && `Create a new file in ${dialogData?.path ?? "root"}`}
+            {activeDialog === 'createFolder' && `Create a new folder in ${dialogData?.path ?? "root"}`}
+            {activeDialog === 'rename' && `Rename ${dialogData?.name ?? ''}`}
+            {activeDialog === 'delete' && `Are you sure you want to delete ${dialogData?.name ?? ''}? This action cannot be undone.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -631,7 +628,7 @@ const Dialogs: React.FC<DialogsProps> = ({
             <Input
               value={dialogInputValue}
               onChange={(e) => onDialogInputChange(e.target.value)}
-              placeholder={activeDialog === 'rename' ? t('filesView.dialog.rename.placeholder') : t('filesView.dialog.namePlaceholder')}
+              placeholder={activeDialog === 'rename' ? "New name" : "Name"}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   void onDialogSubmit();
@@ -644,7 +641,7 @@ const Dialogs: React.FC<DialogsProps> = ({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={isDialogSubmitting}>
-            {t('filesView.dialog.cancel')}
+            {"Cancel"}
           </Button>
           <Button
             variant={activeDialog === 'delete' ? 'destructive' : 'default'}
@@ -652,7 +649,7 @@ const Dialogs: React.FC<DialogsProps> = ({
             disabled={isDialogSubmitting || (activeDialog !== 'delete' && !dialogInputValue.trim())}
           >
             {isDialogSubmitting ? <Icon name="loader-4" className="size-4 animate-spin" /> : (
-                activeDialog === 'delete' ? t('filesView.dialog.delete.confirm') : t('filesView.dialog.confirm')
+                activeDialog === 'delete' ? "Delete" : "Confirm"
             )}
           </Button>
         </DialogFooter>
@@ -722,7 +719,6 @@ const useAssetAuthRefresh = (
 };
 
 export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
-  const { t } = useI18n();
   const { files, runtime } = useRuntimeAPIs();
   const { currentTheme, availableThemes, lightThemeId, darkThemeId } = useThemeSystem();
   const { isMobile, isTablet, screenWidth } = useDeviceInfo();
@@ -974,9 +970,9 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
   const handleRevealPath = React.useCallback((targetPath: string) => {
     if (!files.revealPath) return;
     void files.revealPath(targetPath).catch(() => {
-      toast.error(t('sidebarFilesTree.toast.revealFailed'));
+      toast.error("Failed to reveal path");
     });
-  }, [files, t]);
+  }, [files]);
 
   const handleOpenInApp = React.useCallback(async (app: { id: string; appName: string }) => {
     if (!selectedFile?.path) {
@@ -1000,8 +996,8 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
         return;
       }
     }
-    toast.error(t('filesView.toast.openInAppFailed', { app: app.appName }));
-  }, [root, selectedFile?.path, t]);
+    toast.error(`Failed to open in ${app.appName}`);
+  }, [root, selectedFile?.path]);
 
   const handleOpenDialog = React.useCallback((type: 'createFile' | 'createFolder' | 'rename' | 'delete', data: { path: string; name?: string; type?: 'file' | 'directory' }) => {
     setActiveDialog(type);
@@ -1352,12 +1348,12 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
 
     if (activeDialog === 'createFile') {
       if (!dialogInputValue.trim()) {
-        failDialogOperation(t('sidebarFilesTree.toast.filenameRequired'));
+        failDialogOperation("Filename is required");
         done();
         return;
       }
       if (!files.writeFile) {
-        failDialogOperation(t('sidebarFilesTree.toast.writeNotSupported'));
+        failDialogOperation("Write not supported");
         done();
         return;
       }
@@ -1368,19 +1364,19 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
       await files.writeFile(newPath, '')
         .then(async (result) => {
           if (result.success) {
-            toast.success(t('sidebarFilesTree.toast.fileCreated'));
+            toast.success("File created");
             await refreshDirectory(parentPath);
           }
           finishDialogOperation();
         })
-        .catch(() => failDialogOperation(t('sidebarFilesTree.toast.operationFailed')))
+        .catch(() => failDialogOperation("Operation failed"))
         .finally(done);
       return;
     }
 
     if (activeDialog === 'createFolder') {
       if (!dialogInputValue.trim()) {
-        failDialogOperation(t('sidebarFilesTree.toast.folderNameRequired'));
+        failDialogOperation("Folder name is required");
         done();
         return;
       }
@@ -1391,25 +1387,25 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
       await files.createDirectory(newPath)
         .then(async (result) => {
           if (result.success) {
-            toast.success(t('sidebarFilesTree.toast.folderCreated'));
+            toast.success("Folder created");
             await refreshDirectory(parentPath);
           }
           finishDialogOperation();
         })
-        .catch(() => failDialogOperation(t('sidebarFilesTree.toast.operationFailed')))
+        .catch(() => failDialogOperation("Operation failed"))
         .finally(done);
       return;
     }
 
     if (activeDialog === 'rename') {
       if (!dialogInputValue.trim()) {
-        failDialogOperation(t('sidebarFilesTree.toast.nameRequired'));
+        failDialogOperation("Name is required");
         done();
         return;
       }
 
       if (!files.rename) {
-        failDialogOperation(t('sidebarFilesTree.toast.renameNotSupported'));
+        failDialogOperation("Rename not supported");
         done();
         return;
       }
@@ -1422,7 +1418,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
       await files.rename(oldPath, newPath)
         .then(async (result) => {
           if (result.success) {
-            toast.success(t('sidebarFilesTree.toast.renamedSuccessfully'));
+            toast.success("Renamed successfully");
             await refreshDirectory(parentDir);
             if (root) {
               removeOpenPathsByPrefix(root, oldPath);
@@ -1442,14 +1438,14 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
           }
           finishDialogOperation();
         })
-        .catch(() => failDialogOperation(t('sidebarFilesTree.toast.operationFailed')))
+        .catch(() => failDialogOperation("Operation failed"))
         .finally(done);
       return;
     }
 
     if (activeDialog === 'delete') {
       if (!files.delete) {
-        failDialogOperation(t('sidebarFilesTree.toast.deleteNotSupported'));
+        failDialogOperation("Delete not supported");
         done();
         return;
       }
@@ -1459,7 +1455,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
       await files.delete(deletedPath)
         .then(async (result) => {
           if (result.success) {
-            toast.success(t('sidebarFilesTree.toast.deletedSuccessfully'));
+            toast.success("Deleted successfully");
             await refreshDirectory(parentDir);
             if (root) {
               removeOpenPathsByPrefix(root, deletedPath);
@@ -1479,13 +1475,13 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
           }
           finishDialogOperation();
         })
-        .catch(() => failDialogOperation(t('sidebarFilesTree.toast.operationFailed')))
+        .catch(() => failDialogOperation("Operation failed"))
         .finally(done);
       return;
     }
 
     done();
-  }, [activeDialog, dialogData, dialogInputValue, files, refreshDirectory, isMobile, removeOpenPathsByPrefix, root, selectedFile?.path, setSelectedPath, t]);
+  }, [activeDialog, dialogData, dialogInputValue, files, refreshDirectory, isMobile, removeOpenPathsByPrefix, root, selectedFile?.path, setSelectedPath]);
 
   React.useEffect(() => {
     if (!currentDirectory) {
@@ -1566,10 +1562,10 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error((error as { error?: string }).error || t('filesView.error.readFileFailed'));
+      throw new Error((error as { error?: string }).error || "Failed to read file");
     }
     return response.text();
-  }, [files, root, t]);
+  }, [files, root]);
 
   const readFileStat = React.useCallback(async (path: string, options?: { allowOutsideWorkspace?: boolean; outsideFileGrant?: string }): Promise<FileStatSnapshot | null> => {
     if (files.statFile) {
@@ -1620,7 +1616,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
 
   const saveDraft = React.useCallback(async () => {
     if (!selectedFile || !files.writeFile) {
-      toast.error(t('filesView.toast.savingNotSupported'));
+      toast.error("Saving not supported");
       return false;
     }
 
@@ -1657,7 +1653,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
       const contentToWrite = serializeEditorContent(draftContent, loadedFileLineEnding);
       const result = await files.writeFile(selectedFile.path, contentToWrite);
       if (!result?.success) {
-        toast.error(t('filesView.toast.writeFileFailed'));
+        toast.error("Failed to write file");
         return false;
       }
       setFileContent(draftContent);
@@ -1681,12 +1677,12 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
         .catch(() => {});
       return true;
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('filesView.toast.saveFailed'));
+      toast.error(error instanceof Error ? error.message : "Save failed");
       return false;
     } finally {
       setIsSaving(false);
     }
-  }, [contentDetectedBinary, draftContent, fileContent, fileLoading, files, isDirty, loadedFileLineEnding, loadedFilePath, readFileStat, root, selectedFile, t]);
+  }, [contentDetectedBinary, draftContent, fileContent, fileLoading, files, isDirty, loadedFileLineEnding, loadedFilePath, readFileStat, root, selectedFile]);
 
   React.useEffect(() => {
     if (!isDirty) {
@@ -1941,7 +1937,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
         }
         setFileContent('');
         setDraftContent('');
-        setFileError(error instanceof Error ? error.message : t('filesView.error.readFileFailed'));
+        setFileError(error instanceof Error ? error.message : "Failed to read file");
         lastLoadedFileStatRef.current = null;
       })
       .finally(() => {
@@ -1949,7 +1945,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
           setFileLoading(false);
         }
       });
-  }, [expandPaths, isMobile, loadDirectory, mode, readFile, readFileStat, removeOpenPathsByPrefix, root, runtime.isDesktop, searchQuery, setSelectedPath, t]);
+  }, [expandPaths, isMobile, loadDirectory, mode, readFile, readFileStat, removeOpenPathsByPrefix, root, runtime.isDesktop, searchQuery, setSelectedPath]);
 
   const ensurePathVisible = React.useCallback(async (targetPath: string, includeTarget: boolean) => {
     if (!root) {
@@ -2329,7 +2325,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                   <span className="min-w-0 flex-1 truncate text-[var(--status-error)]" title={loadErrorsByDir[node.path]}>{loadErrorsByDir[node.path]}</span>
                   <Button variant="ghost" size="xs" className="h-6 gap-1" onClick={() => void refreshDirectory(node.path)}>
                     <Icon name="refresh" className="size-3.5" />
-                    {t('filesView.tree.actions.refreshTitle')}
+                    {"Refresh"}
                   </Button>
                 </li>
               ) : null}
@@ -2554,7 +2550,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
 
     const result = await files.writeFile(path, xml);
     if (!result?.success) {
-      toast.error(t('filesView.toast.writeFileFailed'));
+      toast.error("Failed to write file");
       return false;
     }
 
@@ -2566,7 +2562,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
       lastLoadedFileStatRef.current = stat;
     }
     return true;
-  }, [files, readFileStat, selectedFileReadOptions, t]);
+  }, [files, readFileStat, selectedFileReadOptions]);
 
   React.useEffect(() => {
     return () => {
@@ -2599,10 +2595,10 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
         setDiagramSaved(true);
         setTimeout(() => setDiagramSaved(false), 1500);
       }).catch((error) => {
-        toast.error(error instanceof Error ? error.message : t('filesView.toast.saveFailed'));
+        toast.error(error instanceof Error ? error.message : "Save failed");
       });
     }, AUTO_SAVE_DELAY);
-  }, [autoSaveEnabled, drawioViewMode, files.writeFile, saveDiagramXml, selectedFile?.path, t]);
+  }, [autoSaveEnabled, drawioViewMode, files.writeFile, saveDiagramXml, selectedFile?.path]);
 
   const diagramEditorXml = React.useMemo(() => {
     if (!isDrawio) {
@@ -3005,7 +3001,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     ? selectedFile.path
     : '';
 
-  const assetAuthErrorFallback = t('filesView.error.readFileFailed');
+  const assetAuthErrorFallback = "Failed to read file";
   const { readyKey: imageAssetAuthReadyKey, nonce: imagePreviewNonce } =
     useAssetAuthRefresh(imageAssetAuthKey, setFileError, assetAuthErrorFallback);
   const { readyKey: htmlAssetAuthReadyKey, nonce: htmlPreviewNonce } =
@@ -3084,7 +3080,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
             },
           });
           if (!response.ok) {
-            throw new Error(t('filesView.error.readFileFailed'));
+            throw new Error("Failed to read file");
           }
           const blob = await response.blob();
           const url = URL.createObjectURL(blob);
@@ -3110,7 +3106,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
           }
           if (!cancelled) {
             setDesktopImageSrc('');
-            setFileError(error instanceof Error ? error.message : t('filesView.error.readFileFailed'));
+            setFileError(error instanceof Error ? error.message : "Failed to read file");
             setLoadedFilePath(null);
           }
         })
@@ -3126,7 +3122,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     return () => {
       cancelled = true;
     };
-  }, [files, isSelectedImage, isSelectedSvg, root, runtime.isDesktop, selectedFile?.path, selectedFileReadOptions, t]);
+  }, [files, isSelectedImage, isSelectedSvg, root, runtime.isDesktop, selectedFile?.path, selectedFileReadOptions]);
 
   React.useEffect(() => {
     return () => {
@@ -3216,26 +3212,26 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
             {isSaving ? (
               <span className="flex items-center gap-1 px-1 text-muted-foreground typography-meta">
                 <Icon name="loader-4" className="size-3.5 animate-spin" />
-                {t('filesView.editor.saving')}
+                {"Saving..."}
               </span>
             ) : autoSaveEnabled && autoSaveStatus === 'saved' && !isDirty ? (
               <span className="flex items-center gap-1 px-1 text-[color:var(--status-success)] typography-meta">
                 <Icon name="check" className="size-3.5" />
-                {t('filesView.editor.saved')}
+                {"Saved"}
               </span>
-            ) : isDirty ? withTooltip(t(autoSaveEnabled ? 'filesView.editor.saveNowTitle' : 'filesView.editor.saveNowManualTitle', { shortcut: `${getModifierLabel()}+S` }),
+            ) : isDirty ? withTooltip((autoSaveEnabled ? `Save now (${getModifierLabel()}+S) - auto-saves after 1.5s` : `Save now (${getModifierLabel()}+S)`),
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => void saveDraft()}
                 className="h-6 gap-1 px-1 text-muted-foreground opacity-80 hover:bg-transparent hover:opacity-100 focus-visible:bg-transparent active:bg-transparent"
-                title={t(autoSaveEnabled ? 'filesView.editor.saveNowTitle' : 'filesView.editor.saveNowManualTitle', { shortcut: `${getModifierLabel()}+S` })}
-                aria-label={t('filesView.editor.saveAria', { shortcut: `${getModifierLabel()}+S` })}
+                title={(autoSaveEnabled ? `Save now (${getModifierLabel()}+S) - auto-saves after 1.5s` : `Save now (${getModifierLabel()}+S)`)}
+                aria-label={`Save (${getModifierLabel()}+S)`}
               >
                 <Icon name="save-3" className="size-4" />
               </Button>
             ) : null}
-            {withTooltip(autoSaveEnabled ? t('filesView.editor.autoSaveOn') : t('filesView.editor.manualSave'),
+            {withTooltip(autoSaveEnabled ? "Auto-save on" : "Manual save",
               <Button
                 variant="ghost"
                 size="sm"
@@ -3244,8 +3240,8 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                   'size-6 p-0 transition-opacity hover:bg-transparent focus-visible:bg-transparent active:bg-transparent',
                   autoSaveEnabled ? 'text-foreground opacity-100' : 'text-muted-foreground opacity-65 hover:opacity-100'
                 )}
-                title={autoSaveEnabled ? t('filesView.editor.autoSaveOn') : t('filesView.editor.manualSave')}
-                aria-label={autoSaveEnabled ? t('filesView.editor.autoSaveOn') : t('filesView.editor.manualSave')}
+                title={autoSaveEnabled ? "Auto-save on" : "Manual save"}
+                aria-label={autoSaveEnabled ? "Auto-save on" : "Manual save"}
               >
                 {autoSaveEnabled ? <Icon name="file-check-fill" className="size-4" /> : <Icon name="file-check" className="size-4" />}
               </Button>
@@ -3262,15 +3258,15 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                     variant="ghost"
                     size="sm"
                     className="size-6 p-0 text-foreground opacity-100 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-                    title={t('filesView.editor.openInDesktopApp')}
-                    aria-label={t('filesView.editor.openInDesktopApp')}
+                    title={"Open in desktop app"}
+                    aria-label={"Open in desktop app"}
                   >
                     <Icon name="file-transfer" className="size-4" />
                   </Button>
                 </DropdownMenuTrigger>
               </span>
             </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>{t('filesView.editor.openInDesktopApp')}</TooltipContent>
+            <TooltipContent side="bottom" sideOffset={6}>{"Open in desktop app"}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end" className="w-56 max-h-[70vh] overflow-y-auto">
             {openInApps.map((app) => (
@@ -3289,7 +3285,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                 onClick={() => void loadOpenInApps(true)}
               >
                 <Icon name="refresh" className="size-4" />
-                <span className="typography-ui-label text-foreground">{t('filesView.editor.refreshApps')}</span>
+                <span className="typography-ui-label text-foreground">{"Refresh Apps"}</span>
               </DropdownMenuItem>
             ) : null}
           </DropdownMenuContent>
@@ -3297,7 +3293,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
 
         {!isSelectedImage && !isSelectedPdf && !isUnsupportedBinary && (
           <>
-            {withTooltip(wrapLines ? t('filesView.editor.disableLineWrap') : t('filesView.editor.enableLineWrap'),
+            {withTooltip(wrapLines ? "Disable line wrap" : "Enable line wrap",
               <Button
                 variant="ghost"
                 size="sm"
@@ -3306,14 +3302,14 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                   'size-6 p-0 transition-opacity hover:bg-transparent focus-visible:bg-transparent active:bg-transparent',
                   wrapLines ? 'text-foreground opacity-100' : 'text-muted-foreground opacity-65 hover:opacity-100'
                 )}
-                title={wrapLines ? t('filesView.editor.disableLineWrap') : t('filesView.editor.enableLineWrap')}
+                title={wrapLines ? "Disable line wrap" : "Enable line wrap"}
               >
                 <Icon name="text-wrap" className="size-4" />
               </Button>
             )}
             {textViewMode === 'edit' && (
               <>
-                {withTooltip(t('filesView.editor.findInFile'),
+                {withTooltip("Find in file",
                   <Button
                     variant="ghost"
                     size="sm"
@@ -3322,12 +3318,12 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                       event.currentTarget.blur();
                     }}
                     className="size-6 p-0 text-foreground opacity-100 transition-opacity hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-                    title={t('filesView.editor.findInFile')}
+                    title={"Find in file"}
                   >
                     <Icon name="search" className="size-4" />
                   </Button>
                 )}
-                {withTooltip(t('filesView.editor.goToLine'),
+                {withTooltip("Go to line",
                   <Button
                     variant="ghost"
                     size="sm"
@@ -3336,7 +3332,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                       event.currentTarget.blur();
                     }}
                     className="size-6 p-0 text-foreground opacity-100 transition-opacity hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-                    title={t('filesView.editor.goToLine')}
+                    title={"Go to line"}
                   >
                     <Icon name="menu-fold-2" className="size-4" />
                   </Button>
@@ -3363,7 +3359,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
 
         {isMarkdown && (
           withTooltip(
-            t(getMdViewMode() === 'preview' ? 'filesView.editor.switchToEditMode' : 'filesView.editor.switchToPreviewMode'),
+            (getMdViewMode() === 'preview' ? "Switch to edit mode" : "Switch to preview mode"),
             <Button
               variant="ghost"
               size="sm"
@@ -3374,8 +3370,8 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                   ? 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)] hover:bg-[var(--interactive-selection)] focus-visible:bg-[var(--interactive-selection)] active:bg-[var(--interactive-selection)]'
                   : 'text-muted-foreground opacity-65 hover:opacity-100'
               )}
-              title={t(getMdViewMode() === 'preview' ? 'filesView.editor.switchToEditMode' : 'filesView.editor.switchToPreviewMode')}
-              aria-label={t(getMdViewMode() === 'preview' ? 'filesView.editor.switchToEditMode' : 'filesView.editor.switchToPreviewMode')}
+              title={(getMdViewMode() === 'preview' ? "Switch to edit mode" : "Switch to preview mode")}
+              aria-label={(getMdViewMode() === 'preview' ? "Switch to edit mode" : "Switch to preview mode")}
             >
               <Icon name={getMdViewMode() === 'preview' ? 'eye' : 'eye-off'} className="size-4" />
             </Button>
@@ -3415,7 +3411,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                   }
                 }}
                 className="size-6 p-0 text-foreground hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-                title={t('filesView.diagram.saveDiagram')}
+                title={"Save diagram"}
               >
                 {diagramSaved ? (
                   <Icon name="check" className="size-4 text-[color:var(--status-success)]" />
@@ -3428,13 +3424,13 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
         )}
 
         {isJson && (
-          withTooltip(jsonViewMode === 'tree' ? t('filesView.editor.switchToTextView') : t('filesView.editor.switchToTreeView'),
+          withTooltip(jsonViewMode === 'tree' ? "Switch to Text View" : "Switch to Tree View",
             <Button
               variant="ghost"
               size="sm"
               onClick={() => saveJsonViewMode(jsonViewMode === 'tree' ? 'text' : 'tree')}
               className="size-6 p-0 text-muted-foreground opacity-65 hover:bg-transparent hover:opacity-100 focus-visible:bg-transparent active:bg-transparent"
-              title={jsonViewMode === 'tree' ? t('filesView.editor.switchToTextView') : t('filesView.editor.switchToTreeView')}
+              title={jsonViewMode === 'tree' ? "Switch to Text View" : "Switch to Tree View"}
             >
               {jsonViewMode === 'tree' ? (
                 <Icon name="code-sslash" className="size-4" />
@@ -3446,7 +3442,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
         )}
 
         {canCopy && (
-          withTooltip(t('filesView.editor.copyFileContents'),
+          withTooltip("Copy file contents",
             <Button
               variant="ghost"
               size="sm"
@@ -3461,12 +3457,12 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                     setCopiedContent(false);
                   }, 1200);
                 } else {
-                  toast.error(t('filesView.toast.copyFailed'));
+                  toast.error("Copy failed");
                 }
               }}
               className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-              title={t('filesView.editor.copyFileContents')}
-              aria-label={t('filesView.editor.copyFileContents')}
+              title={"Copy file contents"}
+              aria-label={"Copy file contents"}
             >
               {copiedContent ? (
                 <Icon name="check" className="size-4 text-[color:var(--status-success)]" />
@@ -3478,7 +3474,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
         )}
 
         {canCopyPath && (
-          withTooltip(t('filesView.editor.copyFilePathTitle', { path: displaySelectedPath }),
+          withTooltip(`Copy file path (${displaySelectedPath})`,
             <Button
               variant="ghost"
               size="sm"
@@ -3493,12 +3489,12 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                     setCopiedPath(false);
                   }, 1200);
                 } else {
-                  toast.error(t('filesView.toast.copyFailed'));
+                  toast.error("Copy failed");
                 }
               }}
               className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-              title={t('filesView.editor.copyFilePathTitle', { path: displaySelectedPath })}
-              aria-label={t('filesView.editor.copyFilePathTitle', { path: displaySelectedPath })}
+              title={`Copy file path (${displaySelectedPath})`}
+              aria-label={`Copy file path (${displaySelectedPath})`}
             >
               {copiedPath ? (
                 <Icon name="check" className="size-4 text-[color:var(--status-success)]" />
@@ -3510,7 +3506,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
         )}
 
         {files.downloadFile && (
-          withTooltip(t('filesView.editor.saveFile'),
+          withTooltip("Save file",
             <Button
               variant="ghost"
               size="sm"
@@ -3518,12 +3514,12 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                 const fn = files.downloadFile;
                 if (fn) void fn(selectedFile.path).catch((error) => {
                   console.error('Download failed:', error);
-                  toast.error(t('sidebarFilesTree.toast.operationFailed'));
+                  toast.error("Operation failed");
                 });
               }}
               className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-              title={t('filesView.editor.saveFile')}
-              aria-label={t('filesView.editor.saveFile')}
+              title={"Save file"}
+              aria-label={"Save file"}
             >
               <Icon name="download" className="size-4" />
             </Button>
@@ -3531,27 +3527,27 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
         )}
 
         {exitFullscreenOnly ? (
-          withTooltip(t('filesView.editor.exitFullscreen'),
+          withTooltip("Exit fullscreen",
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setIsFullscreen(false)}
               className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-              title={t('filesView.editor.exitFullscreen')}
-              aria-label={t('filesView.editor.exitFullscreen')}
+              title={"Exit fullscreen"}
+              aria-label={"Exit fullscreen"}
             >
               <Icon name="fullscreen-exit" className="size-4" />
             </Button>
           )
         ) : (!isMobile && mode === 'full' && (
-          withTooltip(isFullscreen ? t('filesView.editor.exitFullscreen') : t('filesView.editor.fullscreen'),
+          withTooltip(isFullscreen ? "Exit fullscreen" : "Fullscreen",
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setIsFullscreen(!isFullscreen)}
               className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-              title={isFullscreen ? t('filesView.editor.exitFullscreen') : t('filesView.editor.fullscreen')}
-              aria-label={isFullscreen ? t('filesView.editor.exitFullscreen') : t('filesView.editor.fullscreen')}
+              title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+              aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
             >
               {isFullscreen ? (
                 <Icon name="fullscreen-exit" className="size-4" />
@@ -3577,9 +3573,9 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
       }}>
         <DialogContent showCloseButton={false} className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{t('filesView.unsaved.title')}</DialogTitle>
+            <DialogTitle>{"Unsaved changes"}</DialogTitle>
             <DialogDescription>
-              {t('filesView.unsaved.description')}
+              {"Save your edits before continuing?"}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -3589,9 +3585,9 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
               disabled={isSaving}
               className="border-[var(--status-success-border)] bg-[var(--status-success-background)] text-[var(--status-success)] hover:bg-[rgb(var(--status-success)/0.2)]"
             >
-              {t('filesView.unsaved.saveChanges')}
+              {"Save changes"}
             </Button>
-            <Button variant="destructive" onClick={discardAndContinue}>{t('filesView.unsaved.discard')}</Button>
+            <Button variant="destructive" onClick={discardAndContinue}>{"Discard"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -3603,7 +3599,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
             <button
               type="button"
               onClick={() => setShowMobilePageContent(false)}
-              aria-label={t('filesView.editor.back')}
+              aria-label={"Back"}
               className="inline-flex size-7 flex-shrink-0 items-center justify-center mr-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               <Icon name="arrow-left-s" className="size-5" />
@@ -3617,7 +3613,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                   <button
                     type="button"
                     className="inline-flex min-w-0 max-w-full items-center gap-1 text-left typography-ui-label font-medium"
-                    aria-label={t('filesView.editor.openFilesAria')}
+                    aria-label={"Open files"}
                   >
                     <FileTypeIcon filePath={selectedFile.path} extension={selectedFile.extension} className="size-3.5 flex-shrink-0" />
                     <ScrollingFileName name={selectedFile.name} />
@@ -3662,7 +3658,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                             handleCloseFile(file.path);
                           }}
                           className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--surface-muted-foreground)] hover:text-[var(--surface-foreground)]"
-                          aria-label={t('filesView.editor.closeFileAria', { name: file.name })}
+                          aria-label={`Close ${file.name}`}
                         >
                           <Icon name="close" className="size-3.5" />
                         </button>
@@ -3672,7 +3668,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <div className="typography-ui-label font-medium truncate">{t('filesView.editor.selectFile')}</div>
+              <div className="typography-ui-label font-medium truncate">{"Select a file"}</div>
             )
           ) : (
             openFiles.length > 0 ? (
@@ -3723,7 +3719,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                             'rounded-sm p-0.5 text-[var(--surface-muted-foreground)] hover:text-[var(--surface-foreground)]',
                             !isActive && !alwaysShowActions && 'opacity-0 group-hover:opacity-100'
                           )}
-                          aria-label={t('filesView.editor.closeFileAria', { name: file.name })}
+                          aria-label={`Close ${file.name}`}
                         >
                           <Icon name="close" className="size-3.5" />
                         </button>
@@ -3733,7 +3729,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                 </div>
               </div>
             ) : (
-              <div className="typography-ui-label font-medium truncate">{t('filesView.editor.selectFile')}</div>
+              <div className="typography-ui-label font-medium truncate">{"Select a file"}</div>
             )
           )}
         </div>
@@ -3789,15 +3785,15 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                               ? 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)] hover:bg-[var(--interactive-selection)]'
                               : 'text-muted-foreground hover:text-foreground'
                           )}
-                          aria-label={t(getMdViewMode() === 'preview' ? 'filesView.editor.switchToEditMode' : 'filesView.editor.switchToPreviewMode')}
-                          title={t(getMdViewMode() === 'preview' ? 'filesView.editor.switchToEditMode' : 'filesView.editor.switchToPreviewMode')}
+                          aria-label={(getMdViewMode() === 'preview' ? "Switch to edit mode" : "Switch to preview mode")}
+                          title={(getMdViewMode() === 'preview' ? "Switch to edit mode" : "Switch to preview mode")}
                         >
                           <Icon name={getMdViewMode() === 'preview' ? 'eye' : 'eye-off'} className="size-4" />
                         </Button>
                       </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" sideOffset={6}>
-                      {t(getMdViewMode() === 'preview' ? 'filesView.editor.switchToEditMode' : 'filesView.editor.switchToPreviewMode')}
+                      {(getMdViewMode() === 'preview' ? "Switch to edit mode" : "Switch to preview mode")}
                     </TooltipContent>
                   </Tooltip>
                 ) : null}
@@ -3812,14 +3808,14 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                         size="sm"
                         onClick={() => setIsFloatingToolbarOpen(true)}
                         className="size-8 rounded-lg border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-0 text-muted-foreground shadow-sm hover:text-foreground"
-                        aria-label={t('filesView.editor.showControlsAria')}
-                        title={t('filesView.editor.controlsTitle')}
+                        aria-label={"Show editor controls"}
+                        title={"Editor controls"}
                       >
                         <Icon name="more-2-fill" className="size-4" />
                       </Button>
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom" sideOffset={6}>{t('filesView.editor.controlsTitle')}</TooltipContent>
+                  <TooltipContent side="bottom" sideOffset={6}>{"Editor controls"}</TooltipContent>
                 </Tooltip>
               </div>
             )}
@@ -3827,14 +3823,14 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
         )}
         <ScrollableOverlay outerClassName="h-full min-w-0" className="h-full min-w-0">
           {!selectedFile ? (
-            <div className="p-3 typography-ui text-muted-foreground">{t('filesView.editor.pickFileFromTree')}</div>
+            <div className="p-3 typography-ui text-muted-foreground">{"Pick a file from the tree."}</div>
           ) : (fileLoading || isImageAssetAuthLoading || isPdfAssetAuthLoading) ? (
             suppressFileLoadingIndicator
               ? <div className="p-3" />
               : (
                 <div className="p-3 flex items-center gap-2 typography-ui text-muted-foreground">
                   <Icon name="loader-4" className="size-4 animate-spin" />
-                  {t('filesView.state.loading')}
+                  {"Loading..."}
                 </div>
               )
           ) : fileError ? (
@@ -3844,7 +3840,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
               <img
                 key={imagePreviewNonce}
                 src={imageSrc}
-                alt={selectedFile?.name ?? t('filesView.editor.imageAltFallback')}
+                alt={selectedFile?.name ?? "Image"}
                 className="max-w-full max-h-[70vh] object-contain rounded-md border border-border/30 bg-primary/10"
               />
             </div>
@@ -3852,8 +3848,8 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
             renderPdfPreview(selectedFile)
           ) : isUnsupportedBinary ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-              <div className="typography-ui-header text-foreground">{t('filesView.editor.cannotPreviewBinary')}</div>
-              <div className="max-w-md typography-ui text-muted-foreground">{t('filesView.editor.binaryFileDescription')}</div>
+              <div className="typography-ui-header text-foreground">{"Cannot preview binary file"}</div>
+              <div className="max-w-md typography-ui text-muted-foreground">{"This file is binary and cannot be edited in PiChamber. Download it to open with another app."}</div>
               {files.downloadFile ? (
                 <Button
                   type="button"
@@ -3864,12 +3860,12 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                     if (!fn || !selectedFile) return;
                     void fn(selectedFile.path).catch((error) => {
                       console.error('Download failed:', error);
-                      toast.error(t('sidebarFilesTree.toast.operationFailed'));
+                      toast.error("Operation failed");
                     });
                   }}
                 >
                   <Icon name="download" className="mr-2 size-4" />
-                  {t('filesView.editor.saveFile')}
+                  {"Save file"}
                 </Button>
               ) : null}
             </div>
@@ -3886,9 +3882,9 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
             <ErrorBoundary
               fallback={
                 <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2">
-                  <div className="mb-1 font-medium text-destructive">{t('filesView.error.jsonViewerUnavailable')}</div>
+                  <div className="mb-1 font-medium text-destructive">{"JSON viewer unavailable"}</div>
                   <div className="text-sm text-muted-foreground">
-                    {t('filesView.error.switchToTextMode')}
+                    {"Switch to text mode to view raw content."}
                   </div>
                 </div>
               }
@@ -3905,15 +3901,15 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
             <div className="h-full overflow-auto p-3">
               {fileContent.length > 500 * 1024 && (
                 <div className="mb-3 rounded-md border border-status-warning/20 bg-status-warning/10 px-3 py-2 text-sm text-status-warning">
-                  {t('filesView.warning.largeFilePreviewLimited', { sizeKb: Math.round(fileContent.length / 1024) })}
+                  {`This file is large (${Math.round(fileContent.length / 1024)}KB). Preview may be limited.`}
                 </div>
               )}
               <ErrorBoundary
                 fallback={
                   <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2">
-                    <div className="mb-1 font-medium text-destructive">{t('filesView.error.previewUnavailable')}</div>
+                    <div className="mb-1 font-medium text-destructive">{"Preview unavailable"}</div>
                     <div className="text-sm text-muted-foreground">
-                      {t('filesView.error.switchToEditMode')}
+                      {"Switch to edit mode to fix the issue."}
                     </div>
                   </div>
                 }
@@ -3929,7 +3925,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
           ) : selectedFile && isHtml && htmlViewMode === 'preview' ? (
             isHtmlAssetAuthLoading ? (
               <div className="flex h-full items-center justify-center text-muted-foreground typography-ui-label">
-                {t('common.loading')}
+                {"Loading..."}
               </div>
             ) : (
             <div className="h-full overflow-hidden">
@@ -3941,7 +3937,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                 })() : undefined}
                 className="w-full h-full border-none"
                 sandbox="allow-scripts allow-same-origin allow-forms"
-                title={t('filesView.editor.htmlPreviewTitle')}
+                title={"HTML Preview"}
               />
             </div>
             )
@@ -4067,7 +4063,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background">
                   <div className="flex items-center gap-2 typography-ui text-muted-foreground">
                     <Icon name="loader-4" className="size-4 animate-spin" />
-                    {t('filesView.state.openingFileAtChange')}
+                    {"Opening file at change..."}
                   </div>
                 </div>
               )}
@@ -4094,13 +4090,13 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
               ref={searchInputRef}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={t('filesView.tree.search.placeholder')}
+              placeholder={"Search files..."}
               className="h-8 pl-8 pr-8 typography-meta"
             />
             {searchQuery.trim().length > 0 && (
               <button
                 type="button"
-                aria-label={t('filesView.tree.search.clearAria')}
+                aria-label={"Clear search"}
                 className="absolute right-2 top-2 inline-flex size-4 items-center justify-center text-muted-foreground hover:text-foreground"
                 onClick={() => {
                   setSearchQuery('');
@@ -4119,14 +4115,14 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                   size="sm"
                   onClick={() => handleOpenDialog('createFile', { path: currentDirectory, type: 'directory' })}
                   className="size-8 p-0 flex-shrink-0"
-                  title={t('filesView.tree.actions.newFileTitle')}
-                  aria-label={t('filesView.tree.actions.newFileTitle')}
+                  title={"New File"}
+                  aria-label={"New File"}
                 >
                   <Icon name="file-add" className="size-4" />
                 </Button>
               </span>
             </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>{t('filesView.tree.actions.newFileTitle')}</TooltipContent>
+            <TooltipContent side="bottom" sideOffset={6}>{"New File"}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -4136,24 +4132,24 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                   size="sm"
                   onClick={() => handleOpenDialog('createFolder', { path: currentDirectory, type: 'directory' })}
                   className="size-8 p-0 flex-shrink-0"
-                  title={t('filesView.tree.actions.newFolderTitle')}
-                  aria-label={t('filesView.tree.actions.newFolderTitle')}
+                  title={"New Folder"}
+                  aria-label={"New Folder"}
                 >
                   <Icon name="folder-add" className="size-4" />
                 </Button>
               </span>
             </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>{t('filesView.tree.actions.newFolderTitle')}</TooltipContent>
+            <TooltipContent side="bottom" sideOffset={6}>{"New Folder"}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="inline-flex flex-shrink-0">
-                <Button variant="ghost" size="sm" onClick={() => void refreshRoot()} className="size-8 p-0 flex-shrink-0" title={t('filesView.tree.actions.refreshTitle')} aria-label={t('filesView.tree.actions.refreshTitle')}>
+                <Button variant="ghost" size="sm" onClick={() => void refreshRoot()} className="size-8 p-0 flex-shrink-0" title={"Refresh"} aria-label={"Refresh"}>
                   <Icon name="refresh" className="size-4" />
                 </Button>
               </span>
             </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>{t('filesView.tree.actions.refreshTitle')}</TooltipContent>
+            <TooltipContent side="bottom" sideOffset={6}>{"Refresh"}</TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -4163,7 +4159,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
           {searching ? (
             <li className="flex items-center gap-1.5 px-2 py-1 typography-meta text-muted-foreground">
               <Icon name="loader-4" className="size-4 animate-spin" />
-              {t('filesView.tree.search.searching')}
+              {"Searching..."}
             </li>
           ) : searchResults.length > 0 ? (
             searchResults.map((node) => {
@@ -4195,13 +4191,13 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
               <span className="text-[var(--status-error)]">{rootLoadError}</span>
               <Button variant="outline" size="xs" className="w-fit gap-1.5" onClick={() => void refreshRoot()}>
                 <Icon name="refresh" className="size-3.5" />
-                {t('filesView.tree.actions.refreshTitle')}
+                {"Refresh"}
               </Button>
             </li>
           ) : hasTree ? (
             renderTree(root, 0)
           ) : (
-            <li className="px-2 py-1 typography-meta text-muted-foreground">{t('filesView.state.loading')}</li>
+            <li className="px-2 py-1 typography-meta text-muted-foreground">{"Loading..."}</li>
           )}
         </ul>
       </ScrollableOverlay>
@@ -4241,8 +4237,8 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
             renderPdfPreview(selectedFile)
           ) : isUnsupportedBinary ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-              <div className="typography-ui-header text-foreground">{t('filesView.editor.cannotPreviewBinary')}</div>
-              <div className="max-w-md typography-ui text-muted-foreground">{t('filesView.editor.binaryFileDescription')}</div>
+              <div className="typography-ui-header text-foreground">{"Cannot preview binary file"}</div>
+              <div className="max-w-md typography-ui text-muted-foreground">{"This file is binary and cannot be edited in PiChamber. Download it to open with another app."}</div>
               {files.downloadFile ? (
                 <Button
                   type="button"
@@ -4253,12 +4249,12 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                     if (!fn || !selectedFile) return;
                     void fn(selectedFile.path).catch((error) => {
                       console.error('Download failed:', error);
-                      toast.error(t('sidebarFilesTree.toast.operationFailed'));
+                      toast.error("Operation failed");
                     });
                   }}
                 >
                   <Icon name="download" className="mr-2 size-4" />
-                  {t('filesView.editor.saveFile')}
+                  {"Save file"}
                 </Button>
               ) : null}
             </div>
@@ -4266,15 +4262,15 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
             <div className="h-full overflow-auto p-4">
               {fileContent.length > 500 * 1024 && (
                   <div className="mb-3 rounded-md border border-status-warning/20 bg-status-warning/10 px-3 py-2 text-sm text-status-warning">
-                    {t('filesView.warning.largeFilePreviewLimited', { sizeKb: Math.round(fileContent.length / 1024) })}
+                    {`This file is large (${Math.round(fileContent.length / 1024)}KB). Preview may be limited.`}
                   </div>
                 )}
               <ErrorBoundary
                 fallback={
                   <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2">
-                    <div className="mb-1 font-medium text-destructive">{t('filesView.error.previewUnavailable')}</div>
+                    <div className="mb-1 font-medium text-destructive">{"Preview unavailable"}</div>
                     <div className="text-sm text-muted-foreground">
-                      {t('filesView.error.switchToEditMode')}
+                      {"Switch to edit mode to fix the issue."}
                     </div>
                   </div>
                 }
@@ -4316,7 +4312,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background">
                   <div className="flex items-center gap-2 typography-ui text-muted-foreground">
                     <Icon name="loader-4" className="size-4 animate-spin" />
-                    {t('filesView.state.openingFileAtChange')}
+                    {"Opening file at change..."}
                   </div>
                 </div>
               )}

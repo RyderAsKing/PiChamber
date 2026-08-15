@@ -8,7 +8,6 @@ import { invokeDesktop, isDesktopShell } from '@/lib/desktop';
 import { DesktopHostSwitcherInline } from '@/components/desktop/DesktopHostSwitcher';
 import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
 import { Icon } from "@/components/icon/Icon";
-import { useI18n } from '@/lib/i18n';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeExtraHeadersSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged, switchRuntimeEndpoint } from '@/lib/runtime-switch';
@@ -290,7 +289,6 @@ const LoadingScreen: React.FC = () => (
 );
 
 const ErrorScreen: React.FC<ErrorScreenProps> = ({ onRetry, errorType = 'network', retryAfter, children }) => {
-  const { t } = useI18n();
   const isRateLimit = errorType === 'rate-limit';
   const minutes = retryAfter ? Math.ceil(retryAfter / 60) : 1;
 
@@ -299,18 +297,18 @@ const ErrorScreen: React.FC<ErrorScreenProps> = ({ onRetry, errorType = 'network
       <div className="flex flex-col items-center gap-6 text-center">
         <div className="space-y-2">
           <h1 className="typography-ui-header font-semibold text-destructive">
-            {isRateLimit ? t('sessionAuth.error.rateLimitTitle') : t('sessionAuth.error.networkTitle')}
+            {isRateLimit ? "Too many attempts" : "Unable to reach server"}
           </h1>
           <p className="typography-meta text-muted-foreground max-w-xs">
             {isRateLimit
               ? (minutes > 1
-                ? t('sessionAuth.error.rateLimitDescriptionPlural', { minutes })
-                : t('sessionAuth.error.rateLimitDescriptionSingle', { minutes }))
-              : t('sessionAuth.error.networkDescription')}
+                ? `Please wait ${minutes} minutes before trying again.`
+                : `Please wait ${minutes} minute before trying again.`)
+              : "We could not verify the UI session. If you're opening PiChamber from another device on your local network, make sure Desktop Network Access is enabled on the desktop app and use the LAN address shown in Settings."}
           </p>
         </div>
         <Button type="button" onClick={onRetry} className="w-full max-w-xs">
-          {t('sessionAuth.error.retry')}
+          {"Retry"}
         </Button>
         {children}
       </div>
@@ -332,7 +330,6 @@ interface ErrorScreenProps {
 export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
   children,
 }) => {
-  const { t } = useI18n();
   const skipAuth = false;
   const showHostSwitcher = React.useMemo(() => isDesktopShell(), []);
   const [state, setState] = React.useState<GateState>(() => (skipAuth ? 'authenticated' : 'pending'));
@@ -623,7 +620,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
           return;
         }
         if (shellLogin?.status === 401) {
-          setErrorMessage(t('sessionAuth.error.incorrectPassword'));
+          setErrorMessage("Incorrect password. Try again.");
           setIsTunnelLocked(false);
           setState('locked');
           return;
@@ -663,14 +660,14 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
           try {
             await registerPasskeyForCurrentSession();
             if (!isRuntimeIdentityActive(runtime)) return;
-            toast.success(t('sessionAuth.toast.passkeyAdded'));
+            toast.success("Passkey added");
             setState('authenticated');
             return;
           } catch (error) {
             if (isPasskeyCeremonyAbort(error)) {
-              toast.message(t('sessionAuth.toast.passkeySetupCanceled'));
+              toast.message("Passkey setup canceled");
             } else {
-              const message = error instanceof Error ? error.message : t('sessionAuth.error.passkeySetupFailed');
+              const message = error instanceof Error ? error.message : "Passkey setup failed.";
               toast.error(message);
             }
             setState('authenticated');
@@ -682,7 +679,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
       }
 
       if (response.status === 401) {
-        setErrorMessage(t('sessionAuth.error.incorrectPassword'));
+        setErrorMessage("Incorrect password. Try again.");
         setIsTunnelLocked(false);
         setState('locked');
         return;
@@ -696,7 +693,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
         return;
       }
 
-      setErrorMessage(t('sessionAuth.error.unexpectedResponse'));
+      setErrorMessage("Unexpected response from server.");
       setIsTunnelLocked(false);
       setState('error');
     } catch (error) {
@@ -714,7 +711,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
         return;
       }
       if (shellLogin?.status === 401) {
-        setErrorMessage(t('sessionAuth.error.incorrectPassword'));
+        setErrorMessage("Incorrect password. Try again.");
         setIsTunnelLocked(false);
         setState('locked');
         return;
@@ -725,7 +722,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
         setState('rate-limited');
         return;
       }
-      setErrorMessage(t('sessionAuth.error.networkRetry'));
+      setErrorMessage("Network error. Check connection and retry.");
       setIsTunnelLocked(false);
       setState('error');
     } finally {
@@ -733,7 +730,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
         setIsSubmitting(false);
       }
     }
-  }, [cancelActivePasskey, isPasskeyBusy, isSubmitting, isTunnelLocked, password, registerPasskeyForCurrentSession, supportsPasskeys, t, trustDevice]);
+  }, [cancelActivePasskey, isPasskeyBusy, isSubmitting, isTunnelLocked, password, registerPasskeyForCurrentSession, supportsPasskeys, trustDevice]);
 
   const handlePasskeyUnlock = React.useCallback(async () => {
     if (isSubmitting || !supportsPasskeys) {
@@ -772,7 +769,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
       if (isPasskeyCeremonyAbort(error)) {
         setErrorMessage('');
       } else {
-        const message = error instanceof Error ? error.message : t('sessionAuth.error.passkeySignInCanceled');
+        const message = error instanceof Error ? error.message : "Passkey sign-in was canceled.";
         setErrorMessage(message);
       }
     } finally {
@@ -781,7 +778,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
         setIsPasskeyBusy(false);
       }
     }
-  }, [cancelActivePasskey, isPasskeyBusy, isSubmitting, supportsPasskeys, t, trustDevice]);
+  }, [cancelActivePasskey, isPasskeyBusy, isSubmitting, supportsPasskeys, trustDevice]);
 
   const handlePasskeySetupOnly = React.useCallback(async () => {
     if (isSubmitting || isTunnelLocked || !supportsPasskeys) {
@@ -795,7 +792,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
 
     if (state !== 'authenticated') {
       if (!password) {
-        setErrorMessage(t('sessionAuth.error.enterPasswordForPasskey'));
+        setErrorMessage("Enter your password to add a passkey.");
         return;
       }
       await handlePasswordUnlock(true);
@@ -805,16 +802,16 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
     setErrorMessage('');
     try {
       await registerPasskeyForCurrentSession();
-      toast.success(t('sessionAuth.toast.passkeyAdded'));
+      toast.success("Passkey added");
     } catch (error) {
       if (isPasskeyCeremonyAbort(error)) {
-        toast.message(t('sessionAuth.toast.passkeySetupCanceled'));
+        toast.message("Passkey setup canceled");
         return;
       }
-      const message = error instanceof Error ? error.message : t('sessionAuth.error.passkeySetupFailed');
+      const message = error instanceof Error ? error.message : "Passkey setup failed.";
       toast.error(message);
     }
-  }, [cancelActivePasskey, handlePasswordUnlock, isPasskeyBusy, isSubmitting, isTunnelLocked, password, registerPasskeyForCurrentSession, state, supportsPasskeys, t]);
+  }, [cancelActivePasskey, handlePasswordUnlock, isPasskeyBusy, isSubmitting, isTunnelLocked, password, registerPasskeyForCurrentSession, state, supportsPasskeys]);
 
   const canOfferPasskeySetup = supportsPasskeys && passkeyStatus.enabled;
   const canUsePasskey = canOfferPasskeySetup && passkeyStatus.hasPasskeys;
@@ -830,7 +827,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
           <div className="w-full max-w-xs">
             <DesktopHostSwitcherInline />
             <p className="mt-1 text-center typography-micro text-muted-foreground">
-              {t('sessionAuth.locked.hostSwitcherHint')}
+              {"Use Local if remote is unreachable."}
             </p>
           </div>
         )}
@@ -848,12 +845,12 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
         <div className="flex flex-col items-center gap-6 w-full max-w-xs">
           <div className="flex flex-col items-center gap-1 text-center">
             <h1 className="text-xl font-semibold text-foreground">
-              {isTunnelLocked ? t('sessionAuth.locked.tunnelTitle') : t('sessionAuth.locked.unlockTitle')}
+              {isTunnelLocked ? "Tunnel access required" : "Unlock PiChamber"}
             </h1>
             <p className="typography-meta text-muted-foreground">
               {isTunnelLocked
-                ? t('sessionAuth.locked.tunnelDescription')
-                : t('sessionAuth.locked.passwordDescription')}
+                ? "Open this tunnel using the one-time connect link from the desktop app."
+                : "This session is password-protected."}
             </p>
           </div>
 
@@ -873,8 +870,8 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
                     <Icon name="lock-unlock" className="h-4 w-4" />
                   )}
                   <span>{isPasskeyBusy && activePasskeyAction === 'auth'
-                    ? t('sessionAuth.actions.cancelPasskey')
-                    : t('sessionAuth.actions.usePasskey')}</span>
+                    ? "Cancel passkey"
+                    : "Use passkey"}</span>
                 </Button>
               )}
               <div className="flex items-center gap-2">
@@ -885,7 +882,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
                     ref={passwordInputRef}
                     type="password"
                     autoComplete="current-password"
-                    placeholder={t('sessionAuth.password.placeholder')}
+                    placeholder={"Enter password"}
                     value={password}
                     onChange={(event) => {
                       setPassword(event.target.value);
@@ -903,7 +900,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
                   type="submit"
                   size="icon"
                   disabled={!password || isSubmitting}
-                  aria-label={isSubmitting ? t('sessionAuth.actions.unlockingAria') : t('sessionAuth.actions.unlockAria')}
+                  aria-label={isSubmitting ? "Unlocking" : "Unlock"}
                 >
                   {isSubmitting ? (
                     <Icon name="loader-4" className="h-4 w-4 animate-spin" />
@@ -919,11 +916,11 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
                       checked={trustDevice}
                       onChange={setTrustDevice}
                       disabled={isSubmitting}
-                      ariaLabel={t('sessionAuth.actions.trustDeviceAria')}
+                      ariaLabel={"Trust this device"}
                       className="size-4"
                       iconClassName="size-4"
                     />
-                    <span>{t('sessionAuth.actions.trustDevice')}</span>
+                    <span>{"Trust this device"}</span>
                   </label>
                   <Button
                     type="button"
@@ -934,8 +931,8 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
                     disabled={isSubmitting}
                   >
                     {isPasskeyBusy && activePasskeyAction === 'register'
-                      ? t('sessionAuth.actions.cancelPasskeySetup')
-                      : t('sessionAuth.actions.addPasskey')}
+                      ? "Cancel passkey setup"
+                      : "Add passkey"}
                   </Button>
                 </div>
               ) : (
@@ -944,11 +941,11 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
                     checked={trustDevice}
                     onChange={setTrustDevice}
                     disabled={isSubmitting}
-                    ariaLabel={t('sessionAuth.actions.trustDeviceAria')}
+                    ariaLabel={"Trust this device"}
                     className="size-4"
                     iconClassName="size-4"
                   />
-                  <span>{t('sessionAuth.actions.trustDevice')}</span>
+                  <span>{"Trust this device"}</span>
                 </label>
               )}
               {errorMessage && (
@@ -963,7 +960,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
             <div className="w-full">
               <DesktopHostSwitcherInline />
               <p className="mt-1 text-center typography-micro text-muted-foreground">
-                {t('sessionAuth.locked.hostSwitcherHint')}
+                {"Use Local if remote is unreachable."}
               </p>
             </div>
           )}

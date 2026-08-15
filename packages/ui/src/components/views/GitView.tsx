@@ -61,7 +61,6 @@ import type { GitRemote } from '@/lib/gitApi';
 import { cn } from '@/lib/utils';
 import { generateCommitMessage as generateSessionCommitMessage } from '@/lib/gitApi';
 import { sessionEvents } from '@/lib/sessionEvents';
-import { useI18n } from '@/lib/i18n';
 
 type SyncAction = 'fetch' | 'pull' | 'push' | 'sync' | null;
 type CommitAction = 'commit' | 'commitAndPush' | null;
@@ -192,7 +191,6 @@ type GitViewProps = {
 };
 
 export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
-  const { t } = useI18n();
   const { git } = useRuntimeAPIs();
   const currentDirectory = useEffectiveDirectory();
   const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
@@ -332,8 +330,8 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
       bumpIndexRevision(directory);
       scheduleGitReconcile(directory);
       const fallback = direction === 'stage'
-        ? t('gitView.toast.stageFileFailed')
-        : t('gitView.toast.unstageFileFailed');
+        ? "Failed to stage changes"
+        : "Failed to unstage changes";
       toast.error(error instanceof Error ? error.message : fallback);
     },
     onPathsComplete: (paths) => {
@@ -344,7 +342,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
       });
     },
     scheduleFlush: scheduleGitMutationFlush,
-  }), [bumpIndexRevision, runGitIndexMutation, scheduleGitMutationFlush, scheduleGitReconcile, t]);
+  }), [bumpIndexRevision, runGitIndexMutation, scheduleGitMutationFlush, scheduleGitReconcile]);
 
   React.useEffect(() => {
     flushQueuedGitMutationsRef.current = gitIndexMutationQueue.flush;
@@ -498,12 +496,12 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
   const handleCopyCommitHash = React.useCallback((hash: string) => {
     void copyTextToClipboard(hash).then((result) => {
       if (result.ok) {
-        toast.success(t('gitView.toast.commitHashCopied'));
+        toast.success("Commit hash copied");
         return;
       }
-      toast.error(t('gitView.toast.copyFailed'));
+      toast.error("Failed to copy");
     });
-  }, [t]);
+  }, []);
 
   const handleToggleCommit = React.useCallback((hash: string) => {
     setExpandedCommitHashes((prev) => {
@@ -684,12 +682,12 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
       } catch (err) {
         if (showErrors) {
           const message =
-            err instanceof Error ? err.message : t('gitView.toast.refreshRepositoryFailed');
+            err instanceof Error ? err.message : "Failed to refresh repository";
           toast.error(message);
         }
       }
     },
-    [currentDirectory, git, fetchStatus, fetchBranches, t]
+    [currentDirectory, git, fetchStatus, fetchBranches]
   );
 
   const refreshLog = React.useCallback(async () => {
@@ -823,7 +821,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
           throw new Error('No remote available for fetch');
         }
         await git.gitFetch(currentDirectory, { remote: remote.name });
-        toast.success(t('gitView.toast.fetchedFromRemote', { name: remote.name }));
+        toast.success(`Fetched from ${remote.name}`);
       } else if (action === 'pull') {
         if (!remote) {
           throw new Error('No remote available for pull');
@@ -831,12 +829,12 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
         const result = await git.gitPull(currentDirectory, getPullOptions(remote));
         toast.success(
           result.files.length === 1
-            ? t('gitView.toast.pulledFilesSingle', { count: result.files.length, name: remote.name })
-            : t('gitView.toast.pulledFilesPlural', { count: result.files.length, name: remote.name })
+            ? `Pulled ${result.files.length} file from ${remote.name}`
+            : `Pulled ${result.files.length} files from ${remote.name}`
         );
       } else if (action === 'push') {
         const result = await git.gitPush(currentDirectory);
-        toast.success(t('gitView.toast.pushedToUpstream', { name: getPushedRemoteName(result) }));
+        toast.success(`Pushed to ${getPushedRemoteName(result)}`);
       } else if (action === 'sync') {
         if (!remote) {
           throw new Error('No remote available for sync');
@@ -848,7 +846,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
 
         if ((afterFetch.behind ?? 0) > 0) {
           if ((afterFetch.files?.length ?? 0) > 0) {
-            toast.error(t('gitView.toast.commitOrStashBeforeSync'));
+            toast.error("Commit or stash your changes before syncing");
             return;
           }
           const pullResult = await git.gitPull(currentDirectory, getPullOptions(remote));
@@ -863,19 +861,19 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
         if (pulledFileCount > 0 && pushedChanges) {
           toast.success(
             pulledFileCount === 1
-              ? t('gitView.toast.syncedPulledSingleAndPushed', { count: pulledFileCount, name: remote.name })
-              : t('gitView.toast.syncedPulledPluralAndPushed', { count: pulledFileCount, name: remote.name })
+              ? `Pulled ${pulledFileCount} file from ${remote.name} and pushed to upstream`
+              : `Pulled ${pulledFileCount} files from ${remote.name} and pushed to upstream`
           );
         } else if (pulledFileCount > 0) {
           toast.success(
             pulledFileCount === 1
-              ? t('gitView.toast.pulledFilesSingle', { count: pulledFileCount, name: remote.name })
-              : t('gitView.toast.pulledFilesPlural', { count: pulledFileCount, name: remote.name })
+              ? `Pulled ${pulledFileCount} file from ${remote.name}`
+              : `Pulled ${pulledFileCount} files from ${remote.name}`
           );
         } else if (pushedChanges) {
-          toast.success(t('gitView.toast.pushedToUpstream', { name: remote.name }));
+          toast.success(`Pushed to ${remote.name}`);
         } else {
-          toast.success(t('gitView.toast.alreadyUpToDate'));
+          toast.success("Already up to date");
         }
       }
 
@@ -885,7 +883,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
       const message =
         err instanceof Error
           ? err.message
-          : t('gitView.toast.syncActionFailed', { action: action === 'sync' ? t('gitView.sync.syncChanges') : action === 'pull' ? t('gitView.sync.pull') : action });
+          : `${action === 'sync' ? 'Sync Changes' : action === 'pull' ? 'Pull' : action} failed`;
       toast.error(message);
     } finally {
       setSyncAction(null);
@@ -897,18 +895,18 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
 
     const remoteName = remote.name.trim();
     if (!remoteName) {
-      toast.error(t('gitView.toast.remoteNameRequired'));
+      toast.error("Remote name is required");
       return;
     }
     if (remoteName === 'origin') {
-      toast.error(t('gitView.toast.cannotRemoveOriginRemote'));
+      toast.error("Cannot remove the origin remote");
       return;
     }
 
     setRemovingRemoteName(remoteName);
     try {
       await git.removeRemote(currentDirectory, { remote: remoteName });
-      toast.success(t('gitView.toast.removedRemote', { name: remoteName }));
+      toast.success(`Removed remote ${remoteName}`);
       await Promise.all([
         refreshStatusAndBranches(false),
         refreshRemotes(),
@@ -919,18 +917,18 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     } finally {
       setRemovingRemoteName(null);
     }
-  }, [currentDirectory, git, refreshRemotes, refreshStatusAndBranches, t]);
+  }, [currentDirectory, git, refreshRemotes, refreshStatusAndBranches]);
 
   const handleCommit = async (options: { pushAfter?: boolean } = {}) => {
     if (!currentDirectory) return;
     if (!commitMessage.trim()) {
-      toast.error(t('gitView.toast.enterCommitMessage'));
+      toast.error("Enter a commit message");
       return;
     }
 
     const filesToCommit = stagedChangeEntries.map((file) => file.path).sort();
     if (filesToCommit.length === 0) {
-      toast.error(t('gitView.toast.stageFileToCommit'));
+      toast.error("Stage at least one file to commit");
       return;
     }
 
@@ -943,7 +941,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
         stageFiles: [],
       });
       bumpIndexRevision(currentDirectory);
-      toast.success(t('gitView.toast.commitCreated'));
+      toast.success("Commit created");
       setCommitMessage('');
       clearGeneratedHighlights();
 
@@ -953,7 +951,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
         const trackingRemoteName = status?.tracking?.split('/')[0];
         const remote = effectiveRemotes.find((entry) => entry.name === trackingRemoteName) ?? effectiveRemotes[0];
         if (!remote) {
-          throw new Error(t('mobile.changes.noRemote'));
+          throw new Error("No remote available");
         }
 
         setSyncAction('sync');
@@ -966,7 +964,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
         const afterFetch = await git.getGitStatus(currentDirectory);
         if ((afterFetch.behind ?? 0) > 0) {
           if ((afterFetch.files?.length ?? 0) > 0) {
-            toast.error(t('gitView.toast.commitOrStashBeforeSync'));
+            toast.error("Commit or stash your changes before syncing");
             await refreshStatusAndBranches(false);
             return;
           }
@@ -978,7 +976,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
         if ((afterPull.ahead ?? 0) > 0) {
           result = await git.gitPush(currentDirectory);
         }
-        toast.success(t('gitView.toast.pushedToUpstream', { name: getPushedRemoteName(result) }));
+        toast.success(`Pushed to ${getPushedRemoteName(result)}`);
         triggerFireworks();
         await refreshStatusAndBranches(false);
       } else {
@@ -988,7 +986,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
       await refreshLog();
       setIntegrateRefreshKey((v) => v + 1);
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('gitView.toast.createCommitFailed');
+      const message = err instanceof Error ? err.message : "Failed to create commit";
       toast.error(message);
     } finally {
       setCommitAction(null);
@@ -1002,7 +1000,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     if (!currentDirectory) return;
     const selectedFilePaths = stagedChangeEntries.map((file) => file.path).sort();
     if (selectedFilePaths.length === 0) {
-      toast.error(t('gitView.toast.stageFileToDescribe'));
+      toast.error("Stage at least one file to describe");
       return;
     }
 
@@ -1039,12 +1037,12 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
         error,
       });
       const message =
-        error instanceof Error ? error.message : t('gitView.toast.generateCommitMessageFailed');
+        error instanceof Error ? error.message : "Failed to generate commit message";
       toast.error(message);
     } finally {
       setIsGeneratingMessage(false);
     }
-  }, [currentDirectory, stagedChangeEntries, settingsGitmojiEnabled, gitmojiEmojis, scrollActionPanelToBottom, t]);
+  }, [currentDirectory, stagedChangeEntries, settingsGitmojiEnabled, gitmojiEmojis, scrollActionPanelToBottom]);
 
   const handleCreateBranch = async (branchName: string, remote?: GitRemote) => {
     if (!currentDirectory || !status) return;
@@ -1054,7 +1052,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
 
     try {
       await git.createBranch(currentDirectory, branchName, checkoutBase ?? 'HEAD');
-      toast.success(t('gitView.toast.createdBranch', { name: branchName }));
+      toast.success(`Created branch ${branchName}`);
 
       // Checkout the new branch and stay on it
       await git.checkoutBranch(currentDirectory, branchName);
@@ -1072,7 +1070,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
           pushError instanceof Error
             ? pushError.message
             : `Unable to push new branch to ${remoteName}.`;
-        toast.warning(t('gitView.toast.branchCreatedLocally'), {
+        toast.warning("Branch created locally, but failed to set upstream.", {
           description: (
             <span className="text-foreground/80 dark:text-foreground/70">
               Upstream setup failed: {message}
@@ -1085,10 +1083,10 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
       await refreshLog();
 
       if (pushSucceeded) {
-        toast.success(t('gitView.toast.upstreamSet', { branch: branchName, remote: remoteName }));
+        toast.success(`Set upstream for ${branchName} to ${remoteName}`);
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('gitView.toast.createBranchFailed');
+      const message = err instanceof Error ? err.message : "Failed to create branch";
       toast.error(message);
       throw err;
     }
@@ -1099,12 +1097,12 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
 
     try {
       await git.renameBranch(currentDirectory, oldName, newName);
-      toast.success(t('gitView.toast.renamedBranch', { oldName, newName }));
+      toast.success(`Renamed ${oldName} to ${newName}`);
       await refreshStatusAndBranches();
       await refreshLog();
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : t('gitView.toast.renameBranchFailed', { oldName, newName });
+        err instanceof Error ? err.message : `Failed to rename ${oldName} to ${newName}`;
       toast.error(message);
     }
   };
@@ -1120,12 +1118,12 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
 
     try {
       await git.checkoutBranch(currentDirectory, normalized);
-      toast.success(t('gitView.toast.checkedOut', { name: normalized }));
+      toast.success(`Checked out ${normalized}`);
       await refreshStatusAndBranches();
       await refreshLog();
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : t('gitView.toast.checkoutFailed', { name: normalized });
+        err instanceof Error ? err.message : `Failed to checkout ${normalized}`;
       toast.error(message);
     }
   };
@@ -1136,10 +1134,10 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
 
     try {
       await git.setGitIdentity(currentDirectory, profile.id);
-      toast.success(t('gitView.toast.appliedIdentity', { name: profile.name }));
+      toast.success(`Applied identity: ${profile.name}`);
       await refreshIdentity();
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('gitView.toast.applyIdentityFailed');
+      const message = err instanceof Error ? err.message : "Failed to apply identity";
       toast.error(message);
     } finally {
       endIdentityApply();
@@ -1426,10 +1424,10 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
 
       try {
         await git.revertGitFile(currentDirectory, filePath, { scope: 'working' });
-        toast.success(t('gitView.toast.revertedFile', { path: filePath }));
+        toast.success(`Reverted ${filePath}`);
         await refreshStatusAndBranches(false);
       } catch (err) {
-        const message = err instanceof Error ? err.message : t('gitView.toast.revertFailed');
+        const message = err instanceof Error ? err.message : "Failed to revert changes";
         toast.error(message);
       } finally {
         setRevertingPaths((previous) => {
@@ -1439,7 +1437,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
         });
       }
     },
-    [currentDirectory, refreshStatusAndBranches, git, t]
+    [currentDirectory, refreshStatusAndBranches, git]
   );
 
   const handleRevertPaths = React.useCallback(
@@ -1474,7 +1472,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
           } catch (err) {
             failed.push({
               path: filePath,
-              message: err instanceof Error ? err.message : t('gitView.toast.revertFailed'),
+              message: err instanceof Error ? err.message : "Failed to revert changes",
             });
           }
         }));
@@ -1488,17 +1486,17 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
         if (failed.length === 0) {
           toast.success(
             uniquePaths.length === 1
-              ? t('gitView.toast.revertedFilesSingle', { count: uniquePaths.length })
-              : t('gitView.toast.revertedFilesPlural', { count: uniquePaths.length })
+              ? `Reverted ${uniquePaths.length} file`
+              : `Reverted ${uniquePaths.length} files`
           );
         } else if (failed.length === uniquePaths.length) {
-          toast.error(failed[0]?.message || t('gitView.toast.revertFailed'));
+          toast.error(failed[0]?.message || "Failed to revert changes");
         } else {
           const successCount = uniquePaths.length - failed.length;
           toast.warning(
             successCount === 1
-              ? t('gitView.toast.revertedSomeSingle', { success: successCount, failed: failed.length })
-              : t('gitView.toast.revertedSomePlural', { success: successCount, failed: failed.length })
+              ? `Reverted ${successCount} file, ${failed.length} failed`
+              : `Reverted ${successCount} files, ${failed.length} failed`
           );
         }
       } finally {
@@ -1512,7 +1510,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
         }
       }
     },
-    [bumpIndexRevision, currentDirectory, git, isRevertingAll, refreshStatusAndBranches, revertingPaths, stagedChangeEntries, t]
+    [bumpIndexRevision, currentDirectory, git, isRevertingAll, refreshStatusAndBranches, revertingPaths, stagedChangeEntries]
   );
 
   const handleRevertAll = React.useCallback(
@@ -1545,11 +1543,11 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     if (stagedChangeEntries.length > 0) {
       groups.push({
         id: 'staged',
-        title: t('gitView.changes.stagedTitle'),
+        title: "Staged",
         entries: stagedChangeEntries,
         actionSymbol: '-',
-        actionAllLabel: t('gitView.changes.unstageAllAria'),
-        getActionLabel: (path) => t('gitView.changes.unstageFileAria', { path }),
+        actionAllLabel: "Unstage all changes",
+        getActionLabel: (path) => `Unstage ${path}`,
         onActionFile: (path) => void moveChangePaths([path], 'unstage'),
         onActionAll: (paths) => void moveChangePaths(paths, 'unstage'),
         onViewDiff: (path) => handleViewChangeDiff(path, true),
@@ -1562,11 +1560,11 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     if (unstagedChangeEntries.length > 0) {
       groups.push({
         id: 'unstaged',
-        title: t('gitView.changes.title'),
+        title: "Changes",
         entries: unstagedChangeEntries,
         actionSymbol: '+',
-        actionAllLabel: t('gitView.changes.stageAllAria'),
-        getActionLabel: (path) => t('gitView.changes.stageFileAria', { path }),
+        actionAllLabel: "Stage all changes",
+        getActionLabel: (path) => `Stage ${path}`,
         onActionFile: (path) => void moveChangePaths([path], 'stage'),
         onActionAll: (paths) => void moveChangePaths(paths, 'stage'),
         onViewDiff: (path) => handleViewChangeDiff(path, false),
@@ -1580,7 +1578,6 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     handleViewChangeDiff,
     moveChangePaths,
     stagedChangeEntries,
-    t,
     unstagedChangeEntries,
   ]);
 
@@ -1787,10 +1784,10 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     try {
       if (conflictOperation === 'merge') {
         await git.abortMerge(currentDirectory);
-        toast.success(t('gitView.toast.mergeAborted'));
+        toast.success("Merge aborted");
       } else {
         await git.abortRebase(currentDirectory);
-        toast.success(t('gitView.toast.rebaseAborted'));
+        toast.success("Rebase aborted");
       }
       clearConflictState();
       await refreshStatusAndBranches();
@@ -1799,7 +1796,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
       const message = err instanceof Error ? err.message : `Failed to abort ${conflictOperation}`;
       toast.error(message);
     }
-  }, [currentDirectory, git, conflictOperation, refreshStatusAndBranches, refreshLog, clearConflictState, t]);
+  }, [currentDirectory, git, conflictOperation, refreshStatusAndBranches, refreshLog, clearConflictState]);
 
   // Count unresolved conflicts (files with 'U' status)
   const conflictCount = React.useMemo(() => {
@@ -1825,10 +1822,10 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
           setConflictOperation('merge');
           setConflictDialogOpen(true);
           persistConflictState(currentDirectory, result.conflictFiles ?? [], 'merge');
-          toast.error(t('gitView.toast.mergeConflictsDetected'));
+          toast.error("Merge conflicts detected");
         } else {
           clearConflictState();
-          toast.success(t('gitView.toast.mergeCompleted'));
+          toast.success("Merge completed");
           await refreshStatusAndBranches();
           await refreshLog();
         }
@@ -1839,19 +1836,19 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
           setConflictOperation('rebase');
           setConflictDialogOpen(true);
           persistConflictState(currentDirectory, result.conflictFiles ?? [], 'rebase');
-          toast.error(t('gitView.toast.rebaseConflictsDetected'));
+          toast.error("Rebase conflicts detected");
         } else {
           clearConflictState();
-          toast.success(t('gitView.toast.rebaseStepCompleted'));
+          toast.success("Rebase step completed");
           await refreshStatusAndBranches();
           await refreshLog();
         }
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('gitView.toast.continueOperationFailed');
+      const message = err instanceof Error ? err.message : "Failed to continue operation";
       toast.error(message);
     }
-  }, [currentDirectory, git, status, refreshStatusAndBranches, refreshLog, persistConflictState, clearConflictState, t]);
+  }, [currentDirectory, git, status, refreshStatusAndBranches, refreshLog, persistConflictState, clearConflictState]);
 
   const handleAbortOperation = React.useCallback(async () => {
     if (!currentDirectory) return;
@@ -1860,19 +1857,19 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
       const isMerge = !!status?.mergeInProgress?.head;
       if (isMerge) {
         await git.abortMerge(currentDirectory);
-        toast.success(t('gitView.toast.mergeAborted'));
+        toast.success("Merge aborted");
       } else {
         await git.abortRebase(currentDirectory);
-        toast.success(t('gitView.toast.rebaseAborted'));
+        toast.success("Rebase aborted");
       }
       clearConflictState();
       await refreshStatusAndBranches();
       await refreshLog();
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('gitView.toast.abortOperationFailed');
+      const message = err instanceof Error ? err.message : "Failed to abort operation";
       toast.error(message);
     }
-  }, [currentDirectory, git, status, refreshStatusAndBranches, refreshLog, clearConflictState, t]);
+  }, [currentDirectory, git, status, refreshStatusAndBranches, refreshLog, clearConflictState]);
 
   const handleResolveWithAIFromBanner = React.useCallback(() => {
     if (!currentDirectory) return;
@@ -1932,7 +1929,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
             setConflictDialogOpen(true);
           } else {
             operationSucceeded = true;
-            toast.success(t('gitView.toast.mergedIntoBranch', { branch, currentBranch: currentBranch || '' }));
+            toast.success(`Merged ${branch} into ${currentBranch || ''}`);
           }
         } else {
           const result = await git.rebase(currentDirectory, { onto: branch });
@@ -1943,7 +1940,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
             setConflictDialogOpen(true);
           } else {
             operationSucceeded = true;
-            toast.success(t('gitView.toast.rebasedOntoBranch', { currentBranch: currentBranch || '', branch }));
+            toast.success(`Rebased ${currentBranch || ''} onto ${branch}`);
           }
         }
 
@@ -1952,13 +1949,13 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
           try {
             await git.stashPop(currentDirectory);
             bumpIndexRevision(currentDirectory);
-            toast.success(t('gitView.toast.stashedRestored'));
+            toast.success("Stashed changes restored");
           } catch (popErr) {
-            const popMessage = popErr instanceof Error ? popErr.message : t('gitView.toast.restoreStashFailed');
+            const popMessage = popErr instanceof Error ? popErr.message : "Failed to restore stash";
             toast.error(popMessage);
           }
         } else if (restoreAfter && hasConflict) {
-          toast.info(t('gitView.toast.restoreStashManually'));
+          toast.info("Stash restored manually required");
         }
 
         await refreshStatusAndBranches();
@@ -1976,7 +1973,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
         throw err;
       }
     },
-    [bumpIndexRevision, currentDirectory, git, status, stashDialogOperation, stashDialogBranch, refreshStatusAndBranches, refreshLog, t]
+    [bumpIndexRevision, currentDirectory, git, status, stashDialogOperation, stashDialogBranch, refreshStatusAndBranches, refreshLog]
   );
 
   const handleLogMaxCountChange = React.useCallback(
@@ -2013,10 +2010,8 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     if (result.operation === 'cherry-pick' || result.operation === 'revert') {
       // Cherry-pick and revert conflicts are not supported by the shared ConflictDialog
       // Show a toast with manual resolution instructions
-      toast.error(t('gitView.history.actions.conflictToastTitle'), {
-        description: t('gitView.history.actions.conflictToastDescription', {
-          files: result.conflictFiles?.join(', ') ?? 'unknown files',
-        }),
+      toast.error("Conflict", {
+        description: `Conflicts in: ${result.conflictFiles?.join(', ') ?? 'unknown files'}. Resolve manually and commit, or abort with git cherry-pick/revert --abort.`,
       });
       if (currentDirectory) {
         fetchStatus(currentDirectory, git);
@@ -2032,13 +2027,13 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     if (currentDirectory) {
       persistConflictState(currentDirectory, result.conflictFiles ?? [], result.operation);
     }
-  }, [t, setConflictFiles, setConflictOperation, setConflictDialogOpen, persistConflictState, currentDirectory, fetchStatus, fetchBranches, fetchLog, logMaxCountLocal, git]);
+  }, [ setConflictFiles, setConflictOperation, setConflictDialogOpen, persistConflictState, currentDirectory, fetchStatus, fetchBranches, fetchLog, logMaxCountLocal, git]);
 
   if (!currentDirectory) {
     return (
       <div className="flex h-full items-center justify-center px-4 text-center">
         <p className="typography-ui-label text-muted-foreground">
-          {t('gitView.empty.selectSessionOrDirectory')}
+          {"Select a session or directory to view Git status"}
         </p>
       </div>
     );
@@ -2049,7 +2044,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
       <div className="flex h-full items-center justify-center">
         <div className="flex items-center gap-2 text-muted-foreground">
           <Icon name="loader-4" className="size-4 animate-spin" />
-          <span className="typography-ui-label">{t('gitView.loading.checkingRepository')}</span>
+          <span className="typography-ui-label">{"Checking repository..."}</span>
         </div>
       </div>
     );
@@ -2060,10 +2055,10 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
       <div className="flex h-full flex-col items-center justify-center px-4 text-center">
         <Icon name="git-branch" className="mb-3 size-6 text-muted-foreground" />
         <p className="typography-ui-label font-semibold text-foreground">
-          {t('gitView.empty.notGitRepository')}
+          {"This directory is not a Git repository"}
         </p>
         <p className="typography-meta mt-1 text-muted-foreground">
-          {t('gitView.empty.notGitRepositoryDescription')}
+          {"Initialize Git in this directory or open a repository."}
         </p>
       </div>
     );
@@ -2182,9 +2177,9 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
       >
         <DialogContent className="max-w-2xl min-h-[26rem]">
           <DialogHeader>
-            <DialogTitle>{t('gitView.branch.updateTitle')}</DialogTitle>
+            <DialogTitle>{"Update branch"}</DialogTitle>
             <DialogDescription>
-              {t('gitView.branch.updateDescriptionPrefix')}{' '}
+              {"Bring the latest changes into"}{' '}
               <span className="font-mono text-foreground">{status?.current ?? ''}</span>.
             </DialogDescription>
           </DialogHeader>
@@ -2203,7 +2198,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
               onOperationComplete={handleOperationComplete}
             />
           ) : (
-            <p className="typography-meta text-muted-foreground">{t('gitView.branch.actionsUnavailable')}</p>
+            <p className="typography-meta text-muted-foreground">{"Branch actions unavailable in this repository state"}</p>
           )}
         </DialogContent>
       </Dialog>
@@ -2215,7 +2210,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
           <DialogHeader>
             <div className="flex items-center justify-between gap-2">
               <DialogTitle>
-                {gitLogDialogMode === 'graph' ? t('gitView.graph.title') : t('gitView.history.title')}
+                {gitLogDialogMode === 'graph' ? "Graph" : "History"}
               </DialogTitle>
               <Button
                 type="button"
@@ -2231,8 +2226,8 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
                   void fetchLog(currentDirectory, git, logMaxCountLocal);
                 }}
                 disabled={gitLogDialogMode === 'graph' ? graphLogLoading : isLogLoading}
-                title={t('gitView.history.refresh')}
-                aria-label={t('gitView.history.refresh')}
+                title={"Refresh"}
+                aria-label={"Refresh"}
               >
                 <Icon
                   name="refresh"
@@ -2241,11 +2236,11 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
                     (gitLogDialogMode === 'graph' ? graphLogLoading : isLogLoading) && 'animate-spin'
                   )}
                 />
-                {t('gitView.history.refresh')}
+                {"Refresh"}
               </Button>
             </div>
             <DialogDescription>
-              {t('gitView.history.dialogDescription')}
+              {"Browse recent commits and inspect changed files."}
             </DialogDescription>
           </DialogHeader>
           <div className="flex-1 min-h-0">
@@ -2290,16 +2285,16 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
       <Dialog open={isGitmojiPickerOpen} onOpenChange={setIsGitmojiPickerOpen}>
         <DialogContent className="max-w-md p-0 overflow-hidden">
           <DialogHeader className="px-4 pt-4">
-            <DialogTitle>{t('gitView.gitmoji.title')}</DialogTitle>
+            <DialogTitle>{"Insert gitmoji"}</DialogTitle>
           </DialogHeader>
           <Command className="h-[420px]">
             <CommandInput
-              placeholder={t('gitView.gitmoji.searchPlaceholder')}
+              placeholder={"Search gitmoji..."}
               value={gitmojiSearch}
               onValueChange={setGitmojiSearch}
             />
             <CommandList>
-              <CommandEmpty>{t('gitView.gitmoji.empty')}</CommandEmpty>
+              <CommandEmpty>{"No gitmoji found"}</CommandEmpty>
               <CommandGroup>
                 {(gitmojiEmojis.length === 0
                   ? []

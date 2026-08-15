@@ -122,7 +122,7 @@ async function resolveDoctorPortStatuses(options = {}) {
       available: false,
       status: 'error',
       line: `port ${requestedPort} not available (no running instance)`,
-      detail: `Start one with \`openchamber serve --port ${requestedPort}\`.`,
+      detail: `Start one with \`pichamber serve --port ${requestedPort}\`.`,
     });
     return { statuses, availableEntries: [] };
   }

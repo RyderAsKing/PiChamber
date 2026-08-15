@@ -90,27 +90,6 @@ export type DirState = {
   lastAccessAt: number
 }
 
-export type EvictPlan = {
-  stores: string[]
-  state: Map<string, DirState>
-  pins: Set<string>
-  max: number
-  ttl: number
-  graceMs?: number
-  now: number
-  hasPendingBlockingRequests?: (directory: string) => boolean
-}
-
-export type DisposeCheck = {
-  directory: string
-  hasStore: boolean
-  pinned: boolean
-  booting: boolean
-  loadingSessions: boolean
-  hasPendingBlockingRequests: boolean
-}
-
-export const MAX_DIR_STORES = 30
 /**
  * Directories touched within this window are never overflow-eviction victims.
  *
@@ -122,9 +101,6 @@ export const MAX_DIR_STORES = 30
  * of live directories overflows briefly rather than thrashing, and the cache is
  * bounded by idle-time eviction instead.
  */
-export const EVICTION_GRACE_MS = 30 * 1000
-export const DIR_IDLE_TTL_MS = 20 * 60 * 1000
-export const SESSION_CACHE_LIMIT = 40
 
 export const INITIAL_STATE: State = {
   project: "",
@@ -153,15 +129,4 @@ export const INITIAL_STATE: State = {
   limit: 5,
   message: {},
   part: {},
-}
-
-export const INITIAL_GLOBAL_STATE: GlobalState = {
-  ready: false,
-  path: { state: "", config: "", worktree: "", directory: "", home: "" },
-  projects: [],
-  providers: { all: [], connected: [], default: {} },
-  providerAuth: {},
-  config: {},
-  reload: undefined,
-  sessionTodo: {},
 }

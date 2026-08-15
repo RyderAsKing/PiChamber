@@ -6,9 +6,7 @@ import { Icon } from '@/components/icon/Icon';
 import type { IconName } from '@/components/icon/icons';
 import { preloadProviderLogos } from '@/hooks/useProviderLogo';
 import { useTabletLayout } from '@/lib/device';
-import { useI18n } from '@/lib/i18n';
 import { clampPercent, resolveUsageTone } from '@/lib/quota';
-import { UsageProviderCards } from '@/components/usage/UsageProviderCards';
 import { useUsageProviderGroups, type UsageProviderGroup } from '@/components/usage/usageGroups';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -114,7 +112,7 @@ const SessionMetadataOverlay: React.FC<{
   isUsageLoading: boolean;
   timeFormatPreference: TimeFormatPreference;
 }> = ({ open, onClose, anchorRef, contextDisplay, usageGroups, usageDisplayMode, isUsageLoading, timeFormatPreference }) => {
-  const { t } = useI18n();
+  
   const panelRef = React.useRef<HTMLDivElement>(null);
   const [shouldRender, setShouldRender] = React.useState(open);
   const [isExiting, setIsExiting] = React.useState(false);
@@ -209,7 +207,7 @@ const SessionMetadataOverlay: React.FC<{
       <div
         ref={panelRef}
         role="dialog"
-        aria-label={t('mobile.header.openMetadataAria')}
+        aria-label={"Open session metadata"}
         className={cn(
           'overflow-y-auto overscroll-contain rounded-[20px] border border-border/70 bg-[var(--surface-elevated)] p-2 shadow-[0_12px_32px_rgb(0_0_0_/_0.2)] will-change-transform',
           isPopover ? 'absolute origin-top-left' : 'mx-3 mt-2',
@@ -231,7 +229,7 @@ const SessionMetadataOverlay: React.FC<{
           {contextDisplay ? (
             <MetadataRow
               iconNode={<ContextProgressIcon percentage={contextDisplay.percentage} />}
-              label={t('mobile.header.metadata.context')}
+              label={"Context"}
             >
               <span className="inline-flex items-baseline gap-1.5 tabular-nums">
                 <span className={cn('font-semibold', contextDisplay.colorClass)}>{contextDisplay.percentage.toFixed(1)}%</span>
@@ -267,8 +265,8 @@ const MobileUsageLimits: React.FC<{
   isLoading: boolean;
   timeFormatPreference: TimeFormatPreference;
 }> = ({ groups, displayMode, isLoading, timeFormatPreference }) => {
-  const { t } = useI18n();
-  const modeLabel = displayMode === 'remaining' ? t('header.services.remaining') : t('header.services.used');
+  
+  const modeLabel = displayMode === 'remaining' ? "Remaining" : "Used";
 
   // First open often races the quota fetch (~2s) — show an explicit loading
   // row instead of collapsing to an empty overlay.
@@ -277,7 +275,7 @@ const MobileUsageLimits: React.FC<{
     return (
       <div className="flex items-center justify-center gap-2 px-2.5 py-6 text-muted-foreground">
         <Icon name="loader-4" className="size-4 animate-spin" aria-hidden />
-        <span className="typography-ui-label">{t('common.loading')}</span>
+        <span className="typography-ui-label">{"Loading..."}</span>
       </div>
     );
   }
@@ -289,19 +287,13 @@ const MobileUsageLimits: React.FC<{
           <Icon name="timer" className="size-[18px]" />
         </span>
         <span className="shrink-0 typography-ui-label text-muted-foreground">
-          {t('mobile.header.metadata.usage')}
+          {"Usage"}
         </span>
         <span className="inline-flex min-w-0 flex-1 items-center justify-end gap-1.5 typography-ui-label text-muted-foreground">
           {isLoading ? <Icon name="refresh" className="size-3.5 animate-spin" /> : null}
           <span className="truncate">{modeLabel}</span>
         </span>
       </div>
-
-      <UsageProviderCards
-        groups={groups}
-        displayMode={displayMode}
-        timeFormatPreference={timeFormatPreference}
-      />
     </div>
   );
 };
@@ -319,7 +311,7 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
   effectiveDirectory: string | null;
   isNewSessionDraftOpen: boolean;
 }) {
-  const { t } = useI18n();
+  
   const metadataTriggerRef = React.useRef<HTMLButtonElement>(null);
   const activeSessionMessages = useSessionMessages(currentSessionId ?? '', effectiveDirectory || undefined);
   const providers = useConfigStore((state) => state.providers);
@@ -439,7 +431,7 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
         ref={metadataTriggerRef}
         type="button"
         className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        aria-label={t('mobile.header.openMetadataAria')}
+        aria-label={"Open session metadata"}
         aria-expanded={open}
         onClick={() => onOpenChange((currentOpen) => !currentOpen)}
         style={{ touchAction: 'manipulation' }}

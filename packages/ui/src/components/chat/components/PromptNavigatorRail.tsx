@@ -2,7 +2,6 @@ import React from 'react';
 import type { Part } from '@/lib/chat/types';
 
 import { Icon } from '@/components/icon/Icon';
-import { useI18n } from '@/lib/i18n';
 import { useUIStore } from '@/stores/useUIStore';
 import { cn } from '@/lib/utils';
 import { getMessagePreview } from '../lib/messagePreview';
@@ -94,7 +93,7 @@ export function PromptNavigatorRail({
     isLoadingOlder,
     onLoadEarlier,
 }: PromptNavigatorRailProps) {
-    const { t } = useI18n();
+    
     const isKeyboardNavOpen = useUIStore((state) => state.isPromptNavigatorPanelOpen);
     const setPromptNavigatorPanelOpen = useUIStore((state) => state.setPromptNavigatorPanelOpen);
     const gutterRef = React.useRef<HTMLDivElement | null>(null);
@@ -139,9 +138,9 @@ export function PromptNavigatorRail({
     const hasMoreAbove = clampedWindowStart > 0;
     const hasMoreBelow = windowEnd < prompts.length;
 
-    const emptyPreviewLabel = t('chat.timeline.noTextContent');
-    const currentPromptLabel = t('chat.promptNavigator.currentPrompt');
-    const loadMoreLabel = t('chat.promptNavigator.loadMore');
+    const emptyPreviewLabel = "[No text content]";
+    const currentPromptLabel = "Current prompt";
+    const loadMoreLabel = "Load more prompts";
 
     const activeIndex = React.useMemo(() => {
         if (!activeTurnId) {
@@ -516,7 +515,7 @@ export function PromptNavigatorRail({
     return (
         <nav
             ref={navRef}
-            aria-label={t('chat.promptNavigator.aria')}
+            aria-label={"Prompt navigation"}
             className="pointer-events-none absolute right-1.5 top-1/2 z-20 -translate-y-1/2"
         >
             <div className="pointer-events-auto flex flex-col items-end">

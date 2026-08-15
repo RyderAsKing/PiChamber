@@ -5,7 +5,6 @@ import { EditorView } from '@codemirror/view';
 
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 type GoToLineDialogProps = {
@@ -55,7 +54,6 @@ const moveSelectionToLine = (view: EditorView, lineNumber: number, preferredChar
 };
 
 export function GoToLineDialog({ open, onOpenChange, view, variant = 'overlay' }: GoToLineDialogProps) {
-  const { t } = useI18n();
   const [inputValue, setInputValue] = React.useState('');
   const initialCursorRef = React.useRef<CursorSnapshot | null>(null);
   const committedRef = React.useRef(false);
@@ -167,19 +165,16 @@ export function GoToLineDialog({ open, onOpenChange, view, variant = 'overlay' }
 
   const helperText = React.useMemo(() => {
     if (!view) {
-      return t('goToLineDialog.helper.editorUnavailable');
+      return "Editor unavailable.";
     }
 
     if (lineNumber === null) {
       const snapshot = initialCursorRef.current ?? getCursorSnapshot(view, view.state.selection);
-      return t('goToLineDialog.helper.currentLineRange', {
-        current: snapshot.lineNumber,
-        max: view.state.doc.lines,
-      });
+      return `Current Line: ${snapshot.lineNumber}. Type a line number between 1 and ${view.state.doc.lines} to navigate to.`;
     }
 
-    return t('goToLineDialog.helper.goToLine', { line: lineNumber });
-  }, [lineNumber, t, view]);
+    return `Go to line ${lineNumber}`;
+  }, [lineNumber, view]);
 
   if (variant === 'inline') {
     if (!open) {
@@ -205,7 +200,7 @@ export function GoToLineDialog({ open, onOpenChange, view, variant = 'overlay' }
               handleSubmit();
             }
           }}
-          placeholder={t('goToLineDialog.field.linePlaceholderShort')}
+          placeholder={"Line"}
           className="h-6 w-20 rounded-md border-border/70 bg-transparent px-2 typography-meta"
         />
         <Button
@@ -215,7 +210,7 @@ export function GoToLineDialog({ open, onOpenChange, view, variant = 'overlay' }
           disabled={!view || lineNumber === null}
           className="h-6 px-2"
         >
-          {t('goToLineDialog.actions.go')}
+          {"Go"}
         </Button>
       </div>
     );
@@ -244,7 +239,7 @@ export function GoToLineDialog({ open, onOpenChange, view, variant = 'overlay' }
               handleSubmit();
             }
           }}
-          placeholder={t('goToLineDialog.field.linePlaceholder')}
+          placeholder={"Line number"}
           className="h-8 w-full rounded-md border-border/70 bg-background/60 typography-ui-label"
         />
         <div className="mt-2 rounded-md bg-primary/15 px-3 py-1.5 typography-ui-label text-foreground/95">

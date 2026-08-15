@@ -44,7 +44,6 @@ import {
     useSession,
 } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
-import { useI18n } from '@/lib/i18n';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import { WorkStatusPanel } from './work-status/WorkStatusPanel';
 import { useWorkStatusVisibility } from './work-status/useWorkStatusVisibility';
@@ -208,7 +207,7 @@ const ChatViewport = React.memo(({
     isLoadingOlderPrompts,
     onLoadEarlierPrompts,
 }: ChatViewportProps) => {
-    const { t } = useI18n();
+    
     const promptPreviewsByTurnIdRef = React.useRef<Map<string, Part[]>>(new Map());
     // Cache normalized parts per source array so unchanged messages keep the
     // same reference and the memo below can bail out to the previous map.
@@ -340,7 +339,7 @@ const ChatViewport = React.memo(({
                                     {isLoadingOlder && (
                                         <Icon name="loader-4" className="size-4 animate-spin" />
                                     )}
-                                    {t('chat.history.loadOlder')}
+                                    {"Load older messages"}
                                 </Button>
                             </div>
                         )}
@@ -453,12 +452,12 @@ const HYDRATING_SKELETON_ITEMS: Array<{
 ];
 
 const ReadOnlyPromptBanner: React.FC = () => {
-    const { t } = useI18n();
+    
 
     return (
         <div className="p-3">
             <div className="rounded-2xl border border-border/70 bg-[var(--surface-background)] px-4 py-3 typography-ui-label text-muted-foreground">
-                {t('chat.container.readOnlySubagentPromptBanner')}
+                {"Subagent sessions cannot be prompted."}
             </div>
         </div>
     );
@@ -484,7 +483,7 @@ const renderDraftTitle = (title: string, projectLabel: string | null): React.Rea
 };
 
 const DraftWelcome: React.FC = () => {
-    const { t } = useI18n();
+    
     const selectedProjectId = useSessionUIStore((state) => state.newSessionDraft.selectedProjectId ?? null);
     const projectLabel = useProjectsStore(React.useCallback((state) => {
         const projectId = selectedProjectId ?? state.activeProjectId;
@@ -499,8 +498,8 @@ const DraftWelcome: React.FC = () => {
             <h1 className="text-balance text-3xl font-normal tracking-tight text-foreground">
                 {renderDraftTitle(
                     projectLabel
-                        ? t('chat.emptyState.draftTitleWithProject', { project: projectLabel })
-                        : t('chat.emptyState.draftTitle'),
+                        ? `What are we working on in ${projectLabel}?`
+                        : "What are we working on?",
                     projectLabel,
                 )}
             </h1>
@@ -519,7 +518,7 @@ type ChatContainerProps = {
 };
 
 export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, autoOpenDraft = true, readOnly = false }) => {
-    const { t } = useI18n();
+    
     // Session UI state
     const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
     const currentSessionDirectory = useSessionUIStore((s) => s.currentSessionDirectory);
@@ -539,7 +538,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         [effectiveSessionDirectory, sync],
     );
     const loadMoreMessages = React.useCallback(
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         (sessionId: string, _direction: 'up' | 'down') => sync.loadMore(sessionId, effectiveSessionDirectory),
         [effectiveSessionDirectory, sync],
     );
@@ -763,13 +761,13 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
             size="xs"
             onClick={handleReturnToParentSession}
             className="absolute left-3 top-3 z-20 !font-normal bg-[var(--surface-background)]/95"
-            aria-label={t('chat.container.returnToParent.aria')}
+            aria-label={"Return to parent session"}
             title={parentSession.title?.trim()
-                ? t('chat.container.returnToParent.titleNamed', { title: parentSession.title })
-                : t('chat.container.returnToParent.title')}
+                ? `Return to: ${parentSession.title}`
+                : "Return to parent session"}
         >
             <Icon name="arrow-left" className="h-4 w-4" />
-            {t('chat.container.returnToParent.label')}
+            {"Parent"}
         </Button>
     ) : null;
     const promptReadOnly = resolveChatPromptReadOnly(currentSession, allowPromptingSubagentSessions, readOnly);
@@ -1090,10 +1088,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 							<div className="mx-auto mb-3 flex size-9 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--status-error)_10%,transparent)] text-[var(--status-error)]">
 								<Icon name="error-warning" className="size-4" />
 							</div>
-							<p className="typography-ui-label font-medium text-foreground">{t('chat.container.sessionLoadError.title')}</p>
-							<p className="typography-meta mt-1 text-muted-foreground">{t('chat.container.sessionLoadError.description')}</p>
+							<p className="typography-ui-label font-medium text-foreground">{"Session could not be loaded"}</p>
+							<p className="typography-meta mt-1 text-muted-foreground">{"Check the connection and try loading this session again."}</p>
 							<Button variant="outline" size="sm" className="mt-4" onClick={retrySessionLoad}>
-								{t('chat.container.sessionLoadError.retry')}
+								{"Try again"}
 							</Button>
 						</div>
 					</div>

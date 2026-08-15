@@ -9,11 +9,10 @@ import { PROJECT_COLOR_MAP, PROJECT_ICON_MAP, ProjectIconImage } from '@/lib/pro
 import { cn } from '@/lib/utils';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
-import { useI18n } from '@/lib/i18n';
 import { SETTINGS_PANEL_TITLE_CLASS } from '@/components/sections/shared/SettingsSection';
 
 export const ProjectsSidebar: React.FC<{ onItemSelect?: () => void }> = ({ onItemSelect }) => {
-  const { t } = useI18n();
+  
   const projects = useProjectsStore((state) => state.projects);
   const selectedId = useUIStore((state) => state.settingsProjectsSelectedId);
   const setSelectedId = useUIStore((state) => state.setSettingsProjectsSelectedId);
@@ -42,9 +41,9 @@ export const ProjectsSidebar: React.FC<{ onItemSelect?: () => void }> = ({ onIte
       variant="background"
       header={
         <div className={cn('border-b px-3', 'pt-4 pb-3')}>
-          <h2 className={`${SETTINGS_PANEL_TITLE_CLASS} mb-3`}>{t('settings.page.projects.title')}</h2>
+          <h2 className={`${SETTINGS_PANEL_TITLE_CLASS} mb-3`}>{"Projects"}</h2>
           <div className="flex items-center justify-between gap-2">
-            <span className="typography-meta text-muted-foreground">{t('settings.projects.sidebar.total', { count: projects.length })}</span>
+            <span className="typography-meta text-muted-foreground">{`Total ${projects.length}`}</span>
             {(
               <Button
                 type="button"
@@ -52,7 +51,7 @@ export const ProjectsSidebar: React.FC<{ onItemSelect?: () => void }> = ({ onIte
                 size="icon"
                 className="h-7 w-7 -my-1 text-muted-foreground"
                 onClick={handleAddProject}
-                aria-label={t('settings.projects.sidebar.actions.addProject')}
+                aria-label={"Add project"}
               >
                 <Icon name="add" className="size-4" />
               </Button>

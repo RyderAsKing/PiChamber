@@ -4,7 +4,6 @@ import { Icon } from '@/components/icon/Icon';
 import { SETTINGS_PANEL_TITLE_CLASS } from '@/components/sections/shared/SettingsSection';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
-import { useI18n } from '@/lib/i18n';
 import { piClient } from '@/lib/pi/client';
 import { PI_CUSTOM_PROVIDER_SELECTION, usePiProviderSelectionStore } from '@/lib/pi/provider-selection';
 import type { PiProvider } from '@/lib/pi/types';
@@ -17,7 +16,7 @@ interface ProvidersSidebarProps {
 
 /** Pi provider catalog sidebar. It owns no credentials and reads only Pi-native configuration. */
 export const ProvidersSidebar: React.FC<ProvidersSidebarProps> = ({ onItemSelect }) => {
-  const { t } = useI18n();
+  
   const selectedProviderId = usePiProviderSelectionStore((state) => state.selectedProviderId);
   const setSelectedProviderId = usePiProviderSelectionStore((state) => state.setSelectedProviderId);
   const [providers, setProviders] = React.useState<readonly PiProvider[] | null>(null);
@@ -42,9 +41,9 @@ export const ProvidersSidebar: React.FC<ProvidersSidebarProps> = ({ onItemSelect
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="border-b px-3 pb-3 pt-4">
-        <h2 className={`${SETTINGS_PANEL_TITLE_CLASS} mb-3`}>{t('settings.providers.sidebar.title')}</h2>
+        <h2 className={`${SETTINGS_PANEL_TITLE_CLASS} mb-3`}>{"Providers"}</h2>
         <span className="typography-meta text-muted-foreground">
-          {providers ? t('settings.providers.sidebar.total', { count: providers.length }) : t('common.loading')}
+          {providers ? `Total ${providers.length}` : "Loading..."}
         </span>
       </div>
       <ScrollableOverlay outerClassName="min-h-0 flex-1" className="space-y-1 overflow-x-hidden px-3 py-2">
@@ -57,9 +56,9 @@ export const ProvidersSidebar: React.FC<ProvidersSidebarProps> = ({ onItemSelect
           )}
         >
           <Icon name="add" className="size-4 shrink-0" />
-          <span className="typography-ui-label font-normal">{t('settings.providers.page.custom.optionLabel')}</span>
+          <span className="typography-ui-label font-normal">{"Other / Custom"}</span>
         </button>
-        {failed ? <p className="px-2 py-3 typography-meta text-[var(--status-error)]">{t('common.unavailable')}</p> : null}
+        {failed ? <p className="px-2 py-3 typography-meta text-[var(--status-error)]">{"Unavailable"}</p> : null}
         {providers?.map((provider) => {
           const selected = selectedProviderId === provider.id;
           return (

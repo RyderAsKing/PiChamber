@@ -50,16 +50,3 @@ export const setDesktopWindowTheme = async (
     // ignore
   }
 };
-
-export const getDesktopAppVersion = async (): Promise<string | null> => {
-  if (!isDesktopShell()) {
-    return null;
-  }
-
-  try {
-    const version = await invokeDesktopCommand('desktop_get_app_version');
-    return typeof version === 'string' && version.trim().length > 0 ? version : null;
-  } catch {
-    return null;
-  }
-};

@@ -10,7 +10,6 @@
 import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
-import { useI18n } from '@/lib/i18n';
 
 export interface LinkedReferenceRowProps {
     /** Shown before the title: `#12` for an issue, `PR #12` for a pull request. */
@@ -27,7 +26,7 @@ export interface LinkedReferenceRowProps {
 }
 
 export function LinkedReferenceRow(props: LinkedReferenceRowProps) {
-    const { t } = useI18n();
+    
     const {
         numberLabel,
         title,
@@ -59,7 +58,7 @@ export function LinkedReferenceRow(props: LinkedReferenceRowProps) {
                         {numberLabel}
                         {author ? (
                             <span className="ml-1">
-                                {t('chat.chatInput.linked.byAuthor', { author: author.login })}
+                                {`by ${author.login}`}
                             </span>
                         ) : null}
                     </span>

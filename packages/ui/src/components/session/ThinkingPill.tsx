@@ -6,7 +6,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
-import { useI18n } from '@/lib/i18n';
 
 export type ThinkingPillProps = {
   value: string;
@@ -16,8 +15,8 @@ export type ThinkingPillProps = {
 };
 
 export const ThinkingPill = ({ value, options, disabled, onChange }: ThinkingPillProps) => {
-  const { t } = useI18n();
-  const label = value || t('rightSidebar.contextNotesTodo.sendDialog.variant.default');
+  
+  const label = value || "Default";
 
   const trigger = (
     <div
@@ -39,7 +38,7 @@ export const ThinkingPill = ({ value, options, disabled, onChange }: ThinkingPil
       <DropdownMenuContent align="start" className="max-w-[220px]" portalToBody>
         <DropdownMenuItem className="typography-meta" onSelect={() => onChange('')}>
           <span className={cn('font-medium', !value && 'text-primary')}>
-            {t('rightSidebar.contextNotesTodo.sendDialog.variant.default')}
+            {"Default"}
           </span>
         </DropdownMenuItem>
         {options.map((option) => (

@@ -1,7 +1,6 @@
 /* eslint-disable */
 // @ts-nocheck
 import React from 'react';
-import { useI18n } from '@/lib/i18n';
 import { useGitStore } from '@/stores/useGitStore';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { runBackgroundNetworkTask } from '@/lib/background-network';
@@ -47,7 +46,7 @@ const formatPercent = (percent: number): string => `${Math.min(percent, 999).toF
  * is open, so it sits above anything episodic.
  */
 export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, showSession, showRepository }) => {
-  const { t } = useI18n();
+  
   const session = useSession(sessionId ?? '', directory ?? undefined);
   const { git } = useRuntimeAPIs();
   const ensureStatus = useGitStore((state) => state.ensureStatus);
@@ -131,7 +130,6 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
       ? (currentModel.limit as Record<string, unknown>)
       : null;
     return limit && typeof limit.context === 'number' ? limit.context : 0;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- getter output tracks the selected model ids
   }, [getCurrentModel, currentProviderId, currentModelId]);
 
   // Computed from this session's own messages rather than through
@@ -186,11 +184,11 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
   const attentionReason = gitStatus?.attentionReason
     ?? (gitStatus?.rebaseInProgress ? 'rebase' : null)
     ?? (gitStatus?.mergeInProgress ? 'merge' : null);
-  const attentionLabel = attentionReason === 'merge' ? t('chat.workStatus.attention.merge')
-    : attentionReason === 'rebase' ? t('chat.workStatus.attention.rebase')
-      : attentionReason === 'cherry-pick' ? t('chat.workStatus.attention.cherryPick')
-        : attentionReason === 'revert' ? t('chat.workStatus.attention.revert')
-          : attentionReason === 'bisect' ? t('chat.workStatus.attention.bisect')
+  const attentionLabel = attentionReason === 'merge' ? "Merge in progress"
+    : attentionReason === 'rebase' ? "Rebase in progress"
+      : attentionReason === 'cherry-pick' ? "Cherry-pick in progress"
+        : attentionReason === 'revert' ? "Revert in progress"
+          : attentionReason === 'bisect' ? "Bisect in progress"
             : null;
 
   const usagePercent = contextUsage?.percent ?? null;
@@ -214,14 +212,14 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
   return (
     <>
       {hasSession ? (
-        <WorkStatusSection title={t('chat.workStatus.section.session')}>
+        <WorkStatusSection title={"Session"}>
           {usagePercent !== null ? (
             <>
               <WorkStatusRow
                 icon="donut-chart"
                 onClick={directory ? openContext : undefined}
-                ariaLabel={t('chat.workStatus.action.openContext')}
-                label={t('chat.workStatus.context.label')}
+                ariaLabel={"Open context panel"}
+                label={"Context"}
                 value={(
                   <>
                     <WorkStatusValue>{formatPercent(usagePercent)}</WorkStatusValue>
@@ -241,7 +239,7 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
 
       {hasRepository ? (
         <WorkStatusSection
-          title={t('chat.workStatus.section.repository')}
+          title={"Repository"}
           summary={projectLabel}
         >
           {attentionLabel ? <WorkStatusCallout>{attentionLabel}</WorkStatusCallout> : null}
@@ -252,7 +250,7 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
             <WorkStatusRow
               icon="git-branch"
               onClick={directory ? () => openSurface('git') : undefined}
-              ariaLabel={t('chat.workStatus.action.openGit')}
+              ariaLabel={"Open Git panel"}
               label={branch}
               value={(gitStatus?.ahead ?? 0) > 0 || (gitStatus?.behind ?? 0) > 0 ? (
                 <>
@@ -269,12 +267,12 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
             <WorkStatusRow
               icon="file-edit"
               onClick={directory ? openChanges : undefined}
-              ariaLabel={t('chat.workStatus.action.openChanges')}
+              ariaLabel={"Open changes"}
               // The count names the row, matching the composer's changed-files
               // bar; the diffstat stays the trailing value.
               label={changed.files === 1
-                ? t('chat.workStatus.git.changedFileSingle', { count: changed.files })
-                : t('chat.workStatus.git.changedFilePlural', { count: changed.files })}
+                ? `${changed.files} file changed`
+                : `${changed.files} files changed`}
               value={changed.hasStats && (changed.additions > 0 || changed.deletions > 0) ? (
                 <>
                   <WorkStatusValue tone="success">{`+${changed.additions}`}</WorkStatusValue>
@@ -292,15 +290,15 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
               <WorkStatusRow
                 icon="git-pull-request"
                 onClick={directory ? () => openSurface('pr') : undefined}
-                ariaLabel={t('chat.workStatus.action.openPr')}
+                ariaLabel={"Open pull request"}
                 iconColor={`var(--pr-${prSummary.visualState})`}
-                label={prSummary.title ?? t('chat.workStatus.pr.untitled')}
+                label={prSummary.title ?? "Untitled pull request"}
                 value={(
                   <WorkStatusPill
                     color={`var(--pr-${prSummary.visualState})`}
                     background={`color-mix(in srgb, var(--pr-${prSummary.visualState}) 18%, transparent)`}
                   >
-                    {prSummary.draft ? t('chat.workStatus.pr.draft') : `#${prSummary.number}`}
+                    {prSummary.draft ? "Draft" : `#${prSummary.number}`}
                   </WorkStatusPill>
                 )}
               />
@@ -308,24 +306,24 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
                 <WorkStatusRow
                   icon="checkbox-circle"
                   onClick={directory ? () => openSurface('pr') : undefined}
-                  ariaLabel={t('chat.workStatus.action.openPr')}
-                  label={t('chat.workStatus.pr.checks')}
+                  ariaLabel={"Open pull request"}
+                  label={"Checks"}
                   muted
                   value={(
                     <>
                       {prSummary.checks.failure > 0 ? (
                         <WorkStatusValue tone="error">
-                          {t('chat.workStatus.pr.checksFailed', { count: prSummary.checks.failure })}
+                          {`${prSummary.checks.failure} failed`}
                         </WorkStatusValue>
                       ) : null}
                       {prSummary.checks.pending > 0 ? (
                         <WorkStatusValue tone="warning">
-                          {t('chat.workStatus.pr.checksPending', { count: prSummary.checks.pending })}
+                          {`${prSummary.checks.pending} running`}
                         </WorkStatusValue>
                       ) : null}
                       {prSummary.checks.failure === 0 && prSummary.checks.pending === 0 ? (
                         <WorkStatusValue tone="success">
-                          {t('chat.workStatus.pr.checksPassed', { count: prSummary.checks.success })}
+                          {`${prSummary.checks.success} passed`}
                         </WorkStatusValue>
                       ) : null}
                     </>

@@ -1,5 +1,4 @@
 import type { IconName } from "@/components/icon/icons";
-import type { I18nKey } from "@/lib/i18n";
 
 // A draft starter is a reference to an existing command or skill, pinned to the
 // onboarding/draft welcome screen as a one-click chip. Scope (global vs project)
@@ -18,16 +17,16 @@ export type DraftStarterRef = {
 export type BuiltInStarter = {
     name: string;
     icon: IconName;
-    labelKey: I18nKey;
+    label: string;
     command: string;
 };
 
 export const BUILTIN_STARTERS: readonly BuiltInStarter[] = [
-    { name: 'explore', icon: 'compass-3', labelKey: 'chat.draftPresets.explore.label', command: '/explore' },
-    { name: 'catch-up', icon: 'history', labelKey: 'chat.draftPresets.catchup.label', command: '/catch-up' },
-    { name: 'weigh', icon: 'scales-3', labelKey: 'chat.draftPresets.weigh.label', command: '/weigh' },
-    { name: 'plan-feature', icon: 'survey', labelKey: 'chat.draftPresets.plan.label', command: '/plan-feature' },
-    { name: 'debug', icon: 'bug', labelKey: 'chat.draftPresets.debug.label', command: '/debug' },
+    { name: 'explore', icon: 'compass-3', label: "Explore the codebase", command: '/explore' },
+    { name: 'catch-up', icon: 'history', label: "Catch me up", command: '/catch-up' },
+    { name: 'weigh', icon: 'scales-3', label: "Weigh my options", command: '/weigh' },
+    { name: 'plan-feature', icon: 'survey', label: "Start feature planning", command: '/plan-feature' },
+    { name: 'debug', icon: 'bug', label: "Debug an issue", command: '/debug' },
 ];
 
 const BUILTIN_BY_NAME = new Map<string, BuiltInStarter>(BUILTIN_STARTERS.map((s) => [s.name, s]));

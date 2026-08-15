@@ -18,7 +18,6 @@ import { useTerminalStore } from '@/stores/useTerminalStore';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useDesktopSshStore } from '@/stores/useDesktopSshStore';
 import { openExternalUrl } from '@/lib/url';
-import { useI18n } from '@/lib/i18n';
 import {
   getProjectActionsState,
   type PiChamberProjectAction,
@@ -148,7 +147,6 @@ export const ProjectActionsButton = ({
   compact = false,
   allowMobile = false,
 }: ProjectActionsButtonProps) => {
-  const { t } = useI18n();
   const { currentTheme } = useThemeSystem();
   const { terminal } = useRuntimeAPIs();
   const { isMobile } = useDeviceInfo();
@@ -256,11 +254,11 @@ export const ProjectActionsButton = ({
 
   const autoDiscoverAction = React.useMemo<PiChamberProjectAction>(() => ({
     id: AUTO_DISCOVER_ACTION_ID,
-    name: t('projectActions.actions.autoDiscover'),
+    name: "Auto-discover",
     command: '',
     icon: 'scan-2',
     autoOpenUrl: true,
-  }), [t]);
+  }), []);
 
   const canUseAutoDiscover = !isMobile;
   const displayActions = React.useMemo(
@@ -349,7 +347,7 @@ export const ProjectActionsButton = ({
             }
           } else {
             void openExternal(maybeUrl);
-            toast.success(t('projectActions.toast.openedUrlFromOutput'));
+            toast.success("Opened URL from action output");
           }
         }
         urlWatchByRunKeyRef.current[runKey] = watch;
@@ -368,11 +366,11 @@ export const ProjectActionsButton = ({
     return useTerminalStore.subscribe((state, previousState) => {
       if (state.sessions !== previousState.sessions || state.buffers !== previousState.buffers) monitorRuns();
     });
-  }, [displayActions, openContextPreview, openExternal, projectActionRuns, removeProjectActionRun, setTabPreviewUrl, t, updateProjectActionRunStatus]);
+  }, [displayActions, openContextPreview, openExternal, projectActionRuns, removeProjectActionRun, setTabPreviewUrl, updateProjectActionRunStatus]);
 
   const getOrCreateActionTab = React.useCallback(async (action: PiChamberProjectAction, options: { revealTerminal?: boolean } = {}) => {
     if (!normalizedDirectory) {
-      throw new Error(t('projectActions.error.noActiveDirectory'));
+      throw new Error("No active directory");
     }
 
     const key = toProjectActionRunKey(normalizedDirectory, action.id);
@@ -411,7 +409,6 @@ export const ProjectActionsButton = ({
     setActiveTab,
     setTabIconKey,
     setTabLabel,
-    t,
   ]);
 
   const runAction = React.useCallback(async (action: PiChamberProjectAction) => {
@@ -420,7 +417,7 @@ export const ProjectActionsButton = ({
     }
 
     if (!normalizedDirectory) {
-      toast.error(t('projectActions.error.noActiveDirectoryForAction'));
+      toast.error("No active directory for action");
       return;
     }
 
@@ -441,11 +438,11 @@ export const ProjectActionsButton = ({
           ]);
           const devServer = await detectDevServerCommand(normalizedDirectory, actionsState.actions, scripts);
           if (!devServer) {
-            throw new Error(t('contextPanel.preview.noDevServer'));
+            throw new Error("No dev server command found. Configure a project action or add a \\\"dev\\\" script to package.json.");
           }
           return {
             id: AUTO_DISCOVER_ACTION_ID,
-            name: t('projectActions.actions.autoDiscover'),
+            name: "Auto-discover",
             command: devServer.command,
             icon: 'scan-2',
             autoOpenUrl: true,
@@ -479,7 +476,7 @@ export const ProjectActionsButton = ({
       }
 
       if (!activeSessionId) {
-        throw new Error(t('projectActions.error.failedToCreateTerminalSession'));
+        throw new Error("Failed to create terminal session");
       }
 
       streamCleanupByRunKeyRef.current[key]?.();
@@ -559,17 +556,17 @@ export const ProjectActionsButton = ({
       if (desktopForwardUrl) {
         setTabPreviewUrl(normalizedDirectory, tabId, null, { locked: true });
         void openExternal(desktopForwardUrl);
-        toast.success(t('projectActions.toast.openedForwardedUrl'));
+        toast.success("Opened forwarded URL");
       } else if (manualOpenUrl) {
         setTabPreviewUrl(normalizedDirectory, tabId, manualOpenUrl, { locked: true, autoOpened: true });
         openContextPreview(normalizedDirectory, manualOpenUrl);
-        toast.success(t('projectActions.toast.openedActionUrl'));
+        toast.success("Opened action URL");
       } else if (hasCustomOpenUrl) {
         setTabPreviewUrl(normalizedDirectory, tabId, null, { locked: true });
-        toast.error(t('projectActions.error.invalidCustomUrlFormat'));
+        toast.error("Invalid custom URL format");
       } else if (hasDesktopForwardSelection) {
         setTabPreviewUrl(normalizedDirectory, tabId, null, { locked: true });
-        toast.error(t('projectActions.error.selectedDesktopSshForwardUnavailable'));
+        toast.error("Selected desktop SSH forward is unavailable");
       } else {
         setTabPreviewUrl(normalizedDirectory, tabId, null, { locked: false, autoOpened: false });
       }
@@ -581,7 +578,7 @@ export const ProjectActionsButton = ({
       delete streamCleanupByRunKeyRef.current[runKey];
       window.clearTimeout(previewWaitTimeoutByRunKeyRef.current[runKey]);
       delete previewWaitTimeoutByRunKeyRef.current[runKey];
-      toast.error(error instanceof Error ? error.message : t('projectActions.error.failedToRunAction'));
+      toast.error(error instanceof Error ? error.message : "Failed to run action");
     } finally {
       startingRunKeysRef.current.delete(runKey);
     }
@@ -606,7 +603,6 @@ export const ProjectActionsButton = ({
     setTabPreviewUrl,
     setTabSessionId,
     stableProjectRef?.id,
-    t,
     terminal,
   ]);
 
@@ -755,8 +751,8 @@ export const ProjectActionsButton = ({
               )}
               onClick={handlePrimaryClick}
               aria-label={selectedRunning
-                ? t('projectActions.actions.stopNamedAria', { name: resolvedSelected.name })
-                : t('projectActions.actions.runNamedAria', { name: resolvedSelected.name })}
+                ? `Stop ${resolvedSelected.name}`
+                : `Run ${resolvedSelected.name}`}
             >
               {isStoppingSelected || isWaitingForSelectedPreview
                 ? <Icon name="loader-4" className="h-5 w-5 animate-spin text-[var(--status-warning)]" />
@@ -766,7 +762,7 @@ export const ProjectActionsButton = ({
             </button>
           </TooltipTrigger>
           {isAutoDiscoverSelected ? (
-            <TooltipContent sideOffset={6}>{t('projectActions.actions.autoDiscoverTooltip')}</TooltipContent>
+            <TooltipContent sideOffset={6}>{"Automatically discover and run the development server"}</TooltipContent>
           ) : null}
         </Tooltip>
         {showSelectedPreviewButton ? (
@@ -775,13 +771,13 @@ export const ProjectActionsButton = ({
               <button
                 type="button"
                 className="app-region-no-drag -ml-1 inline-flex h-9 w-7 items-center justify-center rounded-[10px] text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                aria-label={t('projectActions.actions.openPreview')}
+                aria-label={"Open Preview"}
                 onClick={handleOpenSelectedPreview}
               >
                 <Icon name="global" className="h-4 w-4" />
               </button>
             </TooltipTrigger>
-            <TooltipContent sideOffset={6}>{t('projectActions.actions.openPreview')}</TooltipContent>
+            <TooltipContent sideOffset={6}>{"Open Preview"}</TooltipContent>
           </Tooltip>
         ) : null}
         <DropdownMenu>
@@ -789,7 +785,7 @@ export const ProjectActionsButton = ({
             <button
               type="button"
               className="app-region-no-drag -ml-1 inline-flex h-9 w-5 items-center justify-center rounded-[10px] text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              aria-label={t('projectActions.actions.chooseActionAria')}
+              aria-label={"Choose project action"}
             >
               <Icon name="arrow-down-s" className="h-3.5 w-3.5" />
             </button>
@@ -797,7 +793,7 @@ export const ProjectActionsButton = ({
           <DropdownMenuContent align="end" className="w-52 max-h-[70vh] overflow-y-auto">
             <DropdownMenuItem className="flex items-center gap-2" onClick={openProjectActionsSettings}>
               <Icon name="add" className="h-4 w-4" />
-              <span className="typography-ui-label text-foreground">{t('projectActions.actions.addNewAction')}</span>
+              <span className="typography-ui-label text-foreground">{"Add new action"}</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             {displayActions.map((entry) => {
@@ -856,8 +852,8 @@ export const ProjectActionsButton = ({
               'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed'
             )}
             aria-label={selectedRunning
-              ? t('projectActions.actions.stopNamedAria', { name: resolvedSelected.name })
-              : t('projectActions.actions.runNamedAria', { name: resolvedSelected.name })}
+              ? `Stop ${resolvedSelected.name}`
+              : `Run ${resolvedSelected.name}`}
           >
             <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
               {isStoppingSelected || isWaitingForSelectedPreview
@@ -869,7 +865,7 @@ export const ProjectActionsButton = ({
           </button>
         </TooltipTrigger>
         {isAutoDiscoverSelected ? (
-          <TooltipContent sideOffset={6}>{t('projectActions.actions.autoDiscoverTooltip')}</TooltipContent>
+          <TooltipContent sideOffset={6}>{"Automatically discover and run the development server"}</TooltipContent>
         ) : null}
       </Tooltip>
 
@@ -884,12 +880,12 @@ export const ProjectActionsButton = ({
                 'border-l border-[var(--interactive-border)] text-foreground',
                 'hover:bg-interactive-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
               )}
-              aria-label={t('projectActions.actions.openPreview')}
+              aria-label={"Open Preview"}
             >
               <Icon name="global" className="h-4 w-4" />
             </button>
           </TooltipTrigger>
-          <TooltipContent sideOffset={6}>{t('projectActions.actions.openPreview')}</TooltipContent>
+          <TooltipContent sideOffset={6}>{"Open Preview"}</TooltipContent>
         </Tooltip>
       ) : null}
 
@@ -902,7 +898,7 @@ export const ProjectActionsButton = ({
               'border-l border-[var(--interactive-border)] text-muted-foreground',
               'hover:bg-interactive-hover hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
             )}
-            aria-label={t('projectActions.actions.chooseActionAria')}
+            aria-label={"Choose project action"}
           >
             <Icon name="arrow-down-s" className="h-4 w-4" />
           </button>
@@ -910,7 +906,7 @@ export const ProjectActionsButton = ({
         <DropdownMenuContent align="start" className="w-52 max-h-[70vh] overflow-y-auto">
           <DropdownMenuItem className="flex items-center gap-2" onClick={openProjectActionsSettings}>
             <Icon name="add" className="h-4 w-4" />
-            <span className="typography-ui-label text-foreground">{t('projectActions.actions.addNewAction')}</span>
+            <span className="typography-ui-label text-foreground">{"Add new action"}</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           {displayActions.map((entry) => {

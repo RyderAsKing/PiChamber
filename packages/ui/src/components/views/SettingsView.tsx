@@ -31,7 +31,6 @@ import {
 import { useDeviceInfo } from '@/lib/device';
 import { isDesktopLocalOriginActive, isDesktopShell, isWebRuntime } from '@/lib/desktop';
 import { isWindowsArm64 as isWindowsArm64Platform } from '@/lib/platform';
-import { useI18n } from '@/lib/i18n';
 import { Icon } from "@/components/icon/Icon";
 import {
   SETTINGS_PAGE_METADATA,
@@ -145,8 +144,7 @@ function getCurrentHistoryState(): Record<string, unknown> {
 
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile, isWindowed, visiblePageSlugs, initialMobileStage = 'nav' }) => {
-  const { t } = useI18n();
-  const deviceInfo = useDeviceInfo();
+    const deviceInfo = useDeviceInfo();
   const isMobile = forceMobile ?? deviceInfo.isMobile;
 
   const settingsPageRaw = useUIStore((state) => state.settingsPage);
@@ -267,52 +265,51 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
   const getPageTitle = React.useCallback((slug: SettingsPageSlug): string => {
     switch (slug) {
       case 'general':
-        return t('settings.page.general.title');
+        return "General";
       case 'projects':
-        return t('settings.page.projects.title');
+        return "Projects";
       case 'remote-instances':
-        return t('settings.page.remoteInstances.title');
+        return "Remote Instances";
       case 'providers':
-        return t('settings.page.providers.title');
+        return "Providers";
       case 'behavior':
-        return t('settings.page.behavior.title');
+        return "Behavior";
       case 'skills.installed':
-        return t('settings.page.skills.title');
+        return "Skills";
       case 'git':
-        return t('settings.page.git.title');
+        return "Git";
       case 'appearance':
-        return t('settings.page.appearance.title');
+        return "Appearance";
       case 'chat':
-        return t('settings.page.chat.title');
+        return "Chat";
       case 'shortcuts':
-        return t('settings.page.shortcuts.title');
+        return "Shortcuts";
       case 'sessions':
-        return t('settings.page.sessions.title');
+        return "Sessions";
       case 'magic-prompts':
-        return t('settings.page.magicPrompts.title');
+        return "Magic Prompts";
       case 'snippets':
-        return t('settings.page.snippets.title');
+        return "Snippets";
       case 'notifications':
-        return t('settings.page.notifications.title');
+        return "Notifications";
       case 'tunnel':
-        return t('settings.page.tunnel.title');
+        return "External Tunnel";
       case 'about':
-        return t('settings.page.about.title');
+        return "About";
       case 'home':
       default:
-        return t('settings.view.home.title');
+        return "Settings";
     }
-  }, [t]);
+  }, []);
 
   const settingsSearchResults = React.useMemo(() => {
     return buildSettingsSearchResults({
       query: settingsSearchQuery,
       runtimeCtx: { ...runtimeCtx, isDesktopLocalOrigin, isMac, isWindows, isLinux, isWindowsArm64 },
       visiblePageSlugs,
-      t,
       getPageTitle,
     });
-  }, [getPageTitle, isWindowsArm64, isDesktopLocalOrigin, isMac, isWindows, isLinux, runtimeCtx, settingsSearchQuery, t, visiblePageSlugs]);
+  }, [getPageTitle, isWindowsArm64, isDesktopLocalOrigin, isMac, isWindows, isLinux, runtimeCtx, settingsSearchQuery, visiblePageSlugs]);
 
   const prepareSettingsSearchTarget = React.useCallback((result: SettingsSearchResult): string => {
     if (result.id.startsWith('snippets.')) {
@@ -450,12 +447,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
     return (
       <div className="flex h-full items-center justify-center px-6">
         <div className="max-w-md text-center">
-          <div className={SETTINGS_SECTION_TITLE_CLASS}>{t('settings.view.unavailable.title')}</div>
-          <p className="typography-ui text-muted-foreground mt-1">{t('settings.view.unavailable.description')}</p>
+          <div className={SETTINGS_SECTION_TITLE_CLASS}>{"Not available"}</div>
+          <p className="typography-ui text-muted-foreground mt-1">{"This settings page is not available in this runtime."}</p>
         </div>
       </div>
     );
-  }, [t]);
+  }, []);
 
   const renderPageSidebar = React.useCallback((slug: SettingsPageSlug, opts: { onItemSelect?: () => void }) => {
     switch (slug) {
@@ -493,7 +490,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         return <ProvidersPage />;
       case 'about':
         return (
-          <SettingsPageLayout title={t('settings.page.about.title')} showSaveStatus={false}>
+          <SettingsPageLayout title={"About"} showSaveStatus={false}>
             <AboutSettings />
           </SettingsPageLayout>
         );
@@ -517,7 +514,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
       default:
         return null;
     }
-  }, [openChamberSectionBySlug, renderUnavailable, runtimeCtx, t]);
+  }, [openChamberSectionBySlug, renderUnavailable, runtimeCtx]);
 
   // Mobile: if opened via deep-link / palette to a non-home page, jump into it once.
   React.useEffect(() => {
@@ -547,10 +544,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
     && activePageMeta?.kind === 'split'
     && !backButtonTargetsPageSidebar;
   const mobileBackButtonLabel = backButtonTargetsPageSidebar
-    ? t('settings.view.actions.back')
+    ? "Back"
     : showBackButton
-      ? t('settings.view.actions.backToSettings')
-      : t('settings.view.actions.closeSettings');
+      ? "Back to Settings"
+      : "Close settings";
   const shortcutKey = getModifierLabel();
 
   const pushMobileSplitDetailHistory = React.useCallback((slug: SettingsPageSlug) => {
@@ -637,15 +634,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
               value={settingsSearchQuery}
               onChange={(event) => setSettingsSearchQuery(event.target.value)}
               onKeyDown={handleSettingsSearchKeyDown}
-              placeholder={t('settings.view.search.placeholder')}
-              aria-label={t('settings.view.search.aria')}
+              placeholder={"Search settings"}
+              aria-label={"Search settings"}
               className="typography-ui min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground/70"
             />
             {hasSearchQuery && (
               <button
                 type="button"
                 onClick={() => setSettingsSearchQuery('')}
-                aria-label={t('settings.view.search.clear')}
+                aria-label={"Clear settings search"}
                 className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-interactive-hover hover:text-foreground sm:h-5 sm:w-5"
               >
                 <Icon name="close" className="h-3.5 w-3.5" />
@@ -699,7 +696,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
                 ));
               })() : (
                 <div className="px-2 py-6 text-center typography-ui text-muted-foreground">
-                  {t('settings.view.search.noResults')}
+                  {"No matching settings"}
                 </div>
               )
             ) : (() => {
@@ -726,7 +723,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
                       groupIndex === 0 ? 'pt-1' : 'pt-4 sm:pt-3',
                     )}
                   >
-                    {t(`settings.view.nav.group.${group}`)}
+                    {group === 'general' ? 'PiChamber' : 'Workspace'}
                   </div>
                   {pages.map((page) => {
                     // On the mobile nav STAGE nothing is "current" — the user is
@@ -755,7 +752,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
                               <span className="typography-ui-label font-normal truncate">{getPageTitle(page.slug)}</span>
                               {page.slug === 'tunnel' && (
                                 <span className="shrink-0 typography-micro px-1 rounded leading-none pb-px text-[var(--status-warning)] bg-[var(--status-warning)]/10">
-                                  {t('settings.view.badge.beta')}
+                                  {"beta"}
                                 </span>
                               )}
                             </span>
@@ -869,15 +866,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
 
           <div className="min-w-0 flex-1 px-2 typography-ui-label font-medium text-foreground truncate">
             {mobileStage === 'nav'
-              ? t('settings.view.home.title')
-              : (activePageMeta ? getPageTitle(activePageMeta.slug) : t('settings.view.home.title'))}
+              ? "Settings"
+              : (activePageMeta ? getPageTitle(activePageMeta.slug) : "Settings")}
           </div>
 
           {showOpenPageSidebarButton && (
             <button
               type="button"
               onClick={handleOpenPageSidebar}
-              aria-label={t('settings.view.actions.openSectionList')}
+              aria-label={"Open section list"}
               className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg p-2 text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               <Icon name="list-unordered" className="h-5 w-5" />
@@ -888,8 +885,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
             <button
               type="button"
               onClick={onClose}
-              aria-label={t('settings.view.actions.closeSettings')}
-              title={t('settings.view.actions.closeSettingsWithShortcut', { shortcut: shortcutKey })}
+              aria-label={"Close settings"}
+              title={`Close Settings (${shortcutKey}+,)`}
               className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg p-2 text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               <Icon name="close" className="h-5 w-5" />
@@ -903,7 +900,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
               <button
                 type="button"
                 onClick={handleBack}
-                aria-label={t('settings.view.actions.back')}
+                aria-label={"Back"}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg p-2 text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 <Icon name="arrow-left-s" className="h-5 w-5" />
@@ -916,8 +913,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
           <button
             type="button"
             onClick={onClose}
-            aria-label={t('settings.view.actions.closeSettings')}
-            title={t('settings.view.actions.closeSettingsWithShortcut', { shortcut: shortcutKey })}
+            aria-label={"Close settings"}
+            title={`Close Settings (${shortcutKey}+,)`}
             className="inline-flex h-7 w-7 items-center justify-center rounded-md p-0.5 text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <Icon name="close" className="h-5 w-5" />

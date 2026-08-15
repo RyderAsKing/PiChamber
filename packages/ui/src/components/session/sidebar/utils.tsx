@@ -1,7 +1,5 @@
 import React from 'react';
 import type { Session } from '@/lib/chat/types';
-import { getCurrentIntlLocale } from '@/lib/i18n';
-import { formatMessage, useI18nStore } from '@/lib/i18n/store';
 
 import { normalizePath } from '@/lib/pathNormalization';
 export { normalizePath };
@@ -29,9 +27,6 @@ export const toggleExpandedParentKey = (
   return next;
 };
 
-const t = (key: Parameters<typeof formatMessage>[1], params?: Parameters<typeof formatMessage>[2]) =>
-  formatMessage(useI18nStore.getState().dictionary, key, params);
-
 const formatDateLabel = (value: string | number) => {
   const targetDate = new Date(value);
   const today = new Date();
@@ -44,12 +39,12 @@ const formatDateLabel = (value: string | number) => {
   yesterday.setDate(today.getDate() - 1);
 
   if (isSameDay(targetDate, today)) {
-    return t('common.date.today');
+    return "Today";
   }
   if (isSameDay(targetDate, yesterday)) {
-    return t('common.date.yesterday');
+    return "Yesterday";
   }
-  const formatted = targetDate.toLocaleDateString(getCurrentIntlLocale(), {
+  const formatted = targetDate.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -67,9 +62,9 @@ export const formatSessionDateLabel = (updatedMs: number): string => {
 
   if (isSameDay(updatedDate, today)) {
     const diff = Date.now() - updatedMs;
-    if (diff < 60_000) return t('common.relative.justNow');
-    if (diff < 3_600_000) return t('common.relative.minutesAgoShort', { count: Math.floor(diff / 60_000) });
-    return t('common.relative.hoursAgoShort', { count: Math.floor(diff / 3_600_000) });
+    if (diff < 60_000) return "Just now";
+    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}min ago`;
+    return `${Math.floor(diff / 3_600_000)}h ago`;
   }
 
   return formatDateLabel(updatedMs);
@@ -92,15 +87,15 @@ export const formatSessionCompactDateLabel = (updatedMs: number): string => {
     return `${Math.floor(diff / hour)}h`;
   }
   if (diff < week) {
-    return t('common.relative.daysAgoCompact', { count: Math.floor(diff / day) });
+    return `${Math.floor(diff / day)}d ago`;
   }
   if (diff < 5 * week) {
-    return t('common.relative.weeksAgoCompact', { count: Math.floor(diff / week) });
+    return `${Math.floor(diff / week)}w ago`;
   }
   if (diff < year) {
     return `${Math.floor(diff / month)}mo`;
   }
-  return t('common.relative.yearsAgoCompact', { count: Math.floor(diff / year) });
+  return `${Math.floor(diff / year)}y ago`;
 };
 
 export const isPathWithinProject = (directory?: string | null, projectPath?: string | null): boolean => {

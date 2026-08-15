@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
-import { useI18n } from '@/lib/i18n';
 import { PROJECT_COLORS, PROJECT_COLOR_MAP, PROJECT_ICONS, PROJECT_ICON_MAP, ProjectIconImage } from '@/lib/projectMeta';
 import { cn } from '@/lib/utils';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -35,7 +34,7 @@ export const MobileProjectEditSurface: React.FC<MobileProjectEditSurfaceProps> =
   project,
   onClose,
 }) => {
-  const { t } = useI18n();
+  
   const { currentTheme } = useThemeSystem();
   const updateProjectMeta = useProjectsStore((state) => state.updateProjectMeta);
   const discoverProjectIcon = useProjectsStore((state) => state.discoverProjectIcon);
@@ -76,14 +75,14 @@ export const MobileProjectEditSurface: React.FC<MobileProjectEditSurfaceProps> =
     void discoverProjectIcon(project.id)
       .then((result) => {
         if (!result.ok) {
-          toast.error(result.error || t('projectEditDialog.toast.failedToDiscoverIcon'));
+          toast.error(result.error || "Failed to discover project icon");
           return;
         }
         if (result.skipped) {
-          toast.success(t('projectEditDialog.toast.customIconAlreadySet'));
+          toast.success("Custom icon already set for this project");
           return;
         }
-        toast.success(t('projectEditDialog.toast.iconDiscovered'));
+        toast.success("Project icon discovered");
       })
       .finally(() => setIsDiscovering(false));
   };
@@ -92,10 +91,10 @@ export const MobileProjectEditSurface: React.FC<MobileProjectEditSurfaceProps> =
     if (!project) return;
     void removeProjectIcon(project.id).then((result) => {
       if (!result.ok) {
-        toast.error(result.error || t('projectEditDialog.toast.failedToRemoveIcon'));
+        toast.error(result.error || "Failed to remove project icon");
         return;
       }
-      toast.success(t('projectEditDialog.toast.iconRemoved'));
+      toast.success("Project icon removed");
     });
   };
 
@@ -107,21 +106,21 @@ export const MobileProjectEditSurface: React.FC<MobileProjectEditSurfaceProps> =
     <MobileFullscreenSurface
       open={open}
       onClose={onClose}
-      title={t('projectEditDialog.title')}
-      ariaLabel={t('projectEditDialog.title')}
+      title={"Edit project"}
+      ariaLabel={"Edit project"}
       noHeaderBorder
       trailing={
         <Button
           type="button"
           variant="default"
           size="sm"
-          aria-label={t('projectEditDialog.actions.save')}
+          aria-label={"Save"}
           onClick={handleSave}
           disabled={!name.trim()}
           style={{ touchAction: 'manipulation' }}
         >
           <RiCheckLine className="size-4" />
-          {t('projectEditDialog.actions.save')}
+          {"Save"}
         </Button>
       }
     >
@@ -154,12 +153,12 @@ export const MobileProjectEditSurface: React.FC<MobileProjectEditSurfaceProps> =
           {/* Name */}
           <div className="flex flex-col gap-1.5">
             <label className="typography-ui-label font-medium text-foreground">
-              {t('projectEditDialog.field.name')}
+              {"Name"}
             </label>
             <Input
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder={t('projectEditDialog.field.namePlaceholder')}
+              placeholder={"Project name"}
               className="h-11"
             />
             <p className="truncate typography-meta text-muted-foreground" title={project.path}>
@@ -170,13 +169,13 @@ export const MobileProjectEditSurface: React.FC<MobileProjectEditSurfaceProps> =
           {/* Color */}
           <div className="flex flex-col gap-2">
             <label className="typography-ui-label font-medium text-foreground">
-              {t('projectEditDialog.field.color')}
+              {"Color"}
             </label>
             <div className="flex flex-wrap gap-2.5">
               <button
                 type="button"
                 onClick={() => setColor(null)}
-                aria-label={t('projectEditDialog.option.none')}
+                aria-label={"None"}
                 className={cn(
                   'flex size-9 items-center justify-center rounded-xl border-2 transition-all',
                   color === null ? 'border-foreground' : 'border-border/70 hover:border-border/70',
@@ -205,13 +204,13 @@ export const MobileProjectEditSurface: React.FC<MobileProjectEditSurfaceProps> =
           {/* Icon */}
           <div className="flex flex-col gap-2">
             <label className="typography-ui-label font-medium text-foreground">
-              {t('projectEditDialog.field.icon')}
+              {"Icon"}
             </label>
             <div className="flex flex-wrap gap-2.5">
               <button
                 type="button"
                 onClick={() => setIcon(null)}
-                aria-label={t('projectEditDialog.option.none')}
+                aria-label={"None"}
                 className={cn(
                   'flex size-9 items-center justify-center rounded-xl border-2 transition-all',
                   icon === null ? 'border-foreground bg-[var(--surface-elevated)]' : 'border-border/70 hover:border-border/70',
@@ -240,12 +239,12 @@ export const MobileProjectEditSurface: React.FC<MobileProjectEditSurfaceProps> =
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <Button size="sm" variant="outline" onClick={handleDiscoverIcon} disabled={isDiscovering}>
                 {isDiscovering
-                  ? t('projectEditDialog.actions.discovering')
-                  : t('projectEditDialog.actions.discoverFavicon')}
+                  ? "Discovering..."
+                  : "Discover Favicon"}
               </Button>
               {hasImageIcon ? (
                 <Button size="sm" variant="outline" onClick={handleRemoveDiscoveredIcon}>
-                  {t('projectEditDialog.actions.removeProjectIcon')}
+                  {"Remove Project Icon"}
                 </Button>
               ) : null}
             </div>

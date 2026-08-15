@@ -10,7 +10,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Icon } from "@/components/icon/Icon";
 import { cn } from '@/lib/utils';
 import type { GitLogEntry, CommitFileEntry } from '@/lib/api/types';
-import { useI18n } from '@/lib/i18n';
 import { getCommitFileDiff, type CommitFileDiffResponse } from '@/lib/gitApi';
 import { PierreDiffViewer } from '@/components/views/PierreDiffViewer';
 import { getLanguageFromExtension } from '@/lib/toolHelpers';
@@ -146,13 +145,29 @@ export const HistoryCommitRow = React.memo(({
   onConflict,
   onActionSuccess,
 }: HistoryCommitRowProps) => {
-  const { t } = useI18n();
   const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
   const isGraphMode = mode === 'graph';
   type PendingAction =
     | 'checkout' | 'cherryPick' | 'revert'
     | 'merge' | 'rebase'
     | 'resetSoft' | 'resetMixed' | 'resetHard';
+
+  const PENDING_ACTION_CONFIRM_MESSAGES: Record<PendingAction, string> = {
+    checkout: 'Check out this commit as detached HEAD?',
+    cherryPick: 'Cherry-pick this commit onto the current branch?',
+    revert: 'Stage a revert of this commit?',
+    merge: 'Merge this commit into the current branch?',
+    rebase: 'Rebase current branch onto this commit?',
+    resetSoft: 'Soft reset — HEAD moves, staged changes preserved.',
+    resetMixed: 'Mixed reset — HEAD moves, changes unstaged.',
+    resetHard: 'Hard reset — HEAD moves, all uncommitted changes permanently discarded.',
+  };
+
+  const RESET_MODE_LABELS: Record<'soft' | 'mixed' | 'hard', string> = {
+    soft: 'Soft — keep staged',
+    mixed: 'Mixed — unstage changes',
+    hard: 'Hard — discard all changes',
+  };
 
   const [actionLoading, setActionLoading] = React.useState<string | null>(null);
   const [showCreateBranch, setShowCreateBranch] = React.useState(false);
@@ -168,7 +183,7 @@ export const HistoryCommitRow = React.memo(({
     setActionLoading('checkout');
     try {
       await git.checkoutCommit(directory, entry.hash);
-      toast.success(t('gitView.history.actions.detachedHead'));
+      toast.success("Checked out (detached HEAD)");
       onActionSuccess?.();
     } catch (e: unknown) {
       toast.error(String((e as Error).message));
@@ -429,7 +444,7 @@ export const HistoryCommitRow = React.memo(({
                   <Icon name="file-copy" className="size-3" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent sideOffset={8}>{t('gitView.history.copySha')}</TooltipContent>
+              <TooltipContent sideOffset={8}>{"Copy SHA"}</TooltipContent>
             </Tooltip>
           </div>
         </div>
@@ -442,7 +457,7 @@ export const HistoryCommitRow = React.memo(({
             /* Confirmation banner — replaces the button row while an action is pending */
             <div className="flex items-center gap-2 py-2 border-b border-border/30 mb-2">
               <span className="typography-micro text-muted-foreground flex-1 min-w-0">
-                {t(`gitView.history.actions.${pendingAction}Confirm` as never)}
+                {PENDING_ACTION_CONFIRM_MESSAGES[pendingAction]}
               </span>
               <Button
                 variant="destructive" size="xs" className="h-6 shrink-0"
@@ -452,14 +467,14 @@ export const HistoryCommitRow = React.memo(({
                 {actionLoading !== null
                   ? <Icon name="loader-4" className="size-3 animate-spin mr-1" />
                   : null}
-                {t('gitView.history.actions.confirmButton')}
+                {"Confirm"}
               </Button>
               <Button
                 variant="ghost" size="xs" className="h-6 shrink-0"
                 disabled={actionLoading !== null}
                 onClick={(e) => { e.stopPropagation(); setPendingAction(null); }}
               >
-                {t('gitView.history.actions.cancelButton')}
+                {"Cancel"}
               </Button>
             </div>
           ) : isGraphMode ? (
@@ -468,7 +483,7 @@ export const HistoryCommitRow = React.memo(({
                 disabled={actionLoading !== null}
                 onClick={(e) => { e.stopPropagation(); setPendingAction('checkout'); }}
               >
-                {t('gitView.history.actions.checkout')}
+                {"Checkout"}
               </Button>
 
               {showCreateBranch ? (
@@ -480,7 +495,7 @@ export const HistoryCommitRow = React.memo(({
                       if (e.key === 'Enter') void handleCreateBranch();
                       if (e.key === 'Escape') { setShowCreateBranch(false); setNewBranchName(''); }
                     }}
-                    placeholder={t('gitView.history.actions.createBranchPlaceholder')}
+                    placeholder={"Branch name"}
                     className="h-6 text-xs px-2 rounded border border-border/60 bg-background min-w-0 w-32"
                   />
                   <Button variant="outline" size="xs" className="h-6"
@@ -490,14 +505,14 @@ export const HistoryCommitRow = React.memo(({
                     {actionLoading === 'createBranch'
                       ? <Icon name="loader-4" className="size-3 animate-spin mr-1" />
                       : null}
-                    {t('gitView.history.actions.createBranchConfirm')}
+                    {"Create"}
                   </Button>
                 </div>
               ) : (
                 <Button variant="outline" size="xs" className="h-6"
                   onClick={(e) => { e.stopPropagation(); setShowCreateBranch(true); }}
                 >
-                  {t('gitView.history.actions.createBranch')}
+                  {"Create branch here"}
                 </Button>
               )}
 
@@ -505,14 +520,14 @@ export const HistoryCommitRow = React.memo(({
                 disabled={actionLoading !== null}
                 onClick={(e) => { e.stopPropagation(); setPendingAction('cherryPick'); }}
               >
-                {t('gitView.history.actions.cherryPick')}
+                {"Cherry-pick"}
               </Button>
 
               <Button variant="outline" size="xs" className="h-6"
                 disabled={actionLoading !== null}
                 onClick={(e) => { e.stopPropagation(); setPendingAction('revert'); }}
               >
-                {t('gitView.history.actions.revert')}
+                {"Revert"}
               </Button>
 
               {/* Reset: dropdown first to pick mode, then confirmation banner */}
@@ -528,7 +543,7 @@ export const HistoryCommitRow = React.memo(({
                     {actionLoading === 'reset'
                       ? <Icon name="loader-4" className="size-3 animate-spin mr-1" />
                       : null}
-                    {t('gitView.history.actions.reset')}
+                    {"Reset..."}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="min-w-max">
@@ -541,7 +556,7 @@ export const HistoryCommitRow = React.memo(({
                         setPendingAction(`reset${mode.charAt(0).toUpperCase() + mode.slice(1)}` as PendingAction);
                       }}
                     >
-                      {t(`gitView.history.actions.reset${mode.charAt(0).toUpperCase() + mode.slice(1)}` as never)}
+                      {RESET_MODE_LABELS[mode]}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
@@ -551,14 +566,14 @@ export const HistoryCommitRow = React.memo(({
                 disabled={actionLoading !== null}
                 onClick={(e) => { e.stopPropagation(); setPendingAction('merge'); }}
               >
-                {t('gitView.history.actions.merge')}
+                {"Merge into current"}
               </Button>
 
               <Button variant="outline" size="xs" className="h-6"
                 disabled={actionLoading !== null}
                 onClick={(e) => { e.stopPropagation(); setPendingAction('rebase'); }}
               >
-                {t('gitView.history.actions.rebase')}
+                {"Rebase onto this"}
               </Button>
             </div>
           ) : null}
@@ -566,10 +581,10 @@ export const HistoryCommitRow = React.memo(({
           {isLoadingFiles ? (
             <div className="flex items-center gap-2 py-2">
               <Icon name="loader-4" className="size-4 animate-spin text-muted-foreground" />
-              <span className="typography-micro text-muted-foreground">{t('gitView.history.loadingFiles')}</span>
+              <span className="typography-micro text-muted-foreground">{"Loading files..."}</span>
             </div>
           ) : files.length === 0 ? (
-            <p className="typography-micro text-muted-foreground py-2">{t('gitView.history.noFiles')}</p>
+            <p className="typography-micro text-muted-foreground py-2">{"No files"}</p>
           ) : (
             <ul className="space-y-0.5 py-2">
               {files.map((file) => (
@@ -606,7 +621,7 @@ export const HistoryCommitRow = React.memo(({
                     )}
                     {file.isBinary && (
                       <span className="typography-micro text-muted-foreground shrink-0">
-                        {t('gitView.history.binary')}
+                        {"Binary"}
                       </span>
                     )}
                     <Icon
@@ -618,19 +633,19 @@ export const HistoryCommitRow = React.memo(({
                   {openDiffPaths.has(file.path) && (
                     <div className="max-h-[400px] overflow-y-auto rounded border border-border/40 mx-2 mb-1" data-diff-virtual-root data-diff-virtual-content>
                       {file.changeType === 'R' ? (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">{t('gitView.history.renamedNoDiff')}</div>
+                        <div className="px-3 py-2 text-sm text-muted-foreground">{"Renamed file — diff not supported"}</div>
                       ) : file.isBinary ? (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">{t('gitView.history.binaryNoDiff')}</div>
+                        <div className="px-3 py-2 text-sm text-muted-foreground">{"Binary file — no diff available"}</div>
                       ) : (() => {
                         const changedLines = file.insertions + file.deletions;
                         if (!forceRenderLargePaths.has(file.path) && changedLines > HISTORY_DIFF_LARGE_CHANGED_LINES) {
                           return (
                             <div className="flex flex-col items-start gap-1 px-3 py-2 text-sm text-muted-foreground">
                               <div className="typography-ui-label font-semibold text-foreground">
-                                {t('gitView.history.largeDiffTitle', { count: changedLines })}
+                                {`Large diff (${changedLines} changed lines)`}
                               </div>
                               <div className="typography-meta text-muted-foreground">
-                                {t('gitView.history.largeDiffDescription')}
+                                {"Rendering may be slow. You can still view the diff by clicking below."}
                               </div>
                               <Button
                                 type="button"
@@ -642,7 +657,7 @@ export const HistoryCommitRow = React.memo(({
                                   void loadFileDiff(file);
                                 }}
                               >
-                                {t('gitView.history.renderDiffAnyway')}
+                                {"Render anyway"}
                               </Button>
                             </div>
                           );
@@ -650,7 +665,7 @@ export const HistoryCommitRow = React.memo(({
 
                         const cached = diffCache.get(file.path);
                         if (cached === 'loading' || cached === undefined) {
-                          return <div className="px-3 py-2 text-sm text-muted-foreground">{t('gitView.history.loadingDiff')}</div>;
+                          return <div className="px-3 py-2 text-sm text-muted-foreground">{"Loading diff..."}</div>;
                         }
                         if (cached === 'error') {
                           return (
@@ -659,7 +674,7 @@ export const HistoryCommitRow = React.memo(({
                               onClick={() => toggleFileDiff(file)}
                               className="w-full text-left px-3 py-2 text-sm text-muted-foreground hover:bg-[var(--interactive-hover)] transition-colors"
                             >
-                              {t('gitView.history.diffError')}
+                              {"Failed to load diff. Click to retry."}
                             </button>
                           );
                         }

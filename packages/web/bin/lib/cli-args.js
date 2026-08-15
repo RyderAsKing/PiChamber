@@ -58,7 +58,7 @@ function parseArgs(argv = process.argv.slice(2)) {
   const options = {
     port: DEFAULT_PORT,
     host: undefined,
-    uiPassword: process.env.OPENCHAMBER_UI_PASSWORD || undefined,
+    uiPassword: process.env.PICHAMBER_UI_PASSWORD || process.env.OPENCHAMBER_UI_PASSWORD || undefined,
     json: false,
     all: false,
     follow: true,
@@ -424,10 +424,10 @@ function parseArgs(argv = process.argv.slice(2)) {
         // may still pass this when starting a remote server.
         break;
       case 'try-cf-tunnel':
-        removedFlagErrors.push('`--try-cf-tunnel` was removed. Use: openchamber tunnel start --provider cloudflare --mode quick');
+        removedFlagErrors.push('`--try-cf-tunnel` was removed. Use: pichamber tunnel start --provider cloudflare --mode quick');
         break;
       case 'tunnel-qr':
-        removedFlagErrors.push('`--tunnel-qr` was removed. Use: openchamber tunnel start ... --qr');
+        removedFlagErrors.push('`--tunnel-qr` was removed. Use: pichamber tunnel start ... --qr');
         break;
       case 'tunnel-password-url':
         removedFlagErrors.push('`--tunnel-password-url` was removed. Use UI password auth directly after tunnel start.');
@@ -438,7 +438,7 @@ function parseArgs(argv = process.argv.slice(2)) {
       case 'tunnel-token':
       case 'tunnel-hostname':
       case 'tunnel':
-        removedFlagErrors.push(`\`--${name}\` was removed from top-level serve flow. Use: openchamber tunnel start ...`);
+        removedFlagErrors.push(`\`--${name}\` was removed from top-level serve flow. Use: pichamber tunnel start ...`);
         break;
       default:
         if (!long && name.length === 1) {
@@ -480,7 +480,7 @@ function showHelp() {
  PiChamber - Web interface for the Pi coding agent
 
 USAGE:
-  openchamber [COMMAND] [OPTIONS]
+  pichamber [COMMAND] [OPTIONS]
 
 COMMANDS:
   serve          Start the web server (daemon default)
@@ -508,21 +508,23 @@ OPTIONS:
   -v, --version           Show version
 
 ENVIRONMENT:
-  OPENCHAMBER_HOST             Bind address (e.g. 0.0.0.0 for all interfaces)
-  OPENCHAMBER_UI_PASSWORD      Alternative to --ui-password flag
-  OPENCHAMBER_API_ONLY         Set to true/1 to start API routes only
-  OPENCHAMBER_DATA_DIR         Override PiChamber data directory
+  PICHAMBER_HOST               Bind address (e.g. 0.0.0.0 for all interfaces)
+  PICHAMBER_UI_PASSWORD        Alternative to --ui-password flag
+  PICHAMBER_API_ONLY           Set to true/1 to start API routes only
+  PICHAMBER_DATA_DIR           Override PiChamber data directory
+
+  (Legacy OPENCHAMBER_* spellings are still honored.)
 
 EXAMPLES:
-  openchamber                    # Start in daemon mode on default port 3000 (or free port)
-  openchamber --port 8080        # Start on port 8080 (daemon)
-  openchamber --lan --port 3002  # Start on LAN at 0.0.0.0:3002
-  openchamber serve --foreground # Start in foreground (for systemd Type=simple)
-  openchamber connect-url --port 3000 --qr
-  openchamber connect-url --server https://openchamber.example.com
-  openchamber startup enable     # Start PiChamber at user login
-  openchamber tunnel help        # Show tunnel lifecycle help
-  openchamber logs               # Follow logs for latest running instance
+  pichamber                    # Start in daemon mode on default port 3000 (or free port)
+  pichamber --port 8080        # Start on port 8080 (daemon)
+  pichamber --lan --port 3002  # Start on LAN at 0.0.0.0:3002
+  pichamber serve --foreground # Start in foreground (for systemd Type=simple)
+  pichamber connect-url --port 3000 --qr
+  pichamber connect-url --server https://pichamber.example.com
+  pichamber startup enable     # Start PiChamber at user login
+  pichamber tunnel help        # Show tunnel lifecycle help
+  pichamber logs               # Follow logs for latest running instance
 `);
 }
 
@@ -531,7 +533,7 @@ function showStartupHelp() {
  PiChamber Startup Commands
 
 USAGE:
-  openchamber startup <SUBCOMMAND> [OPTIONS]
+  pichamber startup <SUBCOMMAND> [OPTIONS]
 
 SUBCOMMANDS:
   status      Show startup integration status
@@ -548,10 +550,10 @@ OPTIONS:
   -q, --quiet             Suppress non-essential output
 
 EXAMPLES:
-  openchamber startup enable
-  openchamber startup enable --port 3000
-  openchamber startup enable --port 3000 --api-only --host 0.0.0.0
-  openchamber startup status --json
+  pichamber startup enable
+  pichamber startup enable --port 3000
+  pichamber startup enable --port 3000 --api-only --host 0.0.0.0
+  pichamber startup status --json
 `);
 }
 
@@ -560,7 +562,7 @@ function showConnectUrlHelp() {
  PiChamber Connect URL
 
 USAGE:
-  openchamber connect-url [OPTIONS]
+  pichamber connect-url [OPTIONS]
 
 DESCRIPTION:
   Generate an openchamber:// connection link for adding this server to another
@@ -587,10 +589,10 @@ OPTIONS:
   -h, --help              Show this help
 
 EXAMPLES:
-  openchamber connect-url --port 3000 --qr
-  openchamber connect-url --port 3000 --api-only --lan --server http://workstation.local:3000 --qr
-  openchamber connect-url --server https://openchamber.example.com --name Workstation
-  openchamber connect-url --relay --name "My laptop"
+  pichamber connect-url --port 3000 --qr
+  pichamber connect-url --port 3000 --api-only --lan --server http://workstation.local:3000 --qr
+  pichamber connect-url --server https://pichamber.example.com --name Workstation
+  pichamber connect-url --relay --name "My laptop"
 `);
 }
 
@@ -599,7 +601,7 @@ function showTunnelHelp() {
  Tunnel Lifecycle Commands
 
 USAGE:
-  openchamber tunnel <SUBCOMMAND> [OPTIONS]
+  pichamber tunnel <SUBCOMMAND> [OPTIONS]
 
 SUBCOMMANDS:
   help        Show this tunnel help
@@ -647,31 +649,31 @@ BEHAVIOR NOTES:
   - Connect links are one-time; generating a new link revokes the previous unused link.
 
 PROFILE USAGE:
-  openchamber tunnel profile list [--provider <id>] [--json]
-  openchamber tunnel profile show --name <name> [--provider <id>] [--json]
-  openchamber tunnel profile add --provider <id> --mode managed-remote --name <name> --hostname <host> --token <token> [--force] [--json]
-  openchamber tunnel profile add --provider <id> --mode managed-remote --name <name> --hostname <host> --token-file <path> [--force] [--json]
-  openchamber tunnel profile remove --name <name> [--provider <id>] [--json]
+  pichamber tunnel profile list [--provider <id>] [--json]
+  pichamber tunnel profile show --name <name> [--provider <id>] [--json]
+  pichamber tunnel profile add --provider <id> --mode managed-remote --name <name> --hostname <host> --token <token> [--force] [--json]
+  pichamber tunnel profile add --provider <id> --mode managed-remote --name <name> --hostname <host> --token-file <path> [--force] [--json]
+  pichamber tunnel profile remove --name <name> [--provider <id>] [--json]
 
 SHELL COMPLETION:
-  openchamber tunnel completion bash   Generate Bash completion script
-  openchamber tunnel completion zsh    Generate Zsh completion script
-  openchamber tunnel completion fish   Generate Fish completion script
+  pichamber tunnel completion bash   Generate Bash completion script
+  pichamber tunnel completion zsh    Generate Zsh completion script
+  pichamber tunnel completion fish   Generate Fish completion script
 
 EXAMPLES:
-  openchamber tunnel providers
-  openchamber tunnel ready --provider cloudflare
-  openchamber tunnel doctor --provider cloudflare
-  openchamber tunnel status
-  openchamber tunnel start --qr
-  openchamber tunnel start --profile prod-main
-  openchamber tunnel start --provider cloudflare --mode managed-remote --token-file ~/.secrets/cf-token --hostname app.example.com
-  openchamber tunnel start --provider cloudflare --mode managed-local --config ~/.cloudflared/config.yml
-  openchamber tunnel start --dry-run --provider cloudflare --mode managed-remote --token-file ~/.secrets/cf-token --hostname app.example.com
-  echo "$TOKEN" | openchamber tunnel profile add --provider cloudflare --mode managed-remote --name prod-main --hostname app.example.com --token-stdin
-  openchamber tunnel profile list --provider cloudflare
-  openchamber tunnel profile list --json --show-secrets
-  openchamber tunnel stop --port 3000
+  pichamber tunnel providers
+  pichamber tunnel ready --provider cloudflare
+  pichamber tunnel doctor --provider cloudflare
+  pichamber tunnel status
+  pichamber tunnel start --qr
+  pichamber tunnel start --profile prod-main
+  pichamber tunnel start --provider cloudflare --mode managed-remote --token-file ~/.secrets/cf-token --hostname app.example.com
+  pichamber tunnel start --provider cloudflare --mode managed-local --config ~/.cloudflared/config.yml
+  pichamber tunnel start --dry-run --provider cloudflare --mode managed-remote --token-file ~/.secrets/cf-token --hostname app.example.com
+  echo "$TOKEN" | pichamber tunnel profile add --provider cloudflare --mode managed-remote --name prod-main --hostname app.example.com --token-stdin
+  pichamber tunnel profile list --provider cloudflare
+  pichamber tunnel profile list --json --show-secrets
+  pichamber tunnel stop --port 3000
 `);
 }
 
@@ -679,9 +681,9 @@ function generateCompletionScript(shell) {
   const normalized = typeof shell === 'string' ? shell.trim().toLowerCase() : '';
 
   if (normalized === 'bash') {
-    return `# Bash completion for openchamber tunnel
-# Add to ~/.bashrc: eval "$(openchamber tunnel completion bash)"
-_openchamber_tunnel() {
+    return `# Bash completion for pichamber tunnel
+# Add to ~/.bashrc: eval "$(pichamber tunnel completion bash)"
+_pichamber_tunnel() {
   local cur prev commands tunnel_commands profile_commands common_flags start_flags
   COMPREPLY=()
   cur="\${COMP_WORDS[COMP_CWORD]}"
@@ -722,16 +724,16 @@ _openchamber_tunnel() {
   COMPREPLY=( $(compgen -W "\${common_flags}" -- "\${cur}") )
   return 0
 }
-complete -F _openchamber_tunnel openchamber
+complete -F _pichamber_tunnel pichamber
 `;
   }
 
   if (normalized === 'zsh') {
-    return `#compdef openchamber
-# Zsh completion for openchamber tunnel
-# Add to ~/.zshrc: eval "$(openchamber tunnel completion zsh)"
+    return `#compdef pichamber
+# Zsh completion for pichamber tunnel
+# Add to ~/.zshrc: eval "$(pichamber tunnel completion zsh)"
 
-_openchamber() {
+_pichamber() {
   local -a commands tunnel_commands profile_commands
 
   commands=(
@@ -787,44 +789,44 @@ _openchamber() {
   esac
 }
 
-compdef _openchamber openchamber
+compdef _pichamber pichamber
 `;
   }
 
   if (normalized === 'fish') {
-    return `# Fish completion for openchamber tunnel
-# Save to ~/.config/fish/completions/openchamber.fish
+    return `# Fish completion for pichamber tunnel
+# Save to ~/.config/fish/completions/pichamber.fish
 
-complete -c openchamber -n '__fish_use_subcommand' -a 'serve' -d 'Start the web server'
-complete -c openchamber -n '__fish_seen_subcommand_from serve' -l foreground -d 'Run in foreground (for systemd/process managers)'
-complete -c openchamber -n '__fish_seen_subcommand_from serve' -l no-daemon -d 'Run in foreground (alias for --foreground)'
-complete -c openchamber -n '__fish_use_subcommand' -a 'stop' -d 'Stop running instance(s)'
-complete -c openchamber -n '__fish_use_subcommand' -a 'restart' -d 'Stop and start the server'
-complete -c openchamber -n '__fish_use_subcommand' -a 'status' -d 'Show server status'
-complete -c openchamber -n '__fish_use_subcommand' -a 'tunnel' -d 'Tunnel lifecycle commands'
-complete -c openchamber -n '__fish_use_subcommand' -a 'logs' -d 'Tail logs'
-complete -c openchamber -n '__fish_use_subcommand' -a 'update' -d 'Check for updates'
+complete -c pichamber -n '__fish_use_subcommand' -a 'serve' -d 'Start the web server'
+complete -c pichamber -n '__fish_seen_subcommand_from serve' -l foreground -d 'Run in foreground (for systemd/process managers)'
+complete -c pichamber -n '__fish_seen_subcommand_from serve' -l no-daemon -d 'Run in foreground (alias for --foreground)'
+complete -c pichamber -n '__fish_use_subcommand' -a 'stop' -d 'Stop running instance(s)'
+complete -c pichamber -n '__fish_use_subcommand' -a 'restart' -d 'Stop and start the server'
+complete -c pichamber -n '__fish_use_subcommand' -a 'status' -d 'Show server status'
+complete -c pichamber -n '__fish_use_subcommand' -a 'tunnel' -d 'Tunnel lifecycle commands'
+complete -c pichamber -n '__fish_use_subcommand' -a 'logs' -d 'Tail logs'
+complete -c pichamber -n '__fish_use_subcommand' -a 'update' -d 'Check for updates'
 
-complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'help' -d 'Show tunnel help'
-complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'providers' -d 'Show providers'
-complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'ready' -d 'Check readiness'
-complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'doctor' -d 'Run diagnostics'
-complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'status' -d 'Show tunnel status'
-complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'start' -d 'Start a tunnel'
-complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'stop' -d 'Stop tunnel'
-complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'profile' -d 'Manage profiles'
-complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'completion' -d 'Generate completions'
+complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'help' -d 'Show tunnel help'
+complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'providers' -d 'Show providers'
+complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'ready' -d 'Check readiness'
+complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'doctor' -d 'Run diagnostics'
+complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'status' -d 'Show tunnel status'
+complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'start' -d 'Start a tunnel'
+complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'stop' -d 'Stop tunnel'
+complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'profile' -d 'Manage profiles'
+complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'completion' -d 'Generate completions'
 
-complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l provider -d 'Provider id'
-complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l mode -d 'Tunnel mode'
-complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l profile -d 'Profile name'
-complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l config -d 'Config path'
-complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l token -d 'Token'
-complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l token-file -d 'Token file path'
-complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l token-stdin -d 'Read token from stdin'
-complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l hostname -d 'Hostname'
-complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l dry-run -d 'Validate without applying'
-complete -c openchamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l qr -d 'Show QR code'
+complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l provider -d 'Provider id'
+complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l mode -d 'Tunnel mode'
+complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l profile -d 'Profile name'
+complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l config -d 'Config path'
+complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l token -d 'Token'
+complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l token-file -d 'Token file path'
+complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l token-stdin -d 'Read token from stdin'
+complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l hostname -d 'Hostname'
+complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l dry-run -d 'Validate without applying'
+complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and __fish_seen_subcommand_from start' -l qr -d 'Show QR code'
 `;
   }
 

@@ -12,173 +12,172 @@ import {
   type MagicPromptId,
 } from '@/lib/magicPrompts';
 import { useMagicPromptsStore } from '@/stores/useMagicPromptsStore';
-import { useI18n } from '@/lib/i18n';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
 import { SettingsSection } from '@/components/sections/shared/SettingsSection';
 import { SettingsInfoHint } from '@/components/sections/shared/SettingsInfoHint';
 
 type PromptBlock = {
   id: MagicPromptId;
-  titleKey: string;
+  title: string;
 };
 
 type PromptPageConfig = {
-  titleKey: string;
-  descriptionKey: string;
+  title: string;
+  description: string;
   blocks: PromptBlock[];
 };
 
 const PROMPT_PAGE_MAP: Record<string, PromptPageConfig> = {
   'git.commit.generate': {
-    titleKey: 'settings.magicPrompts.page.group.gitCommitGenerate.title',
-    descriptionKey: 'settings.magicPrompts.page.group.gitCommitGenerate.description',
+    title: "Commit Generation",
+    description: "Prompts used for commit message generation: visible user message + hidden instructions.",
     blocks: [
-      { id: 'git.commit.generate.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'git.commit.generate.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
+      { id: 'git.commit.generate.visible', title: "Visible Prompt" },
+      { id: 'git.commit.generate.instructions', title: "Instructions" },
     ],
   },
   'git.pr.generate': {
-    titleKey: 'settings.magicPrompts.page.group.gitPrGenerate.title',
-    descriptionKey: 'settings.magicPrompts.page.group.gitPrGenerate.description',
+    title: "PR Generation",
+    description: "Prompts used for PR title/body generation: visible user message + hidden instructions.",
     blocks: [
-      { id: 'git.pr.generate.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'git.pr.generate.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
+      { id: 'git.pr.generate.visible', title: "Visible Prompt" },
+      { id: 'git.pr.generate.instructions', title: "Instructions" },
     ],
   },
   'github.pr.review': {
-    titleKey: 'settings.magicPrompts.page.group.githubPrReview.title',
-    descriptionKey: 'settings.magicPrompts.page.group.githubPrReview.description',
+    title: "PR Review",
+    description: "Prompts used for PR review flow: visible user message + hidden instruction payload.",
     blocks: [
-      { id: 'github.pr.review.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'github.pr.review.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
+      { id: 'github.pr.review.visible', title: "Visible Prompt" },
+      { id: 'github.pr.review.instructions', title: "Instructions" },
     ],
   },
   'github.issue.review': {
-    titleKey: 'settings.magicPrompts.page.group.githubIssueReview.title',
-    descriptionKey: 'settings.magicPrompts.page.group.githubIssueReview.description',
+    title: "Issue Review",
+    description: "Prompts used for issue review flow: visible user message + hidden instruction payload.",
     blocks: [
-      { id: 'github.issue.review.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'github.issue.review.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
+      { id: 'github.issue.review.visible', title: "Visible Prompt" },
+      { id: 'github.issue.review.instructions', title: "Instructions" },
     ],
   },
   'github.pr.checks.review': {
-    titleKey: 'settings.magicPrompts.page.group.githubPrFailedChecksReview.title',
-    descriptionKey: 'settings.magicPrompts.page.group.githubPrFailedChecksReview.description',
+    title: "PR Failed Checks Review",
+    description: "Prompts used for PR failed checks analysis.",
     blocks: [
-      { id: 'github.pr.checks.review.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'github.pr.checks.review.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
+      { id: 'github.pr.checks.review.visible', title: "Visible Prompt" },
+      { id: 'github.pr.checks.review.instructions', title: "Instructions" },
     ],
   },
   'github.pr.comments.review': {
-    titleKey: 'settings.magicPrompts.page.group.githubPrCommentsReview.title',
-    descriptionKey: 'settings.magicPrompts.page.group.githubPrCommentsReview.description',
+    title: "PR Comments Review",
+    description: "Prompts used for PR comments analysis.",
     blocks: [
-      { id: 'github.pr.comments.review.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'github.pr.comments.review.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
+      { id: 'github.pr.comments.review.visible', title: "Visible Prompt" },
+      { id: 'github.pr.comments.review.instructions', title: "Instructions" },
     ],
   },
   'github.pr.comment.single': {
-    titleKey: 'settings.magicPrompts.page.group.githubSinglePrCommentReview.title',
-    descriptionKey: 'settings.magicPrompts.page.group.githubSinglePrCommentReview.description',
+    title: "Single PR Comment Review",
+    description: "Prompts used for single PR comment analysis.",
     blocks: [
-      { id: 'github.pr.comment.single.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'github.pr.comment.single.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
+      { id: 'github.pr.comment.single.visible', title: "Visible Prompt" },
+      { id: 'github.pr.comment.single.instructions', title: "Instructions" },
     ],
   },
   'git.conflict.resolve': {
-    titleKey: 'settings.magicPrompts.page.group.gitConflictResolve.title',
-    descriptionKey: 'settings.magicPrompts.page.group.gitConflictResolve.description',
+    title: "Merge/Rebase Conflict Resolution",
+    description: "Prompts used when resolving merge/rebase conflicts with AI.",
     blocks: [
-      { id: 'git.conflict.resolve.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'git.conflict.resolve.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
+      { id: 'git.conflict.resolve.visible', title: "Visible Prompt" },
+      { id: 'git.conflict.resolve.instructions', title: "Instructions" },
     ],
   },
   'git.integrate.cherrypick.resolve': {
-    titleKey: 'settings.magicPrompts.page.group.gitCherrypickConflictResolve.title',
-    descriptionKey: 'settings.magicPrompts.page.group.gitCherrypickConflictResolve.description',
+    title: "Cherry-pick Conflict Resolution",
+    description: "Prompts used when resolving cherry-pick conflicts in integrate flow.",
     blocks: [
-      { id: 'git.integrate.cherrypick.resolve.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'git.integrate.cherrypick.resolve.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
+      { id: 'git.integrate.cherrypick.resolve.visible', title: "Visible Prompt" },
+      { id: 'git.integrate.cherrypick.resolve.instructions', title: "Instructions" },
     ],
   },
   'plan.improve': {
-    titleKey: 'settings.magicPrompts.page.group.planImprove.title',
-    descriptionKey: 'settings.magicPrompts.page.group.planImprove.description',
+    title: "Improve Plan",
+    description: "Hidden prompt used when sending a saved plan into an improve flow.",
     blocks: [
-      { id: 'plan.improve.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'plan.improve.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
+      { id: 'plan.improve.visible', title: "Visible Prompt" },
+      { id: 'plan.improve.instructions', title: "Instructions" },
     ],
   },
   'plan.todo': {
-    titleKey: 'settings.magicPrompts.page.group.planTodo.title',
-    descriptionKey: 'settings.magicPrompts.page.group.planTodo.description',
+    title: "Todo Planning",
+    description: "Hidden prompt used when sending a todo into a new planning session.",
     blocks: [
-      { id: 'plan.todo.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'plan.todo.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
+      { id: 'plan.todo.visible', title: "Visible Prompt" },
+      { id: 'plan.todo.instructions', title: "Instructions" },
     ],
   },
   'plan.implement': {
-    titleKey: 'settings.magicPrompts.page.group.planImplement.title',
-    descriptionKey: 'settings.magicPrompts.page.group.planImplement.description',
+    title: "Implement Plan",
+    description: "Hidden prompt used when sending a saved plan into an implement flow.",
     blocks: [
-      { id: 'plan.implement.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'plan.implement.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
+      { id: 'plan.implement.visible', title: "Visible Prompt" },
+      { id: 'plan.implement.instructions', title: "Instructions" },
     ],
   },
   'session.summary': {
-    titleKey: 'settings.magicPrompts.page.group.sessionSummary.title',
-    descriptionKey: 'settings.magicPrompts.page.group.sessionSummary.description',
+    title: "Session Summary",
+    description: "Prompts used by the /summary slash command: visible user message + hidden instructions. Non-destructive - does not compact session history.",
     blocks: [
-      { id: 'session.summary.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'session.summary.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
+      { id: 'session.summary.visible', title: "Visible Prompt" },
+      { id: 'session.summary.instructions', title: "Instructions" },
     ],
   },
   'session.plan': {
-    titleKey: 'settings.magicPrompts.page.group.sessionFeaturePlan.title',
-    descriptionKey: 'settings.magicPrompts.page.group.sessionFeaturePlan.description',
+    title: "Feature Planning",
+    description: "Prompts used by the /plan-feature slash command: visible user message + hidden instructions. Runs a guided dialogue that researches the code and asks clarifying questions in small batches before producing an implementation plan.",
     blocks: [
-      { id: 'session.plan.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'session.plan.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
+      { id: 'session.plan.visible', title: "Visible Prompt" },
+      { id: 'session.plan.instructions', title: "Instructions" },
     ],
   },
   'session.catchup': {
-    titleKey: 'settings.magicPrompts.page.group.sessionCatchUp.title',
-    descriptionKey: 'settings.magicPrompts.page.group.sessionCatchUp.description',
+    title: "Catch Up",
+    description: "Prompts used by the /catch-up slash command: visible user message + hidden instructions. Builds branch-aware context — the branch's commits, its PR, and uncommitted work together — to understand what you were doing, then gives a digestible summary and a product-focused next step.",
     blocks: [
-      { id: 'session.catchup.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'session.catchup.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
+      { id: 'session.catchup.visible', title: "Visible Prompt" },
+      { id: 'session.catchup.instructions', title: "Instructions" },
     ],
   },
   'session.debug': {
-    titleKey: 'settings.magicPrompts.page.group.sessionDebug.title',
-    descriptionKey: 'settings.magicPrompts.page.group.sessionDebug.description',
+    title: "Debugging",
+    description: "Prompts used by the /debug slash command: visible user message + hidden instructions. Runs a guided root-cause investigation — captures the symptom, forms hypotheses, checks them against the code, and confirms the cause before proposing a fix.",
     blocks: [
-      { id: 'session.debug.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'session.debug.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
+      { id: 'session.debug.visible', title: "Visible Prompt" },
+      { id: 'session.debug.instructions', title: "Instructions" },
     ],
   },
   'session.weigh': {
-    titleKey: 'settings.magicPrompts.page.group.sessionWeigh.title',
-    descriptionKey: 'settings.magicPrompts.page.group.sessionWeigh.description',
+    title: "Weigh Options",
+    description: "Prompts used by the /weigh slash command: visible user message + hidden instructions. Investigates the code, then lays out 2-3 distinct approaches with trade-offs and a recommendation — without writing a plan or code.",
     blocks: [
-      { id: 'session.weigh.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'session.weigh.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
+      { id: 'session.weigh.visible', title: "Visible Prompt" },
+      { id: 'session.weigh.instructions', title: "Instructions" },
     ],
   },
   'session.explore': {
-    titleKey: 'settings.magicPrompts.page.group.sessionExplore.title',
-    descriptionKey: 'settings.magicPrompts.page.group.sessionExplore.description',
+    title: "Codebase Tour",
+    description: "Prompts used by the /explore slash command: visible user message + hidden instructions. Investigates the repository and gives a structured orientation — the big picture, main modules, how they connect, and where to start — rather than a file-by-file dump.",
     blocks: [
-      { id: 'session.explore.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'session.explore.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
+      { id: 'session.explore.visible', title: "Visible Prompt" },
+      { id: 'session.explore.instructions', title: "Instructions" },
     ],
   },
   'session.fusion': {
-    titleKey: 'settings.magicPrompts.page.group.sessionFusion.title',
-    descriptionKey: 'settings.magicPrompts.page.group.sessionFusion.description',
+    title: "Fusion",
+    description: "Prompts used when combining multi-run outputs into one final answer: visible user message + hidden instructions before source results.",
     blocks: [
-      { id: 'session.fusion.visible', titleKey: 'settings.magicPrompts.page.block.visiblePrompt' },
-      { id: 'session.fusion.instructions', titleKey: 'settings.magicPrompts.page.block.instructions' },
+      { id: 'session.fusion.visible', title: "Visible Prompt" },
+      { id: 'session.fusion.instructions', title: "Instructions" },
     ],
   },
 };
@@ -187,8 +186,6 @@ const hasOwn = (input: Record<string, string>, key: string) => Object.prototype.
 const isVisiblePromptId = (id: MagicPromptId): boolean => id.endsWith('.visible');
 
 export const MagicPromptsPage: React.FC = () => {
-  const { t } = useI18n();
-  const tUnsafe = React.useCallback((key: string) => t(key as Parameters<typeof t>[0]), [t]);
   const selectedPromptId = useMagicPromptsStore((state) => state.selectedPromptId);
   const [loading, setLoading] = React.useState(true);
   const [overrides, setOverrides] = React.useState<Record<string, string>>({});
@@ -207,7 +204,7 @@ export const MagicPromptsPage: React.FC = () => {
         setOverrides(nextOverrides);
       } catch (error) {
         console.warn('Failed to load magic prompts:', error);
-        toast.error(t('settings.magicPrompts.page.toast.loadFailed'));
+        toast.error("Failed to load Magic Prompts");
       } finally {
         if (active) {
           setLoading(false);
@@ -218,7 +215,7 @@ export const MagicPromptsPage: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [t]);
+  }, []);
 
   const pageConfig = PROMPT_PAGE_MAP[selectedPromptId] ?? PROMPT_PAGE_MAP['git.commit.generate'];
   const getBaseline = React.useCallback((id: MagicPromptId) => {
@@ -241,7 +238,7 @@ export const MagicPromptsPage: React.FC = () => {
   const savePrompt = React.useCallback(async (id: MagicPromptId) => {
     const value = getDraft(id);
     if (isVisiblePromptId(id) && value.trim().length === 0) {
-      toast.error(t('settings.magicPrompts.page.toast.visiblePromptRequired'));
+      toast.error("Visible prompt cannot be empty");
       return;
     }
     setSavingIds((current) => ({ ...current, [id]: true }));
@@ -250,14 +247,14 @@ export const MagicPromptsPage: React.FC = () => {
         ? await resetMagicPromptOverride(id)
         : await saveMagicPromptOverride(id, value);
       setOverrides(payload.overrides);
-      toast.success(t('settings.magicPrompts.page.toast.saved'));
+      toast.success("Magic prompt saved");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      toast.error(t('settings.magicPrompts.page.toast.saveFailed'), { description: message });
+      toast.error("Failed to save magic prompt", { description: message });
     } finally {
       setSavingIds((current) => ({ ...current, [id]: false }));
     }
-  }, [getDraft, t]);
+  }, [getDraft]);
 
   const resetPrompt = React.useCallback(async (id: MagicPromptId) => {
     setResettingIds((current) => ({ ...current, [id]: true }));
@@ -268,14 +265,14 @@ export const MagicPromptsPage: React.FC = () => {
         ...current,
         [id]: getDefaultMagicPromptTemplate(id),
       }));
-      toast.success(t('settings.magicPrompts.page.toast.resetSuccess'));
+      toast.success("Prompt reset to default");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      toast.error(t('settings.magicPrompts.page.toast.resetFailed'), { description: message });
+      toast.error("Failed to reset prompt", { description: message });
     } finally {
       setResettingIds((current) => ({ ...current, [id]: false }));
     }
-  }, [t]);
+  }, []);
 
   const handleResetAll = React.useCallback(async () => {
     setResettingAll(true);
@@ -283,29 +280,29 @@ export const MagicPromptsPage: React.FC = () => {
       const payload = await resetAllMagicPromptOverrides();
       setOverrides(payload.overrides);
       setDrafts({});
-      toast.success(t('settings.magicPrompts.page.toast.resetAllSuccess'));
+      toast.success("All prompt overrides reset");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      toast.error(t('settings.magicPrompts.page.toast.resetAllFailed'), { description: message });
+      toast.error("Failed to reset all prompts", { description: message });
     } finally {
       setResettingAll(false);
     }
-  }, [t]);
+  }, []);
 
   if (loading) {
     return (
       <div className="py-6 px-6 flex items-center gap-2 text-muted-foreground">
-        <span className="inline-block h-1.5 w-1.5 rounded-full bg-current animate-busy-pulse" aria-label={t('settings.magicPrompts.page.loading.aria')} />
-        <span className="typography-ui">{t('settings.magicPrompts.page.loading.text')}</span>
+        <span className="inline-block h-1.5 w-1.5 rounded-full bg-current animate-busy-pulse" aria-label={"Loading"} />
+        <span className="typography-ui">{"Loading Magic Prompts..."}</span>
       </div>
     );
   }
 
   return (
     <SettingsPageLayout
-      title={tUnsafe(pageConfig.titleKey)}
+      title={pageConfig.title}
       titleAccessory={(
-        <SettingsInfoHint contentClassName="max-w-xs">{tUnsafe(pageConfig.descriptionKey)}</SettingsInfoHint>
+        <SettingsInfoHint contentClassName="max-w-xs">{pageConfig.description}</SettingsInfoHint>
       )}
       headerEnd={(
         <Button
@@ -317,7 +314,7 @@ export const MagicPromptsPage: React.FC = () => {
           }}
           disabled={resettingAll || Object.keys(overrides).length === 0}
         >
-          {resettingAll ? t('settings.magicPrompts.page.actions.resetting') : t('settings.magicPrompts.page.actions.resetAllOverrides')}
+          {resettingAll ? "Resetting..." : "Reset All Overrides"}
         </Button>
       )}
       showSaveStatus={false}
@@ -335,11 +332,11 @@ export const MagicPromptsPage: React.FC = () => {
         return (
           <SettingsSection
             key={block.id}
-            title={tUnsafe(block.titleKey)}
+            title={block.title}
             info={definition.description}
             description={
               definition.placeholders && definition.placeholders.length > 0
-                ? `${t('settings.magicPrompts.page.placeholdersLabel')} ${definition.placeholders.map((item) => `{{${item.key}}}`).join(', ')}`
+                ? `${"Placeholders:"} ${definition.placeholders.map((item) => `{{${item.key}}}`).join(', ')}`
                 : undefined
             }
             divider={index > 0}
@@ -352,16 +349,16 @@ export const MagicPromptsPage: React.FC = () => {
               className="min-h-[220px] font-mono text-sm"
             />
             {isInvalidEmptyVisiblePrompt && (
-              <div className="typography-micro text-[var(--status-error)]">{t('settings.magicPrompts.page.validation.visiblePromptRequired')}</div>
+              <div className="typography-micro text-[var(--status-error)]">{"Visible prompt cannot be empty."}</div>
             )}
 
             <div className="flex items-center justify-between gap-2">
               <span className="typography-micro text-muted-foreground">
                 {isDirty
-                  ? t('settings.magicPrompts.page.status.unsavedChanges')
+                  ? "Unsaved changes"
                   : isOverridden
-                    ? t('settings.magicPrompts.page.status.usingSavedOverride')
-                    : t('settings.magicPrompts.page.status.usingBuiltinDefault')}
+                    ? "Using saved override"
+                    : "Using built-in default"}
               </span>
               <div className="flex items-center gap-2">
                 <Button
@@ -372,7 +369,7 @@ export const MagicPromptsPage: React.FC = () => {
                   }}
                   disabled={!isOverridden || saving || resetting}
                 >
-                  {resetting ? t('settings.magicPrompts.page.actions.resetting') : t('settings.magicPrompts.page.actions.resetToDefault')}
+                  {resetting ? "Resetting..." : "Reset to Default"}
                 </Button>
                 <Button
                   size="sm"
@@ -381,7 +378,7 @@ export const MagicPromptsPage: React.FC = () => {
                   }}
                   disabled={!isDirty || saving || resetting || isInvalidEmptyVisiblePrompt}
                 >
-                  {saving ? t('settings.common.actions.saving') : t('settings.magicPrompts.page.actions.save')}
+                  {saving ? "Saving..." : "Save"}
                 </Button>
               </div>
             </div>

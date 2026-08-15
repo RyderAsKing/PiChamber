@@ -82,10 +82,6 @@ export async function forkFromMessage(sessionId: string, _messageId?: string): P
 export async function fetchMessagesForSession(_sessionId?: string, _directory?: string | null) { return []; }
 export function rememberRuntimeLiveStatus(_args?: any) {}
 export function setContextObligatoryMessage(..._args: unknown[]) {}
-export async function respondToPermission(..._args: unknown[]) {}
-export async function respondToQuestion(..._args: unknown[]) {}
-export async function rejectQuestion(..._args: unknown[]) {}
-export function isQuestionRequestNotFoundError(_error?: unknown) { return false; }
 export async function dismissOpenPermissionsForSession(_sessionId: string): Promise<boolean> { return false; }
 export async function dismissOpenQuestionsForSession(_sessionId: string): Promise<boolean> { return false; }
 export async function waitForConnectionOrThrow(): Promise<void> {

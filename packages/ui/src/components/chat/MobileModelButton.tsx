@@ -3,7 +3,6 @@ import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { getModelDisplayName } from './mobileControlsUtils';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
-import { useI18n } from '@/lib/i18n';
 
 interface MobileModelButtonProps {
     onOpenModel: () => void;
@@ -11,12 +10,12 @@ interface MobileModelButtonProps {
 }
 
 export const MobileModelButton: React.FC<MobileModelButtonProps> = ({ onOpenModel, className }) => {
-    const { t } = useI18n();
+    
     const currentModelId = useConfigStore((state) => state.currentModelId);
     const currentProviderId = useConfigStore((state) => state.currentProviderId);
     const getCurrentProvider = useConfigStore((state) => state.getCurrentProvider);
     const currentProvider = getCurrentProvider();
-    const modelLabel = getModelDisplayName(currentProvider, currentModelId, t('chat.modelControls.selectModel'));
+    const modelLabel = getModelDisplayName(currentProvider, currentModelId, "Select model");
 
     return (
         <button

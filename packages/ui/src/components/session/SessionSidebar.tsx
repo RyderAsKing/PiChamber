@@ -2,7 +2,6 @@
 import React from 'react';
 import type { Session } from '@/lib/chat/types';
 import { toast } from '@/components/ui';
-import { useI18n } from '@/lib/i18n';
 import { useDeviceInfo } from '@/lib/device';
 import { isDesktopShell } from '@/lib/desktop';
 import { sessionEvents } from '@/lib/sessionEvents';
@@ -208,7 +207,6 @@ const SidebarBootstrapDemandEffect: React.FC<{
 // mounted while the project is collapsed, so the per-status-event scans stay
 // rare and bounded by the project's directory count.
 const ProjectAggregateStatusIndicator: React.FC<{ directories: Array<string | null> }> = ({ directories }) => {
-  const { t } = useI18n();
   const directorySet = React.useMemo(() => {
     const set = new Set<string>();
     directories.forEach((directory) => {
@@ -240,8 +238,8 @@ const ProjectAggregateStatusIndicator: React.FC<{ directories: Array<string | nu
     return (
       <span
         className="h-1.5 w-1.5 rounded-full bg-primary"
-        aria-label={t('sessions.sidebar.session.status.active')}
-        title={t('sessions.sidebar.session.status.active')}
+        aria-label={"Session active"}
+        title={"Session active"}
       />
     );
   }
@@ -249,8 +247,8 @@ const ProjectAggregateStatusIndicator: React.FC<{ directories: Array<string | nu
     return (
       <span
         className="h-1.5 w-1.5 rounded-full bg-[var(--status-info)]"
-        aria-label={t('sessions.sidebar.session.status.unread')}
-        title={t('sessions.sidebar.session.status.unread')}
+        aria-label={"Unread updates"}
+        title={"Unread updates"}
       />
     );
   }
@@ -269,7 +267,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   streamPerfCount('ui.session_sidebar.render');
   streamPerfCount(`ui.session_sidebar.render.${mobileVariant ? 'mobile' : 'desktop'}`);
   streamPerfCount(`ui.session_sidebar.render.${isVisible ? 'visible' : 'hidden'}`);
-  const { t } = useI18n();
   const [isSessionSearchOpen, setIsSessionSearchOpen] = React.useState(false);
   const [sessionSearchQuery, setSessionSearchQuery] = React.useState('');
   const sessionSearchContainerRef = React.useRef<HTMLDivElement | null>(null);
@@ -610,10 +607,10 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
   const emptyState = React.useMemo(() => (
     <div className="py-6 text-center text-muted-foreground">
-      <p className="typography-ui-label font-semibold">{t('sessions.sidebar.empty.noSessions.title')}</p>
-      <p className="typography-meta mt-1">{t('sessions.sidebar.empty.noSessions.description')}</p>
+      <p className="typography-ui-label font-semibold">{"No sessions yet"}</p>
+      <p className="typography-meta mt-1">{"Create your first session to start coding."}</p>
     </div>
-  ), [t]);
+  ), []);
 
   const editingProject = React.useMemo(
     () => projects.find((project) => project.id === editingProjectDialogId) ?? null,
@@ -649,16 +646,16 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     void updateStore.checkForUpdates().then(() => {
       const { available, error } = useUpdateStore.getState();
       if (error) {
-        toast.error(t('sessions.sidebar.updateCheck.errorTitle'), { description: error });
+        toast.error("Failed to check for updates", { description: error });
         return;
       }
       if (!available) {
-        toast.success(t('sessions.sidebar.updateCheck.latestVersion'));
+        toast.success("You are on the latest version");
         return;
       }
       setUpdateDialogOpen(true);
     });
-  }, [t, updateStore]);
+  }, [ updateStore]);
 
   const handleOpenSettings = React.useCallback(() => {
     if (mobileVariant) {
@@ -751,12 +748,12 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         toggleFolderCollapse(parentId);
       }
 
-      const newFolder = createFolder(scopeKey, t('sessions.sidebar.folder.newFolderName'), parentId);
+      const newFolder = createFolder(scopeKey, "New folder", parentId);
       setRenamingFolderId(newFolder.id);
       setRenameFolderDraft(newFolder.name);
       return newFolder;
     },
-    [collapsedFolderIds, toggleFolderCollapse, createFolder, t],
+    [collapsedFolderIds, toggleFolderCollapse, createFolder],
   );
 
   const stableHandleSessionSelect = useStableRenderCallback(handleSessionSelect);
@@ -995,7 +992,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     allowReselect,
     hideDirectoryControls,
     showOnlyMainWorkspace,
-    t,
     isTablet,
     liveSessions,
     activeSessionStructure,
@@ -1118,10 +1114,10 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
   const searchEmptyState = React.useMemo(() => (
     <div className="py-6 text-center text-muted-foreground">
-      <p className="typography-ui-label font-semibold">{t('sessions.sidebar.empty.noMatches.title')}</p>
-      <p className="typography-meta mt-1">{t('sessions.sidebar.empty.noMatches.description')}</p>
+      <p className="typography-ui-label font-semibold">{"No matching sessions"}</p>
+      <p className="typography-meta mt-1">{"Try a different title, branch, folder, or path."}</p>
     </div>
-  ), [t]);
+  ), []);
 
   const { getOrderedGroups } = useGroupOrdering(groupOrderByProject);
   const hasInitializedArchivedCollapseRef = React.useRef(false);
@@ -1240,9 +1236,9 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       .filter((item): item is NonNullable<ReturnType<typeof toItem>> => item !== null);
 
     return [
-      { key: 'active-now' as const, title: t('sessions.sidebar.activity.recentTitle'), items },
+      { key: 'active-now' as const, title: "recent", items },
     ];
-  }, [filterSessionNodesForSearch, hasSessionSearchQuery, normalizedSessionSearchQuery, recentSessions, sessionSidebarMetaById, showRecentSection, t]);
+  }, [filterSessionNodesForSearch, hasSessionSearchQuery, normalizedSessionSearchQuery, recentSessions, sessionSidebarMetaById, showRecentSection]);
 
   const hasActivitySectionItems = React.useMemo(
     () => activitySections.some((section) => section.items.length > 0),
@@ -1594,7 +1590,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
           role="alert"
           className="mx-2 mb-2 rounded bg-[var(--status-error-background)] p-2 text-xs text-[var(--status-error-foreground)]"
         >
-          {t('sessionAuth.error.networkTitle')}
+          {"Unable to reach server"}
         </div>
       ) : null}
 

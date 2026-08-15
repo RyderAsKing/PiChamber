@@ -13,7 +13,6 @@ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Icon } from "@/components/icon/Icon";
 import { useDirectoryShowHidden } from '@/lib/directoryShowHidden';
 import { useFilesViewShowGitignored } from '@/lib/filesViewShowGitignored';
-import { useI18n } from '@/lib/i18n';
 import { useUIStore } from '@/stores/useUIStore';
 import { useMobileAutocompleteMaxHeight } from './useMobileAutocompleteMaxHeight';
 
@@ -43,7 +42,7 @@ export const FileMentionAutocomplete = React.forwardRef<FileMentionHandle, FileM
   onClose,
   style,
 }, ref) => {
-  const { t } = useI18n();
+  
   const currentDirectory = useChatSearchDirectory() ?? '';
   const activeProjectId = useProjectsStore((state) => state.activeProjectId);
   const activeProjectPath = useProjectsStore(
@@ -481,7 +480,7 @@ export const FileMentionAutocomplete = React.forwardRef<FileMentionHandle, FileM
             })}
             {visibleAgents.length === 2 && normalizedSearchQuery.length === 0 && agents.length > 2 && (
               <div className="px-3 py-1 typography-meta text-muted-foreground">
-                {t('chat.fileMentionAutocomplete.searchMoreAgents')}
+                {"Type to search more agents"}
               </div>
             )}
             {visibleAgents.length > 0 && (visibleDirectories.length > 0 || visibleRecentFiles.length > 0 || visibleFiles.length > 0) && (
@@ -622,7 +621,7 @@ export const FileMentionAutocomplete = React.forwardRef<FileMentionHandle, FileM
             })}
             {visibleFiles.length === 0 && visibleDirectories.length === 0 && visibleRecentFiles.length === 0 && visibleAgents.length === 0 && (
               <div className="px-3 py-2 typography-ui-label text-muted-foreground">
-                {t('chat.fileMentionAutocomplete.empty')}
+                {"No matches found"}
               </div>
             )}
           </div>
@@ -630,7 +629,7 @@ export const FileMentionAutocomplete = React.forwardRef<FileMentionHandle, FileM
         </ScrollableOverlay>
         {!isMobile && (
           <div className="px-3 pt-1 pb-1.5 border-t typography-meta text-muted-foreground">
-            {t('chat.autocomplete.keyboardHint')}
+            {"↑↓ navigate • Enter select • Esc close"}
           </div>
         )}
     </div>

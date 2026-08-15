@@ -2,7 +2,6 @@
 // @ts-nocheck
 import React from 'react';
 import { Icon } from '@/components/icon/Icon';
-import { useI18n } from '@/lib/i18n';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useDirectorySync } from '@/sync/sync-context';
 import { useTodosPersistStore } from '@/stores/useTodosPersistStore';
@@ -38,7 +37,7 @@ const statusIcon = (status: string): { name: 'record-circle' | 'checkbox-circle'
 };
 
 export const WorkStatusTasksSection: React.FC<Props> = ({ sessionId, directory }) => {
-  const { t } = useI18n();
+  
 
   const liveTodos = useDirectorySync(
     React.useCallback(
@@ -78,7 +77,7 @@ export const WorkStatusTasksSection: React.FC<Props> = ({ sessionId, directory }
 
   return (
     <WorkStatusSection
-      title={t('chat.workStatus.section.tasks')}
+      title={"Tasks"}
       summary={`${doneCount}/${visibleTodos.length}`}
     >
       {visibleTodos.map((todo, index) => {

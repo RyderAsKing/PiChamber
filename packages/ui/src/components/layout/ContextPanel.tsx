@@ -1,18 +1,15 @@
-/* eslint-disable */
 import React from 'react';
 
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { DiffViewIcon } from '@/components/icons/DiffIcon';
 import { Button } from '@/components/ui/button';
 import { SortableTabsStrip } from '@/components/ui/sortable-tabs-strip';
-import { PullRequestView } from '@/components/views/PullRequestView';
 import { TerminalView } from '@/components/views/TerminalView';
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 
 // Heavy views stay on-demand (same as MainLayout): importing DiffView/FilesView
 // or the walkthrough statically pulls the CodeMirror and @pierre/diffs stacks
 // into the eager startup graph even when no such tab is open.
-const WalkthroughView = lazyWithChunkRecovery(() => import('@/components/views/walkthrough/WalkthroughView').then((m) => ({ default: m.WalkthroughView })));
 const DiffView = lazyWithChunkRecovery(() => import('@/components/views/DiffView').then((m) => ({ default: m.DiffView })));
 const FilesView = lazyWithChunkRecovery(() => import('@/components/views/FilesView').then((m) => ({ default: m.FilesView })));
 const GitView = lazyWithChunkRecovery(() => import('@/components/views/GitView').then((m) => ({ default: m.GitView })));
@@ -23,7 +20,6 @@ import { openExternalUrl } from '@/lib/url';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { cn } from '@/lib/utils';
-import { useI18n } from '@/lib/i18n';
 import { useFilesViewTabsStore } from '@/stores/useFilesViewTabsStore';
 import { useUIStore, type ContextPanelMode, type PendingDiffScope } from '@/stores/useUIStore';
 import { useInlineCommentDraftStore } from '@/stores/useInlineCommentDraftStore';
@@ -67,7 +63,7 @@ const CONTEXT_PANEL_MAX_WIDTH = 1400;
 const CONTEXT_PANEL_DEFAULT_WIDTH = 600;
 const RESIZE_FOLLOW_INTERVAL_MS = 100;
 const CONTEXT_TAB_LABEL_MAX_CHARS = 24;
-type TranslateFn = ReturnType<typeof useI18n>['t'];
+
 const EMPTY_SESSION_TITLE_MAP = new Map<string, string>();
 
 type PreviewConsoleEvent = {
@@ -159,21 +155,17 @@ const getRelativePathLabel = (filePath: string | null, directory: string): strin
   return normalizedFile;
 };
 
-const getModeLabel = (
-  mode: ContextPanelMode,
-  t: TranslateFn
-): string => {
-  if (mode === 'chat') return t('contextPanel.mode.chat');
-  if (mode === 'file') return t('contextPanel.mode.files');
-  if (mode === 'diff') return t('contextPanel.mode.diff');
-  if (mode === 'walkthrough') return t('contextPanel.mode.walkthrough');
-  if (mode === 'preview') return t('contextPanel.mode.preview');
-  if (mode === 'browser') return t('contextPanel.mode.browser');
-  if (mode === 'git') return t('layout.rightSidebar.git');
-  if (mode === 'pr') return t('contextPanel.mode.pr');
-  if (mode === 'notes') return t('contextRail.surface.notes');
-  if (mode === 'terminal') return t('layout.mainTab.terminal');
-  return t('contextPanel.mode.context');
+const getModeLabel = (mode: ContextPanelMode): string => {
+  if (mode === 'chat') return "Chat";
+  if (mode === 'file') return "Files";
+  if (mode === 'diff') return "Changes";
+  if (mode === 'preview') return "Preview";
+  if (mode === 'browser') return "Browser";
+  if (mode === 'git') return "Git";
+  if (mode === 'pr') return "Pull Request";
+  if (mode === 'notes') return "Project notes";
+  if (mode === 'terminal') return "Terminal";
+  return "Context";
 };
 
 const getFileNameFromPath = (path: string | null): string | null => {
@@ -196,8 +188,7 @@ const getFileNameFromPath = (path: string | null): string | null => {
 
 const getTabLabel = (
   tab: { mode: ContextPanelMode; label: string | null; targetPath: string | null; dedupeKey?: string; sessionTitleFallback?: string | null; stagedDiff?: boolean },
-  sessionTitleById: ReadonlyMap<string, string>,
-  t: TranslateFn
+  sessionTitleById: ReadonlyMap<string, string>
 ): string => {
   if (tab.mode === 'chat') {
     const sessionID = getSessionIDFromDedupeKey(tab.dedupeKey);
@@ -213,7 +204,7 @@ const getTabLabel = (
       return sessionTitleFallback;
     }
 
-    return t('contextPanel.mode.chat');
+    return "Chat";
   }
 
   if (tab.label) {
@@ -221,7 +212,7 @@ const getTabLabel = (
   }
 
   if (tab.mode === 'file') {
-    return getFileNameFromPath(tab.targetPath) || t('contextPanel.mode.files');
+    return getFileNameFromPath(tab.targetPath) || "Files";
   }
 
   if (tab.mode === 'preview') {
@@ -229,19 +220,19 @@ const getTabLabel = (
     if (url) {
       try {
         const parsed = new URL(url);
-        return parsed.host || parsed.hostname || t('contextPanel.mode.preview');
+        return parsed.host || parsed.hostname || "Preview";
       } catch {
         // ignore invalid URL
       }
     }
-    return t('contextPanel.mode.preview');
+    return "Preview";
   }
 
   if (tab.mode === 'diff') {
-    return t('contextPanel.mode.diff');
+    return "Changes";
   }
 
-  return getModeLabel(tab.mode, t);
+  return getModeLabel(tab.mode);
 };
 
 const getTabIcon = (tab: { mode: ContextPanelMode; targetPath: string | null }): React.ReactNode | undefined => {
@@ -253,10 +244,6 @@ const getTabIcon = (tab: { mode: ContextPanelMode; targetPath: string | null }):
 
   if (tab.mode === 'diff') {
     return <DiffViewIcon className="h-3.5 w-3.5" />;
-  }
-
-  if (tab.mode === 'walkthrough') {
-    return <Icon name="route" className="h-3.5 w-3.5" />;
   }
 
   if (tab.mode === 'git') {
@@ -300,7 +287,6 @@ const EDITOR_TREE_MAX_WIDTH = 480;
 // The editor surface's file-tree column: docked on the right, resizable from
 // its left edge, and animated open/closed like the app sidebars.
 const EditorTreeColumn: React.FC<{ visible: boolean }> = ({ visible }) => {
-  const { t } = useI18n();
   const width = useUIStore((state) => state.contextEditorTreeWidth);
   const setWidth = useUIStore((state) => state.setContextEditorTreeWidth);
   const [isResizing, setIsResizing] = React.useState(false);
@@ -400,7 +386,7 @@ const EditorTreeColumn: React.FC<{ visible: boolean }> = ({ visible }) => {
           onPointerCancel={handlePointerEnd}
           role="separator"
           aria-orientation="vertical"
-          aria-label={t('contextPanel.actions.resizePanelAria')}
+          aria-label={"Resize context panel"}
         />
       )}
       <div
@@ -682,7 +668,6 @@ const stripPreviewQueryParams = (value: string): string => {
 };
 
 const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
-  const { t } = useI18n();
   const { currentTheme } = useThemeSystem();
   const [reloadNonce, bumpReload] = React.useReducer((x: number) => x + 1, 0);
   const [proxyRegistrationNonce, bumpProxyRegistration] = React.useReducer((x: number) => x + 1, 0);
@@ -773,7 +758,7 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
         if (!proxyBasePath || !previewToken) {
           previewProxyTargetCache.delete(proxyCacheKey);
           if (!cancelled) {
-            setProxyState({ status: 'error', message: t('contextPanel.preview.proxyError') });
+            setProxyState({ status: 'error', message: "Could not start preview proxy." });
           }
           return;
         }
@@ -794,7 +779,7 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
     return () => {
       cancelled = true;
     };
-  }, [isLoopback, proxyCacheKey, proxyRegistrationNonce, t, targetKey]);
+  }, [isLoopback, proxyCacheKey, proxyRegistrationNonce, targetKey]);
 
   const directSrc = normalizedUrl
     && (normalizedUrl.protocol === 'http:' || normalizedUrl.protocol === 'https:')
@@ -846,7 +831,7 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
   const attachPreviewAnnotation = React.useCallback((target: PreviewElementMetadata) => {
     const sessionKey = currentSessionId ?? (newSessionDraftOpen ? 'draft' : null);
     if (!sessionKey || !effectiveDirectory) {
-      toast.error(t('contextPanel.preview.inspect.attachNoSession'));
+      toast.error("Open a chat session before attaching preview annotations");
       return;
     }
 
@@ -880,14 +865,14 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
           devicePixelRatio,
           target,
           screenshotAttached: attachedScreenshot,
-          intro: t('contextPanel.preview.inspect.attachAnnotation'),
+          intro: "This is a selected DOM element from the in-app preview.",
         }),
         language: 'markdown',
         text: '',
       });
-      toast.success(t('contextPanel.preview.inspect.attached'));
+      toast.success("Preview annotation attached to chat");
     })();
-  }, [addAttachedFile, addInlineCommentDraft, currentSessionId, effectiveDirectory, effectiveSrc, newSessionDraftOpen, rawUrl, t]);
+  }, [addAttachedFile, addInlineCommentDraft, currentSessionId, effectiveDirectory, effectiveSrc, newSessionDraftOpen, rawUrl]);
 
   React.useEffect(() => {
     setBridgeReady(false);
@@ -1001,7 +986,7 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
         const stack = stringify(data.stack);
         pushConsoleEvent({
           level: 'runtime',
-          message: stringify(data.message) || t('contextPanel.preview.console.runtimeError'),
+          message: stringify(data.message) || "Runtime error",
           details: [location, stack].filter(Boolean).join('\n'),
           ts: typeof data.ts === 'number' ? data.ts : Date.now(),
         });
@@ -1049,7 +1034,7 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
     return () => {
       window.removeEventListener('message', handler);
     };
-  }, [attachPreviewAnnotation, isLoopback, onNavigate, t]);
+  }, [attachPreviewAnnotation, isLoopback, onNavigate]);
 
   const consoleErrorCount = consoleEvents.filter((event) => event.level === 'error' || event.level === 'runtime' || event.level === 'resource').length;
   const filteredConsoleEvents = consoleEvents.filter((event) => getPreviewConsoleFilterMatch(event, consoleFilter));
@@ -1068,17 +1053,17 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
 
     void copyTextToClipboard(`${header}${text}`).then((result) => {
       if (result.ok) {
-        toast.success(t('contextPanel.preview.console.copied'));
+        toast.success("Preview console copied");
       } else {
-        toast.error(t('contextPanel.preview.console.copyFailed'));
+        toast.error("Failed to copy preview console");
       }
     });
-  }, [consoleEvents, effectiveSrc, rawUrl, t]);
+  }, [consoleEvents, effectiveSrc, rawUrl]);
 
   const attachConsoleEvents = React.useCallback(() => {
     const sessionKey = currentSessionId ?? (newSessionDraftOpen ? 'draft' : null);
     if (!sessionKey || !effectiveDirectory) {
-      toast.error(t('contextPanel.preview.console.attachNoSession'));
+      toast.error("Open a chat session before attaching preview logs");
       return;
     }
 
@@ -1100,10 +1085,10 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
       endLine: Math.max(1, consoleEvents.length),
       code: `${header}${text}`,
       language: 'text',
-      text: t('contextPanel.preview.console.attachAnnotation'),
+      text: "These are browser console logs from the dev server running for this project.",
     });
-    toast.success(t('contextPanel.preview.console.attached'));
-  }, [addInlineCommentDraft, consoleEvents, currentSessionId, effectiveDirectory, effectiveSrc, newSessionDraftOpen, rawUrl, t]);
+    toast.success("Preview console attached to chat");
+  }, [addInlineCommentDraft, consoleEvents, currentSessionId, effectiveDirectory, effectiveSrc, newSessionDraftOpen, rawUrl]);
 
   // Out-of-band upstream probe: iframes don't expose HTTP status to the parent,
   // so when the proxy returns a 502 (upstream dev server is offline) the iframe
@@ -1258,7 +1243,7 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
     <div className="absolute inset-0 flex flex-col">
       <div className="flex items-center gap-1 border-b border-border bg-[var(--surface-background)] px-2 py-1">
         <div className="min-w-0 flex-1 truncate typography-micro text-muted-foreground" title={headerSrc || rawUrl}>
-          {headerSrc || rawUrl || t('contextPanel.preview.empty')}
+          {headerSrc || rawUrl || "No preview URL"}
         </div>
         <Button
           type="button"
@@ -1266,8 +1251,8 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
           variant="ghost"
           className="h-7 w-7 p-0"
           onClick={() => bumpReload()}
-          title={t('contextPanel.preview.actions.reload')}
-          aria-label={t('contextPanel.preview.actions.reload')}
+          title={"Reload preview"}
+          aria-label={"Reload preview"}
           disabled={!effectiveSrc}
         >
           <Icon name="refresh" className="h-3.5 w-3.5" />
@@ -1281,8 +1266,8 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
             if (!directSrc) return;
             void openExternalUrl(directSrc);
           }}
-          title={t('contextPanel.preview.actions.openExternal')}
-          aria-label={t('contextPanel.preview.actions.openExternal')}
+          title={"Open in browser"}
+          aria-label={"Open in browser"}
           disabled={!directSrc}
         >
           <Icon name="external-link" className="h-3.5 w-3.5" />
@@ -1294,8 +1279,8 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
             variant={inspectMode ? 'secondary' : 'ghost'}
             className="h-7 gap-1 px-2"
             onClick={() => setInspectMode((value) => !value)}
-            title={t('contextPanel.preview.inspect.toggle')}
-            aria-label={t('contextPanel.preview.inspect.toggle')}
+            title={"Inspect preview element"}
+            aria-label={"Inspect preview element"}
             disabled={!bridgeReady}
           >
             <Icon name="cursor" className="h-3.5 w-3.5" />
@@ -1308,8 +1293,8 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
             variant={consoleOpen ? 'secondary' : 'ghost'}
             className="h-7 gap-1 px-2"
             onClick={() => setConsoleOpen((value) => !value)}
-            title={bridgeReady ? t('contextPanel.preview.console.open') : t('contextPanel.preview.console.waiting')}
-            aria-label={bridgeReady ? t('contextPanel.preview.console.open') : t('contextPanel.preview.console.waiting')}
+            title={bridgeReady ? "Open preview console" : "Waiting for preview console"}
+            aria-label={bridgeReady ? "Open preview console" : "Waiting for preview console"}
             disabled={!bridgeReady && consoleEvents.length === 0}
           >
             <Icon name="terminal-box" className="h-3.5 w-3.5" />
@@ -1322,20 +1307,20 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
       <div className="relative min-h-0 flex-1 bg-background">
         {showUpstreamStarting ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
-            <div>{t('contextPanel.preview.startingServer')}</div>
-            <div className="text-xs opacity-70">{t('contextPanel.preview.startingServerHint')}</div>
+            <div>{"Starting dev server..."}</div>
+            <div className="text-xs opacity-70">{"Waiting for the server to accept connections."}</div>
           </div>
         ) : showUpstreamUnreachable ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
-            <div>{t('contextPanel.preview.upstreamUnreachable')}</div>
-            <div className="text-xs opacity-70">{t('contextPanel.preview.upstreamUnreachableHint')}</div>
+            <div>{"Dev server is not responding."}</div>
+            <div className="text-xs opacity-70">{"Make sure your dev server is still running, then retry."}</div>
             <Button
               type="button"
               size="sm"
               variant="outline"
               onClick={() => bumpReload()}
             >
-              {t('contextPanel.preview.actions.retry')}
+              {"Retry"}
             </Button>
           </div>
         ) : effectiveSrc && (!isLoopback || upstreamState === 'reachable') ? (
@@ -1344,7 +1329,7 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
               ref={iframeRef}
               key={`${effectiveSrc}:${reloadNonce}`}
               src={effectiveSrc}
-              title={t('contextPanel.preview.iframeTitle')}
+              title={"Preview"}
               className="h-full w-full border-0"
               style={{ colorScheme: previewColorScheme }}
               onLoad={handlePreviewFrameLoad}
@@ -1370,24 +1355,24 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
           </div>
         ) : showLoading ? (
           <div className="flex h-full items-center justify-center px-6 text-sm text-muted-foreground">
-            {t('contextPanel.preview.loading')}
+            {"Connecting preview proxy..."}
           </div>
         ) : showError ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-sm text-muted-foreground">
-            <div>{t('contextPanel.preview.proxyError')}</div>
+            <div>{"Could not start preview proxy."}</div>
             {proxyState.status === 'error' ? (
               <div className="text-center text-xs opacity-70">{proxyState.message}</div>
             ) : null}
           </div>
         ) : (
           <div className="flex h-full items-center justify-center px-6 text-sm text-muted-foreground">
-            {t('contextPanel.preview.invalidUrl')}
+            {"Preview needs a valid http(s) URL."}
           </div>
         )}
         {consoleOpen ? (
           <div className="absolute inset-x-3 bottom-3 z-10 max-h-[45%] overflow-hidden rounded-xl border border-border/70 bg-[var(--surface-elevated)] shadow-lg">
             <div className="flex items-center justify-between border-b border-border/50 px-3 py-2">
-              <div className="typography-ui-label text-foreground">{t('contextPanel.preview.console.title')}</div>
+              <div className="typography-ui-label text-foreground">{"Preview console"}</div>
               <div className="flex items-center gap-1">
                 <Button
                   type="button"
@@ -1396,7 +1381,7 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
                   onClick={attachConsoleEvents}
                   disabled={consoleEvents.length === 0}
                 >
-                  {t('contextPanel.preview.console.attach')}
+                  {"Attach"}
                 </Button>
                 <Button
                   type="button"
@@ -1405,7 +1390,7 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
                   onClick={copyConsoleEvents}
                   disabled={consoleEvents.length === 0}
                 >
-                  {t('contextPanel.preview.console.copy')}
+                  {"Copy"}
                 </Button>
                 <Button
                   type="button"
@@ -1414,7 +1399,7 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
                   onClick={() => setConsoleEvents([])}
                   disabled={consoleEvents.length === 0}
                 >
-                  {t('contextPanel.preview.console.clear')}
+                  {"Clear"}
                 </Button>
               </div>
             </div>
@@ -1428,20 +1413,20 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
                   onClick={() => setConsoleFilter(filter)}
                 >
                   {filter === 'all'
-                    ? t('contextPanel.preview.console.filter.all')
+                    ? "All"
                     : filter === 'errors'
-                      ? t('contextPanel.preview.console.filter.errors')
+                      ? "Errors"
                       : filter === 'warnings'
-                        ? t('contextPanel.preview.console.filter.warnings')
-                        : t('contextPanel.preview.console.filter.logs')}
+                        ? "Warnings"
+                        : "Logs"}
                 </Button>
               ))}
             </div>
             <div className="max-h-64 overflow-auto p-2 typography-code text-xs">
               {consoleEvents.length === 0 ? (
-                <div className="px-2 py-3 text-muted-foreground">{t('contextPanel.preview.console.empty')}</div>
+                <div className="px-2 py-3 text-muted-foreground">{"No preview console events yet."}</div>
               ) : filteredConsoleEvents.length === 0 ? (
-                <div className="px-2 py-3 text-muted-foreground">{t('contextPanel.preview.console.noFilteredEvents')}</div>
+                <div className="px-2 py-3 text-muted-foreground">{"No events match this filter."}</div>
               ) : filteredConsoleEvents.map((event) => (
                 <div key={event.id} className="border-b border-border/30 px-2 py-1 last:border-b-0">
                   <div className="flex gap-2">
@@ -1478,7 +1463,6 @@ const isElectronBrowserRuntime = (): boolean => {
 };
 
 const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, directory, tabID }) => {
-  const { t } = useI18n();
   const iframeRef = React.useRef<HTMLIFrameElement | null>(null);
   const setContextPanelTabTargetPath = useUIStore((state) => state.setContextPanelTabTargetPath);
   const normalized = normalizeBrowserUrl(initialUrl);
@@ -1607,7 +1591,7 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
         const expiresAt = typeof body.expiresAt === 'number' ? body.expiresAt : 0;
         if (!proxyBasePath || !previewToken) {
           if (!cancelled) {
-            setProxyState({ status: 'error', message: t('contextPanel.preview.proxyError') });
+            setProxyState({ status: 'error', message: "Could not start preview proxy." });
           }
           return;
         }
@@ -1627,7 +1611,7 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
     return () => {
       cancelled = true;
     };
-  }, [loadedUrl, t]);
+  }, [loadedUrl]);
 
   const proxyUrlAuthKey = loadedUrl && proxyState.status === 'ready'
     ? `${proxyState.proxyBasePath}|${proxyState.previewToken || ''}|${reloadNonce}`
@@ -1727,7 +1711,7 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
   const attachBrowserAnnotation = React.useCallback(async (target: PreviewElementMetadata) => {
     const sessionKey = currentSessionId ?? (newSessionDraftOpen ? 'draft' : null);
     if (!sessionKey) {
-      toast.error(t('contextPanel.preview.inspect.attachNoSession'));
+      toast.error("Open a chat session before attaching preview annotations");
       return;
     }
 
@@ -1756,15 +1740,13 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
         devicePixelRatio: window.devicePixelRatio || 1,
         target,
         screenshotAttached,
-        intro: t(screenshotAttached
-          ? 'contextPanel.preview.inspect.attachAnnotationWithScreenshot'
-          : 'contextPanel.preview.inspect.attachAnnotation'),
+        intro: (screenshotAttached ? "This is a selected DOM element from the in-app preview. A screenshot of the visible preview area with the selected element highlighted is attached." : "This is a selected DOM element from the in-app preview."),
       }),
       language: 'markdown',
       text: '',
     });
-    toast.success(t('contextPanel.preview.inspect.attached'));
-  }, [addAttachedFile, addInlineCommentDraft, currentSessionId, currentUrl, directory, newSessionDraftOpen, t]);
+    toast.success("Preview annotation attached to chat");
+  }, [addAttachedFile, addInlineCommentDraft, currentSessionId, currentUrl, directory, newSessionDraftOpen]);
 
   const cancelInspect = React.useCallback(() => {
     const iframe = iframeRef.current;
@@ -1860,10 +1842,10 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
         await attachBrowserAnnotation(target);
       } catch {
         setIsInspecting(false);
-        toast.error(t('contextPanel.browser.inspectUnavailable'));
+        toast.error("This page cannot be inspected from the browser panel.");
       }
     })();
-  }, [attachBrowserAnnotation, cancelInspect, currentUrl, isInspecting, postInspectMode, proxySrc, t]);
+  }, [attachBrowserAnnotation, cancelInspect, currentUrl, isInspecting, postInspectMode, proxySrc]);
 
   const handleIframeLoad = React.useCallback(() => {
     try {
@@ -1900,7 +1882,7 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
             value={urlInput}
             onChange={(event) => setUrlInput(event.target.value)}
             className="h-7 w-full rounded-md border border-border/50 bg-[var(--surface-elevated)] px-2 typography-micro text-foreground outline-none focus:border-[var(--interactive-focus-ring)]"
-            aria-label={t('contextPanel.browser.addressAria')}
+            aria-label={"Browser address"}
           />
         </form>
         <Button
@@ -1910,8 +1892,8 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
           className="h-7 w-7 p-0"
           disabled={!currentUrl}
           onClick={handleInspect}
-          title={t('contextPanel.preview.inspect.toggle')}
-          aria-label={t('contextPanel.preview.inspect.toggle')}
+          title={"Inspect preview element"}
+          aria-label={"Inspect preview element"}
         >
           <Icon name="cursor" className="h-3.5 w-3.5" />
         </Button>
@@ -1926,7 +1908,7 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
               key={`${tabID}:${reloadNonce}`}
               ref={iframeRef}
               src={iframeSrc}
-              title={t('contextPanel.browser.empty')}
+              title={"Web browser"}
               className="absolute inset-0 h-full w-full border-0 bg-background"
               allow="clipboard-read; clipboard-write; fullscreen"
               allowFullScreen
@@ -1951,14 +1933,14 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-background p-6 text-center">
             <PiChamberLogo width={140} height={140} className="opacity-20" />
-            <span className="typography-ui-header text-muted-foreground">{t('contextPanel.browser.empty')}</span>
-            <span className="max-w-sm typography-micro text-muted-foreground">{t('contextPanel.browser.emptyHint')}</span>
-            <span className="max-w-md typography-micro leading-relaxed text-status-warning/70">{t('contextPanel.browser.trustNotice')}</span>
+            <span className="typography-ui-header text-muted-foreground">{"Web browser"}</span>
+            <span className="max-w-sm typography-micro text-muted-foreground">{"Enter an address above to start browsing the web"}</span>
+            <span className="max-w-md typography-micro leading-relaxed text-status-warning/70">{"Pages opened here run with full access to PiChamber — needed for inspect and screenshots. Only open sites you trust: a malicious page could read your data or act on your behalf."}</span>
           </div>
         )}
         {isLoading ? (
           <div className="absolute inset-0 flex items-center justify-center bg-background/70 typography-micro text-muted-foreground">
-            {t('common.loading')}
+            {"Loading..."}
           </div>
         ) : null}
       </div>
@@ -1967,7 +1949,6 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
 };
 
 const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, directory, tabID }) => {
-  const { t } = useI18n();
   const webviewRef = React.useRef<WebviewElement | null>(null);
   const setContextPanelTabTargetPath = useUIStore((state) => state.setContextPanelTabTargetPath);
   const normalized = normalizeBrowserUrl(initialUrl);
@@ -2128,7 +2109,7 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
 
         const sessionKey = currentSessionId ?? (newSessionDraftOpen ? 'draft' : null);
         if (!sessionKey) {
-          toast.error(t('contextPanel.preview.inspect.attachNoSession'));
+          toast.error("Open a chat session before attaching preview annotations");
           return;
         }
 
@@ -2163,15 +2144,15 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
             devicePixelRatio: window.devicePixelRatio || 1,
             target,
             screenshotAttached,
-            intro: t('contextPanel.preview.inspect.attachAnnotationWithScreenshot'),
+            intro: "This is a selected DOM element from the in-app preview. A screenshot of the visible preview area with the selected element highlighted is attached.",
           }),
           language: 'markdown',
           text: '',
         });
-        toast.success(t('contextPanel.preview.inspect.attached'));
+        toast.success("Preview annotation attached to chat");
       })
       .catch(() => setIsInspecting(false));
-  }, [addAttachedFile, addInlineCommentDraft, currentSessionId, currentUrl, directory, isInspecting, newSessionDraftOpen, t]);
+  }, [addAttachedFile, addInlineCommentDraft, currentSessionId, currentUrl, directory, isInspecting, newSessionDraftOpen]);
 
   return (
     <div className="absolute inset-0 flex flex-col bg-background">
@@ -2190,7 +2171,7 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
             value={urlInput}
             onChange={(event) => setUrlInput(event.target.value)}
             className="h-7 w-full rounded-md border border-border/50 bg-[var(--surface-elevated)] px-2 typography-micro text-foreground outline-none focus:border-[var(--interactive-focus-ring)]"
-            aria-label={t('contextPanel.browser.addressAria')}
+            aria-label={"Browser address"}
           />
         </form>
         <Button
@@ -2199,8 +2180,8 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
           size="sm"
           className="h-7 w-7 p-0"
           onClick={handleInspect}
-          title={t('contextPanel.preview.inspect.toggle')}
-          aria-label={t('contextPanel.preview.inspect.toggle')}
+          title={"Inspect preview element"}
+          aria-label={"Inspect preview element"}
         >
           <Icon name="cursor" className="h-3.5 w-3.5" />
         </Button>
@@ -2219,12 +2200,12 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
         {(!currentUrl || currentUrl === 'about:blank') && !isLoading ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-background p-6 text-center">
             <PiChamberLogo width={140} height={140} className="opacity-20" />
-            <span className="typography-ui-header text-muted-foreground">{t('contextPanel.browser.empty')}</span>
+            <span className="typography-ui-header text-muted-foreground">{"Web browser"}</span>
           </div>
         ) : null}
         {showLoading ? (
           <div className="absolute inset-0 flex items-center justify-center bg-background/70 typography-micro text-muted-foreground">
-            {t('common.loading')}
+            {"Loading..."}
           </div>
         ) : null}
       </div>
@@ -2233,7 +2214,6 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
 };
 
 export const ContextPanel: React.FC = () => {
-  const { t } = useI18n();
   const effectiveDirectory = useEffectiveDirectory() ?? '';
   const directoryKey = React.useMemo(() => normalizeDirectoryKey(effectiveDirectory), [effectiveDirectory]);
 
@@ -2684,7 +2664,7 @@ export const ContextPanel: React.FC = () => {
   );
 
   const tabItems = React.useMemo(() => activeModeTabs.map((tab) => {
-    const rawLabel = getTabLabel(tab, sessionTitleById, t);
+    const rawLabel = getTabLabel(tab, sessionTitleById);
     const label = truncateTabLabel(rawLabel, CONTEXT_TAB_LABEL_MAX_CHARS);
     const tabPathLabel = getRelativePathLabel(tab.targetPath, effectiveDirectory);
     return {
@@ -2692,16 +2672,22 @@ export const ContextPanel: React.FC = () => {
       label,
       icon: getTabIcon(tab),
       title: tabPathLabel ? `${rawLabel}: ${tabPathLabel}` : rawLabel,
-      closeLabel: t('contextPanel.tab.closeTabAria', { label }),
+      closeLabel: `Close ${label} tab`,
     };
-  }), [activeModeTabs, effectiveDirectory, sessionTitleById, t]);
+  }), [activeModeTabs, effectiveDirectory, sessionTitleById]);
 
   const activeNonChatContent = activeTab?.mode === 'context'
         ? <ContextPanelContent />
         : activeTab?.mode === 'git'
             ? <React.Suspense fallback={null}><GitView isActive={isOpen} /></React.Suspense>
             : activeTab?.mode === 'pr'
-                ? <PullRequestView />
+                ? (
+                  <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+                    <Icon name="github" className="h-12 w-12 text-muted-foreground/50" />
+                    <div className="typography-ui-header text-foreground">{"Pull Request"}</div>
+                    <div className="max-w-sm typography-micro text-muted-foreground">{"GitHub pull request integration is not configured."}</div>
+                  </div>
+                )
             : activeTab?.mode === 'notes'
                 ? <ProjectContextPanel />
             : activeTab?.mode === 'preview'
@@ -2709,8 +2695,8 @@ export const ContextPanel: React.FC = () => {
                 : (
                   <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
                     <Icon name="global" className="h-12 w-12 text-muted-foreground/50" />
-                    <div className="typography-ui-header text-foreground">{t('contextPanel.preview.title')}</div>
-                    <div className="max-w-sm typography-micro text-muted-foreground">{t('contextPanel.preview.description')}</div>
+                    <div className="typography-ui-header text-foreground">{"Preview"}</div>
+                    <div className="max-w-sm typography-micro text-muted-foreground">{"Use Project Actions or a terminal Preview button to open a preview."}</div>
                   </div>
                 );
 
@@ -2728,12 +2714,6 @@ export const ContextPanel: React.FC = () => {
   );
   const hasTerminalTab = React.useMemo(
     () => tabs.some((tab) => tab.mode === 'terminal'),
-    [tabs],
-  );
-  // Keep-alive: the walkthrough holds reading progress and scroll position that
-  // a remount would silently throw away.
-  const hasWalkthroughTab = React.useMemo(
-    () => tabs.some((tab) => tab.mode === 'walkthrough'),
     [tabs],
   );
   const BrowserPane = isElectronBrowserRuntime() ? DesktopBrowserPane : IframeBrowserPane;
@@ -2779,7 +2759,7 @@ export const ContextPanel: React.FC = () => {
         <div className="flex min-w-0 flex-1 items-center gap-1.5 px-3">
           {activeTab ? getTabIcon(activeTab) : null}
           <span className="truncate typography-ui-label text-foreground">
-            {activeTab ? getModeLabel(activeTab.mode, t) : null}
+            {activeTab ? getModeLabel(activeTab.mode) : null}
           </span>
         </div>
       )}
@@ -2791,8 +2771,8 @@ export const ContextPanel: React.FC = () => {
             size="sm"
             onClick={toggleContextEditorTree}
             className="h-7 w-7 p-0"
-            title={t('contextRail.editorTree.toggle')}
-            aria-label={t('contextRail.editorTree.toggle')}
+            title={"Toggle file tree"}
+            aria-label={"Toggle file tree"}
             aria-pressed={contextEditorTreeVisible}
           >
             <Icon name="layout-right" className="h-3.5 w-3.5" />
@@ -2804,8 +2784,8 @@ export const ContextPanel: React.FC = () => {
           size="sm"
           onClick={handleToggleExpanded}
           className="h-7 w-7 p-0"
-          title={isExpanded ? t('contextPanel.actions.collapsePanel') : t('contextPanel.actions.expandPanel')}
-          aria-label={isExpanded ? t('contextPanel.actions.collapsePanel') : t('contextPanel.actions.expandPanel')}
+          title={isExpanded ? "Collapse panel" : "Expand panel"}
+          aria-label={isExpanded ? "Collapse panel" : "Expand panel"}
         >
           {isExpanded ? <Icon name="fullscreen-exit" className="h-3.5 w-3.5" /> : <Icon name="fullscreen" className="h-3.5 w-3.5" />}
         </Button>
@@ -2815,8 +2795,8 @@ export const ContextPanel: React.FC = () => {
           size="sm"
           onClick={handleClose}
           className="h-7 w-7 p-0"
-          title={t('contextPanel.actions.closePanel')}
-          aria-label={t('contextPanel.actions.closePanel')}
+          title={"Close panel"}
+          aria-label={"Close panel"}
         >
           <Icon name="close" className="h-3.5 w-3.5" />
         </Button>
@@ -2888,7 +2868,7 @@ export const ContextPanel: React.FC = () => {
           onPointerDown={handleResizeStart}
           role="separator"
           aria-orientation="vertical"
-          aria-label={t('contextPanel.actions.resizePanelAria')}
+          aria-label={"Resize context panel"}
         />
       )}
       <div
@@ -2919,8 +2899,8 @@ export const ContextPanel: React.FC = () => {
               ) : (
                 <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
                   <Icon name="file-code" className="h-12 w-12 text-muted-foreground/50" />
-                  <div className="typography-ui-header text-foreground">{t('contextPanel.editorEmpty.title')}</div>
-                  <div className="max-w-sm typography-micro text-muted-foreground">{t('contextPanel.editorEmpty.description')}</div>
+                  <div className="typography-ui-header text-foreground">{"No file open"}</div>
+                  <div className="max-w-sm typography-micro text-muted-foreground">{"Pick a file from the tree to start editing."}</div>
                 </div>
               )}
             </div>
@@ -2949,7 +2929,7 @@ export const ContextPanel: React.FC = () => {
                 chatFrameRefs.current.set(tab.id, node);
               }}
               src={src}
-              title={t('contextPanel.iframe.sessionChatTitle', { sessionID })}
+              title={`Session chat ${sessionID}`}
               className={cn(
                 'absolute inset-0 h-full w-full border-0 bg-background',
                 activeChatTabID === tab.id ? 'block' : 'hidden'
@@ -3000,14 +2980,7 @@ export const ContextPanel: React.FC = () => {
             <TerminalView visible={isOpen && activeTab?.mode === 'terminal'} />
           </div>
         ) : null}
-        {hasWalkthroughTab ? (
-          <div className={cn('absolute inset-0', activeTab?.mode === 'walkthrough' ? 'block' : 'hidden')}>
-            <React.Suspense fallback={null}>
-              <WalkthroughView />
-            </React.Suspense>
-          </div>
-        ) : null}
-        {activeTab?.mode !== 'chat' && !isFileTabActive && activeTab?.mode !== 'browser' && activeTab?.mode !== 'diff' && activeTab?.mode !== 'terminal' && activeTab?.mode !== 'walkthrough' ? activeNonChatContent : null}
+        {activeTab?.mode !== 'chat' && !isFileTabActive && activeTab?.mode !== 'browser' && activeTab?.mode !== 'diff' && activeTab?.mode !== 'terminal' ? activeNonChatContent : null}
       </div>
       </div>
     </aside>

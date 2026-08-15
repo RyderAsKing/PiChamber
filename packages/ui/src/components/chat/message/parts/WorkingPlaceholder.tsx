@@ -1,6 +1,5 @@
 import React from 'react';
 import { BusyDots } from './BusyDots';
-import { useI18n } from '@/lib/i18n';
 import { useProviderLogo } from '@/hooks/useProviderLogo';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 
@@ -66,7 +65,7 @@ export function WorkingPlaceholder({
   modelName,
   providerId,
 }: WorkingPlaceholderProps) {
-  const { t } = useI18n();
+  
   const { src: providerLogoSrc, onError: handleProviderLogoError, hasLogo: hasProviderLogo } = useProviderLogo(providerId ?? null);
   const { currentTheme } = useThemeSystem();
   const isDarkTheme = currentTheme?.metadata.variant === 'dark';
@@ -224,7 +223,7 @@ export function WorkingPlaceholder({
 
   const trimmedModelName = typeof modelName === 'string' ? modelName.trim() : '';
   const label = trimmedModelName.length > 0
-    ? t('chat.statusRow.modelStatus', { model: trimmedModelName, status: displayedText })
+    ? `${trimmedModelName} is ${displayedText}`
     : displayedText.charAt(0).toUpperCase() + displayedText.slice(1);
 
   return (

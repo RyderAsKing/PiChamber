@@ -4,10 +4,9 @@ import { createPortal } from 'react-dom';
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
 import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
-import { useI18n } from '@/lib/i18n';
 
 export const MobileQrScannerOverlay: React.FC<{ onCancel: () => void }> = ({ onCancel }) => {
-  const { t } = useI18n();
+  
   const overlayRef = React.useRef<HTMLDivElement>(null);
 
   React.useLayoutEffect(() => {
@@ -76,18 +75,18 @@ export const MobileQrScannerOverlay: React.FC<{ onCancel: () => void }> = ({ onC
       ref={overlayRef}
       role="dialog"
       aria-modal="true"
-      aria-label={t('mobile.connect.scanQr')}
+      aria-label={"Scan QR code"}
       className="fixed inset-0 z-[1000] flex flex-col bg-transparent px-6 pb-[calc(var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px))+24px)] pt-[calc(var(--safe-area-inset-top,env(safe-area-inset-top,0px))+24px)] text-foreground"
     >
       <div className="flex flex-1 flex-col items-center justify-center gap-6">
         <div className="aspect-square w-full max-w-72 rounded-[28px] border-2 border-foreground/90 shadow-[0_0_0_9999px_color-mix(in_srgb,var(--surface-background)_18%,transparent)]" aria-hidden />
         <p className="max-w-sm rounded-[16px] border border-border/60 bg-background px-4 py-3 text-center typography-body text-foreground shadow-sm">
-          {t('mobile.connect.welcome.scanHint')}
+          {"On your computer, open «Add a device» to show a QR code, then scan it here."}
         </p>
       </div>
       <Button type="button" variant="outline" size="lg" className="mx-auto min-h-12 w-full max-w-sm bg-background" onClick={onCancel}>
         <Icon name="close" className="size-[18px]" />
-        {t('mobile.instances.cancelEdit')}
+        {"Cancel"}
       </Button>
     </div>,
     document.body,
@@ -95,13 +94,13 @@ export const MobileQrScannerOverlay: React.FC<{ onCancel: () => void }> = ({ onC
 };
 
 export const MobileQrConnectionLoading: React.FC = () => {
-  const { t } = useI18n();
+  
   return createPortal(
     <div role="status" className="fixed inset-0 z-[1000] flex flex-col items-center justify-center gap-5 bg-background px-6 text-foreground">
       <PiChamberLogo width={96} height={96} isAnimated />
       <div className="flex items-center gap-2 typography-ui-label text-muted-foreground">
         <Icon name="loader-4" className="size-[18px] animate-spin" />
-        <span>{t('mobile.connect.connecting')}</span>
+        <span>{"Connecting..."}</span>
       </div>
     </div>,
     document.body,

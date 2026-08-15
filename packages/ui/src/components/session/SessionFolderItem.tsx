@@ -1,7 +1,6 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 import type { SessionFolder } from '@/stores/useSessionFoldersStore';
-import { useI18n } from '@/lib/i18n';
 import { Icon } from "@/components/icon/Icon";
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { SessionNodeChildRenderExtras, SessionNodeRenderExtras } from './sidebar/sessionNodeItemUtils';
@@ -92,7 +91,7 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
   hideActions = false,
   archivedBucket = false,
 }: SessionFolderItemProps<TSessionNode>) => {
-  const { t } = useI18n();
+  
   const [localRenaming, setLocalRenaming] = React.useState(false);
   const [localDraft, setLocalDraft] = React.useState('');
   const inputRef = React.useRef<HTMLInputElement | null>(null);
@@ -183,8 +182,8 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
               }
         }
         aria-label={isCollapsed
-          ? t('sessions.sidebar.folderItem.expandAria', { folderName: folder.name })
-          : t('sessions.sidebar.folderItem.collapseAria', { folderName: folder.name })}
+          ? `Expand folder ${folder.name}`
+          : `Collapse folder ${folder.name}`}
       >
         <div className={cn(
           'min-w-0 flex items-center gap-1.5 pl-1.5 flex-1 transition-[padding]',
@@ -214,7 +213,7 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
                 onChange={(event) => handleDraftChange(event.target.value)}
                 className="flex-1 min-w-0 bg-transparent typography-ui-label outline-none placeholder:text-muted-foreground"
                 autoFocus
-                placeholder={t('sessions.sidebar.folderItem.namePlaceholder')}
+                placeholder={"Folder name"}
                 onClick={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
                 onMouseDown={(event) => event.stopPropagation()}
@@ -269,8 +268,8 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
               {collapsedActivityState ? (
                 <CollapsedActivityIndicator
                   state={collapsedActivityState}
-                  activeLabel={t('sessions.sidebar.session.status.active')}
-                  unreadLabel={t('sessions.sidebar.session.status.unread')}
+                  activeLabel={"Session active"}
+                  unreadLabel={"Unread updates"}
                 />
               ) : null}
               {isCollapsed ? (
@@ -302,8 +301,8 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
                     onNewSession();
                   }}
                   className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                  aria-label={t('sessions.sidebar.folderItem.newSessionAria', { folderName: folder.name })}
-                  title={t('sessions.sidebar.project.actions.newSession')}
+                  aria-label={`New session in ${folder.name}`}
+                  title={"New session"}
                 >
                   <Icon name="add" className="h-3.5 w-3.5" />
                 </button>
@@ -316,7 +315,7 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
                     handleStartRename();
                   }}
                   className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                  aria-label={t('sessions.sidebar.folderItem.renameAria', { folderName: folder.name })}
+                  aria-label={`Rename folder ${folder.name}`}
                 >
                   <Icon name="pencil-ai" className="h-3.5 w-3.5" />
                 </button>
@@ -329,8 +328,8 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
                 }}
                 className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                 aria-label={archivedBucket
-                  ? t('sessions.sidebar.folderItem.deleteArchivedInFolderAria', { folderName: folder.name })
-                  : t('sessions.sidebar.folderItem.deleteFolderAria', { folderName: folder.name })}
+                  ? `Delete archived sessions in folder ${folder.name}`
+                  : `Delete folder ${folder.name}`}
               >
                 <Icon name="delete-bin" className="h-3.5 w-3.5" />
               </button>
@@ -353,7 +352,7 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
             ))
           ) : !subFolderItems ? (
             <div className="py-1 pl-1.5 text-left typography-micro text-muted-foreground/70">
-              {t('sessions.sidebar.folderItem.emptyFolder')}
+              {"Empty folder"}
             </div>
           ) : null}
         </div>

@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react';
 import { useOptionalThemeSystem } from '@/contexts/useThemeSystem';
-import { useI18n } from '@/lib/i18n';
 
 interface PiChamberLogoProps {
   className?: string;
@@ -15,7 +14,7 @@ export const PiChamberLogo: React.FC<PiChamberLogoProps> = ({
   height = 70,
   isAnimated = false,
 }) => {
-  const { t } = useI18n();
+  
   const themeContext = useOptionalThemeSystem();
 
   const foregroundColor = useMemo(() => {
@@ -41,7 +40,7 @@ export const PiChamberLogo: React.FC<PiChamberLogoProps> = ({
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       role="img"
-      aria-label={t('openChamberLogo.aria.logo')}
+      aria-label={"PiChamber logo"}
     >
       {isAnimated ? (
         <style>{`@keyframes pc-logo-pulse{0%,100%{opacity:1}50%{opacity:.42}}.pc-logo-pulse{animation:pc-logo-pulse 1.8s ease-in-out infinite}@media (prefers-reduced-motion:reduce){.pc-logo-pulse{animation:none}}`}</style>

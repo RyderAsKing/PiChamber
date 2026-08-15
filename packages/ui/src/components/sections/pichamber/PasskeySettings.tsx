@@ -15,7 +15,6 @@ import {
   type StoredPasskey,
 } from '@/lib/passkeys';
 import { SettingsSection, SettingsFieldRow } from '@/components/sections/shared/SettingsSection';
-import { getCurrentIntlLocale, useI18n } from '@/lib/i18n';
 import { useUIStore, type TimeFormatPreference } from '@/stores/useUIStore';
 
 const formatTimestamp = (timestamp: number | null, neverUsedText: string, timeFormatPreference: TimeFormatPreference) => {
@@ -23,7 +22,7 @@ const formatTimestamp = (timestamp: number | null, neverUsedText: string, timeFo
     return neverUsedText;
   }
 
-  return new Intl.DateTimeFormat(getCurrentIntlLocale(), {
+  return new Intl.DateTimeFormat('en-US', {
     dateStyle: 'medium',
     timeStyle: 'short',
     hour12: timeFormatPreference === 'auto' ? undefined : timeFormatPreference === '12h',
@@ -31,7 +30,6 @@ const formatTimestamp = (timestamp: number | null, neverUsedText: string, timeFo
 };
 
 export const PasskeySettings: React.FC = () => {
-  const { t } = useI18n();
   const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
   const [supportsPasskeys, setSupportsPasskeys] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -51,12 +49,12 @@ export const PasskeySettings: React.FC = () => {
       const nextPasskeys = await fetchStoredPasskeys();
       setPasskeys(nextPasskeys);
     } catch (error) {
-      const message = error instanceof Error ? error.message : t('settings.pichamber.passkeys.toast.loadFailed');
+      const message = error instanceof Error ? error.message : "Could not load passkeys.";
       setErrorMessage(message);
     } finally {
       setIsLoading(false);
     }
-  }, [t]);
+  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -99,7 +97,7 @@ export const PasskeySettings: React.FC = () => {
 
   const handleRegisterPasskey = React.useCallback(async () => {
     if (!status.enabled) {
-      const message = t('settings.pichamber.passkeys.toast.enableUiPasswordFirst');
+      const message = "Enable the UI password lock before adding passkeys.";
       setErrorMessage(message);
       toast.message(message);
       return;
@@ -124,20 +122,20 @@ export const PasskeySettings: React.FC = () => {
       await registerCurrentDevicePasskey();
       setStatus(await fetchPasskeyStatus());
       await loadPasskeys();
-      toast.success(t('settings.pichamber.passkeys.toast.added'));
+      toast.success("Passkey added");
     } catch (error) {
       if (isPasskeyCeremonyAbort(error)) {
-        toast.message(t('settings.pichamber.passkeys.toast.setupCanceled'));
+        toast.message("Passkey setup canceled");
         return;
       }
 
-      const message = error instanceof Error ? error.message : t('settings.pichamber.passkeys.toast.addFailed');
+      const message = error instanceof Error ? error.message : "Could not add passkey.";
       setErrorMessage(message);
       toast.error(message);
     } finally {
       setIsRegistering(false);
     }
-  }, [isRegistering, loadPasskeys, status.enabled, supportState.reason, supportsPasskeys, t]);
+  }, [isRegistering, loadPasskeys, status.enabled, supportState.reason, supportsPasskeys]);
 
   const handleRevokePasskey = React.useCallback(async (id: string) => {
     setRevokingId(id);
@@ -147,15 +145,15 @@ export const PasskeySettings: React.FC = () => {
       await revokeStoredPasskey(id);
       setStatus(await fetchPasskeyStatus());
       await loadPasskeys();
-      toast.success(t('settings.pichamber.passkeys.toast.removed'));
+      toast.success("Passkey removed");
     } catch (error) {
-      const message = error instanceof Error ? error.message : t('settings.pichamber.passkeys.toast.removeFailed');
+      const message = error instanceof Error ? error.message : "Could not remove passkey.";
       setErrorMessage(message);
       toast.error(message);
     } finally {
       setRevokingId(null);
     }
-  }, [loadPasskeys, t]);
+  }, [loadPasskeys]);
 
   const handleResetAllAuth = React.useCallback(async () => {
     setIsResetting(true);
@@ -165,17 +163,17 @@ export const PasskeySettings: React.FC = () => {
       await resetAllAuth();
       window.location.reload();
     } catch (error) {
-      const message = error instanceof Error ? error.message : t('settings.pichamber.passkeys.toast.clearAuthFailed');
+      const message = error instanceof Error ? error.message : "Could not clear saved authentication.";
       setErrorMessage(message);
       toast.error(message);
       setIsResetting(false);
     }
-  }, [t]);
+  }, []);
 
   return (
-    <SettingsSection title={t('settings.pichamber.passkeys.title')}>
+    <SettingsSection title={"Passkeys"}>
       <div className="space-y-2">
-        <SettingsFieldRow label={t('settings.pichamber.passkeys.field.currentDevice')}>
+        <SettingsFieldRow label={"Current device"}>
           <Button
             type="button"
             variant={isRegistering ? 'secondary' : 'outline'}
@@ -184,7 +182,7 @@ export const PasskeySettings: React.FC = () => {
             disabled={isLoading || isResetting}
             className="!font-normal"
           >
-            {isRegistering ? t('settings.pichamber.passkeys.actions.cancelSetup') : t('settings.pichamber.passkeys.actions.add')}
+            {isRegistering ? "Cancel passkey setup" : "Add passkey"}
           </Button>
           <Button
             type="button"
@@ -194,13 +192,13 @@ export const PasskeySettings: React.FC = () => {
             disabled={isLoading || isRegistering || isResetting}
             className="!font-normal text-muted-foreground hover:text-foreground"
           >
-            {isResetting ? t('settings.pichamber.passkeys.actions.signingOut') : t('settings.pichamber.passkeys.actions.signOutEverywhere')}
+            {isResetting ? "Signing out…" : "Sign out everywhere"}
           </Button>
         </SettingsFieldRow>
 
         {!status.enabled && (
           <p className="typography-meta text-muted-foreground">
-            {t('settings.pichamber.passkeys.state.uiPasswordRequired')}
+            {"Passkeys are available only when the UI password lock is enabled."}
           </p>
         )}
 
@@ -211,9 +209,9 @@ export const PasskeySettings: React.FC = () => {
         )}
 
         {isLoading ? (
-          <p className="typography-meta text-muted-foreground">{t('settings.pichamber.passkeys.state.loading')}</p>
+          <p className="typography-meta text-muted-foreground">{"Loading passkeys…"}</p>
         ) : passkeys.length === 0 ? (
-          <p className="typography-meta text-muted-foreground">{t('settings.pichamber.passkeys.state.noneSaved')}</p>
+          <p className="typography-meta text-muted-foreground">{"No passkeys saved for this host yet."}</p>
         ) : (
           <div className="space-y-1 pt-1">
             {passkeys.map((passkey) => (
@@ -225,12 +223,8 @@ export const PasskeySettings: React.FC = () => {
               >
                 <span className="typography-meta text-muted-foreground truncate">
                   {passkey.lastUsedAt
-                    ? t('settings.pichamber.passkeys.item.lastUsed', {
-                        time: formatTimestamp(passkey.lastUsedAt, t('settings.pichamber.passkeys.time.neverUsed'), timeFormatPreference),
-                      })
-                    : t('settings.pichamber.passkeys.item.added', {
-                        time: formatTimestamp(passkey.createdAt, t('settings.pichamber.passkeys.time.neverUsed'), timeFormatPreference),
-                      })}
+                    ? `Last used ${formatTimestamp(passkey.lastUsedAt, 'Never used', timeFormatPreference)}`
+                    : `Added ${formatTimestamp(passkey.createdAt, 'Never used', timeFormatPreference)}`}
                 </span>
                 <Button
                   type="button"
@@ -240,7 +234,7 @@ export const PasskeySettings: React.FC = () => {
                   disabled={revokingId === passkey.id}
                   className="!font-normal text-muted-foreground hover:text-foreground"
                 >
-                  {revokingId === passkey.id ? t('settings.pichamber.passkeys.actions.removing') : t('settings.common.actions.delete')}
+                  {revokingId === passkey.id ? "Removing…" : "Delete"}
                 </Button>
               </SettingsFieldRow>
             ))}

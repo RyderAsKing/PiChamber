@@ -14,7 +14,6 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionMessageRecords } from '@/sync/sync-context';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from "@/components/icon/Icon";
-import { getCurrentIntlLocale, useI18n } from '@/lib/i18n';
 import { getFullText, getMessagePreview } from './lib/messagePreview';
 import { useDeviceInfo } from '@/lib/device';
 import { cn } from '@/lib/utils';
@@ -40,7 +39,7 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
     isLoadingEarlier = false,
     onLoadEarlier,
 }) => {
-    const { t } = useI18n();
+    
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
     const messages = useSessionMessageRecords(currentSessionId ?? '');
     const revertToMessage = useSessionUIStore((state) => state.revertToMessage);
@@ -58,7 +57,7 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
     const wasOpenRef = React.useRef(open);
 
     const formatDateGroup = React.useCallback((timestamp: number): string => {
-        return new Date(timestamp).toLocaleDateString(getCurrentIntlLocale(), {
+        return new Date(timestamp).toLocaleDateString('en-US', {
             year: 'numeric',
             month: 'short',
             day: 'numeric',
@@ -66,7 +65,7 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
     }, []);
 
     const formatMessageTime = React.useCallback((timestamp: number): string => {
-        return new Date(timestamp).toLocaleTimeString(getCurrentIntlLocale(), {
+        return new Date(timestamp).toLocaleTimeString('en-US', {
             hour: 'numeric',
             minute: '2-digit',
         });
@@ -231,10 +230,10 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Icon name="time" className="h-5 w-5" />
-                        {t('chat.timeline.title')}
+                        {"Conversation Timeline"}
                     </DialogTitle>
                     <DialogDescription>
-                        {t('chat.timeline.description')}
+                        {"Navigate to any point in the conversation or fork a new session"}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -242,7 +241,7 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
                     <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                         autoFocus
-                        placeholder={t('chat.timeline.searchPlaceholder')}
+                        placeholder={"Search messages..."}
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         onKeyDown={handleSearchKeyDown}
@@ -263,7 +262,7 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
                             {isLoadingEarlier && (
                                 <Icon name="loader-4" className="size-4 animate-spin" />
                             )}
-                            {t('chat.history.loadOlder')}
+                            {"Load older messages"}
                         </Button>
                     </div>
                 )}
@@ -271,7 +270,7 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
                 <div ref={listRef} className="flex-1 overflow-y-auto">
                     {filteredMessages.length === 0 ? (
                         <div className="text-center text-muted-foreground py-8">
-                            {searchQuery ? t('chat.timeline.empty.search') : t('chat.timeline.empty.session')}
+                            {searchQuery ? "No messages found" : "No messages in this session yet"}
                         </div>
                     ) : (
                         filteredMessages.map(({ message }, index) => {
@@ -323,7 +322,7 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
                                             "flex-1 min-w-0 typography-small truncate",
                                             isSelected ? "text-interactive-selection-foreground" : "text-foreground"
                                         )}>
-                                            {snippet ?? (preview || t('chat.timeline.noTextContent'))}
+                                            {snippet ?? (preview || "[No text content]")}
                                             {!snippet && preview && preview.length >= 80 && '…'}
                                         </p>
 
@@ -343,7 +342,7 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
                                                             <Icon name="arrow-go-back" className="h-4 w-4" />
                                                         </button>
                                                     </TooltipTrigger>
-                                                    <TooltipContent sideOffset={6}>{t('chat.timeline.actions.revertFromHere')}</TooltipContent>
+                                                    <TooltipContent sideOffset={6}>{"Revert from here"}</TooltipContent>
                                                 </Tooltip>
 
                                                 <Tooltip>
@@ -364,7 +363,7 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
                                                             )}
                                                         </button>
                                                     </TooltipTrigger>
-                                                    <TooltipContent sideOffset={6}>{t('chat.timeline.actions.forkFromHere')}</TooltipContent>
+                                                    <TooltipContent sideOffset={6}>{"Fork from here"}</TooltipContent>
                                                 </Tooltip>
                                             </div>
                                         </div>
@@ -376,7 +375,7 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
                 </div>
 
                 <div className="mt-4 p-3 bg-muted/30 rounded-lg">
-                    <p className="typography-meta text-muted-foreground font-medium mb-2">{t('chat.timeline.actions.title')}</p>
+                    <p className="typography-meta text-muted-foreground font-medium mb-2">{"Actions"}</p>
                     <div className="mb-2 flex items-center gap-2">
                         <button
                             type="button"
@@ -386,7 +385,7 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
                                 onOpenChange(false);
                             }}
                         >
-                            {t('chat.timeline.actions.previousTurn')}
+                            {"Previous turn"}
                         </button>
                         <span className="text-muted-foreground/50">/</span>
                         <button
@@ -397,20 +396,20 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
                                 onOpenChange(false);
                             }}
                         >
-                            {t('chat.timeline.actions.latest')}
+                            {"Latest"}
                         </button>
                     </div>
                     <div className="flex flex-col gap-1.5 typography-meta text-muted-foreground">
                         <div className="flex items-center gap-2">
-                            <span>{t('chat.timeline.help.clickMessage')}</span>
+                            <span>{"Click on a message to scroll to it in the conversation"}</span>
                         </div>
                         <div className="flex items-center gap-2">
                             <Icon name="arrow-go-back" className="h-4 w-4 flex-shrink-0" />
-                            <span>{t('chat.timeline.help.undoToPoint')}</span>
+                            <span>{"Undo to this point (message text will populate input)"}</span>
                         </div>
                         <div className="flex items-center gap-2">
                             <Icon name="git-branch" className="h-4 w-4 flex-shrink-0" />
-                            <span>{t('chat.timeline.help.createSessionFromHere')}</span>
+                            <span>{"Create a new session starting from here"}</span>
                         </div>
                     </div>
                 </div>

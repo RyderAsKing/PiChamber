@@ -38,13 +38,12 @@ import { useGitStatus } from '@/stores/useGitStore';
 import { useDirectoryShowHidden } from '@/lib/directoryShowHidden';
 import { useFilesViewShowGitignored } from '@/lib/filesViewShowGitignored';
 import { copyTextToClipboard } from '@/lib/clipboard';
-import { cn, getRevealLabelKey } from '@/lib/utils';
+import { cn, getRevealLabel } from '@/lib/utils';
 import { listLocalDirectory } from '@/lib/fsApi';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { Icon } from "@/components/icon/Icon";
 import { getContextFileOpenFailureMessage, validateContextFileOpen } from '@/lib/contextFileOpenGuard';
 import { isBrowserClientRuntime } from '@/lib/desktop';
-import { useI18n } from '@/lib/i18n';
 
 type FileNode = {
   name: string;
@@ -223,7 +222,6 @@ const FileRow: React.FC<FileRowProps> = ({
   onRevealPath,
   onOpenDialog,
 }) => {
-  const { t } = useI18n();
   const isDir = node.type === 'directory';
   const { canRename, canCreateFile, canCreateFolder, canDelete, canReveal } = permissions;
   const canDownload = !isDir && Boolean(downloadFile);
@@ -266,35 +264,35 @@ const FileRow: React.FC<FileRowProps> = ({
     <>
       {canRename && (
         <Item onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('rename', node); }}>
-          <Icon name="edit" className="mr-2 h-4 w-4" /> {t('sidebarFilesTree.menu.rename')}
+          <Icon name="edit" className="mr-2 h-4 w-4" /> {"Rename"}
         </Item>
       )}
       <Item onClick={(e: React.MouseEvent) => {
         e.stopPropagation();
         void copyTextToClipboard(node.path).then((result) => {
           if (result.ok) {
-            toast.success(t('sidebarFilesTree.toast.pathCopied'));
+            toast.success("Path copied");
             return;
           }
-          toast.error(t('sidebarFilesTree.toast.copyFailed'));
+          toast.error("Copy failed");
         });
       }}>
-        <Icon name="file-copy" className="mr-2 h-4 w-4" /> {t('sidebarFilesTree.menu.copyPath')}
+        <Icon name="file-copy" className="mr-2 h-4 w-4" /> {"Copy Path"}
       </Item>
       {!isDir && downloadFile && (
         <Item onClick={(e: React.MouseEvent) => {
           e.stopPropagation();
           void downloadFile(node.path).catch((error) => {
             console.error('Download failed:', error);
-            toast.error(t('sidebarFilesTree.toast.operationFailed'));
+            toast.error("Operation failed");
           });
         }}>
-          <Icon name="download" className="mr-2 h-4 w-4" /> {t(isBrowserClient ? 'sidebarFilesTree.menu.download' : 'sidebarFilesTree.menu.save')}
+          <Icon name="download" className="mr-2 h-4 w-4" /> {(isBrowserClient ? "Download" : "Save")}
         </Item>
       )}
       {canRevealPath && (
         <Item onClick={(e: React.MouseEvent) => { e.stopPropagation(); onRevealPath(node.path); }}>
-          <Icon name="folder-received" className="mr-2 h-4 w-4" /> {t(getRevealLabelKey())}
+          <Icon name="folder-received" className="mr-2 h-4 w-4" /> {getRevealLabel()}
         </Item>
       )}
       {isDir && (canCreateFile || canCreateFolder) && (
@@ -302,12 +300,12 @@ const FileRow: React.FC<FileRowProps> = ({
           <Separator />
           {canCreateFile && (
             <Item onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('createFile', node); }}>
-              <Icon name="file-add" className="mr-2 h-4 w-4" /> {t('sidebarFilesTree.menu.newFile')}
+              <Icon name="file-add" className="mr-2 h-4 w-4" /> {"New File"}
             </Item>
           )}
           {canCreateFolder && (
             <Item onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('createFolder', node); }}>
-              <Icon name="folder-add" className="mr-2 h-4 w-4" /> {t('sidebarFilesTree.menu.newFolder')}
+              <Icon name="folder-add" className="mr-2 h-4 w-4" /> {"New Folder"}
             </Item>
           )}
         </>
@@ -319,7 +317,7 @@ const FileRow: React.FC<FileRowProps> = ({
             onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('delete', node); }}
             className="text-destructive focus:text-destructive"
           >
-            <Icon name="delete-bin" className="mr-2 h-4 w-4" /> {t('sidebarFilesTree.menu.delete')}
+            <Icon name="delete-bin" className="mr-2 h-4 w-4" /> {"Delete"}
           </Item>
         </>
       )}
@@ -383,15 +381,15 @@ const FileRow: React.FC<FileRowProps> = ({
                       size="icon"
                       className="h-6 w-6"
                       onClick={handleMenuButtonClick}
-                      title={t('sidebarFilesTree.actions.fileMenuTitle')}
-                      aria-label={t('sidebarFilesTree.actions.fileMenuTitle')}
+                      title={"File menu"}
+                      aria-label={"File menu"}
                     >
                       <Icon name="more-2-fill" className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                 </span>
               </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={6}>{t('sidebarFilesTree.actions.fileMenuTitle')}</TooltipContent>
+              <TooltipContent side="bottom" sideOffset={6}>{"File menu"}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" side="bottom" onCloseAutoFocus={() => setContextMenuOpen(false)}>
               {renderMenuItems({ Item: DropdownMenuItem, Separator: DropdownMenuSeparator })}
@@ -428,7 +426,6 @@ const MemoizedFileRow = React.memo(FileRow, areFileRowPropsEqual);
 // --- Main component ---
 
 export const SidebarFilesTree: React.FC = () => {
-  const { t } = useI18n();
   const { files, runtime } = useRuntimeAPIs();
   const isBrowserClient = isBrowserClientRuntime(runtime.platform);
   const currentDirectory = useEffectiveDirectory() ?? '';
@@ -553,9 +550,9 @@ export const SidebarFilesTree: React.FC = () => {
   const handleRevealPath = React.useCallback((targetPath: string) => {
     if (!files.revealPath) return;
     void files.revealPath(targetPath).catch(() => {
-      toast.error(t('sidebarFilesTree.toast.revealFailed'));
+      toast.error("Failed to reveal path");
     });
-  }, [files, t]);
+  }, [files]);
 
   const handleOpenDialog = React.useCallback((type: 'createFile' | 'createFolder' | 'rename' | 'delete', data: { path: string; name?: string; type?: 'file' | 'directory' }) => {
     setActiveDialog(type);
@@ -909,12 +906,12 @@ export const SidebarFilesTree: React.FC = () => {
 
     if (activeDialog === 'createFile') {
       if (!dialogInputValue.trim()) {
-        toast.error(t('sidebarFilesTree.toast.filenameRequired'));
+        toast.error("Filename is required");
         done();
         return;
       }
       if (!files.writeFile) {
-        toast.error(t('sidebarFilesTree.toast.writeNotSupported'));
+        toast.error("Write not supported");
         done();
         return;
       }
@@ -926,19 +923,19 @@ export const SidebarFilesTree: React.FC = () => {
       await files.writeFile(newPath, '')
         .then(async (result) => {
           if (result.success) {
-            toast.success(t('sidebarFilesTree.toast.fileCreated'));
+            toast.success("File created");
             await refreshDirectory(parentPath);
           }
           closeDialog();
         })
-        .catch(() => toast.error(t('sidebarFilesTree.toast.operationFailed')))
+        .catch(() => toast.error("Operation failed"))
         .finally(done);
       return;
     }
 
     if (activeDialog === 'createFolder') {
       if (!dialogInputValue.trim()) {
-        toast.error(t('sidebarFilesTree.toast.folderNameRequired'));
+        toast.error("Folder name is required");
         done();
         return;
       }
@@ -950,24 +947,24 @@ export const SidebarFilesTree: React.FC = () => {
       await files.createDirectory(newPath)
         .then(async (result) => {
           if (result.success) {
-            toast.success(t('sidebarFilesTree.toast.folderCreated'));
+            toast.success("Folder created");
             await refreshDirectory(parentPath);
           }
           closeDialog();
         })
-        .catch(() => toast.error(t('sidebarFilesTree.toast.operationFailed')))
+        .catch(() => toast.error("Operation failed"))
         .finally(done);
       return;
     }
 
     if (activeDialog === 'rename') {
       if (!dialogInputValue.trim()) {
-        toast.error(t('sidebarFilesTree.toast.nameRequired'));
+        toast.error("Name is required");
         done();
         return;
       }
       if (!files.rename) {
-        toast.error(t('sidebarFilesTree.toast.renameNotSupported'));
+        toast.error("Rename not supported");
         done();
         return;
       }
@@ -980,7 +977,7 @@ export const SidebarFilesTree: React.FC = () => {
       await files.rename(oldPath, newPath)
         .then(async (result) => {
           if (result.success) {
-            toast.success(t('sidebarFilesTree.toast.renamedSuccessfully'));
+            toast.success("Renamed successfully");
             await refreshDirectory(parentDir);
             if (root) {
               removeOpenPathsByPrefix(root, oldPath);
@@ -991,14 +988,14 @@ export const SidebarFilesTree: React.FC = () => {
           }
           closeDialog();
         })
-        .catch(() => toast.error(t('sidebarFilesTree.toast.operationFailed')))
+        .catch(() => toast.error("Operation failed"))
         .finally(done);
       return;
     }
 
     if (activeDialog === 'delete') {
       if (!files.delete) {
-        toast.error(t('sidebarFilesTree.toast.deleteNotSupported'));
+        toast.error("Delete not supported");
         done();
         return;
       }
@@ -1008,7 +1005,7 @@ export const SidebarFilesTree: React.FC = () => {
       await files.delete(deletedPath)
         .then(async (result) => {
           if (result.success) {
-            toast.success(t('sidebarFilesTree.toast.deletedSuccessfully'));
+            toast.success("Deleted successfully");
             await refreshDirectory(parentDir);
             if (root) {
               removeOpenPathsByPrefix(root, deletedPath);
@@ -1019,13 +1016,13 @@ export const SidebarFilesTree: React.FC = () => {
           }
           closeDialog();
         })
-        .catch(() => toast.error(t('sidebarFilesTree.toast.operationFailed')))
+        .catch(() => toast.error("Operation failed"))
         .finally(done);
       return;
     }
 
     done();
-  }, [activeDialog, dialogData, dialogInputValue, files, refreshDirectory, removeOpenPathsByPrefix, root, selectedPath, setSelectedPath, t]);
+  }, [activeDialog, dialogData, dialogInputValue, files, refreshDirectory, removeOpenPathsByPrefix, root, selectedPath, setSelectedPath]);
 
   // --- Tree rendering (matching FilesView with indent guides) ---
 
@@ -1070,7 +1067,7 @@ export const SidebarFilesTree: React.FC = () => {
                   <span className="min-w-0 flex-1 truncate text-[var(--status-error)]" title={loadErrorsByDir[node.path]}>{loadErrorsByDir[node.path]}</span>
                   <Button variant="ghost" size="xs" className="h-6 gap-1" onClick={() => void refreshDirectory(node.path)}>
                     <Icon name="refresh" className="h-3.5 w-3.5" />
-                    {t('sidebarFilesTree.actions.refreshTitle')}
+                    {"Refresh"}
                   </Button>
                 </li>
               ) : null}
@@ -1098,14 +1095,14 @@ export const SidebarFilesTree: React.FC = () => {
                   size="sm"
                   onClick={() => handleOpenDialog('createFile', { path: currentDirectory, type: 'directory' })}
                   className="h-8 w-8 p-0 flex-shrink-0"
-                  title={t('sidebarFilesTree.actions.newFileTitle')}
-                  aria-label={t('sidebarFilesTree.actions.newFileTitle')}
+                  title={"New File"}
+                  aria-label={"New File"}
                 >
                   <Icon name="file-add" className="h-4 w-4" />
                 </Button>
               </span>
             </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>{t('sidebarFilesTree.actions.newFileTitle')}</TooltipContent>
+            <TooltipContent side="bottom" sideOffset={6}>{"New File"}</TooltipContent>
           </Tooltip>
         )}
         {canCreateFolder && (
@@ -1117,25 +1114,25 @@ export const SidebarFilesTree: React.FC = () => {
                   size="sm"
                   onClick={() => handleOpenDialog('createFolder', { path: currentDirectory, type: 'directory' })}
                   className="h-8 w-8 p-0 flex-shrink-0"
-                  title={t('sidebarFilesTree.actions.newFolderTitle')}
-                  aria-label={t('sidebarFilesTree.actions.newFolderTitle')}
+                  title={"New Folder"}
+                  aria-label={"New Folder"}
                 >
                   <Icon name="folder-add" className="h-4 w-4" />
                 </Button>
               </span>
             </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>{t('sidebarFilesTree.actions.newFolderTitle')}</TooltipContent>
+            <TooltipContent side="bottom" sideOffset={6}>{"New Folder"}</TooltipContent>
           </Tooltip>
         )}
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="inline-flex flex-shrink-0">
-              <Button variant="ghost" size="sm" onClick={() => void refreshRoot()} className="h-8 w-8 p-0 flex-shrink-0" title={t('sidebarFilesTree.actions.refreshTitle')} aria-label={t('sidebarFilesTree.actions.refreshTitle')}>
+              <Button variant="ghost" size="sm" onClick={() => void refreshRoot()} className="h-8 w-8 p-0 flex-shrink-0" title={"Refresh"} aria-label={"Refresh"}>
                 <Icon name="refresh" className="h-4 w-4" />
               </Button>
             </span>
           </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={6}>{t('sidebarFilesTree.actions.refreshTitle')}</TooltipContent>
+          <TooltipContent side="bottom" sideOffset={6}>{"Refresh"}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -1147,14 +1144,14 @@ export const SidebarFilesTree: React.FC = () => {
                   if (root) collapseAllExpandedPaths(root);
                 }}
                 className="h-8 w-8 p-0 flex-shrink-0"
-                title={t('sidebarFilesTree.actions.collapseAllTitle')}
-                aria-label={t('sidebarFilesTree.actions.collapseAllTitle')}
+                title={"Collapse all folders"}
+                aria-label={"Collapse all folders"}
               >
                 <Icon name="collapse-vertical" className="h-4 w-4" />
               </Button>
             </span>
           </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={6}>{t('sidebarFilesTree.actions.collapseAllTitle')}</TooltipContent>
+          <TooltipContent side="bottom" sideOffset={6}>{"Collapse all folders"}</TooltipContent>
         </Tooltip>
         </div>
         <div className="relative min-w-0">
@@ -1163,13 +1160,13 @@ export const SidebarFilesTree: React.FC = () => {
             ref={searchInputRef}
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder={t('sidebarFilesTree.search.placeholder')}
+            placeholder={"Search files..."}
             className="h-8 pl-8 pr-8 typography-meta"
           />
           {searchQuery.trim().length > 0 ? (
             <button
               type="button"
-              aria-label={t('sidebarFilesTree.search.clearAria')}
+              aria-label={"Clear search"}
               className="absolute right-2 top-2 inline-flex h-4 w-4 items-center justify-center text-muted-foreground hover:text-foreground"
               onClick={() => {
                 setSearchQuery('');
@@ -1187,7 +1184,7 @@ export const SidebarFilesTree: React.FC = () => {
           {searching ? (
             <li className="flex items-center gap-1.5 px-2 py-1 typography-meta text-muted-foreground">
               <Icon name="loader-4" className="h-4 w-4 animate-spin" />
-              {t('sidebarFilesTree.state.searching')}
+              {"Searching..."}
             </li>
           ) : searchResults.length > 0 ? (
             searchResults.map((node) => {
@@ -1226,13 +1223,13 @@ export const SidebarFilesTree: React.FC = () => {
               <span>{rootLoadError}</span>
               <Button variant="outline" size="xs" className="w-fit gap-1.5" onClick={() => void refreshRoot()}>
                 <Icon name="refresh" className="h-3.5 w-3.5" />
-                {t('sidebarFilesTree.actions.refreshTitle')}
+                {"Refresh"}
               </Button>
             </li>
           ) : hasTree && root ? (
             renderTree(root, 0)
           ) : (
-            <li className="px-2 py-1 typography-meta text-muted-foreground">{t('sidebarFilesTree.state.loading')}</li>
+            <li className="px-2 py-1 typography-meta text-muted-foreground">{"Loading..."}</li>
           )}
         </ul>
       </ScrollableOverlay>
@@ -1242,16 +1239,16 @@ export const SidebarFilesTree: React.FC = () => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {activeDialog === 'createFile' && t('sidebarFilesTree.dialog.createFile.title')}
-              {activeDialog === 'createFolder' && t('sidebarFilesTree.dialog.createFolder.title')}
-              {activeDialog === 'rename' && t('sidebarFilesTree.dialog.rename.title')}
-              {activeDialog === 'delete' && t('sidebarFilesTree.dialog.delete.title')}
+              {activeDialog === 'createFile' && "Create File"}
+              {activeDialog === 'createFolder' && "Create Folder"}
+              {activeDialog === 'rename' && "Rename"}
+              {activeDialog === 'delete' && "Delete"}
             </DialogTitle>
             <DialogDescription>
-              {activeDialog === 'createFile' && t('sidebarFilesTree.dialog.createFile.description', { path: dialogData?.path ?? t('sidebarFilesTree.dialog.rootFallback') })}
-              {activeDialog === 'createFolder' && t('sidebarFilesTree.dialog.createFolder.description', { path: dialogData?.path ?? t('sidebarFilesTree.dialog.rootFallback') })}
-              {activeDialog === 'rename' && t('sidebarFilesTree.dialog.rename.description', { name: dialogData?.name ?? '' })}
-              {activeDialog === 'delete' && t('sidebarFilesTree.dialog.delete.description', { name: dialogData?.name ?? '' })}
+              {activeDialog === 'createFile' && `Create a new file in ${dialogData?.path ?? 'root'}`}
+              {activeDialog === 'createFolder' && `Create a new folder in ${dialogData?.path ?? 'root'}`}
+              {activeDialog === 'rename' && `Rename ${dialogData?.name ?? ''}`}
+              {activeDialog === 'delete' && `Are you sure you want to delete ${dialogData?.name ?? ''}? This action cannot be undone.`}
             </DialogDescription>
           </DialogHeader>
 
@@ -1260,7 +1257,7 @@ export const SidebarFilesTree: React.FC = () => {
               <Input
                 value={dialogInputValue}
                 onChange={(e) => setDialogInputValue(e.target.value)}
-                placeholder={activeDialog === 'rename' ? t('sidebarFilesTree.dialog.rename.placeholder') : t('sidebarFilesTree.dialog.namePlaceholder')}
+                placeholder={activeDialog === 'rename' ? "New name" : "Name"}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     void handleDialogSubmit();
@@ -1273,7 +1270,7 @@ export const SidebarFilesTree: React.FC = () => {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setActiveDialog(null)} disabled={isDialogSubmitting}>
-              {t('sidebarFilesTree.dialog.cancel')}
+              {"Cancel"}
             </Button>
             <Button
               variant={activeDialog === 'delete' ? 'destructive' : 'default'}
@@ -1281,7 +1278,7 @@ export const SidebarFilesTree: React.FC = () => {
               disabled={isDialogSubmitting || (activeDialog !== 'delete' && !dialogInputValue.trim())}
             >
               {isDialogSubmitting ? <Icon name="loader-4" className="size-4 animate-spin" /> : (
-                activeDialog === 'delete' ? t('sidebarFilesTree.dialog.delete.confirm') : t('sidebarFilesTree.dialog.confirm')
+                activeDialog === 'delete' ? "Delete" : "Confirm"
               )}
             </Button>
           </DialogFooter>

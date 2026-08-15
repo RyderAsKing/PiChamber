@@ -2,9 +2,6 @@ import { MOBILE_KEYBOARD_MODE_STORAGE_KEY, normalizeMobileKeyboardMode as normal
 
 export type MobileKeyboardMode = SharedMobileKeyboardMode;
 
-const VIEWPORT_META_SELECTOR = 'meta[name="viewport"]';
-const VIEWPORT_CONTENT_BASE = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover';
-
 export const supportsMobileKeyboardResizeContent = (): boolean => {
   return true;
 };
@@ -18,13 +15,6 @@ export function normalizeMobileKeyboardMode(
 ): MobileKeyboardMode | undefined {
   return normalizeMobileKeyboardModeShared(value, fallback) ?? undefined;
 }
-
-const getViewportContentForMobileKeyboardMode = (value: unknown): string => {
-  const mode = normalizeMobileKeyboardMode(value);
-  return mode === 'resize-content'
-    ? `${VIEWPORT_CONTENT_BASE}, interactive-widget=resizes-content`
-    : VIEWPORT_CONTENT_BASE;
-};
 
 export const getStoredMobileKeyboardMode = (): MobileKeyboardMode => {
   if (typeof window === 'undefined') {
@@ -50,26 +40,6 @@ export const setStoredMobileKeyboardMode = (value: unknown): MobileKeyboardMode 
       }
     } catch {
       // Ignore storage failures in restricted browsing contexts.
-    }
-  }
-
-  return mode;
-};
-
-export const applyMobileKeyboardMode = (value: unknown): MobileKeyboardMode => {
-  const mode = setStoredMobileKeyboardMode(value);
-
-  if (typeof document === 'undefined') {
-    return mode;
-  }
-
-  document.documentElement.setAttribute('data-oc-mobile-keyboard-mode', mode);
-
-  const viewportMeta = document.querySelector(VIEWPORT_META_SELECTOR);
-  if (viewportMeta instanceof HTMLMetaElement) {
-    const nextContent = getViewportContentForMobileKeyboardMode(mode);
-    if (viewportMeta.getAttribute('content') !== nextContent) {
-      viewportMeta.setAttribute('content', nextContent);
     }
   }
 

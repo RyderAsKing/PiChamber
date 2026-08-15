@@ -14,7 +14,6 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Icon } from "@/components/icon/Icon";
-import { useI18n } from '@/lib/i18n';
 
 interface InlineCommentCardProps {
   draft: InlineCommentDraft;
@@ -31,7 +30,7 @@ export function InlineCommentCard({
   className,
   maxWidth,
 }: InlineCommentCardProps) {
-  const { t } = useI18n();
+  
   const themeContext = useOptionalThemeSystem();
   const currentTheme = themeContext?.currentTheme;
   const [isOpen, setIsOpen] = useState(false);
@@ -71,7 +70,7 @@ export function InlineCommentCard({
               {draft.fileLabel}
             </span>
             <span>•</span>
-            <span>{t('inlineComment.range.lines', { start: draft.startLine, end: draft.endLine })}</span>
+            <span>{`Lines ${draft.startLine}-${draft.endLine}`}</span>
             {draft.side && <span>({draft.side})</span>}
           </div>
           
@@ -90,12 +89,12 @@ export function InlineCommentCard({
                   {isOpen ? (
                     <>
                       <Icon name="arrow-up-s" className="size-3 mr-1" />
-                      {t('inlineComment.actions.showLess')}
+                      {"Show less"}
                     </>
                   ) : (
                     <>
                       <Icon name="arrow-down-s" className="size-3 mr-1" />
-                      {t('inlineComment.actions.showMore')}
+                      {"Show more"}
                     </>
                   )}
                 </Button>
@@ -121,11 +120,11 @@ export function InlineCommentCard({
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={onEdit}>
               <Icon name="edit" className="size-4 mr-2" />
-              {t('inlineComment.actions.editComment')}
+              {"Edit comment"}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={onDelete} className="text-destructive">
               <Icon name="delete-bin" className="size-4 mr-2" />
-              {t('inlineComment.actions.deleteComment')}
+              {"Delete comment"}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -134,11 +133,11 @@ export function InlineCommentCard({
       <ContextMenuContent>
         <ContextMenuItem onClick={onEdit}>
           <Icon name="edit" className="size-4 mr-2" />
-          {t('inlineComment.actions.editComment')}
+          {"Edit comment"}
         </ContextMenuItem>
         <ContextMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
           <Icon name="delete-bin" className="size-4 mr-2" />
-          {t('inlineComment.actions.deleteComment')}
+          {"Delete comment"}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>

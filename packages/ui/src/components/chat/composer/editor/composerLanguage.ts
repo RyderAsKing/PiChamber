@@ -92,6 +92,3 @@ export function composerLanguage(initial: ComposerLanguageContext = EMPTY_CONTEX
 }
 
 /** The context currently in effect, for callers that need to read it back. */
-export function readLanguageContext(view: EditorView): ComposerLanguageContext {
-    return view.state.field(languageContextField);
-}

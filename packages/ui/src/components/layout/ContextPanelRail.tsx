@@ -21,7 +21,6 @@ import { DiffViewIcon } from '@/components/icons/DiffIcon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useDeviceInfo } from '@/lib/device';
-import { useI18n } from '@/lib/i18n';
 import {
   getVisibleContextRailSurfaces,
   sortContextSurfaces,
@@ -152,7 +151,6 @@ const ContextPanelRailItem: React.FC<RailItemProps> = ({
 };
 
 export const ContextPanelRail: React.FC = () => {
-  const { t } = useI18n();
   const effectiveDirectory = useEffectiveDirectory();
   const directoryKey = effectiveDirectory ? normalizeContextPanelDirectoryKey(effectiveDirectory) : '';
 
@@ -280,13 +278,13 @@ export const ContextPanelRail: React.FC = () => {
 
   return (
     <nav
-      aria-label={t('contextRail.aria.rail')}
+      aria-label={"Panel surfaces"}
       className="flex h-full w-11 flex-shrink-0 flex-col items-center gap-1 bg-background py-2"
     >
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={surfaces.map((surface) => surface.id)} strategy={verticalListSortingStrategy}>
           {surfaces.map((surface, index) => {
-            const label = t(surface.labelKey);
+            const label = surface.label;
             // Git shows a numeric badge instead of the old activity dot.
             // Other surfaces never inherit git's changed-files signal.
             // The work-status panel reports the same count in words a few
@@ -300,23 +298,13 @@ export const ContextPanelRail: React.FC = () => {
                 isActive={activeMode === surface.mode}
                 showActivityDot={false}
                 label={label}
-                description={t(surface.descriptionKey)}
+                description={surface.description}
                 badgeCount={badgeCount}
                 badgeAriaLabel={badgeCount !== null
-                  ? t(
-                      badgeCount === 1
-                        ? 'contextRail.surface.git.changesCountAriaSingle'
-                        : 'contextRail.surface.git.changesCountAriaPlural',
-                      { label, count: badgeCount },
-                    )
+                  ? (badgeCount === 1 ? "{label}, {count} changed file" : "{label}, {count} changed files")
                   : null}
                 badgeDescription={badgeCount !== null
-                  ? t(
-                      badgeCount === 1
-                        ? 'contextRail.surface.git.changesCountTooltipSingle'
-                        : 'contextRail.surface.git.changesCountTooltipPlural',
-                      { count: badgeCount },
-                    )
+                  ? (badgeCount === 1 ? "{count} changed file" : "{count} changed files")
                   : null}
                 orderNumber={index + 1}
                 showOrderNumber={revealNumbers}

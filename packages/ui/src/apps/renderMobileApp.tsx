@@ -13,7 +13,6 @@ import { getDeviceInfo } from '@/lib/device';
 import { markAppBootReady } from './appBootReady';
 import { installMobileWidgetSnapshotBridge } from './mobileWidgetSnapshot';
 import { applyPersistedDirectoryPreferences } from '@/lib/directoryPersistence';
-import { initializeLocale, I18nProvider } from '@/lib/i18n';
 import { initializeAppearancePreferences, syncDesktopSettings } from '@/lib/persistence';
 import { startModelPrefsAutoSave } from '@/lib/modelPrefsAutoSave';
 import { startTypographyWatcher } from '@/lib/typographyWatcher';
@@ -22,7 +21,6 @@ import { SessionAuthGate } from '@/components/auth/SessionAuthGate';
 import { MobileApp } from './MobileApp';
 
 const initializeSharedPreferences = () => {
-  initializeLocale();
 
   void initializeAppearancePreferences().then(() => {
     void Promise.all([
@@ -90,7 +88,6 @@ export function renderMobileApp(apis?: RuntimeAPIs) {
 
   createRoot(rootElement).render(
     <StrictMode>
-      <I18nProvider>
         <ThemeSystemProvider>
           <ThemeProvider>
             <DiffWorkerProvider>
@@ -98,7 +95,6 @@ export function renderMobileApp(apis?: RuntimeAPIs) {
             </DiffWorkerProvider>
           </ThemeProvider>
         </ThemeSystemProvider>
-      </I18nProvider>
     </StrictMode>,
   );
 }

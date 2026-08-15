@@ -263,12 +263,3 @@ export const bootstrapPiDirectory = async (
 /**
  * The currently-known bootstrap phase names. Useful for diagnostics.
  */
-export const PI_BOOTSTRAP_PHASES: readonly PiBootstrapPhase[] = [
-  'idle',
-  'runtime-probe',
-  'session-list',
-  'session-hydrate',
-  'stream-attach',
-  'ready',
-  'failed',
-] as const;

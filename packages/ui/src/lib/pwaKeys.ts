@@ -13,12 +13,6 @@ export const MOBILE_KEYBOARD_MODE_STORAGE_KEY = 'pichamber.mobileKeyboardMode';
 export const PWA_RECENT_SESSIONS_STORAGE_KEY = 'pichamber.pwaRecentSessions';
 
 // Frozen tuple used by the contract test and the inline `index.html` reader.
-export const PWA_STORAGE_KEYS = Object.freeze([
-  PWA_NAME_STORAGE_KEY,
-  PWA_ORIENTATION_STORAGE_KEY,
-  MOBILE_KEYBOARD_MODE_STORAGE_KEY,
-  PWA_RECENT_SESSIONS_STORAGE_KEY,
-]);
 
 export type PwaOrientation = 'system' | 'portrait' | 'landscape';
 

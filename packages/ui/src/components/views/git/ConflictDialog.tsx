@@ -15,7 +15,6 @@ import { toast } from '@/components/ui';
 import { Icon } from "@/components/icon/Icon";
 import { getConflictDetails, type MergeConflictDetails } from '@/lib/gitApi';
 import { renderMagicPrompt } from '@/lib/magicPrompts';
-import { useI18n } from '@/lib/i18n';
 
 interface ConflictDialogProps {
   open: boolean;
@@ -36,7 +35,6 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
   onAbort,
   onClearState,
 }) => {
-  const { t } = useI18n();
   const openNewSessionDraft = useSessionUIStore((state) => state.openNewSessionDraft);
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const setPendingInputText = useInputStore((state) => state.setPendingInputText);
@@ -60,13 +58,13 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
         setConflictDetails(details);
       })
       .catch((err) => {
-        const message = err instanceof Error ? err.message : t('gitView.conflict.loadFailed');
+        const message = err instanceof Error ? err.message : "Failed to load conflict details";
         setLoadError(message);
       })
       .finally(() => {
         setIsLoading(false);
       });
-  }, [open, directory, t]);
+  }, [open, directory]);
 
   const buildConflictContext = React.useCallback(async (): Promise<{
     visibleText: string;
@@ -121,12 +119,12 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
   const handleResolveInCurrentSession = async () => {
     const context = await buildConflictContext();
     if (!context) {
-      toast.error(t('gitView.conflict.noDetailsAvailable'));
+      toast.error("No conflict details available");
       return;
     }
 
     if (!currentSessionId) {
-      toast.error(t('gitView.conflict.noActiveSession'), { description: t('gitView.conflict.noActiveSessionDescription') });
+      toast.error("No active session", { description: "Open or create a session to resolve conflicts." });
       return;
     }
 
@@ -145,7 +143,7 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
   const handleResolveInNewSession = async () => {
     const context = await buildConflictContext();
     if (!context) {
-      toast.error(t('gitView.conflict.noDetailsAvailable'));
+      toast.error("No conflict details available");
       return;
     }
 
@@ -164,7 +162,7 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
     onOpenChange(false);
   };
 
-  const operationLabel = operation === 'merge' ? t('gitView.operation.merge') : t('gitView.operation.rebase');
+  const operationLabel = operation === 'merge' ? "Merge" : "Rebase";
   const displayFiles = conflictDetails?.unmergedFiles || conflictFiles;
 
   return (
@@ -174,30 +172,30 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
           <DialogHeader>
             <div className="flex items-center gap-2">
               <Icon name="alert" className="size-5 shrink-0 text-[var(--status-warning)]" />
-              <DialogTitle>{t('gitView.conflict.detectedTitle', { operation: operationLabel })}</DialogTitle>
+              <DialogTitle>{`${operationLabel} conflicts detected`}</DialogTitle>
             </div>
             <DialogDescription>
-              {t('gitView.conflict.detectedDescription', { operation })}
+              {`Resolve the ${operation} conflicts to continue.`}
             </DialogDescription>
           </DialogHeader>
 
           {isLoading && (
             <div className="flex items-center justify-center gap-2 py-4 text-muted-foreground">
               <Icon name="loader-4" className="size-4 animate-spin" />
-              <span className="typography-meta">{t('gitView.conflict.loading')}</span>
+              <span className="typography-meta">{"Loading conflict details..."}</span>
             </div>
           )}
 
           {loadError && (
             <div className="rounded-lg bg-[var(--status-error-bg)] p-3 text-[var(--status-error)] typography-meta break-words">
-              {t('gitView.conflict.errorLoadingDetails', { message: loadError })}
+              {`Failed to load conflict details: ${loadError}`}
             </div>
           )}
 
           {displayFiles.length > 0 && (
             <div className="space-y-2 overflow-hidden">
               <div className="flex items-center justify-between">
-                <p className="typography-meta text-muted-foreground">{t('gitView.conflict.conflictedFiles')}</p>
+                <p className="typography-meta text-muted-foreground">{"Conflicted files:"}</p>
                 <span className="typography-micro px-1.5 py-0.5 rounded bg-[var(--surface-elevated)] text-muted-foreground">
                   {displayFiles.length}
                 </span>
@@ -220,7 +218,7 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
 
           {conflictDetails?.headInfo && (
             <div className="space-y-1 overflow-hidden">
-              <p className="typography-meta text-muted-foreground">{t('gitView.conflict.headInfo')}</p>
+              <p className="typography-meta text-muted-foreground">{"HEAD information:"}</p>
               <div className="typography-micro text-foreground font-mono bg-[var(--surface-elevated)] rounded-lg p-3 max-h-24 overflow-y-auto break-words whitespace-pre-wrap">
                 {conflictDetails.headInfo}
               </div>
@@ -241,7 +239,7 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
               ) : (
                 <Icon name="add" className="size-4" />
               )}
-              {t('gitView.conflict.resolveNewSession')}
+              {"Resolve in new session"}
             </Button>
             <Button
               variant="outline"
@@ -254,14 +252,14 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
               ) : (
                 <Icon name="chat-1" className="size-4" />
               )}
-              {t('gitView.conflict.resolveCurrentSession')}
+              {"Resolve in current session"}
             </Button>
             <div className="flex gap-2 pt-1">
               <Button variant="ghost" size="sm" onClick={handleContinueLater} className="flex-1">
-                {t('gitView.conflict.continueLater')}
+                {"Continue later"}
               </Button>
               <Button variant="destructive" size="sm" onClick={handleAbort} className="flex-1">
-                {t('gitView.conflict.abortOperation', { operation: operationLabel })}
+                {`Abort ${operationLabel}`}
               </Button>
             </div>
           </div>

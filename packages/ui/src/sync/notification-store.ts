@@ -145,10 +145,6 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
 // Imperative API for non-React code (event handler in sync-context)
 // ---------------------------------------------------------------------------
 
-export function appendNotification(notification: Notification) {
-  useNotificationStore.getState().append(notification)
-}
-
 export function markSessionViewed(sessionId: string) {
   useNotificationStore.getState().markSessionViewed(sessionId)
 }

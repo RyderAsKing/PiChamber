@@ -4,10 +4,6 @@ import { piListItemToUiSession } from '@/lib/chat/pi-to-renderable';
 import type { Config, Message, Session } from '@/lib/chat/types';
 
 export function setSyncRefs() {}
-export function registerSessionDirectory() {}
-export function getSyncChildStores() {
-  return { children: new Map(), getState: () => undefined };
-}
 export function getDirectoryState(...args: unknown[]) {
   void args;
   return undefined as undefined | {
@@ -46,9 +42,6 @@ export function getSyncSessionMaterializationStatus(_sessionId?: string, _direct
 }
 export function getSyncParts(_messageId?: string, _directory?: string): any[] {
   return [];
-}
-export function getSyncSessionStatus() {
-  return undefined;
 }
 export function resolveSessionDirectory(_sessionId?: string | null, _wt?: any, selected?: string | null): string | null {
   return selected ?? null;

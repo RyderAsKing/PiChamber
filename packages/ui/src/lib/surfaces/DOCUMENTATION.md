@@ -33,7 +33,7 @@ edge (`components/layout/ContextPanelRail.tsx`) and rendered by
    sanitizer whitelist in `sanitizeContextPanelTabs`).
 2. Register a descriptor here (icon, label key, availability, width fraction).
 3. Render the mode in `ContextPanel.tsx` (content dispatch, label, icon).
-4. Add label/hint i18n keys to every locale dictionary.
+4. Provide direct user-facing `label` and `description` in the descriptor.
 
 No new header buttons: the rail and `openContextSurface` are the only entry
 points for opening surfaces directly; deep links from chat/palette go through

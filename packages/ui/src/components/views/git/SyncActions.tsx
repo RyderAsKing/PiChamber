@@ -9,7 +9,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Icon } from "@/components/icon/Icon";
 import type { GitRemote } from '@/lib/gitApi';
-import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 type SyncAction = 'fetch' | 'pull' | 'push' | 'sync' | null;
@@ -42,7 +41,7 @@ export const SyncActions: React.FC<SyncActionsProps> = ({
   trackingRemoteName,
   hasUncommittedChanges = false,
 }) => {
-  const { t } = useI18n();
+  
   const skipRemoteSelectRef = React.useRef(false);
   const isRemovingRemote = Boolean(removingRemoteName);
   const trackingRemote = remotes.find((remote) => remote.name === trackingRemoteName) ?? remotes[0];
@@ -51,17 +50,17 @@ export const SyncActions: React.FC<SyncActionsProps> = ({
   const isDropdownDisabled = disabled || syncAction !== null || isRemovingRemote || remotes.length === 0;
   const hasKnownSyncWork = aheadCount > 0 || behindCount > 0;
   const primaryLabel = [
-    t('gitView.sync.sync'),
+    "sync",
     behindCount > 0 ? `↓${behindCount}` : null,
     aheadCount > 0 ? `↑${aheadCount}` : null,
   ].filter(Boolean).join(' ');
   const tooltipLabel = blocksRebaseSync
-    ? t('gitView.sync.commitOrStashTooltip')
+    ? "Commit or stash your changes before syncing"
     : trackingRemote
     ? hasKnownSyncWork
-      ? t('gitView.sync.syncChangesTooltip', { ahead: aheadCount, behind: behindCount })
-      : t('gitView.sync.syncChanges')
-    : t('gitView.sync.noRemoteTooltip');
+      ? `Sync Changes (${behindCount} down, ${aheadCount} up)`
+      : "Sync Changes"
+    : "No remotes configured";
 
   const handleSync = () => {
     if (!trackingRemote) {
@@ -83,7 +82,7 @@ export const SyncActions: React.FC<SyncActionsProps> = ({
                 'inline-flex h-7 items-center gap-1.5 px-2 typography-ui-label font-medium text-foreground',
                 'transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50'
               )}
-              aria-label={t('gitView.sync.syncChanges')}
+              aria-label={"Sync Changes"}
             >
               {syncAction === 'sync' ? (
                 <Icon name="loader-4" className="size-4 animate-spin" />
@@ -106,7 +105,7 @@ export const SyncActions: React.FC<SyncActionsProps> = ({
               'transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50'
             )}
             disabled={isDropdownDisabled}
-            aria-label={t('gitView.sync.moreActionsAria')}
+            aria-label={"More sync actions"}
           >
             <Icon name="arrow-down-s" className="size-4" />
           </button>
@@ -129,7 +128,7 @@ export const SyncActions: React.FC<SyncActionsProps> = ({
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-col">
                     <span className="typography-ui-label text-foreground">
-                      {t('gitView.sync.fetchFromRemote', { name: remote.name })}
+                      {`Fetch from ${remote.name}`}
                     </span>
                     <span className="typography-meta text-muted-foreground truncate">
                       {remote.fetchUrl}
@@ -154,8 +153,8 @@ export const SyncActions: React.FC<SyncActionsProps> = ({
                       event.stopPropagation();
                       onRemoveRemote(remote);
                     }}
-                    aria-label={t('gitView.header.removeRemoteAria', { name: remote.name })}
-                    title={t('gitView.header.removeRemoteTitle', { name: remote.name })}
+                    aria-label={`Remove remote ${remote.name}`}
+                    title={`Remove remote ${remote.name}`}
                   >
                     {removingRemoteName === remote.name ? (
                       <Icon name="loader-4" className="size-3.5 animate-spin" />

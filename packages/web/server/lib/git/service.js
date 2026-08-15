@@ -500,10 +500,6 @@ const createRepositoryGitContext = async (directory) => {
  * persisted data by repository need this so two directories in the same
  * repository do not address different records.
  */
-export async function getRepositoryRoot(directory) {
-  const { repoRoot } = await createRepositoryGitContext(directory);
-  return repoRoot;
-}
 
 const resolveGitInternalPath = async (repoRoot, git, gitPath) => {
   const resolved = await git.raw(['rev-parse', '--git-path', gitPath]);
@@ -2463,19 +2459,6 @@ export async function getDiff(directory, { path: filePath, staged = false, conte
  * computes ahead/behind, diff stats, and merge state — an order of magnitude
  * more work for an answer they throw away.
  */
-export async function listUntrackedPaths(directory) {
-  const { repoRoot } = await createRepositoryGitContext(directory);
-  const result = await runGitCommand(repoRoot, [
-    'ls-files',
-    '--others',
-    '--exclude-standard',
-  ]);
-  if (!result.success) return [];
-  return String(result.stdout || '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
 
 /**
  * Diffs for untracked files, produced against an empty tree.
@@ -2488,40 +2471,6 @@ export async function listUntrackedPaths(directory) {
  * Returns one entry per input path, in order; unreadable paths yield `''`
  * rather than failing the batch.
  */
-export async function getUntrackedDiffs(directory, filePaths = [], { concurrency = 8, contextLines = 3 } = {}) {
-  const paths = (Array.isArray(filePaths) ? filePaths : []).filter((value) => typeof value === 'string' && value);
-  if (paths.length === 0) return [];
-
-  const { directoryPath, directoryGit, repoRoot, git } = await createRepositoryGitContext(directory);
-  const results = new Array(paths.length).fill('');
-  let cursor = 0;
-
-  const worker = async () => {
-    while (cursor < paths.length) {
-      const index = cursor++;
-      try {
-        const fileContext = await resolveGitFileContext(directoryPath, directoryGit, paths[index], repoRoot);
-        const args = ['diff', '--no-color'];
-        if (typeof contextLines === 'number' && !Number.isNaN(contextLines)) {
-          args.push(`-U${Math.max(0, contextLines)}`);
-        }
-        args.push('--no-index', '--', '/dev/null', fileContext.repoPath);
-        try {
-          results[index] = await git.raw(args);
-        } catch (error) {
-          // `git diff --no-index` exits 1 whenever there are differences, which
-          // for a new file is always.
-          results[index] = error?.exitCode === 1 && error?.message ? error.message : '';
-        }
-      } catch {
-        results[index] = '';
-      }
-    }
-  };
-
-  await Promise.all(Array.from({ length: Math.min(concurrency, paths.length) }, worker));
-  return results;
-}
 
 export async function getRangeDiff(directory, { base, head, path: filePath, contextLines = 3 } = {}) {
   const { directoryPath, directoryGit, repoRoot, git } = await createRepositoryGitContext(directory);
@@ -2576,32 +2525,6 @@ export async function getRangeDiff(directory, { base, head, path: filePath, cont
   }
   const diff = await git.raw(args);
   return diff;
-}
-
-export async function getRangeFiles(directory, { base, head } = {}) {
-  const { git } = await createRepositoryGitContext(directory);
-  const baseRef = typeof base === 'string' ? base.trim() : '';
-  const headRef = typeof head === 'string' ? head.trim() : '';
-  if (!baseRef || !headRef) {
-    throw new Error('base and head are required');
-  }
-
-  let resolvedBase = baseRef;
-  const originCandidate = `refs/remotes/origin/${baseRef}`;
-  try {
-    const verified = await git.raw(['rev-parse', '--verify', originCandidate]);
-    if (verified && verified.trim()) {
-      resolvedBase = `origin/${baseRef}`;
-    }
-  } catch {
-    // ignore
-  }
-
-  const raw = await git.raw(['diff', '--name-only', `${resolvedBase}...${headRef}`]);
-  return String(raw || '')
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean);
 }
 
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp', 'avif'];
@@ -2971,21 +2894,6 @@ export async function applyHunk(directory, filePath, options = {}) {
       }
     }
   });
-}
-
-export async function collectDiffs(directory, files = []) {
-  const results = [];
-  for (const filePath of files) {
-    try {
-      const diff = await getDiff(directory, { path: filePath });
-      if (diff && diff.trim().length > 0) {
-        results.push({ path: filePath, diff });
-      }
-    } catch (error) {
-      console.error(`Failed to diff ${filePath}:`, error);
-    }
-  }
-  return results;
 }
 
 export async function pull(directory, options = {}) {
@@ -3931,27 +3839,6 @@ const assertWorktreeCreatePreflight = async (directory, input = {}) => {
     .join('\n') || 'Failed to validate worktree creation';
   throw new Error(message);
 };
-
-export async function previewWorktreeCreate(directory, input = {}) {
-  const mode = input?.mode === 'existing' ? 'existing' : 'new';
-  const context = await resolveWorktreeProjectContext(directory);
-  await fsp.mkdir(context.worktreeRoot, { recursive: true });
-
-  const preferredName = String(input?.worktreeName || input?.name || '').trim();
-  const preferredBranchName = cleanBranchName(String(input?.branchName || '').trim());
-  const candidate = await resolveCandidateDirectory(
-    context.worktreeRoot,
-    preferredName,
-    mode === 'new' && preferredBranchName ? preferredBranchName : '',
-    context.primaryWorktree
-  );
-
-  return {
-    name: candidate.name,
-    branch: mode === 'new' ? candidate.branch : preferredBranchName,
-    path: candidate.directory,
-  };
-}
 
 async function attachGitWorktreeToCandidate(context, candidate, input = {}) {
   const mode = input?.mode === 'existing' ? 'existing' : 'new';

@@ -44,7 +44,6 @@ import { getSettingsNavIcon } from '@/lib/settings/metadata';
 import { Icon } from "@/components/icon/Icon";
 import { scoreByFuzzyQuery } from '@/lib/search/fuzzySearch';
 import { truncatePathMiddle } from '@/lib/utils';
-import { useI18n } from '@/lib/i18n';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { buildCommandPaletteFileSearchKey, scoreCommandPaletteFiles } from './commandPaletteFilesState';
@@ -74,7 +73,6 @@ const normalizePath = (value: string): string => {
 };
 
 export const CommandPalette: React.FC = () => {
-  const { t } = useI18n();
 
   const isCommandPaletteOpen = useUIStore((s) => s.isCommandPaletteOpen);
   const setCommandPaletteOpen = useUIStore((s) => s.setCommandPaletteOpen);
@@ -162,10 +160,10 @@ export const CommandPalette: React.FC = () => {
     const list: CommandEntry[] = [
       {
         id: 'new-session',
-        title: t('commandPalette.item.newSession'),
+        title: "New Session",
         icon: <Icon name="add" className="mr-2 h-4 w-4" />,
         shortcutId: 'new_chat',
-        searchText: t('commandPalette.item.newSession'),
+        searchText: "New Session",
         onSelect: run(() => {
           setActiveMainTab('chat');
           setSessionSwitcherOpen(false);
@@ -174,9 +172,9 @@ export const CommandPalette: React.FC = () => {
       },
       {
         id: 'add-project',
-        title: t('commandPalette.item.addProject'),
+        title: "Add Project",
         icon: <Icon name="folder-add" className="mr-2 h-4 w-4" />,
-        searchText: t('commandPalette.item.addProject'),
+        searchText: "Add Project",
         onSelect: run(() => {
           sessionEvents.requestDirectoryDialog();
         }),
@@ -184,13 +182,13 @@ export const CommandPalette: React.FC = () => {
       {
         id: 'toggle-sidebar',
         title: isMobile
-          ? t('commandPalette.item.showSessionSwitcher')
-          : t('commandPalette.item.toggleSidebar'),
+          ? "Show Session Switcher"
+          : "Toggle Sidebar",
         icon: <Icon name="layout-left" className="mr-2 h-4 w-4" />,
         shortcutId: 'toggle_sidebar',
         searchText: isMobile
-          ? t('commandPalette.item.showSessionSwitcher')
-          : t('commandPalette.item.toggleSidebar'),
+          ? "Show Session Switcher"
+          : "Toggle Sidebar",
         onSelect: run(() => {
           if (isMobile) {
             const { isSessionSwitcherOpen } = useUIStore.getState();
@@ -202,39 +200,39 @@ export const CommandPalette: React.FC = () => {
       },
       {
         id: 'toggle-terminal',
-        title: t('commandPalette.item.toggleTerminal'),
+        title: "Toggle Terminal",
         icon: <Icon name="terminal-box" className="mr-2 h-4 w-4" />,
         shortcutId: 'toggle_terminal',
-        searchText: t('commandPalette.item.toggleTerminal'),
+        searchText: "Toggle Terminal",
         onSelect: run(() => {
           if (currentDirectory) openContextSurface(currentDirectory, 'terminal');
         }),
       },
       {
         id: 'context-usage',
-        title: t('commandPalette.item.showContextUsage'),
+        title: "Show Context Usage",
         icon: <Icon name="pie-chart" className="mr-2 h-4 w-4" />,
-        searchText: t('commandPalette.item.showContextUsage'),
+        searchText: "Show Context Usage",
         onSelect: run(() => {
           if (currentDirectory) openContextOverview(currentDirectory);
         }),
       },
       {
         id: 'open-settings',
-        title: t('commandPalette.item.openSettings'),
+        title: "Open Settings...",
         icon: <Icon name="settings-3" className="mr-2 h-4 w-4" />,
         shortcutId: 'open_settings',
-        searchText: t('commandPalette.item.openSettings'),
+        searchText: "Open Settings...",
         onSelect: run(() => setSettingsDialogOpen(true)),
       },
     ];
     if (canUseElectronDesktopIPC()) {
       list.splice(1, 0, {
         id: 'new-mini-chat',
-        title: t('commandPalette.item.newMiniChat'),
+        title: "New Mini Chat Window",
         icon: <Icon name="window" className="mr-2 h-4 w-4" />,
         shortcutId: 'new_mini_chat',
-        searchText: t('commandPalette.item.newMiniChat'),
+        searchText: "New Mini Chat Window",
         onSelect: run(() => {
           void invokeDesktop('desktop_open_draft_mini_chat_window', {
             directory: normalizePath(currentDirectory || activeProject?.path || ''),
@@ -247,7 +245,6 @@ export const CommandPalette: React.FC = () => {
     }
     return list;
   }, [
-    t,
     run,
     isMobile,
     setActiveMainTab,
@@ -466,8 +463,8 @@ export const CommandPalette: React.FC = () => {
   return (
     <Dialog open={isCommandPaletteOpen} onOpenChange={setCommandPaletteOpen}>
       <DialogHeader className="sr-only">
-        <DialogTitle>{t('commandPalette.title')}</DialogTitle>
-        <DialogDescription>{t('commandPalette.description')}</DialogDescription>
+        <DialogTitle>{"Command Palette"}</DialogTitle>
+        <DialogDescription>{"Search files, sessions, and commands."}</DialogDescription>
       </DialogHeader>
       <DialogContent className="overflow-hidden p-0" showCloseButton>
         <Command
@@ -477,10 +474,10 @@ export const CommandPalette: React.FC = () => {
           <CommandInput
             value={query}
             onValueChange={setQuery}
-            placeholder={t('commandPalette.input.placeholder')}
+            placeholder={"Search files, sessions, commands..."}
           />
           <CommandList>
-            <CommandEmpty>{t('commandPalette.empty.noResults')}</CommandEmpty>
+            <CommandEmpty>{"No results found."}</CommandEmpty>
 
             {groupOrder.map((groupKey) => {
               if (groupKey === 'commands' && visibleCommands.length > 0) {
@@ -514,7 +511,7 @@ export const CommandPalette: React.FC = () => {
                 return (
                   <CommandGroup key="sessions">
                     {visibleSessions.map((session) => {
-                      const title = session.title || t('commandPalette.session.untitled');
+                      const title = session.title || "Untitled Session";
                       const dir = resolveGlobalSessionDirectory(session);
                       const branch = branchForSession(session.id, dir);
                       return (
@@ -589,7 +586,7 @@ export const CommandPalette: React.FC = () => {
 
             {isFileSearchStale ? (
               <div className="px-3 py-2 typography-meta text-muted-foreground">
-                {t('commandPalette.empty.searchingFiles')}
+                {"Searching files..."}
               </div>
             ) : null}
           </CommandList>

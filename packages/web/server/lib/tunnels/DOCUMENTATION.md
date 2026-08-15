@@ -1,21 +1,33 @@
 # Tunnels Module Documentation
 
 ## Purpose
-This module contains tunnel provider orchestration for PiChamber, including provider registry/service wiring, managed remote token config lifecycle, and tunnel HTTP route registration.
+This module contains the shared tunnel support surface for PiChamber: provider
+capability metadata, tunnel types/normalization helpers, cross-platform
+executable discovery, and dependency install-help metadata.
+
+The actual tunnel start implementations live in
+`packages/web/server/lib/cloudflare-tunnel.js` and
+`packages/web/server/lib/ngrok-tunnel.js`; CLI orchestration lives in
+`packages/web/bin/lib/commands-tunnel.js`.
+
+> Wiring note: the previous service orchestration entrypoint
+> (`tunnels/index.js`, `createTunnelService`) was removed as dead code — no
+> runtime entrypoint registered tunnel routes or started a tunnel service.
+> The remaining files are consumed by the CLI capability surface and by the
+> tunnel provider implementations, not by a tunnel orchestration runtime.
 
 ## Entrypoints and structure
-- `packages/web/server/lib/tunnels/index.js`: tunnel service orchestration.
-- `packages/web/server/lib/tunnels/executable-search.js`: cross-platform executable discovery, including Windows Store app aliases.
-- `packages/web/server/lib/tunnels/registry.js`: provider registry.
-- `packages/web/server/lib/tunnels/managed-config.js`: managed remote tunnel token/preset persistence runtime.
-- `packages/web/server/lib/tunnels/install-help.js`: provider/platform install command metadata for missing tunnel dependencies.
-- `packages/web/server/lib/tunnels/routes.js`: tunnel API route registration and request orchestration runtime.
-- `packages/web/server/lib/tunnels/types.js`: tunnel constants, normalization, and shared type helpers.
-- `packages/web/server/lib/tunnels/providers/cloudflare.js`: Cloudflare tunnel provider implementation.
-- `packages/web/server/lib/tunnels/providers/ngrok.js`: Ngrok quick tunnel provider implementation.
+- `packages/web/server/lib/tunnels/executable-search.js`: cross-platform executable discovery, including Windows Store app aliases. Consumed by the tunnel providers and `packages/web/server/lib/workspace/host.js`.
+- `packages/web/server/lib/tunnels/install-help.js`: provider/platform install command metadata (`getTunnelDependencyInstallInfo`) for missing tunnel dependencies.
+- `packages/web/server/lib/tunnels/types.js`: shared tunnel provider constants (`TUNNEL_PROVIDER_CLOUDFLARE`, `TUNNEL_PROVIDER_NGROK`).
 
-## Public exports (routes.js)
-- `createTunnelRoutesRuntime(dependencies)`: creates tunnel routes runtime and helpers.
-- Returned API:
-  - `registerRoutes(app)`
-  - `startTunnelWithNormalizedRequest(request)`
+## Public exports
+- `install-help.js` → `getTunnelDependencyInstallInfo(provider, platform)`
+- `executable-search.js` → `getExecutableSearchDirectories`, `createExecutableSearchEnv`, `findExecutableOnPath`, `resolveExecutableLaunchTarget`
+- `types.js` → `TUNNEL_PROVIDER_CLOUDFLARE`, `TUNNEL_PROVIDER_NGROK`
+
+## Consumers
+- `packages/web/bin/lib/cli-tunnel-capabilities.js`: provider capability metadata for CLI tunnel commands.
+- `packages/web/server/lib/cloudflare-tunnel.js` / `packages/web/server/lib/ngrok-tunnel.js`: executable discovery, install-help metadata, and provider constants.
+- `packages/web/server/lib/workspace/host.js`: executable discovery.
+

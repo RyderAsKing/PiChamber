@@ -34,7 +34,6 @@ import { StaticToolRow } from './parts/ProgressiveGroup';
 import { isExpandableTool, isStandaloneTool } from './parts/toolRenderUtils';
 import TurnActivity from '../components/TurnActivity';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
-import { useI18n } from '@/lib/i18n';
 import { extractLoopbackUrls } from '@/lib/url';
 import { useDeviceInfo } from '@/lib/device';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
@@ -78,12 +77,11 @@ const TurnChangedFilePillButton = React.memo(({
     file: TurnChangedFile;
     onOpen: (file: string) => void;
 }) => {
-    const { t } = useI18n();
     return (
         <button
             type="button"
             className="inline-flex h-8 max-w-full cursor-pointer items-center rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]"
-            aria-label={t('chat.changedFiles.actions.openFileTitle', { path: file.file })}
+            aria-label={`Open ${file.file}`}
             title={file.file}
             onClick={(event) => {
                 event.preventDefault();
@@ -181,7 +179,6 @@ const UserSubtaskPart: React.FC<{ part: SubtaskPartLike }> = ({ part }) => {
     const { isMobile } = useDeviceInfo();
     const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
     const openContextPanelTab = useUIStore((state) => state.openContextPanelTab);
-    const { t } = useI18n();
 
     const description = typeof part.description === 'string' ? part.description.trim() : '';
     const command = typeof part.command === 'string' ? part.command.trim() : '';
@@ -193,7 +190,7 @@ const UserSubtaskPart: React.FC<{ part: SubtaskPartLike }> = ({ part }) => {
     return (
         <div className="mt-2">
             <div className="flex items-center gap-2 flex-wrap">
-                <span className="typography-meta font-semibold text-foreground">{t('chat.messageBody.subtask.title')}</span>
+                <span className="typography-meta font-semibold text-foreground">{"Delegated task"}</span>
                 {command ? (
                     <span className="inline-flex h-5 items-center rounded px-1.5 text-[11px] leading-none bg-foreground/5 text-muted-foreground">
                         /{command}
@@ -224,7 +221,7 @@ const UserSubtaskPart: React.FC<{ part: SubtaskPartLike }> = ({ part }) => {
                         className="typography-meta text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
                         onClick={() => setExpanded((value) => !value)}
                     >
-                        {expanded ? t('chat.messageBody.subtask.hidePrompt') : t('chat.messageBody.subtask.showPrompt')}
+                        {expanded ? "Hide prompt" : "Show prompt"}
                     </button>
                     {expanded ? (
                         <pre className="typography-meta mt-1.5 overflow-x-auto whitespace-pre-wrap break-words text-foreground/85">
@@ -253,12 +250,12 @@ const UserSubtaskPart: React.FC<{ part: SubtaskPartLike }> = ({ part }) => {
                             openContextPanelTab(effectiveDirectory, {
                                 mode: 'chat',
                                 dedupeKey: `session:${taskSessionID}`,
-                                label: description || agent || t('contextPanel.mode.chat'),
+                                label: description || agent || "Chat",
                                 readOnly: true,
                             });
                         }}
                     >
-                        {t('chat.messageBody.subtask.openSession')}
+                        {"Open subtask session"}
                     </button>
                 </div>
             ) : null}
@@ -273,7 +270,6 @@ const UserShellActionPart: React.FC<{ part: ShellActionPartLike }> = ({ part }) 
     const [expanded, setExpanded] = React.useState(true);
     const [copiedOutput, setCopiedOutput] = React.useState(false);
     const copiedResetTimeoutRef = React.useRef<number | null>(null);
-    const { t } = useI18n();
 
     const command = typeof part.shellAction?.command === 'string' ? part.shellAction.command.trim() : '';
     const status = typeof part.shellAction?.status === 'string' ? part.shellAction.status.trim().toLowerCase() : '';
@@ -310,7 +306,7 @@ const UserShellActionPart: React.FC<{ part: ShellActionPartLike }> = ({ part }) 
     return (
         <div className="mt-2">
             <div className="flex items-center gap-2 flex-wrap">
-                <span className="typography-meta font-semibold text-foreground">{t('chat.messageBody.shellCommand.title')}</span>
+                <span className="typography-meta font-semibold text-foreground">{"Shell command"}</span>
                 {status ? (
                     <span className={cn(
                         'inline-flex h-5 items-center rounded px-1.5 text-[11px] leading-none',
@@ -342,7 +338,7 @@ const UserShellActionPart: React.FC<{ part: ShellActionPartLike }> = ({ part }) 
                             className="typography-meta text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
                             onClick={() => setExpanded((value) => !value)}
                         >
-                            {expanded ? t('chat.messageBody.shellCommand.hideOutput') : t('chat.messageBody.shellCommand.showOutput')}
+                            {expanded ? "Hide output" : "Show output"}
                         </button>
                         <button
                             type="button"
@@ -350,8 +346,8 @@ const UserShellActionPart: React.FC<{ part: ShellActionPartLike }> = ({ part }) 
                             onClick={() => {
                                 void copyOutputToClipboard();
                             }}
-                            aria-label={copiedOutput ? t('chat.messageBody.shellCommand.copied') : t('chat.messageBody.shellCommand.copyOutput')}
-                            title={copiedOutput ? t('chat.messageBody.shellCommand.copied') : t('chat.messageBody.shellCommand.copyOutput')}
+                            aria-label={copiedOutput ? "Copied" : "Copy output"}
+                            title={copiedOutput ? "Copied" : "Copy output"}
                         >
                             {copiedOutput ? <Icon name="check" className="h-3.5 w-3.5" /> : <Icon name="file-copy" className="h-3.5 w-3.5" />}
                         </button>
@@ -467,7 +463,6 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
     userActionsMode?: 'inline' | 'external-content' | 'external-actions';
     stickyUserHeaderEnabled?: boolean;
 }) => {
-    const { locale, t } = useI18n();
     const chatSurfaceMode = useChatSurfaceMode();
     const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
     const [copyHintVisible, setCopyHintVisible] = React.useState(false);
@@ -545,11 +540,10 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
 
     const effectiveOnFork = chatSurfaceMode === 'mini-chat' ? undefined : onFork;
     const timestamp = React.useMemo(() => {
-        void locale;
         if (typeof messageCreatedAt !== 'number' || messageCreatedAt <= 0) return null;
         const formatted = formatTimestampForDisplay(messageCreatedAt, timeFormatPreference);
         return formatted.length > 0 ? formatted : null;
-    }, [locale, messageCreatedAt, timeFormatPreference]);
+    }, [ messageCreatedAt, timeFormatPreference]);
     const actionsBlock = ((canCopyMessage && hasCopyableText) || onRevert || effectiveOnFork || onToggleContextPin) && showUserActions ? (
         <div className={cn(
             'group/user-actions',
@@ -600,7 +594,7 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
                                 variant="ghost"
                                 size="icon"
                                 className="h-6 w-6 text-muted-foreground bg-transparent hover:text-foreground hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50"
-                                aria-label={t('chat.messageBody.actions.revertAria')}
+                                aria-label={"Revert to this message"}
                                 onPointerDown={(event) => event.stopPropagation()}
                                 onClick={(event) => {
                                     event.stopPropagation();
@@ -610,7 +604,7 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
                                 <Icon name="arrow-go-back" className="h-3 w-3" />
                             </Button>
                         </TooltipTrigger>
-                        <TooltipContent sideOffset={6}>{t('chat.messageBody.actions.revert')}</TooltipContent>
+                        <TooltipContent sideOffset={6}>{"Revert from here"}</TooltipContent>
                     </Tooltip>
                 )}
                 {effectiveOnFork && (
@@ -621,7 +615,7 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
                                 variant="ghost"
                                 size="icon"
                                 className="h-6 w-6 text-muted-foreground bg-transparent hover:text-foreground hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50"
-                                aria-label={t('chat.messageBody.actions.forkAria')}
+                                aria-label={"Fork from this message"}
                                 onPointerDown={(event) => event.stopPropagation()}
                                 onClick={(event) => {
                                     event.stopPropagation();
@@ -631,7 +625,7 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
                                 <Icon name="git-branch" className="h-3 w-3" />
                             </Button>
                         </TooltipTrigger>
-                        <TooltipContent sideOffset={6}>{t('chat.messageBody.actions.fork')}</TooltipContent>
+                        <TooltipContent sideOffset={6}>{"Fork from here"}</TooltipContent>
                     </Tooltip>
                 )}
                 {onToggleContextPin && hasCopyableText && (
@@ -647,14 +641,14 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
                                 )}
                                 disabled={contextPinPending}
                                 aria-pressed={contextPinned}
-                                aria-label={t(contextPinned ? 'chat.messageBody.actions.unpinContext' : 'chat.messageBody.actions.pinContext')}
+                                aria-label={(contextPinned ? "Unpin from context (will not survive compaction)" : "Pin into context (survives compaction)")}
                                 onPointerDown={(event) => event.stopPropagation()}
                                 onClick={(event) => { event.stopPropagation(); onToggleContextPin(); }}
                             >
                                 <Icon name={contextPinned ? 'pushpin-2-fill' : 'pushpin-2'} className="h-3 w-3" />
                             </Button>
                         </TooltipTrigger>
-                        <TooltipContent sideOffset={6}>{t(contextPinned ? 'chat.messageBody.actions.unpinContext' : 'chat.messageBody.actions.pinContext')}</TooltipContent>
+                        <TooltipContent sideOffset={6}>{(contextPinned ? "Unpin from context (will not survive compaction)" : "Pin into context (survives compaction)")}</TooltipContent>
                     </Tooltip>
                 )}
                 {canCopyMessage && hasCopyableText && (
@@ -666,7 +660,7 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
                                 size="icon"
                                 data-visible={copyHintVisible || isMessageCopied ? 'true' : undefined}
                                 className="h-6 w-6 text-muted-foreground bg-transparent hover:text-foreground hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50"
-                                aria-label={t('chat.messageBody.actions.copyMessageAria')}
+                                aria-label={"Copy message text"}
                                 onPointerDown={(event) => event.stopPropagation()}
                                 onClick={handleCopyButtonClick}
                                 onFocus={() => setCopyHintVisible(true)}
@@ -683,7 +677,7 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
                                 )}
                             </Button>
                         </TooltipTrigger>
-                        <TooltipContent sideOffset={6}>{t('chat.messageBody.actions.copyMessage')}</TooltipContent>
+                        <TooltipContent sideOffset={6}>{"Copy message"}</TooltipContent>
                     </Tooltip>
                 )}
             </div>
@@ -765,7 +759,6 @@ const AssistantMessageActionButtons = React.memo(({
     onCopyMessage,
     onShareImage,
 }: AssistantMessageActionButtonsProps) => {
-    const { t } = useI18n();
     const chatSurfaceMode = useChatSurfaceMode();
     const [copyHintVisible, setCopyHintVisible] = React.useState(false);
     const [isMessageCopied, setIsMessageCopied] = React.useState(false);
@@ -883,7 +876,7 @@ const AssistantMessageActionButtons = React.memo(({
                                 !hasCopyableText && 'opacity-50'
                             )}
                             disabled={!hasCopyableText}
-                            aria-label={t('chat.messageBody.actions.copyMessageAria')}
+                            aria-label={"Copy message text"}
                             aria-hidden={!hasCopyableText}
                             onPointerDown={(event) => event.stopPropagation()}
                             onClick={(event) => {
@@ -907,7 +900,7 @@ const AssistantMessageActionButtons = React.memo(({
                             )}
                         </Button>
                     </TooltipTrigger>
-                    <TooltipContent sideOffset={6}>{t('chat.messageBody.actions.copyAnswer')}</TooltipContent>
+                    <TooltipContent sideOffset={6}>{"Copy answer"}</TooltipContent>
                 </Tooltip>
             )}
             {chatSurfaceMode !== 'mini-chat' ? <Tooltip>
@@ -933,7 +926,7 @@ const AssistantMessageActionButtons = React.memo(({
                         )}
                     </Button>
                 </TooltipTrigger>
-                <TooltipContent sideOffset={6}>{isSharing ? t('chat.messageBody.actions.savingImage') : t('chat.messageBody.actions.saveAsImage')}</TooltipContent>
+                <TooltipContent sideOffset={6}>{isSharing ? "Saving image..." : "Save as image"}</TooltipContent>
             </Tooltip> : null}
         </>
     );
@@ -973,7 +966,6 @@ const AssistantMessageBody = React.memo(({
     footerVariant,
     isDarkTheme = false,
 }: Omit<MessageBodyProps, 'isUser'>) => {
-    const { t, locale } = useI18n();
     const chatSurfaceMode = useChatSurfaceMode();
     const streamPhase = _streamPhase;
     void _allowAnimation;
@@ -1369,17 +1361,17 @@ const AssistantMessageBody = React.memo(({
                 link.click();
                 document.body.removeChild(link);
 
-                toast.success(t('chat.messageBody.toast.imageSaved'));
+                toast.success("Image saved");
             } catch (error) {
                 console.error('Failed to generate image:', error);
-                toast.error(t('chat.messageBody.toast.generateImageFailed'));
+                toast.error("Failed to generate image");
             } finally {
                 if (wrapper && wrapper.parentNode) {
                     wrapper.parentNode.removeChild(wrapper);
                 }
             }
         },
-        [messageId, t]
+        [messageId]
     );
 
     const activityPartsForTurn = React.useMemo(() => {
@@ -1792,7 +1784,6 @@ const AssistantMessageBody = React.memo(({
     }, [isLastAssistantInTurn, hasStopFinish, turnGroupingContext?.userMessageCreatedAt, messageCompletedAt]);
 
     const footerTimestamp = React.useMemo(() => {
-        void locale;
         const timestamp = typeof messageCompletedAt === 'number' && messageCompletedAt > 0
             ? messageCompletedAt
             : (typeof messageCreatedAt === 'number' && messageCreatedAt > 0 ? messageCreatedAt : null);
@@ -1800,7 +1791,7 @@ const AssistantMessageBody = React.memo(({
 
         const formatted = formatTimestampForDisplay(timestamp, timeFormatPreference);
         return formatted.length > 0 ? formatted : null;
-    }, [messageCompletedAt, messageCreatedAt, timeFormatPreference, locale]);
+    }, [messageCompletedAt, messageCreatedAt, timeFormatPreference]);
 
     const footerTimestampClassName = 'text-sm text-muted-foreground/60 tabular-nums flex items-center gap-1';
     const canOpenMessagePreview = !isMiniChatSurface && !isMobile;
@@ -1815,7 +1806,7 @@ const AssistantMessageBody = React.memo(({
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-muted-foreground bg-transparent hover:text-foreground hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50"
-                            aria-label={t('chat.messageBody.actions.openPreviewAria')}
+                            aria-label={"Open preview"}
                             onPointerDown={(event) => event.stopPropagation()}
                             onClick={() => {
                                 const directory = effectiveDirectory
@@ -1829,7 +1820,7 @@ const AssistantMessageBody = React.memo(({
                             <Icon name="global" className="h-4 w-4" />
                         </Button>
                     </TooltipTrigger>
-                    <TooltipContent sideOffset={6}>{t('chat.messageBody.actions.openPreview')}</TooltipContent>
+                    <TooltipContent sideOffset={6}>{"Open preview"}</TooltipContent>
                 </Tooltip>
             ) : null}
             {onToggleContextPin && hasCopyableText ? (
@@ -1845,14 +1836,14 @@ const AssistantMessageBody = React.memo(({
                             )}
                             disabled={contextPinPending}
                             aria-pressed={contextPinned}
-                            aria-label={t(contextPinned ? 'chat.messageBody.actions.unpinContext' : 'chat.messageBody.actions.pinContext')}
+                            aria-label={(contextPinned ? "Unpin from context (will not survive compaction)" : "Pin into context (survives compaction)")}
                             onPointerDown={(event) => event.stopPropagation()}
                             onClick={(event) => { event.stopPropagation(); onToggleContextPin(); }}
                         >
                             <Icon name={contextPinned ? 'pushpin-2-fill' : 'pushpin-2'} className="h-3.5 w-3.5" />
                         </Button>
                     </TooltipTrigger>
-                    <TooltipContent sideOffset={6}>{t(contextPinned ? 'chat.messageBody.actions.unpinContext' : 'chat.messageBody.actions.pinContext')}</TooltipContent>
+                    <TooltipContent sideOffset={6}>{(contextPinned ? "Unpin from context (will not survive compaction)" : "Pin into context (survives compaction)")}</TooltipContent>
                 </Tooltip>
             ) : null}
             {!isMiniChatSurface ? <Tooltip>
@@ -1868,7 +1859,7 @@ const AssistantMessageBody = React.memo(({
                         <Icon name="chat-new" className="h-4 w-4" />
                     </Button>
                 </TooltipTrigger>
-                <TooltipContent sideOffset={6}>{t('chat.messageBody.actions.startNewSession')}</TooltipContent>
+                <TooltipContent sideOffset={6}>{"Start new session from this answer"}</TooltipContent>
             </Tooltip> : null}
         </>
     );

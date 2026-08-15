@@ -14,10 +14,9 @@ import {
 } from './changedFiles';
 import { ChangedFilesList } from './ChangedFilesList';
 import { changedFilesPopoverClassName, changedFilesPopoverStyle } from './changedFilesPopover';
-import { useI18n } from '@/lib/i18n';
 
 export const PendingChangesBar: React.FC = React.memo(() => {
-    const { t } = useI18n();
+    
     const [isExpanded, setIsExpanded] = React.useState(false);
     const popoverRef = React.useRef<HTMLDivElement>(null);
     const currentDirectory = useEffectiveDirectory() ?? null;
@@ -94,8 +93,8 @@ export const PendingChangesBar: React.FC = React.memo(() => {
 
     const fileCount = gitChangedFiles.length;
     const labelHead = fileCount === 1
-        ? t('chat.pendingChanges.fileCountSingle', { count: fileCount })
-        : t('chat.pendingChanges.fileCountPlural', { count: fileCount });
+        ? `${fileCount} file`
+        : `${fileCount} files`;
 
     return (
         <div className="relative" ref={popoverRef}>
@@ -108,7 +107,7 @@ export const PendingChangesBar: React.FC = React.memo(() => {
                 <Icon name="file-edit" className="h-3.5 w-3.5 flex-shrink-0 text-[var(--status-warning)]" />
                 <span className="min-w-0 typography-ui-label text-foreground flex-shrink-0">{labelHead}</span>
                 <span className="status-row__changed-label min-w-0 typography-ui-label text-foreground truncate">
-                    {t('chat.pendingChanges.changedInWorkspace')}
+                    {"changed in workspace"}
                 </span>
                 <span className="text-[0.75rem] tabular-nums inline-flex items-baseline gap-1 flex-shrink-0">
                     {totalAdded > 0 ? <span style={{ color: 'var(--status-success)' }}>+{totalAdded}</span> : null}

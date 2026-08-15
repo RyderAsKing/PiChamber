@@ -5,7 +5,6 @@ import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { Icon } from "@/components/icon/Icon";
-import { useI18n } from '@/lib/i18n';
 import { clampPercent, resolveUsageTone } from '@/lib/quota';
 
 interface ContextUsageDisplayProps {
@@ -41,7 +40,7 @@ export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
   onClick,
   pressed = false,
 }) => {
-  const { t } = useI18n();
+  
   const [mobileTooltipOpen, setMobileTooltipOpen] = React.useState(false);
   const colorPct = typeof colorPercentage === 'number' ? colorPercentage : percentage;
   const progressPct = clampPercent(percentage) ?? 0;
@@ -76,9 +75,9 @@ export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
 
   const safeOutputLimit = typeof outputLimit === 'number' ? Math.max(outputLimit, 0) : 0;
   const tooltipLines = [
-    t('contextUsage.tooltip.usedTokens', { tokens: formatTokens(totalTokens) }),
-    t('contextUsage.tooltip.contextLimit', { tokens: formatTokens(contextLimit) }),
-    t('contextUsage.tooltip.outputLimit', { tokens: formatTokens(safeOutputLimit) }),
+    `Used tokens: ${formatTokens(totalTokens)}`,
+    `Context limit: ${formatTokens(contextLimit)}`,
+    `Output limit: ${formatTokens(safeOutputLimit)}`,
   ];
 
   const isInteractive = !isMobile && typeof onClick === 'function';
@@ -146,7 +145,7 @@ export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
     <button
       type="button"
       className={sharedClassName}
-      aria-label={t('contextUsage.aria.label')}
+      aria-label={"Context usage"}
       aria-pressed={pressed}
       onClick={onClick}
     >
@@ -155,7 +154,7 @@ export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
   ) : (
     <div
       className={sharedClassName}
-      aria-label={t('contextUsage.aria.label')}
+      aria-label={"Context usage"}
       onClick={isMobile ? () => setMobileTooltipOpen(true) : undefined}
     >
       {contextContent}
@@ -169,24 +168,24 @@ export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
         <MobileOverlayPanel
           open={mobileTooltipOpen}
           onClose={() => setMobileTooltipOpen(false)}
-          title={t('contextUsage.mobile.title')}
+          title={"Context Usage"}
         >
           <div className="flex flex-col gap-1.5">
             <div className="rounded-xl border border-border/40 bg-sidebar/30 px-3 py-2 space-y-1">
               <div className="flex justify-between items-center">
-                <span className="typography-meta text-muted-foreground">{t('contextUsage.mobile.usedTokens')}</span>
+                <span className="typography-meta text-muted-foreground">{"Used tokens"}</span>
                 <span className="typography-meta text-foreground font-medium">{formatTokens(totalTokens)}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="typography-meta text-muted-foreground">{t('contextUsage.mobile.contextLimit')}</span>
+                <span className="typography-meta text-muted-foreground">{"Context limit"}</span>
                 <span className="typography-meta text-foreground font-medium">{formatTokens(contextLimit)}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="typography-meta text-muted-foreground">{t('contextUsage.mobile.outputLimit')}</span>
+                <span className="typography-meta text-muted-foreground">{"Output limit"}</span>
                 <span className="typography-meta text-foreground font-medium">{formatTokens(safeOutputLimit)}</span>
               </div>
               <div className="flex justify-between items-center pt-1 border-t border-border/40">
-                <span className="typography-meta text-muted-foreground">{t('contextUsage.mobile.usage')}</span>
+                <span className="typography-meta text-muted-foreground">{"Usage"}</span>
                 <span className={cn('typography-meta font-semibold', getPercentageColor(colorPct))}>
                   {Math.min(percentage, 999).toFixed(1)}%
                 </span>

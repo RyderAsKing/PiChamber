@@ -1,5 +1,4 @@
 import React from 'react';
-import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { ScrollShadow } from '@/components/ui/ScrollShadow';
 import { useUIStore } from '@/stores/useUIStore';
@@ -57,7 +56,7 @@ const PANEL_TRANSITION_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
  * say there is more to see.
  */
 export const WorkStatusPanel: React.FC<Props> = ({ sessionId, directory, visible, overlay = false }) => {
-  const { t } = useI18n();
+  
   const setScrollTop = useUIStore((state) => state.setWorkStatusScrollTop);
   const setOverlayOpen = useUIStore((state) => state.setWorkStatusOverlayOpen);
   const hiddenSections = useUIStore((state) => state.workStatusHiddenSections);
@@ -149,7 +148,7 @@ export const WorkStatusPanel: React.FC<Props> = ({ sessionId, directory, visible
   return (
     <aside
       ref={overlayRef}
-      aria-label={t('chat.workStatus.ariaLabel')}
+      aria-label={"Work status"}
       aria-hidden={!interactive}
       // The card stays mounted while hidden so it can animate its own collapse,
       // and the sections button sits outside the content gate. Without `inert`
@@ -212,7 +211,7 @@ export const WorkStatusPanel: React.FC<Props> = ({ sessionId, directory, visible
           own, and giving it one would cost a row of height on every session. */}
       <button
         type="button"
-        aria-label={t('chat.workStatus.sections.open')}
+        aria-label={"Choose sections"}
         onClick={() => setSectionsDialogOpen(true)}
         className="absolute right-2 top-1.5 z-10 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
       >

@@ -6,7 +6,6 @@ import { PasskeySettings } from './PasskeySettings';
 import { DefaultsSettings } from './DefaultsSettings';
 import { GitSettings } from './GitSettings';
 import { NotificationSettings } from './NotificationSettings';
-import { GitHubSettings } from './GitHubSettings';
 import { TunnelSettings } from './TunnelSettings';
 import { DesktopNetworkSettings } from './DesktopNetworkSettings';
 import { KeyboardShortcutsSettings } from './KeyboardShortcutsSettings';
@@ -14,7 +13,6 @@ import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLay
 import { useDeviceInfo } from '@/lib/device';
 import { isDesktopLocalOriginActive, isDesktopShell, isWebRuntime } from '@/lib/desktop';
 import { isCapacitorApp } from '@/lib/platform';
-import { useI18n } from '@/lib/i18n';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import type { PiChamberSection } from './types';
 
@@ -34,7 +32,7 @@ interface PiChamberPageProps {
 }
 
 export const PiChamberPage: React.FC<PiChamberPageProps> = ({ section }) => {
-    const { t } = useI18n();
+    
     const { isMobile } = useDeviceInfo();
     const runtimeEndpointEpoch = useRuntimeEndpointEpoch();
     const showAbout = isMobile && isWebRuntime();
@@ -82,27 +80,27 @@ export const PiChamberPage: React.FC<PiChamberPageProps> = ({ section }) => {
     };
 
     const pageTitle = {
-        general: t('settings.page.general.title'),
-        visual: t('settings.page.appearance.title'),
-        chat: t('settings.page.chat.title'),
-        sessions: t('settings.page.sessions.title'),
-        shortcuts: t('settings.page.shortcuts.title'),
-        git: t('settings.page.git.title'),
-        github: t('settings.page.git.title'),
-        notifications: t('settings.page.notifications.title'),
-        tunnel: t('settings.page.tunnel.title'),
+        general: "General",
+        visual: "Appearance",
+        chat: "Chat",
+        sessions: "Sessions",
+        shortcuts: "Shortcuts",
+        git: "Git",
+        github: "Git",
+        notifications: "Notifications",
+        tunnel: "External Tunnel",
     }[section];
 
     const pageDescription = {
-        general: t('settings.page.general.description'),
-        visual: t('settings.page.appearance.description'),
-        chat: t('settings.page.chat.description'),
-        sessions: t('settings.page.sessions.description'),
-        shortcuts: t('settings.page.shortcuts.description'),
+        general: "App startup, security, connection, and privacy.",
+        visual: "Customize how PiChamber looks and feels.",
+        chat: "Configure how messages and tools are displayed.",
+        sessions: "Set defaults and retention for sessions.",
+        shortcuts: "Customize keyboard shortcuts.",
         git: undefined,
         github: undefined,
-        notifications: t('settings.page.notifications.description'),
-        tunnel: t('settings.page.tunnel.description'),
+        notifications: "Choose when and how you get notified.",
+        tunnel: "Expose this instance over a remote tunnel.",
     }[section];
 
     return (
@@ -212,9 +210,9 @@ const GitSectionContent: React.FC = () => {
     return <GitSettings />;
 };
 
-// GitHub section: Connect account for PR/issue workflows
+// Git & GitHub section fallback
 const GitHubSectionContent: React.FC = () => {
-    return <GitHubSettings />;
+    return <GitSettings />;
 };
 
 // Notifications section: Native browser notifications

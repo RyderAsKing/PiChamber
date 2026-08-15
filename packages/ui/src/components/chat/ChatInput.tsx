@@ -66,7 +66,6 @@ import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { usePermissionStore } from '@/stores/permissionStore';
 import { togglePermissionAutoAccept } from './permissionAutoAccept';
 import { extractGitChangedFiles } from './changedFiles';
-import { useI18n } from '@/lib/i18n';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { fetchResponseStyleInstruction } from '@/lib/responseStyle';
 import { wrapSystemReminder } from '@/lib/systemReminder';
@@ -221,7 +220,6 @@ const resolveChatDraftIdentity = (sessionId: string | null): ChatDraftIdentity |
 };
 
 const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollToBottom }) => {
-    const { t } = useI18n();
     // Track if we restored a draft on mount (for text selection)
     const initialDraftRef = React.useRef<string | null>(null);
     const initialDraftIdentityRef = React.useRef<ChatDraftIdentity | null>(null);
@@ -401,23 +399,19 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
         const unsupportedModalities = Array.from(new Set(incompatibleFiles.map(({ modality }) => modality)));
         const modalityLabels: Record<AttachmentInputModality, string> = {
-            text: t('chat.modelControls.modality.text'),
-            image: t('chat.modelControls.modality.image'),
-            pdf: t('chat.modelControls.modality.pdf'),
-            audio: t('chat.modelControls.modality.audio'),
-            video: t('chat.modelControls.modality.video'),
+            text: "Text",
+            image: "Image",
+            pdf: "PDF",
+            audio: "Audio",
+            video: "Video",
         };
         const filenames = incompatibleFiles.map(({ attachment }) => attachment.filename);
         const fileSummary = filenames.length > 3
             ? `${filenames.slice(0, 3).join(', ')} (+${filenames.length - 3})`
             : filenames.join(', ');
 
-        toast.warning(t('chat.chatInput.toast.unsupportedAttachmentModalities', {
-            model: currentModelMetadata.name ?? currentModelId ?? '',
-            modalities: unsupportedModalities.map((modality) => modalityLabels[modality]).join(', '),
-            files: fileSummary,
-        }), { id: `attachment-modalities:${modelKey}` });
-    }, [attachedFiles, currentModelId, currentModelMetadata, currentProviderId, t]);
+        toast.warning(`${currentModelMetadata.name ?? currentModelId ?? ''} does not support ${unsupportedModalities.map((modality) => modalityLabels[modality]).join(', ')} input required by ${fileSummary}. You can still send the message, but these attachments may be ignored.`, { id: `attachment-modalities:${modelKey}` });
+    }, [attachedFiles, currentModelId, currentModelMetadata, currentProviderId]);
 
     const handleShowAttachmentPreview = React.useCallback((content: ToolPopupContent) => {
         if (!content.image) return;
@@ -832,7 +826,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const getSubmitErrorMessage = (error: unknown, fallback: string) => {
         const message = error instanceof Error ? error.message : '';
         return message.toLowerCase().includes('runtime changed')
-            ? t('chat.chatInput.toast.messageSendFailed')
+            ? "Message failed to send. Attachments restored."
             : message || fallback;
     };
 
@@ -872,7 +866,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
         if (!providerIdToSend || !modelIdToSend) {
             console.warn('Cannot send message: provider or model not selected');
-            toast.error(t('chat.chatInput.toast.noModelSelected'));
+            toast.error("Select a provider and model before sending a message.");
             return;
         }
 
@@ -992,7 +986,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     await sessionActions.waitForConnectionOrThrow();
                     await piClient.compactSession({ sessionId: currentSessionId });
                 } catch (error) {
-                    toast.error(getSubmitErrorMessage(error, t('chat.chatInput.toast.compactFailed')));
+                    toast.error(getSubmitErrorMessage(error, "Failed to compact session"));
                 }
                 return;
             }
@@ -1024,7 +1018,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     );
                     scrollToBottom?.();
                 } catch (error) {
-                    toast.error(getSubmitErrorMessage(error, t(command.errorToastKey)));
+                    toast.error(getSubmitErrorMessage(error, command.errorToastKey));
                 }
                 return;
             }
@@ -1161,7 +1155,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 normalized === 'failed to send message';
 
             if (normalized.includes('payload too large') || normalized.includes('413') || normalized.includes('entity too large')) {
-                toast.error(t('chat.chatInput.toast.attachmentsTooLarge'));
+                toast.error("Attachments are too large to send. Please try reducing the number or size of images.");
                 if (allAttachments.length > 0) {
                     useInputStore.getState().setAttachedFiles(allAttachments);
                 }
@@ -1171,7 +1165,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             if (isSoftNetworkError) {
                 if (allAttachments.length > 0) {
                     useInputStore.getState().setAttachedFiles(allAttachments);
-                    toast.error(t('chat.chatInput.toast.sendAttachmentsFailed'));
+                    toast.error("Failed to send attachments. Try fewer files or smaller images.");
                 }
                 return;
             }
@@ -1180,14 +1174,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 if (allAttachments.length > 0) {
                     useInputStore.getState().setAttachedFiles(allAttachments);
                 }
-                toast.error(t('chat.chatInput.toast.messageSendFailed'));
+                toast.error("Message failed to send. Attachments restored.");
                 return;
             }
 
             if (allAttachments.length > 0) {
                 useInputStore.getState().setAttachedFiles(allAttachments);
             }
-            toast.error(rawMessage || t('chat.chatInput.toast.messageSendFailed'));
+            toast.error(rawMessage || "Message failed to send. Attachments restored.");
         });
 
         if (!isMobile) {
@@ -1610,12 +1604,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 await addAttachedFile(file);
             } catch (error) {
                 console.error('Clipboard image attach failed', error);
-                toast.error(error instanceof Error ? error.message : t('chat.chatInput.toast.clipboardAttachFailed'));
+                toast.error(error instanceof Error ? error.message : "Failed to attach image from clipboard");
             } finally {
                 pendingPastedAttachmentFilenamesRef.current.delete(filename);
             }
         }
-    }, [addAttachedFile, attachedFiles, currentSessionId, inputMode, markFileMentionPasteSuppression, message, newSessionDraftOpen, insertTextAtSelection, setMessage, t, updateAutocompleteState]);
+    }, [addAttachedFile, attachedFiles, currentSessionId, inputMode, markFileMentionPasteSuppression, message, newSessionDraftOpen, insertTextAtSelection, setMessage, updateAutocompleteState]);
 
     const handleFileSelect = (file: { name: string; path: string; relativePath?: string }) => {
 
@@ -1897,7 +1891,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     console.error('File attach failed', error);
                 }
             }
-            if (!attached) toast.error(t('chat.chatInput.toast.attachFileFailed'));
+            if (!attached) toast.error("Failed to attach file");
         }
     };
 
@@ -1923,9 +1917,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             }
         }
         if (list.length > 0 && !attached) {
-            toast.error(t('chat.chatInput.toast.attachFileFailed'));
+            toast.error("Failed to attach file");
         }
-    }, [addAttachedFile, t]);
+    }, [addAttachedFile]);
 
     const handlePickLocalFiles = React.useCallback(() => {
         fileInputRef.current?.click();
@@ -2074,8 +2068,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             permissionAutoAcceptEnabled,
             setDraftPermissionAutoAcceptEnabled,
             setSessionAutoAccept,
-            onOpenSessionFirst: () => toast.error(t('chat.chatInput.toast.openSessionFirst')),
-            onToggleFailed: () => toast.error(t('chat.chatInput.toast.togglePermissionAutoAcceptFailed')),
+            onOpenSessionFirst: () => toast.error("Open a session first"),
+            onToggleFailed: () => toast.error("Failed to toggle permission auto-accept"),
         });
     }, [
         draftPermissionAutoAcceptEnabled,
@@ -2084,7 +2078,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         permissionScopeSessionId,
         setDraftPermissionAutoAcceptEnabled,
         setSessionAutoAccept,
-        t,
     ]);
 
     React.useEffect(() => {
@@ -2131,8 +2124,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     <h1 className="text-balance text-2xl font-normal tracking-tight text-foreground md:text-3xl">
                         {renderDraftTitle(
                             draftProjectLabel
-                                ? t('chat.emptyState.draftTitleWithProject', { project: draftProjectLabel })
-                                : t('chat.emptyState.draftTitle'),
+                                ? `What are we working on in ${draftProjectLabel}?`
+                                : "What are we working on?",
                             draftProjectLabel,
                         )}
                     </h1>
@@ -2166,21 +2159,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         title={linkedIssue.title}
                         url={linkedIssue.url}
                         author={linkedIssue.author}
-                        openInBrowserLabel={t('chat.chatInput.linked.issue.openInBrowserAria')}
-                        removeLabel={t('chat.chatInput.linked.issue.removeAria')}
+                        openInBrowserLabel={"Open issue in browser"}
+                        removeLabel={"Remove linked issue"}
                         onReopenPicker={() => setIssuePickerOpen(true)}
                         onRemove={() => setLinkedIssue(null)}
                     />
                 ) : null}
                 {linkedPr ? (
                     <LinkedReferenceRow
-                        numberLabel={t('chat.chatInput.linked.pr.number', { number: linkedPr.number })}
+                        numberLabel={`PR #${linkedPr.number}`}
                         title={linkedPr.title}
                         url={linkedPr.url}
                         author={linkedPr.author}
                         branches={{ head: linkedPr.head, base: linkedPr.base }}
-                        openInBrowserLabel={t('chat.chatInput.linked.pr.openInBrowserAria')}
-                        removeLabel={t('chat.chatInput.linked.pr.removeAria')}
+                        openInBrowserLabel={"Open pull request in browser"}
+                        removeLabel={"Remove linked pull request"}
                         onReopenPicker={() => setPrPickerOpen(true)}
                         onRemove={() => setLinkedPr(null)}
                     />
@@ -2281,14 +2274,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                         type="button"
                                         className={iconButtonBaseClass}
                                         onClick={() => handlePickLocalFiles()}
-                                        title={t('chat.chatInput.actions.attachFiles')}
-                                        aria-label={t('chat.chatInput.actions.attachFiles')}
+                                        title={"Attach files"}
+                                        aria-label={"Attach files"}
                                     >
                                         <Icon name="attachment-2" className={cn(iconSizeClass, 'text-current')} />
                                     </button>
                                 </div>
                                 <p className="mt-2 typography-ui-label text-muted-foreground">
-                                    {isInternalDrag ? t('chat.chatInput.drop.insertMention') : t('chat.chatInput.drop.attachFiles')}
+                                    {isInternalDrag ? "Drop to insert as mention" : "Drop files here to attach"}
                                 </p>
                             </div>
                         </div>
@@ -2347,9 +2340,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                 onBlur={mobileShell.onEditorBlur}
                                 placeholder={currentSessionId || newSessionDraftOpen
                                     ? inputMode === 'shell'
-                                        ? t('chat.chatInput.placeholder.shell')
-                                        : t(useCompactChatPlaceholder ? 'chat.chatInput.placeholder.chatCompact' : 'chat.chatInput.placeholder.chat')
-                                    : t('chat.chatInput.placeholder.selectSession')}
+                                        ? "Enter shell command..."
+                                        : (useCompactChatPlaceholder ? "Use @ / ! # for helpers" : "@ for files/agents; / for commands and skills; ! for shell; # for snippets")
+                                    : "Select or create a session to start chatting"}
                                 editable={Boolean(currentSessionId || newSessionDraftOpen)}
                                 autoCorrect={isMobile}
                                 autoCapitalize={isMobile ? 'sentences' : 'none'}
@@ -2473,7 +2466,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         {isMobile ? (
             <MobileOverlayPanel
                 open={mobileAttachMenuOpen}
-                title={t('chat.chatInput.actions.addAttachment')}
+                title={"Add attachment"}
                 onClose={() => setMobileAttachMenuOpen(false)}
             >
                 <div className="flex flex-col px-3 pb-4 pt-1">
@@ -2489,7 +2482,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         }}
                     >
                         <Icon name="attachment-2" className="h-[18px] w-[18px] flex-shrink-0 text-muted-foreground" />
-                        {t('chat.chatInput.actions.attachFiles')}
+                        {"Attach files"}
                     </button>
                     <button
                         type="button"
@@ -2503,7 +2496,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         }}
                     >
                         <Icon name="github" className="h-[18px] w-[18px] flex-shrink-0 text-muted-foreground" />
-                        {t('chat.chatInput.actions.linkGithubIssue')}
+                        {"Link GitHub Issue"}
                     </button>
                     <button
                         type="button"
@@ -2515,7 +2508,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         }}
                     >
                         <Icon name="git-pull-request" className="h-[18px] w-[18px] flex-shrink-0 text-muted-foreground" />
-                        {t('chat.chatInput.actions.linkGithubPr')}
+                        {"Link GitHub PR"}
                     </button>
                 </div>
             </MobileOverlayPanel>

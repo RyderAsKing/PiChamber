@@ -1,12 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 
-import { dict as enDict } from '@/lib/i18n/messages/en';
-import { formatMessage, type I18nKey, type I18nParams } from '@/lib/i18n';
 import { formatSessionActivityDuration } from './sessionActivityDurationFormat';
 
-const t = (key: I18nKey, params?: I18nParams): string => formatMessage(enDict, key, params);
-
-const format = (ms: number): string => formatSessionActivityDuration(ms, t);
+const format = (ms: number): string => formatSessionActivityDuration(ms);
 
 describe('formatSessionActivityDuration', () => {
   test('renders seconds below a minute', () => {

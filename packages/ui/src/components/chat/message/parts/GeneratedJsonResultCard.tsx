@@ -2,11 +2,10 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
 import { copyTextToClipboard } from '@/lib/clipboard';
-import { useI18n } from '@/lib/i18n';
 import type { GeneratedResult } from './generatedJsonResult';
 
 export const GeneratedJsonResultCard: React.FC<{ result: GeneratedResult }> = ({ result }) => {
-  const { t } = useI18n();
+  
   const [copied, setCopied] = React.useState(false);
   const copiedResetTimerRef = React.useRef<number | null>(null);
 
@@ -45,16 +44,16 @@ export const GeneratedJsonResultCard: React.FC<{ result: GeneratedResult }> = ({
       <div className="flex items-center justify-between border-b border-border/70 px-3 py-1.5">
         <span className="font-mono text-[13px] text-muted-foreground">
           {result.kind === 'commit'
-            ? t('chat.generatedResult.commit.title')
-            : t('chat.generatedResult.pullRequest.title')}
+            ? "Generated commit message"
+            : "Generated pull request"}
         </span>
         <Button
           type="button"
           variant="ghost"
           size="xs"
           onClick={() => { void handleCopy(); }}
-          title={copied ? t('chat.generatedResult.actions.copied') : t('chat.generatedResult.actions.copy')}
-          aria-label={copied ? t('chat.generatedResult.actions.copied') : t('chat.generatedResult.actions.copy')}
+          title={copied ? "Copied" : "Copy"}
+          aria-label={copied ? "Copied" : "Copy"}
           className="text-muted-foreground hover:text-foreground md:opacity-0 md:group-hover:opacity-100"
         >
           {copied ? <Icon name="check" className="size-3.5" /> : <Icon name="file-copy" className="size-3.5" />}
@@ -79,13 +78,13 @@ export const GeneratedJsonResultCard: React.FC<{ result: GeneratedResult }> = ({
           <>
             {result.title ? (
               <div>
-                <div className="typography-micro uppercase tracking-[0.12em] text-muted-foreground">{t('chat.generatedResult.pullRequest.titleLabel')}</div>
+                <div className="typography-micro uppercase tracking-[0.12em] text-muted-foreground">{"Title"}</div>
                 <div className="mt-1 typography-ui-label text-foreground">{result.title}</div>
               </div>
             ) : null}
             {result.body ? (
               <div>
-                <div className="typography-micro uppercase tracking-[0.12em] text-muted-foreground">{t('chat.generatedResult.pullRequest.bodyLabel')}</div>
+                <div className="typography-micro uppercase tracking-[0.12em] text-muted-foreground">{"Body"}</div>
                 <pre className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground font-sans">{result.body}</pre>
               </div>
             ) : null}

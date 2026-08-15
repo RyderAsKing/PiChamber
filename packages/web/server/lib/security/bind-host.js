@@ -32,9 +32,9 @@ export const isLoopbackBindHost = (host) => {
 export const isNetworkExposedBindHost = (host) => !isLoopbackBindHost(host);
 
 export const isUnsafeUnauthenticatedLanAllowed = (env = process.env) =>
-  env?.OPENCHAMBER_ALLOW_UNAUTHENTICATED_LAN === 'true';
+  env?.PICHAMBER_ALLOW_UNAUTHENTICATED_LAN === 'true' || env?.OPENCHAMBER_ALLOW_UNAUTHENTICATED_LAN === 'true';
 
 export const getUnauthenticatedLanErrorMessage = (host) =>
   `PiChamber refuses to bind to ${host || 'a network-exposed host'} without UI authentication. `
-  + 'Set --ui-password or OPENCHAMBER_UI_PASSWORD before exposing it over LAN, '
-  + 'or set OPENCHAMBER_ALLOW_UNAUTHENTICATED_LAN=true to accept the risk.';
+  + 'Set --ui-password or PICHAMBER_UI_PASSWORD before exposing it over LAN, '
+  + 'or set PICHAMBER_ALLOW_UNAUTHENTICATED_LAN=true to accept the risk.';

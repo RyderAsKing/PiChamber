@@ -1,7 +1,6 @@
 import React from 'react';
 import { Icon } from '@/components/icon/Icon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 interface SettingsInfoHintProps {
@@ -22,7 +21,7 @@ export const SettingsInfoHint: React.FC<SettingsInfoHintProps> = ({
   className,
   contentClassName,
 }) => {
-  const { t } = useI18n();
+  
   const [open, setOpen] = React.useState(false);
   const triggerRef = React.useRef<HTMLButtonElement | null>(null);
 
@@ -47,7 +46,7 @@ export const SettingsInfoHint: React.FC<SettingsInfoHintProps> = ({
         <button
           ref={triggerRef}
           type="button"
-          aria-label={t('settings.common.infoAria')}
+          aria-label={"More information"}
           aria-expanded={open}
           onClick={(event) => {
             event.preventDefault();

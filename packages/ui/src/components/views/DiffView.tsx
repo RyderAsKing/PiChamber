@@ -36,11 +36,7 @@ import { getContextFileOpenFailureMessage, validateContextFileOpen } from '@/lib
 import { toAbsoluteFilePath } from '@/lib/path-utils';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { findDiffScrollAnchor, getRestoredDiffScrollTop, type DiffScrollAnchor } from './diffScrollAnchor';
-import { useI18n } from '@/lib/i18n';
-import type { I18nKey } from '@/lib/i18n/store';
 import { fileDiffFromPatch } from '@/lib/diff/patchFileDiff';
-import { WALKTHROUGH_ACTION_CLASS } from '@/components/views/walkthrough/walkthroughAction';
-import { useWalkthroughStore } from '@/stores/useWalkthroughStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionMessages } from '@/sync/sync-context';
 import { getFirstChangedModifiedLineFromPatch } from './diffPatchUtils';
@@ -91,10 +87,9 @@ type TurnSnapshotDiff = {
 };
 
 const BinaryDiffPlaceholder = React.memo(() => {
-    const { t } = useI18n();
     return (
         <div className="rounded-lg border border-border/60 bg-background px-3 py-2">
-            <div className="typography-meta text-muted-foreground">{t('diffView.binary.unavailable')}</div>
+            <div className="typography-meta text-muted-foreground">{"Content of this file cannot be viewed."}</div>
         </div>
     );
 });
@@ -102,16 +97,16 @@ const BinaryDiffPlaceholder = React.memo(() => {
 type ChangeDescriptor = {
     code: string;
     color: string;
-    descriptionKey: I18nKey;
+    description: string;
 };
 
 const CHANGE_DESCRIPTORS: Record<string, ChangeDescriptor> = {
-    '?': { code: '?', color: 'var(--status-info)', descriptionKey: 'diffView.change.untracked' },
-    A: { code: 'A', color: 'var(--status-success)', descriptionKey: 'diffView.change.new' },
-    D: { code: 'D', color: 'var(--status-error)', descriptionKey: 'diffView.change.deleted' },
-    R: { code: 'R', color: 'var(--status-info)', descriptionKey: 'diffView.change.renamed' },
-    C: { code: 'C', color: 'var(--status-info)', descriptionKey: 'diffView.change.copied' },
-    M: { code: 'M', color: 'var(--status-warning)', descriptionKey: 'diffView.change.modified' },
+    '?': { code: '?', color: 'var(--status-info)', description: "Untracked file" },
+    A: { code: 'A', color: 'var(--status-success)', description: "New file" },
+    D: { code: 'D', color: 'var(--status-error)', description: "Deleted file" },
+    R: { code: 'R', color: 'var(--status-info)', description: "Renamed file" },
+    C: { code: 'C', color: 'var(--status-info)', description: "Copied file" },
+    M: { code: 'M', color: 'var(--status-warning)', description: "Modified file" },
 };
 
 const DEFAULT_CHANGE_DESCRIPTOR = CHANGE_DESCRIPTORS.M;
@@ -243,14 +238,13 @@ const ChangeScopeSelector = React.memo<ChangeScopeSelectorProps>(({
     turnCount,
     onScopeChange,
 }) => {
-    const { t } = useI18n();
     const [open, setOpen] = React.useState(false);
     const currentCount = scope === 'staged' ? stagedCount : scope === 'turn' ? turnCount : workingCount;
     const currentLabel = scope === 'staged'
-        ? t('diffView.scope.staged')
+        ? "Staged"
         : scope === 'turn'
-            ? t('diffView.scope.lastTurn')
-            : t('diffView.scope.changed');
+            ? "Last turn"
+            : "Changed";
 
     return (
         <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -258,7 +252,7 @@ const ChangeScopeSelector = React.memo<ChangeScopeSelectorProps>(({
                 <button
                     type="button"
                     className="flex h-7 flex-shrink-0 items-center gap-1.5 rounded-md px-2 typography-ui-label font-semibold text-foreground outline-none hover:bg-interactive-hover focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-label={t('diffView.scope.selectorAria')}
+                    aria-label={"Select change mode"}
                 >
                     <span className="whitespace-nowrap">
                         {currentLabel}<span className="diff-toolbar__scope-count">: {currentCount}</span>
@@ -278,19 +272,19 @@ const ChangeScopeSelector = React.memo<ChangeScopeSelectorProps>(({
                 >
                     <DropdownMenuRadioItem value="working">
                         <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                            <span>{t('diffView.scope.changed')}</span>
+                            <span>{"Changed"}</span>
                             <span className="typography-meta text-muted-foreground">{workingCount}</span>
                         </span>
                     </DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="staged">
                         <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                            <span>{t('diffView.scope.staged')}</span>
+                            <span>{"Staged"}</span>
                             <span className="typography-meta text-muted-foreground">{stagedCount}</span>
                         </span>
                     </DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="turn">
                         <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                            <span>{t('diffView.scope.lastTurn')}</span>
+                            <span>{"Last turn"}</span>
                             <span className="typography-meta text-muted-foreground">{turnCount}</span>
                         </span>
                     </DropdownMenuRadioItem>
@@ -311,7 +305,6 @@ const FileList = React.memo<FileListProps>(({
     selectedFile,
     onSelectFile,
 }) => {
-    const { t } = useI18n();
     if (changedFiles.length === 0) return null;
 
     return (
@@ -337,8 +330,8 @@ const FileList = React.memo<FileListProps>(({
                                 <span
                                     className="typography-micro font-semibold w-4 text-center uppercase"
                                     style={{ color: descriptor.color }}
-                                    title={t(descriptor.descriptionKey)}
-                                    aria-label={t(descriptor.descriptionKey)}
+                                    title={descriptor.description}
+                                    aria-label={descriptor.description}
                                 >
                                     {descriptor.code}
                                 </span>
@@ -371,7 +364,6 @@ const InlineImageDiffViewer = React.memo<InlineImageDiffViewerProps>(({
     diff,
     renderSideBySide,
 }) => {
-    const { t } = useI18n();
     const hasOriginal = diff.original.length > 0;
     const hasModified = diff.modified.length > 0;
 
@@ -388,10 +380,10 @@ const InlineImageDiffViewer = React.memo<InlineImageDiffViewerProps>(({
             <div className={containerClass}>
                 {hasOriginal && (
                     <div className={imageContainerClass}>
-                        <span className="typography-meta text-muted-foreground font-medium">{t('diffView.image.original')}</span>
+                        <span className="typography-meta text-muted-foreground font-medium">{"Original"}</span>
                         <img
                             src={diff.original}
-                            alt={t('diffView.image.originalAlt', { path: filePath })}
+                            alt={`Original: ${filePath}`}
                             className={renderSideBySide ? "max-w-full max-h-[70vh] object-contain" : "max-w-full object-contain"}
                             style={{ imageRendering: 'auto' }}
                         />
@@ -400,11 +392,11 @@ const InlineImageDiffViewer = React.memo<InlineImageDiffViewerProps>(({
                 {hasModified && (
                     <div className={imageContainerClass}>
                         <span className="typography-meta text-muted-foreground font-medium">
-                            {hasOriginal ? t('diffView.image.modified') : t('diffView.image.new')}
+                            {hasOriginal ? "Modified" : "New"}
                         </span>
                         <img
                             src={diff.modified}
-                            alt={t('diffView.image.modifiedAlt', { path: filePath })}
+                            alt={`Modified: ${filePath}`}
                             className={renderSideBySide ? "max-w-full max-h-[70vh] object-contain" : "max-w-full object-contain"}
                             style={{ imageRendering: 'auto' }}
                         />
@@ -480,12 +472,11 @@ const FileDiffActions = React.memo<FileDiffActionsProps>(({
     disabled,
     onAction,
 }) => {
-    const { t } = useI18n();
     return (
         <div className="flex items-center gap-0.5 rounded-full border border-[var(--interactive-border)]/45 bg-[var(--surface-background)]/95 px-1 py-0.5 shadow-sm backdrop-blur-md">
             {staged ? (
                 <FileDiffActionButton
-                    label={t('gitView.changes.unstageFileAria', { path: filePath })}
+                    label={`Unstage ${filePath}`}
                     icon="arrow-go-back"
                     loading={busyAction === 'unstage'}
                     disabled={disabled}
@@ -494,7 +485,7 @@ const FileDiffActions = React.memo<FileDiffActionsProps>(({
             ) : (
                 <>
                     <FileDiffActionButton
-                        label={t('gitView.changes.revertFileAria', { path: filePath })}
+                        label={`Revert changes in ${filePath}`}
                         icon="arrow-go-back"
                         loading={busyAction === 'discard'}
                         disabled={disabled}
@@ -502,7 +493,7 @@ const FileDiffActions = React.memo<FileDiffActionsProps>(({
                         onClick={() => onAction('discard')}
                     />
                     <FileDiffActionButton
-                        label={t('gitView.changes.stageFileAria', { path: filePath })}
+                        label={`Stage ${filePath}`}
                         icon="add"
                         loading={busyAction === 'stage'}
                         disabled={disabled}
@@ -593,7 +584,6 @@ const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(({
     loadFullFiles = false,
     initialDiffData = null,
 }) => {
-    const { t } = useI18n();
     const { git } = useRuntimeAPIs();
     const cachedDiff = useGitStore(
         React.useCallback((state) => {
@@ -743,16 +733,16 @@ const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(({
             setDiffRetryNonce((nonce) => nonce + 1);
             await fetchStatus(directory, git);
         } catch (error) {
-            const fallbackKey = action === 'unstage'
-                ? 'gitView.toast.unstageFileFailed'
+            const fallbackMessage = action === 'unstage'
+                ? 'Failed to unstage changes'
                 : action === 'stage'
-                    ? 'gitView.toast.stageFileFailed'
-                    : 'gitView.toast.revertFailed';
-            toast.error(error instanceof Error ? error.message : t(fallbackKey));
+                    ? 'Failed to stage changes'
+                    : 'Failed to revert changes';
+            toast.error(error instanceof Error ? error.message : fallbackMessage);
         } finally {
             setFileAction((current) => (current === action ? null : current));
         }
-    }, [directory, fetchStatus, file.path, fileAction, git, t]);
+    }, [directory, fetchStatus, file.path, fileAction, git]);
 
     return (
         <div ref={setSectionRef} className="scroll-mt-9 border-b border-[var(--interactive-border)]/40 last:border-b-0">
@@ -788,8 +778,8 @@ const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(({
                         <span
                             className="typography-micro font-semibold leading-none w-4 text-center uppercase"
                             style={{ color: descriptor.color }}
-                            title={t(descriptor.descriptionKey)}
-                            aria-label={t(descriptor.descriptionKey)}
+                            title={descriptor.description}
+                            aria-label={descriptor.description}
                         >
                             {descriptor.code}
                         </span>
@@ -840,7 +830,7 @@ const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(({
                                 variant="ghost"
                                 size="sm"
                                 className="h-5 w-5 p-0 opacity-70 hover:opacity-100"
-                                title={t('diffView.actions.openFileInEditorAtChange')}
+                                title={"Open this file in editor at change"}
                                 onClick={(event) => {
                                     event.stopPropagation();
                                     onOpenInEditor(file.path, diffData);
@@ -874,7 +864,7 @@ const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(({
                     {diffLoadError ? (
                         <div className="flex flex-col items-center gap-2 px-4 py-8 text-sm text-muted-foreground">
                             <div className="typography-ui-label font-semibold text-foreground">
-                                {t('diffView.state.failedToLoadDiff')}
+                                {"Failed to load diff"}
                             </div>
                             <div className="typography-meta text-muted-foreground max-w-[32rem] text-center">
                                 {diffLoadError}
@@ -884,30 +874,30 @@ const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(({
                                 className="typography-ui-label text-primary hover:underline"
                                 onClick={() => setDiffRetryNonce((nonce) => nonce + 1)}
                             >
-                                {t('diffView.actions.retry')}
+                                {"Retry"}
                             </button>
                         </div>
                     ) : null}
                     {isMounted && isLoading && !diffData && !diffLoadError ? (
                         <div className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-muted-foreground">
                             <Icon name="loader-4" className="size-4 animate-spin" />
-                            {t('diffView.state.loadingDiff')}
+                            {"Loading diff..."}
                         </div>
                     ) : null}
                     {isMounted && diffData && !forceRenderLarge && (file.insertions + file.deletions) > LARGE_DIFF_CHANGED_LINES ? (
                         <div className="flex flex-col items-center gap-2 px-4 py-8 text-sm text-muted-foreground">
                             <div className="typography-ui-label font-semibold text-foreground">
-                                {t('diffView.state.largeDiff', { count: file.insertions + file.deletions })}
+                                {`Large diff (${file.insertions + file.deletions} changed lines)`}
                             </div>
                             <div className="typography-meta text-muted-foreground">
-                                {t('diffView.state.largeDiffDescription')}
+                                {"Rendering may be slow. You can still view the diff by clicking below."}
                             </div>
                             <button
                                 type="button"
                                 className="typography-ui-label text-primary hover:underline"
                                 onClick={() => setForceRenderLarge(true)}
                             >
-                                {t('diffView.actions.renderAnyway')}
+                                {"Render anyway"}
                             </button>
                         </div>
                     ) : null}
@@ -960,11 +950,8 @@ export const DiffView: React.FC<DiffViewProps> = ({
     targetFilePath = null,
     flushContent = false,
 }) => {
-    const { t } = useI18n();
     const { git, files } = useRuntimeAPIs();
     const effectiveDirectory = useEffectiveDirectory();
-    const openContextSurface = useUIStore((state) => state.openContextSurface);
-    const requestWalkthroughSource = useWalkthroughStore((state) => state.requestSource);
     const { screenWidth, isMobile } = useDeviceInfo();
 
     const isGitRepo = useIsGitRepo(effectiveDirectory ?? null);
@@ -1006,9 +993,6 @@ export const DiffView: React.FC<DiffViewProps> = ({
     const activeDiffStaged = forcedStaged ?? displayFileStaged;
 
     const isMobileLayout = isMobile || screenWidth <= 768;
-    // Same width rules as the rail surface: no point offering an entry point
-    // to a surface that cannot open here.
-    const showWalkthroughAction = activeDiffScope !== 'turn' && !isMobileLayout;
     const showFileSidebar = !hideStackedFileSidebar && !isMobileLayout && screenWidth >= 1024;
     const diffScrollRef = React.useRef<HTMLElement | null>(null);
     const fileSectionRefs = React.useRef(new Map<string, HTMLDivElement | null>());
@@ -1595,7 +1579,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
                 {showFileSidebar && (
                     <section className="hidden lg:flex w-72 flex-col rounded-xl border border-border/60 bg-background/70 overflow-hidden">
                         <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/40">
-                            <span className="typography-ui-header font-semibold text-foreground">{t('diffView.section.files')}</span>
+                            <span className="typography-ui-header font-semibold text-foreground">{"Files"}</span>
                             <span className="typography-meta text-muted-foreground">{changedFiles.length}</span>
                         </div>
                         <FileList
@@ -1651,7 +1635,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
         if (!effectiveDirectory) {
             return (
                 <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                    {t('diffView.state.selectSessionDirectory')}
+                    {"Select a session directory to view diffs"}
                 </div>
             );
         }
@@ -1660,7 +1644,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
             return (
                 <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
                     <Icon name="loader-4" className="size-4 animate-spin" />
-                    {t('diffView.state.loadingRepositoryStatus')}
+                    {"Loading repository status..."}
                 </div>
             );
         }
@@ -1668,7 +1652,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
         if (activeDiffScope !== 'turn' && isGitRepo === false) {
             return (
                 <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                    {t('diffView.state.notGitRepository')}
+                    {"Not a git repository. Use the Git tab to initialize or change directories."}
                 </div>
             );
         }
@@ -1676,7 +1660,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
         if (changedFiles.length === 0) {
             return (
                 <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                    {activeDiffScope === 'turn' ? t('diffView.state.noLastTurnChanges') : t('diffView.state.cleanWorkingTree')}
+                    {activeDiffScope === 'turn' ? "No last turn changes to display" : "Working tree clean, no changes to display"}
                 </div>
             );
         }
@@ -1703,10 +1687,10 @@ export const DiffView: React.FC<DiffViewProps> = ({
                         <div className="flex items-center gap-1 rounded-md px-2 py-1 text-muted-foreground shrink-0">
                             <span className="typography-ui-label font-semibold text-foreground">
                                 {isLoadingStatus && !status
-                                    ? t('diffView.state.loadingChanges')
+                                    ? "Loading changes..."
                                     : (changedFiles.length === 1
-                                        ? t('diffView.summary.changedFilesSingle', { count: changedFiles.length })
-                                        : t('diffView.summary.changedFilesPlural', { count: changedFiles.length }))}
+                                        ? `${changedFiles.length} file changed`
+                                        : `${changedFiles.length} files changed`)}
                             </span>
                         </div>
                     )
@@ -1720,40 +1704,14 @@ export const DiffView: React.FC<DiffViewProps> = ({
                             'diff-toolbar__expand-button h-7 flex-shrink-0 gap-1 px-1.5 text-muted-foreground hover:text-foreground',
                             'ml-auto',
                         )}
-                        title={expandedFiles.size > 0 ? t('diffView.actions.collapseAll') : t('diffView.actions.expandAll')}
+                        title={expandedFiles.size > 0 ? "Collapse all" : "Expand all"}
                     >
                         <Icon
                             name="expand-up-down"
                             className="size-4"
                         />
                         <span className="diff-toolbar__expand-label typography-ui-label">
-                            {expandedFiles.size > 0 ? t('diffView.actions.collapseAll') : t('diffView.actions.expandAll')}
-                        </span>
-                    </Button>
-                )}
-                {changedFiles.length > 0 && showWalkthroughAction && (
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                            // Carry the scope across: opening the walkthrough
-                            // while looking at staged changes should review
-                            // staged changes, not whatever the panel showed last.
-                            const directory = effectiveDirectory ?? '';
-                            requestWalkthroughSource(directory, {
-                                kind: 'working-tree',
-                                scope: activeDiffScope === 'staged' || activeDiffScope === 'working'
-                                    ? activeDiffScope
-                                    : 'all',
-                            });
-                            openContextSurface(directory, 'walkthrough');
-                        }}
-                        className={cn('diff-toolbar__walkthrough-button h-7 flex-shrink-0 gap-1.5 px-2', WALKTHROUGH_ACTION_CLASS)}
-                        aria-label={t('walkthrough.action.open')}
-                    >
-                        <Icon name="route" className="size-4" />
-                        <span className="diff-toolbar__walkthrough-label typography-ui-label">
-                            {t('walkthrough.action.open')}
+                            {expandedFiles.size > 0 ? "Collapse all" : "Expand all"}
                         </span>
                     </Button>
                 )}
@@ -1765,7 +1723,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
                                 size="sm"
                                 onClick={() => setLoadFullFiles((value) => !value)}
                                 aria-pressed={loadFullFiles}
-                                aria-label={loadFullFiles ? t('diffView.actions.disableFullFiles') : t('diffView.actions.loadFullFiles')}
+                                aria-label={loadFullFiles ? "Unload full files" : "Load full files"}
                                 className={cn(
                                     'h-7 w-7 flex-shrink-0 p-0 text-muted-foreground hover:text-foreground',
                                     loadFullFiles && 'bg-interactive-selection text-interactive-selection-foreground',
@@ -1775,7 +1733,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
                             </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                            <p>{loadFullFiles ? t('diffView.actions.disableFullFiles') : t('diffView.actions.loadFullFiles')}</p>
+                            <p>{loadFullFiles ? "Unload full files" : "Load full files"}</p>
                         </TooltipContent>
                     </Tooltip>
                 )}
@@ -1788,7 +1746,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
                             'h-5 w-5 p-0 transition-opacity',
                             diffWrapLines ? 'text-foreground opacity-100' : 'text-muted-foreground opacity-60 hover:opacity-100'
                         )}
-                        title={diffWrapLines ? t('diffView.actions.disableLineWrap') : t('diffView.actions.enableLineWrap')}
+                        title={diffWrapLines ? "Disable line wrap" : "Enable line wrap"}
                     >
                         <Icon name="text-wrap" className="size-4" />
                     </Button>

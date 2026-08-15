@@ -604,15 +604,3 @@ async function startCloudflareTunnel({ originUrl, port }) {
   void port;
   return startCloudflareQuickTunnel({ originUrl });
 }
-
-export function printTunnelWarning() {
-  console.log(`
-⚠️  Quick Tunnel Limitations:
-
-   • Provider limits may apply
-   • URLs are temporary and will expire when the tunnel stops
-   • Password protection is required for tunnel access
-
-   For production use, set up a persistent provider tunnel or static domain.
-`);
-}

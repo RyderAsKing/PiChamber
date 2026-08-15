@@ -13,7 +13,6 @@
 
 import { Icon } from '@/components/icon/Icon';
 import { StopIcon } from '@/components/icons/StopIcon';
-import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { Theme } from '@/types/theme';
 import { ComposerAttachmentControls } from './ComposerAttachmentControls';
@@ -38,7 +37,7 @@ export interface MobilePillComposerProps {
 }
 
 export function MobilePillComposer(props: MobilePillComposerProps) {
-    const { t } = useI18n();
+    
     const {
         message,
         sessionId: currentSessionId,
@@ -86,8 +85,8 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
                         {message.trim()
                             ? message
                             : currentSessionId || newSessionDraftOpen
-                                ? t('chat.chatInput.placeholder.chatCompact')
-                                : t('chat.chatInput.placeholder.selectSession')}
+                                ? "Use @ / ! # for helpers"
+                                : "Select or create a session to start chatting"}
                     </span>
                 </button>
                 {/* While a turn is running the stop button appears in the end slot. */}
@@ -108,8 +107,8 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
                             event.stopPropagation();
                             onAbort();
                         }}
-                        title={t('chat.chatInput.actions.stopGeneratingAria')}
-                        aria-label={t('chat.chatInput.actions.stopGeneratingAria')}
+                        title={"Stop generating"}
+                        aria-label={"Stop generating"}
                     >
                         <StopIcon className={cn(stopIconSizeClass)} />
                     </button>
@@ -129,8 +128,8 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
                     style={{ backgroundColor: currentTheme?.colors?.surface?.subtle }}
                     onClick={onNewSession}
                     disabled={newSessionDraftOpen}
-                    title={t('mobile.sessions.newChat')}
-                    aria-label={t('mobile.sessions.newChat')}
+                    title={"New chat"}
+                    aria-label={"New chat"}
                 >
                     <Icon name="add" className="h-5 w-5 text-current" />
                 </button>

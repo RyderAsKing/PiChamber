@@ -2,7 +2,6 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 
 import { Icon } from '@/components/icon/Icon';
-import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 const SURFACE_ROOT_ID = 'mobile-surface-root';
@@ -67,7 +66,7 @@ export const MobileFullscreenSurface: React.FC<MobileFullscreenSurfaceProps> = (
   dialogAlign = 'chat',
   children,
 }) => {
-  const { t } = useI18n();
+  
   const rootRef = React.useRef<HTMLElement | null>(null);
   const [entered, setEntered] = React.useState(false);
   const [contentReady, setContentReady] = React.useState(false);
@@ -209,7 +208,7 @@ export const MobileFullscreenSurface: React.FC<MobileFullscreenSurfaceProps> = (
           <button
             type="button"
             className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={t('mobile.surface.closeAria')}
+            aria-label={"Close"}
             onClick={onClose}
             style={{ touchAction: 'manipulation' }}
           >

@@ -1,12 +1,11 @@
 import React from 'react';
 import { useUIStore } from '@/stores/useUIStore';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
-import { useI18n } from '@/lib/i18n';
 import { DiagramEditor, type DiagramEditorHandle } from '@/components/diagram';
 import { Icon } from '@/components/icon/Icon';
 
 export function DiagramView() {
-  const { t } = useI18n();
+  
   const { files } = useRuntimeAPIs();
 
   const [filePath, setFilePath] = React.useState<string | null>(null);
@@ -54,7 +53,7 @@ export function DiagramView() {
     return (
       <div className="flex h-full items-center justify-center p-3">
         <div className="typography-ui text-muted-foreground">
-          {t('filesView.editor.pickFileFromTree')}
+          {"Pick a file from the tree."}
         </div>
       </div>
     );
@@ -77,7 +76,7 @@ export function DiagramView() {
           type="button"
           onClick={() => void saveDiagram()}
           className="size-6 flex items-center justify-center rounded-md text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          title={t('filesView.diagram.saveDiagram')}
+          title={"Save diagram"}
         >
           <Icon name="save-3" className="size-4" />
         </button>
@@ -85,7 +84,7 @@ export function DiagramView() {
           type="button"
           onClick={() => useUIStore.getState().setActiveMainTab('chat')}
           className="size-6 flex items-center justify-center rounded-md text-muted-foreground hover:bg-interactive-hover/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          title={t('filesView.diagram.closeDiagramView')}
+          title={"Close diagram view"}
         >
           <Icon name="close" className="size-4" />
         </button>

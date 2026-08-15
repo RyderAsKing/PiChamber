@@ -1,7 +1,6 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { useI18n } from '@/lib/i18n';
 import { Icon } from "@/components/icon/Icon";
 
 interface ChatErrorBoundaryState {
@@ -102,17 +101,17 @@ class ChatErrorBoundaryView extends React.Component<ChatErrorBoundaryViewProps, 
 }
 
 export function ChatErrorBoundary(props: ChatErrorBoundaryProps) {
-  const { t } = useI18n();
+  
   return (
     <ChatErrorBoundaryView
       {...props}
       texts={{
-        title: t('chat.errorBoundary.title'),
-        description: t('chat.errorBoundary.description'),
-        sessionLabel: t('chat.errorBoundary.sessionLabel'),
-        detailsSummary: t('chat.errorBoundary.detailsSummary'),
-        resetAction: t('chat.errorBoundary.resetAction'),
-        persistentHint: t('chat.errorBoundary.persistentHint'),
+        title: "Chat Error",
+        description: "The chat interface encountered an error. This might be due to a temporary network issue or corrupted message data.",
+        sessionLabel: "Session",
+        detailsSummary: "Error details",
+        resetAction: "Reset Chat",
+        persistentHint: "If the problem persists, try refreshing the page.",
       }}
     />
   );

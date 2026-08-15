@@ -2,7 +2,6 @@
 // @ts-nocheck
 import React from 'react';
 import { arrayMove } from '@dnd-kit/sortable';
-import { useI18n } from '@/lib/i18n';
 import { useUIStore } from '@/stores/useUIStore';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -58,7 +57,6 @@ export type UseDraftStartersResult = {
 };
 
 export function useDraftStarters(): UseDraftStartersResult {
-    const { t } = useI18n();
     const globalRaw = useUIStore((s) => s.globalDraftStarters);
     const skills = useSkillsStore((s) => s.skills);
     const activeProjectId = useProjectsStore((s) => s.activeProjectId);
@@ -85,7 +83,6 @@ export function useDraftStarters(): UseDraftStartersResult {
         return () => { cancelled = true; };
         // Keyed on project id to avoid reloading when the memoized ref object
         // changes identity but still points at the same project.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [projectRef?.id]);
 
     const ensureLoaded = React.useCallback(() => {
@@ -103,13 +100,13 @@ export function useDraftStarters(): UseDraftStartersResult {
         if (ref.type === 'command') {
             const builtin = getBuiltInStarter(ref.name);
             if (builtin) {
-                return { id: chipId(group, ref), ref, group, label: t(builtin.labelKey), icon: builtin.icon, submitText: builtin.command };
+                return { id: chipId(group, ref), ref, group, label: builtin.label, icon: builtin.icon, submitText: builtin.command };
             }
             return null;
         }
         if (!skillNames.has(ref.name)) return null;
         return { id: chipId(group, ref), ref, group, label: normalizeStarterLabel(ref.name), icon: SKILL_FALLBACK_ICON, submitText: `/${ref.name}` };
-    }, [t, skillNames]);
+    }, [skillNames]);
 
     const globalRefs = React.useMemo<readonly DraftStarterRef[]>(
         () => globalRaw ?? DEFAULT_GLOBAL_STARTERS,
@@ -135,14 +132,14 @@ export function useDraftStarters(): UseDraftStartersResult {
     const pinnable = React.useMemo<PinnableItem[]>(() => {
         const items: PinnableItem[] = [];
         for (const b of BUILTIN_STARTERS) {
-            items.push({ type: 'command', name: b.name, label: t(b.labelKey), icon: b.icon, section: 'built-in', scope: 'user' });
+            items.push({ type: 'command', name: b.name, label: b.label, icon: b.icon, section: 'built-in', scope: 'user' });
         }
         for (const sk of skills) {
             items.push({ type: 'skill', name: sk.name, label: normalizeStarterLabel(sk.name), icon: SKILL_FALLBACK_ICON, section: 'skill', scope: sk.scope === 'project' ? 'project' : 'user' });
         }
         // Only offer items that are not already pinned (removed built-ins reappear here).
         return items.filter((item) => !pinnedKeys.has(`${item.type}:${item.name}`));
-    }, [t, skills, pinnedKeys]);
+    }, [skills, pinnedKeys]);
 
     const persistGlobal = React.useCallback((next: DraftStarterRef[]) => {
         useUIStore.getState().setGlobalDraftStarters(next);

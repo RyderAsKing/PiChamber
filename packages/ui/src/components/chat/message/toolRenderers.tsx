@@ -564,66 +564,6 @@ export interface UnifiedDiffHunk {
     lines: UnifiedDiffLine[];
 }
 
-export const parseDiffToUnified = (diffText: string): UnifiedDiffHunk[] => {
-    const lines = diffText.split('\n');
-    let currentFile = '';
-    const hunks: UnifiedDiffHunk[] = [];
-
-    let i = 0;
-    while (i < lines.length) {
-        const line = lines[i];
-
-        if (line.startsWith('Index:') || line.startsWith('===') || line.startsWith('---') || line.startsWith('+++')) {
-            if (line.startsWith('Index:')) {
-                currentFile = line.split(' ')[1].split('/').pop() || 'file';
-            }
-            i++;
-            continue;
-        }
-
-        if (line.startsWith('@@')) {
-            const match = line.match(/@@ -(\d+),\d+ \+(\d+),\d+ @@/);
-            const oldStart = match ? parseInt(match[1]) : 0;
-            const newStart = match ? parseInt(match[2]) : 0;
-
-            const unifiedLines: UnifiedDiffLine[] = [];
-            let oldLineNum = oldStart;
-            let newLineNum = newStart;
-            let j = i + 1;
-
-            while (j < lines.length && !lines[j].startsWith('@@') && !lines[j].startsWith('Index:')) {
-                const contentLine = lines[j];
-                if (contentLine.startsWith('+')) {
-                    unifiedLines.push({ type: 'added', lineNumber: newLineNum, content: contentLine.substring(1) });
-                    newLineNum++;
-                } else if (contentLine.startsWith('-')) {
-                    unifiedLines.push({ type: 'removed', lineNumber: oldLineNum, content: contentLine.substring(1) });
-                    oldLineNum++;
-                } else if (contentLine.startsWith(' ')) {
-                    unifiedLines.push({ type: 'context', lineNumber: newLineNum, content: contentLine.substring(1) });
-                    oldLineNum++;
-                    newLineNum++;
-                }
-                j++;
-            }
-
-            hunks.push({
-                file: currentFile,
-                oldStart,
-                newStart,
-                lines: unifiedLines,
-            });
-
-            i = j;
-            continue;
-        }
-
-        i++;
-    }
-
-    return hunks;
-};
-
 export const detectLanguageFromOutput = (output: string, toolName: string, input?: Record<string, unknown>) => {
     return detectToolOutputLanguage(toolName, output, input);
 };

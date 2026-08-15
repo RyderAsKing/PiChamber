@@ -5,7 +5,6 @@ import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from '@/components/ui';
 import { Icon } from "@/components/icon/Icon";
-import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { GitStashEntry } from '@/lib/api/types';
 import { applyGitStash, countGitStashFiles, dropGitStash, listGitStashes, popGitStash, stashGitChanges } from '@/lib/gitApi';
@@ -31,7 +30,6 @@ export const StashesDialog: React.FC<StashesDialogProps> = ({
   uncommittedFileCount,
   onChanged,
 }) => {
-  const { t } = useI18n();
   const [stashes, setStashes] = React.useState<GitStashEntry[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
   const [query, setQuery] = React.useState('');
@@ -47,11 +45,11 @@ export const StashesDialog: React.FC<StashesDialogProps> = ({
       setStashes(result.stashes);
       setFileCounts({});
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('gitView.stashes.toast.loadFailed'));
+      toast.error(error instanceof Error ? error.message : "Failed to load stashes");
     } finally {
       setIsLoading(false);
     }
-  }, [directory, t]);
+  }, [directory]);
 
   React.useEffect(() => {
     if (open) void load();
@@ -86,14 +84,14 @@ export const StashesDialog: React.FC<StashesDialogProps> = ({
     try {
       const result = await stashGitChanges(directory, { message: message.trim() || undefined });
       if (result.created) {
-        toast.success(t('gitView.stashes.toast.created'));
+        toast.success("Changes stashed");
         setMessage('');
       } else {
-        toast.info(t('gitView.stashes.toast.noChanges'));
+        toast.info("No local changes to stash");
       }
       await refreshAfterChange({ affectsIndex: Boolean(result.created && hasStagedChanges) });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('gitView.stashes.toast.createFailed'));
+      toast.error(error instanceof Error ? error.message : "Failed to stash changes");
     } finally {
       setOperation(null);
     }
@@ -101,18 +99,18 @@ export const StashesDialog: React.FC<StashesDialogProps> = ({
 
   const runStashAction = async (stash: GitStashEntry, kind: 'apply' | 'pop' | 'drop') => {
     if (!directory || operation) return;
-    if (kind === 'drop' && !window.confirm(t('gitView.stashes.confirm.drop', { ref: stash.ref }))) return;
+    if (kind === 'drop' && !window.confirm(`Drop ${stash.ref}?`)) return;
     setOperation(`${kind}:${stash.ref}`);
     try {
       if (kind === 'apply') await applyGitStash(directory, { ref: stash.ref });
       if (kind === 'pop') await popGitStash(directory, { ref: stash.ref });
       if (kind === 'drop') await dropGitStash(directory, { ref: stash.ref });
-      const successKey = kind === 'apply' ? 'gitView.stashes.toast.applySuccess' : kind === 'pop' ? 'gitView.stashes.toast.popSuccess' : 'gitView.stashes.toast.dropSuccess';
-      toast.success(t(successKey));
+      const successMessage = kind === 'apply' ? 'Stash applied' : kind === 'pop' ? 'Stash popped' : 'Stash dropped';
+      toast.success(successMessage);
       await refreshAfterChange({ affectsIndex: kind !== 'drop' });
     } catch (error) {
-      const failedKey = kind === 'apply' ? 'gitView.stashes.toast.applyFailed' : kind === 'pop' ? 'gitView.stashes.toast.popFailed' : 'gitView.stashes.toast.dropFailed';
-      toast.error(error instanceof Error ? error.message : t(failedKey));
+      const failedMessage = kind === 'apply' ? 'Failed to apply stash' : kind === 'pop' ? 'Failed to pop stash' : 'Failed to drop stash';
+      toast.error(error instanceof Error ? error.message : failedMessage);
       await refreshAfterChange({ affectsIndex: kind !== 'drop' });
     } finally {
       setOperation(null);
@@ -127,9 +125,9 @@ export const StashesDialog: React.FC<StashesDialogProps> = ({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Icon name="archive-stack" className="h-5 w-5" />
-            {t('gitView.stashes.title')}
+            {"Stashes"}
           </DialogTitle>
-          <DialogDescription>{t('gitView.stashes.description')}</DialogDescription>
+          <DialogDescription>{"Save, restore, and clean up Git stashes for this repository."}</DialogDescription>
         </DialogHeader>
 
         <div className="mt-2 rounded-lg border border-border/60 bg-[var(--surface-elevated)] p-3">
@@ -137,46 +135,46 @@ export const StashesDialog: React.FC<StashesDialogProps> = ({
             <Input
               value={message}
               onChange={(event) => setMessage(event.target.value)}
-              placeholder={t('gitView.stashes.messagePlaceholder')}
+              placeholder={"Stash name"}
               disabled={isOperating || !hasUncommittedChanges}
               className="flex-1"
             />
             <Button onClick={handleCreate} disabled={!hasUncommittedChanges || isOperating || !directory}>
               {operation === 'create' ? <Icon name="loader-4" className="size-4 animate-spin" /> : <Icon name="inbox-archive" className="size-4" />}
-              {t('gitView.stashes.actions.stashCurrentWithCount', { count: uncommittedFileCount })}
+              {`Stash ${uncommittedFileCount} files`}
             </Button>
           </div>
-          <p className="typography-meta mt-2 text-muted-foreground">{t('gitView.stashes.includeUntrackedHint')}</p>
+          <p className="typography-meta mt-2 text-muted-foreground">{"Untracked files are included automatically."}</p>
         </div>
 
         <div className="relative mt-2">
           <Icon name="search" className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('gitView.stashes.searchPlaceholder')} className="pl-9" />
+          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={"Search stashes"} className="pl-9" />
         </div>
 
         <div className="flex-1 overflow-y-auto">
           {isLoading ? (
             <div className="flex items-center justify-center py-10 text-muted-foreground"><Icon name="loader-4" className="size-5 animate-spin" /></div>
           ) : filtered.length === 0 ? (
-            <div className="py-8 text-center text-muted-foreground">{query ? t('gitView.stashes.empty.search') : t('gitView.stashes.empty.list')}</div>
+            <div className="py-8 text-center text-muted-foreground">{query ? "No matching stashes." : "No stashes yet."}</div>
           ) : filtered.map((stash, index) => (
             <div key={stash.ref} className="group flex items-center gap-2 rounded py-1.5 transition-colors hover:bg-interactive-hover/30">
               <div className="min-w-0 flex-1 pl-2">
-                <p className="typography-small truncate text-foreground">{stash.message || t('gitView.stashes.untitled')}</p>
+                <p className="typography-small truncate text-foreground">{stash.message || "Untitled stash"}</p>
                 <p className="typography-meta truncate text-muted-foreground">
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <span>{index === 0 && !query.trim() ? t('gitView.stashes.latestLabel') : t('gitView.stashes.itemNumber', { number: index + 1 })}</span>
+                      <span>{index === 0 && !query.trim() ? "Latest" : `#${index + 1}`}</span>
                     </TooltipTrigger>
                     <TooltipContent sideOffset={6}>{stash.ref}</TooltipContent>
                   </Tooltip>
-                  {' · '}{stash.relativeTime} · {typeof fileCounts[stash.ref] === 'number' ? t('gitView.stashes.fileCount', { count: fileCounts[stash.ref] }) : t('gitView.stashes.fileCountLoading')}
+                  {' · '}{stash.relativeTime} · {typeof fileCounts[stash.ref] === 'number' ? `${fileCounts[stash.ref]} files` : "counting files..."}
                 </p>
               </div>
               <div className="mr-2 flex shrink-0 items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
-                <StashIconButton label={t('gitView.stashes.actions.apply')} loading={operation === `apply:${stash.ref}`} onClick={() => runStashAction(stash, 'apply')} disabled={isOperating}><Icon name="inbox-unarchive" className="size-4" /></StashIconButton>
-                <StashIconButton label={t('gitView.stashes.actions.pop')} loading={operation === `pop:${stash.ref}`} onClick={() => runStashAction(stash, 'pop')} disabled={isOperating}><Icon name="inbox-unarchive-fill" className="size-4" /></StashIconButton>
-                <StashIconButton label={t('gitView.stashes.actions.drop')} loading={operation === `drop:${stash.ref}`} onClick={() => runStashAction(stash, 'drop')} disabled={isOperating} destructive><Icon name="delete-bin" className="size-4" /></StashIconButton>
+                <StashIconButton label={"Apply"} loading={operation === `apply:${stash.ref}`} onClick={() => runStashAction(stash, 'apply')} disabled={isOperating}><Icon name="inbox-unarchive" className="size-4" /></StashIconButton>
+                <StashIconButton label={"Pop"} loading={operation === `pop:${stash.ref}`} onClick={() => runStashAction(stash, 'pop')} disabled={isOperating}><Icon name="inbox-unarchive-fill" className="size-4" /></StashIconButton>
+                <StashIconButton label={"Drop"} loading={operation === `drop:${stash.ref}`} onClick={() => runStashAction(stash, 'drop')} disabled={isOperating} destructive><Icon name="delete-bin" className="size-4" /></StashIconButton>
               </div>
             </div>
           ))}

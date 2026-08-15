@@ -14,7 +14,7 @@
 //    detail-only revert/diff blobs
 // ---------------------------------------------------------------------------
 
-import type { Session, Message } from "@/lib/chat/types"
+import type { Session } from "@/lib/chat/types"
 
 type DiffEntry = {
   file?: string
@@ -163,19 +163,3 @@ export function stripSessionListDetails(session: Session): Session {
 }
 
 /** Strip oversized snapshot fields from summary.diffs on a message object */
-export function stripMessageDiffSnapshots(message: Message): Message {
-  const summary = (message as { summary?: SessionSummary }).summary
-  if (!summary?.diffs || !Array.isArray(summary.diffs)) return message
-
-  let changed = false
-  const stripped = summary.diffs.map((d) => {
-    const nextDiff = stripDiffSnapshotFields(d, false)
-    if (nextDiff !== d) {
-      changed = true
-    }
-    return nextDiff
-  })
-
-  if (!changed) return message
-  return { ...message, summary: { ...summary, diffs: stripped } } as Message
-}

@@ -3,7 +3,6 @@
 import React from 'react';
 import { toast } from 'sonner';
 import { Icon } from '@/components/icon/Icon';
-import { useI18n } from '@/lib/i18n';
 import { useDirectorySync, useEnsureSessionMessages, useSession } from '@/sync/sync-context';
 import { getContextObligatoryMessages } from '@/lib/contextObligatoryMessages';
 import { setContextObligatoryMessage } from '@/sync/session-actions';
@@ -23,7 +22,6 @@ type Props = {
  * pin unpins, pressing the text takes you to the message.
  */
 export const WorkStatusPinnedSection: React.FC<Props> = ({ sessionId, directory }) => {
-  const { t } = useI18n();
   const session = useSession(sessionId ?? '', directory ?? undefined);
   const parts = useDirectorySync(React.useCallback((state: State) => state.part, []));
   const [busyId, setBusyId] = React.useState<string | null>(null);
@@ -61,11 +59,11 @@ export const WorkStatusPinnedSection: React.FC<Props> = ({ sessionId, directory 
         false,
       );
     } catch {
-      toast.error(t('chat.workStatus.pinned.unpinFailed'));
+      toast.error("Could not unpin the message");
     } finally {
       setBusyId((current) => (current === messageId ? null : current));
     }
-  }, [busyId, directory, sessionId, t]);
+  }, [busyId, directory, sessionId]);
 
   // The transcript listens for `#message-<id>` and scrolls there; it is the
   // only cross-component jump the chat exposes. An unchanged hash fires no
@@ -84,7 +82,7 @@ export const WorkStatusPinnedSection: React.FC<Props> = ({ sessionId, directory 
   if (pinned.length === 0) return null;
 
   return (
-    <WorkStatusSection title={t('chat.workStatus.section.pinned')}>
+    <WorkStatusSection title={"Pinned messages"}>
       {pinned.map((entry) => (
         <WorkStatusRow
           key={entry.id}
@@ -92,7 +90,7 @@ export const WorkStatusPinnedSection: React.FC<Props> = ({ sessionId, directory 
             <button
               type="button"
               disabled={busyId === entry.id}
-              aria-label={t('chat.workStatus.pinned.unpin')}
+              aria-label={"Unpin message"}
               onClick={(event) => {
                 event.stopPropagation();
                 void handleUnpin(entry.id);
@@ -103,9 +101,9 @@ export const WorkStatusPinnedSection: React.FC<Props> = ({ sessionId, directory 
             </button>
           )}
           muted
-          label={entry.text ?? t('chat.workStatus.pinned.unavailable')}
+          label={entry.text ?? "Pinned message"}
           onClick={() => handleReveal(entry.id)}
-          ariaLabel={t('chat.workStatus.pinned.reveal')}
+          ariaLabel={"Go to message"}
         />
       ))}
     </WorkStatusSection>

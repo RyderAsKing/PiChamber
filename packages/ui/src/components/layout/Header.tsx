@@ -71,7 +71,6 @@ import {
   resolveCurrentDesktopHost,
 } from '@/lib/desktopCurrentHost';
 import { Icon } from "@/components/icon/Icon";
-import { useI18n } from '@/lib/i18n';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
@@ -153,7 +152,6 @@ const DesktopGitHubControl = React.memo(function DesktopGitHubControl({
   isSwitchingGitHubAccount,
   handleGitHubAccountSwitch,
 }: DesktopGitHubControlProps) {
-  const { t } = useI18n();
   if (!githubAuthStatus?.connected || isMobile) {
     return null;
   }
@@ -168,13 +166,13 @@ const DesktopGitHubControl = React.memo(function DesktopGitHubControl({
               DESKTOP_HEADER_ICON_BUTTON_CLASS,
               'h-7 w-7 overflow-hidden rounded-full border border-border/60 bg-muted/80 p-0'
             )}
-            title={githubLogin ? t('header.github.connectedWithLogin', { login: githubLogin }) : t('header.github.connected')}
+            title={githubLogin ? `GitHub: ${githubLogin}` : "GitHub connected"}
             disabled={isSwitchingGitHubAccount}
           >
             {githubAvatarUrl ? (
               <img
                 src={githubAvatarUrl}
-                alt={githubLogin ? t('header.github.avatarWithLogin', { login: githubLogin }) : t('header.github.avatar')}
+                alt={githubLogin ? `${githubLogin} avatar` : "GitHub avatar"}
                 className="h-full w-full object-cover"
                 loading="lazy"
                 referrerPolicy="no-referrer"
@@ -186,15 +184,15 @@ const DesktopGitHubControl = React.memo(function DesktopGitHubControl({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64">
           <DropdownMenuLabel className="typography-ui-header font-semibold text-foreground">
-            {t('header.github.accountsTitle')}
+            {"GitHub Accounts"}
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           {githubAccounts.map((account) => {
             const accountUser = account.user;
             const isCurrent = Boolean(account.current);
             const sourceLabel = account.source === 'gh-cli'
-              ? t('header.github.accountSource.cli')
-              : t('header.github.accountSource.oauth');
+              ? "CLI"
+              : "OAuth";
             return (
               <DropdownMenuItem
                 key={account.id}
@@ -209,7 +207,7 @@ const DesktopGitHubControl = React.memo(function DesktopGitHubControl({
                 {accountUser?.avatarUrl ? (
                   <img
                     src={accountUser.avatarUrl}
-                    alt={accountUser.login ? t('header.github.avatarWithLogin', { login: accountUser.login }) : t('header.github.avatar')}
+                    alt={accountUser.login ? `${accountUser.login} avatar` : "GitHub avatar"}
                     className="h-6 w-6 rounded-full border border-border/60 bg-muted object-cover"
                     loading="lazy"
                     referrerPolicy="no-referrer"
@@ -243,12 +241,12 @@ const DesktopGitHubControl = React.memo(function DesktopGitHubControl({
   return (
     <div
       className="app-region-no-drag flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border border-border/60 bg-muted/80"
-      title={githubLogin ? t('header.github.connectedWithLogin', { login: githubLogin }) : t('header.github.connected')}
+      title={githubLogin ? `GitHub: ${githubLogin}` : "GitHub connected"}
     >
       {githubAvatarUrl ? (
         <img
           src={githubAvatarUrl}
-          alt={githubLogin ? t('header.github.avatarWithLogin', { login: githubLogin }) : t('header.github.avatar')}
+          alt={githubLogin ? `${githubLogin} avatar` : "GitHub avatar"}
           className="h-full w-full object-cover"
           loading="lazy"
           referrerPolicy="no-referrer"
@@ -289,7 +287,6 @@ const DesktopServicesMenu = React.memo(function DesktopServicesMenu({
   remoteUpdateError,
   onOpenRemoteUpdate,
 }: DesktopServicesMenuProps) {
-  const { t } = useI18n();
   return (
     <DropdownMenu
       open={isDesktopServicesOpen}
@@ -306,8 +303,8 @@ const DesktopServicesMenu = React.memo(function DesktopServicesMenu({
             <button
               type="button"
               aria-label={isDesktopApp
-                ? t('header.services.openWithCurrent', { current: currentInstanceLabel })
-                : t('header.services.open')}
+                ? `Open instance, usage and MCP (current: ${currentInstanceLabel})`
+                : "Open services, usage and MCP"}
               className={cn(
                 DESKTOP_HEADER_ICON_BUTTON_CLASS,
                 isDesktopApp ? 'w-auto max-w-[14rem] justify-start gap-1.5 px-2.5' : 'h-8 w-8'
@@ -322,10 +319,7 @@ const DesktopServicesMenu = React.memo(function DesktopServicesMenu({
         </TooltipTrigger>
         <TooltipContent>
           <p>
-            {t('header.services.tooltip.currentInstance', {
-              current: currentInstanceLabel,
-              toggle: shortcutLabel('toggle_services_menu'),
-            })}
+            {`Current instance: ${currentInstanceLabel} (${shortcutLabel('toggle_services_menu')})`}
           </p>
         </TooltipContent>
       </Tooltip>
@@ -339,13 +333,13 @@ const DesktopServicesMenu = React.memo(function DesktopServicesMenu({
               <div className="border-b border-[var(--interactive-border)] px-4 py-2.5">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="typography-ui-label font-medium text-foreground">{t('header.services.remoteUpdate.title')}</div>
+                    <div className="typography-ui-label font-medium text-foreground">{"Remote instance update"}</div>
                     <div className="typography-micro text-muted-foreground">
                       {remoteUpdateInfo?.available
-                        ? t('header.services.remoteUpdate.available', { version: remoteUpdateInfo.version || '' })
+                        ? `Version ${remoteUpdateInfo.version || ''} is available for this instance.`
                         : remoteUpdateChecking
-                          ? t('header.services.remoteUpdate.checking')
-                          : remoteUpdateError || t('header.services.remoteUpdate.upToDate')}
+                          ? "Looking for updates..."
+                          : remoteUpdateError || "This instance is up to date."}
                     </div>
                   </div>
                   {remoteUpdateInfo?.available ? (
@@ -354,7 +348,7 @@ const DesktopServicesMenu = React.memo(function DesktopServicesMenu({
                       className="shrink-0 rounded-md bg-[var(--primary-base)] px-3 py-1.5 typography-ui-label font-medium text-[var(--primary-foreground)] hover:opacity-90"
                       onClick={onOpenRemoteUpdate}
                     >
-                      {t('header.services.remoteUpdate.actions.open')}
+                      {"Update"}
                     </button>
                   ) : null}
                 </div>
@@ -481,7 +475,6 @@ export const Header: React.FC<HeaderProps> = ({
   rightDrawerOpen,
 }) => {
   streamPerfCount('ui.header.render');
-  const { t } = useI18n();
   const setSessionSwitcherOpen = useUIStore((state) => state.setSessionSwitcherOpen);
   const toggleSidebar = useUIStore((state) => state.toggleSidebar);
   const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
@@ -750,11 +743,11 @@ export const Header: React.FC<HeaderProps> = ({
       });
     } catch (error) {
       setRemoteUpdateInfo(null);
-      setRemoteUpdateError(error instanceof Error ? error.message : t('header.services.remoteUpdate.error'));
+      setRemoteUpdateError(error instanceof Error ? error.message : "Failed to check remote instance updates");
     } finally {
       setRemoteUpdateChecking(false);
     }
-  }, [currentInstanceIsLocal, t]);
+  }, [currentInstanceIsLocal]);
 
   React.useEffect(() => {
     setRemoteUpdateInfo(null);
@@ -890,7 +883,7 @@ export const Header: React.FC<HeaderProps> = ({
           if (otherModels.length > 0) {
             group.modelFamilies.push({
               familyId: null,
-              familyLabel: t('header.services.modelFamily.other'),
+              familyLabel: "Other",
               models: otherModels,
             });
           }
@@ -903,7 +896,7 @@ export const Header: React.FC<HeaderProps> = ({
     }
 
     return groups;
-  }, [dropdownProviderIds, quotaResults, selectedModels, t]);
+  }, [dropdownProviderIds, quotaResults, selectedModels]);
   const hasRateLimits = rateLimitGroups.length > 0;
   React.useEffect(() => {
     void loadQuotaSettings();
@@ -1085,11 +1078,9 @@ export const Header: React.FC<HeaderProps> = ({
   const copyCurrentSessionId = React.useCallback(() => {
     if (!currentSessionId) return;
     void copyTextToClipboard(currentSessionId).then((result) => {
-      toast[result.ok ? 'success' : 'error'](t(result.ok
-        ? 'sessions.sidebar.session.copyId.success'
-        : 'sessions.sidebar.session.copyId.error'));
-    }).catch(() => toast.error(t('sessions.sidebar.session.copyId.error')));
-  }, [currentSessionId, t]);
+      toast[result.ok ? 'success' : 'error']((result.ok ? "Session ID copied" : "Failed to copy session ID"));
+    }).catch(() => toast.error("Failed to copy session ID"));
+  }, [currentSessionId]);
 
   const shareCurrentSession = React.useCallback(async () => {
     if (!currentSessionId) return;
@@ -1097,56 +1088,50 @@ export const Header: React.FC<HeaderProps> = ({
     const url = result?.share?.url ?? result?.url;
     if (url) {
       const copied = await copyTextToClipboard(url);
-      toast[copied.ok ? 'success' : 'warning'](t('sessions.sidebar.session.share.successTitle'), {
-        description: t(copied.ok
-          ? 'sessions.sidebar.session.share.successDescription'
-          : 'sessions.sidebar.session.share.copyUrlError'),
+      toast[copied.ok ? 'success' : 'warning']("Session shared", {
+        description: (copied.ok ? "Share link copied to clipboard." : "Failed to copy URL"),
       });
       return;
     }
-    toast.error(t('sessions.sidebar.session.share.error'));
-  }, [currentSessionId, shareSession, t]);
+    toast.error("Unable to share session");
+  }, [currentSessionId, shareSession]);
 
   const copyCurrentSessionShareUrl = React.useCallback(() => {
     const shareUrl = currentSession?.shareUrl;
     if (!shareUrl) return;
     void copyTextToClipboard(shareUrl).then((result) => {
-      toast[result.ok ? 'success' : 'error'](t(result.ok
-        ? 'sessions.sidebar.session.menu.copied'
-        : 'sessions.sidebar.session.share.copyUrlError'));
-    }).catch(() => toast.error(t('sessions.sidebar.session.share.copyUrlError')));
-  }, [currentSession?.shareUrl, t]);
+      toast[result.ok ? 'success' : 'error']((result.ok ? "Copied" : "Failed to copy URL"));
+    }).catch(() => toast.error("Failed to copy URL"));
+  }, [currentSession?.shareUrl]);
 
   const unshareCurrentSession = React.useCallback(async () => {
     if (!currentSessionId) return;
     const result = await unshareSession(currentSessionId);
-    toast[result ? 'success' : 'error'](t(result
-      ? 'sessions.sidebar.session.unshare.success'
-      : 'sessions.sidebar.session.unshare.error'));
-  }, [currentSessionId, t, unshareSession]);
+    toast[result ? 'success' : 'error']((result ? "Session unshared" : "Unable to unshare session"));
+  }, [currentSessionId, unshareSession]);
 
   const exportCurrentSession = React.useCallback(async () => {
     if (!currentSessionId || !openDirectory) {
-      toast.error(t('sessions.sidebar.session.export.nothingToExport'));
+      toast.error("Nothing to export");
       return;
     }
     try {
       await sync.syncSession(currentSessionId);
     } catch {
-      toast.error(t('sessions.sidebar.session.export.failedLoadHistory'));
+      toast.error("Failed to load the complete session history");
       return;
     }
     const records = buildSessionMessageRecordsSnapshot(headerDirectoryStore.getState(), currentSessionId).list;
     if (records.length === 0) {
-      toast.error(t('sessions.sidebar.session.export.nothingToExport'));
+      toast.error("Nothing to export");
       return;
     }
     const markdown = formatSessionAsMarkdown(records, currentSession?.title ?? null);
     const filename = buildExportFilename(currentSession?.title ?? null);
     const savedPath = await saveAsMarkdownDesktop(markdown, filename);
     if (!savedPath) downloadAsMarkdown(markdown, filename);
-    toast.success(t('sessions.sidebar.session.export.success'));
-  }, [currentSession?.title, currentSessionId, headerDirectoryStore, openDirectory, sync, t]);
+    toast.success("Session exported");
+  }, [currentSession?.title, currentSessionId, headerDirectoryStore, openDirectory, sync]);
 
   const isCurrentSessionActive = currentSessionStatus?.type === 'busy' || currentSessionStatus?.type === 'retry';
 
@@ -1167,15 +1152,11 @@ export const Header: React.FC<HeaderProps> = ({
     const result = action === 'archive' ? await archiveSessions(ids) : await deleteSessions(ids);
     const failedIds = result.failedIds;
     if (failedIds.length > 0) {
-      toast.error(t(action === 'archive'
-        ? 'sessions.sidebar.session.archive.error'
-        : 'sessions.sidebar.session.delete.error'));
+      toast.error((action === 'archive' ? "Failed to archive session" : "Failed to delete session"));
       return;
     }
-    toast.success(t(action === 'archive'
-      ? 'sessions.sidebar.session.archive.success'
-      : 'sessions.sidebar.session.delete.success'));
-  }, [archiveSessions, currentSessionId, deleteSessions, pendingHeaderRetentionAction, t]);
+    toast.success((action === 'archive' ? "Session archived" : "Session deleted"));
+  }, [archiveSessions, currentSessionId, deleteSessions, pendingHeaderRetentionAction]);
 
   // Full-page surfaces (Archive) replace the chat area;
   // while one is open the header shows the surface identity instead of the
@@ -1183,10 +1164,10 @@ export const Header: React.FC<HeaderProps> = ({
   const isArchiveSurfaceOpen = useUIStore((state) => state.isArchivePageOpen);
   const activeSurfaceHeader = React.useMemo<{ title: string; subtitle: string | null } | null>(() => {
     if (isArchiveSurfaceOpen) {
-      return { title: t('sessions.archivePage.title'), subtitle: null };
+      return { title: "Archive", subtitle: null };
     }
     return null;
-  }, [isArchiveSurfaceOpen, t]);
+  }, [isArchiveSurfaceOpen]);
 
 
   const actionDirectory = React.useMemo(() => {
@@ -1513,12 +1494,12 @@ export const Header: React.FC<HeaderProps> = ({
   const tabs: TabConfig[] = React.useMemo(() => {
     if (isMobile) {
       const base: TabConfig[] = [
-        { id: 'chat', label: t('layout.mainTab.chat'), icon: "chat-4" },
-        { id: 'diff', label: t('layout.mainTab.diff'), icon: 'diff' },
-        { id: 'files', label: t('layout.mainTab.files'), icon: "folder-6" },
-        { id: 'terminal', label: t('layout.mainTab.terminal'), icon: "terminal-box" },
-        { id: 'context', label: t('layout.mainTab.context'), icon: "file-list-2" },
-        { id: 'diagram', label: t('layout.mainTab.diagram'), icon: 'file' },
+        { id: 'chat', label: "Chat", icon: "chat-4" },
+        { id: 'diff', label: "Diff", icon: 'diff' },
+        { id: 'files', label: "Files", icon: "folder-6" },
+        { id: 'terminal', label: "Terminal", icon: "terminal-box" },
+        { id: 'context', label: "Context", icon: "file-list-2" },
+        { id: 'diagram', label: "Diagram", icon: 'file' },
       ];
 
       return base;
@@ -1526,7 +1507,7 @@ export const Header: React.FC<HeaderProps> = ({
 
     // Desktop: no tabs in header
     return [];
-  }, [isMobile, t]);
+  }, [isMobile]);
 
   const shortcutLabel = React.useCallback((actionId: string) => {
     return formatShortcutForDisplay(getEffectiveShortcutCombo(actionId, shortcutOverrides));
@@ -1545,10 +1526,10 @@ export const Header: React.FC<HeaderProps> = ({
   const servicesTabs = React.useMemo(() => {
     const base: Array<{ value: 'instance'; label: string; icon: React.ReactNode }> = [];
     if (isDesktopApp) {
-      base.push({ value: 'instance', label: t('layout.services.instance'), icon: <Icon name="server" className="h-3.5 w-3.5" /> });
+      base.push({ value: 'instance', label: "Instance", icon: <Icon name="server" className="h-3.5 w-3.5" /> });
     }
     return base;
-  }, [isDesktopApp, t]);
+  }, [isDesktopApp]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1701,7 +1682,7 @@ export const Header: React.FC<HeaderProps> = ({
       )}
       style={webWindowControlsOverlayStyle}
       role="tablist"
-      aria-label={t('header.navigation.mainAria')}
+      aria-label={"Main navigation"}
     >
       {/* Drag region for the window-controls inset (traffic lights) to the left
           of the overlay buttons — stays a window drag area. */}
@@ -1740,7 +1721,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <button
                   type="button"
                   className={desktopHeaderIconButtonClass}
-                  aria-label={t('sessions.switcher.openAria')}
+                  aria-label={"Open session switcher"}
                 >
                   <Icon name="history" className="h-[18px] w-[18px]" />
                 </button>
@@ -1766,13 +1747,13 @@ export const Header: React.FC<HeaderProps> = ({
                         setIsRenamingHeaderSession(false);
                       }
                     }}
-                    placeholder={t('sessions.sidebar.session.menu.rename')}
+                    placeholder={"Rename"}
                     className="min-w-0 flex-1 bg-transparent typography-ui-label text-[14px] font-normal leading-tight outline-none placeholder:text-muted-foreground"
                   />
                   <button
                     type="submit"
-                    aria-label={t('sessions.sidebar.session.rename.save')}
-                    title={t('sessions.sidebar.session.rename.save')}
+                    aria-label={"Save session name"}
+                    title={"Save session name"}
                     className="shrink-0 text-muted-foreground hover:text-foreground"
                   >
                     <Icon name="check" className="size-4" />
@@ -1780,8 +1761,8 @@ export const Header: React.FC<HeaderProps> = ({
                   <button
                     type="button"
                     onClick={() => setIsRenamingHeaderSession(false)}
-                    aria-label={t('sessions.sidebar.session.rename.cancel')}
-                    title={t('sessions.sidebar.session.rename.cancel')}
+                    aria-label={"Cancel renaming session"}
+                    title={"Cancel renaming session"}
                     className="shrink-0 text-muted-foreground hover:text-foreground"
                   >
                     <Icon name="close" className="size-4" />
@@ -1789,7 +1770,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </form>
               ) : (
                 <span className="truncate typography-ui-label text-[14px] font-normal leading-tight text-foreground max-w-full">
-                  {isNewSessionDraftOpen ? t('sessions.switcher.draftTitle') : currentSessionTitle}
+                  {isNewSessionDraftOpen ? "New session" : currentSessionTitle}
                 </span>
               )}
               {showHeaderMetaRow ? (
@@ -1822,26 +1803,26 @@ export const Header: React.FC<HeaderProps> = ({
                   }}
                 >
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="xs" className="h-[18px] w-6 px-0 text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label={t('header.sessionActions.openAria')}>
+                    <Button variant="ghost" size="xs" className="h-[18px] w-6 px-0 text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label={"Open session actions"}>
                       <Icon name="more" className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="min-w-[190px]">
-                    <DropdownMenuItem onClick={() => { pendingHeaderRenameRef.current = true; }}><Icon name="pencil-ai" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.rename')}</DropdownMenuItem>
-                    <DropdownMenuItem onClick={copyCurrentSessionId}><Icon name="file-copy" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.copyId')}</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { pendingHeaderRenameRef.current = true; }}><Icon name="pencil-ai" className="mr-2 size-4" />{"Rename"}</DropdownMenuItem>
+                    <DropdownMenuItem onClick={copyCurrentSessionId}><Icon name="file-copy" className="mr-2 size-4" />{"Copy session ID"}</DropdownMenuItem>
                     <DropdownMenuSeparator />
                     {currentSession?.shareUrl ? (
                       <>
-                        <DropdownMenuItem onClick={copyCurrentSessionShareUrl}><Icon name="file-copy" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.copyLink')}</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => void unshareCurrentSession()}><Icon name="link-unlink-m" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.unshare')}</DropdownMenuItem>
+                        <DropdownMenuItem onClick={copyCurrentSessionShareUrl}><Icon name="file-copy" className="mr-2 size-4" />{"Copy link"}</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => void unshareCurrentSession()}><Icon name="link-unlink-m" className="mr-2 size-4" />{"Unshare"}</DropdownMenuItem>
                       </>
                     ) : (
-                      <DropdownMenuItem onClick={() => void shareCurrentSession()}><Icon name="share-2" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.share')}</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => void shareCurrentSession()}><Icon name="share-2" className="mr-2 size-4" />{"Share"}</DropdownMenuItem>
                     )}
-                    <DropdownMenuItem onClick={() => void exportCurrentSession()}><Icon name="download" className="mr-2 size-4" />{t('sessions.sidebar.session.menu.exportMarkdown')}</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => void exportCurrentSession()}><Icon name="download" className="mr-2 size-4" />{"Export Markdown"}</DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setPendingHeaderRetentionAction('archive')}><Icon name="inbox-archive" className="mr-2 size-4" />{t('sessions.sidebar.bulkActions.archive')}</DropdownMenuItem>
-                    <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setPendingHeaderRetentionAction('delete')}><Icon name="delete-bin" className="mr-2 size-4" />{t('sessions.sidebar.bulkActions.delete')}</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setPendingHeaderRetentionAction('archive')}><Icon name="inbox-archive" className="mr-2 size-4" />{"Archive"}</DropdownMenuItem>
+                    <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setPendingHeaderRetentionAction('delete')}><Icon name="delete-bin" className="mr-2 size-4" />{"Delete"}</DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : null}
@@ -1878,8 +1859,8 @@ export const Header: React.FC<HeaderProps> = ({
 
           <HeaderIconActionButton
             visible={showMiniChatHeaderAction}
-            title={isNewSessionDraftOpen ? t('header.actions.newMiniChat') : t('header.actions.openSessionMiniChat')}
-            ariaLabel={isNewSessionDraftOpen ? t('header.actions.newMiniChatAria') : t('header.actions.openSessionMiniChatAria')}
+            title={isNewSessionDraftOpen ? "New Mini Chat Window" : "Open Session in Mini Chat"}
+            ariaLabel={isNewSessionDraftOpen ? "Open a new Mini Chat window" : "Open current session in Mini Chat"}
             onClick={handleOpenCurrentMiniChat}
             className={cn(desktopHeaderIconButtonClass, 'mr-1')}
             Icon={'picture-in-picture-2'}
@@ -1891,7 +1872,7 @@ export const Header: React.FC<HeaderProps> = ({
                   type="button"
                   data-work-status-toggle="true"
                   aria-pressed={workStatusToggleActive}
-                  aria-label={t('header.workStatusPanel.toggleAria')}
+                  aria-label={"Toggle work-status panel"}
                   onClick={handleWorkStatusToggle}
                   className={cn(
                     DESKTOP_HEADER_ICON_BUTTON_CLASS,
@@ -1909,11 +1890,11 @@ export const Header: React.FC<HeaderProps> = ({
               <TooltipContent side="bottom">
                 {workStatusPanelEnabled && !workStatusPanelFits
                   ? (workStatusOverlayOpen
-                    ? t('header.workStatusPanel.hide')
-                    : t('header.workStatusPanel.showOverlay'))
+                    ? "Hide work status"
+                    : "Show work status over the chat")
                   : workStatusPanelEnabled
-                    ? t('header.workStatusPanel.hide')
-                    : t('header.workStatusPanel.show')}
+                    ? "Hide work status"
+                    : "Show work status"}
               </TooltipContent>
             </Tooltip>
           ) : null}
@@ -1937,7 +1918,7 @@ export const Header: React.FC<HeaderProps> = ({
               mobileHeaderIconButtonClass,
               mobileActiveHeaderItem === 'sessions' && 'bg-interactive-selection text-interactive-selection-foreground'
             )}
-            aria-label={leftDrawerOpen ? t('header.actions.closeSessionsAria') : t('header.actions.openSessionsAria')}
+            aria-label={leftDrawerOpen ? "Close sessions" : "Open sessions"}
           >
             <Icon name="layout-left" className="h-5 w-5" />
           </button>
@@ -1946,7 +1927,7 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={() => setSessionSwitcherOpen(false)}
             className="app-region-no-drag h-9 w-9 p-2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-md active:bg-interactive-active"
-            aria-label={t('header.actions.backAria')}
+            aria-label={"Back"}
           >
             <Icon name="arrow-left-s" className="h-5 w-5" />
           </button>
@@ -1955,14 +1936,14 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={handleOpenSessionSwitcher}
             className="app-region-no-drag h-9 w-9 p-2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-md active:bg-interactive-active"
-            aria-label={t('header.actions.openSessionsAria')}
+            aria-label={"Open sessions"}
           >
             <Icon name="play-list-add" className="h-5 w-5" />
           </button>
         )}
 
         {!onToggleLeftDrawer && isSessionSwitcherOpen && (
-          <span className="typography-ui-label font-semibold text-foreground">{t('header.sessions.title')}</span>
+          <span className="typography-ui-label font-semibold text-foreground">{"Sessions"}</span>
         )}
       </div>
 
@@ -1974,7 +1955,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <div
                   className="flex items-center gap-0.5 rounded-lg bg-[var(--surface-muted)]/50 p-0.5"
                   role="tablist"
-                  aria-label={t('header.navigation.mainAria')}
+                  aria-label={"Main navigation"}
                 >
                   {tabs.map((tab) => {
                     const isActive = activeMainTab === tab.id;
@@ -2014,7 +1995,7 @@ export const Header: React.FC<HeaderProps> = ({
                             {tab.showDot && (
                               <span
                                 className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-primary"
-                                aria-label={t('header.changes.availableAria')}
+                                aria-label={"Changes available"}
                               />
                             )}
                           </button>
@@ -2064,7 +2045,7 @@ export const Header: React.FC<HeaderProps> = ({
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
-                      aria-label={t('header.services.viewAria')}
+                      aria-label={"View services"}
                       className={cn(
                         mobileHeaderIconButtonClass,
                         mobileActiveHeaderItem === 'services' && 'bg-interactive-selection text-interactive-selection-foreground'
@@ -2075,7 +2056,7 @@ export const Header: React.FC<HeaderProps> = ({
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>{t('header.services.title')}</p>
+                  <p>{"Services"}</p>
                 </TooltipContent>
               </Tooltip>
               <DropdownMenuContent
@@ -2087,12 +2068,12 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="flex h-full flex-col bg-[var(--surface-elevated)]">
                   <div className="sticky top-0 z-20 bg-[var(--surface-elevated)] px-2 py-px">
                     <div className="flex items-center justify-between gap-2 px-3 py-1">
-                      <span className="typography-ui-header font-semibold text-foreground">{t('header.services.rateLimits')}</span>
+                      <span className="typography-ui-header font-semibold text-foreground">{"Rate limits"}</span>
                       <button
                         type="button"
                         onClick={() => setIsMobileRateLimitsOpen(false)}
                         className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-interactive-hover"
-                        aria-label={t('header.services.closeAria')}
+                        aria-label={"Close services"}
                       >
                         <Icon name="close" className="h-5 w-5" />
                       </button>
@@ -2104,7 +2085,7 @@ export const Header: React.FC<HeaderProps> = ({
                       <div className="border-b border-[var(--interactive-border)]">
                         <div className="flex items-center justify-between gap-3 px-4 py-3">
                           <div className="flex flex-col min-w-0 gap-0.5">
-                            <span className="typography-ui-header font-semibold text-foreground">{t('header.services.rateLimits')}</span>
+                            <span className="typography-ui-header font-semibold text-foreground">{"Rate limits"}</span>
                             <span className="truncate typography-micro text-muted-foreground">
                               {formatTime(quotaLastUpdated, timeFormatPreference)}
                             </span>
@@ -2121,7 +2102,7 @@ export const Header: React.FC<HeaderProps> = ({
                                     : 'text-muted-foreground hover:text-foreground'
                                 )}
                               >
-                                {t('header.services.used')}
+                                {"Used"}
                               </button>
                               <span className="text-muted-foreground typography-ui-label px-0.5">·</span>
                               <button
@@ -2134,7 +2115,7 @@ export const Header: React.FC<HeaderProps> = ({
                                     : 'text-muted-foreground hover:text-foreground'
                                 )}
                               >
-                                {t('header.services.remaining')}
+                                {"Remaining"}
                               </button>
                             </div>
                             <button
@@ -2146,7 +2127,7 @@ export const Header: React.FC<HeaderProps> = ({
                               )}
                               onClick={handleUsageRefresh}
                               disabled={isQuotaLoading || isUsageRefreshSpinning}
-                              aria-label={t('header.services.refreshRateLimitsAria')}
+                              aria-label={"Refresh rate limits"}
                             >
                               <Icon name="refresh" className={cn('h-4 w-4', isUsageRefreshSpinning && 'animate-spin')} />
                             </button>
@@ -2156,7 +2137,7 @@ export const Header: React.FC<HeaderProps> = ({
 
                       {!hasRateLimits && (
                         <div className="px-4 py-6 text-center">
-                          <span className="typography-ui-label text-muted-foreground">{t('header.services.noRateLimits')}</span>
+                          <span className="typography-ui-label text-muted-foreground">{"No rate limits available."}</span>
                         </div>
                       )}
 
@@ -2177,7 +2158,7 @@ export const Header: React.FC<HeaderProps> = ({
                             {group.entries.length === 0 && (!group.modelFamilies || group.modelFamilies.length === 0) ? (
                               <div className="px-4 pb-2">
                                 <span className="typography-ui-label text-muted-foreground">
-                                  {group.error ?? t('header.services.noRateLimitsReported')}
+                                  {group.error ?? "No rate limits reported."}
                                 </span>
                               </div>
                             ) : (
@@ -2326,20 +2307,20 @@ export const Header: React.FC<HeaderProps> = ({
         <DialogContent showCloseButton={false} className="max-w-sm gap-5">
           <DialogHeader>
             <DialogTitle>{pendingHeaderRetentionAction === 'delete'
-              ? t('sessions.sidebar.dialogs.deleteSession.title')
-              : t('sessions.sidebar.dialogs.archiveSession.title')}</DialogTitle>
+              ? "Delete session?"
+              : "Archive session?"}</DialogTitle>
             <DialogDescription>{pendingHeaderRetentionAction === 'delete'
-              ? t('sessions.sidebar.dialogs.deleteSession.single', { sessionTitle: currentSessionTitle })
-              : t('sessions.sidebar.dialogs.archiveSession.single', { sessionTitle: currentSessionTitle })}</DialogDescription>
+              ? `\\"${currentSessionTitle}\\" will be permanently deleted.`
+              : `\\"${currentSessionTitle}\\" will be archived.`}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setPendingHeaderRetentionAction(null)}>
-              {t('sessions.sidebar.dialogs.cancel')}
+              {"Cancel"}
             </Button>
             <Button variant="destructive" size="sm" onClick={() => void confirmHeaderRetentionAction()}>
               {pendingHeaderRetentionAction === 'delete'
-                ? t('sessions.sidebar.bulkActions.delete')
-                : t('sessions.sidebar.bulkActions.archive')}
+                ? "Delete"
+                : "Archive"}
             </Button>
           </DialogFooter>
         </DialogContent>

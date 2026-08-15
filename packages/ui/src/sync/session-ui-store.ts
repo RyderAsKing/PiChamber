@@ -1166,9 +1166,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     await get().revertToMessage(sessionId, targetMessage.id)
 
     const { toast } = await import("sonner")
-    const { useI18nStore, formatMessage } = await import("@/lib/i18n/store")
-    const { dictionary } = useI18nStore.getState()
-    toast.success(formatMessage(dictionary, "chat.revert.toast.undo", { preview }))
+    toast.success(`Reverted to ${preview}`)
   },
 
   // ---------------------------------------------------------------------------
@@ -1179,9 +1177,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       const { unrevertSession } = await import("./session-actions")
       await unrevertSession(sessionId)
       const { toast } = await import("sonner")
-      const { useI18nStore, formatMessage } = await import("@/lib/i18n/store")
-      const { dictionary } = useI18nStore.getState()
-      toast.success(formatMessage(dictionary, "chat.revert.toast.restored"))
+      toast.success("Restored all messages")
       return
     }
 
@@ -1198,17 +1194,13 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     if (targetMessage) {
       await get().revertToMessage(sessionId, targetMessage.id, { skipRedoPush: true })
       const { toast } = await import("sonner")
-      const { useI18nStore, formatMessage } = await import("@/lib/i18n/store")
-      const { dictionary } = useI18nStore.getState()
-      toast.success(formatMessage(dictionary, "chat.revert.toast.redo"))
+      toast.success("Redone")
       return
     }
 
     await unrevertSessionAction(sessionId)
     const { toast } = await import("sonner")
-    const { useI18nStore, formatMessage } = await import("@/lib/i18n/store")
-    const { dictionary } = useI18nStore.getState()
-    toast.success(formatMessage(dictionary, "chat.revert.toast.restored"))
+    toast.success("Restored all messages")
   },
 
   // ---------------------------------------------------------------------------

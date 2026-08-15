@@ -2,7 +2,6 @@ import React from 'react';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { useMagicPromptsStore } from '@/stores/useMagicPromptsStore';
 import { cn } from '@/lib/utils';
-import { useI18n } from '@/lib/i18n';
 import { SETTINGS_PANEL_TITLE_CLASS } from '@/components/sections/shared/SettingsSection';
 
 interface MagicPromptsSidebarProps {
@@ -10,49 +9,48 @@ interface MagicPromptsSidebarProps {
 }
 
 export const MagicPromptsSidebar: React.FC<MagicPromptsSidebarProps> = ({ onItemSelect }) => {
-  const { t } = useI18n();
   const selectedPromptId = useMagicPromptsStore((state) => state.selectedPromptId);
   const setSelectedPromptId = useMagicPromptsStore((state) => state.setSelectedPromptId);
 
   const grouped = React.useMemo(() => {
     return [
       {
-        groupKey: 'settings.magicPrompts.sidebar.group.git',
+        groupLabel: "Git",
         items: [
-          { id: 'git.commit.generate', titleKey: 'settings.magicPrompts.sidebar.item.gitCommitGenerate' },
-          { id: 'git.pr.generate', titleKey: 'settings.magicPrompts.sidebar.item.gitPrGenerate' },
-          { id: 'git.conflict.resolve', titleKey: 'settings.magicPrompts.sidebar.item.gitConflictResolve' },
-          { id: 'git.integrate.cherrypick.resolve', titleKey: 'settings.magicPrompts.sidebar.item.gitCherrypickConflictResolve' },
+          { id: 'git.commit.generate', title: "Commit Generation" },
+          { id: 'git.pr.generate', title: "PR Generation" },
+          { id: 'git.conflict.resolve', title: "Merge/Rebase Conflict Resolution" },
+          { id: 'git.integrate.cherrypick.resolve', title: "Cherry-pick Conflict Resolution" },
         ],
       },
       {
-        groupKey: 'settings.magicPrompts.sidebar.group.github',
+        groupLabel: "GitHub",
         items: [
-          { id: 'github.pr.review', titleKey: 'settings.magicPrompts.sidebar.item.githubPrReview' },
-          { id: 'github.issue.review', titleKey: 'settings.magicPrompts.sidebar.item.githubIssueReview' },
-          { id: 'github.pr.checks.review', titleKey: 'settings.magicPrompts.sidebar.item.githubPrFailedChecksReview' },
-          { id: 'github.pr.comments.review', titleKey: 'settings.magicPrompts.sidebar.item.githubPrCommentsReview' },
-          { id: 'github.pr.comment.single', titleKey: 'settings.magicPrompts.sidebar.item.githubSinglePrCommentReview' },
+          { id: 'github.pr.review', title: "PR Review" },
+          { id: 'github.issue.review', title: "Issue Review" },
+          { id: 'github.pr.checks.review', title: "PR Failed Checks Review" },
+          { id: 'github.pr.comments.review', title: "PR Comments Review" },
+          { id: 'github.pr.comment.single', title: "Single PR Comment Review" },
         ],
       },
       {
-        groupKey: 'settings.magicPrompts.sidebar.group.planning',
+        groupLabel: "Planning",
         items: [
-          { id: 'plan.todo', titleKey: 'settings.magicPrompts.sidebar.item.planTodo' },
-          { id: 'plan.improve', titleKey: 'settings.magicPrompts.sidebar.item.planImprove' },
-          { id: 'plan.implement', titleKey: 'settings.magicPrompts.sidebar.item.planImplement' },
+          { id: 'plan.todo', title: "Todo Planning" },
+          { id: 'plan.improve', title: "Improve Plan" },
+          { id: 'plan.implement', title: "Implement Plan" },
         ],
       },
       {
-        groupKey: 'settings.magicPrompts.sidebar.group.session',
+        groupLabel: "Session",
         items: [
-          { id: 'session.explore', titleKey: 'settings.magicPrompts.sidebar.item.sessionExplore' },
-          { id: 'session.summary', titleKey: 'settings.magicPrompts.sidebar.item.sessionSummary' },
-          { id: 'session.plan', titleKey: 'settings.magicPrompts.sidebar.item.sessionFeaturePlan' },
-          { id: 'session.catchup', titleKey: 'settings.magicPrompts.sidebar.item.sessionCatchUp' },
-          { id: 'session.debug', titleKey: 'settings.magicPrompts.sidebar.item.sessionDebug' },
-          { id: 'session.weigh', titleKey: 'settings.magicPrompts.sidebar.item.sessionWeigh' },
-          { id: 'session.fusion', titleKey: 'settings.magicPrompts.sidebar.item.sessionFusion' },
+          { id: 'session.explore', title: "Codebase Tour" },
+          { id: 'session.summary', title: "Session Summary" },
+          { id: 'session.plan', title: "Feature Planning" },
+          { id: 'session.catchup', title: "Catch Up" },
+          { id: 'session.debug', title: "Debugging" },
+          { id: 'session.weigh', title: "Weigh Options" },
+          { id: 'session.fusion', title: "Fusion" },
         ],
       },
     ] as const;
@@ -61,14 +59,14 @@ export const MagicPromptsSidebar: React.FC<MagicPromptsSidebarProps> = ({ onItem
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="border-b px-3 pt-4 pb-3">
-        <h2 className={SETTINGS_PANEL_TITLE_CLASS}>{t('settings.magicPrompts.sidebar.title')}</h2>
-        <p className="typography-meta mt-1 text-muted-foreground">{t('settings.magicPrompts.sidebar.description')}</p>
+        <h2 className={SETTINGS_PANEL_TITLE_CLASS}>{"Magic Prompts"}</h2>
+        <p className="typography-meta mt-1 text-muted-foreground">{"Select a prompt template to edit."}</p>
       </div>
 
       <ScrollableOverlay outerClassName="flex-1 min-h-0" className="space-y-3 px-3 py-2 overflow-x-hidden">
         {grouped.map((group) => (
-          <div key={group.groupKey} className="space-y-1">
-            <div className="typography-micro px-1 text-muted-foreground">{t(group.groupKey)}</div>
+          <div key={group.groupLabel} className="space-y-1">
+            <div className="typography-micro px-1 text-muted-foreground">{group.groupLabel}</div>
             {group.items.map((item) => {
               const selected = selectedPromptId === item.id;
               return (
@@ -84,7 +82,7 @@ export const MagicPromptsSidebar: React.FC<MagicPromptsSidebarProps> = ({ onItem
                     selected ? 'bg-interactive-selection text-foreground' : 'text-foreground hover:bg-interactive-hover'
                   )}
                 >
-                  <span className="typography-ui-label truncate font-normal">{t(item.titleKey)}</span>
+                  <span className="typography-ui-label truncate font-normal">{item.title}</span>
                 </button>
               );
             })}
