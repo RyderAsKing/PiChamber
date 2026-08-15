@@ -2,7 +2,6 @@
 // @ts-nocheck
 import React from 'react';
 import { Icon } from '@/components/icon/Icon';
-import { useI18n } from '@/lib/i18n';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { preloadProviderLogos } from '@/hooks/useProviderLogo';
 import { formatQuotaResetLabel, formatQuotaValueLabel } from '@/lib/quota';
@@ -39,7 +38,7 @@ const windowTone = (window: UsageWindow): 'default' | 'warning' | 'error' => {
 };
 
 export const WorkStatusUsageSection: React.FC = () => {
-  const { t } = useI18n();
+  
   const groups = useUsageProviderGroups();
   const displayMode = useQuotaStore((state) => state.displayMode);
   const isLoading = useQuotaStore((state) => state.isLoading);
@@ -76,8 +75,8 @@ export const WorkStatusUsageSection: React.FC = () => {
   if (groups.length === 0) return null;
 
   const modeLabel = displayMode === 'remaining'
-    ? t('header.services.remaining')
-    : t('header.services.used');
+    ? "Remaining"
+    : "Used";
 
   // Collapsed, the section shows the tightest quota of the provider the
   // composer is pointed at — the number that decides whether the next turn
@@ -94,7 +93,7 @@ export const WorkStatusUsageSection: React.FC = () => {
   return (
     <WorkStatusCollapsibleSection
       id="usage"
-      title={t('chat.workStatus.section.usage')}
+      title={"Usage"}
       icon="timer"
       summary={(
         <span className="inline-flex items-center gap-1.5">

@@ -2,7 +2,6 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { isDesktopShell } from "@/lib/desktop";
 import { matchesFuzzyQuery } from "@/lib/search/fuzzySearch";
-import type { I18nKey } from "@/lib/i18n";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -22,10 +21,10 @@ const isWindows = (): boolean => {
   return /Windows/.test(navigator.userAgent || '');
 };
 
-export const getRevealLabelKey = (): I18nKey => {
-  if (isMacOS()) return 'common.revealPath.finder';
-  if (isWindows()) return 'common.revealPath.fileExplorer';
-  return 'common.revealPath.fileManager';
+export const getRevealLabel = (): string => {
+  if (isMacOS()) return 'Reveal in Finder';
+  if (isWindows()) return 'Open in File Explorer';
+  return 'Open in File Manager';
 };
 
 /**

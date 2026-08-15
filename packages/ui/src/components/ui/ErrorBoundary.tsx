@@ -2,7 +2,6 @@ import React from 'react';
 import { Button } from './button';
 import { Card, CardContent, CardHeader, CardTitle } from './card';
 import { copyTextToClipboard } from '@/lib/clipboard';
-import { useI18n } from '@/lib/i18n';
 import { Icon } from "@/components/icon/Icon";
 
 interface ErrorBoundaryState {
@@ -120,18 +119,17 @@ class InnerErrorBoundary extends React.Component<InnerErrorBoundaryProps, ErrorB
 }
 
 export const ErrorBoundary: React.FC<ErrorBoundaryProps> = ({ children, fallback }) => {
-  const { t } = useI18n();
 
   const strings: ErrorBoundaryStrings = React.useMemo(() => ({
-    unknownError: t('errorBoundary.state.unknownError'),
-    title: t('errorBoundary.title'),
-    description: t('errorBoundary.description'),
-    detailsSummary: t('errorBoundary.actions.errorDetails'),
-    componentStackLabel: t('errorBoundary.state.componentStackLabel'),
-    tryAgain: t('errorBoundary.actions.tryAgain'),
-    copied: t('errorBoundary.actions.copied'),
-    copy: t('errorBoundary.actions.copy'),
-  }), [t]);
+    unknownError: "Unknown error",
+    title: "Something went wrong",
+    description: "The application encountered an unexpected error. This has been logged for debugging.",
+    detailsSummary: "Error details",
+    componentStackLabel: "Component stack:",
+    tryAgain: "Try again",
+    copied: "Copied",
+    copy: "Copy",
+  }), []);
 
   return (
     <InnerErrorBoundary fallback={fallback} strings={strings}>

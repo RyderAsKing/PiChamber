@@ -1,5 +1,4 @@
 import React from 'react';
-import { useI18n } from '@/lib/i18n';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { openExternalUrl } from '@/lib/url';
 import { Button } from '@/components/ui/button';
@@ -28,7 +27,7 @@ type InstanceService = {
  * or wrong URLs.
  */
 export const InstanceServiceUrls: React.FC = () => {
-  const { t } = useI18n();
+  
   const [info, setInfo] = React.useState<InstanceServiceInfo | null>(null);
 
   React.useEffect(() => {
@@ -67,14 +66,14 @@ export const InstanceServiceUrls: React.FC = () => {
   if (info?.port !== null && info?.port !== undefined) {
     services.push({
       key: 'application',
-      label: t('settings.pichamber.about.field.applicationUrl'),
+      label: "Application",
       url: `http://localhost:${info.port}/`,
     });
   }
   if (info?.tunnelUrl) {
     services.push({
       key: 'tunnel',
-      label: t('settings.pichamber.about.field.tunnelUrl'),
+      label: "Tunnel",
       url: info.tunnelUrl,
     });
   }

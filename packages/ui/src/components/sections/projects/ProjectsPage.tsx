@@ -4,10 +4,9 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { ProjectSettingsPanel } from '@/components/sections/projects/ProjectSettingsPanel';
 import type { ProjectIdentitySaveData } from '@/components/sections/projects/useProjectIdentityForm';
-import { useI18n } from '@/lib/i18n';
 
 export const ProjectsPage: React.FC = () => {
-  const { t } = useI18n();
+  
   const projects = useProjectsStore((state) => state.projects);
   const updateProjectMeta = useProjectsStore((state) => state.updateProjectMeta);
   const selectedId = useUIStore((state) => state.settingsProjectsSelectedId);
@@ -42,13 +41,13 @@ export const ProjectsPage: React.FC = () => {
 
   if (!selectedProject) {
     return (
-      <SettingsPageLayout title={t('settings.page.projects.title')} showSaveStatus>
-        <p className="typography-meta text-muted-foreground">{t('settings.projects.page.empty.noProjects')}</p>
+      <SettingsPageLayout title={"Projects"} showSaveStatus>
+        <p className="typography-meta text-muted-foreground">{"No projects available."}</p>
       </SettingsPageLayout>
     );
   }
 
-  const headerLabel = selectedProject.label ?? t('settings.projects.page.title.default');
+  const headerLabel = selectedProject.label ?? "Project Settings";
 
   return (
     <SettingsPageLayout

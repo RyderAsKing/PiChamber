@@ -21,7 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { isSessionPinned, type SessionPinnedTarget } from '@/stores/useSessionPinnedStore';
 import { Icon } from "@/components/icon/Icon";
-import { buildExportFilename, downloadAsMarkdown, formatSessionAsMarkdown, getExportRevealLabelKey, revealExportedMarkdown, saveAsMarkdownDesktop } from '@/lib/exportSession';
+import { buildExportFilename, downloadAsMarkdown, formatSessionAsMarkdown, getExportRevealLabel, revealExportedMarkdown, saveAsMarkdownDesktop } from '@/lib/exportSession';
 import type { ChildSessionExport } from '@/lib/exportSession';
 import { buildSessionMessageRecordsSnapshot, useDirectoryStore, useGlobalSessionStatus, useSessionPermissions, useSessionQuestionCount } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
@@ -38,7 +38,6 @@ import { useSessionUnseenCount } from '@/sync/notification-store';
 import { useHasSessionActivityDuration } from '@/sync/session-activity-timing';
 import { SessionActivityDuration } from '@/components/session/SessionActivityDuration';
 import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore';
-import { useI18n } from '@/lib/i18n';
 import { useShiftKeyHeld } from '@/hooks/useShiftKeyHeld';
 import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
@@ -247,7 +246,6 @@ const QuickSessionAction = React.memo(function QuickSessionAction({
 
 function SessionNodeItemComponent(props: Props): React.ReactNode {
   streamPerfCount('ui.sidebar_session_node.render');
-  const { t } = useI18n();
   const {
     node,
     depth = 0,
@@ -343,23 +341,23 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     if (!prSummary) return null;
     switch (prSummary.visualState) {
       case 'merged':
-        return t('sessions.sidebar.group.pr.status.merged');
+        return "Merged";
       case 'open':
         return (prSummary.canMerge === true || prSummary.mergeableState === 'clean' || prSummary.checks?.state === 'success')
-          ? t('sessions.sidebar.group.pr.status.readyToMerge')
-          : t('sessions.sidebar.group.pr.status.open');
+          ? "Ready to merge"
+          : "PR open";
       case 'blocked':
         return prSummary.mergeableState === 'dirty'
-          ? t('sessions.sidebar.group.pr.status.mergeConflicts')
-          : t('sessions.sidebar.group.pr.status.mergeBlocked');
+          ? "Merge conflicts"
+          : "Merge blocked";
       case 'draft':
-        return t('sessions.sidebar.group.pr.status.draft');
+        return "Draft PR";
       case 'closed':
-        return t('sessions.sidebar.group.pr.status.closed');
+        return "Closed";
       default:
         return null;
     }
-  }, [prSummary, t]);
+  }, [prSummary]);
   const isActive = useSessionUIStore((state) => state.currentSessionId === session.id);
 
   const sessionDirectory =
@@ -419,7 +417,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   // tick of the counter it only decides to mount.
   const hasActivityDuration = useHasSessionActivityDuration(session.id, isStreaming);
   const sessionPermissions = useSessionPermissions(session.id, sessionDirectory ?? undefined);
-  const sessionTitle = resolvedSession.title || t('sessions.sidebar.session.untitled');
+  const sessionTitle = resolvedSession.title || "Untitled Session";
   const hasChildren = node.children.length > 0;
   const isPinnedSession = isSessionPinned(pinnedSessionIds, sessionDirectory, session.id);
   // Per-render-context expansion key: the same session can appear in both
@@ -452,7 +450,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
         if (!sessionDirectory) throw new Error('Session directory is required for export');
         await (sync as any).loadCompleteHistory?.(child.session.id, sessionDirectory);
         const childRecords = buildSessionMessageRecordsSnapshot(directoryStore.getState(), child.session.id).list;
-        const childTitle = child.session.title || t('sessions.sidebar.session.export.untitledSubagent');
+        const childTitle = child.session.title || "Untitled Sub-agent";
         const childAgent = (child.session as Session & { agent?: string }).agent;
         const grandChildren = await collectChildExports(child.children);
         skipped += grandChildren.skipped;
@@ -467,31 +465,31 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
       }
     }
     return { children: results, skipped };
-  }, [collectNodeDescendantIds, directoryStore, sessionDirectory, sync, t]);
+  }, [collectNodeDescendantIds, directoryStore, sessionDirectory, sync]);
 
   const showSkippedSubtasksWarning = React.useCallback((count: number) => {
     if (count <= 0) return;
     toast.warning(count === 1
-      ? t('sessions.sidebar.session.export.skippedSubtaskSingle', { count })
-      : t('sessions.sidebar.session.export.skippedSubtaskMany', { count }));
-  }, [t]);
+      ? `Exported session, but skipped ${count} sub-agent task that could not be loaded.`
+      : `Exported session, but skipped ${count} sub-agent tasks that could not be loaded.`);
+  }, []);
 
   const doExportSession = React.useCallback(async (includeSubtasks: boolean) => {
     if (!sessionDirectory) {
-      toast.error(t('sessions.sidebar.session.export.nothingToExport'));
+      toast.error("Nothing to export");
       return;
     }
 
     try {
       await (sync as any).loadCompleteHistory?.(session.id, sessionDirectory);
     } catch {
-      toast.error(t('sessions.sidebar.session.export.failedLoadHistory'));
+      toast.error("Failed to load the complete session history");
       return;
     }
 
     const records = buildSessionMessageRecordsSnapshot(directoryStore.getState(), session.id).list;
     if (records.length === 0) {
-      toast.error(t('sessions.sidebar.session.export.nothingToExport'));
+      toast.error("Nothing to export");
       return;
     }
 
@@ -508,13 +506,13 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     const savedPath = await saveAsMarkdownDesktop(markdown, filename);
 
     if (savedPath) {
-      toast.success(t('sessions.sidebar.session.export.success'), {
+      toast.success("Session exported", {
         action: {
-          label: t(getExportRevealLabelKey()),
+          label: getExportRevealLabel(),
           onClick: () => {
             void revealExportedMarkdown(savedPath).then((revealed) => {
               if (!revealed) {
-                toast.error(t('sessions.sidebar.session.export.failedRevealPath'));
+                toast.error("Failed to reveal path");
               }
             });
           },
@@ -525,9 +523,9 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     }
 
     downloadAsMarkdown(markdown, filename);
-    toast.success(t('sessions.sidebar.session.export.success'));
+    toast.success("Session exported");
     showSkippedSubtasksWarning(skippedSubtaskCount);
-  }, [collectChildExports, directoryStore, node.children, resolvedSession.title, session.id, sessionDirectory, showSkippedSubtasksWarning, sync, t]);
+  }, [collectChildExports, directoryStore, node.children, resolvedSession.title, session.id, sessionDirectory, showSkippedSubtasksWarning, sync]);
   const handleExportSession = React.useCallback(async () => {
     if (node.children.length > 0) {
       setExportIncludeSubtasks(true);
@@ -603,7 +601,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
               onChange={(event) => setRenameDraft(event.target.value)}
               className="flex-1 min-w-0 bg-transparent typography-ui-label outline-none placeholder:text-muted-foreground"
               autoFocus
-              placeholder={t('sessions.sidebar.session.menu.rename')}
+              placeholder={"Rename"}
               onKeyDown={(event) => {
                 event.stopPropagation();
                 if (event.key === 'Escape') {
@@ -614,8 +612,8 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
             />
             <button
               type="submit"
-              aria-label={t('sessions.sidebar.session.rename.save')}
-              title={t('sessions.sidebar.session.rename.save')}
+              aria-label={"Save session name"}
+              title={"Save session name"}
               className="shrink-0 text-muted-foreground hover:text-foreground"
             >
               <Icon name="check" className="size-4" />
@@ -623,8 +621,8 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
             <button
               type="button"
               onClick={handleCancelEdit}
-              aria-label={t('sessions.sidebar.session.rename.cancel')}
-              title={t('sessions.sidebar.session.rename.cancel')}
+              aria-label={"Cancel renaming session"}
+              title={"Cancel renaming session"}
               className="shrink-0 text-muted-foreground hover:text-foreground"
             >
               <Icon name="close" className="size-4" />
@@ -637,16 +635,16 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
 
   const pendingPermissionCount = sessionPermissions.length;
   const pendingQuestionLabel = pendingQuestionCount === 1
-    ? t('sessions.sidebar.session.status.questionPendingSingle')
-    : t('sessions.sidebar.session.status.questionPendingMany', { count: pendingQuestionCount });
+    ? "1 pending question"
+    : `${pendingQuestionCount} pending questions`;
   const showUnreadStatus = !isStreaming && needsAttention && !isActive;
   const showStatusMarker = isStreaming || showUnreadStatus;
   // Both states are the same static dot; only the color separates "running"
   // from "unread". The elapsed-turn readout on the right carries the motion
   // that a spinner used to, at one repaint per second instead of per frame.
   const statusMarkerLabel = isStreaming
-    ? t('sessions.sidebar.session.status.active')
-    : t('sessions.sidebar.session.status.unread');
+    ? "Session active"
+    : "Unread updates";
   const statusMarkerContent = (
     <span
       className={cn(
@@ -666,7 +664,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     <Icon
       name="pushpin"
       className="h-3 w-3 flex-shrink-0 text-primary"
-      aria-label={t('sessions.sidebar.session.status.pinned')}
+      aria-label={"Pinned session"}
     />
   );
   const leadingIndicators = showStatusMarker || showPinnedMarker ? (
@@ -707,8 +705,8 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
           : '',
       )}
       aria-label={isExpanded
-        ? t('sessions.sidebar.session.subsessions.collapse')
-        : t('sessions.sidebar.session.subsessions.expand')}
+        ? "Collapse subsessions"
+        : "Expand subsessions"}
     >
       {isExpanded ? <Icon name="arrow-down-s" className="h-3 w-3" /> : <Icon name="arrow-right-s" className="h-3 w-3" />}
     </span>
@@ -858,37 +856,37 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
         className="[&>svg]:mr-1"
       >
         <Icon name="pencil-ai" className="mr-1 h-4 w-4" />
-        {t('sessions.sidebar.session.menu.rename')}
+        {"Rename"}
       </Item>
       <Item onClick={() => handleCopySessionId(session.id)} className="[&>svg]:mr-1">
         <Icon name="file-copy" className="mr-1 h-4 w-4" />
-        {t('sessions.sidebar.session.menu.copyId')}
+        {"Copy session ID"}
       </Item>
       <Item onClick={() => sessionDirectory && togglePinnedSession({ directory: sessionDirectory, sessionId: session.id })} className="[&>svg]:mr-1">
         {isPinnedSession ? <Icon name="unpin" className="mr-1 h-4 w-4" /> : <Icon name="pushpin" className="mr-1 h-4 w-4" />}
-        {isPinnedSession ? t('sessions.sidebar.session.menu.unpin') : t('sessions.sidebar.session.menu.pin')}
+        {isPinnedSession ? "Unpin session" : "Pin session"}
       </Item>
       {!resolvedSession.share ? (
         <Item onClick={() => handleShareSession(resolvedSession)} className="[&>svg]:mr-1">
           <Icon name="share-2" className="mr-1 h-4 w-4" />
-          {t('sessions.sidebar.session.menu.share')}
+          {"Share"}
         </Item>
       ) : (
         <>
           <Item onClick={() => { if ((resolvedSession.share as any)?.url) handleCopyShareUrl((resolvedSession.share as any).url, session.id); }} className="[&>svg]:mr-1">
             {copiedSessionId === session.id
-              ? <><Icon name="check" className="mr-1 h-4 w-4"  style={{ color: 'var(--status-success)' }}/>{t('sessions.sidebar.session.menu.copied')}</>
-              : <><Icon name="file-copy" className="mr-1 h-4 w-4" />{t('sessions.sidebar.session.menu.copyLink')}</>}
+              ? <><Icon name="check" className="mr-1 h-4 w-4"  style={{ color: 'var(--status-success)' }}/>{"Copied"}</>
+              : <><Icon name="file-copy" className="mr-1 h-4 w-4" />{"Copy link"}</>}
           </Item>
           <Item onClick={() => handleUnshareSession(session.id)} className="[&>svg]:mr-1">
             <Icon name="link-unlink-m" className="mr-1 h-4 w-4" />
-            {t('sessions.sidebar.session.menu.unshare')}
+            {"Unshare"}
           </Item>
         </>
       )}
       <Item onClick={() => { void handleExportSession(); }} className="[&>svg]:mr-1">
         <Icon name="download" className="mr-1 h-4 w-4" />
-        {t('sessions.sidebar.session.menu.exportMarkdown')}
+        {"Export Markdown"}
       </Item>
       {sessionDirectory && !archivedBucket ? (() => {
         const scopes: string[] = [];
@@ -911,10 +909,10 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
           <>
             <Separator />
             <Sub>
-              <SubTrigger className="[&>svg]:mr-1"><Icon name="folder" className="h-4 w-4" />{t('sessions.sidebar.folders.moveToFolder')}</SubTrigger>
+              <SubTrigger className="[&>svg]:mr-1"><Icon name="folder" className="h-4 w-4" />{"Move to folder"}</SubTrigger>
               <SubContent className="min-w-[180px]">
                 {folderEntries.length === 0 ? (
-                  <Item disabled className="text-muted-foreground">{t('sessions.sidebar.folders.none')}</Item>
+                  <Item disabled className="text-muted-foreground">{"No folders yet"}</Item>
                 ) : (
                   folderEntries.map(({ scope, folder }) => {
                     const isCurrent = currentEntry?.folder.id === folder.id;
@@ -945,12 +943,12 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                   addSessionToFolder(defaultScope, newFolder.id, session.id);
                 }}>
                   <Icon name="add" className="mr-1 h-4 w-4" />
-                  {t('sessions.sidebar.folders.newFolderEllipsis')}
+                  {"New folder..."}
                 </Item>
                 {currentEntry ? (
                   <Item onClick={() => { removeSessionFromFolder(currentEntry.scope, session.id); }} className="text-destructive focus:text-destructive">
                     <Icon name="close" className="mr-1 h-4 w-4" />
-                    {t('sessions.sidebar.folders.removeFromFolder')}
+                    {"Remove from folder"}
                   </Item>
                 ) : null}
               </SubContent>
@@ -973,8 +971,8 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
           className="[&>svg]:mr-1"
         >
           <Icon name="chat-4" className="mr-1 h-4 w-4" />
-          <span className="truncate">{t('sessions.sidebar.session.menu.openInSidePanel')}</span>
-          <span className="shrink-0 typography-micro px-1 rounded leading-none pb-px text-[var(--status-warning)] bg-[var(--status-warning)]/10">{t('sessions.sidebar.session.menu.betaBadge')}</span>
+          <span className="truncate">{"Open in Side Panel"}</span>
+          <span className="shrink-0 typography-micro px-1 rounded leading-none pb-px text-[var(--status-warning)] bg-[var(--status-warning)]/10">{"beta"}</span>
         </Item>
 
       {isElectron ? (
@@ -984,7 +982,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
           className="[&>svg]:mr-1"
         >
           <Icon name="window" className="mr-1 h-4 w-4" />
-          <span className="truncate">{t('sessions.sidebar.session.menu.openMiniChatWindow')}</span>
+          <span className="truncate">{"Open in Mini Chat Window"}</span>
         </Item>
       ) : null}
 
@@ -992,18 +990,18 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
       {!archivedBucket ? (
         <Item className="[&>svg]:mr-1" onClick={() => handleDeleteSession(session, { archivedBucket })}>
           <Icon name="inbox-archive" className="mr-1 h-4 w-4" />
-          {t('sessions.sidebar.bulkActions.archive')}
+          {"Archive"}
         </Item>
       ) : null}
       {archivedBucket ? (
         <Item className="[&>svg]:mr-1" onClick={() => handleRestoreSession(session)}>
           <Icon name="inbox-unarchive" className="mr-1 h-4 w-4" />
-          {t('sessions.sidebar.bulkActions.restore')}
+          {"Restore"}
         </Item>
       ) : null}
       <Item className="text-destructive focus:text-destructive [&>svg]:mr-1" onClick={() => handleDeleteSession(session, { archivedBucket, hardDelete: true })}>
         <Icon name="delete-bin" className="mr-1 h-4 w-4" />
-        {t('sessions.sidebar.bulkActions.delete')}
+        {"Delete"}
       </Item>
     </>
   );
@@ -1176,7 +1174,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                         </div>
                       ) : null}
                       {pendingPermissionCount > 0 ? (
-                        <span className="inline-flex items-center gap-1 rounded bg-destructive/10 px-1 py-0.5 text-[0.7rem] text-destructive flex-shrink-0" title={t('sessions.sidebar.session.status.permissionRequired')} aria-label={t('sessions.sidebar.session.status.permissionRequired')}>
+                        <span className="inline-flex items-center gap-1 rounded bg-destructive/10 px-1 py-0.5 text-[0.7rem] text-destructive flex-shrink-0" title={"Permission required"} aria-label={"Permission required"}>
                           <Icon name="shield" className="h-3 w-3" />
                           <span className="leading-none">{pendingPermissionCount}</span>
                         </span>
@@ -1238,8 +1236,8 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
           )}>
             {showQuickArchiveAction ? (
               <QuickSessionAction
-                archiveLabel={t('sessions.sidebar.bulkActions.archive')}
-                deleteLabel={t('sessions.sidebar.bulkActions.delete')}
+                archiveLabel={"Archive"}
+                deleteLabel={"Delete"}
                 buttonSizeClass={!alwaysShowActions ? 'h-4 w-4' : 'h-6 w-6'}
                 iconSizeClass={!alwaysShowActions ? 'h-2.5 w-2.5' : 'h-3.5 w-3.5'}
                 onPointerDown={handleQuickArchivePointerDown}
@@ -1260,7 +1258,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                           : cn('h-4 w-4 opacity-0', revealOnHoverClass))
                       : 'h-6 w-6 opacity-100',
                   )}
-                  aria-label={t('sessions.sidebar.session.menu.label')}
+                  aria-label={"Session menu"}
                   onPointerDown={handleMenuTriggerPointerDown}
                   onMouseDown={handleMenuTriggerMouseDown}
                   onClick={handleMenuTriggerClick}
@@ -1304,11 +1302,11 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
       <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
         <DialogContent showCloseButton={false} className="max-w-sm gap-5">
           <DialogHeader>
-            <DialogTitle>{t('sessions.sidebar.session.export.dialog.title')}</DialogTitle>
+            <DialogTitle>{"Export Markdown"}</DialogTitle>
             <DialogDescription>
               {descendantCount === 1
-                ? t('sessions.sidebar.session.export.dialog.descriptionSingle', { count: descendantCount })
-                : t('sessions.sidebar.session.export.dialog.descriptionMany', { count: descendantCount })}
+                ? `This session has ${descendantCount} sub-agent task. Include it in the export?`
+                : `This session has ${descendantCount} sub-agent tasks. Include them in the export?`}
             </DialogDescription>
           </DialogHeader>
           <label className="flex items-center gap-2 typography-ui-label cursor-pointer">
@@ -1318,7 +1316,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
               onChange={(e) => setExportIncludeSubtasks(e.target.checked)}
               className="h-4 w-4 rounded border-border accent-primary"
             />
-            {t('sessions.sidebar.session.export.dialog.includeSubtasks')}
+            {"Include sub-agent tasks"}
           </label>
           <DialogFooter>
             <Button
@@ -1327,7 +1325,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
               variant="outline"
               size="sm"
             >
-              {t('sessions.sidebar.dialogs.cancel')}
+              {"Cancel"}
             </Button>
             <Button
               type="button"
@@ -1337,7 +1335,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
               }}
               size="sm"
             >
-              {t('sessions.sidebar.session.export.dialog.confirm')}
+              {"Export"}
             </Button>
           </DialogFooter>
         </DialogContent>

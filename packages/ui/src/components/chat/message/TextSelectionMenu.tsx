@@ -13,7 +13,6 @@ import { OPENCHAMBER_PROJECT_NOTES_MAX_LENGTH, getProjectNotesAndTodos, saveProj
 import { summarizeSelectionForNotes } from '@/lib/smallModel';
 import { resolveProjectForSessionDirectory } from '@/lib/projectResolution';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
-import { useI18n } from '@/lib/i18n';
 import { rangeToMarkdown, trimSelectionValue, wrapMarkdownSelectionForChat } from './selectionMarkdown';
 import { focusChatInput } from '@/components/chat/composer/editor/dom';
 
@@ -46,7 +45,6 @@ const appendDistilledInsightToNotes = (existingNotes: string, insight: string): 
 const DESKTOP_MENU_SIDE_MARGIN_PX = 8;
 const DESKTOP_MENU_FALLBACK_WIDTH_PX = 280;
 export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerRef }) => {
-  const { t } = useI18n();
   const [position, setPosition] = React.useState<MenuPosition>({ x: 0, y: 0, show: false });
   const [selectedText, setSelectedText] = React.useState('');
   const [selectedTextMarkdown, setSelectedTextMarkdown] = React.useState('');
@@ -354,7 +352,7 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
   const handleAddToNotes = React.useCallback(async () => {
     if (!selectedText || !currentProjectRef) {
       if (!currentProjectRef) {
-        toast.error(t('chat.textSelection.toast.noProject'));
+        toast.error("No project found for this session");
       }
       return;
     }
@@ -371,22 +369,22 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
         todos: projectData.todos,
       });
       if (!saved) {
-        toast.error(t('chat.textSelection.toast.addToNotesFailed'));
+        toast.error("Failed to add to notes");
         return;
       }
       window.dispatchEvent(new CustomEvent('openchamber:project-notes-updated', {
         detail: { projectId: currentProjectRef.id },
       }));
-      toast.success(t('chat.textSelection.toast.addToNotesSuccess'));
+      toast.success("Added selected text to notes");
       hideMenu();
       window.getSelection()?.removeAllRanges();
     } catch (error) {
       const description = error instanceof Error ? error.message : undefined;
-      toast.error(t('chat.textSelection.toast.addToNotesFailed'), description ? { description } : undefined);
+      toast.error("Failed to add to notes", description ? { description } : undefined);
     } finally {
       setIsAddingToNotes(false);
     }
-  }, [currentProjectRef, currentSessionId, hideMenu, selectedText, selectedTextMarkdown, t]);
+  }, [currentProjectRef, currentSessionId, hideMenu, selectedText, selectedTextMarkdown]);
 
   if (!position.show) return null;
 
@@ -417,11 +415,11 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
               'active:opacity-80',
               'transition-opacity duration-150'
             )}
-            title={t('chat.textSelection.title.addToCurrentChat')}
+            title={"Add to current chat"}
             type="button"
           >
             <Icon name="add" className="h-5 w-5 flex-shrink-0" />
-            <span className="min-w-0 whitespace-normal">{t('chat.textSelection.actions.addToChat')}</span>
+            <span className="min-w-0 whitespace-normal">{"Add to chat"}</span>
           </button>
 
           <button
@@ -433,11 +431,11 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
               'active:opacity-80',
               'transition-opacity duration-150'
             )}
-            title={t('chat.textSelection.title.newSessionWithSelection')}
+            title={"Create new session with selection"}
             type="button"
           >
             <Icon name="chat-new" className="h-5 w-5 flex-shrink-0" />
-            <span className="min-w-0 whitespace-normal">{t('chat.textSelection.actions.newSession')}</span>
+            <span className="min-w-0 whitespace-normal">{"New session"}</span>
           </button>
 
           <button
@@ -449,11 +447,11 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
               'active:opacity-80',
               'transition-opacity duration-150'
             )}
-            title={t('chat.textSelection.actions.copy')}
+            title={"Copy"}
             type="button"
           >
             <Icon name="file-copy" className="h-5 w-5 flex-shrink-0" />
-            <span className="min-w-0 whitespace-normal">{t('chat.textSelection.actions.copy')}</span>
+            <span className="min-w-0 whitespace-normal">{"Copy"}</span>
           </button>
 
           <button
@@ -466,11 +464,11 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
                 'active:opacity-80 disabled:opacity-60 disabled:cursor-not-allowed',
                 'transition-opacity duration-150'
               )}
-              title={t('chat.textSelection.title.saveInsightToNotes')}
+              title={"Save selected text to notes"}
               type="button"
             >
               {isAddingToNotes ? <Icon name="loader-4" className="h-5 w-5 flex-shrink-0 animate-spin" /> : <Icon name="booklet" className="h-5 w-5 flex-shrink-0" />}
-              <span className="min-w-0 whitespace-normal">{t('chat.textSelection.actions.addToNotes')}</span>
+              <span className="min-w-0 whitespace-normal">{"Add to notes"}</span>
             </button>
         </div>
       </div>,
@@ -508,11 +506,11 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
             'hover:bg-[var(--interactive-hover)]',
             'transition-colors duration-150'
           )}
-          title={t('chat.textSelection.title.addToCurrentChat')}
+          title={"Add to current chat"}
           type="button"
         >
           <Icon name="add" className="h-4 w-4" />
-          <span className="whitespace-nowrap">{t('chat.textSelection.actions.addToChat')}</span>
+          <span className="whitespace-nowrap">{"Add to chat"}</span>
         </button>
       
         <div className="w-px h-4 bg-[var(--interactive-border)]" />
@@ -526,11 +524,11 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
             'hover:bg-[var(--interactive-hover)]',
             'transition-colors duration-150'
           )}
-          title={t('chat.textSelection.title.newSessionWithSelection')}
+          title={"Create new session with selection"}
           type="button"
         >
           <Icon name="chat-new" className="h-4 w-4" />
-          <span className="whitespace-nowrap">{t('chat.textSelection.actions.newSession')}</span>
+          <span className="whitespace-nowrap">{"New session"}</span>
         </button>
 
         <>
@@ -546,11 +544,11 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
               'hover:bg-[var(--interactive-hover)] disabled:opacity-60 disabled:cursor-not-allowed',
               'transition-colors duration-150'
             )}
-            title={t('chat.textSelection.title.saveInsightToNotes')}
+            title={"Save selected text to notes"}
             type="button"
           >
             {isAddingToNotes ? <Icon name="loader-4" className="h-4 w-4 animate-spin" /> : <Icon name="booklet" className="h-4 w-4" />}
-            <span className="whitespace-nowrap">{t('chat.textSelection.actions.addToNotes')}</span>
+            <span className="whitespace-nowrap">{"Add to notes"}</span>
           </button>
         </>
       </div>

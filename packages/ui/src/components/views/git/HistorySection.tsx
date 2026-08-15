@@ -16,14 +16,13 @@ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Icon } from "@/components/icon/Icon";
 import { HistoryCommitRow } from './HistoryCommitRow';
 import type { GitLogEntry, CommitFileEntry } from '@/lib/api/types';
-import { useI18n } from '@/lib/i18n';
 import { assignLanes } from './gitGraph';
 import type { LanedCommit } from './gitGraph';
 
 const LOG_SIZE_OPTIONS = [
-  { labelKey: 'gitView.history.logSize25', value: 25 },
-  { labelKey: 'gitView.history.logSize50', value: 50 },
-  { labelKey: 'gitView.history.logSize100', value: 100 },
+  { label: "25 commits", value: 25 },
+  { label: "50 commits", value: 50 },
+  { label: "100 commits", value: 100 },
 ];
 
 interface HistorySectionProps {
@@ -67,8 +66,7 @@ export const HistorySection: React.FC<HistorySectionProps> = ({
   onConflict,
   onActionSuccess,
 }) => {
-  const { t } = useI18n();
-  const [isOpen, setIsOpen] = React.useState(true);
+    const [isOpen, setIsOpen] = React.useState(true);
   const isGraphMode = mode === 'graph';
 
   const laned: LanedCommit[] = React.useMemo(
@@ -144,10 +142,10 @@ export const HistorySection: React.FC<HistorySectionProps> = ({
         {isLogLoading ? (
           <span className="flex items-center gap-1">
             <Icon name="loader-4" className="size-3 animate-spin" />
-            {t('gitView.history.loadingMore')}
+            {"Loading..."}
           </span>
         ) : (
-          t('gitView.history.loadMore')
+          "Load more"
         )}
       </Button>
     </div>
@@ -158,7 +156,7 @@ export const HistorySection: React.FC<HistorySectionProps> = ({
       {log.all.length === 0 ? (
         <div className="flex h-full items-center justify-center p-4">
           <p className="typography-ui-label text-muted-foreground">
-            {t('gitView.history.noCommits')}
+            {"No commits found"}
           </p>
         </div>
       ) : hasSplitHistory && branchDivider ? (
@@ -214,7 +212,7 @@ export const HistorySection: React.FC<HistorySectionProps> = ({
       className="rounded-xl border border-border/60 bg-background/70 overflow-hidden"
     >
       <CollapsibleTrigger className="flex w-full items-center justify-between px-3 h-10 hover:bg-transparent">
-        <h3 className="typography-ui-header font-semibold text-foreground">{t('gitView.history.title')}</h3>
+        <h3 className="typography-ui-header font-semibold text-foreground">{"History"}</h3>
         <div className="flex items-center gap-2">
           {isOpen && (
             <div
@@ -231,12 +229,12 @@ export const HistorySection: React.FC<HistorySectionProps> = ({
                   className="w-auto"
                   disabled={isLogLoading}
                 >
-                  <SelectValue placeholder={t('gitView.history.commitsPlaceholder')} />
+                  <SelectValue placeholder={"Commits"} />
                 </SelectTrigger>
                 <SelectContent>
                   {LOG_SIZE_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={String(option.value)}>
-                      {t(option.labelKey as never)}
+                      {option.label}
                     </SelectItem>
                   ))}
                 </SelectContent>

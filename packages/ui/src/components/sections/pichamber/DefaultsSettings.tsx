@@ -15,7 +15,6 @@ import { updateDesktopSettings } from '@/lib/persistence';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
-import { useI18n } from '@/lib/i18n';
 import { parseModelIdentifier } from '@/lib/modelIdentifier';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 
@@ -31,7 +30,6 @@ const getDisplayModel = (
 };
 
 export const DefaultsSettings: React.FC = () => {
-  const { t } = useI18n();
   const setProvider = useConfigStore((state) => state.setProvider);
   const setModel = useConfigStore((state) => state.setModel);
   const setCurrentVariant = useConfigStore((state) => state.setCurrentVariant);
@@ -166,10 +164,10 @@ export const DefaultsSettings: React.FC = () => {
 
   const formatVariantLabel = React.useCallback((variant: string) => {
     if (variant === DEFAULT_VARIANT_VALUE) {
-      return t('settings.pichamber.defaults.option.default');
+      return "Default";
     }
     return variant.charAt(0).toUpperCase() + variant.slice(1);
-  }, [t]);
+  }, []);
 
   const handleVariantChange = React.useCallback(
     async (variant: string) => {
@@ -302,25 +300,25 @@ export const DefaultsSettings: React.FC = () => {
 
   return (
     <>
-      <SettingsSection title={t('settings.pichamber.defaults.title')} divider={false}>
+      <SettingsSection title={"Session Defaults"} divider={false}>
         <div className="space-y-0">
           <div className="mt-0 mb-1 typography-meta text-muted-foreground">
-            {t('settings.pichamber.defaults.summaryPrefix')}
+            {"New sessions will start with:"}
             {' '}
             {parsedModel.providerId ? (
               <span className="text-foreground">
                 {parsedModel.providerId}/{parsedModel.modelId}
-                {supportsVariants ? ` (${defaultVariant ?? t('settings.pichamber.defaults.option.defaultLowercase')})` : ''}
+                {supportsVariants ? ` (${defaultVariant ?? "default"})` : ''}
               </span>
             ) : (
-              <span className="text-foreground">{t('settings.pichamber.defaults.option.default')}</span>
+              <span className="text-foreground">{"Default"}</span>
             )}
           </div>
 
           <div>
             <SettingsFieldRow
               settingsItem="sessions.default-model"
-              label={t('settings.pichamber.defaults.field.defaultModel')}
+              label={"Default Model"}
             >
               <Select
                 value={parsedModel.providerId && parsedModel.modelId ? `${parsedModel.providerId}/${parsedModel.modelId}` : '__none__'}
@@ -334,12 +332,12 @@ export const DefaultsSettings: React.FC = () => {
                 }}
               >
                 <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}>
-                  <SelectValue placeholder={t('settings.pichamber.defaults.option.default')}>
-                    {parsedModel.providerId && parsedModel.modelId ? `${parsedModel.providerId}/${parsedModel.modelId}` : t('settings.pichamber.defaults.option.default')}
+                  <SelectValue placeholder={"Default"}>
+                    {parsedModel.providerId && parsedModel.modelId ? `${parsedModel.providerId}/${parsedModel.modelId}` : "Default"}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none__">{t('settings.pichamber.defaults.option.default')}</SelectItem>
+                  <SelectItem value="__none__">{"Default"}</SelectItem>
                   {modelOptions.map((opt) => (
                     <SelectItem key={opt.value} value={opt.value}>
                       {opt.label}
@@ -351,16 +349,16 @@ export const DefaultsSettings: React.FC = () => {
 
             <SettingsFieldRow
               settingsItem="sessions.default-thinking"
-              label={t('settings.pichamber.defaults.field.defaultThinking')}
+              label={"Default Thinking"}
             >
               <Select value={defaultVariant ?? DEFAULT_VARIANT_VALUE} onValueChange={handleVariantChange} disabled={!supportsVariants}>
                 <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}>
-                  <SelectValue placeholder={t('settings.pichamber.defaults.field.thinkingPlaceholder')}>
+                  <SelectValue placeholder={"Thinking"}>
                     {formatVariantLabel(defaultVariant ?? DEFAULT_VARIANT_VALUE)}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={DEFAULT_VARIANT_VALUE}>{t('settings.pichamber.defaults.option.default')}</SelectItem>
+                  <SelectItem value={DEFAULT_VARIANT_VALUE}>{"Default"}</SelectItem>
                   {availableVariants.map((variant) => (
                     <SelectItem key={variant} value={variant}>
                       {formatVariantLabel(variant)}
@@ -376,18 +374,18 @@ export const DefaultsSettings: React.FC = () => {
               settingsItem="sessions.deletion-dialog"
               checked={showDeletionDialog}
               onChange={setShowDeletionDialog}
-              label={t('settings.pichamber.defaults.field.showDeletionDialog')}
-              ariaLabel={t('settings.pichamber.defaults.field.showDeletionDialogAria')}
+              label={"Show Deletion Dialog"}
+              ariaLabel={"Show deletion dialog"}
             />
           </SettingsInset>
 
           <div className="space-y-3 pt-6">
             <div className="flex items-center gap-1.5">
               <SettingsGroupTitle>
-                {t('settings.pichamber.defaults.smallModel.title')}
+                {"Small Model"}
               </SettingsGroupTitle>
               <SettingsInfoHint>
-                {t('settings.pichamber.defaults.smallModel.description')}
+                {"A cheap model for quick utility tasks like short recaps and summaries."}
               </SettingsInfoHint>
             </div>
 
@@ -397,12 +395,12 @@ export const DefaultsSettings: React.FC = () => {
               onChange={(checked) => {
                 void handleSmallModelUseDefaultChange(checked);
               }}
-              label={t('settings.pichamber.defaults.smallModel.useDefault')}
-              ariaLabel={t('settings.pichamber.defaults.smallModel.useDefaultAria')}
+              label={"Use default small model"}
+              ariaLabel={"Use default small model"}
             />
 
             {!smallModelUseDefault ? (
-              <SettingsFieldRow label={t('settings.pichamber.defaults.smallModel.overrideModel')}>
+              <SettingsFieldRow label={"Override model"}>
                 <Select
                   value={parsedSmallModel.providerId && parsedSmallModel.modelId ? `${parsedSmallModel.providerId}/${parsedSmallModel.modelId}` : '__none__'}
                   onValueChange={(val) => {
@@ -415,12 +413,12 @@ export const DefaultsSettings: React.FC = () => {
                   }}
                 >
                   <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}>
-                    <SelectValue placeholder={t('settings.pichamber.defaults.option.default')}>
-                      {parsedSmallModel.providerId && parsedSmallModel.modelId ? `${parsedSmallModel.providerId}/${parsedSmallModel.modelId}` : t('settings.pichamber.defaults.option.default')}
+                    <SelectValue placeholder={"Default"}>
+                      {parsedSmallModel.providerId && parsedSmallModel.modelId ? `${parsedSmallModel.providerId}/${parsedSmallModel.modelId}` : "Default"}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">{t('settings.pichamber.defaults.option.default')}</SelectItem>
+                    <SelectItem value="__none__">{"Default"}</SelectItem>
                     {modelOptions
                       .filter((opt) => !smallModelProviders || smallModelProviders.includes(opt.providerId))
                       .map((opt) => (
@@ -436,16 +434,16 @@ export const DefaultsSettings: React.FC = () => {
             <SettingsInset className={SETTINGS_OPTION_STACK_CLASS}>
               <div className="flex items-center gap-1.5">
                 <SettingsGroupTitle>
-                  {t('settings.pichamber.defaults.walkthroughModel.title')}
+                  {"Changes Walkthrough Model"}
                 </SettingsGroupTitle>
                 <SettingsInfoHint>
-                  {t('settings.pichamber.defaults.walkthroughModel.description')}
+                  {"The AI review of your changes needs structured output and room for a whole diff, which a cheap small model often cannot give. Models the catalog reports as unable to produce structured output are hidden from this picker. Leave it unset and the small model is used."}
                 </SettingsInfoHint>
               </div>
 
               <SettingsFieldRow
                 settingsItem="sessions.walkthrough-model"
-                label={t('settings.pichamber.defaults.walkthroughModel.overrideModel')}
+                label={"Walkthrough model"}
               >
                 <Select
                   value={parsedWalkthroughModel.providerId && parsedWalkthroughModel.modelId ? `${parsedWalkthroughModel.providerId}/${parsedWalkthroughModel.modelId}` : '__none__'}
@@ -459,12 +457,12 @@ export const DefaultsSettings: React.FC = () => {
                   }}
                 >
                   <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}>
-                    <SelectValue placeholder={t('settings.pichamber.defaults.walkthroughModel.usesSmallModel')}>
-                      {parsedWalkthroughModel.providerId && parsedWalkthroughModel.modelId ? `${parsedWalkthroughModel.providerId}/${parsedWalkthroughModel.modelId}` : t('settings.pichamber.defaults.walkthroughModel.usesSmallModel')}
+                    <SelectValue placeholder={"Small model"}>
+                      {parsedWalkthroughModel.providerId && parsedWalkthroughModel.modelId ? `${parsedWalkthroughModel.providerId}/${parsedWalkthroughModel.modelId}` : "Small model"}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">{t('settings.pichamber.defaults.walkthroughModel.usesSmallModel')}</SelectItem>
+                    <SelectItem value="__none__">{"Small model"}</SelectItem>
                     {modelOptions
                       .filter((opt) => (!smallModelProviders || smallModelProviders.includes(opt.providerId)) && isStructuredOutputCapable(opt.providerId, opt.modelId))
                       .map((opt) => (

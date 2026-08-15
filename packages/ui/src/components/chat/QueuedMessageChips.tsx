@@ -17,7 +17,6 @@ import { CSS } from '@dnd-kit/utilities';
 import { createMessageQueueTarget, getMessageQueueKey, useMessageQueueStore, type MessageQueueTarget, type QueuedMessage } from '@/stores/messageQueueStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useInputStore } from '@/sync/input-store';
-import { useI18n } from '@/lib/i18n';
 import { Icon } from "@/components/icon/Icon";
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -30,7 +29,7 @@ interface QueuedMessageChipProps {
 }
 
 const QueuedMessageChip = memo(({ message, target, onEdit, onSend }: QueuedMessageChipProps) => {
-    const { t } = useI18n();
+    
     const removeFromQueue = useMessageQueueStore((state) => state.removeFromQueue);
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: message.id });
 
@@ -59,14 +58,14 @@ const QueuedMessageChip = memo(({ message, target, onEdit, onSend }: QueuedMessa
                 {...attributes}
                 {...listeners}
                 className="flex flex-shrink-0 cursor-grab touch-none select-none items-center justify-center text-muted-foreground hover:text-foreground active:cursor-grabbing"
-                aria-label={t('chat.queuedMessage.reorderAria')}
+                aria-label={"Drag to reorder"}
             >
                 <Icon name="draggable" className="h-4 w-4" aria-hidden="true" />
             </button>
             <span className="min-w-0 flex-1 truncate typography-ui-label text-foreground">
-                {firstLine || t('chat.queuedMessage.empty')}
+                {firstLine || "(empty)"}
                 {attachmentCount > 0 && (
-                    <span className="ml-1 text-muted-foreground">{t('chat.queuedMessage.attachments', { count: attachmentCount })}</span>
+                    <span className="ml-1 text-muted-foreground">{`+${attachmentCount} file(s)`}</span>
                 )}
             </span>
             <Button
@@ -76,7 +75,7 @@ const QueuedMessageChip = memo(({ message, target, onEdit, onSend }: QueuedMessa
                 onClick={() => onEdit(message)}
             >
                 <Icon name="edit" className="h-3 w-3" aria-hidden="true" />
-                {t('chat.queuedMessage.edit')}
+                {"edit"}
             </Button>
             <Button
                 type="button"
@@ -85,13 +84,13 @@ const QueuedMessageChip = memo(({ message, target, onEdit, onSend }: QueuedMessa
                 onClick={() => onSend(message)}
             >
                 <Icon name="send-plane" className="h-3 w-3" aria-hidden="true" />
-                {t('chat.queuedMessage.send')}
+                {"send"}
             </Button>
             <button
                 type="button"
                 onClick={() => removeFromQueue(target, message.id)}
                 className="flex items-center justify-center h-6 w-6 flex-shrink-0 hover:bg-[var(--interactive-hover)] rounded-full transition-colors"
-                aria-label={t('chat.queuedMessage.removeAria')}
+                aria-label={"Remove from queue"}
             >
                 <Icon name="close" className="h-4 w-4 text-muted-foreground" />
             </button>
@@ -109,7 +108,7 @@ interface QueuedMessageChipsProps {
 const EMPTY_QUEUE: QueuedMessage[] = [];
 
 export const QueuedMessageChips = memo(({ onEditMessage, onSendMessage }: QueuedMessageChipsProps) => {
-    const { t } = useI18n();
+    
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
     // Must use the same resolution the composer used to build the queue key —
     // reading currentSessionDirectory raw can key the chips to a different
@@ -173,7 +172,7 @@ export const QueuedMessageChips = memo(({ onEditMessage, onSendMessage }: Queued
             <div className="rounded-xl border border-border/60 bg-[var(--surface-elevated)] text-[var(--surface-elevated-foreground)] shadow-sm overflow-hidden">
                 <div className="flex w-full items-center gap-2 px-3 py-2 text-left">
                     <span className="typography-ui-label font-medium text-foreground flex-shrink-0">
-                        {t('chat.queuedMessage.title')} {queuedMessages.length}
+                        {"Queued messages"} {queuedMessages.length}
                     </span>
                     <Icon name="time" className="ml-auto h-4 w-4 text-muted-foreground" aria-hidden="true" />
                 </div>

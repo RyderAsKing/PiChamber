@@ -1,5 +1,4 @@
 import type { IconName } from '@/components/icon/icons';
-import type { I18nKey } from '@/lib/i18n';
 import type { ContextPanelMode } from '@/stores/useUIStore';
 
 export type ContextSurfaceId =
@@ -20,7 +19,7 @@ export type ContextSurfaceDescriptor = {
   /** The context panel tab mode this surface activates. 1:1 in the current model. */
   mode: ContextPanelMode;
   icon: IconName;
-  labelKey: I18nKey;
+  label: string;
   /**
    * 'always' surfaces can be opened empty from the rail.
    * 'has-content' surfaces are content-driven: they need an existing tab of
@@ -29,7 +28,7 @@ export type ContextSurfaceDescriptor = {
    */
   availability: 'always' | 'has-content';
   /** Short tooltip explanation shown on the rail. */
-  descriptionKey: I18nKey;
+  description: string;
   /**
    * Default panel width as a fraction of the available content area, used
    * until the user manually resizes this surface.
@@ -40,102 +39,102 @@ export type ContextSurfaceDescriptor = {
 export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   {
     id: 'context',
-    descriptionKey: 'contextRail.surface.context.description',
+    description: "Session context and token usage",
     defaultWidthFraction: 0.45,
     mode: 'context',
     icon: 'donut-chart-fill',
-    labelKey: 'contextPanel.mode.context',
+    label: "Context",
     availability: 'always',
   },
   {
     id: 'git',
-    descriptionKey: 'contextRail.surface.git.description',
+    description: "Commits, branches, and pull requests",
     defaultWidthFraction: 2 / 5,
     mode: 'git',
     icon: 'git-branch',
-    labelKey: 'layout.rightSidebar.git',
+    label: "Git",
     availability: 'always',
   },
   {
     id: 'pr',
-    descriptionKey: 'contextRail.surface.pr.description',
+    description: "Create, review, and merge the pull request for the current branch",
     defaultWidthFraction: 0.45,
     mode: 'pr',
     icon: 'github',
-    labelKey: 'contextPanel.mode.pr',
+    label: "Pull Request",
     availability: 'always',
   },
   {
     id: 'diff',
-    descriptionKey: 'contextRail.surface.diff.description',
+    description: "Review working changes",
     defaultWidthFraction: 3 / 5,
     mode: 'diff',
     icon: 'arrow-left-right',
-    labelKey: 'contextPanel.mode.diff',
+    label: "Changes",
     availability: 'always',
   },
   {
     id: 'walkthrough',
-    descriptionKey: 'contextRail.surface.walkthrough.description',
+    description: "An AI-guided walkthrough of your changes",
     defaultWidthFraction: 3 / 5,
     mode: 'walkthrough',
     icon: 'route',
-    labelKey: 'contextPanel.mode.walkthrough',
+    label: "Walkthrough",
     availability: 'always',
   },
   {
     id: 'editor',
-    descriptionKey: 'contextRail.surface.editor.description',
+    description: "Edit project files",
     defaultWidthFraction: 3 / 5,
     mode: 'file',
     icon: 'braces',
-    labelKey: 'contextPanel.mode.files',
+    label: "Files",
     availability: 'always',
   },
   {
     id: 'terminal',
-    descriptionKey: 'contextRail.surface.terminal.description',
+    description: "Built-in terminal",
     defaultWidthFraction: 3 / 5,
     mode: 'terminal',
     icon: 'terminal-box',
-    labelKey: 'layout.mainTab.terminal',
+    label: "Terminal",
     availability: 'always',
   },
   {
     id: 'notes',
-    descriptionKey: 'contextRail.surface.notes.description',
+    description: "Notes, todos, and plans for the project",
     defaultWidthFraction: 1 / 3,
     mode: 'notes',
     icon: 'sticky-note',
-    labelKey: 'contextRail.surface.notes',
+    label: "Project notes",
     availability: 'always',
   },
 
   {
     id: 'browser',
-    descriptionKey: 'contextRail.surface.browser.description',
+    description: "Built-in web browser",
     defaultWidthFraction: 0.45,
     mode: 'browser',
     icon: 'global',
-    labelKey: 'contextPanel.mode.browser',
+    label: "Browser",
     availability: 'always',
   },
   {
     id: 'preview',
-    descriptionKey: 'contextRail.surface.preview.description',
+    description: "Dev server preview",
     defaultWidthFraction: 0.45,
     mode: 'preview',
     icon: 'window',
-    labelKey: 'contextPanel.mode.preview',
+    label: "Preview",
     availability: 'has-content',
   },
   {
     id: 'chat',
-    descriptionKey: 'contextRail.surface.chat.description',
+    description: "Session opened side by side",
     defaultWidthFraction: 0.45,
     mode: 'chat',
     icon: 'chat-4',
-    labelKey: 'contextPanel.mode.chat',
+    label: "Chat",
     availability: 'has-content',
   },
 ];

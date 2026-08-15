@@ -26,7 +26,6 @@ import { DiffViewToggle } from './DiffViewToggle';
 import { VirtualizedCodeBlock, type CodeLine } from './parts/VirtualizedCodeBlock';
 import { JsonTreeView } from '@/components/ui/JsonTreeView';
 import { Icon } from "@/components/icon/Icon";
-import { useI18n, type I18nKey, type I18nParams } from '@/lib/i18n';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { MermaidLoadFailure, getMermaidDataUrlSourcePromise, isCurrentMermaidLoadRequest, isMermaidLoadFailure, nextMermaidLoadRequestId } from './toolOutputDialogMermaid';
 
@@ -36,7 +35,7 @@ interface ToolOutputDialogProps {
     isMobile: boolean;
 }
 
-const mermaidLoadFailure = (key: I18nKey, params?: I18nParams): MermaidLoadFailure => new MermaidLoadFailure(key, params);
+const mermaidLoadFailure = (message: string): MermaidLoadFailure => new MermaidLoadFailure(message);
 
 const getToolIcon = (toolName: string) => {
     const iconClass = 'h-3.5 w-3.5 flex-shrink-0';
@@ -310,7 +309,6 @@ const ImagePreviewDialog: React.FC<{
     onOpenChange: (open: boolean) => void;
     isMobile: boolean;
 }> = ({ popup, onOpenChange, isMobile }) => {
-    const { t } = useI18n();
     const gallery = React.useMemo(() => {
         const baseImage = popup.image;
         if (!baseImage) return [] as Array<{ url: string; mimeType?: string; filename?: string; size?: number }>;
@@ -443,7 +441,7 @@ const ImagePreviewDialog: React.FC<{
                         onMouseDown={(event) => event.stopPropagation()}
                         onClick={showPrevious}
                         className="absolute left-3 top-1/2 -translate-y-1/2 z-10 h-10 w-10 flex items-center justify-center rounded-full bg-black/40 text-foreground/90 hover:bg-black/55 focus:outline-none focus:ring-2 focus:ring-primary/60"
-                        aria-label={t('chat.toolOutputDialog.image.previousAria')}
+                        aria-label={"Previous image"}
                     >
                         <Icon name="arrow-left-s" className="h-6 w-6" />
                     </button>
@@ -452,7 +450,7 @@ const ImagePreviewDialog: React.FC<{
                         onMouseDown={(event) => event.stopPropagation()}
                         onClick={showNext}
                         className="absolute right-3 top-1/2 -translate-y-1/2 z-10 h-10 w-10 flex items-center justify-center rounded-full bg-black/40 text-foreground/90 hover:bg-black/55 focus:outline-none focus:ring-2 focus:ring-primary/60"
-                        aria-label={t('chat.toolOutputDialog.image.nextAria')}
+                        aria-label={"Next image"}
                     >
                         <Icon name="arrow-right-s" className="h-6 w-6" />
                     </button>
@@ -481,7 +479,7 @@ const ImagePreviewDialog: React.FC<{
                             type="button"
                             className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground/80 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/60"
                             onClick={() => onOpenChange(false)}
-                            aria-label={t('chat.toolOutputDialog.image.closeAria')}
+                            aria-label={"Close image preview"}
                         >
                             <Icon name="close" className="h-4 w-4" />
                         </button>
@@ -639,7 +637,6 @@ const MermaidPreviewDialog: React.FC<{
     onOpenChange: (open: boolean) => void;
     isMobile: boolean;
 }> = ({ popup, onOpenChange, isMobile }) => {
-    const { t } = useI18n();
     const [source, setSource] = React.useState<string>(popup.mermaid?.source || '');
     const [status, setStatus] = React.useState<'idle' | 'loading' | 'ready' | 'error'>(popup.mermaid?.source ? 'ready' : 'idle');
     const [errorMessage, setErrorMessage] = React.useState<string>('');
@@ -704,7 +701,7 @@ const MermaidPreviewDialog: React.FC<{
 
         if (!target?.url) {
             setStatus('error');
-            setErrorMessage(t('chat.toolOutputDialog.mermaid.missingSource'));
+            setErrorMessage("Missing Mermaid source URL.");
             return;
         }
 
@@ -724,12 +721,12 @@ const MermaidPreviewDialog: React.FC<{
         } else if (target.url.toLowerCase().startsWith('file://')) {
             const normalizedPath = normalizeFilePath(target.url);
             if (!normalizedPath) {
-                sourcePromise = Promise.reject(mermaidLoadFailure('chat.toolOutputDialog.mermaid.invalidLocalPath'));
+                sourcePromise = Promise.reject(mermaidLoadFailure('The local Mermaid file path is invalid.'));
             } else {
                 sourcePromise = runtimeFetch('/api/fs/raw', { query: { path: normalizedPath } })
                     .then((response) => {
                         if (!response.ok) {
-                            return Promise.reject(mermaidLoadFailure('chat.toolOutputDialog.mermaid.readFileFailedWithStatus', { status: response.status }));
+                            return Promise.reject(mermaidLoadFailure(`Unable to read Mermaid file. Status: ${response.status}.`));
                         }
                         return response.text();
                     });
@@ -741,12 +738,12 @@ const MermaidPreviewDialog: React.FC<{
             const resolvedUrl = canParse ? new URL(target.url, window.location.origin) : null;
 
             if (!resolvedUrl || (resolvedUrl.protocol !== 'http:' && resolvedUrl.protocol !== 'https:')) {
-                sourcePromise = Promise.reject(mermaidLoadFailure('chat.toolOutputDialog.mermaid.unsupportedUrlProtocol'));
+                sourcePromise = Promise.reject(mermaidLoadFailure('The Mermaid URL protocol is unsupported.'));
             } else {
                 sourcePromise = fetch(resolvedUrl.toString())
                     .then((response) => {
                         if (!response.ok) {
-                            return Promise.reject(mermaidLoadFailure('chat.toolOutputDialog.mermaid.loadFailedWithStatus', { status: response.status }));
+                            return Promise.reject(mermaidLoadFailure(`Unable to load Mermaid diagram. Status: ${response.status}.`));
                         }
                         return response.text();
                     });
@@ -767,9 +764,9 @@ const MermaidPreviewDialog: React.FC<{
                     return;
                 }
                 setStatus('error');
-                setErrorMessage(isMermaidLoadFailure(error) ? t(error.key, error.params) : t('chat.toolOutputDialog.mermaid.loadFailed'));
+                setErrorMessage(isMermaidLoadFailure(error) ? error.message : "Unable to load Mermaid diagram.");
             });
-    }, [normalizeFilePath, popup.mermaid, t]);
+    }, [normalizeFilePath, popup.mermaid]);
 
     React.useEffect(() => {
         if (!popup.open || !popup.mermaid) {
@@ -913,7 +910,7 @@ const MermaidPreviewDialog: React.FC<{
                             type="button"
                             className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground/80 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/60"
                             onClick={() => onOpenChange(false)}
-                            aria-label={t('chat.toolOutputDialog.mermaid.closeAria')}
+                            aria-label={"Close diagram preview"}
                         >
                             <Icon name="close" className="h-4 w-4" />
                         </button>
@@ -926,7 +923,7 @@ const MermaidPreviewDialog: React.FC<{
                             {status === 'loading' && (
                                 <div className="h-full min-h-28 flex items-center justify-center gap-2 text-muted-foreground typography-meta">
                                     <Icon name="loader-4" className="h-4 w-4 animate-spin" />
-                                    <span>{t('chat.toolOutputDialog.mermaid.loading')}</span>
+                                    <span>{"Loading diagram..."}</span>
                                 </div>
                             )}
 
@@ -939,7 +936,7 @@ const MermaidPreviewDialog: React.FC<{
                                     }}
                                 >
                                     <p className="typography-markdown" style={{ color: 'var(--status-error)' }}>
-                                        {errorMessage || t('chat.toolOutputDialog.mermaid.renderFailed')}
+                                        {errorMessage || "Unable to render Mermaid diagram."}
                                     </p>
                                     <button
                                         type="button"
@@ -952,7 +949,7 @@ const MermaidPreviewDialog: React.FC<{
                                             color: 'var(--surface-foreground)',
                                         }}
                                     >
-                                        {t('chat.toolOutputDialog.mermaid.retry')}
+                                        {"Retry"}
                                     </button>
                                 </div>
                             )}
@@ -980,7 +977,6 @@ const MermaidPreviewDialog: React.FC<{
 };
 
 const ToolOutputDialog: React.FC<ToolOutputDialogProps> = ({ popup, onOpenChange, isMobile }) => {
-    const { t } = useI18n();
     const [diffViewMode, setDiffViewMode] = React.useState<DiffViewMode>('unified');
     const pierreThemeConfig = usePierreThemeConfig();
 
@@ -1108,11 +1104,11 @@ const ToolOutputDialog: React.FC<ToolOutputDialogProps> = ({ popup, onOpenChange
                                 if (tool === 'todowrite' || tool === 'todoread') {
                                     return (
                                         renderTodoOutput(popup.content, {
-                                            total: t('chat.todo.total'),
-                                            inProgress: t('chat.todo.inProgress'),
-                                            pending: t('chat.todo.pending'),
-                                            completed: t('chat.todo.completed'),
-                                            cancelled: t('chat.todo.cancelled'),
+                                            total: "Total",
+                                            inProgress: "In Progress",
+                                            pending: "Pending",
+                                            completed: "Completed",
+                                            cancelled: "Cancelled",
                                         }) || (
                                             <WorkerHighlightedCode
                                                 language="json"
@@ -1206,8 +1202,8 @@ const ToolOutputDialog: React.FC<ToolOutputDialogProps> = ({ popup, onOpenChange
                         </div>
                     ) : (
                         <div className="p-8 text-muted-foreground typography-ui-header">
-                            <div className="mb-2">{t('chat.toolOutputDialog.commandCompleted')}</div>
-                            <div className="typography-meta">{t('chat.toolOutputDialog.noOutputProduced')}</div>
+                            <div className="mb-2">{"Command completed successfully"}</div>
+                            <div className="typography-meta">{"No output was produced"}</div>
                         </div>
                     )}
                     </div>

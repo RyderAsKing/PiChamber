@@ -10,7 +10,6 @@ import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
 import { StopIcon } from '@/components/icons/StopIcon';
-import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 type ComposerActionButtonsProps = {
@@ -43,7 +42,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
         onQueueMessage,
         onAbort,
     } = props;
-    const { t } = useI18n();
+    
 
     const sendButton = (
         <button
@@ -63,7 +62,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
                     ? 'text-primary hover:text-primary'
                     : 'opacity-30'
             )}
-            aria-label={t('chat.chatInput.actions.sendMessageAria')}
+            aria-label={"Send message"}
         >
             <Icon name="send-plane-2" className={cn(sendIconSizeClass)} />
         </button>
@@ -90,7 +89,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
                         'absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-1',
                         currentSessionId ? 'text-primary hover:text-primary' : 'opacity-30'
                     )}
-                    aria-label={t('chat.chatInput.actions.queueMessageAria')}
+                    aria-label={"Queue message"}
                 >
                     <Icon name="send-plane-2" className={cn(sendIconSizeClass, '-rotate-90')} />
                 </button>
@@ -102,7 +101,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
                     footerIconButtonClass,
                     'text-[var(--status-error)] hover:text-[var(--status-error)]'
                 )}
-                aria-label={t('chat.chatInput.actions.stopGeneratingAria')}
+                aria-label={"Stop generating"}
             >
                 <StopIcon className={cn(stopIconSizeClass)} />
             </button>

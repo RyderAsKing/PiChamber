@@ -32,7 +32,6 @@ import { FadeInOnReveal } from './message/FadeInOnReveal';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import { areOptionalRenderRelevantMessagesEqual, areRenderRelevantMessagesEqual, areRelevantTurnGroupingContextsEqual } from './message/renderCompare';
 import { toast } from 'sonner';
-import { useI18n } from '@/lib/i18n';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { getContextObligatoryMessages } from '@/lib/contextObligatoryMessages';
 import { setContextObligatoryMessage } from '@/sync/session-actions';
@@ -154,7 +153,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     animateUserOnMount = false,
     onUserAnimationConsumed,
 }) => {
-    const { t } = useI18n();
     const { isMobile, isTablet, hasTouchInput } = useDeviceInfo();
     const alwaysShowMessageActions = isMobile || isTablet;
     const canPinIntoContext = true;
@@ -395,11 +393,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             requestAnimationFrame(focusChatInput);
         } catch (error) {
             console.error('[chat-message] failed to update context pin', error);
-            toast.error(t('chat.messageBody.actions.contextPinFailed'));
+            toast.error("Could not update the context pin");
         } finally {
             setPinPending(false);
         }
-    }, [isPinnedIntoContext, isUser, message.info.id, messageCreatedAt, pinPending, sessionId, t]);
+    }, [isPinnedIntoContext, isUser, message.info.id, messageCreatedAt, pinPending, sessionId]);
 
     const isMessageCompleted = React.useMemo(() => {
         if (isUser) return true;

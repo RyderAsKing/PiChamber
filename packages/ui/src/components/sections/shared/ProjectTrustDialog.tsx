@@ -2,13 +2,12 @@ import React from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { useI18n } from '@/lib/i18n';
 import { piClient } from '@/lib/pi/client';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 
 /** Resolves Pi's persisted project-resource trust decision before protected resources are shown. */
 export const ProjectTrustDialog: React.FC<{ onResolved?: () => void }> = ({ onResolved }) => {
-  const { t } = useI18n();
+  
   const [open, setOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
 
@@ -34,12 +33,12 @@ export const ProjectTrustDialog: React.FC<{ onResolved?: () => void }> = ({ onRe
   return <Dialog open={open} onOpenChange={() => {}}>
     <DialogContent className="max-w-md">
       <DialogHeader>
-        <DialogTitle>{t('settings.projectTrust.dialog.title')}</DialogTitle>
-        <DialogDescription>{t('settings.projectTrust.dialog.description')}</DialogDescription>
+        <DialogTitle>{"Trust this project?"}</DialogTitle>
+        <DialogDescription>{"This project contains Pi settings, skills, prompts, or extensions. Trusting it allows Pi to load those project resources."}</DialogDescription>
       </DialogHeader>
       <DialogFooter>
-        <Button variant="ghost" size="sm" disabled={saving} onClick={() => void decide(false)}>{t('settings.projectTrust.dialog.decline')}</Button>
-        <Button size="sm" disabled={saving} onClick={() => void decide(true)}>{t('settings.projectTrust.dialog.trust')}</Button>
+        <Button variant="ghost" size="sm" disabled={saving} onClick={() => void decide(false)}>{"Keep untrusted"}</Button>
+        <Button size="sm" disabled={saving} onClick={() => void decide(true)}>{"Trust project"}</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>;

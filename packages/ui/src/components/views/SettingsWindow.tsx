@@ -1,7 +1,6 @@
 import React from 'react';
 import { Dialog } from '@base-ui/react/dialog';
 import { cn } from '@/lib/utils';
-import { useI18n } from '@/lib/i18n';
 import { SettingsView } from './SettingsView';
 
 interface SettingsWindowProps {
@@ -14,7 +13,7 @@ interface SettingsWindowProps {
  * Used for desktop and web (non-mobile) environments.
  */
 export const SettingsWindow: React.FC<SettingsWindowProps> = ({ open, onOpenChange }) => {
-  const { t } = useI18n();
+  
   const descriptionId = React.useId();
 
   const hasOpenFloatingMenu = React.useCallback(() => {
@@ -60,7 +59,7 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ open, onOpenChan
             )}
           >
             <Dialog.Description id={descriptionId} className="sr-only">
-              {t('settings.window.description')}
+              {"PiChamber settings window."}
             </Dialog.Description>
             <SettingsView onClose={() => onOpenChange(false)} isWindowed />
           </Dialog.Popup>

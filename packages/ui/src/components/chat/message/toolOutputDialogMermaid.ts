@@ -1,18 +1,11 @@
-import type { I18nKey, I18nParams } from '@/lib/i18n';
-
 export class MermaidLoadFailure extends Error {
-    key: I18nKey;
-    params?: I18nParams;
-
-    constructor(key: I18nKey, params?: I18nParams) {
-        super(key);
+    constructor(message: string) {
+        super(message);
         this.name = 'MermaidLoadFailure';
-        this.key = key;
-        this.params = params;
     }
 }
 
-const mermaidLoadFailure = (key: I18nKey, params?: I18nParams): MermaidLoadFailure => new MermaidLoadFailure(key, params);
+const mermaidLoadFailure = (message: string): MermaidLoadFailure => new MermaidLoadFailure(message);
 
 export const isMermaidLoadFailure = (value: unknown): value is MermaidLoadFailure => value instanceof MermaidLoadFailure;
 
@@ -23,7 +16,7 @@ export const isCurrentMermaidLoadRequest = (current: number, requestId: number):
 const decodeMermaidDataUrl = (value: string): string => {
     const commaIndex = value.indexOf(',');
     if (commaIndex < 0) {
-        throw mermaidLoadFailure('chat.toolOutputDialog.mermaid.dataUrlMalformed');
+        throw mermaidLoadFailure('The Mermaid data URL is malformed.');
     }
 
     const metadata = value.slice(0, commaIndex).toLowerCase();

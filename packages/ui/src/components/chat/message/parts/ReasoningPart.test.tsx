@@ -2,7 +2,6 @@ import React from 'react';
 import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { I18nProvider } from '@/lib/i18n';
 import { ReasoningTimelineBlock } from './ReasoningPart';
 
 // A reasoning text whose summary (first 120 chars) fits in the header but
@@ -21,14 +20,12 @@ const LONG_JUSTIFICATION =
 describe('ReasoningTimelineBlock', () => {
   test('renders reasoning traces behind an accessible collapsed disclosure by default', () => {
     const markup = renderToStaticMarkup(
-      <I18nProvider>
         <ReasoningTimelineBlock
           text={LONG_REASONING}
           variant="thinking"
           blockId="reasoning-test"
           showDuration={false}
         />
-      </I18nProvider>,
     );
 
     // Accessible toggle row is rendered
@@ -46,7 +43,6 @@ describe('ReasoningTimelineBlock', () => {
 
   test('renders "Justification" label for justification variant when pre-expanded and not streaming', () => {
     const markup = renderToStaticMarkup(
-      <I18nProvider>
         <ReasoningTimelineBlock
           text={LONG_JUSTIFICATION}
           variant="justification"
@@ -54,7 +50,6 @@ describe('ReasoningTimelineBlock', () => {
           showDuration={false}
           defaultExpanded={true}
         />
-      </I18nProvider>,
     );
 
     // Label shown in expanded header should be "Justification" not "Thinking"
@@ -64,7 +59,6 @@ describe('ReasoningTimelineBlock', () => {
 
   test('renders "Thinking" label for thinking variant when pre-expanded and not streaming', () => {
     const markup = renderToStaticMarkup(
-      <I18nProvider>
         <ReasoningTimelineBlock
           text={LONG_REASONING}
           variant="thinking"
@@ -72,7 +66,6 @@ describe('ReasoningTimelineBlock', () => {
           showDuration={false}
           defaultExpanded={true}
         />
-      </I18nProvider>,
     );
 
     // Label shown in expanded header should be "Thinking"
@@ -81,14 +74,12 @@ describe('ReasoningTimelineBlock', () => {
 
   test('header summary is a truncated excerpt from the beginning', () => {
     const markup = renderToStaticMarkup(
-      <I18nProvider>
         <ReasoningTimelineBlock
           text={LONG_REASONING}
           variant="thinking"
           blockId="reasoning-test"
           showDuration={false}
         />
-      </I18nProvider>,
     );
 
     // Deep body content beyond 120 chars should be cut from the summary span
@@ -99,14 +90,12 @@ describe('ReasoningTimelineBlock', () => {
 
   test('omits trailing empty HTML comments from the header summary', () => {
     const markup = renderToStaticMarkup(
-      <I18nProvider>
         <ReasoningTimelineBlock
           text={'Planning accessible icon labels with translations <!-- -->'}
           variant="thinking"
           blockId="reasoning-comment-test"
           showDuration={false}
         />
-      </I18nProvider>,
     );
 
     expect(markup).toContain('Planning accessible icon labels with translations');

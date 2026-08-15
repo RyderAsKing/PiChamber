@@ -20,7 +20,6 @@ import type {
   GitHubPullRequest,
   GitHubChecksSummary,
 } from '@/lib/api/types';
-import { useI18n } from '@/lib/i18n';
 
 type SyncAction = 'fetch' | 'pull' | 'push' | 'sync' | null;
 
@@ -114,7 +113,7 @@ export const IdentityDropdown: React.FC<IdentityDropdownProps> = ({
   isApplying,
   iconOnly = false,
 }) => {
-  const { t } = useI18n();
+  
   const isDisabled = isApplying || identities.length === 0;
 
   return (
@@ -140,20 +139,20 @@ export const IdentityDropdown: React.FC<IdentityDropdownProps> = ({
               )}
               {!iconOnly && (
                 <span className="git-identity-label min-w-0 flex-1 truncate text-left">
-                  {activeProfile?.name || t('gitView.header.noIdentity')}
+                  {activeProfile?.name || "No identity"}
                 </span>
               )}
               <Icon name="arrow-down-s" className="size-4 opacity-60" />
             </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
-        <TooltipContent sideOffset={8}>{t('gitView.header.identityTooltip')}</TooltipContent>
+        <TooltipContent sideOffset={8}>{"Git identity"}</TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="end" className="w-64">
         {identities.length === 0 ? (
           <div className="px-2 py-1.5">
             <p className="typography-meta text-muted-foreground">
-              {t('gitView.header.noProfiles')}
+              {"No profiles available to apply."}
             </p>
           </div>
         ) : (
@@ -199,12 +198,12 @@ const UpstreamStatusPill: React.FC<UpstreamStatusPillProps> = ({
   trackingBranch,
   tooltipDelayMs = 1000,
 }) => {
-  const { t } = useI18n();
+  
   const target = `${comparison.remote}/${comparison.branch}`;
   const isSynced = comparison.ahead === 0 && comparison.behind === 0;
   const tooltipText = trackingBranch
-    ? t('gitView.header.upstreamTooltipTracking', { target, tracking: trackingBranch })
-    : t('gitView.header.upstreamTooltip', { target });
+    ? `Compared with ${target}. Primary sync badges still reflect ${trackingBranch}.`
+    : `Compared with ${target}.`;
 
   return (
     <Tooltip delayDuration={tooltipDelayMs}>
@@ -213,7 +212,7 @@ const UpstreamStatusPill: React.FC<UpstreamStatusPillProps> = ({
           <Icon name="git-branch" className="size-3.5 shrink-0" />
           <span className="min-w-0 truncate text-foreground/80">{target}</span>
           {isSynced ? (
-            <span className="tabular-nums text-muted-foreground">{t('gitView.header.upstreamSynced')}</span>
+            <span className="tabular-nums text-muted-foreground">{"synced"}</span>
           ) : (
             <span className="inline-flex items-center gap-1 tabular-nums">
               {comparison.ahead > 0 ? (
@@ -259,7 +258,7 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
   prChecks,
   onOpenPullRequest,
 }) => {
-  const { t } = useI18n();
+  
   if (!status) {
     return null;
   }
@@ -275,43 +274,43 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
                   variant="ghost"
                   size="sm"
                   className="h-8 w-8 px-0"
-                  aria-label={t('gitView.header.repositoryViews')}
+                  aria-label={"Repository views"}
                 >
                   <Icon name="more-fill" className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent sideOffset={8}>{t('gitView.header.repositoryViews')}</TooltipContent>
+            <TooltipContent sideOffset={8}>{"Repository views"}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end">
             {onOpenHistory ? (
               <DropdownMenuItem onSelect={onOpenHistory}>
                 <Icon name="history" className="size-4" />
-                {t('gitView.history.title')}
+                {"History"}
               </DropdownMenuItem>
             ) : null}
             {onOpenGraph ? (
               <DropdownMenuItem onSelect={onOpenGraph}>
                 <Icon name="git-branch" className="size-4" />
-                {t('gitView.graph.title')}
+                {"Graph"}
               </DropdownMenuItem>
             ) : null}
             {onOpenStashes ? (
               <DropdownMenuItem onSelect={onOpenStashes}>
                 <Icon name="archive-stack" className="size-4" />
-                {t('gitView.stashes.title')}
+                {"Stashes"}
               </DropdownMenuItem>
             ) : null}
             {onOpenUpdateBranch ? (
               <DropdownMenuItem onSelect={onOpenUpdateBranch}>
                 <Icon name="git-merge" className="size-4" />
-                {t('gitView.header.updateBranch')}
+                {"Update branch"}
               </DropdownMenuItem>
             ) : null}
             {onOpenReintegrateCommits ? (
               <DropdownMenuItem onSelect={onOpenReintegrateCommits}>
                 <Icon name="split-cells-horizontal" className="size-4" />
-                {t('gitView.integrate.title')}
+                {"Re-integrate commits"}
               </DropdownMenuItem>
             ) : null}
           </DropdownMenuContent>
@@ -357,7 +356,7 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
             className="size-3.5"
             style={{ color: `var(--pr-${prVisualState})` }}
           />
-          <span className="tabular-nums text-foreground/80">{t('gitView.pr.numberLabel', { number: pullRequest.number })}</span>
+          <span className="tabular-nums text-foreground/80">{`PR #${pullRequest.number}`}</span>
           {prChecksColor ? (
             <span
               aria-hidden="true"
@@ -367,7 +366,7 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
           ) : null}
         </Button>
       </TooltipTrigger>
-      <TooltipContent sideOffset={8}>{t('gitView.header.openPullRequest')}</TooltipContent>
+      <TooltipContent sideOffset={8}>{"Open pull request"}</TooltipContent>
     </Tooltip>
   ) : null;
 

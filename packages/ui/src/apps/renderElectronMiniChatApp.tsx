@@ -10,7 +10,6 @@ import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { startAppearanceAutoSave } from '@/lib/appearanceAutoSave';
 import { applyPersistedDirectoryPreferences } from '@/lib/directoryPersistence';
-import { I18nProvider } from '@/lib/i18n';
 import { initializeAppearancePreferences, syncDesktopSettings } from '@/lib/persistence';
 import { startModelPrefsAutoSave } from '@/lib/modelPrefsAutoSave';
 import { startTypographyWatcher } from '@/lib/typographyWatcher';
@@ -48,7 +47,6 @@ export function renderElectronMiniChatApp(apis?: RuntimeAPIs) {
 
   createRoot(rootElement).render(
     <StrictMode>
-      <I18nProvider>
         <ThemeSystemProvider>
           <ThemeProvider>
             <SessionAuthGate>
@@ -56,7 +54,6 @@ export function renderElectronMiniChatApp(apis?: RuntimeAPIs) {
             </SessionAuthGate>
           </ThemeProvider>
         </ThemeSystemProvider>
-      </I18nProvider>
     </StrictMode>,
   );
 }

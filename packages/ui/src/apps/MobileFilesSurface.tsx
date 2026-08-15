@@ -16,7 +16,6 @@ import { ScrollShadow } from '@/components/ui/ScrollShadow';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
-import { useI18n } from '@/lib/i18n';
 import type { FileListEntry, FileSearchResult } from '@/lib/api/types';
 import { useFilesViewTabsStore } from '@/stores/useFilesViewTabsStore';
 import { useUIStore } from '@/stores/useUIStore';
@@ -74,7 +73,6 @@ type MobileFilesSurfaceProps = {
 };
 
 export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose }) => {
-  const { t } = useI18n();
   const { files } = useRuntimeAPIs();
   const setSelectedPath = useFilesViewTabsStore((state) => state.setSelectedPath);
   const root = normalizePath(useEffectiveDirectory() ?? null);
@@ -113,13 +111,13 @@ export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose 
     } catch (error) {
       if (directoryLoadRequestIdRef.current !== requestId) return;
       setEntries([]);
-      setDirectoryError(error instanceof Error ? error.message : t('mobile.files.error.listFailed'));
+      setDirectoryError(error instanceof Error ? error.message : "Failed to load files");
     } finally {
       if (directoryLoadRequestIdRef.current === requestId) {
         setIsLoadingDirectory(false);
       }
     }
-  }, [files, t]);
+  }, [files]);
 
   React.useEffect(() => {
     if (route.type !== 'browser') return;
@@ -183,7 +181,7 @@ export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose 
   }, [pendingFileFocusPath, pendingFileNavigation, root, setSelectedPath]);
 
   if (!root) {
-    return <MobileFilesState message={t('mobile.files.empty.noDirectory')} />;
+    return <MobileFilesState message={"Select a project to browse files."} />;
   }
 
   if (route.type === 'file') {
@@ -196,7 +194,7 @@ export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose 
           <button
             type="button"
             className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={t('header.actions.backAria')}
+            aria-label={"Back"}
             onClick={() => setRoute({ type: 'browser', directory: route.returnDirectory })}
             style={{ touchAction: 'manipulation' }}
           >
@@ -208,7 +206,7 @@ export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose 
         </header>
         <div className="min-h-0 flex-1 overflow-hidden">
           <ErrorBoundary>
-            <React.Suspense fallback={<MobileFilesState loading message={t('filesView.state.loading')} />}>
+            <React.Suspense fallback={<MobileFilesState loading message={"Loading..."} />}>
               <LazyFilesEditor mode="editor-only" />
             </React.Suspense>
           </ErrorBoundary>
@@ -217,7 +215,7 @@ export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose 
     );
   }
 
-  const directoryLabel = route.directory === root ? t('mobile.files.rootDirectory') : getNameFromPath(route.directory);
+  const directoryLabel = route.directory === root ? "Project files" : getNameFromPath(route.directory);
   const visibleSearchResults = query.trim() ? searchResults : [];
 
   // Cap parent navigation at the project root: only allow stepping up while
@@ -235,7 +233,7 @@ export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose 
           <button
             type="button"
             className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={t('mobile.surface.closeAria')}
+            aria-label={"Close"}
             onClick={onClose}
             style={{ touchAction: 'manipulation' }}
           >
@@ -246,7 +244,7 @@ export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose 
           <button
             type="button"
             className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={t('mobile.files.backToParentAria', { name: getNameFromPath(parentDirectory) })}
+            aria-label={`Back to ${getNameFromPath(parentDirectory)}`}
             onClick={() => openDirectory(parentDirectory)}
             style={{ touchAction: 'manipulation' }}
           >
@@ -259,7 +257,7 @@ export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose 
         <button
           type="button"
           className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          aria-label={t('mobile.files.refreshAria')}
+          aria-label={"Refresh files"}
           onClick={() => void loadDirectory(route.directory)}
           style={{ touchAction: 'manipulation' }}
         >
@@ -272,7 +270,7 @@ export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose 
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder={t('mobile.files.search.placeholder')}
+            placeholder={"Search files"}
             className="h-11 pl-9"
           />
         </div>
@@ -286,7 +284,7 @@ export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose 
         ) : (
           <div className="overflow-hidden rounded-2xl border border-border/70 bg-[var(--surface-elevated)]">
             {entries.length === 0 && !isLoadingDirectory ? (
-              <div className="px-4 py-8 text-center typography-body text-muted-foreground">{t('mobile.files.empty.directory')}</div>
+              <div className="px-4 py-8 text-center typography-body text-muted-foreground">{"This directory is empty."}</div>
             ) : null}
             {entries.map((entry) => (
               <MobileFileRow
@@ -334,10 +332,9 @@ const MobileSearchResults: React.FC<{
   isSearching: boolean;
   onOpenFile: (path: string) => void;
 }> = ({ results, isSearching, onOpenFile }) => {
-  const { t } = useI18n();
   const root = normalizePath(useEffectiveDirectory() ?? null);
-  if (isSearching) return <MobileFilesState loading message={t('common.loading')} />;
-  if (results.length === 0) return <MobileFilesState message={t('mobile.files.search.empty')} />;
+  if (isSearching) return <MobileFilesState loading message={"Loading..."} />;
+  if (results.length === 0) return <MobileFilesState message={"No files found."} />;
   return (
     <div className="overflow-hidden rounded-2xl border border-border/70 bg-[var(--surface-elevated)]">
       {results.map((result) => (

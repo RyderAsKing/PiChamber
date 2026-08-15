@@ -1,6 +1,5 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { useI18n } from '@/lib/i18n';
 import { useDurationTickerNow } from '@/hooks/useDurationTicker';
 import {
   useSessionActivityStartedAt,
@@ -27,7 +26,6 @@ export const SessionActivityDuration: React.FC<{
   running: boolean;
   className?: string;
 }> = ({ sessionId, running, className }) => {
-  const { t } = useI18n();
   const startedAt = useSessionActivityStartedAt(sessionId);
   const settledMs = useSessionSettledDurationMs(sessionId);
   const now = useDurationTickerNow(running, TICK_MS);
@@ -35,10 +33,10 @@ export const SessionActivityDuration: React.FC<{
   const durationMs = running ? Math.max(0, now - (startedAt ?? now)) : settledMs;
   if (durationMs === undefined) return null;
 
-  const label = formatSessionActivityDuration(durationMs, t);
+  const label = formatSessionActivityDuration(durationMs);
   const description = running
-    ? t('sessions.sidebar.session.status.activeFor', { duration: label })
-    : t('sessions.sidebar.session.status.lastTurnDuration', { duration: label });
+    ? `Active for ${label}`
+    : `Last turn took ${label}`;
 
   return (
     <span

@@ -5,7 +5,6 @@ import { SessionActivityDuration } from '@/components/session/SessionActivityDur
 import { formatSessionCompactDateLabel } from '@/components/session/sidebar/utils';
 import { useSwitcherItems } from '@/components/session/sidebar/hooks/useSwitcherItems';
 import { useTabletLayout } from '@/lib/device';
-import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { refreshGlobalSessions, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -30,7 +29,7 @@ const SwitcherRow: React.FC<{
   active: boolean;
   onSelect: () => void;
 }> = ({ session, meta, active, onSelect }) => {
-  const { t } = useI18n();
+  
   const status = useGlobalSessionStatus(session.id);
   const unseenCount = useSessionUnseenCount(session.id);
   const statusType = status?.type ?? 'idle';
@@ -52,7 +51,7 @@ const SwitcherRow: React.FC<{
     >
       <span className="flex min-w-0 flex-1 flex-col">
         <span className={cn('block truncate typography-ui-label', active ? 'text-primary' : 'text-foreground')}>
-          {getSessionTitle(session, t('sessions.sidebar.session.untitled'))}
+          {getSessionTitle(session, "Untitled Session")}
         </span>
         {meta ? (
           <span className="block truncate typography-micro text-muted-foreground">{meta}</span>
@@ -90,7 +89,7 @@ export const MobileSessionSwitcher: React.FC<{
   onClose: () => void;
   anchorRef: React.RefObject<HTMLElement | null>;
 }> = ({ open, onClose, anchorRef }) => {
-  const { t } = useI18n();
+  
   const panelRef = React.useRef<HTMLDivElement>(null);
   const [shouldRender, setShouldRender] = React.useState(open);
   const [isExiting, setIsExiting] = React.useState(false);
@@ -190,7 +189,7 @@ export const MobileSessionSwitcher: React.FC<{
       <div
         ref={panelRef}
         role="dialog"
-        aria-label={t('sessions.switcher.openAria')}
+        aria-label={"Open session switcher"}
         className={cn(
           'flex flex-col overflow-hidden rounded-[20px] border border-border/70 bg-[var(--surface-elevated)] p-2 shadow-[0_12px_32px_rgb(0_0_0_/_0.2)] will-change-transform',
           isPopover ? 'absolute origin-top-left' : 'mx-3 mt-2',
@@ -211,7 +210,7 @@ export const MobileSessionSwitcher: React.FC<{
         <div className="oc-hide-scrollbar min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain">
           {items.length === 0 ? (
             <p className="px-3 py-6 text-center typography-small text-muted-foreground">
-              {t('sessions.switcher.empty')}
+              {"No recent sessions"}
             </p>
           ) : (
             items.map((item) => {

@@ -43,7 +43,6 @@ import { useSelectionStore } from '@/sync/selection-store';
 import { useInputStore } from '@/sync/input-store';
 import { cn } from '@/lib/utils';
 import { renderMagicPrompt } from '@/lib/magicPrompts';
-import { getCurrentIntlLocale, useI18n } from '@/lib/i18n';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { TodoSendDialog, type TodoSendExecution } from './TodoSendDialog';
 
@@ -161,7 +160,6 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
   onActionComplete,
   className,
 }) => {
-  const { t } = useI18n();
   const [isLoading, setIsLoading] = React.useState(false);
   const [notes, setNotes] = React.useState('');
   const [todos, setTodos] = React.useState<PiChamberProjectTodoItem[]>([]);
@@ -214,7 +212,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
       try {
         const saved = await next;
         if (!saved) {
-          toast.error(t('rightSidebar.contextNotesTodo.toast.saveNotesFailed'));
+          toast.error("Failed to save project notes");
         }
         return saved;
       } finally {
@@ -223,7 +221,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
         }
       }
     },
-    [projectRef, t]
+    [projectRef]
   );
 
   React.useEffect(() => {
@@ -243,7 +241,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
       try {
         const data = await getProjectContextData(projectRef);
         const nextPlans = await Promise.all(
-          data.plans.map((plan) => toPlanListItem(plan, t('rightSidebar.contextNotesTodo.plan.defaultTitle')))
+          data.plans.map((plan) => toPlanListItem(plan, "Plan"))
         );
         if (cancelled) {
           return;
@@ -257,7 +255,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
         setExpandedTodoIds(new Set());
       } catch {
         if (!cancelled) {
-          toast.error(t('rightSidebar.contextNotesTodo.toast.loadNotesFailed'));
+          toast.error("Failed to load project notes");
           setNotes('');
           setTodos([]);
           setPlans([]);
@@ -274,7 +272,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [contextReloadTick, projectRef, t]);
+  }, [contextReloadTick, projectRef]);
 
   React.useEffect(() => {
     if (!projectRef) {
@@ -489,16 +487,16 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
   const handleSendToCurrentSession = React.useCallback(
     (todoText: string) => {
       if (!currentSessionId) {
-        toast.error(t('rightSidebar.contextNotesTodo.toast.noActiveSession'));
+        toast.error("No active session selected");
         return;
       }
       routeToChat();
       const fenced = `\`\`\`md\n${todoText}\n\`\`\``;
       setPendingInputText(fenced, 'append');
-      toast.success(t('rightSidebar.contextNotesTodo.toast.sentToCurrentSession'));
+      toast.success("Todo sent to current session");
       onActionComplete?.();
     },
-    [currentSessionId, onActionComplete, routeToChat, setPendingInputText, t]
+    [currentSessionId, onActionComplete, routeToChat, setPendingInputText]
   );
 
   const handleConfirmSend = React.useCallback(
@@ -523,7 +521,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
 
         const session = await createSession(undefined, projectRef.path, null);
         if (!session?.id) {
-          toast.error(t('rightSidebar.contextNotesTodo.toast.createSessionFailed'));
+          toast.error("Failed to create session");
           return;
         }
         const sessionId = session.id;
@@ -556,17 +554,17 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
           execution.variant || undefined,
         );
 
-        toast.success(t('rightSidebar.contextNotesTodo.toast.sentToNewSession'));
+        toast.success("Todo sent to new session");
         setPendingSendTarget(null);
         onActionComplete?.();
       } catch (error) {
-        toast.error(t('rightSidebar.contextNotesTodo.toast.sendFailed' as any));
+        toast.error("Failed to send note");
       } finally {
         setIsSendDialogSubmitting(false);
         setSendingTodoId(null);
       }
     },
-    [createSession, initializeNewPiChamberSession, onActionComplete, pendingSendTarget, projectRef, routeToChat, sendMessage, setCurrentSession, t],
+    [createSession, initializeNewPiChamberSession, onActionComplete, pendingSendTarget, projectRef, routeToChat, sendMessage, setCurrentSession],
   );
 
   const planFileInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -582,7 +580,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
       try {
         const ok = await deleteProjectPlanFile(projectRef, planId);
         if (!ok) {
-          toast.error(t('rightSidebar.contextNotesTodo.toast.deletePlanFailed'));
+          toast.error("Failed to delete plan");
           return;
         }
         setPlans((previous) => previous.filter((entry) => entry.id !== planId));
@@ -593,7 +591,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
         setDeletingPlanId(null);
       }
     },
-    [deletingPlanId, projectRef, t]
+    [deletingPlanId, projectRef]
   );
 
   const handleTriggerUploadPlan = React.useCallback(async () => {
@@ -619,27 +617,27 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
         }
         const response = await runtimeFetch(`/api/fs/read?${params.toString()}`, { cache: 'no-store' });
         if (!response.ok) {
-          toast.error(t('rightSidebar.contextNotesTodo.toast.readPlanFileFailed'));
+          toast.error("Failed to read plan file");
           return;
         }
         const text = await response.text();
         if (!text.trim()) {
-          toast.error(t('rightSidebar.contextNotesTodo.toast.planFileEmpty'));
+          toast.error("Plan file is empty");
           return;
         }
         const fallbackTitle = result.path.split('/').pop()?.replace(/\.(md|markdown|txt)$/i, '').trim() || '';
         const created = await importProjectPlanFileFromContent(projectRef, text, fallbackTitle);
         if (!created) {
-          toast.error(t('rightSidebar.contextNotesTodo.toast.importPlanFailed'));
+          toast.error("Failed to import plan");
           return;
         }
         window.dispatchEvent(new CustomEvent('openchamber:project-plan-saved', {
           detail: { projectId: projectRef.id },
         }));
-        toast.success(t('rightSidebar.contextNotesTodo.toast.planImported'));
+        toast.success("Plan imported");
       } catch (error) {
         const description = error instanceof Error ? error.message : undefined;
-        toast.error(t('rightSidebar.contextNotesTodo.toast.readPlanFileFailed'), description ? { description } : undefined);
+        toast.error("Failed to read plan file", description ? { description } : undefined);
       } finally {
         setIsImportingPlan(false);
       }
@@ -647,7 +645,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
       // Fall back to HTML file input for web/non-desktop runtimes
       planFileInputRef.current?.click();
     }
-  }, [isImportingPlan, projectRef, t]);
+  }, [isImportingPlan, projectRef]);
 
   const handleUploadPlanFile = React.useCallback(
     async (file: File | null) => {
@@ -658,27 +656,27 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
       try {
         const text = await file.text();
         if (!text.trim()) {
-          toast.error(t('rightSidebar.contextNotesTodo.toast.planFileEmpty'));
+          toast.error("Plan file is empty");
           return;
         }
         const fallbackTitle = file.name.replace(/\.(md|markdown|txt)$/i, '').trim();
         const created = await importProjectPlanFileFromContent(projectRef, text, fallbackTitle);
         if (!created) {
-          toast.error(t('rightSidebar.contextNotesTodo.toast.importPlanFailed'));
+          toast.error("Failed to import plan");
           return;
         }
         window.dispatchEvent(new CustomEvent('openchamber:project-plan-saved', {
           detail: { projectId: projectRef.id },
         }));
-        toast.success(t('rightSidebar.contextNotesTodo.toast.planImported'));
+        toast.success("Plan imported");
       } catch (error) {
         const description = error instanceof Error ? error.message : undefined;
-        toast.error(t('rightSidebar.contextNotesTodo.toast.readPlanFileFailed'), description ? { description } : undefined);
+        toast.error("Failed to read plan file", description ? { description } : undefined);
       } finally {
         setIsImportingPlan(false);
       }
     },
-    [projectRef, t]
+    [projectRef]
   );
 
   const handleOpenPlan = React.useCallback(
@@ -702,7 +700,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
     return (
       <div className={cn('w-full min-w-0 p-3', className)}>
         <p className="typography-meta text-muted-foreground">
-          {t('rightSidebar.contextNotesTodo.empty.selectProject')}
+          {"Select a project to add notes and todos."}
         </p>
       </div>
     );
@@ -713,9 +711,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-2">
           <h3 className="min-w-0 truncate typography-ui-label font-semibold text-foreground" title={projectRef.path}>
-            {t('rightSidebar.contextNotesTodo.notes.title', {
-              project: projectLabel?.trim() || projectRef.path.split('/').filter(Boolean).pop() || projectRef.path,
-            })}
+            {`Quick notes - ${projectLabel?.trim() || projectRef.path.split('/').filter(Boolean).pop() || projectRef.path}`}
           </h3>
           <span className="typography-meta text-muted-foreground">{notes.length}/{OPENCHAMBER_PROJECT_NOTES_MAX_LENGTH}</span>
         </div>
@@ -723,7 +719,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
           value={notes}
           onChange={(event) => setNotes(event.target.value.slice(0, OPENCHAMBER_PROJECT_NOTES_MAX_LENGTH))}
           onBlur={handleNotesBlur}
-          placeholder={t('rightSidebar.contextNotesTodo.notes.placeholder')}
+          placeholder={"Capture context, reminders, or links"}
           resizedHeight={notesPanelHeight}
           onResizeHeightChange={setNotesPanelHeight}
           useScrollShadow
@@ -736,12 +732,12 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <h3 className="typography-ui-label font-semibold text-foreground">
-              {t('rightSidebar.contextNotesTodo.todo.title')}
+              {"Todo"}
             </h3>
             <span className="typography-meta text-muted-foreground">
               {todos.length === 1
-                ? t('rightSidebar.contextNotesTodo.todo.itemsSingle', { count: todos.length })
-                : t('rightSidebar.contextNotesTodo.todo.itemsPlural', { count: todos.length })}
+                ? `${todos.length} item`
+                : `${todos.length} items`}
             </span>
             <button
               type="button"
@@ -749,7 +745,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
               disabled={isLoading || completedTodoCount === 0}
               className="typography-meta rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-interactive-hover/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {t('rightSidebar.contextNotesTodo.todo.clearCompleted')}
+              {"Clear completed"}
             </button>
           </div>
           <span className="typography-meta text-muted-foreground">{todoInputValue.length}/{OPENCHAMBER_PROJECT_TODO_TEXT_MAX_LENGTH}</span>
@@ -765,7 +761,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
                 handleAddTodo();
               }
             }}
-            placeholder={t('rightSidebar.contextNotesTodo.todo.inputPlaceholder')}
+            placeholder={"Add a todo"}
             disabled={isLoading}
             className="h-8"
           />
@@ -774,8 +770,8 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
             onClick={handleAddTodo}
             disabled={isLoading || todoInputValue.trim().length === 0}
             className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-border/70 text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
-            aria-label={t('rightSidebar.contextNotesTodo.todo.addAria')}
-            title={t('rightSidebar.contextNotesTodo.todo.addAria')}
+            aria-label={"Add todo"}
+            title={"Add todo"}
           >
             <Icon name="add" className="h-4 w-4" />
           </button>
@@ -797,7 +793,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
         >
           {todos.length === 0 ? (
             <p className="px-3 py-3 typography-meta text-muted-foreground">
-              {t('rightSidebar.contextNotesTodo.todo.empty')}
+              {"No todos yet. Add a small checklist for this project."}
             </p>
           ) : (
             <DndContext
@@ -826,8 +822,8 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
                                 event.stopPropagation();
                               }}
                               className="flex h-6 w-4 flex-shrink-0 touch-none items-center justify-center text-muted-foreground hover:text-foreground"
-                              aria-label={t('rightSidebar.contextNotesTodo.todo.actions.reorder', { text: todo.text })}
-                              title={t('rightSidebar.contextNotesTodo.todo.actions.reorder', { text: todo.text })}
+                              aria-label={`Reorder \\"${todo.text}\\"`}
+                              title={`Reorder \\"${todo.text}\\"`}
                             >
                               <Icon name="draggable" className="h-3.5 w-3.5" />
                             </button>
@@ -835,7 +831,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
                               <Checkbox
                                 checked={todo.completed}
                                 onChange={(checked) => handleToggleTodo(todo.id, checked)}
-                                ariaLabel={t('rightSidebar.contextNotesTodo.todo.actions.markComplete', { text: todo.text })}
+                                ariaLabel={`Mark \\"${todo.text}\\" complete`}
                               />
                             </div>
                             <button
@@ -850,8 +846,8 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
                               title={isExpandedTodo ? undefined : todo.text}
                               aria-label={
                                 isExpandedTodo
-                                  ? t('rightSidebar.contextNotesTodo.todo.actions.collapse', { text: todo.text })
-                                  : t('rightSidebar.contextNotesTodo.todo.actions.expand', { text: todo.text })
+                                  ? `Collapse todo \\"${todo.text}\\"`
+                                  : `Expand todo \\"${todo.text}\\"`
                               }
                             >
                               {todo.text}
@@ -861,8 +857,8 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
                                 type="button"
                                 onClick={() => handleDeleteTodo(todo.id)}
                                 className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                                aria-label={t('rightSidebar.contextNotesTodo.todo.actions.delete', { text: todo.text })}
-                                title={t('rightSidebar.contextNotesTodo.todo.actions.delete', { text: todo.text })}
+                                aria-label={`Delete \\"${todo.text}\\"`}
+                                title={`Delete \\"${todo.text}\\"`}
                               >
                                 <Icon name="delete-bin" className="h-3.5 w-3.5" />
                               </button>
@@ -872,18 +868,18 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
                                     type="button"
                                     disabled={sendingTodoId === todo.id}
                                     className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
-                                    aria-label={t('rightSidebar.contextNotesTodo.todo.actions.send', { text: todo.text })}
-                                    title={t('rightSidebar.contextNotesTodo.todo.actions.send', { text: todo.text })}
+                                    aria-label={`Send \\"${todo.text}\\"`}
+                                    title={`Send \\"${todo.text}\\"`}
                                   >
                                     <Icon name="send-plane" className="h-3.5 w-3.5" />
                                   </button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" className="w-56">
                                   <DropdownMenuItem onClick={() => handleSendToCurrentSession(todo.text)}>
-                                    {t('rightSidebar.contextNotesTodo.todo.sendMenu.currentSession')}
+                                    {"Send to current session"}
                                   </DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => handleSendToNewSession(todo.id, todo.text)}>
-                                    {t('rightSidebar.contextNotesTodo.todo.sendMenu.newSession')}
+                                    {"Send to new session"}
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -907,7 +903,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
             onPointerDown={handleTodoPanelResizeStart}
             role="separator"
             aria-orientation="horizontal"
-            aria-label={t('rightSidebar.contextNotesTodo.todo.resizeAria')}
+            aria-label={"Resize todo list"}
           />
         )}
       </div>
@@ -916,12 +912,12 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <h3 className="typography-ui-label font-semibold text-foreground">
-              {t('rightSidebar.contextNotesTodo.plans.title')}
+              {"Plans"}
             </h3>
             <span className="typography-meta text-muted-foreground">
               {plans.length === 1
-                ? t('rightSidebar.contextNotesTodo.plans.filesSingle', { count: plans.length })
-                : t('rightSidebar.contextNotesTodo.plans.filesPlural', { count: plans.length })}
+                ? `${plans.length} file`
+                : `${plans.length} files`}
             </span>
           </div>
           <input
@@ -940,8 +936,8 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
             onClick={handleTriggerUploadPlan}
             disabled={!projectRef || isImportingPlan}
             className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/70 text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
-            aria-label={t('rightSidebar.contextNotesTodo.plans.importFromFile')}
-            title={t('rightSidebar.contextNotesTodo.plans.importFromFile')}
+            aria-label={"Import plan from file"}
+            title={"Import plan from file"}
           >
             <Icon name="add" className="h-3.5 w-3.5" />
           </button>
@@ -950,7 +946,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
         <div className="max-h-56 overflow-y-auto rounded-lg border border-border/60 bg-background/40">
           {plans.length === 0 ? (
             <p className="px-3 py-3 typography-meta text-muted-foreground">
-              {t('rightSidebar.contextNotesTodo.plans.empty')}
+              {"No saved plans yet."}
             </p>
           ) : (
             <ul className="divide-y divide-border/50">
@@ -963,7 +959,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
                   >
                     <span className="min-w-0 truncate typography-ui-label text-foreground">{plan.title}</span>
                     <span className="flex-shrink-0 typography-micro text-muted-foreground">
-                      {new Date(plan.createdAt).toLocaleDateString(getCurrentIntlLocale())}
+                      {new Date(plan.createdAt).toLocaleDateString('en-US')}
                     </span>
                   </button>
                   <button
@@ -971,8 +967,8 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
                     onClick={() => void handleDeletePlan(plan.id)}
                     disabled={deletingPlanId === plan.id}
                     className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
-                    title={t('rightSidebar.contextNotesTodo.plans.deletePlan')}
-                    aria-label={t('rightSidebar.contextNotesTodo.plans.deletePlanWithTitle', { title: plan.title })}
+                    title={"Delete plan"}
+                    aria-label={`Delete plan \\"${plan.title}\\"`}
                   >
                     <Icon name="delete-bin" className="h-3.5 w-3.5" />
                   </button>

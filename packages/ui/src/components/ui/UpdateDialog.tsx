@@ -12,7 +12,6 @@ import { cn } from '@/lib/utils';
 import type { UpdateInfo, UpdateProgress } from '@/lib/desktop';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { openExternalUrl } from '@/lib/url';
-import { getCurrentIntlLocale, useI18n } from '@/lib/i18n';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 
 type WebUpdateState = 'idle' | 'updating' | 'restarting' | 'reconnecting' | 'error';
@@ -58,7 +57,7 @@ function formatIsoDateForUI(isoDate: string): string {
   if (Number.isNaN(d.getTime())) {
     return isoDate;
   }
-  return new Intl.DateTimeFormat(getCurrentIntlLocale(), {
+  return new Intl.DateTimeFormat('en-US', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -202,7 +201,6 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
   onRestart,
   runtimeType = 'desktop',
 }) => {
-  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const [webUpdateState, setWebUpdateState] = useState<WebUpdateState>('idle');
   const [webError, setWebError] = useState<string | null>(null);
@@ -247,7 +245,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
 
     if (!result.success) {
       setWebUpdateState('error');
-      setWebError(result.error || t('updateDialog.error.updateFailed'));
+      setWebError(result.error || "Update failed");
       return;
     }
 
@@ -264,9 +262,9 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
       window.location.reload();
     } else {
       setWebUpdateState('error');
-      setWebError(t('updateDialog.error.takingLonger'));
+      setWebError("Update is taking longer than expected. Wait a bit and refresh, or run: pichamber update");
     }
-  }, [info?.currentVersion, t]);
+  }, [info?.currentVersion]);
 
   const handleMobileUpdate = useCallback(() => {
     void handleOpenExternal(mobileUpdateUrl);
@@ -289,7 +287,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
     if (sections.length === 0) {
       return {
         kind: 'raw',
-        title: t('updateDialog.changelog.title'),
+        title: "What's new",
         content: processChangelogMentions(body),
       };
     }
@@ -297,14 +295,14 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
     const sorted = [...sections].sort((a, b) => compareSemverDesc(a.version, b.version));
     return {
       kind: 'sections',
-      title: t('updateDialog.changelog.title'),
+      title: "What's new",
       sections: sorted.map((section) => ({
         version: section.version,
         dateLabel: formatIsoDateForUI(section.date),
         content: processChangelogMentions(stripChangelogHeading(section.raw) || body),
       })),
     };
-  }, [info?.body, t]);
+  }, [info?.body]);
 
   return (
     <Dialog open={open} onOpenChange={isWebUpdating ? undefined : onOpenChange}>
@@ -316,8 +314,8 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
             <Icon name="download-cloud" className="h-5 w-5 text-[var(--primary-base)]" />
             <span className="text-lg font-semibold text-foreground">
               {webUpdateState === 'restarting' || webUpdateState === 'reconnecting'
-                ? t('updateDialog.header.updating')
-                : t('updateDialog.header.updateAvailable')}
+                ? "Updating PiChamber..."
+                : "Update Available"}
             </span>
           </DialogTitle>
 
@@ -346,13 +344,13 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
               <div className="flex items-center gap-3">
                 <Icon name="loader" className="h-5 w-5 animate-spin text-[var(--primary-base)]" />
                 <div className="typography-ui-label text-foreground">
-                  {webUpdateState === 'updating' && t('updateDialog.status.installingUpdate')}
-                  {webUpdateState === 'restarting' && t('updateDialog.status.serverRestarting')}
-                  {webUpdateState === 'reconnecting' && t('updateDialog.status.waitingForServer')}
+                  {webUpdateState === 'updating' && "Installing update..."}
+                  {webUpdateState === 'restarting' && "Server restarting..."}
+                  {webUpdateState === 'reconnecting' && "Waiting for server..."}
                 </div>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                {t('updateDialog.status.autoReloadHint')}
+                {"The page will reload automatically when the update is complete."}
               </p>
             </div>
           )}
@@ -418,7 +416,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
             <div className="space-y-2 mt-4">
               <div className="flex items-center gap-2 typography-meta text-muted-foreground">
                 <Icon name="terminal" className="h-4 w-4" />
-                <span>{t('updateDialog.fallback.updateViaTerminal')}</span>
+                <span>{"Or update via terminal:"}</span>
               </div>
               <div className="flex items-center gap-2 p-1 pl-3 bg-[var(--surface-elevated)]/50 rounded-md border border-[var(--surface-subtle)]">
                 <code className="flex-1 font-mono text-sm text-foreground overflow-x-auto whitespace-nowrap">
@@ -432,7 +430,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
                     'transition-colors',
                     copied && 'text-[var(--status-success)]'
                   )}
-                  title={copied ? t('updateDialog.actions.copied') : t('updateDialog.actions.copyCommand')}
+                  title={copied ? "Copied!" : "Copy command"}
                 >
                   {copied ? (
                     <Icon name="check" className="h-4 w-4" />
@@ -448,7 +446,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
           {!isWebRuntime && !isMobileRuntime && downloading && (
             <div className="space-y-2 mt-4">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">{t('updateDialog.status.downloadingPayload')}</span>
+                <span className="text-muted-foreground">{"Downloading update payload..."}</span>
                 <span className="font-mono text-foreground">{progressPercent}%</span>
               </div>
               <div className="h-1.5 bg-[var(--surface-subtle)] rounded-full overflow-hidden">
@@ -488,7 +486,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
                 className="flex items-center justify-center gap-2 px-5 py-2 rounded-md text-sm font-medium bg-[var(--primary-base)] text-[var(--primary-foreground)] hover:opacity-90 transition-opacity"
               >
                 <Icon name="download" className="h-4 w-4" />
-                {t('updateDialog.actions.downloadUpdate')}
+                {"Download Update"}
               </button>
             )}
 
@@ -498,7 +496,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
                 className="flex items-center justify-center gap-2 px-5 py-2 rounded-md text-sm font-medium bg-[var(--primary-base)]/50 text-[var(--primary-foreground)] cursor-not-allowed"
               >
                 <Icon name="loader" className="h-4 w-4 animate-spin" />
-                {t('updateDialog.status.downloading')}
+                {"Downloading..."}
               </button>
             )}
 
@@ -508,7 +506,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
                 className="flex items-center justify-center gap-2 px-5 py-2 rounded-md text-sm font-medium bg-[var(--status-success)] text-white hover:opacity-90 transition-opacity"
               >
                 <Icon name="restart" className="h-4 w-4" />
-                {t('updateDialog.actions.restartToUpdate')}
+                {"Restart to Update"}
               </button>
             )}
 
@@ -519,7 +517,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
                 size="default"
               >
                 <Icon name="external-link" className="h-4 w-4" />
-                {t('updateDialog.actions.openMobileUpdate')}
+                {"Open update"}
               </Button>
             )}
 
@@ -529,7 +527,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
                 className="flex items-center justify-center gap-2 px-5 py-2 rounded-md text-sm font-medium bg-[var(--primary-base)] text-[var(--primary-foreground)] hover:opacity-90 transition-opacity"
               >
                 <Icon name="download" className="h-4 w-4" />
-                {t('updateDialog.actions.updateNow')}
+                {"Update Now"}
               </button>
             )}
 
@@ -539,7 +537,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
                 className="flex items-center justify-center gap-2 px-5 py-2 rounded-md text-sm font-medium bg-[var(--primary-base)]/50 text-[var(--primary-foreground)] cursor-not-allowed"
               >
                 <Icon name="loader" className="h-4 w-4 animate-spin" />
-                {t('updateDialog.status.updating')}
+                {"Updating..."}
               </button>
             )}
           </div>

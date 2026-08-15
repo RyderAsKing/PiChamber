@@ -16,7 +16,6 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 type ComposerAttachmentControlsProps = {
@@ -32,7 +31,7 @@ type ComposerAttachmentControlsProps = {
 };
 
 export const ComposerAttachmentControls = React.memo(function ComposerAttachmentControls(props: ComposerAttachmentControlsProps) {
-    const { t } = useI18n();
+    
     const {
         footerIconButtonClass,
         iconSizeClass,
@@ -60,8 +59,8 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                                 event.preventDefault();
                             }
                         }}
-                        title={t('chat.chatInput.actions.addAttachment')}
-                        aria-label={t('chat.chatInput.actions.addAttachment')}
+                        title={"Add attachment"}
+                        aria-label={"Add attachment"}
                     >
                         <Icon name="add-circle" className={cn(iconSizeClass, 'text-current')} />
                     </button>
@@ -71,8 +70,8 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                             <button
                                 type="button"
                                 className={footerIconButtonClass}
-                                title={t('chat.chatInput.actions.addAttachment')}
-                                aria-label={t('chat.chatInput.actions.addAttachment')}
+                                title={"Add attachment"}
+                                aria-label={"Add attachment"}
                             >
                                 <Icon name="add-circle" className={cn(iconSizeClass, 'text-current')} />
                             </button>
@@ -84,7 +83,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                                 }}
                             >
                                 <Icon name="attachment-2"/>
-                                {t('chat.chatInput.actions.attachFiles')}
+                                {"Attach files"}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                                 onSelect={() => {
@@ -92,7 +91,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                                 }}
                             >
                                 <Icon name="github"/>
-                                {t('chat.chatInput.actions.linkGithubIssue')}
+                                {"Link GitHub Issue"}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                                 onSelect={() => {
@@ -100,7 +99,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                                 }}
                             >
                                 <Icon name="git-pull-request"/>
-                                {t('chat.chatInput.actions.linkGithubPr')}
+                                {"Link GitHub PR"}
                             </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
@@ -112,8 +111,8 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                     type="button"
                     onClick={onOpenSettings}
                     className={footerIconButtonClass}
-                    title={t('chat.chatInput.actions.modelAgentSettings')}
-                    aria-label={t('chat.chatInput.actions.modelAgentSettings')}
+                    title={"Model and agent settings"}
+                    aria-label={"Model and agent settings"}
                 >
                     <Icon name="ai-agent" className={cn(iconSizeClass, 'text-current')} />
                 </button>

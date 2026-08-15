@@ -1,7 +1,6 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 import type { SessionNode } from './types';
-import { useI18n } from '@/lib/i18n';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { Icon } from "@/components/icon/Icon";
 import {
@@ -62,7 +61,7 @@ export function SidebarActivitySections(props: Props): React.ReactNode {
     initialVisibleCount = MAX_VISIBLE_RECENT_SESSIONS,
     batchSize = MAX_VISIBLE_RECENT_SESSIONS,
   } = props;
-  const { t } = useI18n();
+  
   const stickyZoneHeaders = useSessionDisplayStore((state) => state.stickyZoneHeaders);
   const [collapsed, setCollapsed] = React.useState<Set<string>>(new Set());
   const [visibleCountBySection, setVisibleCountBySection] = React.useState<Map<string, number>>(new Map());
@@ -173,7 +172,7 @@ export function SidebarActivitySections(props: Props): React.ReactNode {
                   onClick={() => showMoreSessions(section.key, visibleItems.length, section.items.length)}
                   className="mt-0.5 flex items-center justify-start rounded-md pl-[26px] pr-1.5 py-0.5 text-left text-xs text-muted-foreground/70 leading-tight hover:text-foreground hover:underline"
                 >
-                  {t('sessions.sidebar.group.showMore')}
+                  {"Show more sessions"}
                 </button>
               ) : null}
             </div>
@@ -210,7 +209,7 @@ export function SidebarActivitySections(props: Props): React.ReactNode {
                     onClick={() => showMoreSessions(section.key, visibleItems.length, section.items.length)}
                     className="mt-0.5 flex items-center justify-start rounded-md pl-[26px] pr-1.5 py-0.5 text-left text-xs text-muted-foreground/70 leading-tight hover:text-foreground hover:underline"
                   >
-                    {t('sessions.sidebar.group.showMore')}
+                    {"Show more sessions"}
                   </button>
                 ) : null}
                 {canShowFewer ? (
@@ -219,7 +218,7 @@ export function SidebarActivitySections(props: Props): React.ReactNode {
                     onClick={() => resetSectionLimit(section.key)}
                     className="mt-0.5 flex items-center justify-start rounded-md pl-[26px] pr-1.5 py-0.5 text-left text-xs text-muted-foreground/70 leading-tight hover:text-foreground hover:underline"
                   >
-                    {t('sessions.sidebar.group.showFewer')}
+                    {"Show fewer sessions"}
                   </button>
                 ) : null}
               </div>

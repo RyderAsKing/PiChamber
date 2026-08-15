@@ -10,7 +10,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Icon } from "@/components/icon/Icon";
 import { requestFileAccess } from '@/lib/desktop';
 import { updateDesktopSettings } from '@/lib/persistence';
-import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { openExternalUrl } from '@/lib/url';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
@@ -58,26 +57,26 @@ const SESSION_TTL_OPTIONS: TtlOption[] = [
 const MANAGED_REMOTE_TUNNEL_DOC_URL = 'https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/get-started/create-remote-tunnel/';
 const MANAGED_LOCAL_TUNNEL_DOC_URL = 'https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/configuration-file/';
 
-const TUNNEL_MODE_OPTIONS: Array<{ value: TunnelMode; labelKey: string; tooltipKey: string }> = [
+const TUNNEL_MODE_OPTIONS: Array<{ value: TunnelMode; label: string; tooltip: string; }> = [
   {
     value: 'quick',
-    labelKey: 'settings.pichamber.tunnel.option.mode.quick.label',
-    tooltipKey: 'settings.pichamber.tunnel.option.mode.quick.tooltip',
+    label: "Quick",
+    tooltip: "Quick Tunnel is best effort and uptime is not guaranteed.",
   },
   {
     value: 'managed-remote',
-    labelKey: 'settings.pichamber.tunnel.option.mode.managedRemote.label',
-    tooltipKey: 'settings.pichamber.tunnel.option.mode.managedRemote.tooltip',
+    label: "Managed Remote",
+    tooltip: "Managed Remote uses your Cloudflare account and hostname for long-lived access.",
   },
   {
     value: 'managed-local',
-    labelKey: 'settings.pichamber.tunnel.option.mode.managedLocal.label',
-    tooltipKey: 'settings.pichamber.tunnel.option.mode.managedLocal.tooltip',
+    label: "Managed Local",
+    tooltip: "Managed Local uses your local cloudflared configuration file.",
   },
 ];
 
 const MANAGED_LOCAL_CONFIG_ALLOWED_EXTENSIONS = ['.yml', '.yaml', '.json'];
-const MANAGED_LOCAL_CONFIG_EXTENSION_ERROR_KEY = 'settings.pichamber.tunnel.error.invalidConfigExtension';
+const MANAGED_LOCAL_CONFIG_EXTENSION_ERROR_KEY = "Config file must use .yml, .yaml, or .json extension.";
 
 const hasAllowedManagedLocalConfigExtension = (filePath: string): boolean => {
   const normalized = filePath.trim().toLowerCase();
@@ -348,9 +347,7 @@ const createPresetId = (): string => {
 };
 
 export const TunnelSettings: React.FC = () => {
-  const { t } = useI18n();
-  const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
-  const tUnsafe = React.useCallback((key: string) => t(key as Parameters<typeof t>[0]), [t]);
+    const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
   const [state, setState] = React.useState<TunnelState>('checking');
   const [tunnelInfo, setTunnelInfo] = React.useState<TunnelInfo | null>(null);
   const [activeTunnelMode, setActiveTunnelMode] = React.useState<TunnelMode | null>(null);
@@ -380,7 +377,7 @@ export const TunnelSettings: React.FC = () => {
   const [sessionRecords, setSessionRecords] = React.useState<TunnelSessionRecord[]>([]);
   const [nowTs, setNowTs] = React.useState<number>(() => Date.now());
   const [localPort, setLocalPort] = React.useState<number | null>(null);
-  const managedLocalConfigExtensionError = t(MANAGED_LOCAL_CONFIG_EXTENSION_ERROR_KEY);
+  const managedLocalConfigExtensionError = MANAGED_LOCAL_CONFIG_EXTENSION_ERROR_KEY;
   const managedLocalConfigFileInputRef = React.useRef<HTMLInputElement>(null);
   const isManagedLocalConfigPathInvalid = React.useMemo(() => {
     if (!managedLocalConfigPath) {
@@ -401,10 +398,10 @@ export const TunnelSettings: React.FC = () => {
         ? formatRemaining(record.expiresAt - nowTs)
         : (record.inactiveReason === 'expired' || isExpired ? 'expired' : 'inactive');
       const inactiveLabel = remainingTextForSession === 'expired'
-        ? t('settings.pichamber.tunnel.state.expired')
+        ? "Expired"
         : (record.inactiveReason === 'tunnel-revoked'
-          ? t('settings.pichamber.tunnel.state.revoked')
-          : t('settings.pichamber.tunnel.state.inactive'));
+          ? "Revoked"
+          : "Inactive");
 
       const mode = toUiTunnelMode(record.mode);
       return {
@@ -415,7 +412,7 @@ export const TunnelSettings: React.FC = () => {
         inactiveLabel,
       };
     });
-  }, [nowTs, sessionRecords, t]);
+  }, [nowTs, sessionRecords]);
   const isConnectLinkLive = React.useMemo(() => {
     if (!tunnelInfo?.connectUrl) {
       return false;
@@ -604,10 +601,10 @@ export const TunnelSettings: React.FC = () => {
     } catch {
       if (!signal.aborted) {
         setState('error');
-        setErrorMessage(t('settings.pichamber.tunnel.toast.checkAvailabilityFailed'));
+        setErrorMessage("Failed to check tunnel availability");
       }
     }
-  }, [applyDependencyCheck, t]);
+  }, [applyDependencyCheck]);
 
   React.useEffect(() => {
     const controller = new AbortController();
@@ -643,7 +640,7 @@ export const TunnelSettings: React.FC = () => {
 
   React.useEffect(() => {
     if (!tunnelInfo?.bootstrapExpiresAt) {
-      setRemainingText(t('settings.pichamber.tunnel.state.noExpiry'));
+      setRemainingText("No expiry");
       return;
     }
 
@@ -653,7 +650,7 @@ export const TunnelSettings: React.FC = () => {
     const updateRemaining = () => {
       const remaining = tunnelInfo.bootstrapExpiresAt ? tunnelInfo.bootstrapExpiresAt - Date.now() : 0;
       if (remaining <= 0) {
-        setRemainingText(t('settings.pichamber.tunnel.state.expired'));
+        setRemainingText("Expired");
       } else {
         setRemainingText(formatRemaining(remaining));
       }
@@ -693,7 +690,7 @@ export const TunnelSettings: React.FC = () => {
         cancelAnimationFrame(rafId);
       }
     };
-  }, [t, tunnelInfo?.bootstrapExpiresAt]);
+  }, [ tunnelInfo?.bootstrapExpiresAt]);
 
   React.useEffect(() => {
     // Use requestAnimationFrame for smoother updates without setInterval overhead
@@ -797,11 +794,11 @@ export const TunnelSettings: React.FC = () => {
         setManagedRemoteTunnelPresets(payload.managedRemoteTunnelPresets);
       }
     } catch {
-      toast.error(t('settings.pichamber.tunnel.toast.saveSettingsFailed'));
+      toast.error("Failed to save tunnel settings");
     } finally {
       setIsSavingMode(false);
     }
-  }, [t]);
+  }, []);
 
   const saveTtlSettings = React.useCallback(async (nextBootstrapTtlMs: number | null, nextSessionTtlMs: number) => {
     setIsSavingTtl(true);
@@ -811,11 +808,11 @@ export const TunnelSettings: React.FC = () => {
         tunnelSessionTtlMs: nextSessionTtlMs,
       });
     } catch {
-      toast.error(t('settings.pichamber.tunnel.toast.saveTtlFailed'));
+      toast.error("Failed to save tunnel TTL settings");
     } finally {
       setIsSavingTtl(false);
     }
-  }, [t]);
+  }, []);
 
   const persistManagedRemoteTunnelToken = React.useCallback(async (payload: {
     presetId: string;
@@ -842,9 +839,9 @@ export const TunnelSettings: React.FC = () => {
         return next;
       });
     } catch {
-      toast.error(t('settings.pichamber.tunnel.toast.saveTokenFailed'));
+      toast.error("Failed to save managed remote tunnel token");
     }
-  }, [sessionTokensByPresetId, t]);
+  }, [sessionTokensByPresetId]);
 
   const handleProviderChange = React.useCallback(async (provider: string) => {
     setManagedRemoteValidationError(null);
@@ -933,8 +930,8 @@ export const TunnelSettings: React.FC = () => {
       if (tunnelMode === 'managed-remote') {
         if (!selectedPreset) {
           setState('idle');
-          setManagedRemoteValidationError(t('settings.pichamber.tunnel.toast.selectOrAddManagedRemoteFirst'));
-          toast.error(t('settings.pichamber.tunnel.toast.selectOrAddManagedRemoteFirst'));
+          setManagedRemoteValidationError("Select or add a managed remote tunnel first");
+          toast.error("Select or add a managed remote tunnel first");
           return;
         }
 
@@ -967,21 +964,21 @@ export const TunnelSettings: React.FC = () => {
       if (!res.ok || !data.ok) {
         if (tunnelMode === 'managed-remote' && typeof data.error === 'string' && data.error.includes('Managed remote tunnel token is required')) {
           setState('idle');
-          setManagedRemoteValidationError(t('settings.pichamber.tunnel.toast.managedRemoteTokenRequiredBeforeStarting'));
-          toast.error(t('settings.pichamber.tunnel.toast.addManagedRemoteTokenBeforeStarting'));
+          setManagedRemoteValidationError("Managed remote tunnel token is required before starting");
+          toast.error("Add a managed remote tunnel token before starting");
           return;
         }
         setState('error');
-        setErrorMessage(data.error || t('settings.pichamber.tunnel.toast.startFailed'));
-        toast.error(data.error || t('settings.pichamber.tunnel.toast.startFailed'));
+        setErrorMessage(data.error || "Failed to start tunnel");
+        toast.error(data.error || "Failed to start tunnel");
         return;
       }
 
       const startedUrl = typeof data.url === 'string' ? data.url : '';
       if (!startedUrl) {
         setState('error');
-        setErrorMessage(t('settings.pichamber.tunnel.toast.startedButNoPublicUrl'));
-        toast.error(t('settings.pichamber.tunnel.toast.startedButNoPublicUrl'));
+        setErrorMessage("Tunnel started but no public URL was returned");
+        toast.error("Tunnel started but no public URL was returned");
         return;
       }
 
@@ -1010,21 +1007,21 @@ export const TunnelSettings: React.FC = () => {
         const revokedBootstrapCount = typeof data.revokedBootstrapCount === 'number' ? data.revokedBootstrapCount : 0;
         const invalidatedSessionCount = typeof data.invalidatedSessionCount === 'number' ? data.invalidatedSessionCount : 0;
         if (revokedBootstrapCount === 1 && invalidatedSessionCount === 1) {
-          toast.warning(t('settings.pichamber.tunnel.toast.replacedTunnelSingleSingle'));
+          toast.warning("Replaced previous tunnel: revoked 1 link, invalidated 1 session.");
         } else if (revokedBootstrapCount === 1) {
-          toast.warning(t('settings.pichamber.tunnel.toast.replacedTunnelSingleManySessions', { invalidatedSessionCount }));
+          toast.warning(`Replaced previous tunnel: revoked 1 link, invalidated ${invalidatedSessionCount} sessions.`);
         } else if (invalidatedSessionCount === 1) {
-          toast.warning(t('settings.pichamber.tunnel.toast.replacedTunnelManyLinksSingleSession', { revokedBootstrapCount }));
+          toast.warning(`Replaced previous tunnel: revoked ${revokedBootstrapCount} links, invalidated 1 session.`);
         } else {
-          toast.warning(t('settings.pichamber.tunnel.toast.replacedTunnelManyMany', { revokedBootstrapCount, invalidatedSessionCount }));
+          toast.warning(`Replaced previous tunnel: revoked ${revokedBootstrapCount} links, invalidated ${invalidatedSessionCount} sessions.`);
         }
       } else {
-        toast.success(t('settings.pichamber.tunnel.toast.linkReady'));
+        toast.success("Tunnel link ready");
       }
     } catch {
       setState('error');
-      setErrorMessage(t('settings.pichamber.tunnel.toast.startFailed'));
-      toast.error(t('settings.pichamber.tunnel.toast.startFailed'));
+      setErrorMessage("Failed to start tunnel");
+      toast.error("Failed to start tunnel");
     }
   }, [
     managedLocalConfigExtensionError,
@@ -1032,7 +1029,6 @@ export const TunnelSettings: React.FC = () => {
     saveTunnelSettings,
     selectedPreset,
     sessionTokensByPresetId,
-    t,
     tunnelProvider,
     tunnelMode,
     managedLocalConfigPath,
@@ -1054,13 +1050,13 @@ export const TunnelSettings: React.FC = () => {
       setActiveTunnelMode(null);
       setQrDataUrl(null);
       setState('idle');
-      toast.success(t('settings.pichamber.tunnel.toast.stopped'));
+      toast.success("Tunnel stopped");
     } catch {
       setState('error');
-      setErrorMessage(t('settings.pichamber.tunnel.toast.stopFailed'));
-      toast.error(t('settings.pichamber.tunnel.toast.stopFailed'));
+      setErrorMessage("Failed to stop tunnel");
+      toast.error("Failed to stop tunnel");
     }
-  }, [t]);
+  }, []);
 
   const handleCopyUrl = React.useCallback(async () => {
     if (!tunnelInfo?.connectUrl) {
@@ -1070,12 +1066,12 @@ export const TunnelSettings: React.FC = () => {
     try {
       await navigator.clipboard.writeText(tunnelInfo.connectUrl);
       setCopied(true);
-      toast.success(t('settings.pichamber.tunnel.toast.connectLinkCopied'));
+      toast.success("Connect link copied");
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      toast.error(t('settings.pichamber.tunnel.toast.copyUrlFailed'));
+      toast.error("Failed to copy URL");
     }
-  }, [t, tunnelInfo?.connectUrl]);
+  }, [ tunnelInfo?.connectUrl]);
 
   const handleBootstrapTtlChange = React.useCallback(async (value: string) => {
     const option = BOOTSTRAP_TTL_OPTIONS.find((entry) => entry.value === value);
@@ -1114,9 +1110,9 @@ export const TunnelSettings: React.FC = () => {
         managedRemoteTunnelPresets: presets,
       });
     } catch {
-      toast.error(t('settings.pichamber.tunnel.toast.saveSelectedManagedRemoteFailed'));
+      toast.error("Failed to save selected managed remote tunnel");
     }
-  }, [t]);
+  }, []);
 
   const handleSelectPreset = React.useCallback((presetId: string) => {
     const preset = managedRemoteTunnelPresets.find((entry) => entry.id === presetId);
@@ -1135,20 +1131,20 @@ export const TunnelSettings: React.FC = () => {
     const token = newPresetToken.trim();
 
     if (!name) {
-      toast.error(t('settings.pichamber.tunnel.toast.tunnelNameRequired'));
+      toast.error("Tunnel name is required");
       return;
     }
     if (!hostname) {
-      toast.error(t('settings.pichamber.tunnel.toast.managedRemoteHostnameRequired'));
+      toast.error("Managed remote tunnel hostname is required");
       return;
     }
     if (!token) {
-      toast.error(t('settings.pichamber.tunnel.toast.managedRemoteTokenRequired'));
+      toast.error("Managed remote tunnel token is required");
       return;
     }
 
     if (managedRemoteTunnelPresets.some((preset) => preset.hostname === hostname)) {
-      toast.error(t('settings.pichamber.tunnel.toast.hostnameAlreadyExists'));
+      toast.error("This hostname already exists");
       return;
     }
 
@@ -1183,8 +1179,8 @@ export const TunnelSettings: React.FC = () => {
       hostname: nextPreset.hostname,
       token,
     });
-    toast.success(t('settings.pichamber.tunnel.toast.managedRemoteSaved'));
-  }, [managedRemoteTunnelPresets, newPresetHostname, newPresetName, newPresetToken, persistManagedRemoteTunnelToken, saveTunnelSettings, sessionTokensByPresetId, t]);
+    toast.success("Managed remote tunnel saved");
+  }, [managedRemoteTunnelPresets, newPresetHostname, newPresetName, newPresetToken, persistManagedRemoteTunnelToken, saveTunnelSettings, sessionTokensByPresetId]);
 
   const handleRemovePreset = React.useCallback(async (presetId: string) => {
     const preset = managedRemoteTunnelPresets.find((entry) => entry.id === presetId);
@@ -1224,27 +1220,27 @@ export const TunnelSettings: React.FC = () => {
       managedRemoteTunnelPresetTokens: nextTokenMap,
     });
 
-    toast.success(t('settings.pichamber.tunnel.toast.managedRemoteRemoved'));
-  }, [managedRemoteTunnelPresets, saveTunnelSettings, selectedPresetId, sessionTokensByPresetId, t]);
+    toast.success("Managed remote tunnel removed");
+  }, [managedRemoteTunnelPresets, saveTunnelSettings, selectedPresetId, sessionTokensByPresetId]);
 
   const primaryCtaClass = 'gap-2 border-[var(--primary-base)] bg-[var(--primary-base)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)] hover:text-[var(--primary-foreground)]';
 
   if (state === 'checking') {
     return (
       <div className="flex items-center justify-center py-12">
-        <span className="h-1.5 w-1.5 rounded-full bg-current animate-busy-pulse" aria-label={t('settings.pichamber.tunnel.state.loading')} />
+        <span className="h-1.5 w-1.5 rounded-full bg-current animate-busy-pulse" aria-label={"Loading"} />
       </div>
     );
   }
 
   return (
     <SettingsSection
-      title={t('settings.pichamber.tunnel.title')}
+      title={"External Tunnel"}
       info={(
         <div className="space-y-1">
-          <p>{t('settings.pichamber.tunnel.description')}</p>
-          <p>{t('settings.pichamber.tunnel.note.serverSideEnforced')}</p>
-          <p>{t('settings.pichamber.tunnel.note.connectLinksOneTime')}</p>
+          <p>{"Configure secure remote access with quick links or your own managed remote Cloudflare tunnel."}</p>
+          <p>{"Secure tunnel access is enforced server-side."}</p>
+          <p>{"Connect links are one-time and are revoked when tunnel stops or connect-link TTL expires."}</p>
         </div>
       )}
       divider={false}
@@ -1255,7 +1251,7 @@ export const TunnelSettings: React.FC = () => {
           <div className="rounded-lg border border-[var(--status-info-border)] bg-[var(--status-info-background)]/30 p-3">
             <div className="mb-2 flex items-center gap-2">
               <Icon name="information" className="size-4 text-[var(--status-info)]" />
-              <p className={SETTINGS_CALLOUT_TITLE_CLASS}>{t('settings.pichamber.tunnel.section.redeemedAccessLinks')}</p>
+              <p className={SETTINGS_CALLOUT_TITLE_CLASS}>{"Redeemed access links"}</p>
             </div>
             <div className="space-y-1">
               {renderedSessionRecords.map((record) => {
@@ -1270,10 +1266,10 @@ export const TunnelSettings: React.FC = () => {
                   ? (isQuick ? 'text-[var(--status-warning)]' : isManagedRemote ? 'text-[var(--status-info)]' : 'text-[var(--status-success)]')
                   : 'text-muted-foreground/50';
                 const modeLabel = isQuick
-                  ? t('settings.pichamber.tunnel.badge.quick')
+                  ? "QUICK"
                   : isManagedRemote
-                    ? t('settings.pichamber.tunnel.badge.remote')
-                    : t('settings.pichamber.tunnel.badge.local');
+                    ? "REMOTE"
+                    : "LOCAL";
 
                 return (
                   <div
@@ -1285,14 +1281,14 @@ export const TunnelSettings: React.FC = () => {
                       {modeLabel}
                     </span>
                     <span className="typography-meta text-muted-foreground/80">
-                      {t('settings.pichamber.tunnel.session.redeemedAt', { time: formatAbsoluteTime(record.createdAt, timeFormatPreference) })}
+                      {`Redeemed ${formatAbsoluteTime(record.createdAt, timeFormatPreference)}`}
                     </span>
                     <span className="typography-meta text-foreground">
                       {record.isActive
-                        ? t('settings.pichamber.tunnel.session.expiresIn', { remaining: record.remainingTextForSession })
-                        : (record.inactiveLabel === t('settings.pichamber.tunnel.state.inactive')
-                          ? t('settings.pichamber.tunnel.state.inactive')
-                          : t('settings.pichamber.tunnel.session.inactiveWithReason', { reason: record.inactiveLabel }))}
+                        ? `Expires in ${record.remainingTextForSession}`
+                        : (record.inactiveLabel === "Inactive"
+                          ? "Inactive"
+                          : `Inactive (${record.inactiveLabel})`)}
                     </span>
                   </div>
                 );
@@ -1308,9 +1304,9 @@ export const TunnelSettings: React.FC = () => {
             <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]" />
             <div className="space-y-1">
               <p className={SETTINGS_CALLOUT_TITLE_CLASS}>
-                {t('settings.pichamber.tunnel.notAvailable.dependencyNotFound', { dependency: displayedDependencyInstallInfo.dependency })}
+                {`${displayedDependencyInstallInfo.dependency} was not found.`}
               </p>
-              <p className="typography-meta text-muted-foreground/70">{t('settings.pichamber.tunnel.notAvailable.installHint')}</p>
+              <p className="typography-meta text-muted-foreground/70">{"Install it to enable remote tunnel access:"}</p>
               <code className="typography-code block rounded bg-muted/50 px-2 py-1 text-xs text-foreground">
                 {displayedDependencyInstallInfo.installCommand}
               </code>
@@ -1323,7 +1319,7 @@ export const TunnelSettings: React.FC = () => {
         <section className="space-y-4 px-2 pb-2 pt-0">
           <div className="space-y-3">
             <div data-settings-item="tunnel.provider" className="space-y-1.5">
-              <p className={SETTINGS_FIELD_LABEL_CLASS}>{t('settings.pichamber.tunnel.field.provider')}</p>
+              <p className={SETTINGS_FIELD_LABEL_CLASS}>{"Provider"}</p>
               <Select
                 value={tunnelProvider}
                 onValueChange={(value) => {
@@ -1332,7 +1328,7 @@ export const TunnelSettings: React.FC = () => {
                 disabled={isSavingMode || state === 'starting' || state === 'stopping'}
               >
                 <SelectTrigger size={SETTINGS_SELECT_SIZE} className="max-w-[16rem]">
-                  <SelectValue placeholder={t('settings.pichamber.tunnel.field.providerPlaceholder')}>
+                  <SelectValue placeholder={"Select provider"}>
                     {getProviderLabel(tunnelProvider)}
                   </SelectValue>
                 </SelectTrigger>
@@ -1348,13 +1344,13 @@ export const TunnelSettings: React.FC = () => {
                         <ProviderOptionLabel provider="cloudflare" />
                       </SelectItem>
                     )}
-                  <SelectItem value="__more-soon" disabled>{t('settings.pichamber.tunnel.option.moreProvidersSoon')}</SelectItem>
+                  <SelectItem value="__more-soon" disabled>{"More providers coming soon"}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div data-settings-item="tunnel.type" className="space-y-1.5">
-              <p className={SETTINGS_FIELD_LABEL_CLASS}>{t('settings.pichamber.tunnel.field.tunnelType')}</p>
+              <p className={SETTINGS_FIELD_LABEL_CLASS}>{"Tunnel type"}</p>
               <div className="flex flex-wrap items-center gap-1">
                 {tunnelModeOptions.map((option) => (
                   <Tooltip key={option.value}>
@@ -1369,11 +1365,11 @@ export const TunnelSettings: React.FC = () => {
                         }}
                         disabled={isSavingMode || state === 'starting' || state === 'stopping'}
                       >
-                        {tUnsafe(option.labelKey)}
+                        {option.label}
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent sideOffset={8} className="max-w-xs">
-                      {tUnsafe(option.tooltipKey)}
+                      {option.tooltip}
                     </TooltipContent>
                   </Tooltip>
                 ))}
@@ -1383,7 +1379,7 @@ export const TunnelSettings: React.FC = () => {
 
           <div data-settings-item="tunnel.ttl" className="mt-2 grid grid-cols-1 gap-2 py-1.5 md:grid-cols-[14rem_auto] md:gap-x-8 md:gap-y-2">
             <div className="flex min-w-0 items-center gap-2">
-              <span className={cn(SETTINGS_FIELD_LABEL_CLASS, 'shrink-0')}>{t('settings.pichamber.tunnel.field.connectLinkTtl')}</span>
+              <span className={cn(SETTINGS_FIELD_LABEL_CLASS, 'shrink-0')}>{"Connect link TTL"}</span>
               <Select
                 value={ttlOptionValue(BOOTSTRAP_TTL_OPTIONS, bootstrapTtlMs, '1800000')}
                 onValueChange={(value) => {
@@ -1405,7 +1401,7 @@ export const TunnelSettings: React.FC = () => {
             </div>
 
             <div className="flex min-w-0 items-center gap-2">
-              <span className={cn(SETTINGS_FIELD_LABEL_CLASS, 'shrink-0')}>{t('settings.pichamber.tunnel.field.tunnelSessionTtl')}</span>
+              <span className={cn(SETTINGS_FIELD_LABEL_CLASS, 'shrink-0')}>{"Tunnel session TTL"}</span>
               <Select
                 value={ttlOptionValue(SESSION_TTL_OPTIONS, sessionTtlMs, '28800000')}
                 onValueChange={(value) => {
@@ -1433,11 +1429,11 @@ export const TunnelSettings: React.FC = () => {
                 <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]" />
                 <div>
                   <p className="typography-meta text-[var(--status-warning)]">
-                    {t('settings.pichamber.tunnel.option.mode.quick.tooltip')}
+                    {"Quick Tunnel is best effort and uptime is not guaranteed."}
                   </p>
                   {providerSupportsManagedModes && (
                     <p className="typography-meta mt-1 text-[var(--status-warning)]">
-                      {t('settings.pichamber.tunnel.warning.quickModeReliability')}
+                      {"For more reliable long-lived access, switch to Managed Remote or Managed Local tunnel mode."}
                     </p>
                   )}
                 </div>
@@ -1450,13 +1446,13 @@ export const TunnelSettings: React.FC = () => {
               {typeof suggestedConnectorPort === 'number' && (
                 <div className="rounded-md border border-[var(--status-info-border)] bg-[var(--status-info-background)]/35 px-2 py-1.5">
                   <p className="typography-meta text-[var(--status-info)]">
-                    {t('settings.pichamber.tunnel.note.cloudflareConnectorTarget')} <code>http://localhost:{suggestedConnectorPort}</code>
+                    {"Cloudflare connector target:"} <code>http://localhost:{suggestedConnectorPort}</code>
                   </p>
                 </div>
               )}
 
               <div className="mb-1 flex items-center justify-between gap-3">
-                <SettingsGroupTitle>{t('settings.pichamber.tunnel.section.savedManagedRemoteTunnels')}</SettingsGroupTitle>
+                <SettingsGroupTitle>{"Saved managed remote tunnels"}</SettingsGroupTitle>
                 <Button
                   variant="ghost"
                   size="xs"
@@ -1465,7 +1461,7 @@ export const TunnelSettings: React.FC = () => {
                   disabled={state === 'starting' || state === 'stopping' || isSavingMode}
                 >
                   <Icon name="add" className="h-3.5 w-3.5" />
-                  {t('settings.common.actions.create')}
+                  {"Create"}
                 </Button>
               </div>
 
@@ -1507,7 +1503,7 @@ export const TunnelSettings: React.FC = () => {
                               variant="ghost"
                               size="xs"
                               className="h-7 w-7 p-0 text-muted-foreground hover:text-[var(--status-error)]"
-                              aria-label={t('settings.pichamber.tunnel.actions.removePresetAria', { name: preset.name })}
+                              aria-label={`Remove ${preset.name}`}
                               onClick={() => {
                                 void handleRemovePreset(preset.id);
                               }}
@@ -1519,7 +1515,7 @@ export const TunnelSettings: React.FC = () => {
 
                           <CollapsibleContent className="pt-1.5">
                             <div className="space-y-1 px-3 pb-2">
-                              <p className="typography-meta text-muted-foreground/70">{t('settings.pichamber.tunnel.field.hostnameLabel')} <code>{preset.hostname}</code></p>
+                              <p className="typography-meta text-muted-foreground/70">{"Hostname:"} <code>{preset.hostname}</code></p>
                               <Input
                                 type="password"
                                 value={rowToken}
@@ -1540,7 +1536,7 @@ export const TunnelSettings: React.FC = () => {
                                     token: tokenToSave,
                                   });
                                 }}
-                                placeholder={hasSavedToken ? t('settings.pichamber.tunnel.field.savedTokenAvailablePlaceholder') : t('settings.pichamber.tunnel.field.pasteTokenPlaceholder')}
+                                placeholder={hasSavedToken ? "Saved token available (optional to replace)" : "Paste token for this tunnel"}
                                 className="h-7"
                                 disabled={state === 'starting' || state === 'stopping'}
                               />
@@ -1559,7 +1555,7 @@ export const TunnelSettings: React.FC = () => {
                                     });
                                   }}
                                 >
-                                  {t('settings.pichamber.tunnel.actions.saveToken')}
+                                  {"Save token"}
                                 </Button>
                               </div>
                             </div>
@@ -1570,7 +1566,7 @@ export const TunnelSettings: React.FC = () => {
                   })}
                 </div>
               ) : (
-                <p className="typography-meta text-muted-foreground/70">{t('settings.pichamber.tunnel.empty.noManagedRemoteTunnels')}</p>
+                <p className="typography-meta text-muted-foreground/70">{"No managed remote tunnels saved yet."}</p>
               )}
 
               {isAddingPreset && (
@@ -1578,14 +1574,14 @@ export const TunnelSettings: React.FC = () => {
                   <Input
                     value={newPresetName}
                     onChange={(event) => setNewPresetName(event.target.value)}
-                    placeholder={t('settings.pichamber.tunnel.field.newPresetNamePlaceholder')}
+                    placeholder={"Tunnel name (e.g. Production)"}
                     className="h-7"
                     disabled={isSavingMode || state === 'starting' || state === 'stopping'}
                   />
                   <Input
                     value={newPresetHostname}
                     onChange={(event) => setNewPresetHostname(event.target.value)}
-                    placeholder={t('settings.pichamber.tunnel.field.newPresetHostnamePlaceholder')}
+                    placeholder={"Hostname (e.g. oc.example.com)"}
                     className="h-7"
                     disabled={isSavingMode || state === 'starting' || state === 'stopping'}
                   />
@@ -1593,13 +1589,13 @@ export const TunnelSettings: React.FC = () => {
                     type="password"
                     value={newPresetToken}
                     onChange={(event) => setNewPresetToken(event.target.value)}
-                    placeholder={t('settings.pichamber.tunnel.field.newPresetTokenPlaceholder')}
+                    placeholder={"Token"}
                     className="h-7"
                     disabled={isSavingMode || state === 'starting' || state === 'stopping'}
                   />
                   {typeof suggestedConnectorPort === 'number' && (
                     <p className="typography-meta text-muted-foreground/70">
-                      {t('settings.pichamber.tunnel.note.cloudflareConnectorTargetUse')} <code>http://localhost:{suggestedConnectorPort}</code>.
+                      {"For Cloudflare connector target, use"} <code>http://localhost:{suggestedConnectorPort}</code>.
                     </p>
                   )}
                   <div className="flex items-center gap-2">
@@ -1612,7 +1608,7 @@ export const TunnelSettings: React.FC = () => {
                       }}
                       disabled={isSavingMode || state === 'starting' || state === 'stopping'}
                     >
-                      {t('settings.common.actions.saveChanges')}
+                      {"Save Changes"}
                     </Button>
                     <Button
                       variant="ghost"
@@ -1626,16 +1622,16 @@ export const TunnelSettings: React.FC = () => {
                       }}
                       disabled={isSavingMode || state === 'starting' || state === 'stopping'}
                     >
-                      {t('settings.common.actions.cancel')}
+                      {"Cancel"}
                     </Button>
                   </div>
                 </div>
               )}
 
               <div className="flex items-center gap-1.5">
-                <p className="typography-meta text-muted-foreground/80">{t('settings.pichamber.tunnel.note.tokensSavedPerTunnel')}</p>
+                <p className="typography-meta text-muted-foreground/80">{"Tokens are saved per tunnel and reused from disk."}</p>
                 <SettingsInfoHint>
-                  {t('settings.pichamber.tunnel.tooltip.tokensSavedPath')}
+                  {"Tokens are saved in ~/.config/pichamber/cloudflare-managed-remote-tunnels.json."}
                 </SettingsInfoHint>
               </div>
 
@@ -1648,7 +1644,7 @@ export const TunnelSettings: React.FC = () => {
           {tunnelMode === 'managed-local' && (
             <div data-settings-item="tunnel.managed-local-config" className="space-y-2 rounded-lg border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-3">
               <div className="space-y-1.5">
-                <p className={SETTINGS_FIELD_LABEL_CLASS}>{t('settings.pichamber.tunnel.field.configurationFile')}</p>
+                <p className={SETTINGS_FIELD_LABEL_CLASS}>{"Configuration file"}</p>
                 <input
                   ref={managedLocalConfigFileInputRef}
                   type="file"
@@ -1667,7 +1663,7 @@ export const TunnelSettings: React.FC = () => {
                     onBlur={() => {
                       void handleManagedLocalConfigInputBlur();
                     }}
-                    placeholder={t('settings.pichamber.tunnel.field.configurationFilePlaceholder')}
+                    placeholder={"Using default cloudflared config"}
                     className="h-7"
                     disabled={state === 'starting' || state === 'stopping' || isSavingMode}
                   />
@@ -1675,7 +1671,7 @@ export const TunnelSettings: React.FC = () => {
                     variant="outline"
                     size="xs"
                     className="h-7 w-7 p-0"
-                    aria-label={t('settings.pichamber.tunnel.actions.browseConfigFileAria')}
+                    aria-label={"Browse config file"}
                     onClick={() => {
                       void handleBrowseManagedLocalConfig();
                     }}
@@ -1688,7 +1684,7 @@ export const TunnelSettings: React.FC = () => {
                       variant="ghost"
                       size="xs"
                       className="h-7 w-7 p-0"
-                      aria-label={t('settings.pichamber.tunnel.actions.clearConfigFileAria')}
+                      aria-label={"Clear config file"}
                       onClick={() => {
                         void handleManagedLocalConfigClear();
                       }}
@@ -1700,8 +1696,8 @@ export const TunnelSettings: React.FC = () => {
                 </div>
                 <p className="typography-meta text-muted-foreground/70">
                   {managedLocalConfigPath
-                    ? t('settings.pichamber.tunnel.note.customConfigUsed')
-                    : t('settings.pichamber.tunnel.note.defaultConfigUsed')}
+                    ? "Custom config file will be used when starting the tunnel."
+                    : "When empty, cloudflared uses its default config (~/.cloudflared/config.yml)."}
                 </p>
                 {isManagedLocalConfigPathInvalid && (
                   <p className="typography-meta text-[var(--status-error)]">{managedLocalConfigExtensionError}</p>
@@ -1719,7 +1715,7 @@ export const TunnelSettings: React.FC = () => {
                     {tunnelMode === 'managed-remote' && (
                       <>
                         <p className="typography-meta text-[var(--status-info)]">
-                          {t('settings.pichamber.tunnel.note.managedRemoteRequiresDomain')}
+                          {"Managed remote tunnels require a purchased domain in your Cloudflare account."}
                         </p>
                         <button
                           type="button"
@@ -1728,7 +1724,7 @@ export const TunnelSettings: React.FC = () => {
                             void openExternal(MANAGED_REMOTE_TUNNEL_DOC_URL);
                           }}
                         >
-                          {t('settings.pichamber.tunnel.actions.openManagedRemoteDocs')}
+                          {"Check documentation on how to configure a managed remote tunnel"}
                           <Icon name="external-link" className="size-3.5" />
                         </button>
                       </>
@@ -1736,7 +1732,7 @@ export const TunnelSettings: React.FC = () => {
                     {tunnelMode === 'managed-local' && (
                       <>
                         <p className="typography-meta text-[var(--status-info)]">
-                          {t('settings.pichamber.tunnel.note.managedLocalUsesConfig')}
+                          {"Managed local tunnels use your local cloudflared configuration file."}
                         </p>
                         <button
                           type="button"
@@ -1745,15 +1741,13 @@ export const TunnelSettings: React.FC = () => {
                             void openExternal(MANAGED_LOCAL_TUNNEL_DOC_URL);
                           }}
                         >
-                          {t('settings.pichamber.tunnel.actions.openManagedLocalDocs')}
+                          {"Check documentation on managed local tunnel configuration"}
                           <Icon name="external-link" className="size-3.5" />
                         </button>
                       </>
                     )}
                     <p className="typography-meta text-[var(--status-info)]">
-                      {t('settings.pichamber.tunnel.note.startModeAndGenerateLink', {
-                        mode: tUnsafe(TUNNEL_MODE_OPTIONS.find((option) => option.value === tunnelMode)?.labelKey ?? 'settings.pichamber.tunnel.option.mode.quick.label'),
-                      })}
+                      {`Start a ${(TUNNEL_MODE_OPTIONS.find((option) => option.value === tunnelMode)?.label ?? 'Quick')} tunnel and generate a one-time connect link. Do not close the app while this tunnel is in use.`}
                     </p>
                   </div>
                 </div>
@@ -1761,7 +1755,7 @@ export const TunnelSettings: React.FC = () => {
 
               {tunnelMode === 'managed-remote' && (
                 <div className="space-y-1.5">
-                  <p className={SETTINGS_FIELD_LABEL_CLASS}>{t('settings.pichamber.tunnel.field.managedRemoteTunnelToConnect')}</p>
+                  <p className={SETTINGS_FIELD_LABEL_CLASS}>{"Managed remote tunnel to connect"}</p>
                   <Select
                     value={selectedPresetId || (managedRemoteTunnelPresets[0]?.id ?? '')}
                     onValueChange={(presetId) => {
@@ -1775,7 +1769,7 @@ export const TunnelSettings: React.FC = () => {
                     }
                   >
                     <SelectTrigger size={SETTINGS_SELECT_SIZE}>
-                      <SelectValue placeholder={t('settings.pichamber.tunnel.field.selectSavedTunnelPlaceholder')}>
+                      <SelectValue placeholder={"Select saved tunnel"}>
                         {selectedPreset?.name}
                       </SelectValue>
                     </SelectTrigger>
@@ -1793,7 +1787,7 @@ export const TunnelSettings: React.FC = () => {
                   <div className="flex items-start gap-2">
                     <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]" />
                     <p className="typography-meta text-[var(--status-warning)]">
-                      {t('settings.pichamber.tunnel.warning.replacesActiveTunnel')}
+                      {"Starting this tunnel replaces the active tunnel and revokes existing connect links and remote sessions."}
                     </p>
                   </div>
                 </div>
@@ -1811,8 +1805,8 @@ export const TunnelSettings: React.FC = () => {
                 className={cn(primaryCtaClass, state === 'starting' && 'opacity-70')}
               >
                 {state === 'starting'
-                  ? <><Icon name="loader-4" className="size-3.5 animate-spin" /> {t('settings.pichamber.tunnel.actions.startingTunnel')}</>
-                  : t('settings.pichamber.tunnel.actions.startTunnel')}
+                  ? <><Icon name="loader-4" className="size-3.5 animate-spin" /> {"Starting tunnel..."}</>
+                  : "Start Tunnel"}
               </Button>
             </div>
           )}
@@ -1825,11 +1819,11 @@ export const TunnelSettings: React.FC = () => {
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <div className="size-2 shrink-0 rounded-full bg-[var(--status-success)]" />
-              <p className="typography-meta font-medium text-foreground">{t('settings.pichamber.tunnel.state.tunnelReady')}</p>
+              <p className="typography-meta font-medium text-foreground">{"Tunnel ready"}</p>
             </div>
 
             <div>
-              <p className="typography-meta mb-1 text-muted-foreground/70">{t('settings.pichamber.tunnel.field.publicUrlHint')}</p>
+              <p className="typography-meta mb-1 text-muted-foreground/70">{"Public URL (not accessible without a token)"}</p>
               <code className="typography-code block truncate rounded bg-muted/50 px-2 py-1 text-xs text-foreground">
                 {tunnelInfo.url}
               </code>
@@ -1838,7 +1832,7 @@ export const TunnelSettings: React.FC = () => {
             {isConnectLinkLive && tunnelInfo.connectUrl && (
               <>
                 <div>
-                  <p className="typography-meta mb-1 text-muted-foreground/70">{t('settings.pichamber.tunnel.field.connectLink')}</p>
+                  <p className="typography-meta mb-1 text-muted-foreground/70">{"Connect link"}</p>
                   <div className="flex items-center gap-2">
                     <code className="typography-code flex-1 truncate rounded bg-muted/50 px-2 py-1 text-xs text-foreground">
                       {tunnelInfo.connectUrl}
@@ -1847,19 +1841,19 @@ export const TunnelSettings: React.FC = () => {
                       {copied
                         ? <Icon name="check" className="size-3.5 text-[var(--status-success)]" />
                         : <Icon name="file-copy" className="size-3.5" />}
-                      {copied ? t('settings.pichamber.tunnel.actions.copied') : t('settings.common.actions.copyAll')}
+                      {copied ? "Copied" : "Copy all"}
                     </Button>
                   </div>
                   <p className="typography-meta mt-1 text-muted-foreground/70">
-                    {t('settings.pichamber.tunnel.field.expires')}: {tunnelInfo.bootstrapExpiresAt ? remainingText : t('settings.pichamber.tunnel.state.never')}
+                    {"Expires"}: {tunnelInfo.bootstrapExpiresAt ? remainingText : "Never"}
                   </p>
                 </div>
 
                 <div className="flex flex-col items-center gap-2 rounded-lg border border-border/50 bg-[var(--surface-elevated)] p-4">
                   {qrDataUrl
-                    ? <img src={qrDataUrl} alt={t('settings.pichamber.tunnel.field.connectQrAlt')} className="size-48" />
+                    ? <img src={qrDataUrl} alt={"Tunnel connect QR code"} className="size-48" />
                     : <div className="size-48 rounded bg-muted/30" />}
-                  <p className="typography-meta text-muted-foreground">{t('settings.pichamber.tunnel.note.scanQrToConnect')}</p>
+                  <p className="typography-meta text-muted-foreground">{"Scan with your phone to connect."}</p>
                 </div>
               </>
             )}
@@ -1874,7 +1868,7 @@ export const TunnelSettings: React.FC = () => {
                 className={primaryCtaClass}
               >
                 <Icon name="restart" className="size-3.5" />
-                {t('settings.pichamber.tunnel.actions.newConnectLink')}
+                {"New connect link"}
               </Button>
 
               <Button size="sm"
@@ -1884,8 +1878,8 @@ export const TunnelSettings: React.FC = () => {
                 className="gap-2 text-[var(--status-error)]"
               >
                 {state === 'stopping'
-                  ? <><Icon name="loader-4" className="size-3.5 animate-spin" /> {t('settings.pichamber.tunnel.actions.stopping')}</>
-                  : t('settings.pichamber.tunnel.actions.stopTunnel')}
+                  ? <><Icon name="loader-4" className="size-3.5 animate-spin" /> {"Stopping..."}</>
+                  : "Stop Tunnel"}
               </Button>
             </div>
           </div>
@@ -1895,7 +1889,7 @@ export const TunnelSettings: React.FC = () => {
       {state === 'error' && errorMessage && (
         <section className="space-y-3 px-2 pb-2 pt-0">
           <p className="typography-meta text-[var(--status-error)]">{errorMessage}</p>
-          <Button size="sm" variant="ghost" onClick={handleStart}>{t('settings.pichamber.tunnel.actions.retry')}</Button>
+          <Button size="sm" variant="ghost" onClick={handleStart}>{"Retry"}</Button>
         </section>
       )}
       </div>

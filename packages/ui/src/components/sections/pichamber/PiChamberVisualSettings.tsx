@@ -28,7 +28,6 @@ import { useDeviceInfo } from '@/lib/device';
 import { usePwaDetection } from '@/hooks/usePwaDetection';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { CODE_FONT_OPTIONS, DEFAULT_MONO_FONT, DEFAULT_UI_FONT, UI_FONT_OPTIONS, type MonoFontOption, type UiFontOption } from '@/lib/fontOptions';
-import { useI18n } from '@/lib/i18n';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { normalizeMobileKeyboardMode, supportsMobileKeyboardResizeContent, type MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
 import { getStoredMobileLayoutPreference, setStoredMobileLayoutPreference, type MobileLayoutPreference } from '@/lib/mobileLayoutPreference';
@@ -65,56 +64,56 @@ import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 
 interface Option<T extends string> {
     id: T;
-    labelKey: string;
-    descriptionKey?: string;
+    label: string;
+    description?: string;
 }
 
-const THEME_MODE_OPTIONS: Array<{ value: ThemeMode; labelKey: string; descriptionKey: string }> = [
+const THEME_MODE_OPTIONS: Array<{ value: ThemeMode; label: string; description: string }> = [
     {
         value: 'system',
-        labelKey: 'settings.pichamber.visual.option.themeMode.system',
-        descriptionKey: 'settings.pichamber.visual.option.themeMode.system.description',
+        label: "System",
+        description: "Follow system setting",
     },
     {
         value: 'light',
-        labelKey: 'settings.pichamber.visual.option.themeMode.light',
-        descriptionKey: 'settings.pichamber.visual.option.themeMode.light.description',
+        label: "Light",
+        description: "Always use light appearance",
     },
     {
         value: 'dark',
-        labelKey: 'settings.pichamber.visual.option.themeMode.dark',
-        descriptionKey: 'settings.pichamber.visual.option.themeMode.dark.description',
+        label: "Dark",
+        description: "Always use dark appearance",
     },
 ];
 
 const DIFF_LAYOUT_OPTIONS: Option<'dynamic' | 'inline' | 'side-by-side'>[] = [
     {
         id: 'dynamic',
-        labelKey: 'settings.pichamber.visual.option.diffLayout.dynamic.label',
-        descriptionKey: 'settings.pichamber.visual.option.diffLayout.dynamic.description',
+        label: "Dynamic",
+        description: "New inline, modified side-by-side.",
     },
     {
         id: 'inline',
-        labelKey: 'settings.pichamber.visual.option.diffLayout.inline.label',
-        descriptionKey: 'settings.pichamber.visual.option.diffLayout.inline.description',
+        label: "Always inline",
+        description: "Show as a single unified view.",
     },
     {
         id: 'side-by-side',
-        labelKey: 'settings.pichamber.visual.option.diffLayout.sideBySide.label',
-        descriptionKey: 'settings.pichamber.visual.option.diffLayout.sideBySide.description',
+        label: "Always side-by-side",
+        description: "Compare original and modified files.",
     },
 ];
 
 const MERMAID_RENDERING_OPTIONS: Option<'svg' | 'ascii'>[] = [
     {
         id: 'svg',
-        labelKey: 'settings.pichamber.visual.option.mermaidRendering.svg.label',
-        descriptionKey: 'settings.pichamber.visual.option.mermaidRendering.svg.description',
+        label: "SVG",
+        description: "Render diagrams as scalable graphics.",
     },
     {
         id: 'ascii',
-        labelKey: 'settings.pichamber.visual.option.mermaidRendering.ascii.label',
-        descriptionKey: 'settings.pichamber.visual.option.mermaidRendering.ascii.description',
+        label: "ASCII",
+        description: "Render diagrams as text blocks.",
     },
 ];
 
@@ -122,42 +121,42 @@ const DEFAULT_PWA_INSTALL_NAME = 'PiChamber - AI Coding Assistant';
 const PWA_ORIENTATION_OPTIONS: Option<'system' | 'portrait' | 'landscape'>[] = [
     {
         id: 'system',
-        labelKey: 'settings.pichamber.visual.option.pwaOrientation.system.label',
-        descriptionKey: 'settings.pichamber.visual.option.pwaOrientation.system.description',
+        label: "Follow system",
+        description: "Respect the device rotation setting.",
     },
     {
         id: 'portrait',
-        labelKey: 'settings.pichamber.visual.option.pwaOrientation.portrait.label',
-        descriptionKey: 'settings.pichamber.visual.option.pwaOrientation.portrait.description',
+        label: "Portrait lock",
+        description: "Install the app locked to portrait.",
     },
     {
         id: 'landscape',
-        labelKey: 'settings.pichamber.visual.option.pwaOrientation.landscape.label',
-        descriptionKey: 'settings.pichamber.visual.option.pwaOrientation.landscape.description',
+        label: "Landscape lock",
+        description: "Install the app locked to landscape.",
     },
 ];
 
 const MOBILE_KEYBOARD_MODE_OPTIONS: Option<MobileKeyboardMode>[] = [
     {
         id: 'native',
-        labelKey: 'settings.pichamber.visual.option.mobileKeyboardMode.native.label',
-        descriptionKey: 'settings.pichamber.visual.option.mobileKeyboardMode.native.description',
+        label: "Follow browser",
+        description: "Use the browser default for panning and viewport changes when the keyboard opens.",
     },
     {
         id: 'resize-content',
-        labelKey: 'settings.pichamber.visual.option.mobileKeyboardMode.resizeContent.label',
-        descriptionKey: 'settings.pichamber.visual.option.mobileKeyboardMode.resizeContent.description',
+        label: "Resize content",
+        description: "Ask supported browsers to shrink the app layout instead of relying only on panning.",
     },
 ];
 
-const MOBILE_LAYOUT_OPTIONS: Array<{ value: MobileLayoutPreference; labelKey: string }> = [
+const MOBILE_LAYOUT_OPTIONS: Array<{ value: MobileLayoutPreference; label: string }> = [
     {
         value: 'default',
-        labelKey: 'settings.pichamber.visual.option.mobileLayout.default',
+        label: "Old",
     },
     {
         value: 'new',
-        labelKey: 'settings.pichamber.visual.option.mobileLayout.new',
+        label: "New",
     },
 ];
 
@@ -174,102 +173,102 @@ const normalizePwaOrientation = (value: unknown): 'system' | 'portrait' | 'lands
 const USER_MESSAGE_RENDERING_OPTIONS: Option<'markdown' | 'plain'>[] = [
     {
         id: 'markdown',
-        labelKey: 'settings.pichamber.visual.option.userMessageRendering.markdown.label',
-        descriptionKey: 'settings.pichamber.visual.option.userMessageRendering.markdown.description',
+        label: "Markdown",
+        description: "Render user text with markdown formatting.",
     },
     {
         id: 'plain',
-        labelKey: 'settings.pichamber.visual.option.userMessageRendering.plain.label',
-        descriptionKey: 'settings.pichamber.visual.option.userMessageRendering.plain.description',
+        label: "Plain text",
+        description: "Render user text with preserved whitespace and links.",
     },
 ];
 
 const CHAT_RENDER_MODE_OPTIONS: Option<'sorted' | 'live'>[] = [
     {
         id: 'sorted',
-        labelKey: 'settings.pichamber.visual.option.chatRenderMode.sorted.label',
-        descriptionKey: 'settings.pichamber.visual.option.chatRenderMode.sorted.description',
+        label: "Sorted",
+        description: "Render completed assistant messages without live streaming.",
     },
     {
         id: 'live',
-        labelKey: 'settings.pichamber.visual.option.chatRenderMode.live.label',
-        descriptionKey: 'settings.pichamber.visual.option.chatRenderMode.live.description',
+        label: "Live",
+        description: "Stream assistant text and tools as they arrive.",
     },
 ];
 
 const MESSAGE_STREAM_TRANSPORT_OPTIONS: Option<'auto' | 'ws' | 'sse'>[] = [
     {
         id: 'auto',
-        labelKey: 'settings.pichamber.visual.option.messageTransport.auto.label',
-        descriptionKey: 'settings.pichamber.visual.option.messageTransport.auto.description',
+        label: "Auto",
+        description: "Prefer WebSocket and fall back to SSE if needed.",
     },
     {
         id: 'ws',
-        labelKey: 'settings.pichamber.visual.option.messageTransport.ws.label',
-        descriptionKey: 'settings.pichamber.visual.option.messageTransport.ws.description',
+        label: "WebSocket",
+        description: "Use WebSocket for message streaming.",
     },
     {
         id: 'sse',
-        labelKey: 'settings.pichamber.visual.option.messageTransport.sse.label',
-        descriptionKey: 'settings.pichamber.visual.option.messageTransport.sse.description',
+        label: "SSE",
+        description: "Use Server-Sent Events for message streaming.",
     },
 ];
 
 const ACTIVITY_RENDER_MODE_OPTIONS: Option<'collapsed' | 'summary'>[] = [
     {
         id: 'collapsed',
-        labelKey: 'settings.pichamber.visual.option.activityRenderMode.collapsed.label',
-        descriptionKey: 'settings.pichamber.visual.option.activityRenderMode.collapsed.description',
+        label: "Collapsed",
+        description: "Keep Activity collapsed by default.",
     },
     {
         id: 'summary',
-        labelKey: 'settings.pichamber.visual.option.activityRenderMode.summary.label',
-        descriptionKey: 'settings.pichamber.visual.option.activityRenderMode.summary.description',
+        label: "Expanded",
+        description: "Expand Activity by default.",
     },
 ];
 
 const TIME_FORMAT_OPTIONS: Option<'auto' | '12h' | '24h'>[] = [
     {
         id: 'auto',
-        labelKey: 'settings.pichamber.visual.option.timeFormat.auto.label',
-        descriptionKey: 'settings.pichamber.visual.option.timeFormat.auto.description',
+        label: "Auto",
+        description: "Use system locale preference.",
     },
     {
         id: '24h',
-        labelKey: 'settings.pichamber.visual.option.timeFormat.24h.label',
-        descriptionKey: 'settings.pichamber.visual.option.timeFormat.24h.description',
+        label: "24-hour",
+        description: "Show time as 14:15.",
     },
     {
         id: '12h',
-        labelKey: 'settings.pichamber.visual.option.timeFormat.12h.label',
-        descriptionKey: 'settings.pichamber.visual.option.timeFormat.12h.description',
+        label: "12-hour",
+        description: "Show time as 02:15 PM.",
     },
 ];
 
 const WEEK_START_OPTIONS: Option<'auto' | 'monday' | 'sunday'>[] = [
     {
         id: 'auto',
-        labelKey: 'settings.pichamber.visual.option.weekStart.auto.label',
-        descriptionKey: 'settings.pichamber.visual.option.weekStart.auto.description',
+        label: "Auto",
+        description: "Use locale week start.",
     },
     {
         id: 'monday',
-        labelKey: 'settings.pichamber.visual.option.weekStart.monday.label',
+        label: "Monday",
     },
     {
         id: 'sunday',
-        labelKey: 'settings.pichamber.visual.option.weekStart.sunday.label',
+        label: "Sunday",
     },
 ];
 
 const FOLLOW_UP_BEHAVIOR_OPTIONS: Option<FollowUpBehavior>[] = [
     {
         id: 'steer',
-        labelKey: 'settings.pichamber.visual.option.followUpBehavior.steer.label',
+        label: "Steer",
     },
     {
         id: 'queue',
-        labelKey: 'settings.pichamber.visual.option.followUpBehavior.queue.label',
+        label: "Queue",
     },
 ];
 
@@ -279,14 +278,14 @@ const normalizeUserMessageRenderingMode = (mode: unknown): 'markdown' | 'plain' 
 
 type VisibleSetting = 'theme' | 'windowControlsPosition' | 'pwaInstallName' | 'pwaOrientation' | 'mobileKeyboardMode' | 'timeFormat' | 'weekStart' | 'fontSize' | 'terminalFontSize' | 'terminalShell' | 'terminalLoginShell' | 'editorFontSize' | 'spacing' | 'inputBarOffset' | 'mermaidRendering' | 'userMessageRendering' | 'chatRenderMode' | 'messageTransport' | 'activityRenderMode' | 'collapsibleUserMessages' | 'stickyUserHeader' | 'promptNavigatorEnabled' | 'wideChatLayout' | 'codeBlockLineWrap' | 'splitAssistantMessageActions' | 'subagentReadOnlyBanner' | 'diffLayout' | 'mobileStatusBar' | 'dotfiles' | 'fileViewerPreview' | 'reasoning' | 'showToolFileIcons' | 'showTurnChangedFiles' | 'expandedTools' | 'followUpBehavior' | 'terminalQuickKeys' | 'fileEditorKeymap' | 'persistDraft' | 'inputSpellcheck' | 'reportUsage' | 'expandedEditorToolbar' | 'autoSaveEnabled';
 
-const WINDOW_CONTROLS_POSITION_OPTIONS: Array<{ id: DesktopWindowControlsPosition; labelKey: string }> = [
-    { id: 'left', labelKey: 'settings.pichamber.desktopNetwork.option.windowControlsLeft' },
-    { id: 'right', labelKey: 'settings.pichamber.desktopNetwork.option.windowControlsRight' },
+const WINDOW_CONTROLS_POSITION_OPTIONS: Array<{ id: DesktopWindowControlsPosition; label: string }> = [
+    { id: 'left', label: "Left" },
+    { id: 'right', label: "Right" },
 ];
 
-const WINDOW_CONTROLS_STYLE_OPTIONS: Array<{ id: DesktopWindowControlsStyle; labelKey: string }> = [
-    { id: 'classic', labelKey: 'settings.pichamber.desktopNetwork.option.windowControlsClassic' },
-    { id: 'traffic-lights', labelKey: 'settings.pichamber.desktopNetwork.option.windowControlsTrafficLights' },
+const WINDOW_CONTROLS_STYLE_OPTIONS: Array<{ id: DesktopWindowControlsStyle; label: string }> = [
+    { id: 'classic', label: "Classic" },
+    { id: 'traffic-lights', label: "Traffic lights" },
 ];
 
 interface PiChamberVisualSettingsProps {
@@ -295,9 +294,7 @@ interface PiChamberVisualSettingsProps {
 }
 
 export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = ({ visibleSettings }) => {
-    const { t } = useI18n();
-    const tUnsafe = React.useCallback((key: string) => t(key as Parameters<typeof t>[0]), [t]);
-    const { isMobile } = useDeviceInfo();
+          const { isMobile } = useDeviceInfo();
     const { terminal } = useRuntimeAPIs();
     const { browserTab } = usePwaDetection();
     const directoryShowHidden = useDirectoryShowHidden();
@@ -711,20 +708,20 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const [pwaOrientation, setPwaOrientation] = React.useState<'system' | 'portrait' | 'landscape'>('system');
     const selectedTimeFormatLabel = React.useMemo(() => {
         const option = TIME_FORMAT_OPTIONS.find((item) => item.id === timeFormatPreference);
-        return tUnsafe(option?.labelKey ?? 'settings.pichamber.visual.option.timeFormat.auto.label');
-    }, [timeFormatPreference, tUnsafe]);
+        return option?.label ?? 'Auto';
+    }, [timeFormatPreference]);
     const selectedWeekStartLabel = React.useMemo(() => {
         const option = WEEK_START_OPTIONS.find((item) => item.id === weekStartPreference);
-        return tUnsafe(option?.labelKey ?? 'settings.pichamber.visual.option.weekStart.auto.label');
-    }, [weekStartPreference, tUnsafe]);
+        return option?.label ?? 'Auto';
+    }, [weekStartPreference]);
     const selectedPwaOrientationLabel = React.useMemo(() => {
         const option = PWA_ORIENTATION_OPTIONS.find((item) => item.id === pwaOrientation);
-        return option ? tUnsafe(option.labelKey) : undefined;
-    }, [pwaOrientation, tUnsafe]);
+        return option ? option.label : undefined;
+    }, [pwaOrientation]);
     const selectedMobileKeyboardModeLabel = React.useMemo(() => {
         const option = MOBILE_KEYBOARD_MODE_OPTIONS.find((item) => item.id === mobileKeyboardMode);
-        return option ? tUnsafe(option.labelKey) : undefined;
-    }, [mobileKeyboardMode, tUnsafe]);
+        return option ? option.label : undefined;
+    }, [mobileKeyboardMode]);
 
     const handleMobileLayoutPreferenceChange = React.useCallback((value: MobileLayoutPreference) => {
         if (value === mobileLayoutPreference) {
@@ -845,32 +842,32 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                 {hasAppearanceSettings && (
                     <div className="space-y-0">
                         {hasThemeSettings && (
-                            <SettingsSection title={t('settings.pichamber.visual.section.colorModeAndTheme')} divider={false}>
+                            <SettingsSection title={"Color mode & Theme"} divider={false}>
                                 <SettingsTwoColumn>
                                     <div className={SETTINGS_FIELDS_STACK_CLASS}>
-                                        <SettingsRadioGroup aria-label={t('settings.pichamber.visual.section.colorMode')}>
+                                        <SettingsRadioGroup aria-label={"Color Mode"}>
                                             {THEME_MODE_OPTIONS.map((option) => (
                                                 <SettingsRadioOption
                                                     key={option.value}
                                                     selected={themeMode === option.value}
                                                     onSelect={() => setThemeMode(option.value)}
-                                                    label={tUnsafe(option.labelKey)}
-                                                    ariaLabel={tUnsafe(option.labelKey)}
+                                                    label={option.label}
+                                                    ariaLabel={option.label}
                                                 />
                                             ))}
                                         </SettingsRadioGroup>
 
                                         {showMobileLayoutSetting && (
                                             <SettingsInset>
-                                                <SettingsStackedField label={t('settings.pichamber.visual.section.mobileLayout')}>
+                                                <SettingsStackedField label={"Mobile Layout"}>
                                                     <SettingsChipGroup
                                                         value={mobileLayoutPreference}
                                                         options={MOBILE_LAYOUT_OPTIONS.map((option) => ({
                                                             value: option.value,
-                                                            label: tUnsafe(option.labelKey),
+                                                            label: option.label,
                                                         }))}
                                                         onChange={handleMobileLayoutPreferenceChange}
-                                                        aria-label={t('settings.pichamber.visual.section.mobileLayout')}
+                                                        aria-label={"Mobile Layout"}
                                                     />
                                                 </SettingsStackedField>
                                             </SettingsInset>
@@ -879,12 +876,12 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
 
                                     <div className={SETTINGS_FIELDS_STACK_CLASS}>
                                         <SettingsStackedField
-                                            label={t('settings.pichamber.visual.field.lightTheme')}
+                                            label={"Light Theme"}
                                             settingsItem="appearance.light-theme"
                                         >
                                             <Select value={selectedLightTheme?.metadata.id ?? ''} onValueChange={setLightThemePreference}>
-                                                <SelectTrigger aria-label={t('settings.pichamber.visual.field.selectLightThemeAria')} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
-                                                    <SelectValue placeholder={t('settings.pichamber.visual.field.selectThemePlaceholder')}>
+                                                <SelectTrigger aria-label={"Select light theme"} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
+                                                    <SelectValue placeholder={"Select theme"}>
                                                         {selectedLightTheme
                                                             ? formatThemeLabel(selectedLightTheme.metadata.name, 'light')
                                                             : undefined}
@@ -900,12 +897,12 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                             </Select>
                                         </SettingsStackedField>
                                         <SettingsStackedField
-                                            label={t('settings.pichamber.visual.field.darkTheme')}
+                                            label={"Dark Theme"}
                                             settingsItem="appearance.dark-theme"
                                         >
                                             <Select value={selectedDarkTheme?.metadata.id ?? ''} onValueChange={setDarkThemePreference}>
-                                                <SelectTrigger aria-label={t('settings.pichamber.visual.field.selectDarkThemeAria')} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
-                                                    <SelectValue placeholder={t('settings.pichamber.visual.field.selectThemePlaceholder')}>
+                                                <SelectTrigger aria-label={"Select dark theme"} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
+                                                    <SelectValue placeholder={"Select theme"}>
                                                         {selectedDarkTheme
                                                             ? formatThemeLabel(selectedDarkTheme.metadata.name, 'dark')
                                                             : undefined}
@@ -942,10 +939,10 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                                 className="typography-settings-link inline-flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:no-underline"
                                             >
                                                 <Icon name="restart" className={cn('h-3.5 w-3.5', themesReloading && 'animate-spin')} />
-                                                {themesReloading ? t('settings.pichamber.visual.actions.reloadingThemes') : t('settings.pichamber.visual.actions.reloadThemes')}
+                                                {themesReloading ? "Reloading themes..." : "Reload themes"}
                                             </button>
                                             <SettingsInfoHint>
-                                                {t('settings.pichamber.visual.field.themeImportInfoTooltip')}
+                                                {"Import custom themes from ~/.config/pichamber/themes/"}
                                             </SettingsInfoHint>
                                         </div>
                                     </div>
@@ -956,9 +953,9 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                         <SettingsCheckboxRow
                                             checked={dockBadgeEnabled}
                                             onChange={setDockBadgeEnabled}
-                                            label={t('settings.pichamber.visual.field.dockBadge')}
-                                            info={t('settings.pichamber.visual.field.dockBadgeHint')}
-                                            ariaLabel={t('settings.pichamber.visual.field.dockBadge')}
+                                            label={"Dock badge"}
+                                            info={"Show a count of chats with unseen activity on the macOS dock icon."}
+                                            ariaLabel={"Dock badge"}
                                         />
                                     </SettingsInset>
                                 )}
@@ -967,37 +964,37 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
 
                         {showWindowControlsPositionSetting && (
                             <SettingsSection
-                                title={t('settings.pichamber.desktopNetwork.field.windowControls')}
-                                info={t('settings.pichamber.desktopNetwork.field.windowControlsPositionDescription')}
+                                title={"Window controls"}
+                                info={"Choose where minimize, maximize, and close buttons appear. Defaults to the right."}
                                 divider={hasThemeSettings}
                             >
                                 <SettingsTwoColumn>
                                     <SettingsStackedField
-                                        label={t('settings.pichamber.desktopNetwork.field.windowControlsPosition')}
+                                        label={"Window controls position"}
                                         settingsItem="sessions.desktop-window-controls-position"
                                     >
                                         <SettingsChipGroup
                                             value={desktopWindowControlsPosition}
                                             options={WINDOW_CONTROLS_POSITION_OPTIONS.map((option) => ({
                                                 value: option.id,
-                                                label: tUnsafe(option.labelKey),
+                                                label: option.label,
                                             }))}
                                             onChange={handleWindowControlsPositionChange}
-                                            aria-label={t('settings.pichamber.desktopNetwork.field.windowControlsPositionAria')}
+                                            aria-label={"Window controls position"}
                                         />
                                     </SettingsStackedField>
                                     <SettingsStackedField
-                                        label={t('settings.pichamber.desktopNetwork.field.windowControlsStyle')}
+                                        label={"Style"}
                                         settingsItem="sessions.desktop-window-controls-style"
                                     >
                                         <SettingsChipGroup
                                             value={desktopWindowControlsStyle}
                                             options={WINDOW_CONTROLS_STYLE_OPTIONS.map((option) => ({
                                                 value: option.id,
-                                                label: tUnsafe(option.labelKey),
+                                                label: option.label,
                                             }))}
                                             onChange={handleWindowControlsStyleChange}
-                                            aria-label={t('settings.pichamber.desktopNetwork.field.windowControlsStyleAria')}
+                                            aria-label={"Window controls style"}
                                         />
                                     </SettingsStackedField>
                                 </SettingsTwoColumn>
@@ -1005,22 +1002,22 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                         )}
 
                         {hasLocalizationSettings && (
-                            <SettingsSection title={t('settings.pichamber.visual.section.localization')}>
+                            <SettingsSection title={"Localization"}>
                                 <SettingsTwoColumn>
                                     {(shouldShow('timeFormat') || shouldShow('weekStart')) && (
                                         <div className={SETTINGS_FIELDS_STACK_CLASS}>
                                             {shouldShow('timeFormat') && (
                                                 <SettingsStackedField
-                                                    label={t('settings.pichamber.visual.field.timeFormat')}
+                                                    label={"Time Format"}
                                                     settingsItem="appearance.time-format"
                                                 >
                                                     <Select value={timeFormatPreference} onValueChange={(value: 'auto' | '12h' | '24h') => handleTimeFormatPreferenceChange(value)}>
-                                                        <SelectTrigger aria-label={t('settings.pichamber.visual.field.selectTimeFormatAria')} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
+                                                        <SelectTrigger aria-label={"Select time format"} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
                                                             <SelectValue>{selectedTimeFormatLabel}</SelectValue>
                                                         </SelectTrigger>
                                                         <SelectContent>
                                                             {TIME_FORMAT_OPTIONS.map((option) => (
-                                                                <SelectItem key={option.id} value={option.id}>{tUnsafe(option.labelKey)}</SelectItem>
+                                                                <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>
                                                             ))}
                                                         </SelectContent>
                                                     </Select>
@@ -1029,16 +1026,16 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
 
                                             {shouldShow('weekStart') && (
                                                 <SettingsStackedField
-                                                    label={t('settings.pichamber.visual.field.weekStartsOn')}
+                                                    label={"Week Starts On"}
                                                     settingsItem="appearance.week-start"
                                                 >
                                                     <Select value={weekStartPreference} onValueChange={(value: 'auto' | 'monday' | 'sunday') => handleWeekStartPreferenceChange(value)}>
-                                                        <SelectTrigger aria-label={t('settings.pichamber.visual.field.selectWeekStartAria')} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
+                                                        <SelectTrigger aria-label={"Select week start"} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
                                                             <SelectValue>{selectedWeekStartLabel}</SelectValue>
                                                         </SelectTrigger>
                                                         <SelectContent>
                                                             {WEEK_START_OPTIONS.map((option) => (
-                                                                <SelectItem key={option.id} value={option.id}>{tUnsafe(option.labelKey)}</SelectItem>
+                                                                <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>
                                                             ))}
                                                         </SelectContent>
                                                     </Select>
@@ -1051,12 +1048,12 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                         )}
 
                         {(showPwaInstallNameSetting || showPwaOrientationSetting || showMobileKeyboardModeSetting) && (
-                            <SettingsSection title={t('settings.pichamber.visual.section.appInstall')} contentClassName={SETTINGS_FIELDS_STACK_CLASS}>
+                            <SettingsSection title={"App install"} contentClassName={SETTINGS_FIELDS_STACK_CLASS}>
 
                             {showPwaInstallNameSetting && (
                                 <SettingsFieldRow
-                                    label={t('settings.pichamber.visual.field.installAppName')}
-                                    info={t('settings.pichamber.visual.field.installAppNameHint')}
+                                    label={"Install App Name"}
+                                    info={"Used by PWA installation process."}
                                     settingsItem="appearance.pwa-install-name"
                                     alignEnd={false}
                                     controlClassName={SETTINGS_CONTROL_CLUSTER_CLASS}
@@ -1077,7 +1074,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                         }}
                                         className="min-w-0 flex-1"
                                         maxLength={64}
-                                        aria-label={t('settings.pichamber.visual.field.pwaInstallAppNameAria')}
+                                        aria-label={"PWA install app name"}
                                     />
                                     <Button size="sm"
                                         type="button"
@@ -1087,8 +1084,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                             void applyPwaInstallName('');
                                         }}
                                         className={SETTINGS_ICON_BUTTON_CLASS}
-                                        aria-label={t('settings.pichamber.visual.actions.resetInstallAppNameAria')}
-                                        title={t('settings.common.actions.reset')}
+                                        aria-label={"Reset install app name"}
+                                        title={"Reset"}
                                     >
                                         <Icon name="restart" className="h-3.5 w-3.5" />
                                     </Button>
@@ -1097,8 +1094,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
 
                             {showPwaOrientationSetting && (
                                 <SettingsFieldRow
-                                    label={t('settings.pichamber.visual.field.installOrientation')}
-                                    description={t('settings.pichamber.visual.field.installOrientationHint')}
+                                    label={"Install Orientation"}
+                                    description={"Used by the installed web app. Reinstall the PWA after changing this."}
                                     settingsItem="appearance.pwa-orientation"
                                     alignEnd={false}
                                     controlClassName={SETTINGS_CONTROL_CLUSTER_CLASS}
@@ -1111,15 +1108,15 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                             void applyPwaOrientation(orientation);
                                         }}
                                     >
-                                        <SelectTrigger aria-label={t('settings.pichamber.visual.field.pwaInstallOrientationAria')} size={SETTINGS_SELECT_SIZE} className={SETTINGS_CLUSTER_CONTROL_CLASS}>
-                                            <SelectValue placeholder={t('settings.pichamber.visual.field.selectOrientationPlaceholder')}>
+                                        <SelectTrigger aria-label={"PWA install orientation"} size={SETTINGS_SELECT_SIZE} className={SETTINGS_CLUSTER_CONTROL_CLASS}>
+                                            <SelectValue placeholder={"Select orientation"}>
                                                 {selectedPwaOrientationLabel}
                                             </SelectValue>
                                         </SelectTrigger>
                                         <SelectContent>
                                             {PWA_ORIENTATION_OPTIONS.map((option) => (
                                                 <SelectItem key={option.id} value={option.id}>
-                                                    {tUnsafe(option.labelKey)}
+                                                    {option.label}
                                                 </SelectItem>
                                             ))}
                                         </SelectContent>
@@ -1133,8 +1130,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                         }}
                                         disabled={pwaOrientation === 'system'}
                                         className={SETTINGS_ICON_BUTTON_CLASS}
-                                        aria-label={t('settings.pichamber.visual.actions.resetInstallOrientationAria')}
-                                        title={t('settings.common.actions.reset')}
+                                        aria-label={"Reset install orientation"}
+                                        title={"Reset"}
                                     >
                                         <Icon name="restart" className="h-3.5 w-3.5" />
                                     </Button>
@@ -1143,8 +1140,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
 
                             {showMobileKeyboardModeSetting && (
                                 <SettingsFieldRow
-                                    label={t('settings.pichamber.visual.field.mobileKeyboardMode')}
-                                    info={t('settings.pichamber.visual.field.mobileKeyboardModeHint')}
+                                    label={"Mobile Keyboard Behavior"}
+                                    info={"Default browser behavior is safest. Resize content asks supported browsers to shrink the app when the on-screen keyboard opens."}
                                     settingsItem="appearance.mobile-keyboard-mode"
                                     alignEnd={false}
                                     controlClassName={SETTINGS_CONTROL_CLUSTER_CLASS}
@@ -1157,15 +1154,15 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                             void updateDesktopSettings({ mobileKeyboardMode: mode });
                                         }}
                                     >
-                                        <SelectTrigger aria-label={t('settings.pichamber.visual.field.mobileKeyboardModeAria')} size={SETTINGS_SELECT_SIZE} className={SETTINGS_CLUSTER_CONTROL_CLASS}>
-                                            <SelectValue placeholder={t('settings.pichamber.visual.field.selectMobileKeyboardModePlaceholder')}>
+                                        <SelectTrigger aria-label={"Mobile keyboard behavior"} size={SETTINGS_SELECT_SIZE} className={SETTINGS_CLUSTER_CONTROL_CLASS}>
+                                            <SelectValue placeholder={"Select keyboard behavior"}>
                                                 {selectedMobileKeyboardModeLabel}
                                             </SelectValue>
                                         </SelectTrigger>
                                         <SelectContent>
                                             {MOBILE_KEYBOARD_MODE_OPTIONS.map((option) => (
                                                 <SelectItem key={option.id} value={option.id}>
-                                                    {tUnsafe(option.labelKey)}
+                                                    {option.label}
                                                 </SelectItem>
                                             ))}
                                         </SelectContent>
@@ -1179,8 +1176,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                         }}
                                         disabled={mobileKeyboardMode === 'native'}
                                         className={SETTINGS_ICON_BUTTON_CLASS}
-                                        aria-label={t('settings.pichamber.visual.actions.resetMobileKeyboardModeAria')}
-                                        title={t('settings.common.actions.reset')}
+                                        aria-label={"Reset mobile keyboard behavior"}
+                                        title={"Reset"}
                                     >
                                         <Icon name="restart" className="h-3.5 w-3.5" />
                                     </Button>
@@ -1193,17 +1190,17 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
 
                 {/* --- Density & type --- */}
                 {hasLayoutSettings && (
-                    <SettingsSection title={t('settings.pichamber.visual.section.densityAndType')} contentClassName={SETTINGS_FIELDS_STACK_CLASS}>
+                    <SettingsSection title={"Density & type"} contentClassName={SETTINGS_FIELDS_STACK_CLASS}>
                         {(shouldShow('fontSize') && !isMobile) || shouldShow('terminalFontSize') ? (
                             <SettingsTwoColumn>
                                 {shouldShow('fontSize') && !isMobile && (
                                     <SettingsStackedField
-                                        label={t('settings.pichamber.visual.field.interfaceFont')}
+                                        label={"Interface Font"}
                                         settingsItem="appearance.interface-font-size"
                                         controlClassName="w-full"
                                     >
                                         <Select value={uiFont} onValueChange={(value) => setUiFont(value as UiFontOption)}>
-                                            <SelectTrigger aria-label={t('settings.pichamber.visual.field.selectInterfaceFontAria')} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
+                                            <SelectTrigger aria-label={"Select interface font"} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
                                                 <SelectValue>{UI_FONT_OPTIONS.find((option) => option.id === uiFont)?.label}</SelectValue>
                                             </SelectTrigger>
                                             <SelectContent>
@@ -1220,8 +1217,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                             onClick={() => setUiFont(DEFAULT_UI_FONT)}
                                             disabled={uiFont === DEFAULT_UI_FONT}
                                             className={SETTINGS_ICON_BUTTON_CLASS}
-                                            aria-label={t('settings.pichamber.visual.actions.resetInterfaceFontAria')}
-                                            title={t('settings.common.actions.reset')}
+                                            aria-label={"Reset interface font"}
+                                            title={"Reset"}
                                         >
                                             <Icon name="restart" className="h-3.5 w-3.5" />
                                         </Button>
@@ -1229,11 +1226,11 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                 )}
                                 {shouldShow('terminalFontSize') && (
                                     <SettingsStackedField
-                                        label={t('settings.pichamber.visual.field.codeFont')}
+                                        label={"Code Font"}
                                         controlClassName="w-full"
                                     >
                                         <Select value={monoFont} onValueChange={(value) => setMonoFont(value as MonoFontOption)}>
-                                            <SelectTrigger aria-label={t('settings.pichamber.visual.field.selectCodeFontAria')} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
+                                            <SelectTrigger aria-label={"Select code font"} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
                                                 <SelectValue>{CODE_FONT_OPTIONS.find((option) => option.id === monoFont)?.label}</SelectValue>
                                             </SelectTrigger>
                                             <SelectContent>
@@ -1250,8 +1247,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                             onClick={() => setMonoFont(DEFAULT_MONO_FONT)}
                                             disabled={monoFont === DEFAULT_MONO_FONT}
                                             className={SETTINGS_ICON_BUTTON_CLASS}
-                                            aria-label={t('settings.pichamber.visual.actions.resetCodeFontAria')}
-                                            title={t('settings.common.actions.reset')}
+                                            aria-label={"Reset code font"}
+                                            title={"Reset"}
                                         >
                                             <Icon name="restart" className="h-3.5 w-3.5" />
                                         </Button>
@@ -1264,7 +1261,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                             <SettingsTwoColumn>
                                 {shouldShow('fontSize') && !isMobile && (
                                     <SettingsStackedField
-                                        label={t('settings.pichamber.visual.field.interfaceFontSize')}
+                                        label={"Interface Font Size"}
                                         controlClassName="w-full"
                                     >
                                         <div className={SETTINGS_NUMBER_STEPPER_ROW_CLASS}>
@@ -1274,7 +1271,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                                 min={50}
                                                 max={200}
                                                 step={5}
-                                                aria-label={t('settings.pichamber.visual.field.fontSizePercentageAria')}
+                                                aria-label={"Font size percentage"}
                                             />
                                             <span className={SETTINGS_NUMBER_UNIT_CLASS}>%</span>
                                             <Button size="sm"
@@ -1283,8 +1280,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                                 onClick={() => setFontSize(100)}
                                                 disabled={fontSize === 100}
                                                 className={SETTINGS_ICON_BUTTON_CLASS}
-                                                aria-label={t('settings.pichamber.visual.actions.resetFontSizeAria')}
-                                                title={t('settings.common.actions.reset')}
+                                                aria-label={"Reset font size"}
+                                                title={"Reset"}
                                             >
                                                 <Icon name="restart" className="h-3.5 w-3.5" />
                                             </Button>
@@ -1293,7 +1290,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                 )}
                                 {shouldShow('terminalFontSize') && (
                                     <SettingsStackedField
-                                        label={t('settings.pichamber.visual.field.terminalFontSize')}
+                                        label={"Terminal Font Size"}
                                         settingsItem="appearance.terminal-font-size"
                                         controlClassName="w-full"
                                     >
@@ -1312,8 +1309,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                                 onClick={() => setTerminalFontSize(13)}
                                                 disabled={terminalFontSize === 13}
                                                 className={SETTINGS_ICON_BUTTON_CLASS}
-                                                aria-label={t('settings.pichamber.visual.actions.resetTerminalFontSizeAria')}
-                                                title={t('settings.common.actions.reset')}
+                                                aria-label={"Reset terminal font size"}
+                                                title={"Reset"}
                                             >
                                                 <Icon name="restart" className="h-3.5 w-3.5" />
                                             </Button>
@@ -1322,7 +1319,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                 )}
                                 {shouldShow('editorFontSize') && (
                                     <SettingsStackedField
-                                        label={t('settings.pichamber.visual.field.editorFontSize')}
+                                        label={"Editor Font Size"}
                                         settingsItem="appearance.editor-font-size"
                                         controlClassName="w-full"
                                     >
@@ -1341,8 +1338,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                                 onClick={() => setEditorFontSize(13)}
                                                 disabled={editorFontSize === 13}
                                                 className={SETTINGS_ICON_BUTTON_CLASS}
-                                                aria-label={t('settings.pichamber.visual.actions.resetEditorFontSizeAria')}
-                                                title={t('settings.common.actions.reset')}
+                                                aria-label={"Reset editor font size"}
+                                                title={"Reset"}
                                             >
                                                 <Icon name="restart" className="h-3.5 w-3.5" />
                                             </Button>
@@ -1356,7 +1353,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                             <SettingsTwoColumn>
                                 {shouldShow('spacing') && (
                                     <SettingsStackedField
-                                        label={t('settings.pichamber.visual.field.spacingDensity')}
+                                        label={"Spacing Density"}
                                         settingsItem="appearance.spacing-density"
                                         controlClassName="w-full"
                                     >
@@ -1375,8 +1372,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                                 onClick={() => setPadding(100)}
                                                 disabled={padding === 100}
                                                 className={SETTINGS_ICON_BUTTON_CLASS}
-                                                aria-label={t('settings.pichamber.visual.actions.resetSpacingAria')}
-                                                title={t('settings.common.actions.reset')}
+                                                aria-label={"Reset spacing"}
+                                                title={"Reset"}
                                             >
                                                 <Icon name="restart" className="h-3.5 w-3.5" />
                                             </Button>
@@ -1385,8 +1382,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                 )}
                                 {shouldShow('inputBarOffset') && isMobile && (
                                     <SettingsStackedField
-                                        label={t('settings.pichamber.visual.field.inputBarOffset')}
-                                        info={t('settings.pichamber.visual.field.inputBarOffsetTooltip')}
+                                        label={"Input Bar Offset"}
+                                        info={"Raise input bar to avoid OS-level screen obstructions like home bars."}
                                         settingsItem="appearance.input-bar-offset"
                                         controlClassName="w-full"
                                     >
@@ -1405,8 +1402,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                                 onClick={() => setInputBarOffset(0)}
                                                 disabled={inputBarOffset === 0}
                                                 className={SETTINGS_ICON_BUTTON_CLASS}
-                                                aria-label={t('settings.pichamber.visual.actions.resetInputBarOffsetAria')}
-                                                title={t('settings.common.actions.reset')}
+                                                aria-label={"Reset input bar offset"}
+                                                title={"Reset"}
                                             >
                                                 <Icon name="restart" className="h-3.5 w-3.5" />
                                             </Button>
@@ -1420,20 +1417,20 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
 
                 {/* --- Navigation --- */}
                 {hasNavigationSettings && (
-                    <SettingsSection title={t('settings.pichamber.visual.section.navigation')} contentClassName="space-y-4">
+                    <SettingsSection title={"Navigation"} contentClassName="space-y-4">
                         {shouldShow('fileEditorKeymap') && (
                             <SettingsControlGroup
-                                title={t('settings.pichamber.visual.field.fileEditorKeymap')}
+                                title={"File editor keymap"}
                                 settingsItem="appearance.file-editor-keymap"
                             >
-                                <SettingsRadioGroup aria-label={t('settings.pichamber.visual.field.fileEditorKeymap')}>
+                                <SettingsRadioGroup aria-label={"File editor keymap"}>
                                     {(['default', 'vim'] as const).map((keymap) => (
                                         <SettingsRadioOption
                                             key={keymap}
                                             selected={fileEditorKeymap === keymap}
                                             onSelect={() => setFileEditorKeymap(keymap)}
-                                            label={t(`settings.pichamber.visual.option.fileEditorKeymap.${keymap}`)}
-                                            ariaLabel={t(`settings.pichamber.visual.option.fileEditorKeymap.${keymap}`)}
+                                            label={keymap === 'default' ? 'Default' : 'Vim'}
+                                            ariaLabel={keymap === 'default' ? 'Default' : 'Vim'}
                                         />
                                     ))}
                                 </SettingsRadioGroup>
@@ -1444,9 +1441,9 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                 <SettingsCheckboxRow
                                     checked={autoSaveEnabled}
                                     onChange={setAutoSaveEnabled}
-                                    label={t('settings.pichamber.visual.field.autoSaveEnabled')}
-                                    ariaLabel={t('settings.pichamber.visual.field.autoSaveEnabledAria')}
-                                    info={t('settings.pichamber.visual.field.autoSaveEnabledInfo')}
+                                    label={"Auto-save files"}
+                                    ariaLabel={"Auto-save files"}
+                                    info={"Automatically save file edits after you stop typing. Disable to require manual save."}
                                     settingsItem="appearance.auto-save-enabled"
                                 />
                             )}
@@ -1454,8 +1451,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                 <SettingsCheckboxRow
                                     checked={expandedEditorToolbar}
                                     onChange={handleExpandedEditorToolbarChange}
-                                    label={t('settings.pichamber.visual.field.expandedEditorToolbar')}
-                                    ariaLabel={t('settings.pichamber.visual.field.expandedEditorToolbarAria')}
+                                    label={"Always show editor toolbar (docked under the file tabs)"}
+                                    ariaLabel={"Always show editor toolbar"}
                                     settingsItem="appearance.expanded-editor-toolbar"
                                 />
                             )}
@@ -1463,25 +1460,25 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                 <SettingsCheckboxRow
                                     checked={showTerminalQuickKeysOnDesktop}
                                     onChange={setShowTerminalQuickKeysOnDesktop}
-                                    label={t('settings.pichamber.visual.field.terminalQuickKeys')}
-                                    ariaLabel={t('settings.pichamber.visual.field.terminalQuickKeysAria')}
+                                    label={"Terminal Quick Keys"}
+                                    ariaLabel={"Terminal quick keys"}
                                     settingsItem="appearance.terminal-quick-keys"
-                                    info={t('settings.pichamber.visual.field.terminalQuickKeysTooltip')}
+                                    info={"Show Esc, Ctrl, Arrows in terminal view"}
                                 />
                             )}
                             {showTerminalShellSetting && (
                                 <SettingsStackedField
-                                    label={t('settings.pichamber.visual.field.terminalShell')}
-                                    info={t('settings.pichamber.visual.field.terminalShellHint')}
+                                    label={"Terminal Shell"}
+                                    info={"Restart the terminal to apply this change to the current session."}
                                     settingsItem="appearance.terminal-shell"
                                     className="pt-2"
                                 >
                                     <Select value={terminalShell} onValueChange={(value) => { if (isTerminalShell(value)) setTerminalShell(value); }}>
-                                        <SelectTrigger aria-label={t('settings.pichamber.visual.field.terminalShellAria')} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
+                                        <SelectTrigger aria-label={"Select terminal shell"} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="auto">{t('settings.pichamber.visual.option.terminalShell.auto')}</SelectItem>
+                                            <SelectItem value="auto">{"Auto"}</SelectItem>
                                             {terminalShellOptions.map((shell) => (
                                                 <SelectItem key={shell.id} value={shell.id}>{shell.name}</SelectItem>
                                             ))}
@@ -1493,8 +1490,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                 <SettingsCheckboxRow
                                     checked={terminalLoginShellEnabled}
                                     onChange={setTerminalLoginShellEnabled}
-                                    label={t('settings.pichamber.visual.field.terminalLoginShell')}
-                                    ariaLabel={t('settings.pichamber.visual.field.terminalLoginShell')}
+                                    label={"Start as login shell"}
+                                    ariaLabel={"Start as login shell"}
                                     settingsItem="appearance.terminal-login-shell"
                                 />
                             )}
@@ -1506,16 +1503,16 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                     <>
                         {showBehaviorDisplaySettings && (
                             <SettingsSection
-                                title={t('settings.pichamber.visual.section.chatDisplay')}
+                                title={"Display"}
                                 divider={behaviorSectionDivider}
                                 contentClassName="space-y-6"
                             >
                                 {shouldShow('chatRenderMode') && (
                                     <SettingsControlGroup
-                                        title={t('settings.pichamber.visual.section.chatRenderMode')}
+                                        title={"Chat Render Mode"}
                                         settingsItem="chat.render-mode"
                                     >
-                                        <div role="radiogroup" aria-label={t('settings.pichamber.visual.section.chatRenderModeAria')} className="grid w-full max-w-[26rem] grid-cols-1 gap-3 @xl:grid-cols-2">
+                                        <div role="radiogroup" aria-label={"Chat render mode"} className="grid w-full max-w-[26rem] grid-cols-1 gap-3 @xl:grid-cols-2">
                                             {CHAT_RENDER_MODE_OPTIONS.map((option) => {
                                                 const selected = chatRenderMode === option.id;
                                                 const previewPhase = chatRenderPreviewTick % 12;
@@ -1533,7 +1530,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                                         )}
                                                     >
                                                         <span className={cn('typography-ui-label', selected ? 'text-foreground' : 'text-muted-foreground')}>
-                                                            {tUnsafe(option.labelKey)}
+                                                            {option.label}
                                                         </span>
                                                         <div className="mt-2 w-full rounded-md border border-border/60 bg-muted/30 p-2">
                                                             {option.id === 'live' ? (
@@ -1597,15 +1594,15 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                 )}
 
                                 {shouldShow('activityRenderMode') && chatRenderMode === 'sorted' && (
-                                    <SettingsControlGroup title={t('settings.pichamber.visual.section.activityDefault')}>
-                                        <SettingsRadioGroup aria-label={t('settings.pichamber.visual.section.activityDefaultAria')}>
+                                    <SettingsControlGroup title={"Activity Default"}>
+                                        <SettingsRadioGroup aria-label={"Activity default mode"}>
                                             {ACTIVITY_RENDER_MODE_OPTIONS.map((option) => (
                                                 <SettingsRadioOption
                                                     key={option.id}
                                                     selected={activityRenderMode === option.id}
                                                     onSelect={() => handleActivityRenderModeChange(option.id)}
-                                                    label={tUnsafe(option.labelKey)}
-                                                    ariaLabel={t('settings.pichamber.visual.field.activityDefaultModeAria', { option: tUnsafe(option.labelKey) })}
+                                                    label={option.label}
+                                                    ariaLabel={`Activity default mode: ${option.label}`}
                                                 />
                                             ))}
                                         </SettingsRadioGroup>
@@ -1616,7 +1613,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
 
                         {showTransportSection && (
                             <SettingsSection
-                                title={t('settings.pichamber.visual.section.messageStreamTransport')}
+                                title={"Message Stream Transport"}
                                 divider={showBehaviorDisplaySettings || behaviorSectionDivider}
                                 settingsItem="chat.message-transport"
                                 contentClassName="space-y-2"
@@ -1625,16 +1622,16 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     value={effectiveMessageStreamTransport}
                                     options={MESSAGE_STREAM_TRANSPORT_OPTIONS.map((option) => ({
                                         value: option.id,
-                                        label: tUnsafe(option.labelKey),
+                                        label: option.label,
                                     }))}
                                     onChange={handleMessageStreamTransportChange}
-                                    aria-label={t('settings.pichamber.visual.section.messageStreamTransport')}
+                                    aria-label={"Message Stream Transport"}
                                 />
                                 {(() => {
                                     const option = MESSAGE_STREAM_TRANSPORT_OPTIONS.find((item) => item.id === effectiveMessageStreamTransport);
-                                    return option?.descriptionKey ? (
+                                    return option?.description ? (
                                         <span className="typography-meta text-muted-foreground">
-                                            {tUnsafe(option.descriptionKey)}
+                                            {option.description}
                                         </span>
                                     ) : null;
                                 })()}
@@ -1643,21 +1640,21 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
 
                         {showBehaviorMessageOptions && (
                             <SettingsSection
-                                title={t('settings.pichamber.visual.section.chatMessageOptions')}
+                                title={"Message options"}
                                 divider={showBehaviorDisplaySettings || showTransportSection || behaviorSectionDivider}
                             >
                                 {/* Flat 2×2 grid so row headers share a baseline (not stacked columns). */}
                                 <SettingsTwoColumn className="lg:gap-y-6">
                                     {shouldShow('userMessageRendering') && (
-                                        <SettingsControlGroup title={t('settings.pichamber.visual.section.userMessageRendering')}>
-                                            <SettingsRadioGroup aria-label={t('settings.pichamber.visual.section.userMessageRenderingAria')}>
+                                        <SettingsControlGroup title={"User Message Rendering"}>
+                                            <SettingsRadioGroup aria-label={"User message rendering mode"}>
                                                 {USER_MESSAGE_RENDERING_OPTIONS.map((option) => (
                                                     <SettingsRadioOption
                                                         key={option.id}
                                                         selected={normalizeUserMessageRenderingMode(userMessageRenderingMode) === option.id}
                                                         onSelect={() => handleUserMessageRenderingModeChange(option.id)}
-                                                        label={tUnsafe(option.labelKey)}
-                                                        ariaLabel={t('settings.pichamber.visual.field.userMessageRenderingAria', { option: tUnsafe(option.labelKey) })}
+                                                        label={option.label}
+                                                        ariaLabel={`User message rendering: ${option.label}`}
                                                     />
                                                 ))}
                                             </SettingsRadioGroup>
@@ -1665,15 +1662,15 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     )}
 
                                     {shouldShow('mermaidRendering') && (
-                                        <SettingsControlGroup title={t('settings.pichamber.visual.section.mermaidRendering')}>
-                                            <SettingsRadioGroup aria-label={t('settings.pichamber.visual.section.mermaidRenderingAria')}>
+                                        <SettingsControlGroup title={"Mermaid Rendering"}>
+                                            <SettingsRadioGroup aria-label={"Mermaid rendering mode"}>
                                                 {MERMAID_RENDERING_OPTIONS.map((option) => (
                                                     <SettingsRadioOption
                                                         key={option.id}
                                                         selected={mermaidRenderingMode === option.id}
                                                         onSelect={() => handleMermaidRenderingModeChange(option.id)}
-                                                        label={tUnsafe(option.labelKey)}
-                                                        ariaLabel={t('settings.pichamber.visual.field.mermaidRenderingAria', { option: tUnsafe(option.labelKey) })}
+                                                        label={option.label}
+                                                        ariaLabel={`Mermaid rendering: ${option.label}`}
                                                     />
                                                 ))}
                                             </SettingsRadioGroup>
@@ -1681,15 +1678,15 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     )}
 
                                     {shouldShow('diffLayout') && (
-                                        <SettingsControlGroup title={t('settings.pichamber.visual.section.diffLayout')}>
-                                            <SettingsRadioGroup aria-label={t('settings.pichamber.visual.section.diffLayoutAria')}>
+                                        <SettingsControlGroup title={"Diff Layout"}>
+                                            <SettingsRadioGroup aria-label={"Diff layout"}>
                                                 {DIFF_LAYOUT_OPTIONS.map((option) => (
                                                     <SettingsRadioOption
                                                         key={option.id}
                                                         selected={diffLayoutPreference === option.id}
                                                         onSelect={() => setDiffLayoutPreference(option.id)}
-                                                        label={tUnsafe(option.labelKey)}
-                                                        ariaLabel={t('settings.pichamber.visual.field.diffLayoutAria', { option: tUnsafe(option.labelKey) })}
+                                                        label={option.label}
+                                                        ariaLabel={`Diff layout: ${option.label}`}
                                                     />
                                                 ))}
                                             </SettingsRadioGroup>
@@ -1698,17 +1695,17 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
 
                                     {shouldShow('followUpBehavior') && (
                                         <SettingsControlGroup
-                                            title={t('settings.pichamber.visual.section.followUpBehavior')}
+                                            title={"Follow-up behavior"}
                                             settingsItem="chat.follow-up-behavior"
                                         >
-                                            <SettingsRadioGroup aria-label={t('settings.pichamber.visual.section.followUpBehaviorAria')}>
+                                            <SettingsRadioGroup aria-label={"Follow-up behavior"}>
                                                 {FOLLOW_UP_BEHAVIOR_OPTIONS.map((option) => (
                                                     <SettingsRadioOption
                                                         key={option.id}
                                                         selected={followUpBehavior === option.id}
                                                         onSelect={() => setFollowUpBehavior(option.id)}
-                                                        label={tUnsafe(option.labelKey)}
-                                                        ariaLabel={t('settings.pichamber.visual.field.followUpBehaviorAria', { option: tUnsafe(option.labelKey) })}
+                                                        label={option.label}
+                                                        ariaLabel={`Follow-up behavior: ${option.label}`}
                                                     />
                                                 ))}
                                             </SettingsRadioGroup>
@@ -1722,64 +1719,64 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                             <>
                                 {shouldShow('expandedTools') && (
                                     <SettingsSection
-                                        title={t('settings.pichamber.visual.section.showToolsOpenedByDefault')}
+                                        title={"Show tools opened by default"}
                                         divider={showBehaviorDisplaySettings || showTransportSection || showBehaviorMessageOptions || behaviorSectionDivider}
                                         contentClassName={SETTINGS_OPTION_STACK_CLASS}
                                     >
                                         <SettingsCheckboxRow
                                             checked={showExpandedBashTools}
                                             onChange={handleShowExpandedBashToolsChange}
-                                            label={t('settings.pichamber.visual.field.bash')}
-                                            ariaLabel={t('settings.pichamber.visual.field.showExpandedBashToolsAria')}
+                                            label={"Bash"}
+                                            ariaLabel={"Show expanded bash tools"}
                                         />
                                         <SettingsCheckboxRow
                                             checked={showExpandedEditTools}
                                             onChange={handleShowExpandedEditToolsChange}
-                                            label={t('settings.pichamber.visual.field.editTools')}
-                                            ariaLabel={t('settings.pichamber.visual.field.showExpandedEditToolsAria')}
+                                            label={"Edit tools"}
+                                            ariaLabel={"Show expanded edit tools"}
                                         />
                                     </SettingsSection>
                                 )}
                                 <SettingsSection
-                                    title={t('settings.pichamber.visual.section.chatFeatures')}
+                                    title={"Features"}
                                     contentClassName={SETTINGS_OPTION_STACK_CLASS}
                                 >
                                     <SettingsCheckboxRow
                                         checked={draftStartersVisible}
                                         onChange={handleDraftStartersVisibleChange}
-                                        label={t('settings.pichamber.visual.field.draftStartersVisible')}
-                                        ariaLabel={t('settings.pichamber.visual.field.draftStartersVisibleAria')}
+                                        label={"Show Starters on New Session Screen"}
+                                        ariaLabel={"Show starters on the new session screen"}
                                         settingsItem="chat.draft-starters-visible"
                                     />
                                     {shouldShow('subagentReadOnlyBanner') && (
                                         <SettingsCheckboxRow
                                             checked={allowPromptingSubagentSessions}
                                             onChange={setAllowPromptingSubagentSessions}
-                                            label={t('settings.pichamber.visual.field.allowPromptingSubagentSessions')}
-                                            ariaLabel={t('settings.pichamber.visual.field.allowPromptingSubagentSessionsAria')}
+                                            label={"Allow Prompting Subagent Sessions"}
+                                            ariaLabel={"Allow prompting subagent sessions"}
                                             settingsItem="chat.subagent-read-only-banner"
                                         />
                                     )}
                                 </SettingsSection>
                                 {shouldShow('reasoning') && (
                                     <SettingsSection
-                                        title={t('settings.pichamber.visual.section.reasoning')}
+                                        title={"Reasoning"}
                                         settingsItem="chat.reasoning"
                                         contentClassName={SETTINGS_OPTION_STACK_CLASS}
                                     >
                                         <SettingsCheckboxRow
                                             checked={showReasoningTraces}
                                             onChange={setShowReasoningTraces}
-                                            label={t('settings.pichamber.visual.field.showReasoningTraces')}
-                                            ariaLabel={t('settings.pichamber.visual.field.showReasoningTracesAria')}
+                                            label={"Show Reasoning Traces"}
+                                            ariaLabel={"Show reasoning traces"}
                                             settingsItem="chat.reasoning-traces"
                                         />
                                         {showReasoningTraces && (
                                             <SettingsCheckboxRow
                                                 checked={collapsibleThinkingBlocks}
                                                 onChange={setCollapsibleThinkingBlocks}
-                                                label={t('settings.pichamber.visual.field.collapsibleThinkingBlocks')}
-                                                ariaLabel={t('settings.pichamber.visual.field.collapsibleThinkingBlocksAria')}
+                                                label={"Enable Collapsible Reasoning Blocks"}
+                                                ariaLabel={"Enable collapsible reasoning blocks"}
                                             />
                                         )}
                                     </SettingsSection>
@@ -1787,7 +1784,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
 
                                 {(shouldShow('collapsibleUserMessages') || shouldShow('stickyUserHeader') || shouldShow('promptNavigatorEnabled') || shouldShow('wideChatLayout') || shouldShow('splitAssistantMessageActions') || shouldShow('codeBlockLineWrap')) && (
                                 <SettingsSection
-                                    title={t('settings.pichamber.visual.section.messageAppearance')}
+                                    title={"Message Appearance"}
                                     settingsItem="chat.message-appearance"
                                     contentClassName={SETTINGS_OPTION_STACK_CLASS}
                                 >
@@ -1795,8 +1792,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     <SettingsCheckboxRow
                                         checked={collapsibleUserMessages}
                                         onChange={handleCollapsibleUserMessagesChange}
-                                        label={t('settings.pichamber.visual.field.collapsibleUserMessages')}
-                                        ariaLabel={t('settings.pichamber.visual.field.collapsibleUserMessagesAria')}
+                                        label={"Collapse Long User Messages"}
+                                        ariaLabel={"Collapse long user messages"}
                                         settingsItem="chat.collapsible-user-messages"
                                     />
                                 )}
@@ -1805,8 +1802,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     <SettingsCheckboxRow
                                         checked={stickyUserHeader}
                                         onChange={handleStickyUserHeaderChange}
-                                        label={t('settings.pichamber.visual.field.stickyUserHeader')}
-                                        ariaLabel={t('settings.pichamber.visual.field.stickyUserHeaderAria')}
+                                        label={"Sticky User Header"}
+                                        ariaLabel={"Sticky user header"}
                                         settingsItem="chat.sticky-user-header"
                                     />
                                 )}
@@ -1815,8 +1812,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     <SettingsCheckboxRow
                                         checked={promptNavigatorEnabled}
                                         onChange={handlePromptNavigatorEnabledChange}
-                                        label={t('settings.pichamber.visual.field.promptNavigatorEnabled')}
-                                        ariaLabel={t('settings.pichamber.visual.field.promptNavigatorEnabledAria')}
+                                        label={"Prompt Navigator"}
+                                        ariaLabel={"Prompt navigator"}
                                         settingsItem="chat.prompt-navigator"
                                     />
                                 )}
@@ -1825,8 +1822,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     <SettingsCheckboxRow
                                         checked={wideChatLayoutEnabled}
                                         onChange={handleWideChatLayoutChange}
-                                        label={t('settings.pichamber.visual.field.wideChatLayout')}
-                                        ariaLabel={t('settings.pichamber.visual.field.wideChatLayoutAria')}
+                                        label={"Wide Chat Layout"}
+                                        ariaLabel={"Wide chat layout"}
                                         settingsItem="chat.wide-layout"
                                     />
                                 )}
@@ -1835,10 +1832,10 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     <SettingsCheckboxRow
                                         checked={showSplitAssistantMessageActions}
                                         onChange={handleShowSplitAssistantMessageActionsChange}
-                                        label={t('settings.pichamber.visual.field.showSplitAssistantMessageActions')}
-                                        ariaLabel={t('settings.pichamber.visual.field.showSplitAssistantMessageActionsAria')}
+                                        label={"Inline Assistant Actions"}
+                                        ariaLabel={"Inline assistant actions"}
                                         settingsItem="chat.inline-assistant-actions"
-                                        info={t('settings.pichamber.visual.field.showSplitAssistantMessageActionsTooltip')}
+                                        info={"Show Copy Answer, Save as image, and Read aloud on assistant text blocks that appear before later tool calls in the same response."}
                                     />
                                 )}
 
@@ -1846,8 +1843,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     <SettingsCheckboxRow
                                         checked={codeBlockLineWrap}
                                         onChange={setCodeBlockLineWrap}
-                                        label={t('settings.pichamber.visual.field.codeBlockLineWrap')}
-                                        ariaLabel={t('settings.pichamber.visual.field.codeBlockLineWrapAria')}
+                                        label={"Wrap Code Block Lines"}
+                                        ariaLabel={"Wrap code block lines"}
                                         settingsItem="chat.code-block-line-wrap"
                                     />
                                 )}
@@ -1856,7 +1853,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
 
                                 {(shouldShow('showToolFileIcons') || shouldShow('showTurnChangedFiles') || shouldShow('dotfiles') || shouldShow('fileViewerPreview')) && (
                                 <SettingsSection
-                                    title={t('settings.pichamber.visual.section.toolsAndFiles')}
+                                    title={"Tools & Files"}
                                     settingsItem="chat.tools-and-files"
                                     contentClassName={SETTINGS_OPTION_STACK_CLASS}
                                 >
@@ -1864,8 +1861,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     <SettingsCheckboxRow
                                         checked={showToolFileIcons}
                                         onChange={handleShowToolFileIconsChange}
-                                        label={t('settings.pichamber.visual.field.showToolFileIcons')}
-                                        ariaLabel={t('settings.pichamber.visual.field.showToolFileIconsAria')}
+                                        label={"Show Tool File Icons"}
+                                        ariaLabel={"Show tool file icons"}
                                         settingsItem="chat.tool-file-icons"
                                     />
                                 )}
@@ -1874,8 +1871,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     <SettingsCheckboxRow
                                         checked={showTurnChangedFiles}
                                         onChange={handleShowTurnChangedFilesChange}
-                                        label={t('settings.pichamber.visual.field.showTurnChangedFiles')}
-                                        ariaLabel={t('settings.pichamber.visual.field.showTurnChangedFilesAria')}
+                                        label={"Show Changed Files for Completed Turns"}
+                                        ariaLabel={"Show changed files for completed turns"}
                                         settingsItem="chat.changed-files"
                                     />
                                 )}
@@ -1884,8 +1881,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     <SettingsCheckboxRow
                                         checked={directoryShowHidden}
                                         onChange={setDirectoryShowHidden}
-                                        label={t('settings.pichamber.visual.field.showDotfiles')}
-                                        ariaLabel={t('settings.pichamber.visual.field.showDotfilesAria')}
+                                        label={"Show Dotfiles"}
+                                        ariaLabel={"Show dotfiles"}
                                         settingsItem="chat.dotfiles"
                                     />
                                 )}
@@ -1894,8 +1891,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     <SettingsCheckboxRow
                                         checked={settingsDefaultFileViewerPreview}
                                         onChange={handleFileViewerPreviewChange}
-                                        label={t('settings.pichamber.defaults.field.openFilesPreview')}
-                                        ariaLabel={t('settings.pichamber.defaults.field.openFilesPreviewAria')}
+                                        label={"Open previewable files in preview mode"}
+                                        ariaLabel={"Open previewable files in preview mode"}
                                     />
                                 )}
                                 </SettingsSection>
@@ -1903,7 +1900,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
 
                                 {(shouldShow('persistDraft') || (!isMobile && shouldShow('inputSpellcheck'))) && (
                                 <SettingsSection
-                                    title={t('settings.pichamber.visual.section.composer')}
+                                    title={"Composer"}
                                     settingsItem="chat.composer"
                                     contentClassName={SETTINGS_OPTION_STACK_CLASS}
                                 >
@@ -1911,8 +1908,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     <SettingsCheckboxRow
                                         checked={persistChatDraft}
                                         onChange={setPersistChatDraft}
-                                        label={t('settings.pichamber.visual.field.persistDraftMessages')}
-                                        ariaLabel={t('settings.pichamber.visual.field.persistDraftMessagesAria')}
+                                        label={"Persist Draft Messages"}
+                                        ariaLabel={"Persist draft messages"}
                                         settingsItem="chat.persist-drafts"
                                     />
                                 )}
@@ -1921,8 +1918,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     <SettingsCheckboxRow
                                         checked={inputSpellcheckEnabled}
                                         onChange={handleInputSpellcheckChange}
-                                        label={t('settings.pichamber.visual.field.enableSpellcheckInTextInputs')}
-                                        ariaLabel={t('settings.pichamber.visual.field.enableSpellcheckInTextInputsAria')}
+                                        label={"Enable Spellcheck in Text Inputs"}
+                                        ariaLabel={"Enable spellcheck in text inputs"}
                                         settingsItem="chat.spellcheck"
                                     />
                                 )}
@@ -1935,13 +1932,13 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
 
                 {/* --- Privacy & Data --- */}
                 {shouldShow('reportUsage') && (
-                    <SettingsSection title={t('settings.pichamber.visual.section.privacy')}>
+                    <SettingsSection title={"Privacy"}>
                         <SettingsCheckboxRow
                             checked={reportUsage}
                             onChange={handleReportUsageChange}
-                            label={t('settings.pichamber.visual.field.sendAnonymousUsageReports')}
-                            info={t('settings.pichamber.visual.field.sendAnonymousUsageReportsHint')}
-                            ariaLabel={t('settings.pichamber.visual.field.sendAnonymousUsageReportsAria')}
+                            label={"Send anonymous usage reports"}
+                            info={"Helps us understand which app versions are actively used so we can prioritize improvements. Only app version, platform, and runtime are collected - no personal data or code."}
+                            ariaLabel={"Send anonymous usage reports"}
                             settingsItem="appearance.usage-reports"
                         />
                     </SettingsSection>

@@ -15,7 +15,6 @@ import type { SessionGroup } from './types';
 import type { SortableDragHandleProps } from './sortableItems';
 import { ProjectHeaderIdentity, SortableGroupItem, SortableProjectItem } from './sortableItems';
 import { formatProjectLabel } from './utils';
-import { useI18n } from '@/lib/i18n';
 import type { MainTab } from '@/stores/useUIStore';
 import type { ProjectSortOrder } from '@/stores/useSessionDisplayStore';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
@@ -95,7 +94,7 @@ type Props = {
 
 function SidebarProjectsListComponent(props: Props): React.ReactNode {
   streamPerfCount('ui.sidebar_projects_list.render');
-  const { t } = useI18n();
+  
   const enableStickyFade = props.isDesktopShellRuntime && props.stickyZoneHeaders;
   const projectSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -234,7 +233,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
               ?? activeSection.groups.find((candidate) => candidate.isMain)
               ?? activeSection.groups[0];
             if (!primaryGroup) {
-              return <div className="py-1 text-left typography-micro text-muted-foreground">{t('sessions.sidebar.empty.noSessions.title')}</div>;
+              return <div className="py-1 text-left typography-micro text-muted-foreground">{"No sessions yet"}</div>;
             }
             const archivedGroup = activeSection.groups.find((candidate) => candidate.isArchivedBucket);
             const groupsToRender = [
@@ -387,7 +386,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
             <>
               <Icon name="history" className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/80" />
               <span className="truncate text-[14px] font-semibold lowercase text-foreground">
-                {t('sessions.sidebar.activity.recentTitle')}
+                {"recent"}
               </span>
             </>
           )}

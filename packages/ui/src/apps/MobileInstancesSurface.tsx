@@ -2,7 +2,6 @@ import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
-import { useI18n } from '@/lib/i18n';
 import { isRelayModeActive } from '@/lib/relay/runtime-tunnel';
 import { cn } from '@/lib/utils';
 
@@ -15,7 +14,6 @@ export const MobileInstancesSurface: React.FC<{
   onConnect: () => void;
   onActiveConnectionDeleted: () => void;
 }> = ({ onActiveConnectionDeleted, onConnect }) => {
-  const { t } = useI18n();
   const conn = useMobileConnection(onConnect);
   const {
     connections, isBusy, isPasswordBusy, error, pendingConnection,
@@ -88,16 +86,16 @@ export const MobileInstancesSurface: React.FC<{
           await conn.redeemPairingConnection(result.pairing);
           break;
         case 'permission-denied':
-          setError(t('mobile.connect.scan.permissionDenied'));
+          setError("Camera access is off. Enable it in Settings to scan a QR code.");
           break;
         case 'invalid':
-          setError(t('mobile.connect.scan.invalid'));
+          setError("That QR code is not an PiChamber connection code.");
           break;
         case 'unsupported':
-          setError(t('mobile.connect.scan.unsupported'));
+          setError("QR scanning is only available in the installed mobile app.");
           break;
         case 'failed':
-          setError(t('mobile.connect.scan.failed'));
+          setError("Could not scan that QR code. Try again or enter the URL manually.");
           break;
         case 'cancelled':
         default:
@@ -110,7 +108,7 @@ export const MobileInstancesSurface: React.FC<{
         setIsScanning(false);
       }
     }
-  }, [conn, setError, t]);
+  }, [conn, setError]);
 
   React.useEffect(() => () => scanAbortRef.current?.abort(), []);
 
@@ -158,7 +156,7 @@ export const MobileInstancesSurface: React.FC<{
               <div className="min-w-0">
                 <p className="truncate typography-ui-label text-foreground">{pendingConnection.label}</p>
                 <p className="truncate typography-small text-muted-foreground">
-                  {pendingConnection.candidates.some((c) => c.kind === 'direct') ? connectionDisplayUrl(pendingConnection) : t('mobile.connect.relay.badge')}
+                  {pendingConnection.candidates.some((c) => c.kind === 'direct') ? connectionDisplayUrl(pendingConnection) : "via PiChamber Relay"}
                 </p>
               </div>
             </div>
@@ -166,18 +164,18 @@ export const MobileInstancesSurface: React.FC<{
               {...mobileInputKeyboardProps}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder={t('mobile.connect.password.placeholder')}
-              aria-label={t('mobile.connect.password.label')}
+              placeholder={"PiChamber password"}
+              aria-label={"Password"}
               type="password"
               autoFocus
               className={inputClass}
             />
             {error ? <p className="px-1 typography-small text-[var(--status-error)]">{error}</p> : null}
             <Button type="submit" size="lg" className="mt-1 h-12 w-full" disabled={isPasswordBusy || !password.trim()}>
-              {isPasswordBusy ? t('mobile.connect.connecting') : t('mobile.connect.unlockButton')}
+              {isPasswordBusy ? "Connecting..." : "Unlock and connect"}
             </Button>
             <Button type="button" variant="ghost" size="sm" className="w-full" onClick={cancelPasswordPrompt}>
-              {t('mobile.connect.cancelPassword')}
+              {"Use another server"}
             </Button>
           </div>
         </form>
@@ -201,10 +199,10 @@ export const MobileInstancesSurface: React.FC<{
                 // Status line: the active instance says HOW it is connected right
                 // now (direct vs relay); others show their address.
                 const statusText = isConnectingRow
-                  ? t('mobile.connect.connecting')
+                  ? "Connecting..."
                   : isActive
-                    ? (isRelayModeActive() ? t('mobile.instances.status.connectedRelay') : t('mobile.instances.status.connectedDirect'))
-                    : connection.candidates.some((c) => c.kind === 'direct') ? connectionDisplayUrl(connection) : t('mobile.connect.relay.badge');
+                    ? (isRelayModeActive() ? "Connected · Private relay" : "Connected · Local network")
+                    : connection.candidates.some((c) => c.kind === 'direct') ? connectionDisplayUrl(connection) : "via PiChamber Relay";
                 return (
                   <div
                     key={connection.id}
@@ -245,18 +243,18 @@ export const MobileInstancesSurface: React.FC<{
                       {confirming ? (
                         <button
                           type="button"
-                          aria-label={t('mobile.instances.confirmDeleteAria', { label: connection.label })}
+                          aria-label={`Confirm deleting ${connection.label}`}
                           className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-destructive px-3 text-destructive-foreground transition-opacity active:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
                           onClick={() => confirmDelete(connection.id)}
                           style={{ touchAction: 'manipulation' }}
                         >
                           <Icon name="delete-bin" className="size-[18px]" />
-                          <span className="typography-ui-label">{t('mobile.instances.delete')}</span>
+                          <span className="typography-ui-label">{"Delete"}</span>
                         </button>
                       ) : !connection.candidates.some((c) => c.kind === 'direct') ? null : (
                         <button
                           type="button"
-                          aria-label={t('mobile.instances.edit')}
+                          aria-label={"Edit"}
                           className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors active:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                           onClick={() => {
                             setEditingId(connection.id);
@@ -273,8 +271,8 @@ export const MobileInstancesSurface: React.FC<{
                       <button
                         type="button"
                         aria-label={confirming
-                          ? t('mobile.instances.cancelDeleteAria', { label: connection.label })
-                          : t('mobile.instances.deleteAria', { label: connection.label })}
+                          ? `Keep ${connection.label}`
+                          : `Delete ${connection.label}`}
                         className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors active:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         onClick={() => toggleConfirmDelete(connection.id)}
                         style={{ touchAction: 'manipulation' }}
@@ -288,7 +286,7 @@ export const MobileInstancesSurface: React.FC<{
             </div>
           ) : (
             <p className="rounded-[18px] border border-dashed border-border/70 px-4 py-6 text-center typography-small text-muted-foreground">
-              {t('mobile.connect.saved.empty')}
+              {"No saved connections yet."}
             </p>
           )}
 
@@ -305,7 +303,7 @@ export const MobileInstancesSurface: React.FC<{
                   disabled={isScanning}
                 >
                   <Icon name="scan-2" className={cn('size-[18px]', isScanning && 'animate-pulse')} />
-                  {t('mobile.connect.scanQr')}
+                  {"Scan QR code"}
                 </Button>
               ) : null}
               <Button
@@ -316,7 +314,7 @@ export const MobileInstancesSurface: React.FC<{
                 onClick={() => { setError(null); setFormOpen(true); }}
               >
                 <Icon name="add" className="size-[18px]" />
-                {t('mobile.instances.addManual')}
+                {"Add by address"}
               </Button>
               {error ? <p className="px-1 text-center typography-small text-[var(--status-error)]">{error}</p> : null}
             </div>
@@ -324,19 +322,19 @@ export const MobileInstancesSurface: React.FC<{
             <form className="space-y-3" onSubmit={saveInstance}>
               <div className="flex h-8 items-center justify-between gap-3 px-1">
                 <h3 className="typography-ui-label text-foreground">
-                  {editingConnection ? t('mobile.instances.editTitle') : t('mobile.instances.addTitle')}
+                  {editingConnection ? "Edit instance" : "Add instance"}
                 </h3>
                 <Button type="button" variant="ghost" size="xs" onClick={resetForm}>
-                  {t('mobile.instances.cancelEdit')}
+                  {"Cancel"}
                 </Button>
               </div>
               <label className="block space-y-1.5">
-                <span className="block px-1 typography-ui-label text-foreground">{t('mobile.connect.url.label')}</span>
+                <span className="block px-1 typography-ui-label text-foreground">{"Server URL"}</span>
                 <input
                   {...mobileInputKeyboardProps}
                   value={url}
                   onChange={(event) => setUrl(event.target.value)}
-                  placeholder={t('mobile.connect.url.placeholder')}
+                  placeholder={"http://192.168.1.74:2606"}
                   type="url"
                   inputMode="url"
                   autoCapitalize="none"
@@ -344,11 +342,11 @@ export const MobileInstancesSurface: React.FC<{
                 />
               </label>
               <label className="block space-y-1.5">
-                <span className="block px-1 typography-ui-label text-foreground">{t('mobile.instances.label.label')}</span>
+                <span className="block px-1 typography-ui-label text-foreground">{"Name"}</span>
                 <input
                   value={label}
                   onChange={(event) => setLabel(event.target.value)}
-                  placeholder={t('mobile.instances.label.placeholder')}
+                  placeholder={"Optional display name"}
                   autoComplete="off"
                   autoCapitalize="words"
                   autoCorrect="off"
@@ -357,20 +355,20 @@ export const MobileInstancesSurface: React.FC<{
                 />
               </label>
               <label className="block space-y-1.5">
-                <span className="block px-1 typography-ui-label text-foreground">{t('mobile.connect.token.label')}</span>
+                <span className="block px-1 typography-ui-label text-foreground">{"Client token"}</span>
                 <input
                   {...mobileInputKeyboardProps}
                   value={clientToken}
                   onChange={(event) => setClientToken(event.target.value)}
-                  placeholder={t('mobile.connect.token.placeholder')}
+                  placeholder={"Paste access token"}
                   autoCapitalize="none"
                   className={inputClass}
                 />
-                <p className="px-1 typography-micro text-muted-foreground">{t('mobile.connect.token.hint')}</p>
+                <p className="px-1 typography-micro text-muted-foreground">{"Only needed if your server requires a token instead of a password."}</p>
               </label>
               {error ? <p className="px-1 typography-small text-[var(--status-error)]">{error}</p> : null}
               <Button type="submit" size="lg" className="mt-1 h-12 w-full">
-                {editingConnection ? t('mobile.instances.saveEdit') : t('mobile.instances.saveNew')}
+                {editingConnection ? "Save changes" : "Save instance"}
               </Button>
             </form>
           )}

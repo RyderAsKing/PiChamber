@@ -16,7 +16,6 @@ import { useUIStore } from '@/stores/useUIStore';
 import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { formatSessionCompactDateLabel } from './sidebar/utils';
 import type { SessionNode } from './sidebar/types';
-import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 type SecondaryMeta = SwitcherItem['secondaryMeta'];
@@ -72,7 +71,7 @@ function SwitcherContent({ onSelect, variant, scopeProjectId }: SwitcherContentP
   const items = useSwitcherItems(true, { scopeProjectId });
   const openNewSessionDraft = useSessionUIStore((state) => state.openNewSessionDraft);
   const setActiveMainTab = useUIStore((state) => state.setActiveMainTab);
-  const { t } = useI18n();
+  
 
   const handleNewSession = React.useCallback(() => {
     setActiveMainTab('chat');
@@ -105,12 +104,12 @@ function SwitcherContent({ onSelect, variant, scopeProjectId }: SwitcherContentP
         >
           <Icon name="chat-new" className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
           <span className="truncate text-[14px] font-normal leading-tight text-foreground">
-            {t('sessions.sidebar.header.actions.newSession')}
+            {"New session"}
           </span>
         </BaseMenu.Item>
         {items.length === 0 ? (
           <div className="px-3 py-4 text-center typography-meta text-muted-foreground">
-            {t('sessions.switcher.empty')}
+            {"No recent sessions"}
           </div>
         ) : (
           items.map((item) => (
@@ -186,7 +185,7 @@ type SwitcherRowProps = {
 };
 
 function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isExpanded, onToggleExpand, closeDropdown }: SwitcherRowProps): React.ReactElement {
-  const { t } = useI18n();
+  
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
   const notifyOnSubtasks = useUIStore((state) => state.notifyOnSubtasks);
@@ -195,7 +194,7 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
   const unseenCount = useSessionUnseenCount(session.id);
 
   const isActive = currentSessionId === session.id;
-  const sessionTitle = session.title?.trim() || t('sessions.sidebar.session.untitled');
+  const sessionTitle = session.title?.trim() || "Untitled Session";
   const isSubtask = Boolean((session as Session & { parentID?: string | null }).parentID);
   const needsAttention = unseenCount > 0 && (!isSubtask || notifyOnSubtasks);
   const statusType = sessionStatus?.type ?? 'idle';
@@ -248,7 +247,7 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
                 onToggleExpand?.();
               }}
               className="inline-flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:text-foreground"
-              aria-label={isExpanded ? t('sessions.sidebar.session.subsessions.collapse') : t('sessions.sidebar.session.subsessions.expand')}
+              aria-label={isExpanded ? "Collapse subsessions" : "Expand subsessions"}
             >
               {isExpanded ? <Icon name="arrow-down-s" className="h-3.5 w-3.5" /> : <Icon name="arrow-right-s" className="h-3.5 w-3.5" />}
             </span>
@@ -273,7 +272,7 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
                   onToggleExpand?.();
                 }}
                 className="inline-flex h-3 w-3 flex-shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:text-foreground"
-                aria-label={isExpanded ? t('sessions.sidebar.session.subsessions.collapse') : t('sessions.sidebar.session.subsessions.expand')}
+                aria-label={isExpanded ? "Collapse subsessions" : "Expand subsessions"}
               >
                 {isExpanded ? <Icon name="arrow-down-s" className="h-3 w-3" /> : <Icon name="arrow-right-s" className="h-3 w-3" />}
               </span>
@@ -295,14 +294,14 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
           {isStreaming ? (
             <span
               className="h-1.5 w-1.5 rounded-full bg-primary animate-busy-pulse"
-              aria-label={t('sessions.sidebar.session.status.active')}
-              title={t('sessions.sidebar.session.status.active')}
+              aria-label={"Session active"}
+              title={"Session active"}
             />
           ) : (
             <span
               className="h-1.5 w-1.5 rounded-full bg-[var(--status-info)]"
-              aria-label={t('sessions.sidebar.session.status.unread')}
-              title={t('sessions.sidebar.session.status.unread')}
+              aria-label={"Unread updates"}
+              title={"Unread updates"}
             />
           )}
         </span>

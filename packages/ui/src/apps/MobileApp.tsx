@@ -22,7 +22,6 @@ import { opencodeClient } from '@/lib/pi/legacy-ui-client';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { readTabletLayout, useOrientation, useTabletLayout } from '@/lib/device';
 import { useHardwareKeyboard } from '@/lib/hardwareKeyboard';
-import { useI18n } from '@/lib/i18n';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged, switchRuntimeEndpoint } from '@/lib/runtime-switch';
 import { refreshGlobalSessions, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
@@ -91,7 +90,7 @@ const NATIVE_RESUME_SYNC_EVENT_THROTTLE_MS = 1_000;
 type MobileSurface = 'instances' | 'settings' | 'update';
 
 const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onActiveConnectionDeleted }) => {
-  const { t } = useI18n();
+  
   const [sessionsSheetOpen, setSessionsSheetOpen] = React.useState(false);
   const [activeSurface, setActiveSurface] = React.useState<MobileSurface | null>(null);
   // Phone right drawer with the workspace tabs; the tab persists across
@@ -375,7 +374,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
               <IpadSidebarResizeHandle
                 side="left"
                 isResizing={leftResize.isResizing}
-                ariaLabel={t('sidebar.resize.leftPanelAria')}
+                ariaLabel={"Resize left panel"}
                 handleProps={leftResize.handleProps}
               />
             ) : null}
@@ -457,7 +456,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
               <IpadSidebarResizeHandle
                 side="right"
                 isResizing={rightResize.isResizing}
-                ariaLabel={t('sidebar.resize.rightPanelAria')}
+                ariaLabel={"Resize right panel"}
                 handleProps={rightResize.handleProps}
               />
             ) : null}
@@ -481,8 +480,8 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             variant={surfaceVariant}
             dialogAlign="app"
             onClose={closeSurface}
-            ariaLabel={t('mobile.menu.instances')}
-            title={t('mobile.menu.instances')}
+            ariaLabel={"Instances"}
+            title={"Instances"}
           >
             <MobileInstancesSurface
               onConnect={closeSurface}
@@ -497,7 +496,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             variant={surfaceVariant}
             dialogAlign="app"
             onClose={closeSurface}
-            ariaLabel={t('mobile.menu.settings')}
+            ariaLabel={"Settings"}
             headerless
           >
             <ErrorBoundary>
@@ -522,8 +521,8 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             variant={surfaceVariant}
             dialogAlign="app"
             onClose={closeSurface}
-            ariaLabel={t('mobile.menu.update')}
-            title={t('mobile.menu.update')}
+            ariaLabel={"Update"}
+            title={"Update"}
           >
             <ErrorBoundary>
               <div className="h-full overflow-auto px-5 py-4">
@@ -538,7 +537,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
 };
 
 export function MobileApp({ apis }: MobileAppProps) {
-  const { t } = useI18n();
+  
   const initializeApp = useConfigStore((state) => state.initializeApp);
   const isInitialized = useConfigStore((state) => state.isInitialized);
   const isConnected = useConfigStore((state) => state.isConnected);
@@ -970,10 +969,10 @@ export function MobileApp({ apis }: MobileAppProps) {
             {showConnectionRecovery ? (
               <>
                 <div className="space-y-2">
-                  <h1 className="typography-h3 text-foreground">{t('sessionAuth.error.networkTitle')}</h1>
+                  <h1 className="typography-h3 text-foreground">{"Unable to reach server"}</h1>
                   {/* Native copy — the browser-oriented sessionAuth description
                       (Desktop Network Access etc.) reads as noise here. */}
-                  <p className="typography-body text-muted-foreground">{t('mobile.connect.recovery.description')}</p>
+                  <p className="typography-body text-muted-foreground">{"Could not connect to the saved server. Check that it is running, or pick another instance."}</p>
                 </div>
                 <Button
                   type="button"
@@ -983,7 +982,7 @@ export function MobileApp({ apis }: MobileAppProps) {
                     setConnectionEpoch((value) => value + 1);
                   }}
                 >
-                  {t('mobile.connect.cancelPassword')}
+                  {"Use another server"}
                 </Button>
               </>
             ) : null}
@@ -1002,7 +1001,7 @@ export function MobileApp({ apis }: MobileAppProps) {
               the text never pushes it up. 50% + half the 120px logo + a gap. */}
           {autoConnectLabel ? (
             <div className="absolute inset-x-0 top-[calc(50%+84px)] flex flex-col items-center gap-0.5 px-6 text-center">
-              <p className="typography-small text-muted-foreground">{t('mobile.connect.splash.connectingTo')}</p>
+              <p className="typography-small text-muted-foreground">{"Connecting to device:"}</p>
               <p className="typography-small text-foreground">
                 {autoConnectLabel}
                 <BusyDots />
@@ -1036,8 +1035,8 @@ export function MobileApp({ apis }: MobileAppProps) {
     return (
       <main className="flex min-h-dvh items-center justify-center bg-background px-6 text-center text-foreground">
         <div className="max-w-sm space-y-3">
-          <h1 className="typography-h3 text-foreground">{t('sessionAuth.error.networkTitle')}</h1>
-          <p className="typography-body text-muted-foreground">{t('sessionAuth.error.networkDescription')}</p>
+          <h1 className="typography-h3 text-foreground">{"Unable to reach server"}</h1>
+          <p className="typography-body text-muted-foreground">{"We could not verify the UI session. If you're opening PiChamber from another device on your local network, make sure Desktop Network Access is enabled on the desktop app and use the LAN address shown in Settings."}</p>
         </div>
       </main>
     );

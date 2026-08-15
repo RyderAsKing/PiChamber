@@ -1,7 +1,6 @@
 import React from 'react';
 import { toast } from '@/components/ui';
 import { parseModelIdentifier } from '@/lib/modelIdentifier';
-import { useI18n } from '@/lib/i18n';
 import type { ProjectEntry } from '@/lib/api/types';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 
@@ -32,7 +31,6 @@ type EditableProject = Pick<
 >;
 
 export const useProjectIdentityForm = (project: EditableProject | null) => {
-  const { t } = useI18n();
   const uploadProjectIcon = useProjectsStore((state) => state.uploadProjectIcon);
   const removeProjectIcon = useProjectsStore((state) => state.removeProjectIcon);
   const discoverProjectIcon = useProjectsStore((state) => state.discoverProjectIcon);
@@ -170,18 +168,18 @@ export const useProjectIdentityForm = (project: EditableProject | null) => {
     try {
       const result = await discoverProjectIcon(project.id);
       if (!result.ok) {
-        toast.error(result.error || t('settings.projects.page.toast.discoverIconFailed'));
+        toast.error(result.error || "Failed to discover project icon");
         return;
       }
       if (result.skipped) {
-        toast.success(t('settings.projects.page.toast.customIconAlreadySet'));
+        toast.success("Custom icon already set for this project");
         return;
       }
-      toast.success(t('settings.projects.page.toast.iconDiscovered'));
+      toast.success("Project icon discovered");
     } finally {
       setIsDiscoveringIcon(false);
     }
-  }, [clearPendingUploadIcon, discoverProjectIcon, isDiscoveringIcon, project, t]);
+  }, [clearPendingUploadIcon, discoverProjectIcon, isDiscoveringIcon, project]);
 
   const prepareSaveData = React.useCallback(async (options?: { silent?: boolean }): Promise<ProjectIdentitySaveData | null> => {
     const silent = options?.silent === true;
@@ -199,11 +197,11 @@ export const useProjectIdentityForm = (project: EditableProject | null) => {
       const uploadResult = await uploadProjectIcon(project.id, pendingUploadIconFile);
       setIsUploadingIcon(false);
       if (!uploadResult.ok) {
-        toast.error(uploadResult.error || t('settings.projects.page.toast.uploadIconFailed'));
+        toast.error(uploadResult.error || "Failed to upload project icon");
         return null;
       }
       if (!silent) {
-        toast.success(t('settings.projects.page.toast.iconUpdated'));
+        toast.success("Project icon updated");
       }
       clearPendingUploadIcon();
       setPendingRemoveImageIcon(false);
@@ -216,11 +214,11 @@ export const useProjectIdentityForm = (project: EditableProject | null) => {
       const removeResult = await removeProjectIcon(project.id);
       setIsRemovingCustomIcon(false);
       if (!removeResult.ok) {
-        toast.error(removeResult.error || t('settings.projects.page.toast.removeIconFailed'));
+        toast.error(removeResult.error || "Failed to remove project icon");
         return null;
       }
       if (!silent) {
-        toast.success(t('settings.projects.page.toast.iconRemoved'));
+        toast.success("Project icon removed");
       }
       setPendingRemoveImageIcon(false);
       setIconBackground(null);
@@ -244,7 +242,6 @@ export const useProjectIdentityForm = (project: EditableProject | null) => {
     pendingUploadIconFile,
     project,
     removeProjectIcon,
-    t,
     uploadProjectIcon,
   ]);
 

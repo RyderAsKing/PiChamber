@@ -11,7 +11,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils';
 import { Icon } from "@/components/icon/Icon";
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
-import { useI18n } from '@/lib/i18n';
 
 type Props = {
   hideDirectoryControls: boolean;
@@ -34,7 +33,6 @@ type Props = {
 };
 
 export function SidebarHeader(props: Props): React.ReactNode {
-  const { t } = useI18n();
   const {
     hideDirectoryControls,
     showRecentControls,
@@ -81,12 +79,12 @@ export function SidebarHeader(props: Props): React.ReactNode {
                   type="button"
                   onClick={handleOpenDirectoryDialog}
                   className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
-                  aria-label={t('sessions.sidebar.header.actions.addProject')}
+                  aria-label={"Add project"}
                 >
                   <Icon name="folder-add" className={headerActionIconClass} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.header.actions.addProject')}</p></TooltipContent>
+              <TooltipContent side="bottom" sideOffset={4}><p>{"Add project"}</p></TooltipContent>
             </Tooltip>
 
 
@@ -97,12 +95,12 @@ export function SidebarHeader(props: Props): React.ReactNode {
                   type="button"
                   onClick={onOpenArchive}
                   className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
-                  aria-label={t('sessions.sidebar.nav.archive')}
+                  aria-label={"Archive"}
                 >
                   <Icon name="archive" className={headerActionIconClass} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.nav.archive')}</p></TooltipContent>
+              <TooltipContent side="bottom" sideOffset={4}><p>{"Archive"}</p></TooltipContent>
             </Tooltip>
           </div>
 
@@ -113,13 +111,13 @@ export function SidebarHeader(props: Props): React.ReactNode {
                   type="button"
                   onClick={() => setIsSessionSearchOpen((prev) => !prev)}
                   className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
-                  aria-label={t('sessions.sidebar.header.actions.searchSessions')}
+                  aria-label={"Search sessions"}
                   aria-expanded={isSessionSearchOpen}
                 >
                   <Icon name="search" className={headerActionIconClass} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.header.actions.searchSessions')}</p></TooltipContent>
+              <TooltipContent side="bottom" sideOffset={4}><p>{"Search sessions"}</p></TooltipContent>
             </Tooltip>
 
             <Tooltip>
@@ -129,8 +127,8 @@ export function SidebarHeader(props: Props): React.ReactNode {
                   onClick={onToggleSelectionMode}
                   className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent', selectionModeEnabled && 'bg-interactive-hover text-primary')}
                   aria-label={selectionModeEnabled
-                    ? t('sessions.sidebar.header.actions.exitSelection')
-                    : t('sessions.sidebar.header.actions.selectSessions')}
+                    ? "Exit selection"
+                    : "Select sessions"}
                   aria-pressed={selectionModeEnabled}
                 >
                   <Icon name="checkbox-multiple" className={headerActionIconClass} />
@@ -138,8 +136,8 @@ export function SidebarHeader(props: Props): React.ReactNode {
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}>
                 <p>{selectionModeEnabled
-                  ? t('sessions.sidebar.header.actions.exitSelection')
-                  : t('sessions.sidebar.header.actions.selectSessions')}</p>
+                  ? "Exit selection"
+                  : "Select sessions"}</p>
               </TooltipContent>
             </Tooltip>
 
@@ -150,29 +148,29 @@ export function SidebarHeader(props: Props): React.ReactNode {
                     <button
                       type="button"
                       className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
-                      aria-label={t('sessions.sidebar.header.displayMode.label')}
+                      aria-label={"Display mode"}
                     >
                       <Icon name="equalizer-2" className={headerActionIconClass} />
                     </button>
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.header.displayMode.label')}</p></TooltipContent>
+                <TooltipContent side="bottom" sideOffset={4}><p>{"Display mode"}</p></TooltipContent>
               </Tooltip>
               <DropdownMenuContent align="end" className="min-w-[180px]">
-                <DropdownMenuLabel>{t('sessions.sidebar.header.actions.sortProjects')}</DropdownMenuLabel>
+                <DropdownMenuLabel>{"Sort projects"}</DropdownMenuLabel>
                 {([
-                  ['manual', 'sessions.sidebar.header.projectSort.manual'],
-                  ['a-z', 'sessions.sidebar.header.projectSort.aToZ'],
-                  ['z-a', 'sessions.sidebar.header.projectSort.zToA'],
-                  ['date-added', 'sessions.sidebar.header.projectSort.dateAdded'],
-                  ['recent', 'sessions.sidebar.header.projectSort.recent'],
-                ] as const).map(([order, labelKey]) => (
+                  ['manual', 'Manual'],
+                  ['a-z', 'A → Z'],
+                  ['z-a', 'Z → A'],
+                  ['date-added', 'Newest'],
+                  ['recent', 'Recent'],
+                ] as const).map(([order, label]) => (
                   <DropdownMenuItem
                     key={order}
                     onClick={() => setProjectSortOrder(order)}
                     className="flex items-center justify-between"
                   >
-                    <span>{t(labelKey)}</span>
+                    <span>{label}</span>
                     {projectSortOrder === order ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
                   </DropdownMenuItem>
                 ))}
@@ -182,7 +180,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                     onClick={toggleRecentSection}
                     className="flex items-center justify-between"
                   >
-                    <span>{t('sessions.sidebar.header.displayMode.showRecent')}</span>
+                    <span>{"Show recent section"}</span>
                     {showRecentSection ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
                   </DropdownMenuItem>
                 ) : null}
@@ -190,17 +188,17 @@ export function SidebarHeader(props: Props): React.ReactNode {
                   onClick={toggleStickyZoneHeaders}
                   className="flex items-center justify-between"
                 >
-                  <span>{t('sessions.sidebar.header.displayMode.stickyHeaders')}</span>
+                  <span>{"Sticky project headers"}</span>
                   {stickyZoneHeaders ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={collapseAllProjects} className="flex items-center gap-2">
                   <Icon name="contract-up-down" className="h-4 w-4" />
-                  <span>{t('sessions.sidebar.header.displayMode.collapseAll')}</span>
+                  <span>{"Collapse all"}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={expandAllProjects} className="flex items-center gap-2">
                   <Icon name="expand-up-down" className="h-4 w-4" />
-                  <span>{t('sessions.sidebar.header.displayMode.expandAll')}</span>
+                  <span>{"Expand all"}</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -212,10 +210,10 @@ export function SidebarHeader(props: Props): React.ReactNode {
             <div className="mb-1 flex items-center justify-between px-0.5 typography-micro text-muted-foreground/80">
               {hasSessionSearchQuery ? (
                 <span>{searchMatchCount === 1
-                  ? t('sessions.sidebar.header.search.matchCountSingle', { count: searchMatchCount })
-                  : t('sessions.sidebar.header.search.matchCountPlural', { count: searchMatchCount })}</span>
+                  ? `${searchMatchCount} match`
+                  : `${searchMatchCount} matches`}</span>
               ) : <span />}
-              <span>{t('sessions.sidebar.header.search.escapeHint')}</span>
+              <span>{"Esc to clear"}</span>
             </div>
             <div className="relative">
               <Icon name="search" className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -223,7 +221,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                 ref={sessionSearchInputRef}
                 value={sessionSearchQuery}
                 onChange={(event) => setSessionSearchQuery(event.target.value)}
-                placeholder={t('sessions.sidebar.header.search.placeholder')}
+                placeholder={"Search sessions..."}
                 className="h-8 w-full rounded-md border border-border bg-transparent pl-8 pr-8 typography-ui-label text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                 onKeyDown={(event) => {
                   if (event.key === 'Escape') {
@@ -241,7 +239,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                   type="button"
                   onClick={() => setSessionSearchQuery('')}
                   className="absolute right-1 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-interactive-hover/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                  aria-label={t('sessions.sidebar.header.search.clear')}
+                  aria-label={"Clear search"}
                 >
                   <Icon name="close" className="h-3.5 w-3.5" />
                 </button>

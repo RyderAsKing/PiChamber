@@ -9,13 +9,12 @@ import { isDrawioFile } from '@/lib/toolHelpers';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { Icon } from "@/components/icon/Icon";
-import { useI18n } from '@/lib/i18n';
 import { useDeviceInfo } from '@/lib/device';
 
 import type { ToolPopupContent } from './message/types';
 
 const FileAttachmentButton = memo(() => {
-  const { t } = useI18n();
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const addAttachedFile = useInputStore((state) => state.addAttachedFile);
   const isMobile = useUIStore((state) => state.isMobile);
@@ -29,7 +28,7 @@ const FileAttachmentButton = memo(() => {
         await addAttachedFile(file);
       } catch (error) {
         console.error('File attach failed', error);
-        toast.error(error instanceof Error ? error.message : t('chat.fileAttachment.toast.attachFailed'));
+        toast.error(error instanceof Error ? error.message : "Failed to attach file");
       }
     }
   };
@@ -63,13 +62,13 @@ const FileAttachmentButton = memo(() => {
               'hover:bg-muted text-muted-foreground',
               buttonSizeClass
             )}
-            aria-label={t('chat.fileAttachment.actions.attachAria')}
+            aria-label={"Attach files"}
           >
             <Icon name="attachment-2" className={iconSizeClass} />
           </button>
         </TooltipTrigger>
         <TooltipContent side="top">
-          <p>{t('chat.fileAttachment.actions.attach')}</p>
+          <p>{"Attach files"}</p>
         </TooltipContent>
       </Tooltip>
     </>
@@ -87,7 +86,7 @@ interface ImagePreviewProps {
 }
 
 const ImagePreview = memo(({ file, onRemove, onShowPopup, gallery, index = 0 }: ImagePreviewProps) => {
-  const { t } = useI18n();
+  
   const { isMobile, isTablet } = useDeviceInfo();
   const alwaysShowActions = isMobile || isTablet;
   const isLocalImagePreview =
@@ -152,7 +151,7 @@ const ImagePreview = memo(({ file, onRemove, onShowPopup, gallery, index = 0 }: 
             onRemove();
           }}
           className="flex items-center justify-center h-5 w-5 flex-shrink-0 hover:bg-[var(--interactive-hover)] rounded-full transition-colors cursor-pointer"
-          aria-label={t('chat.fileAttachment.actions.removeNamed', { name: displayName })}
+          aria-label={`Remove ${displayName}`}
         >
           <Icon name="close" className="h-4 w-4 text-muted-foreground" />
         </span>
@@ -190,8 +189,8 @@ const ImagePreview = memo(({ file, onRemove, onShowPopup, gallery, index = 0 }: 
           "absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-background/80 text-foreground hover:text-destructive flex items-center justify-center transition-opacity focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
           alwaysShowActions ? "opacity-100" : "opacity-0 group-hover:opacity-100"
         )}
-        title={t('chat.fileAttachment.actions.removeImage')}
-        aria-label={t('chat.fileAttachment.actions.removeNamed', { name: displayName })}
+        title={"Remove image"}
+        aria-label={`Remove ${displayName}`}
       >
         <Icon name="close" className="h-2.5 w-2.5" />
       </button>
@@ -234,7 +233,7 @@ interface FileChipProps {
 }
 
 const FileChip = memo(({ file, onRemove }: FileChipProps) => {
-  const { t } = useI18n();
+  
   const { displayName, fileSize, extension } = useFileDetails(file);
 
   return (
@@ -260,7 +259,7 @@ const FileChip = memo(({ file, onRemove }: FileChipProps) => {
           onRemove();
         }}
         className="flex items-center justify-center h-5 w-5 flex-shrink-0 hover:bg-[var(--interactive-hover)] rounded-full transition-colors cursor-pointer"
-        aria-label={t('chat.fileAttachment.actions.removeNamed', { name: displayName })}
+        aria-label={`Remove ${displayName}`}
       >
         <Icon name="close" className="h-4 w-4 text-muted-foreground" />
       </span>
@@ -356,7 +355,7 @@ interface MessageFilesDisplayProps {
 }
 
 export const MessageFilesDisplay = memo(({ files, onShowPopup, compact = false }: MessageFilesDisplayProps) => {
-  const { t } = useI18n();
+  
 
   const fileItems = files.filter(f => f.type === 'file' && (f.mime || f.url));
 
@@ -624,13 +623,13 @@ export const MessageFilesDisplay = memo(({ files, onShowPopup, compact = false }
                   <Icon name="file" className={cn("text-muted-foreground shrink-0", compact ? "h-3.5 w-3.5" : "h-4 w-4")} />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{fileName}</p>
-                    <p className="text-xs text-status-info">{t('chat.fileAttachment.openInDiagram')}</p>
+                    <p className="text-xs text-status-info">{"Open in diagram view"}</p>
                   </div>
                   <Icon name="external-link" className={cn("text-muted-foreground shrink-0", compact ? "h-3 w-3" : "h-3.5 w-3.5")} />
                 </button>
               </TooltipTrigger>
               <TooltipContent>
-                <p>{t('chat.fileAttachment.openInDiagram')}</p>
+                <p>{"Open in diagram view"}</p>
               </TooltipContent>
             </Tooltip>
           );

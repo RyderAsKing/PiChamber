@@ -3,7 +3,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/useUIStore';
-import { useI18n } from '@/lib/i18n';
 import { useProjectActionsContext } from '@/hooks/useProjectActionsContext';
 import { ProjectActionsButton } from '@/components/layout/ProjectActionsButton';
 import { WindowsWindowControls } from '@/components/desktop/WindowsWindowControls';
@@ -26,7 +25,7 @@ const ICON_BUTTON_CLASS =
  * so the header can reserve matching space when the sidebar is collapsed.
  */
 export const TitlebarLeftControls: React.FC = () => {
-  const { t } = useI18n();
+  
   const toggleSidebar = useUIStore((state) => state.toggleSidebar);
   const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
   const projectActionsContext = useProjectActionsContext();
@@ -96,14 +95,14 @@ export const TitlebarLeftControls: React.FC = () => {
               <button
                 type="button"
                 onClick={handleOpenWindowsAppMenu}
-                aria-label={t('header.actions.openAppMenuAria')}
+                aria-label={"Open PiChamber menu"}
                 className={cn(ICON_BUTTON_CLASS, 'shrink-0')}
               >
                 <Icon name="menu-2" className="h-[18px] w-[18px]" />
               </button>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{t('header.actions.openAppMenu')}</p>
+              <p>{"PiChamber menu"}</p>
             </TooltipContent>
           </Tooltip>
         ) : null}
@@ -113,14 +112,14 @@ export const TitlebarLeftControls: React.FC = () => {
             <button
               type="button"
               onClick={toggleSidebar}
-              aria-label={t('header.actions.openSessionsAria')}
+              aria-label={"Open sessions"}
               className={cn(ICON_BUTTON_CLASS, 'shrink-0')}
             >
               <Icon name="layout-left" className="h-[18px] w-[18px]" />
             </button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>{t('header.actions.openSessionsWithShortcut', { shortcut: toggleShortcut })}</p>
+            <p>{`Open sessions (${toggleShortcut})`}</p>
           </TooltipContent>
         </Tooltip>
 

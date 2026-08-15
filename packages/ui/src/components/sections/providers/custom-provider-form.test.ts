@@ -11,7 +11,6 @@ import {
   type CustomProviderFormState,
 } from './custom-provider-form';
 
-const t = (key: string) => key;
 
 const baseForm = (overrides: Partial<CustomProviderFormState> = {}): CustomProviderFormState => ({
   providerID: 'custom-provider',
@@ -59,7 +58,6 @@ describe('validateCustomProvider', () => {
           { row: 'h1', key: '', value: '' },
         ],
       }),
-      t,
       existingProviderIDs: new Set(),
     });
 
@@ -88,7 +86,6 @@ describe('validateCustomProvider', () => {
       form: baseForm({
         apiKey: '{env: CUSTOM_PROVIDER_KEY}',
       }),
-      t,
       existingProviderIDs: new Set(),
     });
 
@@ -99,18 +96,16 @@ describe('validateCustomProvider', () => {
   test('rejects missing credentials', () => {
     const result = validateCustomProvider({
       form: baseForm({ apiKey: '   ' }),
-      t,
       existingProviderIDs: new Set(),
     });
 
     expect(result.result).toEqual(undefined);
-    expect(result.err.apiKey).toBe('settings.providers.page.custom.error.apiKey.required');
+    expect(result.err.apiKey).toBe('API key or {env:VAR_NAME} is required');
   });
 
   test('allows empty api key when editing with existing auth', () => {
     const result = validateCustomProvider({
       form: baseForm({ apiKey: '' }),
-      t,
       existingProviderIDs: new Set(['custom-provider']),
       editingProviderID: 'custom-provider',
       allowExistingAuth: true,
@@ -135,19 +130,18 @@ describe('validateCustomProvider', () => {
           { row: 'h1', key: 'authorization', value: 'two' },
         ],
       }),
-      t,
       existingProviderIDs: new Set(),
     });
 
     expect(result.result).toEqual(undefined);
-    expect(result.err.providerID).toBe('settings.providers.page.custom.error.providerID.format');
-    expect(result.err.baseURL).toBe('settings.providers.page.custom.error.baseURL.format');
+    expect(result.err.providerID).toBe("Use lowercase letters, numbers, hyphens, or underscores");
+    expect(result.err.baseURL).toBe("Base URL must start with http:// or https://");
     expect(result.models[1]).toEqual({
-      id: 'settings.providers.page.custom.error.duplicate',
+      id: 'Duplicate',
       name: undefined,
     });
     expect(result.headers[1]).toEqual({
-      key: 'settings.providers.page.custom.error.duplicate',
+      key: 'Duplicate',
       value: undefined,
     });
   });
@@ -155,7 +149,6 @@ describe('validateCustomProvider', () => {
   test('allows reconnecting a disabled provider id', () => {
     const result = validateCustomProvider({
       form: baseForm(),
-      t,
       existingProviderIDs: new Set(['custom-provider']),
       disabledProviders: ['custom-provider'],
     });
@@ -167,18 +160,16 @@ describe('validateCustomProvider', () => {
   test('rejects an already-connected provider id on create', () => {
     const result = validateCustomProvider({
       form: baseForm(),
-      t,
       existingProviderIDs: new Set(['custom-provider']),
     });
 
     expect(result.result).toEqual(undefined);
-    expect(result.err.providerID).toBe('settings.providers.page.custom.error.providerID.exists');
+    expect(result.err.providerID).toBe('A provider with this ID is already connected');
   });
 
   test('allows updating the same provider id while editing', () => {
     const result = validateCustomProvider({
       form: baseForm({ apiKey: 'sk-updated' }),
-      t,
       existingProviderIDs: new Set(['custom-provider']),
       editingProviderID: 'custom-provider',
     });
@@ -192,7 +183,6 @@ describe('request construction', () => {
   test('builds auth.set and provider upsert requests', () => {
     const validated = validateCustomProvider({
       form: baseForm(),
-      t,
       existingProviderIDs: new Set(),
     });
     const plan = validated.result!;
@@ -211,7 +201,6 @@ describe('request construction', () => {
   test('includes explicit project/custom scope on upsert requests', () => {
     const validated = validateCustomProvider({
       form: baseForm(),
-      t,
       existingProviderIDs: new Set(),
     });
     const plan = validated.result!;
@@ -223,7 +212,6 @@ describe('request construction', () => {
   test('omits auth.set when using env credentials', () => {
     const validated = validateCustomProvider({
       form: baseForm({ apiKey: '{env:MY_KEY}' }),
-      t,
       existingProviderIDs: new Set(),
     });
 
@@ -235,7 +223,6 @@ describe('mergeProviderConfig persistence shape', () => {
   test('merges provider block and clears disabled_providers entry', () => {
     const validated = validateCustomProvider({
       form: baseForm(),
-      t,
       existingProviderIDs: new Set(),
     });
     const plan = validated.result!;
@@ -265,7 +252,6 @@ describe('mergeProviderConfig persistence shape', () => {
   test('creates provider section when missing', () => {
     const validated = validateCustomProvider({
       form: baseForm(),
-      t,
       existingProviderIDs: new Set(),
     });
     const plan = validated.result!;

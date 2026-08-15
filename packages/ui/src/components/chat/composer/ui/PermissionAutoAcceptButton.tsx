@@ -10,7 +10,6 @@ import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 type PermissionAutoAcceptButtonProps = {
@@ -23,7 +22,7 @@ type PermissionAutoAcceptButtonProps = {
 };
 
 export const PermissionAutoAcceptButton = React.memo(function PermissionAutoAcceptButton(props: PermissionAutoAcceptButtonProps) {
-    const { t } = useI18n();
+    
     const {
         footerIconButtonClass,
         iconSizeClass,
@@ -34,11 +33,11 @@ export const PermissionAutoAcceptButton = React.memo(function PermissionAutoAcce
     } = props;
 
     const ariaLabel = permissionAutoAcceptEnabled
-        ? t('chat.chatInput.permissionAutoAccept.disable')
-        : t('chat.chatInput.permissionAutoAccept.enable');
+        ? "Disable permission auto-accept"
+        : "Enable permission auto-accept";
     const tooltipLabel = permissionAutoAcceptEnabled
-        ? t('chat.chatInput.permissionAutoAccept.on')
-        : t('chat.chatInput.permissionAutoAccept.off');
+        ? "Permission auto-accept: on"
+        : "Permission auto-accept: off";
 
     const button = (
         <button

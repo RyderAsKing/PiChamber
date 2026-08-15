@@ -12,7 +12,6 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { useI18n } from '@/lib/i18n';
 import { PROJECT_COLOR_MAP, PROJECT_ICON_MAP, ProjectIconImage } from '@/lib/projectMeta';
 import type { Theme } from '@/types/theme';
 import { getProjectDisplayLabel, type DraftTargetProject } from '../state/useDraftTarget';
@@ -71,7 +70,7 @@ export function ProjectLabel({ project, theme }: { project: DraftTargetProject; 
 
 /** Desktop inline selects for the project and (when git) its branch. */
 export function DraftTargetSelectors(props: DraftTargetProps) {
-    const { t } = useI18n();
+    
     const {
         projects,
         selectedProject,
@@ -118,13 +117,13 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
                         className="h-7 min-w-0 w-fit max-w-[48vw] sm:max-w-[20rem] border-transparent bg-transparent px-1.5 hover:bg-transparent data-[popup-open]:bg-transparent"
                     >
                         <SelectValue>
-                            {selectedBranchLabel ?? t('chat.chatInput.branch')}
+                            {selectedBranchLabel ?? "Branch"}
                         </SelectValue>
                     </SelectTrigger>
                     <SelectContent className="w-max min-w-48">
                         {projectRootBranchOption ? (
                             <SelectGroup>
-                                <SelectLabel>{t('chat.chatInput.projectRoot')}</SelectLabel>
+                                <SelectLabel>{"Project root"}</SelectLabel>
                                 <SelectItem key={projectRootBranchOption.value} value={projectRootBranchOption.value} className="max-w-[24rem] truncate">
                                     {projectRootBranchOption.label}
                                 </SelectItem>
@@ -147,7 +146,7 @@ export function MobileDraftTargetTriggers(
     props: Pick<DraftTargetProps, 'selectedProject' | 'selectedBranchLabel' | 'showBranchSelector' | 'theme'>
         & { onOpenPicker: (picker: 'project' | 'branch') => void },
 ) {
-    const { t } = useI18n();
+    
     const { selectedProject, selectedBranchLabel, showBranchSelector, theme, onOpenPicker } = props;
 
     return (
@@ -167,7 +166,7 @@ export function MobileDraftTargetTriggers(
                     onClick={() => onOpenPicker('branch')}
                 >
                     <Icon name="git-branch" className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
-                    <span className="truncate">{selectedBranchLabel ?? t('chat.chatInput.branch')}</span>
+                    <span className="truncate">{selectedBranchLabel ?? "Branch"}</span>
                     <Icon name="arrow-down-s" className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
                 </button>
             ) : null}
@@ -182,7 +181,7 @@ export function MobileDraftTargetSheets(
         onOpenPickerChange: (picker: 'project' | 'branch' | null) => void;
     },
 ) {
-    const { t } = useI18n();
+    
     const {
         projects,
         selectedProject,
@@ -219,7 +218,7 @@ export function MobileDraftTargetSheets(
             <MobileOverlayPanel
                 open={openPicker === 'project'}
                 onClose={() => onOpenPickerChange(null)}
-                title={t('chat.chatInput.draftPicker.projectTitle')}
+                title={"Project"}
             >
                 <div className="flex flex-col py-1">
                     {projects.length > 5 ? (
@@ -227,7 +226,7 @@ export function MobileDraftTargetSheets(
                             <Input
                                 value={projectSearch}
                                 onChange={(e) => setProjectSearch(e.target.value)}
-                                placeholder={t('chat.chatInput.draftPicker.searchProjects')}
+                                placeholder={"Search projects..."}
                                 className="h-8 typography-meta"
                                 autoFocus
                             />
@@ -262,7 +261,7 @@ export function MobileDraftTargetSheets(
             <MobileOverlayPanel
                 open={openPicker === 'branch'}
                 onClose={() => onOpenPickerChange(null)}
-                title={t('chat.chatInput.branch')}
+                title={"Branch"}
             >
                 <div className="flex flex-col py-1">
                     <div className="max-h-[60vh] overflow-y-auto px-2">
@@ -293,7 +292,7 @@ export function MobileDraftTargetSheets(
                                     {projectRootBranchOption && matches(projectRootBranchOption.label) ? (
                                         <>
                                             <div className="px-2 pb-1 pt-1.5 text-muted-foreground typography-meta">
-                                                {t('chat.chatInput.projectRoot')}
+                                                {"Project root"}
                                             </div>
                                             {renderRow(projectRootBranchOption.value, projectRootBranchOption.label)}
                                         </>

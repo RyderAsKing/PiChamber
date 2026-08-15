@@ -23,7 +23,6 @@ import {
 import type { GitStatus } from '@/lib/api/types';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/useUIStore';
-import { useI18n } from '@/lib/i18n';
 
 export interface ChangesGroupConfig {
   /** Stable id (e.g. 'staged' | 'unstaged'). */
@@ -86,7 +85,6 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
   onRevertAll,
   onRevertDirectory,
 }) => {
-  const { t } = useI18n();
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
   const gitChangesViewMode = useUIStore((state) => state.gitChangesViewMode);
   const isTreeView = gitChangesViewMode === 'tree';
@@ -367,8 +365,8 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
             className="flex min-w-0 flex-1 items-center gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             aria-label={
               isExpanded
-                ? t('gitView.changes.collapseDirectoryAria', { path: directory.path })
-                : t('gitView.changes.expandDirectoryAria', { path: directory.path })
+                ? `Collapse directory ${directory.path}`
+                : `Expand directory ${directory.path}`
             }
           >
             {isExpanded ? (
@@ -387,8 +385,8 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
               onClick={() => setPendingDirectoryRevert({ path: directory.path, paths: directoryPaths, count: directoryPaths.length })}
               disabled={isDirectoryReverting}
               className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)] disabled:cursor-not-allowed disabled:opacity-50"
-              aria-label={t('gitView.changes.revertDirectoryAria', { path: directory.path })}
-              title={t('gitView.changes.revertDirectoryTooltip')}
+              aria-label={`Revert changes in ${directory.path}`}
+              title={"Revert folder changes"}
             >
               {isDirectoryReverting ? (
                 <Icon name="loader-4" className="size-3.5 animate-spin" />
@@ -401,21 +399,15 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
             type="button"
             onClick={() => group.onActionAll(directory.files.map((file) => file.path))}
             className="flex size-5 shrink-0 items-center justify-center rounded typography-micro font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]"
-            aria-label={t(
-              group.actionSymbol === '+' ? 'gitView.changes.stageDirectoryAria' : 'gitView.changes.unstageDirectoryAria',
-              { path: directory.path }
-            )}
-            title={t(
-              group.actionSymbol === '+' ? 'gitView.changes.stageDirectoryAria' : 'gitView.changes.unstageDirectoryAria',
-              { path: directory.path }
-            )}
+            aria-label={(group.actionSymbol === '+' ? `Stage all changes in ${directory.path}` : `Unstage all changes in ${directory.path}`)}
+            title={(group.actionSymbol === '+' ? `Stage all changes in ${directory.path}` : `Unstage all changes in ${directory.path}`)}
           >
             {group.actionSymbol}
           </button>
         </div>
       );
     },
-    [expandedDirectories, isRevertingAll, onRevertDirectory, revertingPaths, t, toggleDirectoryExpanded]
+    [expandedDirectories, isRevertingAll, onRevertDirectory, revertingPaths, toggleDirectoryExpanded]
   );
 
   const renderRow = React.useCallback(
@@ -431,7 +423,7 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
               className="gap-1.5 text-[var(--status-error)] hover:bg-[var(--status-error)]/10 hover:text-[var(--status-error)]"
             >
               <Icon name="arrow-go-back" className="size-3.5" />
-              {t('gitView.changes.revertAll')}
+              {"Revert all"}
             </Button>
           </div>
         );
@@ -466,7 +458,7 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
         />
       );
     },
-    [diffStats, isRevertingAll, isTreeView, renderDirectory, renderHeader, revertingPaths, t, visibleGroups]
+    [diffStats, isRevertingAll, isTreeView, renderDirectory, renderHeader, revertingPaths, visibleGroups]
   );
 
   // A divider is drawn above a file/directory row only when the row directly above
@@ -520,7 +512,7 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
               })}
             </div>
           ) : (
-            <div role="list" aria-label={t('gitView.changes.changedFilesAria')}>
+            <div role="list" aria-label={"Changed files"}>
               {rows.map((row, index) => (
                 <div
                   key={row.key}
@@ -547,16 +539,16 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{t('gitView.changes.revertAllDialogTitle')}</DialogTitle>
+            <DialogTitle>{"Revert all changes?"}</DialogTitle>
             <DialogDescription>
               {revertAllCount === 1
-                ? t('gitView.changes.revertAllDescriptionSingle', { count: revertAllCount })
-                : t('gitView.changes.revertAllDescriptionPlural', { count: revertAllCount })}
+                ? `Revert ${revertAllCount} changed file? This cannot be undone.`
+                : `Revert ${revertAllCount} changed files? This cannot be undone.`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setRevertAllOpen(false)} disabled={isRevertingAll}>
-              {t('gitView.common.cancel')}
+              {"Cancel"}
             </Button>
             <Button
               variant="destructive"
@@ -564,7 +556,7 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
               onClick={() => void handleConfirmRevertAll()}
               disabled={isRevertingAll}
             >
-              {isRevertingAll ? t('gitView.changes.reverting') : t('gitView.changes.revertAll')}
+              {isRevertingAll ? "Reverting..." : "Revert all"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -578,18 +570,18 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{t('gitView.changes.revertDirectoryDialogTitle')}</DialogTitle>
+            <DialogTitle>{"Revert folder changes?"}</DialogTitle>
             <DialogDescription>
               {pendingDirectoryRevert
                 ? pendingDirectoryRevert.count === 1
-                  ? t('gitView.changes.revertDirectoryDescriptionSingle', { count: pendingDirectoryRevert.count, path: pendingDirectoryRevert.path })
-                  : t('gitView.changes.revertDirectoryDescriptionPlural', { count: pendingDirectoryRevert.count, path: pendingDirectoryRevert.path })
+                  ? `This will discard local changes in ${pendingDirectoryRevert.count} file under ${pendingDirectoryRevert.path}.`
+                  : `This will discard local changes in ${pendingDirectoryRevert.count} files under ${pendingDirectoryRevert.path}.`
                 : null}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setPendingDirectoryRevert(null)} disabled={isPendingDirectoryReverting}>
-              {t('gitView.common.cancel')}
+              {"Cancel"}
             </Button>
             <Button
               variant="destructive"
@@ -597,7 +589,7 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
               onClick={() => void handleConfirmRevertDirectory()}
               disabled={isPendingDirectoryReverting || !pendingDirectoryRevert}
             >
-              {isPendingDirectoryReverting ? t('gitView.changes.reverting') : t('gitView.changes.revertDirectory')}
+              {isPendingDirectoryReverting ? "Reverting..." : "Revert folder"}
             </Button>
           </DialogFooter>
         </DialogContent>

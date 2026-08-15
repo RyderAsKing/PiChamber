@@ -6,7 +6,6 @@ import { ContextUsageDisplay } from '@/components/ui/ContextUsageDisplay';
 import { WindowsWindowControls } from '@/components/desktop/WindowsWindowControls';
 import { SessionSwitcherDropdown } from '@/components/session/SessionSwitcherDropdown';
 import { cn } from '@/lib/utils';
-import { useI18n } from '@/lib/i18n';
 import { invokeDesktop, isElectronShell } from '@/lib/desktop';
 import { useDesktopWindowControlsLayout } from '@/hooks/useDesktopWindowControlsLayout';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -46,7 +45,7 @@ const normalizePath = (value: string | null | undefined): string => {
 };
 
 const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
-  const { t } = useI18n();
+  
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const draftOpen = useSessionUIStore((state) => Boolean(state.newSessionDraft?.open));
   const draftProjectId = useSessionUIStore((state) => state.newSessionDraft?.selectedProjectId ?? null);
@@ -88,7 +87,7 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
   }, []);
 
   const title = session?.title?.trim()
-    || (draftOpen || mode === 'draft' ? t('miniChat.header.newSession') : t('miniChat.header.session'));
+    || (draftOpen || mode === 'draft' ? "New session" : "Session");
   const sessionDirectory = normalizePath((session as { directory?: string | null } | null)?.directory ?? null);
   const currentDirectoryNormalized = normalizePath(currentDirectory);
   const openDirectory = sessionDirectory || draftDirectory || currentDirectoryNormalized;
@@ -249,7 +248,7 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
       <SessionSwitcherDropdown>
         <button
           type="button"
-          aria-label={t('sessions.switcher.openAria')}
+          aria-label={"Open session switcher"}
           style={noDragRegionStyle}
           className="flex min-w-0 max-w-full flex-col items-start rounded-md px-1 py-0.5 text-left transition-colors hover:bg-interactive-hover/60 focus-visible:outline-none focus-visible:bg-interactive-hover/60"
         >
@@ -287,8 +286,8 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
         variant="ghost"
         size="icon"
         onClick={handleTogglePinned}
-        aria-label={pinned ? t('miniChat.actions.unpinAria') : t('miniChat.actions.pinAria')}
-        title={pinned ? t('miniChat.actions.unpin') : t('miniChat.actions.pin')}
+        aria-label={pinned ? "Unpin Mini Chat window" : "Pin Mini Chat window"}
+        title={pinned ? "Unpin window" : "Pin above other windows"}
         style={noDragRegionStyle}
       >
         {pinned ? <Icon name="pushpin-2-fill" className="h-4 w-4" /> : <Icon name="pushpin-2" className="h-4 w-4" />}
@@ -298,8 +297,8 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
         variant="ghost"
         size="icon"
         onClick={handleOpenMainApp}
-        aria-label={t('miniChat.actions.openMainAria')}
-        title={t('miniChat.actions.openMain')}
+        aria-label={"Open session in main window"}
+        title={"Open in main window"}
         style={noDragRegionStyle}
       >
         <Icon name="external-link" className="h-4 w-4" />
@@ -310,7 +309,7 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
 };
 
 export const MiniChatLayout: React.FC<MiniChatLayoutProps> = ({ mode, autoOpenDraft = false, unavailable = false }) => {
-  const { t } = useI18n();
+  
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
@@ -319,8 +318,8 @@ export const MiniChatLayout: React.FC<MiniChatLayoutProps> = ({ mode, autoOpenDr
         {unavailable ? (
           <div className="flex h-full items-center justify-center px-6 text-center typography-ui-label text-muted-foreground">
             <div className="max-w-sm rounded-lg border border-[var(--interactive-border)] bg-[var(--surface-elevated)] px-4 py-3">
-              <div className="font-medium text-foreground">{t('miniChat.unavailable.title')}</div>
-              <div className="mt-1 typography-small text-muted-foreground">{t('miniChat.unavailable.description')}</div>
+              <div className="font-medium text-foreground">{"Session unavailable"}</div>
+              <div className="mt-1 typography-small text-muted-foreground">{"This session could not be loaded. It may have been deleted, archived, or opened from a different project context."}</div>
             </div>
           </div>
         ) : (

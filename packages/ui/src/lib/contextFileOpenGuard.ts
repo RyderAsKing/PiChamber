@@ -1,12 +1,7 @@
 import type { FilesAPI } from '@/lib/api/types';
 import { MAX_OPEN_FILE_LINES, countLinesWithLimit } from '@/lib/fileOpenLimits';
-import { getCurrentIntlLocale } from '@/lib/i18n';
-import { formatMessage, useI18nStore } from '@/lib/i18n/store';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isBinaryFile, isImageFile, isPdfFile, looksLikeBinaryText } from '@/lib/toolHelpers';
-
-const t = (key: Parameters<typeof formatMessage>[1], params?: Parameters<typeof formatMessage>[2]) =>
-  formatMessage(useI18nStore.getState().dictionary, key, params);
 
 export type ContextFileOpenFailureReason = 'too-large' | 'missing' | 'unreadable' | 'binary';
 
@@ -97,17 +92,17 @@ export const validateContextFileOpen = async (
 
 export const getContextFileOpenFailureMessage = (reason: ContextFileOpenFailureReason): string => {
   if (reason === 'too-large') {
-    const lines = MAX_OPEN_FILE_LINES.toLocaleString(getCurrentIntlLocale());
-    return t('contextFileOpen.failure.tooLarge', { count: lines });
+    const lines = MAX_OPEN_FILE_LINES.toLocaleString('en-US');
+    return `File is too large to open (>${lines} lines)`;
   }
 
   if (reason === 'missing') {
-    return t('contextFileOpen.failure.missing');
+    return "File not found";
   }
 
   if (reason === 'binary') {
-    return t('filesView.editor.cannotPreviewBinary');
+    return "Cannot preview binary file";
   }
 
-  return t('contextFileOpen.failure.unreadable');
+  return "Failed to open file";
 };

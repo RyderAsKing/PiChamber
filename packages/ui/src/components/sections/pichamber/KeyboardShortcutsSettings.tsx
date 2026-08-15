@@ -19,7 +19,6 @@ import {
   UNASSIGNED_SHORTCUT,
   type ShortcutCombo,
 } from '@/lib/shortcuts';
-import { useI18n } from '@/lib/i18n';
 
 const MODIFIER_KEYS = new Set(['shift', 'control', 'alt', 'meta']);
 
@@ -78,9 +77,35 @@ const keyboardEventToPrefixCombo = (event: React.KeyboardEvent<HTMLInputElement>
   return parts.length > 0 ? normalizeCombo(parts.join('+')) : null;
 };
 
+
+const SHORTCUT_ACTION_LABELS: Record<string, string> = {
+  "add_selection_to_chat": "Add selection to chat",
+  "cycle_agent": "Cycle agent",
+  "cycle_favorite_model_backward": "Cycle favorite model backward",
+  "cycle_favorite_model_forward": "Cycle favorite model forward",
+  "cycle_services_tab": "Cycle services tab",
+  "cycle_theme": "Cycle theme",
+  "expand_input": "Expand input",
+  "focus_input": "Focus input",
+  "new_chat": "New session",
+  "new_mini_chat": "New Mini Chat window",
+  "open_command_palette": "Open command palette",
+  "open_go_to_line": "Go to line (files editor)",
+  "open_help": "Open keyboard shortcuts",
+  "open_model_selector": "Open model selector",
+  "open_right_sidebar_files": "Open Files surface",
+  "open_right_sidebar_git": "Open Git surface",
+  "open_settings": "Open settings",
+  "open_timeline_dialog": "Open conversation timeline",
+  "switch_context_surface": "Switch context panel surface",
+  "toggle_prompt_navigator": "Toggle prompt navigator",
+  "toggle_right_sidebar": "Toggle context panel",
+  "toggle_services_menu": "Toggle services menu",
+  "toggle_sidebar": "Toggle sidebar",
+  "toggle_terminal": "Toggle terminal dock",
+  "toggle_terminal_expanded": "Toggle terminal expanded",
+};
 export const KeyboardShortcutsSettings: React.FC = () => {
-  const { t } = useI18n();
-  const tUnsafe = React.useCallback((key: string) => t(key as Parameters<typeof t>[0]), [t]);
   const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
   const setShortcutOverride = useUIStore((state) => state.setShortcutOverride);
   const clearShortcutOverride = useUIStore((state) => state.clearShortcutOverride);
@@ -90,10 +115,8 @@ export const KeyboardShortcutsSettings: React.FC = () => {
     return getCustomizableShortcutActions();
   }, []);
   const actionLabel = React.useCallback((id: string, fallbackLabel: string): string => {
-    const key = `settings.pichamber.keyboardShortcuts.action.${id}.label`;
-    const translated = tUnsafe(key);
-    return translated === key ? fallbackLabel : translated;
-  }, [tUnsafe]);
+    return SHORTCUT_ACTION_LABELS[id] ?? fallbackLabel;
+  }, []);
 
   const [capturingActionId, setCapturingActionId] = React.useState<string | null>(null);
   const [draftByAction, setDraftByAction] = React.useState<Record<string, ShortcutCombo>>({});
@@ -137,13 +160,13 @@ export const KeyboardShortcutsSettings: React.FC = () => {
     persistShortcutOverrides(nextOverrides);
     setPendingOverwrite(null);
     setErrorText('');
-    setWarningText(isRiskyBrowserShortcut(normalized) ? t('settings.pichamber.keyboardShortcuts.warning.riskyBrowserShortcut') : '');
+    setWarningText(isRiskyBrowserShortcut(normalized) ? "This shortcut can conflict with browser defaults. It is still saved." : '');
     setDraftByAction((current) => {
       const rest = { ...current };
       delete rest[actionId];
       return rest;
     });
-  }, [findConflict, persistShortcutOverrides, setShortcutOverride, shortcutOverrides, t]);
+  }, [findConflict, persistShortcutOverrides, setShortcutOverride, shortcutOverrides]);
 
   const confirmOverwrite = React.useCallback(() => {
     if (!pendingOverwrite) {
@@ -160,13 +183,13 @@ export const KeyboardShortcutsSettings: React.FC = () => {
     persistShortcutOverrides(nextOverrides);
     setPendingOverwrite(null);
     setErrorText('');
-    setWarningText(isRiskyBrowserShortcut(pendingOverwrite.combo) ? t('settings.pichamber.keyboardShortcuts.warning.riskyBrowserShortcut') : '');
+    setWarningText(isRiskyBrowserShortcut(pendingOverwrite.combo) ? "This shortcut can conflict with browser defaults. It is still saved." : '');
     setDraftByAction((current) => {
       const rest = { ...current };
       delete rest[pendingOverwrite.actionId];
       return rest;
     });
-  }, [pendingOverwrite, persistShortcutOverrides, setShortcutOverride, shortcutOverrides, t]);
+  }, [pendingOverwrite, persistShortcutOverrides, setShortcutOverride, shortcutOverrides]);
 
   const resetOne = React.useCallback((actionId: string) => {
     const nextOverrides = { ...shortcutOverrides };
@@ -186,9 +209,9 @@ export const KeyboardShortcutsSettings: React.FC = () => {
   return (
     <SettingsSection
       settingsItem="shortcuts.keyboard-shortcuts"
-      title={t('settings.pichamber.keyboardShortcuts.title')}
+      title={"Keyboard Shortcuts"}
       divider={false}
-      info={t('settings.pichamber.keyboardShortcuts.tooltip')}
+      info={"Capture a new key combo, save it, and bindings will update immediately."}
       headerAction={(
         <Button
           type="button"
@@ -204,7 +227,7 @@ export const KeyboardShortcutsSettings: React.FC = () => {
             setWarningText('');
           }}
         >
-          {t('settings.pichamber.keyboardShortcuts.actions.resetAll')}
+          {"Reset All"}
         </Button>
       )}
     >
@@ -213,11 +236,11 @@ export const KeyboardShortcutsSettings: React.FC = () => {
           {pendingOverwrite && (
             <div className="rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-background)] p-3 flex flex-col @xl:flex-row @xl:items-center justify-between gap-3">
               <span className="typography-meta text-foreground">
-                {t('settings.pichamber.keyboardShortcuts.overwritePrompt')}
+                {"This combo is already used by another shortcut. Overwrite and clear that other mapping?"}
               </span>
               <div className="flex gap-2 shrink-0">
-                <Button type="button" size="xs" className="!font-normal" onClick={confirmOverwrite}>{t('settings.pichamber.keyboardShortcuts.actions.overwrite')}</Button>
-                <Button type="button" size="xs" className="!font-normal" variant="ghost" onClick={() => setPendingOverwrite(null)}>{t('settings.common.actions.cancel')}</Button>
+                <Button type="button" size="xs" className="!font-normal" onClick={confirmOverwrite}>{"Overwrite"}</Button>
+                <Button type="button" size="xs" className="!font-normal" variant="ghost" onClick={() => setPendingOverwrite(null)}>{"Cancel"}</Button>
               </div>
             </div>
           )}
@@ -245,9 +268,9 @@ export const KeyboardShortcutsSettings: React.FC = () => {
           const hasDraft = typeof draft === 'string' && normalizeCombo(draft) !== normalizeCombo(effective);
           const isUnassignedDisplay = displayCombo === '' || normalizeCombo(displayCombo) === UNASSIGNED_SHORTCUT;
           const displayValue = capturingActionId === action.id
-            ? t('settings.pichamber.keyboardShortcuts.field.pressKeys')
+            ? "Press keys..."
             : isSurfaceSwitch && !isUnassignedDisplay
-              ? `${formatShortcutForDisplay(displayCombo)}${t('settings.pichamber.keyboardShortcuts.action.switch_context_surface.suffix')}`
+              ? `${formatShortcutForDisplay(displayCombo)}${" + 1…0"}`
               : formatShortcutForDisplay(displayCombo);
 
           return (
@@ -300,17 +323,17 @@ export const KeyboardShortcutsSettings: React.FC = () => {
                   onClick={() => {
                     const next = draftByAction[action.id];
                     if (!next) {
-                      setErrorText(t('settings.pichamber.keyboardShortcuts.error.captureFirst'));
+                      setErrorText("Capture a shortcut first.");
                       return;
                     }
                     saveCombo(action.id, next);
                   }}
                   disabled={!hasDraft}
                 >
-                  {t('settings.common.actions.saveChanges')}
+                  {"Save Changes"}
                 </Button>
                 <Button type="button" size="xs" className="!font-normal" variant="ghost" onClick={() => resetOne(action.id)}>
-                  {t('settings.common.actions.reset')}
+                  {"Reset"}
                 </Button>
               </SettingsFieldRow>
             </div>

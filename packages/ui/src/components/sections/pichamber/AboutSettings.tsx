@@ -7,7 +7,6 @@ import { toast } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
 import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
-import { useI18n } from '@/lib/i18n';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { InstanceServiceUrls } from './InstanceServiceUrls';
 import {
@@ -27,7 +26,6 @@ type AboutSettingsProps = {
 };
 
 export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialogOpen = false }) => {
-  const { t } = useI18n();
   const [updateDialogOpen, setUpdateDialogOpen] = React.useState(initialUpdateDialogOpen);
   const [showChecking, setShowChecking] = React.useState(false);
   const [openChamberVersion, setPiChamberVersion] = React.useState<string | null>(null);
@@ -89,13 +87,13 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
         setShowChecking(false);
         // Show toast if check completed with no update available
         if (didInitiateCheck.current && !updateStore.available && !updateStore.error) {
-          toast.success(t('settings.pichamber.about.toast.latestVersion'));
+          toast.success("You are on the latest version");
           didInitiateCheck.current = false;
         }
       }, MIN_CHECKING_DURATION);
       return () => clearTimeout(timer);
     }
-  }, [t, updateStore.checking, showChecking, updateStore.available, updateStore.error]);
+  }, [ updateStore.checking, showChecking, updateStore.available, updateStore.error]);
 
   const isChecking = updateStore.checking || showChecking;
 
@@ -106,7 +104,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
           <PiChamberLogo width={72} height={72} />
           <h2 className={`mt-4 ${SETTINGS_BRAND_TITLE_CLASS}`}>PiChamber</h2>
           <div className="mt-2 space-y-1 typography-ui text-muted-foreground">
-            <p>{t('aboutDialog.openChamberVersionLabel', { version: currentVersion })}</p>
+            <p>{`PiChamber version ${currentVersion}`}</p>
           </div>
           <InstanceServiceUrls />
         </div>
@@ -122,7 +120,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
               className="h-10 w-auto justify-center gap-2 rounded-xl px-4"
             >
               {isChecking ? <Icon name="loader" className="size-4 animate-spin" /> : <Icon name="refresh" className="size-4" />}
-              {isChecking ? t('settings.pichamber.about.state.checking') : t('settings.pichamber.about.actions.checkForUpdates')}
+              {isChecking ? "Checking..." : "Check for updates"}
             </Button>
           )}
 
@@ -135,7 +133,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
               className="h-10 w-auto justify-center gap-2 rounded-xl px-4"
             >
               <Icon name="download" className="size-4" />
-              {t('settings.pichamber.about.actions.updateToVersion', { version: updateStore.info?.version || '' })}
+              {`Update to ${updateStore.info?.version || ''}`}
             </Button>
           )}
         </div>
@@ -181,7 +179,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
         </div>
 
         <p className="text-center typography-ui text-muted-foreground/60">
-          {t('aboutDialog.footerNote')}
+          {"Made with love for the community"}
         </p>
 
         <UpdateDialog
@@ -206,7 +204,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
       <div className="rounded-lg bg-[var(--surface-elevated)]/70 overflow-hidden flex flex-col">
         <div className="flex flex-col @xl:flex-row @xl:items-center justify-between gap-4 px-4 py-3 border-b border-border/40">
           <div className="flex min-w-0 flex-col">
-            <span className={SETTINGS_FIELD_LABEL_CLASS}>{t('settings.pichamber.about.field.version')}</span>
+            <span className={SETTINGS_FIELD_LABEL_CLASS}>{"Version"}</span>
             <span className="typography-meta text-muted-foreground font-mono">{currentVersion}</span>
           </div>
           
@@ -214,7 +212,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
             {updateStore.checking && (
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Icon name="loader" className="h-4 w-4 animate-spin" />
-                <span className="typography-meta">{t('settings.pichamber.about.state.checking')}</span>
+                <span className="typography-meta">{"Checking..."}</span>
               </div>
             )}
 
@@ -224,12 +222,12 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
                 onClick={() => setUpdateDialogOpen(true)}
               >
                 <Icon name="download" className="h-4 w-4 mr-1" />
-                {t('settings.pichamber.about.actions.updateToVersion', { version: updateStore.info?.version || '' })}
+                {`Update to ${updateStore.info?.version || ''}`}
               </Button>
             )}
 
             {!updateStore.checking && !updateStore.available && !updateStore.error && (
-              <span className="typography-meta text-muted-foreground">{t('settings.pichamber.about.state.upToDate')}</span>
+              <span className="typography-meta text-muted-foreground">{"Up to date"}</span>
             )}
 
             <Button size="sm"
@@ -237,7 +235,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
               onClick={() => updateStore.checkForUpdates()}
               disabled={updateStore.checking}
             >
-              {t('settings.pichamber.about.actions.checkForUpdates')}
+              {"Check for updates"}
             </Button>
           </div>
         </div>
@@ -249,7 +247,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
         )}
 
         <div className="flex flex-col gap-2 border-b border-border/40 px-4 py-3 @xl:flex-row @xl:items-center @xl:justify-between">
-          <span className={SETTINGS_FIELD_LABEL_CLASS}>{t('settings.pichamber.about.field.instanceUrls')}</span>
+          <span className={SETTINGS_FIELD_LABEL_CLASS}>{"Instance URLs"}</span>
           <InstanceServiceUrls />
         </div>
 

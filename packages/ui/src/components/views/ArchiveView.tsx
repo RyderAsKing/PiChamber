@@ -4,7 +4,6 @@ import { Icon } from '@/components/icon/Icon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from '@/components/ui';
 import { cn, formatDirectoryName } from '@/lib/utils';
-import { useI18n } from '@/lib/i18n';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { useUIStore } from '@/stores/useUIStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
@@ -24,7 +23,6 @@ type DirectoryBucket = {
 const PAGE_SIZE = 100;
 
 export function ArchiveView(): React.ReactNode {
-  const { t } = useI18n();
   const open = useUIStore((state) => state.isArchivePageOpen);
   const setOpen = useUIStore((state) => state.setArchivePageOpen);
   const setActiveMainTab = useUIStore((state) => state.setActiveMainTab);
@@ -56,12 +54,12 @@ export function ArchiveView(): React.ReactNode {
         directory,
         label: directory
           ? (formatDirectoryName(directory, homeDirectory) || directory)
-          : t('sessions.archivePage.otherProjects'),
+          : "other projects",
         sessions: [session],
       });
     }
     return [...byDirectory.values()].sort((a, b) => b.sessions.length - a.sessions.length);
-  }, [homeDirectory, sortedSessions, t]);
+  }, [homeDirectory, sortedSessions]);
 
   // Search spans every archived session; the directory filter applies only
   // while not searching.
@@ -92,12 +90,12 @@ export function ArchiveView(): React.ReactNode {
   const restoreSession = React.useCallback((session: Session) => {
     void unarchiveSession(session.id).then((success) => {
       if (success) {
-        toast.success(t('sessions.sidebar.session.restore.success'));
+        toast.success("Session restored");
       } else {
-        toast.error(t('sessions.sidebar.session.restore.error'));
+        toast.error("Failed to restore session");
       }
     });
-  }, [t, unarchiveSession]);
+  }, [ unarchiveSession]);
 
   if (!open) return null;
 
@@ -133,12 +131,12 @@ export function ArchiveView(): React.ReactNode {
               type="button"
               onClick={() => sessionEvents.requestDelete({ sessions: sessionsForDelete, mode: 'session' })}
               className="absolute right-1 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover/dir:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-              aria-label={t('sessions.archivePage.deleteProjectAria', { label })}
+              aria-label={`Delete all archived sessions in ${label}`}
             >
               <Icon name="delete-bin" className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={4}>{t('sessions.archivePage.deleteProject')}</TooltipContent>
+          <TooltipContent side="bottom" sideOffset={4}>{"Delete all archived sessions in this project"}</TooltipContent>
         </Tooltip>
       ) : null}
     </div>
@@ -152,7 +150,7 @@ export function ArchiveView(): React.ReactNode {
           <div className="flex-1 space-y-0.5 overflow-y-auto p-2">
             {renderDirectoryItem(
               '__all__',
-              t('sessions.archivePage.allDirectories'),
+              "All directories",
               totalCount,
               selectedDirectory === null,
               () => selectDirectory(null),
@@ -180,15 +178,15 @@ export function ArchiveView(): React.ReactNode {
                   setQuery(event.target.value);
                   setVisibleCount(PAGE_SIZE);
                 }}
-                placeholder={t('sessions.archivePage.searchPlaceholder')}
+                placeholder={"Search archived sessions"}
                 className="h-8 w-full rounded-md border border-border bg-transparent pl-8 pr-3 typography-ui-label text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
               />
             </div>
             {/* Pages have no close button: you leave via the sidebar. */}
             <span className="flex-shrink-0 typography-micro text-muted-foreground">
               {filteredSessions.length === 1
-                ? t('sessions.archivePage.countSingle', { count: filteredSessions.length })
-                : t('sessions.archivePage.countPlural', { count: filteredSessions.length })}
+                ? `${filteredSessions.length} archived session`
+                : `${filteredSessions.length} archived sessions`}
             </span>
           </div>
 
@@ -197,7 +195,7 @@ export function ArchiveView(): React.ReactNode {
               {visibleSessions.length === 0 ? (
                 <div className="py-10 text-center text-muted-foreground">
                   <p className="typography-ui-label font-semibold">
-                    {normalizedQuery ? t('sessions.archivePage.empty.noMatches') : t('sessions.archivePage.empty.noArchived')}
+                    {normalizedQuery ? "No matching archived sessions" : "No archived sessions"}
                   </p>
                 </div>
               ) : visibleSessions.map((session) => {
@@ -220,7 +218,7 @@ export function ArchiveView(): React.ReactNode {
                     }}
                   >
                     <span className="min-w-0 flex-1 truncate typography-ui-label text-foreground">
-                      {session.title || t('sessions.sidebar.session.untitled')}
+                      {session.title || "Untitled Session"}
                     </span>
                     {normalizedQuery && directoryLabel ? (
                       <span className="max-w-40 flex-shrink-0 truncate text-[0.72rem] text-muted-foreground/70" title={sessionDirectory}>
@@ -237,7 +235,7 @@ export function ArchiveView(): React.ReactNode {
                         restoreSession(session);
                       }}
                       className="absolute right-7 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity pointer-events-none hover:text-foreground group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                      aria-label={t('sessions.archivePage.restoreSessionAria', { title: session.title || t('sessions.sidebar.session.untitled') })}
+                      aria-label={`Restore ${session.title || 'Untitled Session'}`}
                     >
                       <Icon name="inbox-unarchive" className="h-3.5 w-3.5" />
                     </button>
@@ -248,7 +246,7 @@ export function ArchiveView(): React.ReactNode {
                         sessionEvents.requestDelete({ sessions: [session], mode: 'session' });
                       }}
                       className="absolute right-1 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity pointer-events-none hover:text-destructive group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                      aria-label={t('sessions.archivePage.deleteSessionAria', { title: session.title || t('sessions.sidebar.session.untitled') })}
+                      aria-label={`Delete ${session.title || 'Untitled Session'}`}
                     >
                       <Icon name="delete-bin" className="h-3.5 w-3.5" />
                     </button>
@@ -261,7 +259,7 @@ export function ArchiveView(): React.ReactNode {
                   onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
                   className="mt-1 flex items-center justify-start rounded-md px-2 py-1 text-left text-xs text-muted-foreground/70 leading-tight hover:text-foreground hover:underline"
                 >
-                  {t('sessions.sidebar.group.showMore')}
+                  {"Show more sessions"}
                 </button>
               ) : null}
             </div>

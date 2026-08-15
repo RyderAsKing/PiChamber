@@ -12,7 +12,6 @@
 import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
-import { useI18n } from '@/lib/i18n';
 import type { InlineCommentDraft, InlineCommentDraftTarget } from '@/stores/useInlineCommentDraftStore';
 import type { Theme } from '@/types/theme';
 
@@ -68,7 +67,7 @@ function CountChip(props: {
 }
 
 export function ComposerContextChips(props: ComposerContextChipsProps) {
-    const { t } = useI18n();
+    
     const {
         terminalDrafts,
         reviewCount,
@@ -93,18 +92,14 @@ export function ComposerContextChips(props: ComposerContextChipsProps) {
                 >
                     <Icon name="terminal" className="h-3.5 w-3.5" />
                     <span className="truncate text-xs font-medium text-[var(--surface-mutedForeground)]">
-                        {t('chat.chatInput.terminalContext', {
-                            terminal: draft.fileLabel,
-                            start: draft.startLine,
-                            end: draft.endLine,
-                        })}
+                        {`${draft.fileLabel}, lines ${draft.startLine}-${draft.endLine}`}
                     </span>
                     <button
                         type="button"
                         className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-[var(--surface-mutedForeground)] hover:bg-[var(--interactive-hover)] hover:text-[var(--surface-foreground)]"
                         onClick={() => draftTarget && onRemoveDraft(draftTarget, draft.id)}
-                        aria-label={t('chat.chatInput.terminalContextRemove')}
-                        title={t('chat.chatInput.terminalContextRemove')}
+                        aria-label={"Remove terminal context"}
+                        title={"Remove terminal context"}
                     >
                         <Icon name="close" className="h-3 w-3" />
                     </button>
@@ -113,9 +108,9 @@ export function ComposerContextChips(props: ComposerContextChipsProps) {
 
             {reviewCount > 0 ? (
                 <CountChip
-                    label={t('chat.chatInput.reviewComments')}
+                    label={"Review comments:"}
                     count={reviewCount}
-                    removeLabel={t('chat.chatInput.reviewCommentsRemove')}
+                    removeLabel={"Remove review comments"}
                     onRemove={onRemoveReviewDrafts}
                     colors={colors}
                 />
@@ -123,9 +118,9 @@ export function ComposerContextChips(props: ComposerContextChipsProps) {
 
             {prCommentCount > 0 ? (
                 <CountChip
-                    label={t('chat.chatInput.prCommentContext')}
+                    label={"PR comments"}
                     count={prCommentCount}
-                    removeLabel={t('chat.chatInput.prCommentContextRemove')}
+                    removeLabel={"Remove PR comments context"}
                     onRemove={() => onRemovePreviewDrafts('pr-comment')}
                     colors={colors}
                     icon={<Icon name="git-pull-request" className="h-3.5 w-3.5 text-muted-foreground" />}
@@ -134,9 +129,9 @@ export function ComposerContextChips(props: ComposerContextChipsProps) {
 
             {prCheckCount > 0 ? (
                 <CountChip
-                    label={t('chat.chatInput.prCheckContext')}
+                    label={"Failed PR checks"}
                     count={prCheckCount}
-                    removeLabel={t('chat.chatInput.prCheckContextRemove')}
+                    removeLabel={"Remove PR checks context"}
                     onRemove={() => onRemovePreviewDrafts('pr-check')}
                     colors={colors}
                     icon={<Icon name="close-circle" className="h-3.5 w-3.5 text-[var(--status-error)]" />}
@@ -145,9 +140,9 @@ export function ComposerContextChips(props: ComposerContextChipsProps) {
 
             {previewConsoleCount > 0 ? (
                 <CountChip
-                    label={t('chat.chatInput.devServerLogs')}
+                    label={"Dev Server logs:"}
                     count={previewConsoleCount}
-                    removeLabel={t('chat.chatInput.devServerLogsRemove')}
+                    removeLabel={"Remove Dev Server logs"}
                     onRemove={() => onRemovePreviewDrafts('preview-console')}
                     colors={colors}
                 />
@@ -155,9 +150,9 @@ export function ComposerContextChips(props: ComposerContextChipsProps) {
 
             {previewAnnotationCount > 0 ? (
                 <CountChip
-                    label={t('chat.chatInput.previewAnnotations')}
+                    label={"Preview annotations:"}
                     count={previewAnnotationCount}
-                    removeLabel={t('chat.chatInput.previewContextRemove')}
+                    removeLabel={"Remove preview context"}
                     onRemove={() => onRemovePreviewDrafts('preview-annotation')}
                     colors={colors}
                 />

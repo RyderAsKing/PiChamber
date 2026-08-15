@@ -32,7 +32,6 @@ import {
 import type { SessionNodeRenderExtras } from './sessionNodeItemUtils';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { getGitHubPrStatusKey, usePrVisualSummary } from '@/stores/useGitHubPrStatusStore';
-import { useI18n } from '@/lib/i18n';
 import { useChildStoreManager } from '@/sync/sync-context';
 import { canRequestNativeDirectoryAccess, requestDirectoryAccess } from '@/lib/desktop';
 import { CollapsedActivityIndicator } from './collapsedActivityIndicator';
@@ -279,7 +278,7 @@ const areGroupPropsEqual = (prev: Props, next: Props): boolean => {
 };
 
 function SessionGroupSectionBase(props: Props): React.ReactNode {
-  const { t } = useI18n();
+  
   const {
     group,
     groupKey,
@@ -795,8 +794,8 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
   const groupActivityIndicator = groupActivityState ? (
     <CollapsedActivityIndicator
       state={groupActivityState}
-      activeLabel={t('sessions.sidebar.session.status.active')}
-      unreadLabel={t('sessions.sidebar.session.status.unread')}
+      activeLabel={"Session active"}
+      unreadLabel={"Unread updates"}
     />
   ) : null;
 
@@ -919,8 +918,8 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
   const bootstrapFailureNotice = failedBootstrapDirectory ? (
     <span className="inline-flex flex-wrap items-center gap-1.5">
       {bootstrapFailure === 'os-permission'
-        ? t('sessions.sidebar.group.empty.permissionDenied')
-        : t('sessions.sidebar.group.empty.loadFailed')}
+        ? "Folder access is required."
+        : "Could not refresh sessions."}
       {canGrantBootstrapAccess ? (
         <Button
           variant="link"
@@ -929,7 +928,7 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
           disabled={isRequestingBootstrapAccess}
           onClick={() => void grantFailedBootstrapAccess()}
         >
-          {t('sessions.sidebar.group.empty.grantAccess')}
+          {"Grant access"}
         </Button>
       ) : null}
       <Button
@@ -938,7 +937,7 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
         className="h-auto p-0 typography-micro"
         onClick={retryFailedBootstrap}
       >
-        {t('sessions.sidebar.group.empty.retry')}
+        {"Try again"}
       </Button>
     </span>
   ) : null;
@@ -1042,17 +1041,17 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
         // (gutter + icon + gap).
         <div className="py-1 pl-[26px] text-left typography-micro text-muted-foreground">
           {group.isArchivedBucket
-            ? t('sessions.sidebar.group.empty.noArchivedSessions')
+            ? "No archived sessions yet."
             : bootstrapLoading
               ? (
                 <span className="inline-flex items-center gap-1.5">
                   <Icon name="loader-4" className="size-3 animate-spin" />
-                  {t('sessions.sidebar.group.empty.loadingSessions')}
+                  {"Loading sessions…"}
                 </span>
               )
               : bootstrapFailureNotice
                 ? bootstrapFailureNotice
-            : t('sessions.sidebar.group.empty.noSessionsInWorkspace')}
+            : "No sessions in this workspace yet."}
         </div>
       ) : null}
       {totalSessions > 0 && bootstrapFailureNotice ? (
@@ -1066,7 +1065,7 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
           onClick={() => showMoreGroupSessions(groupKey, visibleSessions.length)}
           className="mt-0.5 flex items-center justify-start rounded-md pl-[26px] pr-1.5 py-0.5 text-left text-xs text-muted-foreground/70 leading-tight hover:text-foreground hover:underline"
         >
-          {t('sessions.sidebar.group.showMore')}
+          {"Show more sessions"}
         </button>
       ) : null}
       {canShowLess ? (
@@ -1075,7 +1074,7 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
           onClick={() => resetGroupSessionLimit(groupKey)}
           className="mt-0.5 flex items-center justify-start rounded-md pl-[26px] pr-1.5 py-0.5 text-left text-xs text-muted-foreground/70 leading-tight hover:text-foreground hover:underline"
         >
-          {t('sessions.sidebar.group.showFewer')}
+          {"Show fewer sessions"}
         </button>
       ) : null}
     </SessionFolderDndScope>
@@ -1107,8 +1106,8 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
           }
         }}
         aria-label={isCollapsed
-          ? t('sessions.sidebar.group.expandAria', { label: group.label })
-          : t('sessions.sidebar.group.collapseAria', { label: group.label })}
+          ? `Expand ${group.label}`
+          : `Collapse ${group.label}`}
         aria-expanded={!isCollapsed}
       >
         <div
@@ -1201,12 +1200,12 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
                     });
                   }}
                   className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                  aria-label={t('sessions.sidebar.group.actions.deleteArchivedInGroupAria', { label: group.label })}
+                  aria-label={`Delete archived sessions in ${group.label}`}
                 >
                   <Icon name="delete-bin" className="h-4 w-4" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.group.actions.deleteArchivedSessions')}</p></TooltipContent>
+              <TooltipContent side="bottom" sideOffset={4}><p>{"Delete archived sessions"}</p></TooltipContent>
             </Tooltip>
           </div>
         ) : null}
@@ -1224,12 +1223,12 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
                     openNewSessionDraft({ selectedProjectId: projectId, directoryOverride: group.directory });
                   }}
                   className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                  aria-label={t('sessions.sidebar.group.actions.newDraftInGroupAria', { label: group.label })}
+                  aria-label={`New draft session in ${group.label}`}
                  >
                    <Icon name="add" className="h-4 w-4" />
                  </button>
                </TooltipTrigger>
-               <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.project.actions.newDraftSession')}</p></TooltipContent>
+               <TooltipContent side="bottom" sideOffset={4}><p>{"New draft session"}</p></TooltipContent>
              </Tooltip>
            </div>
          ) : null}

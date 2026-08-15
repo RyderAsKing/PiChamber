@@ -4,7 +4,6 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { setFilesViewShowGitignored, useFilesViewShowGitignored } from '@/lib/filesViewShowGitignored';
-import { useI18n } from '@/lib/i18n';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import {
   SettingsSection,
@@ -16,7 +15,6 @@ import {
 } from '@/components/sections/shared/SettingsSection';
 
 export const GitSettings: React.FC = () => {
-  const { t } = useI18n();
   const settingsGitmojiEnabled = useConfigStore((state) => state.settingsGitmojiEnabled);
   const setSettingsGitmojiEnabled = useConfigStore((state) => state.setSettingsGitmojiEnabled);
   const showGitignored = useFilesViewShowGitignored();
@@ -26,10 +24,10 @@ export const GitSettings: React.FC = () => {
   const [isLoading, setIsLoading] = React.useState(true);
   const viewOptions = React.useMemo(
     () => [
-      { id: 'flat' as const, label: t('settings.pichamber.git.option.flatList') },
-      { id: 'tree' as const, label: t('settings.pichamber.git.option.treeView') },
+      { id: 'flat' as const, label: "Flat List" },
+      { id: 'tree' as const, label: "Tree View" },
     ],
-    [t]
+    []
   );
 
   type GitSettingsPayload = {
@@ -122,13 +120,13 @@ export const GitSettings: React.FC = () => {
   }
 
   return (
-    <SettingsSection title={t('settings.pichamber.git.title')}>
+    <SettingsSection title={"Git Preferences"}>
       <div className={SETTINGS_OPTION_STACK_CLASS}>
         <SettingsControlGroup
           settingsItem="git.changes-view"
-          title={t('settings.pichamber.git.changesViewTitle')}
+          title={"Changes View"}
         >
-          <SettingsRadioGroup aria-label={t('settings.pichamber.git.changesViewAria')}>
+          <SettingsRadioGroup aria-label={"Git changes view mode"}>
             {viewOptions.map((option) => (
               <SettingsRadioOption
                 key={option.id}
@@ -137,7 +135,7 @@ export const GitSettings: React.FC = () => {
                   handleGitChangesViewModeChange(option.id);
                 }}
                 label={option.label}
-                ariaLabel={t('settings.pichamber.git.optionAria', { option: option.label })}
+                ariaLabel={`Git changes view mode: ${option.label}`}
               />
             ))}
           </SettingsRadioGroup>
@@ -149,16 +147,16 @@ export const GitSettings: React.FC = () => {
           onChange={(checked) => {
             void handleGitmojiChange(checked);
           }}
-          label={t('settings.pichamber.git.enableGitmoji')}
-          ariaLabel={t('settings.pichamber.git.enableGitmojiAria')}
+          label={"Enable Gitmoji Picker"}
+          ariaLabel={"Enable Gitmoji picker"}
         />
 
         <SettingsCheckboxRow
           settingsItem="git.gitignored-files"
           checked={showGitignored}
           onChange={setFilesViewShowGitignored}
-          label={t('settings.pichamber.git.showGitignored')}
-          ariaLabel={t('settings.pichamber.git.showGitignoredAria')}
+          label={"Display Gitignored Files"}
+          ariaLabel={"Display gitignored files"}
         />
       </div>
     </SettingsSection>

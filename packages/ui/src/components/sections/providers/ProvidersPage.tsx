@@ -8,7 +8,6 @@ import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useI18n } from '@/lib/i18n';
 import { piClient } from '@/lib/pi/client';
 import { PI_CUSTOM_PROVIDER_SELECTION, usePiProviderSelectionStore } from '@/lib/pi/provider-selection';
 import { providerToCustomFormState, type CustomProviderPersistPlan } from './custom-provider-form';
@@ -20,7 +19,7 @@ const providerScope = () => ({ runtimeKey: getRuntimeKey() });
 
 /** Pi-native provider authentication and model catalog settings. */
 export const ProvidersPage: React.FC = () => {
-  const { t } = useI18n();
+  
   const selectedProviderId = usePiProviderSelectionStore((state) => state.selectedProviderId);
   const setSelectedProviderId = usePiProviderSelectionStore((state) => state.setSelectedProviderId);
   const [providers, setProviders] = React.useState<readonly PiProvider[] | null>(null);
@@ -167,7 +166,7 @@ export const ProvidersPage: React.FC = () => {
   };
 
   if (failed && !providers) {
-    return <div className="flex h-full items-center justify-center text-muted-foreground">{t('common.unavailable')}</div>;
+    return <div className="flex h-full items-center justify-center text-muted-foreground">{"Unavailable"}</div>;
   }
   const isCreatingCustom = selectedProviderId === PI_CUSTOM_PROVIDER_SELECTION;
   if (customEditing || isCreatingCustom) {
@@ -176,7 +175,7 @@ export const ProvidersPage: React.FC = () => {
       ? providerToCustomFormState({ id: editableConfig.providerId, name: editableConfig.label, options: { baseURL: editableConfig.baseUrl }, models: editableConfig.models })
       : undefined;
     return (
-      <SettingsPageLayout title={editableConfig ? t('settings.providers.page.custom.editTitle') : t('settings.providers.page.custom.title')} showSaveStatus={false}>
+      <SettingsPageLayout title={editableConfig ? "Edit custom provider" : "Custom provider"} showSaveStatus={false}>
         <CustomProviderForm
           existingProviderIDs={new Set(providers?.map((item) => item.id) ?? [])}
           mode={editableConfig ? "edit" : "create"}
@@ -194,7 +193,7 @@ export const ProvidersPage: React.FC = () => {
   }
 
   if (!provider) {
-    return <div className="flex h-full items-center justify-center text-muted-foreground">{t('common.loading')}</div>;
+    return <div className="flex h-full items-center justify-center text-muted-foreground">{"Loading..."}</div>;
   }
 
   const isConnected = provider.authenticated || login?.state === 'complete';
@@ -205,42 +204,42 @@ export const ProvidersPage: React.FC = () => {
       description={<span className="font-mono typography-settings-description text-muted-foreground">{provider.id}</span>}
       showSaveStatus={false}
     >
-      {failed ? <p className="typography-meta text-[var(--status-error)]">{t('common.unavailable')}</p> : null}
-      <SettingsSection title={t('settings.pichamber.defaults.title')} divider={false}>
-        <SettingsFieldRow settingsItem="sessions.default-model" label={t('settings.pichamber.defaults.field.defaultModel')}>
+      {failed ? <p className="typography-meta text-[var(--status-error)]">{"Unavailable"}</p> : null}
+      <SettingsSection title={"Session Defaults"} divider={false}>
+        <SettingsFieldRow settingsItem="sessions.default-model" label={"Default Model"}>
           <Select value={modelValue(settings?.pichamber.defaultModel)} onValueChange={(value) => void updatePiChamberModel('defaultModel', value)}>
             <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="__pi_fallback__">{t('settings.pichamber.defaults.option.default')}</SelectItem>
+              <SelectItem value="__pi_fallback__">{"Default"}</SelectItem>
               {allModels.map(({ providerId, model }) => (
                 <SelectItem key={`${providerId}/${model.id}`} value={`${providerId}/${model.id}`}>{model.label || model.id}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </SettingsFieldRow>
-        <SettingsFieldRow settingsItem="sessions.small-model" label={t('settings.pichamber.defaults.smallModel.title')} description={t('settings.pichamber.defaults.smallModel.description')}>
+        <SettingsFieldRow settingsItem="sessions.small-model" label={"Small Model"} description={"A cheap model for quick utility tasks like short recaps and summaries."}>
           <Select value={modelValue(settings?.pichamber.smallModel)} onValueChange={(value) => void updatePiChamberModel('smallModel', value)}>
             <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="__pi_fallback__">{t('settings.pichamber.defaults.smallModel.useDefault')}</SelectItem>
+              <SelectItem value="__pi_fallback__">{"Use default small model"}</SelectItem>
               {allModels.map(({ providerId, model }) => <SelectItem key={`${providerId}/${model.id}`} value={`${providerId}/${model.id}`}>{model.label || model.id}</SelectItem>)}
             </SelectContent>
           </Select>
         </SettingsFieldRow>
-        <SettingsFieldRow settingsItem="sessions.walkthrough-model" label={t('settings.pichamber.defaults.walkthroughModel.title')} description={t('settings.pichamber.defaults.walkthroughModel.description')}>
+        <SettingsFieldRow settingsItem="sessions.walkthrough-model" label={"Changes Walkthrough Model"} description={"The AI review of your changes needs structured output and room for a whole diff, which a cheap small model often cannot give. Models the catalog reports as unable to produce structured output are hidden from this picker. Leave it unset and the small model is used."}>
           <Select value={modelValue(settings?.pichamber.walkthroughModel)} onValueChange={(value) => void updatePiChamberModel('walkthroughModel', value)}>
             <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="__pi_fallback__">{t('settings.pichamber.defaults.walkthroughModel.usesSmallModel')}</SelectItem>
+              <SelectItem value="__pi_fallback__">{"Small model"}</SelectItem>
               {allModels.map(({ providerId, model }) => <SelectItem key={`${providerId}/${model.id}`} value={`${providerId}/${model.id}`}>{model.label || model.id}</SelectItem>)}
             </SelectContent>
           </Select>
         </SettingsFieldRow>
-        <SettingsFieldRow settingsItem="sessions.default-thinking" label={t('settings.pichamber.defaults.field.defaultThinking')}>
+        <SettingsFieldRow settingsItem="sessions.default-thinking" label={"Default Thinking"}>
           <Select value={settings?.pichamber.defaultThinking ?? '__pi_fallback__'} onValueChange={(value) => void changeDefaultThinking(value)}>
             <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="__pi_fallback__">{t('settings.pichamber.defaults.option.default')}</SelectItem>
+              <SelectItem value="__pi_fallback__">{"Default"}</SelectItem>
               {['off', 'low', 'medium', 'high', 'xhigh'].map((level) => <SelectItem key={level} value={level}>{level}</SelectItem>)}
             </SelectContent>
           </Select>
@@ -248,57 +247,57 @@ export const ProvidersPage: React.FC = () => {
       </SettingsSection>
 
       <SettingsSection
-        title={t('settings.providers.page.auth.title')}
+        title={"Authentication"}
         divider={false}
         settingsItem="providers.auth"
         headerAction={isConnected ? (
           <Button variant="ghost" size="xs" onClick={() => void logout()} disabled={busy}>
-            {busy ? t('settings.providers.page.actions.disconnecting') : t('settings.providers.page.actions.disconnect')}
+            {busy ? "Disconnecting..." : "Disconnect"}
           </Button>
         ) : null}
       >
         {isConnected ? (
           <div className="flex items-center gap-1.5 py-1.5 typography-ui-label">
             <Icon name="check" className="size-4 text-[var(--status-success)]" />
-            {t('settings.providers.page.auth.connected')}
+            {"Connected"}
           </div>
         ) : (
           <div className="space-y-4 py-1.5">
-            <SettingsFieldRow label={t('settings.providers.page.auth.apiKeyLabel')}>
+            <SettingsFieldRow label={"API Key"}>
               <div className="flex w-full max-w-[24rem] gap-2">
                 <Input
                   type="password"
                   value={apiKey}
                   onChange={(event) => setApiKey(event.target.value)}
-                  placeholder={t('settings.providers.page.auth.apiKeyPlaceholder')}
+                  placeholder={"sk-..."}
                   autoComplete="off"
                 />
                 <Button size="sm" onClick={() => void startLogin('api_key')} disabled={busy || apiKey.trim().length === 0}>
-                  {busy ? t('settings.providers.page.actions.saving') : t('settings.providers.page.actions.saveKey')}
+                  {busy ? "Saving..." : "Save Key"}
                 </Button>
               </div>
             </SettingsFieldRow>
             <Button variant="outline" size="sm" onClick={() => void startLogin('oauth')} disabled={busy}>
-              {t('settings.providers.page.actions.reconnect')}
+              {"Reconnect"}
             </Button>
           </div>
         )}
         {login?.state === 'pending' ? (
           <ProviderLoginFlow login={login} promptValue={promptValue} onPromptValueChange={setPromptValue} onSubmit={() => void submitPrompt()} busy={busy} />
         ) : null}
-        {login?.state === 'failed' ? <p className="typography-meta text-[var(--status-error)]">{t('settings.providers.page.auth.oauth.error.declined')}</p> : null}
+        {login?.state === 'failed' ? <p className="typography-meta text-[var(--status-error)]">{"Authorization was declined or did not complete."}</p> : null}
       </SettingsSection>
 
       <SettingsSection
-        title={t('settings.providers.page.models.title')}
+        title={"Available Models"}
         settingsItem="providers.models"
-        headerAction={providerConfig ? <Button variant="ghost" size="xs" onClick={() => setCustomEditing(true)}>{t('settings.providers.page.custom.actions.update')}</Button> : null}
+        headerAction={providerConfig ? <Button variant="ghost" size="xs" onClick={() => setCustomEditing(true)}>{"Update provider"}</Button> : null}
       >
         <div className="divide-y divide-[var(--surface-subtle)]">
           {provider.models.map((model) => (
             <div key={model.id} className="flex min-w-0 items-center gap-2 py-2">
               <span className="min-w-0 flex-1 truncate typography-ui-label">{model.label || model.id}</span>
-              {model.supportsThinking ? <Icon name="brain-ai-3" className="size-4 shrink-0 text-muted-foreground" aria-label={t('settings.providers.page.models.capability.reasoning')} /> : null}
+              {model.supportsThinking ? <Icon name="brain-ai-3" className="size-4 shrink-0 text-muted-foreground" aria-label={"Reasoning"} /> : null}
               {typeof model.contextWindow === 'number' ? <span className="shrink-0 typography-micro text-muted-foreground">{model.contextWindow}</span> : null}
             </div>
           ))}
@@ -315,23 +314,23 @@ const ProviderLoginFlow: React.FC<{
   onSubmit: () => void;
   busy: boolean;
 }> = ({ login, promptValue, onPromptValueChange, onSubmit, busy }) => {
-  const { t } = useI18n();
+  
   return (
     <div className="space-y-3 border-t border-[var(--surface-subtle)] pt-3">
       {login.authUrl ? (
         <a className="typography-meta text-[var(--primary-base)] underline" href={login.authUrl.url} target="_blank" rel="noreferrer">
-          {login.authUrl.instructions || t('settings.providers.page.actions.open')}
+          {login.authUrl.instructions || "Open"}
         </a>
       ) : null}
       {login.deviceCode ? (
         <div className="typography-meta text-muted-foreground">
-          <span className="mr-2">{t('settings.providers.page.auth.oauth.deviceCodeLabel')}</span>
+          <span className="mr-2">{"Device code"}</span>
           <code className="text-foreground">{login.deviceCode.userCode}</code>
-          <a className="ml-2 text-[var(--primary-base)] underline" href={login.deviceCode.verificationUri} target="_blank" rel="noreferrer">{t('settings.providers.page.actions.open')}</a>
+          <a className="ml-2 text-[var(--primary-base)] underline" href={login.deviceCode.verificationUri} target="_blank" rel="noreferrer">{"Open"}</a>
         </div>
       ) : null}
       {login.prompt ? (
-        <SettingsFieldRow label={login.prompt.message || t('settings.providers.page.auth.oauth.codeHint')}>
+        <SettingsFieldRow label={login.prompt.message || "Copy the authorization code from your browser and paste it here."}>
           {login.prompt.type === 'select' && login.prompt.options ? (
             <Select value={promptValue} onValueChange={onPromptValueChange}>
               <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}><SelectValue /></SelectTrigger>
@@ -340,9 +339,9 @@ const ProviderLoginFlow: React.FC<{
           ) : (
             <Input type={login.prompt.type === 'secret' ? 'password' : 'text'} value={promptValue} onChange={(event) => onPromptValueChange(event.target.value)} placeholder={login.prompt.placeholder} autoComplete="off" />
           )}
-          <Button size="sm" onClick={onSubmit} disabled={busy || promptValue.length === 0}>{t('settings.providers.page.actions.continue')}</Button>
+          <Button size="sm" onClick={onSubmit} disabled={busy || promptValue.length === 0}>{"Continue"}</Button>
         </SettingsFieldRow>
-      ) : <p className="typography-meta text-muted-foreground">{t('settings.providers.page.auth.oauth.waiting')}</p>}
+      ) : <p className="typography-meta text-muted-foreground">{"Waiting for authorization…"}</p>}
     </div>
   );
 };

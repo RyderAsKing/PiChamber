@@ -2,7 +2,6 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
 import type { GitMergeInProgress, GitRebaseInProgress } from '@/lib/api/types';
-import { useI18n } from '@/lib/i18n';
 
 interface InProgressOperationBannerProps {
   mergeInProgress: GitMergeInProgress | null | undefined;
@@ -23,7 +22,7 @@ export const InProgressOperationBanner: React.FC<InProgressOperationBannerProps>
   conflictCount = 0,
   isLoading = false,
 }) => {
-  const { t } = useI18n();
+  
   const [processingAction, setProcessingAction] = React.useState<'continue' | 'abort' | null>(null);
 
   // Only show banner if we have actual in-progress operation data
@@ -56,29 +55,29 @@ export const InProgressOperationBanner: React.FC<InProgressOperationBannerProps>
   const isProcessing = processingAction !== null;
   const hasUnresolvedConflicts = conflictCount > 0;
 
-  const operationLabel = operation === 'merge' ? t('gitView.operation.merge') : t('gitView.operation.rebase');
+  const operationLabel = operation === 'merge' ? "Merge" : "Rebase";
 
   // Build description
   let description = '';
   if (mergeInProgress) {
     description = mergeInProgress.message
-      ? t('gitView.operation.mergingMessage', { message: mergeInProgress.message })
-      : t('gitView.operation.mergeInProgressWithHead', { head: mergeInProgress.head });
+      ? `Merging: ${mergeInProgress.message}`
+      : `Merging ${mergeInProgress.head}`;
   } else if (rebaseInProgress) {
     description = rebaseInProgress.headName
-      ? t('gitView.operation.rebasingOnto', { headName: rebaseInProgress.headName, onto: rebaseInProgress.onto || '' })
-      : t('gitView.operation.rebaseInProgress');
+      ? `Rebasing ${rebaseInProgress.headName} onto ${rebaseInProgress.onto || ''}`
+      : "Rebase in progress";
   }
 
   const title = !hasUnresolvedConflicts
-    ? t('gitView.operation.inProgressTitle', { operation: operationLabel })
+    ? `${operationLabel} in progress`
     : conflictCount === 1
-      ? t('gitView.operation.inProgressTitleOneConflict', { operation: operationLabel, count: conflictCount })
-      : t('gitView.operation.inProgressTitleManyConflicts', { operation: operationLabel, count: conflictCount });
+      ? `${operationLabel} in progress: ${conflictCount} conflict`
+      : `${operationLabel} in progress: ${conflictCount} conflicts`;
 
   const hint = hasUnresolvedConflicts
-    ? t('gitView.operation.resolveConflictsHint')
-    : t('gitView.operation.readyToContinueHint');
+    ? "Resolve conflicts, then continue the operation."
+    : "All conflicts resolved. Continue to finish the operation.";
 
   return (
     <div className="mx-4 mt-3 overflow-hidden rounded-lg border border-[var(--status-warning-border)]">
@@ -112,7 +111,7 @@ export const InProgressOperationBanner: React.FC<InProgressOperationBannerProps>
               ) : (
                 <Icon name="close" className="size-4" />
               )}
-              {t('gitView.operation.abort')}
+              {"Abort"}
             </Button>
 
             {hasUnresolvedConflicts
@@ -123,7 +122,7 @@ export const InProgressOperationBanner: React.FC<InProgressOperationBannerProps>
                   onClick={onResolveWithAI}
                   disabled={isProcessing || isLoading}
                 >
-                  {t('gitView.operation.resolveWithAi')}
+                  {"Resolve with AI"}
                 </Button>
               )
               : (
@@ -139,7 +138,7 @@ export const InProgressOperationBanner: React.FC<InProgressOperationBannerProps>
                   ) : (
                     <Icon name="check" className="size-4" />
                   )}
-                  {t('gitView.operation.continue')}
+                  {"Continue"}
                 </Button>
               )}
           </div>

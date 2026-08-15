@@ -1,7 +1,6 @@
 /* eslint-disable */
 // @ts-nocheck
 import React from 'react';
-import { useI18n } from '@/lib/i18n';
 import { Icon } from '@/components/icon/Icon';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { useSession } from '@/sync/sync-context';
@@ -19,7 +18,7 @@ type Props = {
  * pointed at, plus how much ambient material is available.
  */
 export const WorkStatusContextSection: React.FC<Props> = ({ sessionId, directory }) => {
-  const { t } = useI18n();
+  
 
   const session = useSession(sessionId ?? '', directory ?? undefined);
   const skills = useSkillsStore((state) => state.skills);
@@ -40,26 +39,26 @@ export const WorkStatusContextSection: React.FC<Props> = ({ sessionId, directory
   const summaryParts: string[] = [];
   if (issueCount > 0) {
     summaryParts.push(issueCount === 1
-      ? t('chat.workStatus.breakdown.issueCountSingle', { count: issueCount })
-      : t('chat.workStatus.breakdown.issueCountPlural', { count: issueCount }));
+      ? `${issueCount} issue`
+      : `${issueCount} issues`);
   }
   if (prCount > 0) {
     summaryParts.push(prCount === 1
-      ? t('chat.workStatus.breakdown.prCountSingle', { count: prCount })
-      : t('chat.workStatus.breakdown.prCountPlural', { count: prCount }));
+      ? `${prCount} PR`
+      : `${prCount} PRs`);
   }
   if (summaryParts.length === 0) {
     if (skills.length > 0) {
       summaryParts.push(skills.length === 1
-        ? t('chat.workStatus.breakdown.skillCountSingle', { count: skills.length })
-        : t('chat.workStatus.breakdown.skillCountPlural', { count: skills.length }));
+        ? `${skills.length} skill`
+        : `${skills.length} skills`);
     }
   }
 
   return (
     <WorkStatusCollapsibleSection
       id="context-sources"
-      title={t('chat.workStatus.section.contextBreakdown')}
+      title={"Context sources"}
       icon="stack"
       summary={summaryParts.join(' · ')}
     >
@@ -79,14 +78,14 @@ export const WorkStatusContextSection: React.FC<Props> = ({ sessionId, directory
           label={entry.title}
           muted
           onClick={() => window.open(entry.url, '_blank', 'noopener,noreferrer')}
-          ariaLabel={t('chat.workStatus.linkedIssues.open', { number: entry.number })}
+          ariaLabel={`Open #${entry.number} on GitHub`}
           value={<WorkStatusValue tone="muted">{`#${entry.number}`}</WorkStatusValue>}
         />
       ))}
 
       <WorkStatusRow
         muted
-        label={t('chat.workStatus.breakdown.skills')}
+        label={"Skills"}
         value={<WorkStatusValue>{skills.length}</WorkStatusValue>}
       />
     </WorkStatusCollapsibleSection>

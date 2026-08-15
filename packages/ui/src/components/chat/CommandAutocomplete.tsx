@@ -7,7 +7,6 @@ import { useSessionMessages } from '@/sync/sync-context';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Icon } from "@/components/icon/Icon";
-import { useI18n } from '@/lib/i18n';
 import { useUIStore } from '@/stores/useUIStore';
 import { useMobileAutocompleteMaxHeight } from './useMobileAutocompleteMaxHeight';
 import { commandMatchesSearch, mergeCommandAutocompleteItems } from './commandAutocompleteItems';
@@ -63,7 +62,6 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
   onClose,
   style,
 }, ref) => {
-  const { t } = useI18n();
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const sessionMessages = useSessionMessages(currentSessionId ?? '');
   const hasMessagesInCurrentSession = sessionMessages.length > 0;
@@ -125,40 +123,40 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
 
         const builtInCommands: CommandInfo[] = [
           ...(hasSession && !hasMessagesInCurrentSession
-            ? [{ id: 'openchamber:init', name: 'init', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.initDescription'), isBuiltIn: true }]
+            ? [{ id: 'openchamber:init', name: 'init', source: 'openchamber' as const, description: "Create/update AGENTS.md file", isBuiltIn: true }]
             : []
           ),
           ...(hasSession  // Show when session exists, not when hasMessages
             ? [
-                { id: 'openchamber:undo', name: 'undo', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.undoDescription'), isBuiltIn: true },
-                { id: 'openchamber:redo', name: 'redo', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.redoDescription'), isBuiltIn: true },
-                { id: 'openchamber:timeline', name: 'timeline', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.timelineDescription'), isBuiltIn: true },
+                { id: 'openchamber:undo', name: 'undo', source: 'openchamber' as const, description: "Undo the last message", isBuiltIn: true },
+                { id: 'openchamber:redo', name: 'redo', source: 'openchamber' as const, description: "Redo previously undone messages", isBuiltIn: true },
+                { id: 'openchamber:timeline', name: 'timeline', source: 'openchamber' as const, description: "Open the conversation timeline", isBuiltIn: true },
               ]
             : []
           ),
-          { id: 'openchamber:compact', name: 'compact', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.compactDescription'), isBuiltIn: true },
+          { id: 'openchamber:compact', name: 'compact', source: 'openchamber' as const, description: "Compress session history using AI to reduce context size", isBuiltIn: true },
           ...(hasSession
-            ? [{ id: 'openchamber:summary', name: 'summary', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.summaryDescription'), isPiChamber: true }]
+            ? [{ id: 'openchamber:summary', name: 'summary', source: 'openchamber' as const, description: "Non-destructive session summary. Optional topic hint after the command.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:plan-feature', name: 'plan-feature', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.featurePlanDescription'), isPiChamber: true }]
+            ? [{ id: 'openchamber:plan-feature', name: 'plan-feature', source: 'openchamber' as const, description: "Start a guided, back-and-forth planning session for a new feature.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:catch-up', name: 'catch-up', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.catchUpDescription'), isPiChamber: true }]
+            ? [{ id: 'openchamber:catch-up', name: 'catch-up', source: 'openchamber' as const, description: "Re-establish context: what you were doing and where to pick up.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:debug', name: 'debug', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.debugDescription'), isPiChamber: true }]
+            ? [{ id: 'openchamber:debug', name: 'debug', source: 'openchamber' as const, description: "Guided root-cause investigation for a bug before proposing a fix.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:weigh', name: 'weigh', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.weighDescription'), isPiChamber: true }]
+            ? [{ id: 'openchamber:weigh', name: 'weigh', source: 'openchamber' as const, description: "Weigh 2-3 approaches with trade-offs and a recommendation before you commit.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:explore', name: 'explore', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.exploreDescription'), isPiChamber: true }]
+            ? [{ id: 'openchamber:explore', name: 'explore', source: 'openchamber' as const, description: "Get oriented in this codebase: a high-level tour of the architecture and main parts.", isPiChamber: true }]
             : []
           ),
         ];
@@ -183,40 +181,40 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
         const allowInitCommand = !hasMessagesInCurrentSession;
         const builtInCommands: CommandInfo[] = [
           ...(hasSession && !hasMessagesInCurrentSession
-            ? [{ id: 'openchamber:init', name: 'init', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.initDescription'), isBuiltIn: true }]
+            ? [{ id: 'openchamber:init', name: 'init', source: 'openchamber' as const, description: "Create/update AGENTS.md file", isBuiltIn: true }]
             : []
           ),
           ...(hasSession  // Show when session exists, not when hasMessages
             ? [
-                { id: 'openchamber:undo', name: 'undo', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.undoDescription'), isBuiltIn: true },
-                { id: 'openchamber:redo', name: 'redo', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.redoDescription'), isBuiltIn: true },
-                { id: 'openchamber:timeline', name: 'timeline', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.timelineDescription'), isBuiltIn: true },
+                { id: 'openchamber:undo', name: 'undo', source: 'openchamber' as const, description: "Undo the last message", isBuiltIn: true },
+                { id: 'openchamber:redo', name: 'redo', source: 'openchamber' as const, description: "Redo previously undone messages", isBuiltIn: true },
+                { id: 'openchamber:timeline', name: 'timeline', source: 'openchamber' as const, description: "Open the conversation timeline", isBuiltIn: true },
               ]
             : []
           ),
-          { id: 'openchamber:compact', name: 'compact', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.compactDescription'), isBuiltIn: true },
+          { id: 'openchamber:compact', name: 'compact', source: 'openchamber' as const, description: "Compress session history using AI to reduce context size", isBuiltIn: true },
           ...(hasSession
-            ? [{ id: 'openchamber:summary', name: 'summary', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.summaryDescription'), isPiChamber: true }]
+            ? [{ id: 'openchamber:summary', name: 'summary', source: 'openchamber' as const, description: "Non-destructive session summary. Optional topic hint after the command.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:plan-feature', name: 'plan-feature', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.featurePlanDescription'), isPiChamber: true }]
+            ? [{ id: 'openchamber:plan-feature', name: 'plan-feature', source: 'openchamber' as const, description: "Start a guided, back-and-forth planning session for a new feature.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:catch-up', name: 'catch-up', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.catchUpDescription'), isPiChamber: true }]
+            ? [{ id: 'openchamber:catch-up', name: 'catch-up', source: 'openchamber' as const, description: "Re-establish context: what you were doing and where to pick up.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:debug', name: 'debug', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.debugDescription'), isPiChamber: true }]
+            ? [{ id: 'openchamber:debug', name: 'debug', source: 'openchamber' as const, description: "Guided root-cause investigation for a bug before proposing a fix.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:weigh', name: 'weigh', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.weighDescription'), isPiChamber: true }]
+            ? [{ id: 'openchamber:weigh', name: 'weigh', source: 'openchamber' as const, description: "Weigh 2-3 approaches with trade-offs and a recommendation before you commit.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:explore', name: 'explore', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.exploreDescription'), isPiChamber: true }]
+            ? [{ id: 'openchamber:explore', name: 'explore', source: 'openchamber' as const, description: "Get oriented in this codebase: a high-level tour of the architecture and main parts.", isPiChamber: true }]
             : []
           ),
         ];
@@ -235,7 +233,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
     };
 
     loadCommands();
-  }, [searchQuery, hasMessagesInCurrentSession, hasSession, canStartSessionCommand, canUseReviewHandoffFlow, skills, t]);
+  }, [searchQuery, hasMessagesInCurrentSession, hasSession, canStartSessionCommand, canUseReviewHandoffFlow, skills]);
 
   React.useEffect(() => {
     setSelectedIndex(0);
@@ -398,11 +396,11 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
                       <span className="typography-ui-label font-medium">/{command.name}</span>
                       {command.isSkill ? (
                         <span className={TYPE_BADGE_CLASS}>
-                          {t('chat.commandAutocomplete.badge.skill')}
+                          {"skill"}
                         </span>
                       ) : (
                         <span className={TYPE_BADGE_CLASS}>
-                          {t('chat.commandAutocomplete.badge.command')}
+                          {"command"}
                         </span>
                       )}
                       {isPiChamberBadge ? (
@@ -411,7 +409,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
                         </span>
                       ) : isSystem ? (
                         <span className={NEUTRAL_BADGE_CLASS}>
-                          {t('chat.commandAutocomplete.badge.system')}
+                          {"system"}
                         </span>
                       ) : command.scope ? (
                         <span className={command.scope === 'project' ? PROJECT_BADGE_CLASS : USER_BADGE_CLASS}>
@@ -435,7 +433,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
             })}
             {commands.length === 0 && (
               <div className="px-3 py-2 typography-ui-label text-muted-foreground">
-                {t('chat.commandAutocomplete.empty')}
+                {"No commands found"}
               </div>
             )}
           </div>
@@ -443,7 +441,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
       </ScrollableOverlay>
       {!isMobile && (
         <div className="px-3 pt-1 pb-1.5 border-t typography-meta text-muted-foreground">
-          {t('chat.autocomplete.keyboardHint')}
+          {"↑↓ navigate • Enter select • Esc close"}
         </div>
       )}
     </div>

@@ -1,5 +1,3 @@
-import type { I18nKey } from '@/lib/i18n/messages/en';
-
 /**
  * Every section the work-status panel can render, in display order.
  *
@@ -22,14 +20,14 @@ export const WORK_STATUS_SECTION_IDS = [
 
 type WorkStatusSectionId = (typeof WORK_STATUS_SECTION_IDS)[number];
 
-export const WORK_STATUS_SECTION_LABEL_KEYS: Record<WorkStatusSectionId, I18nKey> = {
-  session: 'chat.workStatus.section.session',
-  repository: 'chat.workStatus.section.repository',
-  usage: 'chat.workStatus.section.usage',
-  subagents: 'chat.workStatus.section.subagents',
-  tasks: 'chat.workStatus.section.tasks',
-  pinned: 'chat.workStatus.section.pinned',
-  contextSources: 'chat.workStatus.section.contextBreakdown',
+export const WORK_STATUS_SECTION_LABELS: Record<WorkStatusSectionId, string> = {
+  session: "Session",
+  repository: "Repository",
+  usage: "Usage",
+  subagents: "Subagents",
+  tasks: "Tasks",
+  pinned: "Pinned messages",
+  contextSources: "Context sources",
 };
 
 const KNOWN_IDS = new Set<string>(WORK_STATUS_SECTION_IDS);

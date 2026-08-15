@@ -233,10 +233,6 @@ mock.module('@/components/desktop/DesktopHostSwitcher', () => ({
   DesktopHostSwitcherInline: () => 'host-switcher',
 }));
 
-mock.module('@/lib/i18n', () => ({
-  useI18n: () => ({ t: (key: string) => key }),
-}));
-
 mock.module('@/lib/desktop', () => ({
   invokeDesktop: () => desktopInvoke(),
   isDesktopShell: mock(() => desktopShell),
@@ -361,8 +357,8 @@ describe('SessionAuthGate status-check failure behavior', () => {
     const tree = await renderGate();
     const text = collectText(tree);
 
-    expect(text).toContain('sessionAuth.error.networkTitle');
-    expect(text).not.toContain('sessionAuth.locked.unlockTitle');
+    expect(text).toContain('Unable to reach server');
+    expect(text).not.toContain('Unlock PiChamber');
   });
 
   test('keeps desktop-shell status-check rejection on the locked password prompt', async () => {
@@ -373,8 +369,8 @@ describe('SessionAuthGate status-check failure behavior', () => {
     const tree = await renderGate();
     const text = collectText(tree);
 
-    expect(text).toContain('sessionAuth.locked.unlockTitle');
-    expect(text).not.toContain('sessionAuth.error.networkTitle');
+    expect(text).toContain('Unlock PiChamber');
+    expect(text).not.toContain('Unable to reach server');
   });
 
   test('discards a password completion after switching to another host', async () => {

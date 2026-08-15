@@ -11,7 +11,6 @@ import { PierreDiffViewer } from '@/components/views/PierreDiffViewer';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import type { GitStatus } from '@/lib/api/types';
-import { useI18n } from '@/lib/i18n';
 import { generateCommitMessage, stageGitFile, stageGitFiles, unstageGitFile, unstageGitFiles } from '@/lib/gitApi';
 import type { GitRemote } from '@/lib/gitApi';
 import { getLanguageFromExtension, isImageFile } from '@/lib/toolHelpers';
@@ -54,7 +53,6 @@ type MobileChangesSurfaceProps = {
 };
 
 export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onClose, initialDiffPath, initialDiffStaged = false }) => {
-  const { t } = useI18n();
   const { git } = useRuntimeAPIs();
   const currentDirectory = normalizePath(useEffectiveDirectory() ?? null);
   const status = useGitStatus(currentDirectory || null);
@@ -143,10 +141,10 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
       ]);
     } catch (error) {
       if (showErrors) {
-        toast.error(error instanceof Error ? error.message : t('gitView.toast.refreshRepositoryFailed'));
+        toast.error(error instanceof Error ? error.message : "Failed to refresh repository");
       }
     }
-  }, [currentDirectory, fetchBranches, fetchStatus, git, t]);
+  }, [currentDirectory, fetchBranches, fetchStatus, git]);
 
   const refreshRemotes = React.useCallback(async () => {
     if (!currentDirectory) {
@@ -237,16 +235,16 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
       };
 
       if (action === 'fetch') {
-        if (!remote) throw new Error(t('mobile.changes.noRemote'));
+        if (!remote) throw new Error("No remote available");
         await git.gitFetch(currentDirectory, { remote: remote.name });
-        toast.success(t('gitView.toast.fetchedFromRemote', { name: remote.name }));
+        toast.success(`Fetched from ${remote.name}`);
       } else if (action === 'sync') {
-        if (!remote) throw new Error(t('mobile.changes.noRemote'));
+        if (!remote) throw new Error("No remote available");
         await git.gitFetch(currentDirectory, { remote: remote.name });
         const afterFetch = await git.getGitStatus(currentDirectory);
         if ((afterFetch.behind ?? 0) > 0) {
           if ((afterFetch.files?.length ?? 0) > 0) {
-            toast.error(t('gitView.toast.commitOrStashBeforeSync'));
+            toast.error("Commit or stash your changes before syncing");
             return;
           }
           await git.gitPull(currentDirectory, getPullOptions(remote));
@@ -255,12 +253,12 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
         if ((afterPull.ahead ?? 0) > 0) {
           await git.gitPush(currentDirectory);
         }
-        toast.success(t('gitView.toast.alreadyUpToDate'));
+        toast.success("Already up to date");
       }
       await refreshStatusAndBranches(false);
       await refreshRemotes();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('gitView.toast.syncActionFailed', { action: t('gitView.sync.syncChanges') }));
+      toast.error(error instanceof Error ? error.message : `Sync Changes failed`);
     } finally {
       setSyncAction(null);
     }
@@ -279,10 +277,10 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
       await refreshStatusAndBranches(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : direction === 'stage'
-        ? t('gitView.toast.stageFileFailed')
-        : t('gitView.toast.unstageFileFailed'));
+        ? "Failed to stage changes"
+        : "Failed to unstage changes");
     }
-  }, [currentDirectory, refreshStatusAndBranches, t]);
+  }, [currentDirectory, refreshStatusAndBranches]);
 
   const handleViewChangeDiff = React.useCallback((path: string, staged = false) => {
     setRoute({ type: 'diff', path, staged });
@@ -293,10 +291,10 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
     setRevertingPaths((previous) => new Set(previous).add(filePath));
     try {
       await git.revertGitFile(currentDirectory, filePath);
-      toast.success(t('gitView.toast.revertedFile', { path: filePath }));
+      toast.success(`Reverted ${filePath}`);
       await refreshStatusAndBranches(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('gitView.toast.revertFailed'));
+      toast.error(error instanceof Error ? error.message : "Failed to revert changes");
     } finally {
       setRevertingPaths((previous) => {
         const next = new Set(previous);
@@ -304,7 +302,7 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
         return next;
       });
     }
-  }, [currentDirectory, git, refreshStatusAndBranches, t]);
+  }, [currentDirectory, git, refreshStatusAndBranches]);
 
   const handleRevertAll = React.useCallback(async (paths: string[]) => {
     if (!currentDirectory || paths.length === 0 || isRevertingAll) return;
@@ -315,15 +313,15 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
       await Promise.all(uniquePaths.map((filePath) => git.revertGitFile(currentDirectory, filePath)));
       await refreshStatusAndBranches(false);
       toast.success(uniquePaths.length === 1
-        ? t('gitView.toast.revertedFilesSingle', { count: uniquePaths.length })
-        : t('gitView.toast.revertedFilesPlural', { count: uniquePaths.length }));
+        ? `Reverted ${uniquePaths.length} file`
+        : `Reverted ${uniquePaths.length} files`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('gitView.toast.revertFailed'));
+      toast.error(error instanceof Error ? error.message : "Failed to revert changes");
     } finally {
       setRevertingPaths(new Set());
       setIsRevertingAll(false);
     }
-  }, [currentDirectory, git, isRevertingAll, refreshStatusAndBranches, t]);
+  }, [currentDirectory, git, isRevertingAll, refreshStatusAndBranches]);
 
   const handleInsertHighlights = React.useCallback((highlights: string[]) => {
     const normalized = highlights.map((text) => text.trim()).filter(Boolean);
@@ -339,7 +337,7 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
     if (!currentDirectory) return;
     const selectedFilePaths = stagedChangeEntries.map((file) => file.path).sort();
     if (selectedFilePaths.length === 0) {
-      toast.error(t('gitView.toast.selectFileToDescribe'));
+      toast.error("Select at least one file to describe");
       return;
     }
     setIsGeneratingMessage(true);
@@ -348,35 +346,35 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
       setCommitMessage(message.subject?.trim() ?? '');
       setGeneratedHighlights(Array.isArray(message.highlights) ? message.highlights : []);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('gitView.toast.generateCommitMessageFailed'));
+      toast.error(error instanceof Error ? error.message : "Failed to generate commit message");
     } finally {
       setIsGeneratingMessage(false);
     }
-  }, [currentDirectory, stagedChangeEntries, t]);
+  }, [currentDirectory, stagedChangeEntries]);
 
   const handleCommit = async (options: { pushAfter?: boolean } = {}) => {
     if (!currentDirectory) return;
     if (!commitMessage.trim()) {
-      toast.error(t('gitView.toast.enterCommitMessage'));
+      toast.error("Enter a commit message");
       return;
     }
     const filesToCommit = stagedChangeEntries.map((file) => file.path).sort();
     if (filesToCommit.length === 0) {
-      toast.error(t('gitView.toast.selectFileToCommit'));
+      toast.error("Select at least one file to commit");
       return;
     }
 
     setCommitAction(options.pushAfter ? 'commitAndPush' : 'commit');
     try {
       await git.createGitCommit(currentDirectory, commitMessage.trim(), { files: filesToCommit });
-      toast.success(t('gitView.toast.commitCreated'));
+      toast.success("Commit created");
       setCommitMessage('');
       setGeneratedHighlights([]);
 
       if (options.pushAfter) {
         const trackingRemoteName = status?.tracking?.split('/')[0];
         const remote = effectiveRemotes.find((entry) => entry.name === trackingRemoteName) ?? effectiveRemotes[0];
-        if (!remote) throw new Error(t('mobile.changes.noRemote'));
+        if (!remote) throw new Error("No remote available");
         setSyncAction('sync');
         const trackingPrefix = `${remote.name}/`;
         const trackedBranch = status?.tracking?.startsWith(trackingPrefix)
@@ -400,7 +398,7 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
         await refreshStatusAndBranches(false);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('gitView.toast.createCommitFailed'));
+      toast.error(error instanceof Error ? error.message : "Failed to create commit");
     } finally {
       setCommitAction(null);
       if (options.pushAfter) setSyncAction(null);
@@ -413,11 +411,11 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
     if (stagedChangeEntries.length > 0) {
       groups.push({
         id: 'staged',
-        title: t('gitView.changes.stagedTitle'),
+        title: "Staged",
         entries: stagedChangeEntries,
         actionSymbol: '-',
-        actionAllLabel: t('gitView.changes.unstageAllAria'),
-        getActionLabel: (path: string) => t('gitView.changes.unstageFileAria', { path }),
+        actionAllLabel: "Unstage all changes",
+        getActionLabel: (path: string) => `Unstage ${path}`,
         onActionFile: (path: string) => void moveChangePaths([path], 'unstage'),
         onActionAll: (paths: string[]) => void moveChangePaths(paths, 'unstage'),
         onViewDiff: (path: string) => handleViewChangeDiff(path, true),
@@ -430,11 +428,11 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
     if (unstagedChangeEntries.length > 0) {
       groups.push({
         id: 'unstaged',
-        title: t('gitView.changes.title'),
+        title: "Changes",
         entries: unstagedChangeEntries,
         actionSymbol: '+',
-        actionAllLabel: t('gitView.changes.stageAllAria'),
-        getActionLabel: (path: string) => t('gitView.changes.stageFileAria', { path }),
+        actionAllLabel: "Stage all changes",
+        getActionLabel: (path: string) => `Stage ${path}`,
         onActionFile: (path: string) => void moveChangePaths([path], 'stage'),
         onActionAll: (paths: string[]) => void moveChangePaths(paths, 'stage'),
         onViewDiff: (path: string) => handleViewChangeDiff(path, false),
@@ -443,7 +441,7 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
     }
 
     return groups;
-  }, [handleRevertFile, handleViewChangeDiff, moveChangePaths, stagedChangeEntries, t, unstagedChangeEntries]);
+  }, [handleRevertFile, handleViewChangeDiff, moveChangePaths, stagedChangeEntries, unstagedChangeEntries]);
 
   const renderListState = (state: React.ReactNode) => (
     <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
@@ -452,7 +450,7 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
           <button
             type="button"
             className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={t('mobile.surface.closeAria')}
+            aria-label={"Close"}
             onClick={onClose}
             style={{ touchAction: 'manipulation' }}
           >
@@ -460,7 +458,7 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
           </button>
         ) : null}
         <div className="min-w-0 flex-1 px-1">
-          <h2 className="typography-ui-label text-foreground">{t('mobile.nav.changes')}</h2>
+          <h2 className="typography-ui-label text-foreground">{"Changes"}</h2>
           <p className="truncate typography-micro text-muted-foreground">
             {status?.current || currentDirectory || ''}
           </p>
@@ -471,15 +469,15 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
   );
 
   if (!currentDirectory) {
-    return renderListState(<MobileChangesState message={t('gitView.empty.selectSessionOrDirectory')} />);
+    return renderListState(<MobileChangesState message={"Select a session or directory to view Git status"} />);
   }
 
   if (isLoadingStatus && isGitRepo === null) {
-    return renderListState(<MobileChangesState loading message={t('gitView.loading.checkingRepository')} />);
+    return renderListState(<MobileChangesState loading message={"Checking repository..."} />);
   }
 
   if (isGitRepo === false) {
-    return renderListState(<MobileChangesState icon message={t('gitView.empty.notGitRepository')} description={t('gitView.empty.notGitRepositoryDescription')} />);
+    return renderListState(<MobileChangesState icon message={"This directory is not a Git repository"} description={"Initialize Git in this directory or open a repository."} />);
   }
 
   if (route.type === 'diff') {
@@ -502,7 +500,7 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
           <button
             type="button"
             className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={t('mobile.surface.closeAria')}
+            aria-label={"Close"}
             onClick={onClose}
             style={{ touchAction: 'manipulation' }}
           >
@@ -510,7 +508,7 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
           </button>
         ) : null}
         <div className="min-w-0 flex-1 px-1">
-          <h2 className="typography-ui-label text-foreground">{t('mobile.nav.changes')}</h2>
+          <h2 className="typography-ui-label text-foreground">{"Changes"}</h2>
           <p className="truncate typography-micro text-muted-foreground">
             {status?.current || currentDirectory}
           </p>
@@ -560,7 +558,7 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
         </div>
       ) : (
         <div className="min-h-0 flex-1">
-          <MobileChangesState icon message={t('gitView.empty.cleanTitle')} description={t('mobile.changes.cleanDescription')} />
+          <MobileChangesState icon message={"Working tree clean"} description={"There are no changed files in this workspace."} />
         </div>
       )}
     </div>
@@ -591,7 +589,6 @@ const MobileDiffDetail: React.FC<{
   onBack: () => void;
   onRetry: () => void;
 }> = ({ path, diff, fileExists, error, onBack, onRetry }) => {
-  const { t } = useI18n();
   const language = React.useMemo(() => getLanguageFromExtension(path) || 'text', [path]);
 
   return (
@@ -600,7 +597,7 @@ const MobileDiffDetail: React.FC<{
         <button
           type="button"
           className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          aria-label={t('header.actions.backAria')}
+          aria-label={"Back"}
           onClick={onBack}
         >
           <Icon name="arrow-left" className="size-5" />
@@ -611,21 +608,21 @@ const MobileDiffDetail: React.FC<{
       </header>
       <div className="min-h-0 flex-1 overflow-hidden">
         {!fileExists ? (
-          <MobileChangesState icon message={t('mobile.changes.diffDetail.missingTitle')} description={t('mobile.changes.diffDetail.missingDescription')} />
+          <MobileChangesState icon message={"File is no longer changed"} description={"Go back to Changes and refresh the list."} />
         ) : error ? (
           <div className="flex h-full items-center justify-center px-6 text-center">
             <div className="flex max-w-sm flex-col items-center gap-3">
-              <p className="typography-ui-label font-semibold text-foreground">{t('mobile.changes.diffDetail.loadFailed')}</p>
+              <p className="typography-ui-label font-semibold text-foreground">{"Failed to load diff"}</p>
               <p className="typography-meta text-muted-foreground">{error}</p>
-              <Button type="button" size="sm" variant="outline" onClick={onRetry}>{t('diffView.actions.retry')}</Button>
+              <Button type="button" size="sm" variant="outline" onClick={onRetry}>{"Retry"}</Button>
             </div>
           </div>
         ) : !diff ? (
-          <MobileChangesState loading message={t('diffView.state.loadingDiff')} />
+          <MobileChangesState loading message={"Loading diff..."} />
         ) : diff.isBinary ? (
-          <MobileChangesState icon message={t('diffView.binary.unavailable')} />
+          <MobileChangesState icon message={"Content of this file cannot be viewed."} />
         ) : isImageFile(path) ? (
-          <MobileChangesState icon message={t('mobile.changes.diffDetail.imageUnavailable')} />
+          <MobileChangesState icon message={"Image diffs are not available in mobile Changes yet."} />
         ) : (
           <ScrollShadow
             className="h-full overflow-y-auto overflow-x-hidden p-3"

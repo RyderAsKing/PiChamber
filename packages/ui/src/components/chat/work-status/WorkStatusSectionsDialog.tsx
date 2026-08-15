@@ -1,5 +1,4 @@
 import React from 'react';
-import { useI18n } from '@/lib/i18n';
 import { useUIStore } from '@/stores/useUIStore';
 import { SettingsCheckboxRow } from '@/components/sections/shared/SettingsSection';
 import {
@@ -11,7 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   WORK_STATUS_SECTION_IDS,
-  WORK_STATUS_SECTION_LABEL_KEYS,
+  WORK_STATUS_SECTION_LABELS,
   isWorkStatusSectionVisible,
 } from './sections';
 
@@ -26,7 +25,6 @@ export const WorkStatusSectionsDialog: React.FC<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }> = ({ open, onOpenChange }) => {
-  const { t } = useI18n();
   const hidden = useUIStore((state) => state.workStatusHiddenSections);
   const setSectionVisible = useUIStore((state) => state.setWorkStatusSectionVisible);
 
@@ -34,8 +32,8 @@ export const WorkStatusSectionsDialog: React.FC<{
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{t('chat.workStatus.sections.dialogTitle')}</DialogTitle>
-          <DialogDescription>{t('chat.workStatus.sections.dialogDescription')}</DialogDescription>
+          <DialogTitle>{"Panel sections"}</DialogTitle>
+          <DialogDescription>{"Choose what the work-status panel shows. Hidden sections keep their data — they are only left out of the panel."}</DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col">
@@ -45,8 +43,8 @@ export const WorkStatusSectionsDialog: React.FC<{
               settingsItem={`chat.work-status.section.${sectionId}`}
               checked={isWorkStatusSectionVisible(hidden, sectionId)}
               onChange={(checked) => setSectionVisible(sectionId, checked)}
-              label={t(WORK_STATUS_SECTION_LABEL_KEYS[sectionId])}
-              ariaLabel={t(WORK_STATUS_SECTION_LABEL_KEYS[sectionId])}
+              label={WORK_STATUS_SECTION_LABELS[sectionId]}
+              ariaLabel={WORK_STATUS_SECTION_LABELS[sectionId]}
             />
           ))}
         </div>

@@ -13,7 +13,6 @@ import { getDeviceInfo } from '@/lib/device';
 import { markAppBootReady } from './appBootReady';
 import { installMobileWidgetSnapshotBridge } from './mobileWidgetSnapshot';
 import { applyPersistedDirectoryPreferences } from '@/lib/directoryPersistence';
-import { I18nProvider } from '@/lib/i18n';
 import { initializeAppearancePreferences, syncDesktopSettings } from '@/lib/persistence';
 import { startModelPrefsAutoSave } from '@/lib/modelPrefsAutoSave';
 import { startTypographyWatcher } from '@/lib/typographyWatcher';
@@ -89,7 +88,6 @@ export function renderMobileApp(apis?: RuntimeAPIs) {
 
   createRoot(rootElement).render(
     <StrictMode>
-      <I18nProvider>
         <ThemeSystemProvider>
           <ThemeProvider>
             <DiffWorkerProvider>
@@ -97,7 +95,6 @@ export function renderMobileApp(apis?: RuntimeAPIs) {
             </DiffWorkerProvider>
           </ThemeProvider>
         </ThemeSystemProvider>
-      </I18nProvider>
     </StrictMode>,
   );
 }

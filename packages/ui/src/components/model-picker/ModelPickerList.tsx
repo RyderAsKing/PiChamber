@@ -15,7 +15,6 @@ import { Input } from '@/components/ui/input';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { getCurrentIntlLocale } from '@/lib/i18n';
 import { mergeModelMetadataWithLiveModel } from '@/lib/modelMetadata';
 import { getModelDisplayName as getSharedModelDisplayName } from '@/lib/modelDisplay';
 import { cn } from '@/lib/utils';
@@ -47,14 +46,14 @@ type IndexSelectionStore = {
   set: (value: number) => void;
 };
 
-const formatCompactNumber = (value: number) => new Intl.NumberFormat(getCurrentIntlLocale(), {
+const formatCompactNumber = (value: number) => new Intl.NumberFormat('en-US', {
   notation: 'compact',
   compactDisplay: 'short',
   maximumFractionDigits: 1,
   minimumFractionDigits: 0,
 }).format(value);
 
-const formatUsdCurrency = (value: number) => new Intl.NumberFormat(getCurrentIntlLocale(), {
+const formatUsdCurrency = (value: number) => new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
   maximumFractionDigits: 4,

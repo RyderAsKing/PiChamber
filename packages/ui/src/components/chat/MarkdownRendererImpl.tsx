@@ -3,7 +3,6 @@ import morphdom from 'morphdom';
 import { renderMermaidASCII, renderMermaidSVG } from 'beautiful-mermaid';
 import type { Part } from '@/lib/chat/types';
 import { cn } from '@/lib/utils';
-import { useI18n } from '@/lib/i18n';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isExternalHttpUrl, openExternalUrl } from '@/lib/url';
 import { useOptionalThemeSystem } from '@/contexts/useThemeSystem';
@@ -782,22 +781,21 @@ const useDecorateContext = (
   onPreviewLoopback?: (url: string) => void,
   mermaidControls: MermaidControlOptions = DEFAULT_MERMAID_CONTROLS,
 ): DecorateContext => {
-  const { t } = useI18n();
   const labels: DecorateLabels = React.useMemo(() => ({
-    copy: t('markdownRenderer.code.actions.copyTitle'),
-    copied: t('markdownRenderer.code.actions.copiedTitle'),
-    enableCodeWrap: t('markdownRenderer.code.actions.enableWrapTitle'),
-    disableCodeWrap: t('markdownRenderer.code.actions.disableWrapTitle'),
-    copyTable: t('markdownRenderer.table.actions.copyTitle'),
-    downloadTable: t('markdownRenderer.table.actions.downloadTitle'),
-    copyDiagram: t('markdownRenderer.mermaid.actions.copySourceTitle'),
-    downloadDiagram: t('markdownRenderer.mermaid.actions.downloadSvgTitle'),
-    zoomInDiagram: t('markdownRenderer.mermaid.actions.zoomInTitle'),
-    zoomOutDiagram: t('markdownRenderer.mermaid.actions.zoomOutTitle'),
-    resetDiagramView: t('markdownRenderer.mermaid.actions.resetViewTitle'),
-    previewLabel: t('terminalView.preview.open'),
-    previewTitle: t('terminalView.preview.openTitle'),
-  }), [t]);
+    copy: "Copy code",
+    copied: "Copied",
+    enableCodeWrap: "Enable line wrap",
+    disableCodeWrap: "Disable line wrap",
+    copyTable: "Copy table",
+    downloadTable: "Download table",
+    copyDiagram: "Copy source",
+    downloadDiagram: "Download SVG",
+    zoomInDiagram: "Zoom in",
+    zoomOutDiagram: "Zoom out",
+    resetDiagramView: "Reset view",
+    previewLabel: "Preview",
+    previewTitle: "Open preview pane",
+  }), []);
 
   const codeBlockLineWrap = useUIStore((state) => state.codeBlockLineWrap);
   const setCodeBlockLineWrap = useUIStore((state) => state.setCodeBlockLineWrap);

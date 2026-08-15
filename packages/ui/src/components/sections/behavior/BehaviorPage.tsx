@@ -6,14 +6,13 @@ import { toast } from '@/components/ui';
 import { ProjectTrustDialog } from '@/components/sections/shared/ProjectTrustDialog';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
 import { SettingsSection } from '@/components/sections/shared/SettingsSection';
-import { useI18n } from '@/lib/i18n';
 import { piClient } from '@/lib/pi/client';
 import type { PiResource } from '@/lib/pi/types';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 
 /** Pi global and applicable project instruction files. Pi, rather than PiChamber, remains their source of truth. */
 export const BehaviorPage: React.FC = () => {
-  const { t } = useI18n();
+  
   const [agents, setAgents] = React.useState<PiResource[] | null>(null);
   const [drafts, setDrafts] = React.useState<Record<string, string>>({});
   const [saving, setSaving] = React.useState<string | null>(null);
@@ -34,9 +33,9 @@ export const BehaviorPage: React.FC = () => {
       const resources = await piClient.updateResource({ resourceId: agent.id, content: drafts[agent.id] ?? '' }, { runtimeKey: getRuntimeKey() });
       setAgents(resources.agents);
       setDrafts(Object.fromEntries(resources.agents.map((item) => [item.id, item.content ?? ''])));
-      toast.success(t('settings.behavior.page.toast.saved'));
+      toast.success("Behavior saved successfully");
     } catch {
-      toast.error(t('settings.behavior.page.toast.saveFailed'));
+      toast.error("Failed to save behavior");
     } finally {
       setSaving(null);
     }
@@ -44,14 +43,14 @@ export const BehaviorPage: React.FC = () => {
 
   return <>
     <ProjectTrustDialog onResolved={() => { void refresh().catch(() => setFailed(true)); }} />
-    <SettingsPageLayout title={t('settings.behavior.page.title')} description={t('settings.page.behavior.description')} showSaveStatus={false}>
-      {failed ? <p className="typography-meta text-[var(--status-error)]">{t('common.unavailable')}</p> : null}
+    <SettingsPageLayout title={"Behavior"} description={"Guide how the agent responds."} showSaveStatus={false}>
+      {failed ? <p className="typography-meta text-[var(--status-error)]">{"Unavailable"}</p> : null}
       {(agents ?? []).map((agent, index) => {
         const content = drafts[agent.id] ?? '';
-        const title = agent.location === 'global' ? t('settings.behavior.page.section.systemPrompt') : `${t('settings.common.scope.project')} ${agent.name}`;
+        const title = agent.location === 'global' ? "Global AGENTS.md" : `${"Project"} ${agent.name}`;
         return <SettingsSection key={agent.id} title={title} divider={index > 0} settingsItem={agent.location === 'global' ? 'behavior.global-agents' : 'behavior.project-agents'} contentClassName="space-y-3">
           <Textarea value={content} onChange={(event) => setDrafts((current) => ({ ...current, [agent.id]: event.target.value }))} rows={12} disabled={agent.editable !== true} outerClassName="min-h-[180px] max-h-[70vh]" className="w-full font-mono typography-meta bg-transparent" />
-          {agent.editable === true ? <Button size="xs" onClick={() => void save(agent)} disabled={saving !== null || content === (agent.content ?? '')}>{saving === agent.id ? t('settings.common.actions.saving') : t('settings.common.actions.saveChanges')}</Button> : null}
+          {agent.editable === true ? <Button size="xs" onClick={() => void save(agent)} disabled={saving !== null || content === (agent.content ?? '')}>{saving === agent.id ? "Saving..." : "Save Changes"}</Button> : null}
         </SettingsSection>;
       })}
     </SettingsPageLayout>

@@ -53,7 +53,6 @@ import {
     type TaskToolSummaryEntry,
 } from './taskToolModel';
 import { areRenderRelevantPartsEqual } from '../renderCompare';
-import { useI18n } from '@/lib/i18n';
 import {
     extractFirstChangedLineFromDiff,
     getDiffPatchEntries,
@@ -662,7 +661,6 @@ const ToolScrollableTextOutput: React.FC<{
     input: Record<string, unknown> | undefined;
     isStreaming?: boolean;
 }> = ({ output, part, metadata, input, isStreaming = false }) => {
-    const { t } = useI18n();
     const renderedOutput = getToolOutputText(output, part, metadata);
     const outputLanguage = getToolOutputLanguage(output, part, metadata, input);
     const jsonResult = React.useMemo(() => tryParseJsonOutput(renderedOutput), [renderedOutput]);
@@ -683,14 +681,14 @@ const ToolScrollableTextOutput: React.FC<{
         event.stopPropagation();
         const result = await copyTextToClipboard(renderedOutput);
         if (!result.ok) {
-            toast.error(t('chat.toolPart.copyOutputFailed'));
+            toast.error("Failed to copy output");
             return;
         }
         setCopiedJson(true);
         if (typeof window !== 'undefined') {
             window.setTimeout(() => setCopiedJson(false), 1200);
         }
-    }, [renderedOutput, t]);
+    }, [renderedOutput]);
 
     if (part.tool === 'bash' && isStreaming) {
         return (
@@ -710,8 +708,8 @@ const ToolScrollableTextOutput: React.FC<{
                         className={cn('h-6 w-6 rounded-md text-muted-foreground hover:text-foreground', jsonViewMode === 'summary' && 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]')}
                         onClick={(event) => handleJsonViewChange('summary', event)}
                         onPointerDown={(event) => event.stopPropagation()}
-                        aria-label={t('chat.toolPart.showNavigableJson')}
-                        title={t('chat.toolPart.showNavigableJson')}
+                        aria-label={"Show navigable JSON"}
+                        title={"Show navigable JSON"}
                     >
                         <Icon name="list-unordered" className="h-3.5 w-3.5" />
                     </Button>
@@ -721,8 +719,8 @@ const ToolScrollableTextOutput: React.FC<{
                         className={cn('h-6 w-6 rounded-md text-muted-foreground hover:text-foreground', jsonViewMode === 'formatted' && 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]')}
                         onClick={(event) => handleJsonViewChange('formatted', event)}
                         onPointerDown={(event) => event.stopPropagation()}
-                        aria-label={t('chat.toolPart.showFormattedJson')}
-                        title={t('chat.toolPart.showFormattedJson')}
+                        aria-label={"Show formatted JSON"}
+                        title={"Show formatted JSON"}
                     >
                         <Icon name="node-tree" className="h-3.5 w-3.5" />
                     </Button>
@@ -732,8 +730,8 @@ const ToolScrollableTextOutput: React.FC<{
                         className={cn('h-6 w-6 rounded-md text-muted-foreground hover:text-foreground', jsonViewMode === 'raw' && 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]')}
                         onClick={(event) => handleJsonViewChange('raw', event)}
                         onPointerDown={(event) => event.stopPropagation()}
-                        aria-label={t('chat.toolPart.showRawJson')}
-                        title={t('chat.toolPart.showRawJson')}
+                        aria-label={"Show raw JSON"}
+                        title={"Show raw JSON"}
                     >
                         <Icon name="code-box" className="h-3.5 w-3.5" />
                     </Button>
@@ -743,8 +741,8 @@ const ToolScrollableTextOutput: React.FC<{
                         className="h-6 w-6 rounded-md bg-[var(--surface-elevated)]/80 text-muted-foreground hover:text-foreground"
                         onClick={handleCopyOutput}
                         onPointerDown={(event) => event.stopPropagation()}
-                        aria-label={copiedJson ? t('chat.toolPart.copiedOutput') : t('chat.toolPart.copyOutput')}
-                        title={copiedJson ? t('chat.toolPart.copiedOutput') : t('chat.toolPart.copyOutput')}
+                        aria-label={copiedJson ? "Copied output" : "Copy output"}
+                        title={copiedJson ? "Copied output" : "Copy output"}
                     >
                         <Icon name={copiedJson ? 'check' : 'file-copy'} className="h-3.5 w-3.5" />
                     </Button>
@@ -994,7 +992,6 @@ const TaskToolSummary: React.FC<{
     animateTailText?: boolean;
     isActive?: boolean;
 }> = ({ entries, isExpanded, isMobile, output, sessionId, onShowPopup, input, animateTailText = true, isActive = false }) => {
-    const { t } = useI18n();
     const currentDirectory = useEffectiveDirectory();
     const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
     const openContextPanelTab = useUIStore((state) => state.openContextPanelTab);
@@ -1065,7 +1062,7 @@ const TaskToolSummary: React.FC<{
                     onClick={handleOpenSession}
                 >
                     <Icon name="external-link" className="h-3.5 w-3.5 flex-shrink-0" />
-                    <span className="typography-meta text-primary font-medium">{t('chat.toolPart.openSubtask', { type: agentType.charAt(0).toUpperCase() + agentType.slice(1) })}</span>
+                    <span className="typography-meta text-primary font-medium">{`Open ${agentType.charAt(0).toUpperCase() + agentType.slice(1)} subtask`}</span>
                 </button>
             )}
 
@@ -1086,7 +1083,7 @@ const TaskToolSummary: React.FC<{
                         ) : (
                             <Icon name="arrow-right-s" className="h-3.5 w-3.5 flex-shrink-0" />
                         )}
-                        <span className="typography-meta text-foreground/80 font-medium">{t('chat.toolPart.output')}</span>
+                        <span className="typography-meta text-foreground/80 font-medium">{"Output"}</span>
                     </button>
                     {isOutputExpanded ? (
                         <ToolScrollableSection maxHeightClass="max-h-[50vh]">
@@ -1226,7 +1223,6 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
     isExpanded,
     onShowPopup,
 }) => {
-    const { t } = useI18n();
     const mobileActions = useMobileAppActions();
     const [diffViewMode, setDiffViewMode] = React.useState<DiffViewMode>('unified');
     const stateWithData = state as ToolStateWithMetadata;
@@ -1357,7 +1353,7 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
                     }}
                 >
                     <div className="typography-meta font-medium" style={{ color: 'var(--status-error)' }}>
-                        {t('chat.toolPart.lspErrors')}
+                        {"LSP errors"}
                     </div>
                     <div className="space-y-1">
                         <div className="flex items-center gap-1 min-w-0">
@@ -1379,7 +1375,7 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
                         </div>
                         {diagnosticSection.remaining > 0 ? (
                             <div className="typography-micro text-muted-foreground">
-                                {t('chat.toolPart.moreErrors', { count: diagnosticSection.remaining })}
+                                {`+${diagnosticSection.remaining} more errors`}
                             </div>
                         ) : null}
                     </div>
@@ -1409,7 +1405,7 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
             if (state.status === 'error' && 'error' in state) {
                 return (
                     <div>
-                        <div className="typography-meta font-medium text-muted-foreground mb-1">{t('chat.toolPart.error')}</div>
+                        <div className="typography-meta font-medium text-muted-foreground mb-1">{"Error:"}</div>
                         <div className="typography-meta p-2 rounded-xl border" style={{
                             backgroundColor: 'var(--status-error-background)',
                             color: 'var(--status-error)',
@@ -1450,7 +1446,7 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
                 );
             }
 
-            return <div className="typography-meta text-muted-foreground">{t('chat.toolPart.awaitingResponse')}</div>;
+            return <div className="typography-meta text-muted-foreground">{"Awaiting response..."}</div>;
         }
 
         if (part.tool === 'task' && hasStringOutput) {
@@ -1475,8 +1471,8 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
                                     size="icon"
                                     className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
                                     onClick={(event) => openEntryFile(entry, event)}
-                                    aria-label={t('chat.toolPart.openFileAtFirstChange')}
-                                    title={t('chat.toolPart.openFileAtFirstChange')}
+                                    aria-label={"Open file at first change"}
+                                    title={"Open file at first change"}
                                 >
                                     <Icon name="file-edit" className="h-3.5 w-3.5" />
                                 </Button>
@@ -1485,8 +1481,8 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
                                     size="icon"
                                     className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
                                     onClick={(event) => openEntryDiff(entry, event)}
-                                    aria-label={t('chat.toolPart.openFileDiff')}
-                                    title={t('chat.toolPart.openFileDiff')}
+                                    aria-label={"Open file diff"}
+                                    title={"Open file diff"}
                                 >
                                     <Icon name="git-pull-request" className="h-3.5 w-3.5" />
                                 </Button>
@@ -1542,7 +1538,7 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
         }
 
         return renderScrollableBlock(
-            <div className="typography-meta text-muted-foreground/70">{t('chat.toolPart.noOutputProduced')}</div>,
+            <div className="typography-meta text-muted-foreground/70">{"No output produced"}</div>,
             { maxHeightClass: 'max-h-60' }
         );
     };
@@ -1555,7 +1551,7 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
         if (state.status === 'error' && 'error' in state) {
             return (
                 <div className="relative pr-2 pb-2 pt-2 space-y-2 pl-4">
-                    <div className="typography-meta font-medium text-muted-foreground/80 mb-1">{t('chat.toolPart.error')}</div>
+                    <div className="typography-meta font-medium text-muted-foreground/80 mb-1">{"Error:"}</div>
                     <div className="typography-meta p-2 rounded-xl border" style={{
                         backgroundColor: 'var(--status-error-background)',
                         color: 'var(--status-error)',
@@ -1568,11 +1564,11 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
         }
 
         const todoOutput = renderTodoOutput(todoContent, {
-            total: t('chat.todo.total'),
-            inProgress: t('chat.todo.inProgress'),
-            pending: t('chat.todo.pending'),
-            completed: t('chat.todo.completed'),
-            cancelled: t('chat.todo.cancelled'),
+            total: "Total",
+            inProgress: "In Progress",
+            pending: "Pending",
+            completed: "Completed",
+            cancelled: "Cancelled",
         }, { unstyled: true });
 
         return (
@@ -1644,7 +1640,7 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
 
                     {state.status === 'error' && 'error' in state && (
                         <div>
-                            <div className="typography-meta font-medium text-muted-foreground/80 mb-1">{t('chat.toolPart.error')}</div>
+                            <div className="typography-meta font-medium text-muted-foreground/80 mb-1">{"Error:"}</div>
                             <div className="typography-meta p-2 rounded-xl border" style={{
                                 backgroundColor: 'var(--status-error-background)',
                                 color: 'var(--status-error)',
@@ -1675,7 +1671,6 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
     onShowPopup,
     animateTailText = true,
 }) => {
-    const { t } = useI18n();
     const state = part.state;
     const stateWithData = state as ToolStateWithMetadata;
     const metadata = stateWithData.metadata;
@@ -2100,7 +2095,7 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
                                 animate={animateTailText}
                                 showFileIcons={showToolFileIcons}
                                 textClassName={TOOL_ROW_DESCRIPTION_CLASS}
-                                openDiffLabel={t('chat.toolPart.openFileDiff')}
+                                openDiffLabel={"Open file diff"}
                                 onFileClick={runtime?.editor ? openApplyPatchFile : undefined}
                             />
                         </>
@@ -2302,14 +2297,13 @@ class ToolPartErrorBoundary extends React.Component<{
 }
 
 const ToolPart: React.FC<ToolPartProps> = (props) => {
-    const { t } = useI18n();
     const toolName = normalizeToolName(props.part.tool) || 'tool';
     const displayName = getToolMetadata(toolName).displayName;
 
     return (
         <ToolPartErrorBoundary
             displayName={displayName}
-            errorLabel={t('chat.toolPart.error')}
+            errorLabel={"Error:"}
             resetKey={props.part}
             toolName={toolName}
         >

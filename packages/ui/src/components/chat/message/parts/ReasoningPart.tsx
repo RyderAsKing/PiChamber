@@ -6,7 +6,6 @@ import type { ContentChangeReason } from '@/hooks/useChatAutoFollow';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Icon } from '@/components/icon/Icon';
 import { BusyDots } from './BusyDots';
-import { useI18n } from '@/lib/i18n';
 import { useUIStore } from '@/stores/useUIStore';
 import { MarkdownRenderer } from '../../MarkdownRenderer';
 import { useStreamingTextThrottle } from '../../hooks/useStreamingTextThrottle';
@@ -106,7 +105,7 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
     actions,
     defaultExpanded,
 }) => {
-    const { t } = useI18n();
+    
     const hasEnded = typeof time?.end === 'number';
     const canAutoExpand = isStreaming && !hasEnded;
     const [expansion, setExpansion] = React.useState<ExpansionState>(() => {
@@ -131,8 +130,8 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
 
     const summary = React.useMemo(() => getReasoningSummary(text), [text]);
     const toggleAriaLabel = isExpanded
-        ? t('chat.reasoningTrace.collapseAria')
-        : t('chat.reasoningTrace.expandAria');
+        ? "Collapse reasoning trace"
+        : "Expand reasoning trace";
 
     const handleToggle = React.useCallback(() => {
         setShouldRenderExpandedContent(true);
@@ -346,7 +345,7 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
 
                     {isStreaming ? (
                         <span className={cn('flex items-center gap-1', TOOL_ROW_TITLE_CLASS)} style={{ color: 'var(--tools-title)' }}>
-                            <span>{t(variant === 'justification' ? 'chat.reasoningTrace.justification' : 'chat.reasoningTrace.thinking')}</span>
+                            <span>{(variant === 'justification' ? "Justification" : "Thinking")}</span>
                             <BusyDots />
                         </span>
                     ) : isExpanded ? (
@@ -354,14 +353,14 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
                             className={TOOL_ROW_TITLE_CLASS}
                             style={{ color: 'var(--tools-title)' }}
                         >
-                            {t(variant === 'justification' ? 'chat.reasoningTrace.justification' : 'chat.reasoningTrace.thinking')}
+                            {(variant === 'justification' ? "Justification" : "Thinking")}
                         </span>
                     ) : (
                         <span
                             className={TOOL_ROW_TITLE_CLASS}
                             style={{ color: 'var(--tools-title)' }}
                         >
-                            {t(variant === 'justification' ? 'chat.reasoningTrace.justification' : 'chat.reasoningTrace.thinking')}
+                            {(variant === 'justification' ? "Justification" : "Thinking")}
                         </span>
                     )}
                 </div>

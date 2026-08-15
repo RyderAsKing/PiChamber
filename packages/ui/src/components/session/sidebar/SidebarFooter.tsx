@@ -2,7 +2,6 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from "@/components/icon/Icon";
-import { useI18n } from '@/lib/i18n';
 
 type Props = {
   onOpenSettings: () => void;
@@ -23,7 +22,7 @@ export function SidebarFooter({
   showRuntimeButtons = true,
   showUpdateButton = true,
 }: Props): React.ReactNode {
-  const { t } = useI18n();
+  
 
   if (!showRuntimeButtons && !showUpdateButton) {
     return null;
@@ -35,27 +34,27 @@ export function SidebarFooter({
         <>
           <Tooltip>
             <TooltipTrigger asChild>
-              <button type="button" onClick={onOpenSettings} className={footerButtonClassName} aria-label={t('sessions.sidebar.footer.actions.settings')}>
+              <button type="button" onClick={onOpenSettings} className={footerButtonClassName} aria-label={"Settings"}>
                 <Icon name="settings-3" className="h-4.5 w-4.5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="top" sideOffset={4}><p>{t('sessions.sidebar.footer.actions.settings')}</p></TooltipContent>
+            <TooltipContent side="top" sideOffset={4}><p>{"Settings"}</p></TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <button type="button" onClick={onOpenShortcuts} className={footerButtonClassName} aria-label={t('sessions.sidebar.footer.actions.shortcuts')}>
+              <button type="button" onClick={onOpenShortcuts} className={footerButtonClassName} aria-label={"Shortcuts"}>
                 <Icon name="command" className="h-4.5 w-4.5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="top" sideOffset={4}><p>{t('sessions.sidebar.footer.actions.shortcuts')}</p></TooltipContent>
+            <TooltipContent side="top" sideOffset={4}><p>{"Shortcuts"}</p></TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <button type="button" onClick={onOpenAbout} className={footerButtonClassName} aria-label={t('sessions.sidebar.footer.actions.aboutPiChamber')}>
+              <button type="button" onClick={onOpenAbout} className={footerButtonClassName} aria-label={"About PiChamber"}>
                 <Icon name="information" className="h-4.5 w-4.5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="top" sideOffset={4}><p>{t('sessions.sidebar.footer.actions.aboutPiChamber')}</p></TooltipContent>
+            <TooltipContent side="top" sideOffset={4}><p>{"About PiChamber"}</p></TooltipContent>
           </Tooltip>
         </>
       ) : null}
@@ -67,7 +66,7 @@ export function SidebarFooter({
           className="ml-auto border-[var(--status-info-border)] bg-[var(--status-info-background)] text-[var(--status-info)] hover:bg-[var(--status-info-background)]/80 hover:text-[var(--status-info)] dark:border-[var(--status-info-border)] dark:bg-[var(--status-info-background)] dark:hover:bg-[var(--status-info-background)]/80"
           onClick={onOpenUpdate}
         >
-          {t('sessions.sidebar.footer.actions.update')}
+          {"Update"}
         </Button>
       ) : null}
     </div>

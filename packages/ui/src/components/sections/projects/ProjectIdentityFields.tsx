@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
 import { PROJECT_COLORS, PROJECT_ICONS, PROJECT_COLOR_MAP as COLOR_MAP, ProjectIconImage } from '@/lib/projectMeta';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
-import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import {
   PROJECT_SETTINGS_CONTROL_WIDTH,
@@ -19,7 +18,7 @@ type ProjectIdentityFieldsProps = {
 };
 
 export const ProjectIdentityFields: React.FC<ProjectIdentityFieldsProps> = ({ form }) => {
-  const { t } = useI18n();
+  
   const { currentTheme } = useThemeSystem();
   const {
     name,
@@ -61,21 +60,21 @@ export const ProjectIdentityFields: React.FC<ProjectIdentityFieldsProps> = ({ fo
   return (
     <>
       <ProjectSettingsSubsection
-        title={t('settings.projects.page.field.projectName')}
+        title={"Project Name"}
         settingsItem="projects.name"
         divider={false}
       >
         <Input
           value={name}
           onChange={(event) => setName(event.target.value)}
-          placeholder={t('settings.projects.page.field.projectNamePlaceholder')}
+          placeholder={"Project name"}
           className={cn('h-8 rounded-md px-3', PROJECT_SETTINGS_CONTROL_WIDTH)}
         />
       </ProjectSettingsSubsection>
 
       <ProjectSettingsSubsection
-        title={t('settings.projects.page.field.defaultModel')}
-        info={t('settings.projects.page.field.defaultModelDescription')}
+        title={"Default model for new chats"}
+        info={"Used when starting a new chat in this project. Falls back to global defaults when unset."}
         settingsItem="projects.default-model"
       >
         <Input
@@ -95,7 +94,7 @@ export const ProjectIdentityFields: React.FC<ProjectIdentityFieldsProps> = ({ fo
       </ProjectSettingsSubsection>
 
       <ProjectSettingsSubsection
-        title={t('settings.projects.page.field.accentColor')}
+        title={"Accent Color"}
         settingsItem="projects.accent-color"
       >
         <div className="flex flex-wrap items-center gap-2">
@@ -108,7 +107,7 @@ export const ProjectIdentityFields: React.FC<ProjectIdentityFieldsProps> = ({ fo
                 ? 'border-2 border-foreground bg-[var(--primary-base)]/10'
                 : 'border-border/40 hover:border-border hover:bg-[var(--surface-muted)]',
             )}
-            title={t('settings.projects.page.field.none')}
+            title={"None"}
           >
             <Icon name="close" className="h-4 w-4 text-muted-foreground" />
           </button>
@@ -131,7 +130,7 @@ export const ProjectIdentityFields: React.FC<ProjectIdentityFieldsProps> = ({ fo
       </ProjectSettingsSubsection>
 
       <ProjectSettingsSubsection
-        title={t('settings.projects.page.field.projectIcon')}
+        title={"Project Icon"}
         settingsItem="projects.icon"
         contentClassName="space-y-3"
       >
@@ -156,7 +155,7 @@ export const ProjectIdentityFields: React.FC<ProjectIdentityFieldsProps> = ({ fo
                 ? 'border-2 border-foreground bg-[var(--primary-base)]/10'
                 : 'border-border/40 hover:border-border hover:bg-[var(--surface-muted)]',
             )}
-            title={t('settings.projects.page.field.none')}
+            title={"None"}
           >
             <Icon name="close" className="h-4 w-4 text-muted-foreground" />
           </button>
@@ -186,7 +185,7 @@ export const ProjectIdentityFields: React.FC<ProjectIdentityFieldsProps> = ({ fo
         </div>
         {effectiveHasImageIcon && showImagePreview && (
           <div className="flex items-center gap-2">
-            <span className="typography-meta text-muted-foreground">{t('settings.projects.page.field.preview')}</span>
+            <span className="typography-meta text-muted-foreground">{"Preview"}</span>
             <span className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/60 bg-[var(--surface-elevated)] p-1">
               <span
                 className="inline-flex h-4 w-4 items-center justify-center overflow-hidden rounded-[2px]"
@@ -222,7 +221,7 @@ export const ProjectIdentityFields: React.FC<ProjectIdentityFieldsProps> = ({ fo
               value={iconBackground ?? '#000000'}
               onChange={(event) => setIconBackground(event.target.value)}
               className="h-7 w-9 cursor-pointer rounded border border-border bg-transparent p-1"
-              aria-label={t('settings.projects.page.field.projectIconBackgroundAria')}
+              aria-label={"Project icon background color"}
             />
             <Input
               value={iconBackground ?? ''}
@@ -236,8 +235,8 @@ export const ProjectIdentityFields: React.FC<ProjectIdentityFieldsProps> = ({ fo
               variant="outline"
               onClick={() => setIconBackground(null)}
               className="h-7 w-7 p-0"
-              aria-label={t('settings.projects.page.field.clearIconBackgroundAria')}
-              title={t('settings.projects.page.field.clearBackground')}
+              aria-label={"Clear icon background"}
+              title={"Clear background"}
               disabled={!iconBackground}
             >
               <Icon name="close" className="h-3.5 w-3.5" />
@@ -253,7 +252,7 @@ export const ProjectIdentityFields: React.FC<ProjectIdentityFieldsProps> = ({ fo
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isUploadingIcon}
               >
-                {isUploadingIcon ? t('settings.projects.page.actions.uploading') : t('settings.projects.page.actions.uploadIcon')}
+                {isUploadingIcon ? "Uploading..." : "Upload Icon"}
               </Button>
               <Button
                 size="xs"
@@ -262,7 +261,7 @@ export const ProjectIdentityFields: React.FC<ProjectIdentityFieldsProps> = ({ fo
                 onClick={() => void handleDiscoverIcon()}
                 disabled={isDiscoveringIcon}
               >
-                {isDiscoveringIcon ? t('settings.projects.page.actions.discovering') : t('settings.projects.page.actions.discoverFavicon')}
+                {isDiscoveringIcon ? "Discovering..." : "Discover Favicon"}
               </Button>
             </>
           )}
@@ -274,7 +273,7 @@ export const ProjectIdentityFields: React.FC<ProjectIdentityFieldsProps> = ({ fo
               onClick={() => void handleRemoveImageIcon()}
               disabled={isRemovingCustomIcon}
             >
-              {isRemovingCustomIcon ? t('settings.projects.page.actions.removing') : t('settings.projects.page.actions.removeProjectIcon')}
+              {isRemovingCustomIcon ? "Removing..." : "Remove Project Icon"}
             </Button>
           )}
           {pendingRemoveImageIcon && (
@@ -285,7 +284,7 @@ export const ProjectIdentityFields: React.FC<ProjectIdentityFieldsProps> = ({ fo
               onClick={() => setPendingRemoveImageIcon(false)}
               disabled={isRemovingCustomIcon}
             >
-              {t('settings.projects.page.actions.undoRemove')}
+              {"Undo Remove"}
             </Button>
           )}
         </div>

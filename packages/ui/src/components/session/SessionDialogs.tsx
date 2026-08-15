@@ -21,7 +21,6 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useDeviceInfo } from '@/lib/device';
 import { sessionEvents } from '@/lib/sessionEvents';
-import { useI18n } from '@/lib/i18n';
 
 const renderToastDescription = (text?: string) =>
     text ? <span className="text-foreground/80 dark:text-foreground/70">{text}</span> : undefined;
@@ -32,7 +31,6 @@ type DeleteDialogState = {
 };
 
 export const SessionDialogs: React.FC = () => {
-    const { t } = useI18n();
     const [isDirectoryDialogOpen, setIsDirectoryDialogOpen] = React.useState(false);
     const [hasShownInitialDirectoryPrompt, setHasShownInitialDirectoryPrompt] = React.useState(false);
     const [deleteDialog, setDeleteDialog] = React.useState<DeleteDialogState | null>(null);
@@ -81,9 +79,9 @@ export const SessionDialogs: React.FC = () => {
             const target = payload.sessions[0];
             const success = await deleteSession(target.id);
             if (success) {
-                toast.success(t('sessions.sidebar.session.delete.success'));
+                toast.success("Session deleted");
             } else {
-                toast.error(t('sessions.sidebar.session.delete.error'));
+                toast.error("Failed to delete session");
             }
             return;
         }
@@ -94,26 +92,26 @@ export const SessionDialogs: React.FC = () => {
         if (deletedIds.length > 0) {
             const successDescription = failedIds.length > 0
                 ? (failedIds.length === 1
-                    ? t('sessions.sidebar.dialogs.deleteResult.singleFailedToDelete', { count: failedIds.length })
-                    : t('sessions.sidebar.dialogs.deleteResult.manyFailedToDelete', { count: failedIds.length }))
+                    ? `${failedIds.length} session could not be deleted.`
+                    : `${failedIds.length} sessions could not be deleted.`)
                 : payload.dateLabel
-                    ? t('sessions.sidebar.dialogs.deleteResult.removedFromDate', { dateLabel: payload.dateLabel })
+                    ? `Removed all sessions from ${payload.dateLabel}.`
                     : undefined;
             toast.success(deletedIds.length === 1
-                ? t('sessions.sidebar.bulkActions.deletedSingle')
-                : t('sessions.sidebar.bulkActions.deletedPlural', { count: deletedIds.length }), {
+                ? "Deleted {count} session"
+                : `Deleted ${deletedIds.length} sessions`, {
                 description: renderToastDescription(successDescription),
             });
         }
 
         if (failedIds.length > 0) {
             toast.error(failedIds.length === 1
-                ? t('sessions.sidebar.bulkActions.failedDeleteSingle', { count: failedIds.length })
-                : t('sessions.sidebar.bulkActions.failedDeletePlural', { count: failedIds.length }), {
-                description: renderToastDescription(t('sessions.sidebar.dialogs.deleteResult.tryAgain')),
+                ? `Failed to delete ${failedIds.length} session`
+                : `Failed to delete ${failedIds.length} sessions`, {
+                description: renderToastDescription("Please try again in a moment."),
             });
         }
-    }, [deleteSession, deleteSessions, t]);
+    }, [deleteSession, deleteSessions]);
 
     React.useEffect(() => {
         return sessionEvents.onDeleteRequest((payload) => {
@@ -142,13 +140,13 @@ export const SessionDialogs: React.FC = () => {
                 const target = deleteDialog.sessions[0];
                 const success = await deleteSession(target.id);
                 if (!success) {
-                    toast.error(t('sessions.sidebar.session.delete.error'));
+                    toast.error("Failed to delete session");
                     setIsProcessingDelete(false);
                     return;
                 }
-                toast.success(t('sessions.sidebar.session.delete.success'), {
+                toast.success("Session deleted", {
                     action: {
-                        label: t('sessions.sidebar.sessionDialogs.ok'),
+                        label: "OK",
                         onClick: () => { },
                     },
                 });
@@ -161,17 +159,17 @@ export const SessionDialogs: React.FC = () => {
                 if (deletedIds.length > 0) {
                     const successDescription = failedIds.length > 0
                         ? (failedIds.length === 1
-                            ? t('sessions.sidebar.dialogs.deleteResult.singleFailedToDelete', { count: failedIds.length })
-                            : t('sessions.sidebar.dialogs.deleteResult.manyFailedToDelete', { count: failedIds.length }))
+                            ? `${failedIds.length} session could not be deleted.`
+                            : `${failedIds.length} sessions could not be deleted.`)
                         : deleteDialog.dateLabel
-                            ? t('sessions.sidebar.dialogs.deleteResult.removedFromDate', { dateLabel: deleteDialog.dateLabel })
+                            ? `Removed all sessions from ${deleteDialog.dateLabel}.`
                             : undefined;
                     toast.success(deletedIds.length === 1
-                        ? t('sessions.sidebar.bulkActions.deletedSingle')
-                        : t('sessions.sidebar.bulkActions.deletedPlural', { count: deletedIds.length }), {
+                        ? "Deleted {count} session"
+                        : `Deleted ${deletedIds.length} sessions`, {
                         description: renderToastDescription(successDescription),
                         action: {
-                            label: t('sessions.sidebar.sessionDialogs.ok'),
+                            label: "OK",
                             onClick: () => { },
                         },
                     });
@@ -179,9 +177,9 @@ export const SessionDialogs: React.FC = () => {
 
                 if (failedIds.length > 0) {
                     toast.error(failedIds.length === 1
-                        ? t('sessions.sidebar.bulkActions.failedDeleteSingle', { count: failedIds.length })
-                        : t('sessions.sidebar.bulkActions.failedDeletePlural', { count: failedIds.length }), {
-                        description: renderToastDescription(t('sessions.sidebar.dialogs.deleteResult.tryAgain')),
+                        ? `Failed to delete ${failedIds.length} session`
+                        : `Failed to delete ${failedIds.length} sessions`, {
+                        description: renderToastDescription("Please try again in a moment."),
                     });
                     if (deletedIds.length === 0) {
                         setIsProcessingDelete(false);
@@ -199,24 +197,16 @@ export const SessionDialogs: React.FC = () => {
         deleteSession,
         deleteSessions,
         closeDeleteDialog,
-        t,
     ]);
 
     const deleteDialogDescription = deleteDialog
         ? deleteDialog.sessions.length === 1
             ? (deleteDialog.dateLabel
-                ? t('sessions.sidebar.dialogs.sessionDelete.descriptionOneWithDate', {
-                    dateLabel: deleteDialog.dateLabel,
-                })
-                : t('sessions.sidebar.dialogs.sessionDelete.descriptionOne'))
+                ? `This action permanently removes 1 session from ${deleteDialog.dateLabel}.`
+                : "This action permanently removes 1 session.")
             : (deleteDialog.dateLabel
-                ? t('sessions.sidebar.dialogs.sessionDelete.descriptionManyWithDate', {
-                    count: deleteDialog.sessions.length,
-                    dateLabel: deleteDialog.dateLabel,
-                })
-                : t('sessions.sidebar.dialogs.sessionDelete.descriptionMany', {
-                    count: deleteDialog.sessions.length,
-                }))
+                ? `This action permanently removes ${deleteDialog.sessions.length} sessions from ${deleteDialog.dateLabel}.`
+                : `This action permanently removes ${deleteDialog.sessions.length} sessions.`)
         : '';
 
     const deleteDialogBody = deleteDialog ? (
@@ -230,13 +220,13 @@ export const SessionDialogs: React.FC = () => {
                                 className="typography-micro text-muted-foreground/80"
                             >
                                 <span className="truncate">
-                                    {session.title || t('sessions.sidebar.session.untitled')}
+                                    {session.title || "Untitled Session"}
                                 </span>
                             </li>
                         ))}
                         {deleteDialog.sessions.length > 5 && (
                             <li className="typography-micro text-muted-foreground/70">
-                                {t('sessions.sidebar.dialogs.sessionList.more', { count: deleteDialog.sessions.length - 5 })}
+                                {`+${deleteDialog.sessions.length - 5} more`}
                             </li>
                         )}
                     </ul>
@@ -244,7 +234,7 @@ export const SessionDialogs: React.FC = () => {
             )}
             <div className="rounded-xl border border-border/40 bg-sidebar/60 p-3">
                 <p className="typography-meta text-muted-foreground/80">
-                    {t('sessions.sidebar.sessionDialogs.delete.note')}
+                    {"Worktree directories stay intact. Subsessions linked to the selected sessions will also be removed."}
                 </p>
             </div>
         </div>
@@ -259,26 +249,26 @@ export const SessionDialogs: React.FC = () => {
                 aria-pressed={!showDeletionDialog}
             >
                 {!showDeletionDialog ? <Icon name="checkbox" className="size-4 text-primary" /> : <Icon name="checkbox-blank" className="size-4" />}
-                {t('sessions.sidebar.dialogs.neverAsk')}
+                {"Never ask"}
             </button>
             <div className="flex items-center gap-2">
                 <Button variant="ghost" onClick={closeDeleteDialog} disabled={isProcessingDelete}>
-                    {t('sessions.sidebar.dialogs.cancel')}
+                    {"Cancel"}
                 </Button>
                 <Button variant="destructive" onClick={handleConfirmDelete} disabled={isProcessingDelete}>
                     {isProcessingDelete
-                        ? t('sessions.sidebar.sessionDialogs.actions.deleting')
+                        ? "Deleting…"
                         : deleteDialog?.sessions.length === 1
-                            ? t('sessions.sidebar.dialogs.deleteSession.titleAction')
-                            : t('sessions.sidebar.dialogs.deleteSessions.titleAction')}
+                            ? "Delete session"
+                            : "Delete sessions"}
                 </Button>
             </div>
         </div>
     );
 
     const deleteDialogTitle = deleteDialog?.sessions.length === 1
-        ? t('sessions.sidebar.dialogs.deleteSession.titleAction')
-        : t('sessions.sidebar.dialogs.deleteSessions.titleAction');
+        ? "Delete session"
+        : "Delete sessions";
 
     return (
         <>

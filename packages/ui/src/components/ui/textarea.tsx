@@ -1,6 +1,5 @@
 import * as React from "react"
 
-import { useI18n } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 import { ScrollableOverlay } from "./ScrollableOverlay"
 
@@ -79,7 +78,7 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
     },
     ref,
   ) => {
-    const { t } = useI18n();
+    
     const wrapperRef = React.useRef<HTMLDivElement>(null);
     const dragStateRef = React.useRef<{ startY: number; startHeight: number } | null>(null);
     const [resizedHeight, setResizedHeight] = React.useState<number | null>(null);
@@ -203,7 +202,7 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
             />
           <div className="flex items-center justify-end gap-1.5 pl-3 pr-2.5">
             {endSlot}
-            <ResizeHandle onResizeStart={handleResizeStart} ariaLabel={t('textarea.resizeHandleAria')} />
+            <ResizeHandle onResizeStart={handleResizeStart} ariaLabel={"Resize textarea"} />
           </div>
         </div>
       </div>

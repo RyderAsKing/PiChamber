@@ -8,7 +8,6 @@ import { ProjectContextPanel } from '@/components/layout/RightSidebarTabs';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { SortableTabsStrip, type SortableTabsStripItem } from '@/components/ui/sortable-tabs-strip';
 import { TerminalView } from '@/components/views/TerminalView';
-import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { MobileChangesSurface } from './MobileChangesSurface';
 import { MobileFilesSurface } from './MobileFilesSurface';
@@ -43,7 +42,7 @@ export const MobileWorkspaceDrawer: React.FC<{
   pendingChangesDiff: { path: string; staged: boolean } | null;
   variant?: 'drawer' | 'panel';
 }> = ({ open, onClose, tab, onTabChange, pendingChangesDiff, variant = 'drawer' }) => {
-  const { t } = useI18n();
+  
   const rootRef = React.useRef<HTMLElement | null>(null);
   const [entered, setEntered] = React.useState(false);
   // Kept visible through the exit slide; flipped to hidden once it finishes.
@@ -110,10 +109,10 @@ export const MobileWorkspaceDrawer: React.FC<{
   if (variant === 'drawer' && !rootRef.current) return null;
 
   const tabItems: SortableTabsStripItem[] = [
-    { id: 'changes', label: t('mobile.menu.changes'), icon: <Icon name="git-branch" className="h-3.5 w-3.5" /> },
-    { id: 'files', label: t('mobile.menu.files'), icon: <Icon name="file-text" className="h-3.5 w-3.5" /> },
-    { id: 'terminal', label: t('mobile.menu.terminal'), icon: <Icon name="terminal" className="h-3.5 w-3.5" /> },
-    { id: 'notes', label: t('contextRail.surface.notes'), icon: <Icon name="sticky-note" className="h-3.5 w-3.5" /> },
+    { id: 'changes', label: "Changes", icon: <Icon name="git-branch" className="h-3.5 w-3.5" /> },
+    { id: 'files', label: "Files", icon: <Icon name="file-text" className="h-3.5 w-3.5" /> },
+    { id: 'terminal', label: "Terminal", icon: <Icon name="terminal" className="h-3.5 w-3.5" /> },
+    { id: 'notes', label: "Project notes", icon: <Icon name="sticky-note" className="h-3.5 w-3.5" /> },
   ];
 
   const body = (
@@ -139,7 +138,7 @@ export const MobileWorkspaceDrawer: React.FC<{
         <button
           type="button"
           className="-mr-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          aria-label={t('mobile.surface.closeAria')}
+          aria-label={"Close"}
           onClick={onClose}
           style={{ touchAction: 'manipulation' }}
         >
@@ -202,7 +201,7 @@ export const MobileWorkspaceDrawer: React.FC<{
     <section
       role="dialog"
       aria-modal="true"
-      aria-label={t('mobile.header.openWorkspaceAria')}
+      aria-label={"Open workspace panel"}
       aria-hidden={!open}
       className="oc-keyboard-inset-surface fixed inset-0 z-50 flex flex-col bg-background text-foreground"
       style={{

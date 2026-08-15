@@ -23,7 +23,6 @@ import { useDeviceInfo } from '@/lib/device';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { Icon } from "@/components/icon/Icon";
 import { getFilesystemHome, listLocalDirectory } from '@/lib/fsApi';
-import { useI18n } from '@/lib/i18n';
 
 import {
   isFilesystemError,
@@ -130,7 +129,6 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
   open,
   onOpenChange,
 }) => {
-  const { t } = useI18n();
   const homeDirectory = useDirectoryStore((s) => s.homeDirectory);
   const projects = useProjectsStore((s) => s.projects);
   const addProject = useProjectsStore((s) => s.addProject);
@@ -351,16 +349,16 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     ? '⌘'
     : 'Ctrl';
   const submitActionLabel = isAlreadyAdded
-    ? t('directoryExplorerDialog.actions.alreadyAdded')
+    ? "Already added"
     : isCloneMode
       ? isConfirming
-        ? t('directoryExplorerDialog.actions.cloning')
-        : t('directoryExplorerDialog.actions.cloneAndAdd')
+        ? "Cloning..."
+        : "Clone & add"
     : isConfirming
-      ? t('directoryExplorerDialog.actions.adding')
+      ? "Adding..."
     : shouldCreateTarget
-      ? t('directoryExplorerDialog.actions.createAndAdd')
-      : t('directoryExplorerDialog.actions.addProject');
+      ? "Create & add"
+      : "Add project";
 
   React.useLayoutEffect(() => {
     const button = addButtonRef.current;
@@ -409,13 +407,13 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     if (normalized && addedProjectPaths.has(normalized)) return;
     const project = addProject(path);
     if (!project) {
-      toast.error(t('directoryExplorerDialog.toast.failedToAddProject'), {
-        description: t('directoryExplorerDialog.toast.selectValidDirectoryPath'),
+      toast.error("Failed to add project", {
+        description: "Please select a valid directory path.",
       });
       return;
     }
     openProjectDraft(project.id, project.path);
-  }, [addProject, addedProjectPaths, openProjectDraft, t]);
+  }, [addProject, addedProjectPaths, openProjectDraft]);
 
   const finalizeSelection = React.useCallback(async (target: string) => {
     if (!target || isConfirming) return;
@@ -429,7 +427,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
       if (isCloneMode) {
         const remoteUrl = cloneRemoteUrl.trim();
         if (!remoteUrl) {
-          toast.error(t('directoryExplorerDialog.toast.cloneUrlRequired'));
+          toast.error("Enter a repository URL before cloning.");
           return;
         }
         const response = await runtimeFetch('/api/git/clone', {
@@ -454,25 +452,25 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
           body: JSON.stringify({ path: target }),
         });
         if (!response.ok) {
-          throw new Error(t('directoryExplorerDialog.toast.failedToSelectDirectory'));
+          throw new Error("Failed to select directory");
         }
       }
       const project = addProject(selectedTarget);
       if (!project) {
-        toast.error(t('directoryExplorerDialog.toast.failedToAddProject'), {
-          description: t('directoryExplorerDialog.toast.selectValidDirectoryPath'),
+        toast.error("Failed to add project", {
+          description: "Please select a valid directory path.",
         });
         return;
       }
       openProjectDraft(project.id, project.path);
     } catch (error) {
-      toast.error(t('directoryExplorerDialog.toast.failedToSelectDirectory'), {
-        description: error instanceof Error ? error.message : t('directoryExplorerDialog.toast.unknownError'),
+      toast.error("Failed to select directory", {
+        description: error instanceof Error ? error.message : "Unknown error occurred.",
       });
     } finally {
       setIsConfirming(false);
     }
-  }, [addProject, addedProjectPaths, browseDirectoryAbsolutePath, cloneRemoteUrl, isCloneMode, isConfirming, openProjectDraft, selectedGitIdentity?.id, shouldCreateTarget, targetPath, t]);
+  }, [addProject, addedProjectPaths, browseDirectoryAbsolutePath, cloneRemoteUrl, isCloneMode, isConfirming, openProjectDraft, selectedGitIdentity?.id, shouldCreateTarget, targetPath]);
 
   const browseToDisplayPath = React.useCallback((displayPath: string) => {
     setQuery(ensureBrowseDirectoryPath(displayPath));
@@ -499,7 +497,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
       const result = await requestAccess(targetPath);
       if (!result.success || !result.path) {
         if (result.error && result.error !== 'Directory selection cancelled') {
-          toast.error(t('directoryExplorerDialog.toast.failedToSelectDirectory'), {
+          toast.error("Failed to select directory", {
             description: result.error,
           });
         }
@@ -508,21 +506,21 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
 
       const accessResult = await startAccessing(result.path);
       if (!accessResult.success) {
-        toast.error(t('directoryExplorerDialog.toast.failedToOpenDirectory'), {
-          description: accessResult.error || t('directoryExplorerDialog.toast.desktopCouldNotGrantAccess'),
+        toast.error("Failed to open directory", {
+          description: accessResult.error || "Desktop could not grant file access.",
         });
         return;
       }
 
       await finalizeSelection(result.path);
     } catch (error) {
-      toast.error(t('directoryExplorerDialog.toast.failedToSelectDirectory'), {
-        description: error instanceof Error ? error.message : t('directoryExplorerDialog.toast.unknownError'),
+      toast.error("Failed to select directory", {
+        description: error instanceof Error ? error.message : "Unknown error occurred.",
       });
     } finally {
       setIsOpeningFinder(false);
     }
-  }, [canRequestAccess, finalizeSelection, isOpeningFinder, requestAccess, startAccessing, t, targetPath]);
+  }, [canRequestAccess, finalizeSelection, isOpeningFinder, requestAccess, startAccessing, targetPath]);
 
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown') {
@@ -559,7 +557,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
       className="flex flex-shrink-0 items-center gap-2 rounded-lg px-2 py-1 typography-meta text-muted-foreground transition-colors hover:bg-interactive-hover/40"
     >
       {showHidden ? <Icon name="checkbox" className="h-4 w-4 text-primary" /> : <Icon name="checkbox-blank" className="h-4 w-4" />}
-      {t('directoryExplorerDialog.toggle.showHidden')}
+      {"Show hidden"}
     </button>
   );
 
@@ -570,7 +568,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
           <Input
             value={cloneRemoteUrl}
             onChange={(event) => setCloneRemoteUrl(event.target.value)}
-            placeholder={t('directoryExplorerDialog.clone.remoteUrlPlaceholder')}
+            placeholder={"Repository URL (HTTPS or SSH)"}
             className="min-w-0 flex-1 border-border/60 bg-[var(--surface-elevated)] font-mono typography-ui-label shadow-none"
             spellCheck={false}
             autoComplete="off"
@@ -593,7 +591,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
           value={query}
           onChange={(event) => setQuery(normalizeSeparators(event.target.value))}
           onKeyDown={handleKeyDown}
-          placeholder={t('directoryExplorerDialog.pathInput.placeholder')}
+          placeholder={"Enter path or select from tree..."}
           className="border-transparent bg-transparent pl-9 font-mono typography-ui-label shadow-none focus-visible:ring-0"
           style={!isMobile && addButtonWidth > 0 ? { paddingRight: `${addButtonWidth + 24}px` } : undefined}
           spellCheck={false}
@@ -624,33 +622,33 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border/60 bg-[var(--surface-elevated)] shadow-sm">
       <div className="max-h-[min(28rem,58vh)] overflow-y-auto p-2">
         <div className="px-2 pb-1 pt-0.5 typography-meta font-medium uppercase tracking-wide text-muted-foreground/80">
-          {t('directoryExplorerDialog.browse.directories')}
+          {"Directories"}
         </div>
         {isLoading ? (
           <div className="py-10 text-center typography-ui-label text-muted-foreground">
-            {t('directoryExplorerDialog.browse.loading')}
+            {"Loading directories..."}
           </div>
         ) : browseErrorReason && browseErrorReason !== 'not-found' ? (
           <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
             <div className="typography-ui-label text-status-error">
               {browseErrorReason === 'os-permission'
-                ? t('directoryExplorerDialog.browse.permissionDenied')
-                : t('directoryExplorerDialog.browse.loadFailed')}
+                ? "PiChamber needs access to this folder."
+                : "Could not load this folder."}
             </div>
             <div className="flex items-center gap-2">
               {browseErrorReason === 'os-permission' && canRequestAccess ? (
                 <Button size="xs" onClick={() => void handleOpenInFinder()} disabled={isOpeningFinder}>
-                  {t('directoryExplorerDialog.browse.grantAccess')}
+                  {"Grant access"}
                 </Button>
               ) : null}
               <Button variant="outline" size="xs" onClick={() => setBrowseReloadKey((key) => key + 1)}>
-                {t('directoryExplorerDialog.browse.retry')}
+                {"Try again"}
               </Button>
             </div>
           </div>
         ) : rows.length === 0 ? (
           <div className="py-10 text-center typography-ui-label text-muted-foreground">
-            {t('directoryExplorerDialog.browse.empty')}
+            {"No matching directories."}
           </div>
         ) : (
           <div className="space-y-0.5">
@@ -688,7 +686,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
                     </span>
                     {row.type === 'directory' && row.disabled ? (
                       <span className="rounded-full border border-border/60 px-2 py-0.5 typography-meta text-muted-foreground">
-                        {t('directoryExplorerDialog.browse.addedBadge')}
+                        {"Added"}
                       </span>
                     ) : null}
                   </button>
@@ -698,7 +696,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={(event) => handleQuickAdd(event, row.path)}
                       className="flex-shrink-0 rounded-full p-1 text-muted-foreground transition-colors hover:bg-interactive-hover/60 hover:text-foreground"
-                      title={t('directoryExplorerDialog.browse.quickAdd')}
+                      title={"Add"}
                     >
                       <Icon name="add" className="h-3.5 w-3.5" />
                     </button>
@@ -724,16 +722,16 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
       <span className="inline-flex items-center gap-1">
         <Icon name="arrow-up-s" className="h-3.5 w-3.5" />
         <Icon name="arrow-down-s" className="-ml-1 h-3.5 w-3.5" />
-        {t('directoryExplorerDialog.footer.navigate')}
+        {"Navigate"}
       </span>
       <span className="inline-flex items-center gap-1">
         <Icon name="corner-down-left" className="h-3.5 w-3.5" />
-        {t('directoryExplorerDialog.footer.select')}
+        {"Select"}
       </span>
       <span className="inline-flex items-center gap-1">
         <span>{submitModifierLabel}</span>
         <Icon name="corner-down-left" className="h-3.5 w-3.5" />
-        {t('directoryExplorerDialog.footer.add')}
+        {"Add"}
       </span>
     </div>
   );
@@ -744,11 +742,11 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
       <div className={cn('flex w-full flex-row justify-end gap-2 sm:w-auto', isMobile && 'justify-stretch')}>
         {canRequestAccess ? (
           <Button variant="ghost" size="xs" onClick={handleOpenInFinder} disabled={isConfirming || isOpeningFinder || isCloneMode}>
-            {isOpeningFinder ? t('directoryExplorerDialog.actions.openingFinder') : t('directoryExplorerDialog.actions.openInFinder')}
+            {isOpeningFinder ? "Opening..." : "Open in Finder"}
           </Button>
         ) : null}
         <Button variant="ghost" size="xs" onClick={() => setIsCloneMode((value) => !value)} disabled={isConfirming || isOpeningFinder} className={cn(isMobile && 'flex-1')}>
-          {isCloneMode ? t('directoryExplorerDialog.actions.addLocalProject') : t('directoryExplorerDialog.actions.cloneRepository')}
+          {isCloneMode ? "Add local project" : "Clone repository"}
         </Button>
         {isMobile ? (
           <Button size="xs" onClick={() => void finalizeSelection(targetPath)} disabled={isCloneMode ? !canSubmitClone : !canAddProject} className="flex-1">
@@ -764,7 +762,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
       <MobileOverlayPanel
         open={open}
         onClose={handleClose}
-        title={t('directoryExplorerDialog.title')}
+        title={"Add project directory"}
         // Height only — the width stays on MobileOverlayPanel's shared max-w-lg
         // so this sheet matches every other mobile overlay on wide screens.
         className="h-[88dvh] max-h-[720px]"
@@ -788,8 +786,8 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
         <DialogHeader className="px-5 pb-2 pt-5">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <DialogTitle>{t('directoryExplorerDialog.title')}</DialogTitle>
-              <DialogDescription className="mt-2">{t('directoryExplorerDialog.description')}</DialogDescription>
+              <DialogTitle>{"Add project directory"}</DialogTitle>
+              <DialogDescription className="mt-2">{"Choose a folder to add as a project."}</DialogDescription>
             </div>
             {showHiddenToggle}
           </div>

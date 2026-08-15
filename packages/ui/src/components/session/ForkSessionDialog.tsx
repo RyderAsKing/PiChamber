@@ -13,7 +13,6 @@ import { ThinkingPill } from '@/components/session/ThinkingPill';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { isPrimaryMode } from '@/components/chat/mobileControlsUtils';
 import { EXECUTION_FORK_DEFAULT_INSTRUCTIONS } from '@/lib/messages/executionMeta';
-import { useI18n } from '@/lib/i18n';
 
 export type ForkSessionExecution = {
   providerID: string;
@@ -33,7 +32,7 @@ type ForkSessionDialogProps = {
 };
 
 export function ForkSessionDialog(props: ForkSessionDialogProps) {
-  const { t } = useI18n();
+  
   const { open, onOpenChange, projectDirectory, submitting = false, onConfirm } = props;
 
   const loadProviders = useConfigStore((state) => state.loadProviders);
@@ -132,12 +131,12 @@ export function ForkSessionDialog(props: ForkSessionDialogProps) {
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!submitting) onOpenChange(nextOpen); }}>
       <DialogContent className="max-w-md overflow-visible">
         <DialogHeader>
-          <DialogTitle>{t('chat.messageBody.actions.startNewSession')}</DialogTitle>
+          <DialogTitle>{"Start new session from this answer"}</DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <span className="typography-meta font-medium text-muted-foreground">{t('sessions.sessionOptions.thinkingLevel.label')}</span>
+            <span className="typography-meta font-medium text-muted-foreground">{"Thinking level"}</span>
             <ThinkingPill
               value={variant}
               options={variantOptions}
@@ -146,11 +145,11 @@ export function ForkSessionDialog(props: ForkSessionDialogProps) {
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <span className="typography-meta font-medium text-muted-foreground">{t('chat.messageBody.forkDialog.instructions.label')}</span>
+            <span className="typography-meta font-medium text-muted-foreground">{"Instructions"}</span>
             <Textarea
               value={instructions}
               onChange={(event) => setInstructions(event.target.value)}
-              placeholder={t('chat.messageBody.forkDialog.instructions.placeholder')}
+              placeholder={"Add instructions for the new session…"}
               hasError={instructions.trim().length === 0}
               disabled={submitting}
             />
@@ -165,7 +164,7 @@ export function ForkSessionDialog(props: ForkSessionDialogProps) {
                   checked={createWorktree}
                   onChange={setCreateWorktree}
                   disabled={submitting}
-                  ariaLabel={t('chat.messageBody.forkDialog.createWorktree')}
+                  ariaLabel={"Create worktree"}
                 />
                 <button
                   type="button"
@@ -173,19 +172,19 @@ export function ForkSessionDialog(props: ForkSessionDialogProps) {
                   disabled={submitting}
                   onClick={() => setCreateWorktree((value) => !value)}
                 >
-                  {t('chat.messageBody.forkDialog.createWorktree')}
+                  {"Create worktree"}
                 </button>
               </div>
             ) : null}
           </div>
           <div className="flex items-center justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} disabled={submitting}>
-              {t('rightSidebar.contextNotesTodo.sendDialog.actions.cancel')}
+              {"Cancel"}
             </Button>
             <Button size="sm" onClick={handleSubmit} disabled={!canConfirm || submitting}>
               {submitting
-                ? t('rightSidebar.contextNotesTodo.sendDialog.actions.sending')
-                : t('rightSidebar.contextNotesTodo.sendDialog.actions.send')}
+                ? "Sending"
+                : "Send"}
             </Button>
           </div>
         </div>
