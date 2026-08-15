@@ -78,11 +78,19 @@ export const piMessageToRecord = (message: PiProjectedMessage, sessionId: string
     sessionID: sessionId,
     role: message.role,
     ...(message.parentId ? { parentID: message.parentId } : {}),
-    time: { created: message.createdAt, ...(message.streaming ? {} : { completed: message.createdAt + (message.durationMs ?? 0) }) },
+    time: {
+      created: message.createdAt,
+      ...(message.streaming
+        ? {}
+        : typeof message.durationMs === 'number' && message.durationMs > 0
+          ? { completed: message.createdAt + message.durationMs }
+          : { completed: message.createdAt }),
+    },
+    ...(message.durationMs !== undefined ? { durationMs: message.durationMs } : {}),
     ...(message.error ? { error: { name: message.error.code, message: message.error.message } } : {}),
     ...(message.model ? { model: { providerID: message.model.providerId, modelID: message.model.modelId } } : {}),
     ...(finish ? { finish } : {}),
-  };
+  } as Message;
   return { info, parts };
 };
 

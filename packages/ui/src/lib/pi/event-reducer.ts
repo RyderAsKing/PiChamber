@@ -278,6 +278,8 @@ const reduceMessageEnd = (
   message.streaming = false;
   if (typeof payload.durationMs === 'number') {
     message.durationMs = payload.durationMs;
+  } else if (typeof message.createdAt === 'number' && message.createdAt > 0) {
+    message.durationMs = Math.max(100, Date.now() - message.createdAt);
   }
   if (payload.thinkingLevel) message.thinkingLevel = payload.thinkingLevel;
   if (payload.error) message.error = payload.error;

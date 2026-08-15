@@ -1,5 +1,6 @@
 import React from 'react';
 import { BusyDots } from './BusyDots';
+import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
 import { useProviderLogo } from '@/hooks/useProviderLogo';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 
@@ -228,29 +229,26 @@ export function WorkingPlaceholder({
 
   return (
     <div
-      className={
-        'flex h-full items-center text-muted-foreground pl-0.5'
-      }
+      className="flex h-full items-center text-muted-foreground pl-0.5"
       role="status"
       aria-live={displayedPermission ? 'assertive' : 'polite'}
       aria-label={label}
       data-waiting={displayedPermission ? 'true' : undefined}
     >
-      <span className="typography-ui-header">
+      <span className="typography-ui-header inline-flex items-center gap-1.5">
         {hasProviderLogo && providerLogoSrc ? (
           <img
             src={providerLogoSrc}
             alt=""
             aria-hidden="true"
-            className="inline-block h-3.5 w-3.5 mr-1.5 align-[-2px]"
+            className="inline-block h-3.5 w-3.5 mr-0.5 align-[-2px]"
             style={{
               filter: isDarkTheme ? 'brightness(0.9) contrast(1.1) invert(1)' : 'brightness(0.9) contrast(1.1)',
             }}
             onError={handleProviderLogoError}
           />
         ) : null}
-        {label}
-        <BusyDots />
+        <AgentThinkingLoader text={label} variant="inline" animationType="spinner" />
       </span>
     </div>
   );
