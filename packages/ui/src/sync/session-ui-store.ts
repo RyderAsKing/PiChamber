@@ -545,8 +545,16 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
 
     // Kick off the session selection and message hydration on the same tick,
     // before React commits the state change and fires ChatContainer.useEffect.
+    // Only pass the directory when it is authoritative (from stored session memory
+    // or an explicit caller hint). When the directory is just a fallback guess
+    // (e.g. the current active-project path), passing it causes select() to call
+    // open(wrongDirectory, sessionId), which then has to rediscover the real
+    // directory via getSession/findPersistedSession — wasting round-trips and
+    // thrashing the daemon's activeDirectory. Passing undefined instead lets
+    // select() hit the connection=loading early-return and defer to PiSessionProvider
+    // start() which resolves the authoritative directory via getSession.
     if (id) {
-      void getPiSessionStore().select(id)
+      void getPiSessionStore().select(id, isGuessedDir ? undefined : resolvedDir)
     }
 
     try {

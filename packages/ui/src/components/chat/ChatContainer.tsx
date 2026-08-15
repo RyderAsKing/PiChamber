@@ -56,6 +56,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { createFirstVisibleSessionPerformanceTracker } from '@/sync/session-load-performance';
 import { hasActiveQuestionToolInCurrentTurn, recoverPendingQuestionWithRetry } from '@/sync/question-recovery';
 import { useGlobalSyncStore } from '@/sync/global-sync-store';
+import { parseRoute } from '@/lib/router';
 
 const EMPTY_MESSAGES: Array<{ info: Message; parts: Part[] }> = [];
 const IDLE_SESSION_STATUS = { type: 'idle' as const };
@@ -771,6 +772,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     }, []);
 
     React.useEffect(() => {
+        const route = parseRoute();
+        if (route.sessionId) return;
         if (autoOpenDraft && !currentSessionId && !draftOpen) {
             // Programmatic fallback, not user navigation — must not clear the
             // persisted last-session pointer the cold-launch restore reads.

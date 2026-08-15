@@ -62,6 +62,15 @@ export class PiSessionStore {
   async start(options: { directory?: string | null; sessionId?: PiSessionId | null } = {}): Promise<void> {
     try {
       const requestedDirectory = typeof options.directory === 'string' && options.directory.trim() ? options.directory : null;
+      if (options.sessionId) {
+        try {
+          const detail = await piClient.getSession(options.sessionId, { directory: requestedDirectory ?? undefined, runtimeKey: getRuntimeKey() });
+          if (detail?.session?.directory) {
+            await this.open(detail.session.directory, options.sessionId);
+            return;
+          }
+        } catch {}
+      }
       if (requestedDirectory) {
         await this.open(requestedDirectory, options.sessionId);
         return;
@@ -75,7 +84,7 @@ export class PiSessionStore {
 
   async open(directory: string, preferredSessionId?: PiSessionId | null): Promise<void> {
     if (directory === this.state.directory && this.state.connection === 'loading') {
-      if (preferredSessionId) {
+      if (preferredSessionId && preferredSessionId !== this.state.selectedSessionId) {
         this.pendingPreferredSessionId = preferredSessionId;
         this.state = { ...this.state, selectedSessionId: preferredSessionId, error: null };
         this.emit();
@@ -111,7 +120,24 @@ export class PiSessionStore {
       const result = await piClient.listSessions(scope);
       if (expected !== this.generation) return;
       const desiredSessionId = this.pendingPreferredSessionId ?? preferredSessionId;
-      const selectedSessionId = result.sessions.find((item) => item.session.id === desiredSessionId)?.session.id
+      let matchedSession = desiredSessionId ? result.sessions.find((item) => item.session.id === desiredSessionId) : undefined;
+      if (desiredSessionId && !matchedSession) {
+        try {
+          const detail = await piClient.getSession(desiredSessionId, { directory, runtimeKey });
+          if (detail?.session?.directory && detail.session.directory !== directory) {
+            if (expected !== this.generation) return;
+            await this.open(detail.session.directory, desiredSessionId);
+            return;
+          }
+          if (detail?.session?.id) {
+            result.sessions.unshift({ session: detail.session, updatedAt: detail.session.updatedAt });
+            matchedSession = { session: detail.session, updatedAt: detail.session.updatedAt };
+          }
+        } catch {
+          // Fall back to default session if desired session doesn't exist
+        }
+      }
+      const selectedSessionId = matchedSession?.session.id
         ?? result.sessions.find((item) => !item.session.archived)?.session.id
         ?? result.sessions[0]?.session.id
         ?? null;
@@ -121,14 +147,33 @@ export class PiSessionStore {
     } catch (error) { if (expected === this.generation) this.reportError(error); }
   }
 
-  async select(sessionId: PiSessionId): Promise<void> {
-    if (!this.state.directory || sessionId === this.state.selectedSessionId) return;
+  async select(sessionId: PiSessionId, targetDirectory?: string): Promise<void> {
+    const sessionDir = targetDirectory
+      ?? this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory;
+    if (sessionDir && sessionDir !== this.state.directory) {
+      await this.open(sessionDir, sessionId);
+      return;
+    }
     if (this.state.connection === 'loading') {
+      if (this.state.selectedSessionId === sessionId) {
+        return;
+      }
       this.pendingPreferredSessionId = sessionId;
       this.state = { ...this.state, selectedSessionId: sessionId, error: null };
       this.emit();
       return;
     }
+    const inCurrentSessions = this.state.sessions.some((item) => item.session.id === sessionId);
+    if (!inCurrentSessions) {
+      try {
+        const detail = await piClient.getSession(sessionId, { directory: this.state.directory ?? undefined, runtimeKey: getRuntimeKey() });
+        if (detail?.session?.directory && detail.session.directory !== this.state.directory) {
+          await this.open(detail.session.directory, sessionId);
+          return;
+        }
+      } catch {}
+    }
+    if (!this.state.directory || sessionId === this.state.selectedSessionId) return;
     const expected = ++this.generation;
     this.stream?.dispose(); this.stream = null;
     this.state = { ...this.state, selectedSessionId: sessionId, error: null }; this.emit();
@@ -171,7 +216,8 @@ export class PiSessionStore {
   selected(): PiProjectedSession | null { const id = this.state.selectedSessionId; const session = id ? this.state.reducer.bySession.get(id) : undefined; return session ? projectSession(session) : null; }
 
   private async hydrate(sessionId: string, expected: number, known?: Awaited<ReturnType<typeof piClient.getSession>>) {
-    const directory = this.directory(); const runtimeKey = getRuntimeKey(); this.stream?.dispose(); this.stream = null;
+    const sessionDir = this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory;
+    const directory = sessionDir || this.directory(); const runtimeKey = getRuntimeKey(); this.stream?.dispose(); this.stream = null;
     const buffered: PiSessionEvent[] = []; let ready = false;
     const onEvent = (event: PiSessionEvent) => { if (expected !== this.generation) return; if (!ready) buffered.push(event); else this.apply(event); };
     try {
