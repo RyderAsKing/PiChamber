@@ -23,8 +23,6 @@ const enabled = () => {
   }
 };
 
-export const startupTraceEnabled = () => enabled();
-
 export const markStartupTrace = (name: string, data?: Record<string, unknown>) => {
   if (!enabled()) return;
   const now = typeof performance !== 'undefined' ? performance.now() : Date.now();

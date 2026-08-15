@@ -195,38 +195,6 @@ export const WorkStatusValue: React.FC<{
  * you press. Used where the state itself is the affordance — an MCP server
  * asking for sign-in, a goal waiting to be resumed.
  */
-export const WorkStatusRowAction: React.FC<{
-  children: React.ReactNode;
-  onClick: () => void;
-  tone?: 'default' | 'warning' | 'error' | 'info';
-  disabled?: boolean;
-  ariaLabel?: string;
-}> = ({ children, onClick, tone = 'default', disabled, ariaLabel }) => {
-  const color = tone === 'default' ? undefined : TONE_COLOR[tone];
-  return (
-    <button
-      type="button"
-      aria-label={ariaLabel}
-      disabled={disabled}
-      onClick={(event) => {
-        // The row underneath is often a button of its own with a different
-        // destination.
-        event.stopPropagation();
-        onClick();
-      }}
-      className={cn(
-        'shrink-0 rounded-full px-1.5 py-px text-[11px] font-medium leading-4 transition-opacity',
-        'hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50',
-        !color && 'bg-[var(--interactive-hover)] text-muted-foreground',
-      )}
-      style={color
-        ? { color, backgroundColor: `color-mix(in srgb, ${color} 18%, transparent)` }
-        : undefined}
-    >
-      {children}
-    </button>
-  );
-};
 
 export const WorkStatusPill: React.FC<{
   children: React.ReactNode;

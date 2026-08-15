@@ -36,4 +36,3 @@ export const dropdownTriggerVariants = cva(
 );
 
 export type DropdownTriggerVariantProps = VariantProps<typeof dropdownTriggerVariants>;
-export type DropdownTriggerSize = NonNullable<DropdownTriggerVariantProps['size']>;

@@ -9,7 +9,5 @@ export const formatWindowLabel = (label: string) => label;
 export type PaceStatus = "on-track" | "slightly-fast" | "too-fast" | "exhausted";
 export interface PaceInfo { status: PaceStatus; expectedPercent: number }
 export const calculatePace = (): PaceInfo => ({ status: "on-track", expectedPercent: 0 });
-export const getPaceStatusColor = () => "";
-export const formatRemainingTime = () => "";
 export const calculateExpectedUsagePercent = () => 0;
 export * from "./model-families";

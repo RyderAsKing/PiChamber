@@ -1,15 +1,3 @@
-export type SessionWorktreeAttachment = {
-  worktreeRoot: string | null;
-  cwd: string | null;
-  branch: string | null;
-  headState: 'branch' | 'detached' | 'unborn';
-  worktreeStatus: 'pending' | 'ready' | 'missing' | 'invalid' | 'not-a-repo';
-  worktreeSource: 'existing' | 'created-for-session' | null;
-  legacy: boolean;
-  degraded: boolean;
-  attentionReason?: 'merge' | 'rebase' | 'cherry-pick' | 'revert' | 'bisect' | null;
-};
-
 export interface AttachedFile {
     id: string;
     file: File;
@@ -83,5 +71,3 @@ export const getMemoryLimits = () => {
         HISTORY_CHUNK: limit,
     };
 };
-
-export const MEMORY_LIMITS = DEFAULT_MEMORY_LIMITS;

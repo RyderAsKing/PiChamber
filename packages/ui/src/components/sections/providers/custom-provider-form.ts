@@ -5,7 +5,6 @@
  */
 
 export const CUSTOM_PROVIDER_NPM = '@ai-sdk/openai-compatible';
-export const CUSTOM_PROVIDER_ID = '__custom_provider__';
 export const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9-_]*$/;
 export const BASE_URL_PATTERN = /^https?:\/\//;
 export const ENV_KEY_PATTERN = /^\{env:([^}]+)\}$/;

@@ -88,26 +88,6 @@ export function normalizeTunnelProvider(value) {
   return provider;
 }
 
-export function normalizeTunnelMode(value) {
-  if (typeof value !== 'string') {
-    return TUNNEL_MODE_QUICK;
-  }
-  const mode = value.trim().toLowerCase();
-  if (!mode) {
-    return TUNNEL_MODE_QUICK;
-  }
-  if (mode === TUNNEL_MODE_QUICK) {
-    return TUNNEL_MODE_QUICK;
-  }
-  if (mode === TUNNEL_MODE_MANAGED_REMOTE) {
-    return TUNNEL_MODE_MANAGED_REMOTE;
-  }
-  if (mode === TUNNEL_MODE_MANAGED_LOCAL) {
-    return TUNNEL_MODE_MANAGED_LOCAL;
-  }
-  return TUNNEL_MODE_QUICK;
-}
-
 function normalizeTunnelIntent(value) {
   if (typeof value !== 'string') {
     return undefined;

@@ -15,4 +15,3 @@ export type PrVisualSummary = {
   checks?: { state?: string };
 };
 export const usePrVisualSummary = (_key?: string | null): PrVisualSummary | null => null;
-export const usePrVisualSummaryByKeys = () => new Map<string, PrVisualSummary>();

@@ -2,7 +2,6 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Radio } from '@/components/ui/radio';
-import { dropdownTriggerVariants } from '@/components/ui/dropdown-trigger';
 import { cn } from '@/lib/utils';
 import { SettingsInfoHint } from './SettingsInfoHint';
 
@@ -18,11 +17,6 @@ export const SETTINGS_ICON_BUTTON_CLASS =
   'h-8 w-8 px-0 text-muted-foreground hover:text-foreground';
 
 /** Custom dropdown triggers (ModelSelector / AgentSelector) in settings field rows. */
-// eslint-disable-next-line react-refresh/only-export-components
-export const SETTINGS_CUSTOM_TRIGGER_CLASS = cn(
-  dropdownTriggerVariants(),
-  'w-full min-w-40 max-w-48',
-);
 
 /** Shared width for stacked control clusters (select/input + reset). */
 export const SETTINGS_CONTROL_CLUSTER_CLASS = 'w-full max-w-[24rem]';

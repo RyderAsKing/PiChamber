@@ -154,22 +154,6 @@ export const setRuntimeUrlAuthToken = (token: string | null | undefined, expires
   }
 };
 
-export const setLocalRuntimeUrlAuthToken = (
-  token: string | null | undefined,
-  expiresAt: number | null | undefined,
-  localOrigin?: string | null,
-): void => {
-  const normalized = normalizeBearerToken(token);
-  const origin = typeof localOrigin === 'string' ? normalizeOrigin(localOrigin) : '';
-  if (!normalized || typeof expiresAt !== 'number' || !Number.isFinite(expiresAt) || !origin) {
-    clearLocalRuntimeUrlAuthToken();
-    return;
-  }
-  localRuntimeUrlAuthToken = normalized;
-  localRuntimeUrlAuthTokenExpiresAt = expiresAt;
-  localRuntimeUrlAuthOrigin = origin;
-};
-
 const readValidRuntimeUrlAuthTokenSync = (): string => {
   if (!runtimeUrlAuthToken || runtimeUrlAuthTokenExpiresAt <= Date.now() + URL_AUTH_REFRESH_SKEW_MS) {
     clearRuntimeUrlAuthToken();

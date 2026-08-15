@@ -157,9 +157,6 @@ export function useSessionDirectory(sessionID?: string | null): string | undefin
   const state = usePiSessionSnapshot();
   return state.sessions.find((entry) => entry.session.id === sessionID)?.session.directory ?? state.directory ?? undefined;
 }
-export function useSyncSDK() {
-  return null;
-}
 export function useSyncDirectory(): string {
   return usePiSessionSnapshot().directory ?? '';
 }

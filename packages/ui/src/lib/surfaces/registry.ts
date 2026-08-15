@@ -145,7 +145,6 @@ const FRACTION_BY_MODE = new Map(CONTEXT_SURFACES.map((surface) => [surface.mode
 
 // Tablet width and up: below this the walkthrough cannot show a stop and its
 // code side by side, which is the whole point of the surface.
-export const WALKTHROUGH_MIN_WIDTH = 768;
 
 export const getContextSurfaceWidthFraction = (mode: ContextPanelMode): number => {
   return FRACTION_BY_MODE.get(mode) ?? 1 / 2;

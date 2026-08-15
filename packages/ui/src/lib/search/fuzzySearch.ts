@@ -41,54 +41,6 @@ export function matchesFuzzyQuery(
   return fuse.search(query).length > 0;
 }
 
-function getFuzzyMatchMask<T>(
-  items: T[],
-  query: string,
-  getText: (item: T) => string,
-  options?: FuzzySearchOptions
-): boolean[] {
-  if (!query) {
-    return items.map(() => true);
-  }
-
-  const mergedOptions = { ...DEFAULT_FUZZY_OPTIONS, ...options };
-  const queryLower = query.toLowerCase();
-  const matches = new Array(items.length).fill(false);
-  const fuzzyCandidateTexts: string[] = [];
-  const fuzzyCandidateIndices: number[] = [];
-
-  for (let i = 0; i < items.length; i++) {
-    const target = getText(items[i]);
-    if (!target) {
-      continue;
-    }
-
-    if (mergedOptions.preferSubstring && target.toLowerCase().includes(queryLower)) {
-      matches[i] = true;
-      continue;
-    }
-
-    fuzzyCandidateTexts.push(target);
-    fuzzyCandidateIndices.push(i);
-  }
-
-  if (fuzzyCandidateTexts.length === 0) {
-    return matches;
-  }
-
-  const fuse = new Fuse(fuzzyCandidateTexts, {
-    threshold: mergedOptions.threshold,
-    distance: mergedOptions.distance,
-    ignoreLocation: mergedOptions.ignoreLocation,
-  });
-
-  for (const result of fuse.search(query)) {
-    matches[fuzzyCandidateIndices[result.refIndex]] = true;
-  }
-
-  return matches;
-}
-
 /**
  * Score-sorted fuzzy ranking. Strict (low threshold), prioritizes substring
  * matches (especially prefix matches), and returns the top N.
@@ -139,25 +91,4 @@ export function scoreByFuzzyQuery<T>(
 
   scored.sort((a, b) => a.score - b.score);
   return scored.slice(0, limit);
-}
-
-export function partitionByFuzzyQuery<T>(
-  items: T[],
-  query: string,
-  getText: (item: T) => string,
-  options?: FuzzySearchOptions
-): { matching: T[]; other: T[] } {
-  const matches = getFuzzyMatchMask(items, query, getText, options);
-  const matching: T[] = [];
-  const other: T[] = [];
-
-  for (let i = 0; i < items.length; i++) {
-    if (matches[i]) {
-      matching.push(items[i]);
-      continue;
-    }
-    other.push(items[i]);
-  }
-
-  return { matching, other };
 }

@@ -86,8 +86,6 @@ export const createMobilePasswordOperationTracker = () => {
   };
 };
 
-export type MobileConnectionMode = 'direct' | 'relay';
-
 // Persisted relay transport config. This is connection metadata, not a secret
 // (the host public key is public by construction) — but never log it raw; mask
 // the key coordinates in any debug output.

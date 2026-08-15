@@ -509,14 +509,6 @@ export const isDesktopShell = (): boolean => {
  * not follow a custom-protocol link back without a user gesture, so the app
  * brings itself forward instead of asking the page to do it.
  */
-export const focusDesktopWindow = async (): Promise<boolean> => {
-  if (!isDesktopShell()) return false;
-  try {
-    return Boolean(await invokeDesktop('desktop_focus_window'));
-  } catch {
-    return false;
-  }
-};
 
 export const canRequestNativeDirectoryAccess = (): boolean => (
   isDesktopShell() && hasDesktopInvoke() && isDesktopLocalOriginActive()
