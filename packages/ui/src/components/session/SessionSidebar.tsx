@@ -39,7 +39,6 @@ import { SessionGroupSection } from './sidebar/SessionGroupSection';
 import { SidebarHeader } from './sidebar/SidebarHeader';
 import { SidebarNav } from './sidebar/SidebarNav';
 import { SidebarSpacesBar } from './sidebar/SidebarSpacesBar';
-import { SidebarActivitySections } from './sidebar/SidebarActivitySections';
 import { SidebarFooter } from './sidebar/SidebarFooter';
 import { SidebarProjectsList } from './sidebar/SidebarProjectsList';
 import { SessionNodeItem } from './sidebar/SessionNodeItem';
@@ -61,9 +60,6 @@ import { BulkActionBar } from './sidebar/BulkActionBar';
 import { useSidebarBulkActions } from './sidebar/hooks/useSidebarBulkActions';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { type SessionGroup, type SessionNode } from './sidebar/types';
-import {
-  deriveRecentSessions,
-} from './sidebar/activitySections';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import {
   formatProjectLabel,
@@ -967,25 +963,17 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     lastRepoStatusRef.current = Boolean(projectRepoStatus.get(activeProjectId));
   }
 
-  const showRecentSection = useSessionDisplayStore((state) => state.showRecentSection);
   const showArchivedSessions = useSessionDisplayStore((state) => state.showArchivedSessions);
   const projectSortOrder = useSessionDisplayStore((state) => state.projectSortOrder);
   const stickyZoneHeaders = useSessionDisplayStore((state) => state.stickyZoneHeaders);
   const manualProjectOrder = useProjectsStore((state) => state.manualProjectOrder);
   const projectExpandedParentsRef = React.useRef<Set<string>>(new Set());
-  const recentExpandedParentsRef = React.useRef<Set<string>>(new Set());
   const projectExpandedParents = selectExpandedParentKeysForContext(
     projectExpandedParentsRef.current,
     expandedParents,
     'project',
   );
-  const recentExpandedParents = selectExpandedParentKeysForContext(
-    recentExpandedParentsRef.current,
-    expandedParents,
-    'recent',
-  );
   projectExpandedParentsRef.current = projectExpandedParents;
-  recentExpandedParentsRef.current = recentExpandedParents;
 
   const sidebarRenderSources = {
     isVisible,
@@ -1012,7 +1000,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     gitBranches,
     gitRepoStatus,
     updateStore,
-    showRecentSection,
     showArchivedSessions,
     projectSortOrder,
     projectRepoStatus,
@@ -1191,63 +1178,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     return meta;
   }, [projectSections, homeDirectory]);
 
-  const recentSessions = React.useMemo(() => {
-    if (!showRecentSection) {
-      return [];
-    }
-
-    return deriveRecentSessions(sessions, activeSessionIdSet)
-      .sort((a, b) => compareSessionsByLifecycleOrder(a, b, pinnedSessionIds, sessionOrderRanks));
-  }, [activeSessionIdSet, pinnedSessionIds, sessionOrderRanks, sessions, showRecentSection]);
-
-  // Prefetch is wired below, after recentSessions is computed.
-
-  const activitySections = React.useMemo(() => {
-    // The flat "recent" activity list is web/desktop-only.
-    if (!showRecentSection) {
-      return [];
-    }
-
-    const toItem = (session: Session) => {
-      const existing = sessionSidebarMetaById.get(session.id);
-      const sessionDirectory = normalizePath((session as Session & { directory?: string | null }).directory ?? null);
-      const node = existing?.node ?? { session, children: [], worktree: null };
-      const filteredNodes = hasSessionSearchQuery
-        ? filterSessionNodesForSearch([node], normalizedSessionSearchQuery)
-        : [node];
-      const filteredNode = filteredNodes[0];
-      if (!filteredNode) {
-        return null;
-      }
-      const secondaryMeta = existing?.secondaryMeta
-        ? {
-            projectLabel: existing.secondaryMeta.projectLabel,
-            branchLabel: existing.secondaryMeta.branchLabel,
-          }
-        : null;
-      return {
-        node: filteredNode,
-        projectId: existing?.projectId ?? null,
-        groupDirectory: existing?.groupDirectory ?? sessionDirectory,
-        secondaryMeta,
-      };
-    };
-
-    const items = recentSessions
-      .map(toItem)
-      .filter((item): item is NonNullable<ReturnType<typeof toItem>> => item !== null);
-
-    return [
-      { key: 'active-now' as const, title: "recent", items },
-    ];
-  }, [filterSessionNodesForSearch, hasSessionSearchQuery, normalizedSessionSearchQuery, recentSessions, sessionSidebarMetaById, showRecentSection]);
-
-  const hasActivitySectionItems = React.useMemo(
-    () => activitySections.some((section) => section.items.length > 0),
-    [activitySections],
-  );
-
-
   const sectionsForSidebarRender = React.useMemo(() => {
     return flatSectionsForRender.map((section) => (
         section.groups.some((group) => group.isArchivedBucket)
@@ -1342,7 +1272,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         projectId={projectId}
         archivedBucket={archivedBucket}
         pinnedSessionIds={pinnedSessionIds}
-        expandedParents={renderContext === 'recent' ? recentExpandedParents : projectExpandedParents}
+        expandedParents={projectExpandedParents}
         hasSessionSearchQuery={hasSessionSearchQuery}
         normalizedSessionSearchQuery={normalizedSessionSearchQuery}
         notifyOnSubtasks={notifyOnSubtasks}
@@ -1515,20 +1445,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     ],
   );
 
-  const topContent = React.useMemo(
-    () => (showRecentSection && !hasSessionSearchQuery) ? (
-      <SidebarActivitySections
-        sections={activitySections}
-        renderSessionNode={renderSessionNode}
-        editingId={editingId}
-        openSidebarMenuKey={openSidebarMenuKey}
-        expansionState={recentExpandedParents}
-        variant="section"
-        isDesktopShellRuntime={isDesktopShellRuntime}
-      />
-    ) : null,
-    [activitySections, editingId, hasSessionSearchQuery, isDesktopShellRuntime, openSidebarMenuKey, recentExpandedParents, renderSessionNode, showRecentSection],
-  );
   const isInlineEditing = Boolean(renamingFolderId || editingId || editingProjectDialogId);
 
   const {
@@ -1608,7 +1524,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       <SessionPrefetchEffect
         enabled={isVisible}
         sortedSessions={orderedSessions}
-        recentSessions={recentSessions}
         prefetchSession={async (sessionId) => { await sync.syncSession(sessionId); }}
       />
       {!hideDirectoryControls ? (
@@ -1617,7 +1532,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
       <SidebarHeader
         hideDirectoryControls={hideDirectoryControls}
-        showRecentControls
         handleOpenDirectoryDialog={handleOpenDirectoryDialog}
         onOpenArchive={() => {
           if (mobileVariant) setSessionSwitcherOpen(false);
@@ -1669,8 +1583,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       ) : null}
 
       {isVisible ? <SidebarProjectsList
-        topContent={topContent}
-        hasSharedSessions={hasActivitySectionItems}
         sectionsForRender={filteredSectionsForSidebarRender}
         projectSections={projectSections}
         activeProjectId={activeProjectId}

@@ -5,6 +5,9 @@ import type { SessionGroup, SessionNode } from './types';
 import { formatProjectLabel } from './utils';
 import type { ProjectSortOrder } from '@/stores/useSessionDisplayStore';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
+import type { SortableDragHandleProps } from './sortableItems';
+import { ProjectHeaderIdentity } from './sortableItems';
+import type { MainTab } from '@/stores/useUIStore';
 
 type ProjectSection = {
   project: {
@@ -360,28 +363,19 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
         </div>
       )}
     </ScrollableOverlay>
-      {enableStickyFade && (leadingProject || props.hasSharedSessions) ? (
+      {enableStickyFade && leadingProject && leadingProjectLabel ? (
         <div
           className="oc-sticky-fade-overlay pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center gap-1.5 py-1 pl-4 pr-5"
           aria-hidden="true"
         >
-          {leadingProject && leadingProjectLabel ? (
-            <ProjectHeaderIdentity
-              id={leadingProject.id}
-              projectLabel={leadingProjectLabel}
-              projectIcon={leadingProject.icon}
-              projectColor={leadingProject.color}
-              projectIconImage={leadingProject.iconImage}
-              projectIconBackground={leadingProject.iconBackground}
-            />
-          ) : (
-            <>
-              <Icon name="history" className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/80" />
-              <span className="truncate text-[14px] font-semibold lowercase text-foreground">
-                {"recent"}
-              </span>
-            </>
-          )}
+          <ProjectHeaderIdentity
+            id={leadingProject.id}
+            projectLabel={leadingProjectLabel}
+            projectIcon={leadingProject.icon}
+            projectColor={leadingProject.color}
+            projectIconImage={leadingProject.iconImage}
+            projectIconBackground={leadingProject.iconBackground}
+          />
         </div>
       ) : null}
     </div>
