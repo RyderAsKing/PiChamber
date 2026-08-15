@@ -130,7 +130,6 @@ export const WorkStatusPrimaryGroup: React.FC<Props> = ({ sessionId, directory, 
       ? (currentModel.limit as Record<string, unknown>)
       : null;
     return limit && typeof limit.context === 'number' ? limit.context : 0;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- getter output tracks the selected model ids
   }, [getCurrentModel, currentProviderId, currentModelId]);
 
   // Computed from this session's own messages rather than through

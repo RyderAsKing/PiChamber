@@ -83,7 +83,6 @@ export function useDraftStarters(): UseDraftStartersResult {
         return () => { cancelled = true; };
         // Keyed on project id to avoid reloading when the memoized ref object
         // changes identity but still points at the same project.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [projectRef?.id]);
 
     const ensureLoaded = React.useCallback(() => {

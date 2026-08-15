@@ -655,7 +655,6 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
     return () => ro.disconnect();
   }, [shouldVirtualize]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   React.useLayoutEffect(() => {
     if (!shouldVirtualize) {
       if (archivedScrollEl !== null) setArchivedScrollEl(null);

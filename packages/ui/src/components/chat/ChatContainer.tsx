@@ -538,7 +538,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         [effectiveSessionDirectory, sync],
     );
     const loadMoreMessages = React.useCallback(
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         (sessionId: string, _direction: 'up' | 'down') => sync.loadMore(sessionId, effectiveSessionDirectory),
         [effectiveSessionDirectory, sync],
     );

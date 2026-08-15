@@ -36,5 +36,5 @@ export type UsageWindow = {
   used?: number;
   limit?: number;
   reset?: number;
-  [key: string]: any;
+  [key: string]: unknown;
 };
