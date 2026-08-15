@@ -1,24 +1,10 @@
 import React from 'react';
-import {
-  DndContext,
-  DragOverlay,
-  KeyboardSensor,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core';
-import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
-import { formatDirectoryName, formatPathForDisplay, cn } from '@/lib/utils';
+import { formatDirectoryName, cn } from '@/lib/utils';
 import type { SessionGroup, SessionNode } from './types';
-import type { SortableDragHandleProps } from './sortableItems';
-import { ProjectHeaderIdentity, SortableGroupItem, SortableProjectItem } from './sortableItems';
 import { formatProjectLabel } from './utils';
-import type { MainTab } from '@/stores/useUIStore';
 import type { ProjectSortOrder } from '@/stores/useSessionDisplayStore';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
-import { Icon } from '@/components/icon/Icon';
 
 type ProjectSection = {
   project: {
@@ -107,13 +93,6 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
   streamPerfCount('ui.sidebar_projects_list.render');
   
   const enableStickyFade = props.isDesktopShellRuntime && props.stickyZoneHeaders;
-  const projectSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-  const groupSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-  );
 
   // Memoize getOrderedGroups per project so downstream consumers see a stable
   // array reference while inputs are unchanged (avoids O(P) fresh arrays per

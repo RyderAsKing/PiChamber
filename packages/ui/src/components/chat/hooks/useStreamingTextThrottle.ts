@@ -37,7 +37,7 @@ export const useStreamingTextThrottle = ({
             cancelAnimationFrame(rafIdRef.current);
             rafIdRef.current = null;
         }
-        setDisplayedText(text);
+        setDisplayedText(targetTextRef.current);
     }, [identityKey]);
 
     React.useEffect(() => {

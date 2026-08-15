@@ -69,7 +69,9 @@ export class PiSessionStore {
             await this.open(detail.session.directory, options.sessionId);
             return;
           }
-        } catch {}
+        } catch {
+          // Session lookup failed, fall through to directory resolution
+        }
       }
       if (requestedDirectory) {
         await this.open(requestedDirectory, options.sessionId);
@@ -171,7 +173,9 @@ export class PiSessionStore {
           await this.open(detail.session.directory, sessionId);
           return;
         }
-      } catch {}
+      } catch {
+        // Ignore session detail lookup error
+      }
     }
     if (!this.state.directory || sessionId === this.state.selectedSessionId) return;
     const expected = ++this.generation;
