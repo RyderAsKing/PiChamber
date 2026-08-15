@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
-import { chmod, mkdir, lstat, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, lstat, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { createInterface } from 'node:readline';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { hasTrustRequiringProjectResources } from '@earendil-works/pi-coding-agent';
 import { StringDecoder } from 'node:string_decoder';
@@ -124,6 +126,7 @@ export function createSessionDaemon({
   const eventLog = [];
   const streamingMessageIds = new Map();
   const latestAssistantMessageIds = new Map();
+  const messageStartedAt = new Map();
   const toolStartedAt = new Map();
   const latestUserMessageIds = new Map();
   const streamingRedactionBuffers = new Map();
@@ -400,9 +403,16 @@ export function createSessionDaemon({
     if (typeof sessionId !== 'string' || sessionId.length === 0) {
       throw new SessionDaemonProtocolError('INVALID_SESSION', 'The Pi session does not exist.');
     }
-    const candidateDirs = requestedDirectory
-      ? [await resolveDirectory(requestedDirectory)]
-      : Array.from(knownDirectories);
+    const candidateDirs = new Set();
+    if (requestedDirectory) {
+      try {
+        candidateDirs.add(await resolveDirectory(requestedDirectory));
+      } catch {}
+    }
+    if (activeDirectory) candidateDirs.add(activeDirectory);
+    if (cwd) candidateDirs.add(cwd);
+    for (const d of knownDirectories) candidateDirs.add(d);
+
     for (const dir of candidateDirs) {
       try {
         await validatePiSessionJsonlDirectory({ cwd: dir, agentDir });
@@ -413,9 +423,47 @@ export function createSessionDaemon({
           return { target, directory: dir };
         }
       } catch (err) {
-        if (requestedDirectory) throw err;
+        // Continue searching other candidate directories
       }
     }
+
+    // If not found in candidateDirs, scan all directory stores under agentDir/sessions
+    try {
+      const sessionsRoot = join(agentDir, 'sessions');
+      const dirEntries = await readdir(sessionsRoot, { withFileTypes: true });
+      for (const dirEntry of dirEntries) {
+        if (!dirEntry.isDirectory()) continue;
+        const dirPath = join(sessionsRoot, dirEntry.name);
+        const files = await readdir(dirPath, { withFileTypes: true });
+        for (const file of files) {
+          if (!file.name.endsWith('.jsonl')) continue;
+          const fullPath = join(dirPath, file.name);
+          try {
+            const input = createReadStream(fullPath, { encoding: 'utf8' });
+            const lines = createInterface({ input, crlfDelay: Infinity });
+            let sessionCwd = null;
+            let fileId = null;
+            for await (const line of lines) {
+              if (!line.trim()) continue;
+              const header = JSON.parse(line);
+              if (header?.type === 'session' && typeof header.id === 'string') {
+                fileId = header.id;
+                sessionCwd = header.cwd;
+              }
+              break;
+            }
+            lines.close();
+            if (fileId === sessionId && sessionCwd) {
+              await validatePiSessionJsonlFile(fullPath);
+              const validated = await resolveDirectory(sessionCwd);
+              knownDirectories.add(validated);
+              return { target: { id: sessionId, path: fullPath }, directory: validated };
+            }
+          } catch {}
+        }
+      }
+    } catch {}
+
     throw new SessionDaemonProtocolError('INVALID_SESSION', 'The Pi session does not exist.');
   };
 
@@ -426,22 +474,24 @@ export function createSessionDaemon({
       });
     }
     if (requestedDirectory) {
-      const targetDir = await resolveDirectory(requestedDirectory);
-      const existing = runtimeRegistry.get({ cwd: targetDir, sessionId });
-      if (existing) {
-        runtime = existing;
-        activeDirectory = targetDir;
-        return existing;
-      }
-    } else {
-      const existing = runtimeRegistry.findBySessionId(sessionId);
-      if (existing) {
-        runtime = existing;
-        return existing;
-      }
+      try {
+        const targetDir = await resolveDirectory(requestedDirectory);
+        const existing = runtimeRegistry.get({ cwd: targetDir, sessionId });
+        if (existing) {
+          runtime = existing;
+          activeDirectory = targetDir;
+          return existing;
+        }
+      } catch {}
+    }
+    const existingAnywhere = runtimeRegistry.findBySessionId(sessionId);
+    if (existingAnywhere) {
+      runtime = existingAnywhere;
+      if (existingAnywhere.cwd) activeDirectory = existingAnywhere.cwd;
+      return existingAnywhere;
     }
     const { target, directory } = await findPersistedSession(sessionId, requestedDirectory);
-    if (runtime && typeof runtime.switchSession === 'function') {
+    if (runtime && typeof runtime.switchSession === 'function' && runtime.cwd === directory) {
       const result = await runtime.switchSession(target.path);
       if (result && !result.cancelled) {
         runtimeRegistry.register(runtime, { cwd: directory });
@@ -1245,11 +1295,13 @@ export function createSessionDaemon({
           clearStreamingRedactionBuffers(sessionId);
           streamingMessageIds.set(sessionId, messageId);
           latestAssistantMessageIds.set(sessionId, messageId);
+          const startedAt = Number.isFinite(event.message.timestamp) ? event.message.timestamp : Date.now();
+          messageStartedAt.set(messageId, startedAt);
           publish('assistant.message.start', {
             messageId,
             role: 'assistant',
             ...(latestUserMessageIds.get(sessionId) ? { parentId: latestUserMessageIds.get(sessionId) } : {}),
-            startedAt: Number.isFinite(event.message.timestamp) ? event.message.timestamp : Date.now(),
+            startedAt,
             ...(event.message.provider && event.message.model ? { model: { providerId: event.message.provider, modelId: event.message.model } } : {}),
           }, sessionId, directory);
         }
@@ -1271,10 +1323,14 @@ export function createSessionDaemon({
         if (event.message?.role === 'assistant') {
           const content = Array.isArray(event.message.content) ? event.message.content : [];
           const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
+          const startedAt = messageStartedAt.get(messageId) ?? Date.now();
+          messageStartedAt.delete(messageId);
+          const durationMs = Math.max(100, Date.now() - startedAt);
           publish('assistant.message.end', {
             messageId,
             text: redactAttachmentPaths(content.filter((part) => part?.type === 'text').map((part) => part.text).join('')),
             thinking: redactAttachmentPaths(content.filter((part) => part?.type === 'thinking').map((part) => part.thinking).join('')),
+            durationMs,
             ...(event.message.errorMessage ? { error: { code: 'ASSISTANT_ERROR', message: redactAttachmentPaths(event.message.errorMessage) } } : {}),
           }, sessionId, directory);
           streamingMessageIds.delete(sessionId);
