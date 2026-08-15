@@ -28,7 +28,7 @@ import { useDeviceInfo } from '@/lib/device';
 import { usePwaDetection } from '@/hooks/usePwaDetection';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { CODE_FONT_OPTIONS, DEFAULT_MONO_FONT, DEFAULT_UI_FONT, UI_FONT_OPTIONS, type MonoFontOption, type UiFontOption } from '@/lib/fontOptions';
-import { useI18n, type Locale } from '@/lib/i18n';
+import { useI18n } from '@/lib/i18n';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { normalizeMobileKeyboardMode, supportsMobileKeyboardResizeContent, type MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
 import { getStoredMobileLayoutPreference, setStoredMobileLayoutPreference, type MobileLayoutPreference } from '@/lib/mobileLayoutPreference';
@@ -295,7 +295,7 @@ interface PiChamberVisualSettingsProps {
 }
 
 export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = ({ visibleSettings }) => {
-    const { locale, locales, setLocale, label, t } = useI18n();
+    const { t } = useI18n();
     const tUnsafe = React.useCallback((key: string) => t(key as Parameters<typeof t>[0]), [t]);
     const { isMobile } = useDeviceInfo();
     const { terminal } = useRuntimeAPIs();
@@ -1007,25 +1007,6 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                         {hasLocalizationSettings && (
                             <SettingsSection title={t('settings.pichamber.visual.section.localization')}>
                                 <SettingsTwoColumn>
-                                    <SettingsStackedField
-                                        label={t('settings.appearance.language.label')}
-                                        info={t('settings.appearance.language.description')}
-                                        settingsItem="appearance.language"
-                                    >
-                                        <Select value={locale} onValueChange={(value) => setLocale(value as Locale)}>
-                                            <SelectTrigger aria-label={t('settings.appearance.language.select')} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
-                                                <SelectValue>{label(locale)}</SelectValue>
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {locales.map((availableLocale) => (
-                                                    <SelectItem key={availableLocale} value={availableLocale}>
-                                                        {label(availableLocale)}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                    </SettingsStackedField>
-
                                     {(shouldShow('timeFormat') || shouldShow('weekStart')) && (
                                         <div className={SETTINGS_FIELDS_STACK_CLASS}>
                                             {shouldShow('timeFormat') && (

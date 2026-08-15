@@ -21,34 +21,15 @@ export function resetI18nDictionaryCacheForTests(): void {
 }
 
 async function loadDictionary(locale: Locale): Promise<I18nDictionary> {
+  // PiChamber ships English only; the dynamic import fan-out is no longer
+  // needed but the public setLocale() API still calls this to keep
+  // initialization compatible with stored-locale migration.
   const cached = dictionaries.get(locale);
   if (cached) {
     return cached;
   }
-
-  const mod = locale === 'zh-CN'
-    ? await import('./messages/zh-CN') as { dict: I18nDictionary }
-    : locale === 'fr'
-      ? await import('./messages/fr') as { dict: I18nDictionary }
-    : locale === 'zh-TW'
-      ? await import('./messages/zh-TW') as { dict: I18nDictionary }
-      : locale === 'es'
-        ? await import('./messages/es') as { dict: I18nDictionary }
-        : locale === 'pt-BR'
-          ? await import('./messages/pt-BR') as { dict: I18nDictionary }
-          : locale === 'uk'
-            ? await import('./messages/uk') as { dict: I18nDictionary }
-            : locale === 'ko'
-              ? await import('./messages/ko') as { dict: I18nDictionary }
-              : locale === 'pl'
-                ? await import('./messages/pl') as { dict: I18nDictionary }
-                : locale === 'de'
-                  ? await import('./messages/de') as { dict: I18nDictionary }
-                  : locale === 'ja'
-                    ? await import('./messages/ja') as { dict: I18nDictionary }
-                    : { dict: enDict };
-  dictionaries.set(locale, mod.dict);
-  return mod.dict;
+  dictionaries.set(locale, enDict);
+  return enDict;
 }
 
 export const useI18nStore = create<I18nState>()((set, get) => ({

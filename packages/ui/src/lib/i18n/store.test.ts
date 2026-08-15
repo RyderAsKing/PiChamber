@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
-import { DEFAULT_LOCALE, type Locale } from './runtime';
+import { DEFAULT_LOCALE } from './runtime';
 import { resetI18nDictionaryCacheForTests, useI18nStore } from './store';
 
 const defaultDictionary = useI18nStore.getState().dictionary;
@@ -13,45 +13,18 @@ const resetStore = () => {
   });
 };
 
-const waitForLocaleLoadToSettle = async (locale: Locale) => {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    if (useI18nStore.getState().loadingLocale !== locale) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-  throw new Error(`Timed out waiting for ${locale} dictionary load`);
-};
-
 describe('i18n store', () => {
   beforeEach(resetStore);
 
-  test('retries loading the active locale when it is not cached', async () => {
-    useI18nStore.setState({
-      locale: 'es',
-      dictionary: defaultDictionary,
-      loadingLocale: null,
-    });
-
-    try {
-      useI18nStore.getState().setLocale('es');
-
-      expect(useI18nStore.getState().loadingLocale).toBe('es');
-      await waitForLocaleLoadToSettle('es');
-    } finally {
-      resetStore();
-    }
+  test('keeps the default english dictionary and never enters a loading state', () => {
+    expect(useI18nStore.getState().locale).toBe(DEFAULT_LOCALE);
+    expect(useI18nStore.getState().loadingLocale).toBeNull();
+    expect(useI18nStore.getState().dictionary['common.language.english']).toBeTruthy();
   });
 
-  test('loads the french dictionary', async () => {
-    try {
-      useI18nStore.getState().setLocale('fr');
-
-      expect(useI18nStore.getState().loadingLocale).toBe('fr');
-      await waitForLocaleLoadToSettle('fr');
-      expect(useI18nStore.getState().dictionary['common.language.french']).toBe('Français');
-    } finally {
-      resetStore();
-    }
+  test('setLocale with the only supported locale is a no-op', () => {
+    useI18nStore.getState().setLocale(DEFAULT_LOCALE);
+    expect(useI18nStore.getState().locale).toBe(DEFAULT_LOCALE);
+    expect(useI18nStore.getState().loadingLocale).toBeNull();
   });
 });
