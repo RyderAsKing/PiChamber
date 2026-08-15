@@ -173,8 +173,22 @@ const piChildStoreManager = {
   ensureChild: (_directory?: string, _options?: unknown) => piDirectoryChildStore,
 };
 
-export function useSessionMessageLoadState(_sessionID: string, _directory?: string) {
-  return { loading: false, complete: true, status: 'ready' as const, cursor: undefined, error: null as string | null };
+export function useSessionMessageLoadState(sessionID: string, _directory?: string) {
+  const state = usePiSessionSnapshot();
+  if (!sessionID) {
+    return { loading: false, complete: true, status: 'ready' as const, cursor: undefined, error: null as string | null };
+  }
+  const isHydrated = state.reducer.bySession.has(sessionID);
+  const isLoading = !isHydrated && (state.selectedSessionId === sessionID || state.connection === 'loading');
+  const isError = state.connection === 'error' && state.error !== null;
+
+  return {
+    loading: isLoading,
+    complete: isHydrated,
+    status: isError ? ('error' as const) : isLoading ? ('loading' as const) : ('ready' as const),
+    cursor: undefined,
+    error: isError ? (state.error?.message ?? 'Session load failed') : null,
+  };
 }
 
 export function useChildStoreManager() {
@@ -183,8 +197,10 @@ export function useChildStoreManager() {
 
 export function buildSessionMessageRecordsSnapshot(_state?: any, _sessionId?: any) { return { list: [] as any[] }; }
 
-export function useSessionRenderable(_sessionID: string, _directory?: string): boolean {
-  return true;
+export function useSessionRenderable(sessionID: string, _directory?: string): boolean {
+  const state = usePiSessionSnapshot();
+  if (!sessionID) return true;
+  return state.reducer.bySession.has(sessionID);
 }
 
 export function useUserMessageHistory(sessionID: string): string[] {

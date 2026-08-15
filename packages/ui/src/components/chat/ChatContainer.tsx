@@ -10,6 +10,7 @@ import { DraftPresetChips } from './DraftPresetChips';
 import { useInputStore } from '@/sync/input-store';
 import { useUIStore } from '@/stores/useUIStore';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
 import ChatEmptyState from './ChatEmptyState';
 import MessageList, { type MessageListHandle } from './MessageList';
 import { StatusRowContainer } from './StatusRowContainer';
@@ -1003,6 +1004,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     const isSessionHydrating =
         Boolean(currentSessionId)
         && !hasRenderableSessionSnapshot;
+    const isSessionLoading =
+        Boolean(currentSessionId)
+        && (isSessionHydrating || sessionMessageLoadState.status === 'loading')
+        && sessionMessages.length === 0
+        && !sessionIsWorking;
     const retrySessionLoad = React.useCallback(() => {
         if (!active || !currentSessionId) return;
         void sync.ensureSessionRenderable(currentSessionId, true, effectiveSessionDirectory);
@@ -1046,7 +1052,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 		}
 		return (
 			<div className="flex flex-col h-full bg-background">
-				<ChatEmptyState />
+				<ChatEmptyState isNewSession />
 			</div>
 		);
 	}
@@ -1078,7 +1084,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         return null;
     }
 
-	if (isSessionHydrating && sessionMessages.length === 0 && !sessionIsWorking) {
+	if (isSessionLoading) {
 		if (sessionMessageLoadState.status === 'error') {
 			return (
 				<div data-composer-bound className="relative flex h-full flex-col bg-background">
@@ -1106,41 +1112,14 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 				{returnToParentButton}
 				<div
 					className={cn(
-						'relative min-h-0',
+						'relative min-h-0 flex items-center justify-center',
                         isDesktopExpandedInput
                             ? 'absolute inset-0 opacity-0 pointer-events-none'
                             : 'flex-1'
                     )}
                     aria-hidden={isDesktopExpandedInput}
                 >
-                    <div className="absolute inset-0 overflow-y-auto overflow-x-hidden bg-background pt-6" style={CHAT_SCROLL_STYLE}>
-                        <div className="space-y-4">
-                            {HYDRATING_SKELETON_ITEMS.map((item) => (
-                                <div key={item.id} className="group w-full">
-                                    <div className="chat-message-column">
-                                        <div className="space-y-2.5 px-4 py-3">
-                                            <div className="space-y-1.5">
-                                                {item.toolRows.map((row) => {
-                                                    return (
-                                                        <div key={`${item.id}-${row.id}`} className="flex items-center gap-2">
-                                                            <Skeleton className="h-3.5 w-3.5 rounded-full flex-shrink-0" />
-                                                            <Skeleton className={cn('h-4 rounded-md', row.titleWidth)} />
-                                                            <Skeleton className={cn('h-4 rounded-md', row.detailWidth)} />
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                            <div className="space-y-1.5 pt-1">
-                                                <Skeleton className={cn('h-4 rounded-md', item.textWidths[0])} />
-                                                <Skeleton className={cn('h-4 rounded-md', item.textWidths[1])} />
-                                                <Skeleton className={cn('h-4 rounded-md', item.textWidths[2])} />
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
+                    <PiChamberLogo width={120} height={120} isAnimated />
                 </div>
                 <div
                     className={cn(
@@ -1173,7 +1152,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                 >
                     {!isDesktopExpandedInput ? (
                         <div className="absolute inset-0 flex items-center justify-center">
-                            <ChatEmptyState />
+                            <ChatEmptyState isNewSession={false} />
                         </div>
                     ) : null}
                 </div>

@@ -283,8 +283,8 @@ const AuthShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 };
 
 const LoadingScreen: React.FC = () => (
-  <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
-    <PiChamberLogo width={120} height={120} />
+  <div className="flex h-full min-h-screen w-full items-center justify-center overflow-hidden bg-background text-foreground">
+    <PiChamberLogo width={120} height={120} isAnimated />
   </div>
 );
 

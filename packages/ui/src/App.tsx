@@ -30,13 +30,13 @@ function App({ apis }: { apis?: RuntimeAPIs }) {
   if (!resolved) {
     return (
       <ErrorBoundary>
-        <div className="h-full bg-background text-foreground" />
+        <div className="h-full w-full overflow-hidden bg-background text-foreground" />
       </ErrorBoundary>
     );
   }
   return (
     <ErrorBoundary>
-      <div className="h-full bg-background text-foreground">
+      <div className="h-full w-full overflow-hidden bg-background text-foreground">
         <RuntimeAPIProvider apis={resolved}>
           <PiSessionProvider>
             <TooltipProvider>

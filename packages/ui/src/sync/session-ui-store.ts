@@ -543,11 +543,10 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       persistLastActiveSession(key, { sessionId: id, directory: rememberedDir })
     }
 
-    // Kick off the message fetch on the same tick, before React commits the
-    // state change and fires ChatContainer.useEffect. The fetch is
-    // fire-and-forget — any transient failure gets retried by the reactive path.
+    // Kick off the session selection and message hydration on the same tick,
+    // before React commits the state change and fires ChatContainer.useEffect.
     if (id) {
-      void fetchMessagesForSession(id, resolvedDir)
+      void getPiSessionStore().select(id)
     }
 
     try {
