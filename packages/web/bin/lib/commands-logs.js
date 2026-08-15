@@ -40,7 +40,7 @@ async function logsCommand(options) {
 
   if (isJsonMode(options)) {
     if (options.follow) {
-      throw new Error('`openchamber logs --json` requires `--no-follow` for deterministic JSON output.');
+      throw new Error('`pichamber logs --json` requires `--no-follow` for deterministic JSON output.');
     }
     const entries = targets.map((target) => {
       const logPath = getLogFilePath(target.port);

@@ -8,6 +8,15 @@ Traffic is **end-to-end encrypted between the two endpoints** (client and host i
 
 This module (`packages/web/server/lib/relay/`) is the **host side**: it runs inside the PiChamber web server (so it works for Electron desktop, headless server, and CLI installs alike). The **client side** lives in `packages/ui/src/lib/relay/`. The **relay service itself** is a separate Cloudflare Worker in the `openchamber-website` repo and only brokers connections.
 
+> **Wiring status:** the relay host runtime is not currently started by any
+> runtime entrypoint. The host entrypoint (`createRelayService` — settings
+> persistence, the `/api/openchamber/relay/*` management routes, and lifecycle
+> wiring) and `host-lock.js` (the per-machine host claim) were removed as dead
+> code. The remaining host files below are kept as the implementation and are
+> exercised by their own tests and the TS↔JS cross-compat test; restoring relay
+> host mode means wiring an entrypoint that starts `host-client.js` with the
+> identity and local port from `identity.js`.
+
 ## The three layers
 
 Traffic is modeled as three stacked layers. The relay understands only Layer 1; Layers 2–3 exist solely between the client and the host.
@@ -19,11 +28,10 @@ Traffic is modeled as three stacked layers. The relay understands only Layer 1; 
 ## Entrypoints and structure
 
 Host side (`packages/web/server/lib/relay/`):
-- `service.js` — thin entrypoint: relay config (enabled flag + relay URL), the management routes (`GET/POST /api/openchamber/relay/{status,enable,disable}`), a `getPairingCandidate()` accessor (the relay transport candidate folded into pairing-v2 links when enabled, consumed by the pairing-session route in `core-routes.js`), and lifecycle wiring. Started from `packages/web/server/index.js` only when the user has explicitly enabled the relay. The relay endpoint defaults to the PiChamber-hosted relay but can be pinned to a self-hosted relay via the `OPENCHAMBER_RELAY_URL` env var (must be `ws://`/`wss://`); when set it overrides the stored setting for the host connection, the pairing candidate, and status, so paired clients inherit the endpoint automatically.
+- `service.js` — relay endpoint configuration only: exports `DEFAULT_RELAY_URL`. The host entrypoint (`createRelayService`: settings persistence, the `GET/POST /api/openchamber/relay/{status,enable,disable}` management routes, the `getPairingCandidate()` accessor, and host lifecycle wiring) was removed as dead code — no runtime wired it in. The CLI connect-url command resolves the relay endpoint (`DEFAULT_RELAY_URL`, the `OPENCHAMBER_RELAY_URL` env override, stored `settings.privateRelay.relayUrl`) the same way a host would.
 - `identity.js` — the host's stable identity: the long-lived signing keypair (shared with the push relay, defines the routing id) plus a long-lived encryption keypair (the E2EE trust anchor). Reused across restarts; never rotated implicitly.
 - `signing-key.js` — storage/derivation of the signing keypair and the routing id, shared with the notifications runtime.
 - `host-client.js` — the long-lived connection manager: one outbound control connection to the relay, a per-client data connection for each connected device, reconnect/backoff, and the E2EE responder handshake per connection.
-- `host-lock.js` — the per-machine host claim. Every local instance sharing the data dir shares the relay identity (same serverId), so concurrent relay hosts evict each other at the relay worker (`4001: Control replaced`) and paired devices land on whichever local process won last. The claim file (`<data-dir>/relay-host.lock`, `{ pid }`) makes this deterministic: `service.js` only starts the host when no LIVE process holds the claim (stale claims from dead pids are ignored), goes to `standby` otherwise, and a 30s watcher both takes over when the claimant dies and stands down when another process claims. Explicit user intent — creating a pairing link or hitting `/relay/enable` — force-claims; the previous holder's watcher sees the takeover and backs off instead of fighting. The claim is cooperative (the relay worker still enforces the single host slot); it only decides which process keeps retrying.
 - `tunnel-host.js` — the per-connection dispatcher: decrypts tunnel frames and forwards HTTP/SSE/WS to the local server over loopback, then streams responses back. Enforces a path allowlist and never injects credentials.
 - `e2ee.js`, `tunnel-codec.js` — host-side (JS) mirrors of the shared crypto and framing (see "Two implementations" below).
 
@@ -85,7 +93,7 @@ The E2EE and framing logic exists twice: TypeScript in `packages/ui/src/lib/rela
 
 ## Runtime integration (client)
 
-Relay mode plugs into the existing client transport layer rather than a parallel path: `runtime-switch` activates the tunnel singleton, `runtime-fetch` routes runtime requests through it, `runtime-url`/`runtime-socket` yield tunnel-backed URLs and sockets, and `runtime-auth` mints the URL-scoped token through the tunnel. Direct-URL connections and the Electron realtime-proxy path are unaffected.
+Relay mode plugs into the existing client transport layer rather than a parallel path: `runtime-switch` activates the tunnel singleton, `runtime-fetch` routes runtime requests through it, `runtime-url`/`runtime-socket` yield tunnel-backed URLs and sockets, and `runtime-auth` mints the URL-scoped token through the tunnel. Direct-URL connections are unaffected.
 
 ## Design invariants (do not regress)
 

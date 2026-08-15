@@ -90,12 +90,12 @@ export async function gracefulShutdown({ exitProcess = false } = {}) {
 
 export async function startWebUiServer(options = {}) {
   const port = Number.isInteger(options.port) && options.port >= 0 ? options.port : DEFAULT_PORT;
-  const host = typeof options.host === 'string' && options.host.trim() ? options.host.trim() : (process.env.OPENCHAMBER_HOST || '127.0.0.1');
-  const uiPassword = typeof options.uiPassword === 'string' ? options.uiPassword : (process.env.OPENCHAMBER_UI_PASSWORD || null);
+  const host = typeof options.host === 'string' && options.host.trim() ? options.host.trim() : (process.env.PICHAMBER_HOST || process.env.OPENCHAMBER_HOST || '127.0.0.1');
+  const uiPassword = typeof options.uiPassword === 'string' ? options.uiPassword : (process.env.PICHAMBER_UI_PASSWORD || process.env.OPENCHAMBER_UI_PASSWORD || null);
   if (isNetworkExposedBindHost(host) && !uiPassword?.trim() && !isUnsafeUnauthenticatedLanAllowed(process.env)) {
     throw new Error(getUnauthenticatedLanErrorMessage(host));
   }
-  const apiOnly = options.apiOnly === true || isEnvFlagEnabled(process.env.OPENCHAMBER_API_ONLY);
+  const apiOnly = options.apiOnly === true || isEnvFlagEnabled(process.env.PICHAMBER_API_ONLY ?? process.env.OPENCHAMBER_API_ONLY);
   const app = express();
   const server = http.createServer(app);
   const serverStartedAt = new Date().toISOString();

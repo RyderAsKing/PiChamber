@@ -1076,7 +1076,7 @@ export class ElectronSshManager {
     let envPrefix = 'OPENCHAMBER_RUNTIME=ssh-remote';
     const secret = this.configuredPiChamberPassword(instance);
     if (secret) {
-      envPrefix += ` OPENCHAMBER_UI_PASSWORD=${shellQuote(secret)}`;
+      envPrefix += ` PICHAMBER_UI_PASSWORD=${shellQuote(secret)} OPENCHAMBER_UI_PASSWORD=${shellQuote(secret)}`;
     }
     const output = await this.runRemoteCommand(parsed, controlPath, `${envPrefix} pichamber serve --hostname 127.0.0.1 --port ${desiredPort}`);
     const port = output.split(/\s+/).map((token) => Number.parseInt(token, 10)).find((value) => Number.isFinite(value));

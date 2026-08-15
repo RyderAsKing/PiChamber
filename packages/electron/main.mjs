@@ -1412,6 +1412,7 @@ const spawnLocalServer = async () => {
   // OPENCHAMBER_RUNTIME at import time (top-level const), so these must be
   // set before the first import. After this point, the same env is used by
   // both the Electron main and the server running inside it.
+  process.env.PICHAMBER_HOST = bindHost;
   process.env.OPENCHAMBER_HOST = bindHost;
   process.env.OPENCHAMBER_DESKTOP_LAN_ACCESS_ACTIVE = effectiveLanAccessEnabled ? 'true' : 'false';
   if (lanAccessBlockedByMissingPassword) {
@@ -1423,8 +1424,10 @@ const spawnLocalServer = async () => {
   process.env.OPENCHAMBER_RUNTIME = 'desktop';
   process.env.OPENCHAMBER_DESKTOP_NOTIFY = 'true';
   if (desktopUiPassword) {
+    process.env.PICHAMBER_UI_PASSWORD = desktopUiPassword;
     process.env.OPENCHAMBER_UI_PASSWORD = desktopUiPassword;
   } else {
+    delete process.env.PICHAMBER_UI_PASSWORD;
     delete process.env.OPENCHAMBER_UI_PASSWORD;
   }
   process.env.OPENCHAMBER_SKIP_API_COMPRESSION = process.env.OPENCHAMBER_SKIP_API_COMPRESSION || 'true';

@@ -140,7 +140,7 @@ function buildPairingPayload({ pairing, label, candidates }) {
 
 async function resolveConnectUrlServerUrl(options) {
   let hostOverride = options.host;
-  if (typeof hostOverride !== 'string' && !process.env.OPENCHAMBER_HOST) {
+  if (typeof hostOverride !== 'string' && !process.env.PICHAMBER_HOST && !process.env.OPENCHAMBER_HOST) {
     const storedOptions = readInstanceOptions(await getInstanceFilePath(options.port));
     if (typeof storedOptions?.host === 'string' && storedOptions.host.trim()) {
       hostOverride = storedOptions.host.trim();

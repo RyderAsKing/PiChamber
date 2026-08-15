@@ -20,7 +20,7 @@ import {
   encodeTunnelFrame,
 } from './tunnel-codec.js';
 
-// Path allowlists (defense in depth; same families realtime-proxy.js allows).
+// Path allowlists (defense in depth).
 const isAllowedHttpPath = (pathname) =>
   pathname === '/health'
   || pathname === '/api'

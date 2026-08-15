@@ -82,13 +82,21 @@ function collectStartupEnv(options = {}) {
 
   const uiPassword = hasUiPasswordConfigured(options.uiPassword) ? options.uiPassword : undefined;
   if (uiPassword) {
+    env.PICHAMBER_UI_PASSWORD = uiPassword;
     env.OPENCHAMBER_UI_PASSWORD = uiPassword;
   }
   if (options.apiOnly === true) {
+    env.PICHAMBER_API_ONLY = 'true';
     env.OPENCHAMBER_API_ONLY = 'true';
   }
-  if (typeof process.env.OPENCHAMBER_DATA_DIR === 'string' && process.env.OPENCHAMBER_DATA_DIR.trim().length > 0) {
-    env.OPENCHAMBER_DATA_DIR = path.resolve(process.env.OPENCHAMBER_DATA_DIR.trim());
+  const configuredDataDir = typeof process.env.PICHAMBER_DATA_DIR === 'string' && process.env.PICHAMBER_DATA_DIR.trim().length > 0
+    ? process.env.PICHAMBER_DATA_DIR.trim()
+    : (typeof process.env.OPENCHAMBER_DATA_DIR === 'string' && process.env.OPENCHAMBER_DATA_DIR.trim().length > 0
+      ? process.env.OPENCHAMBER_DATA_DIR.trim()
+      : '');
+  if (configuredDataDir.length > 0) {
+    env.PICHAMBER_DATA_DIR = path.resolve(configuredDataDir);
+    env.OPENCHAMBER_DATA_DIR = path.resolve(configuredDataDir);
   }
   return env;
 }
