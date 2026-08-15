@@ -601,33 +601,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [remoteUpdateChecking, setRemoteUpdateChecking] = React.useState(false);
   const [remoteUpdateError, setRemoteUpdateError] = React.useState<string | null>(null);
   const compactCurrentInstanceLabel = React.useMemo(() => formatCompactHeaderLabel(currentInstanceLabel), [currentInstanceLabel]);
-  // While the work-status panel is on screen it already reports the project,
-  // the branch and the context fill — three paces away in the same window.
-  // These yield to it rather than saying the same thing twice, and return the
-  // moment the panel is switched off or squeezed out by a narrow chat.
-  const workStatusPanelVisible = useUIStore((state) => state.workStatusPanelVisible);
-  const workStatusPanelEnabled = useUIStore((state) => state.workStatusPanelEnabled);
-  const setWorkStatusPanelEnabled = useUIStore((state) => state.setWorkStatusPanelEnabled);
-  const workStatusPanelFits = useUIStore((state) => state.workStatusPanelFits);
-  const workStatusOverlayOpen = useUIStore((state) => state.workStatusOverlayOpen);
-  const setWorkStatusOverlayOpen = useUIStore((state) => state.setWorkStatusOverlayOpen);
-
-  // Two meanings for one button. With room beside the chat it switches the
-  // panel on and off. Without room it cannot be shown inline at all, so it
-  // reads as off and opens the panel over the chat instead — the stored
-  // preference is left alone, so the panel comes back on its own once the
-  // window is wide enough again.
-  const workStatusPanelShownInline = workStatusPanelEnabled && workStatusPanelFits;
-  const workStatusToggleActive = workStatusPanelShownInline || workStatusOverlayOpen;
-  const handleWorkStatusToggle = React.useCallback(() => {
-    if (workStatusPanelEnabled && !workStatusPanelFits) {
-      setWorkStatusOverlayOpen(!workStatusOverlayOpen);
-      return;
-    }
-    setWorkStatusPanelEnabled(!workStatusPanelEnabled);
-  }, [setWorkStatusOverlayOpen, setWorkStatusPanelEnabled, workStatusOverlayOpen, workStatusPanelEnabled, workStatusPanelFits]);
-  const showDesktopHeaderContextUsage = !workStatusPanelVisible
-    && activeMainTab === 'chat'
+  const showDesktopHeaderContextUsage = activeMainTab === 'chat'
     && !!stableDesktopContextUsage
     && stableDesktopContextUsage.totalTokens > 0;
   const desktopHeaderDisplayPercentage = stableDesktopContextUsage && stableDesktopContextUsage.contextLimit > 0
@@ -856,8 +830,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   // Whether the title carries a second line under it. Hoisted because the
   // session menu's vertical alignment depends on the same answer.
-  const showHeaderMetaRow = !workStatusPanelVisible
-    && Boolean(activeProjectLabel || currentBranchLabel);
+  const showHeaderMetaRow = Boolean(activeProjectLabel || currentBranchLabel);
 
 
   const currentSessionTitle = React.useMemo(() => {
@@ -1694,39 +1667,7 @@ export const Header: React.FC<HeaderProps> = ({
             className={cn(desktopHeaderIconButtonClass, 'mr-1')}
             Icon={'picture-in-picture-2'}
           />
-          {activeMainTab === 'chat' ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  data-work-status-toggle="true"
-                  aria-pressed={workStatusToggleActive}
-                  aria-label={"Toggle work-status panel"}
-                  onClick={handleWorkStatusToggle}
-                  className={cn(
-                    DESKTOP_HEADER_ICON_BUTTON_CLASS,
-                    // Trailing gap before the sidebar actions; it moved here
-                    // with the button when this took the last position.
-                    'mr-1',
-                    // On is the resting state and carries no chrome; off is the
-                    // one worth signalling, so it dims instead of filling.
-                    workStatusToggleActive ? 'text-foreground' : 'text-muted-foreground/50',
-                  )}
-                >
-                  <Icon name="list-indefinite" className="h-[18px] w-[18px]" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                {workStatusPanelEnabled && !workStatusPanelFits
-                  ? (workStatusOverlayOpen
-                    ? "Hide work status"
-                    : "Show work status over the chat")
-                  : workStatusPanelEnabled
-                    ? "Hide work status"
-                    : "Show work status"}
-              </TooltipContent>
-            </Tooltip>
-          ) : null}
+
 
           {desktopSidebarActions}
           <WindowsWindowControls visible={usesFramelessChrome && windowControlsSide === 'right'} position="right" />

@@ -7,8 +7,6 @@ import type { TerminalShell } from '@/lib/api/types';
 
 type AppearanceSlice = {
   showReasoningTraces: boolean;
-  workStatusPanelEnabled: boolean;
-  workStatusHiddenSections: string[];
   collapsibleThinkingBlocks: boolean;
   showDeletionDialog: boolean;
   nativeNotificationsEnabled: boolean;
@@ -57,8 +55,6 @@ export const startAppearanceAutoSave = (): void => {
 
   let previous: AppearanceSlice = {
     showReasoningTraces: useUIStore.getState().showReasoningTraces,
-    workStatusPanelEnabled: useUIStore.getState().workStatusPanelEnabled,
-    workStatusHiddenSections: useUIStore.getState().workStatusHiddenSections,
     collapsibleThinkingBlocks: useUIStore.getState().collapsibleThinkingBlocks,
     showDeletionDialog: useUIStore.getState().showDeletionDialog,
     nativeNotificationsEnabled: useUIStore.getState().nativeNotificationsEnabled,
@@ -94,8 +90,6 @@ export const startAppearanceAutoSave = (): void => {
   useUIStore.subscribe((state) => {
     const current: AppearanceSlice = {
       showReasoningTraces: state.showReasoningTraces,
-      workStatusPanelEnabled: state.workStatusPanelEnabled,
-      workStatusHiddenSections: state.workStatusHiddenSections,
       collapsibleThinkingBlocks: state.collapsibleThinkingBlocks,
       showDeletionDialog: state.showDeletionDialog,
       nativeNotificationsEnabled: state.nativeNotificationsEnabled,
@@ -129,15 +123,6 @@ export const startAppearanceAutoSave = (): void => {
     };
 
     const diff: Partial<DesktopSettings> = {};
-
-    if (current.workStatusPanelEnabled !== previous.workStatusPanelEnabled) {
-      diff.workStatusPanelEnabled = current.workStatusPanelEnabled;
-    }
-    // Compared by content: the store hands back a new array on every change,
-    // so an identity check would push a write on unrelated store updates.
-    if (current.workStatusHiddenSections.join('\u0000') !== previous.workStatusHiddenSections.join('\u0000')) {
-      diff.workStatusHiddenSections = current.workStatusHiddenSections;
-    }
     if (current.showReasoningTraces !== previous.showReasoningTraces) {
       diff.showReasoningTraces = current.showReasoningTraces;
     }
