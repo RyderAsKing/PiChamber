@@ -6,67 +6,72 @@ All notable changes to this project will be documented in this file.
 
 ## [0.1.0] - 2026-08-17
 
-First public **PiChamber** release. This tag publishes **Electron desktop** builds only (macOS, Windows, Linux AppImage). `@pichamber/web` is not published to npm, and mobile artifacts are not attached.
+First public **PiChamber** release. This cut ships **Electron desktop** only (macOS, Windows, Linux AppImage). The npm CLI package and native mobile apps are not published yet.
 
-Desktop starts the PiChamber backend in-process and runs a Pi-native session daemon. It does not require a separately installed Pi CLI or server.
+### Why this exists
 
-### Protocol hard rename: OpenChamber identifiers → PiChamber (breaking)
+PiChamber is a community fork of [OpenChamber](https://github.com/openchamber/openchamber). OpenChamber proved that a coding-agent workspace can live on the desktop, in the browser, and on a machine you reach from anywhere. The product direction here is different: **a GUI and remote-hosting surface for [Pi Coding Agent](https://pi.dev)**, not another OpenCode wrapper.
 
-Phase 1 protocol preservation is revoked. Remaining in-repo OpenChamber runtime identifiers are renamed to PiChamber with **no compatibility aliases**:
+People love Pi because it stays small. The agent, the session files, the skills, the prompts, and the config all belong to Pi. The missing piece was a serious remote UI: something that feels like OpenChamber, but talks to Pi, so you can run and supervise that same agent from your desk or from another device.
 
-- `PICHAMBER_*` environment variables (no `OPENCHAMBER_*` fallback).
-- `pichamber-ui://` and `pichamber://` URL schemes (replacing `openchamber-ui://` / `openchamber://`).
-- `pichamber:*` custom events, `__PICHAMBER_*` window globals, and Electron/CLI IPC namespaces.
-- PiChamber-owned HTTP routes under `/api/pichamber/*` (Pi session APIs remain `/api/pi/*`).
-- Mobile bundle IDs (`com.pichamber.app`), app groups, and extension targets (`PiChamberWidget`, `PiChamberNotificationService`).
-- Workspace `localStorage` / secure-storage keys and session metadata field `metadata.pichamber`.
+That is the whole bet. Keep Pi's minimalism. Add the "use it from anywhere" layer OpenChamber already solved well. Do not drag OpenCode's runtime, catalog, or product vocabulary along for the ride.
 
-**Not migrated:** legacy `~/.config/openchamber` data, old localStorage keys, or existing mobile installs paired under `openchamber://` / `com.openchamber.app`.
+Desktop starts the PiChamber backend **in-process** and runs a **Pi-native session daemon**. There is no sidecar OpenCode binary and no separately installed Pi CLI required for the app to work. Sessions, models, providers, skills, prompt templates, and `AGENTS.md` are Pi's. Pairing, auth, Git, files, terminal, and the shell around them are PiChamber's.
 
-**Preserved:** fork/MIT attribution to [OpenChamber](https://github.com/openchamber/openchamber), historical changelog entries, and external URLs we do not control (`docs.openchamber.dev`, `relay.openchamber.dev`).
+### What comes next
 
-### Project rebrand: OpenChamber → PiChamber (Phase 1 stabilization)
+A later release will add an **extensions GUI** that follows Pi's own extension model, instead of inventing a second plugin system. Native extensions stay off in this build until that security and UI contract exists.
 
-This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.com/openchamber/openchamber). It makes the PiChamber identity coherent across every owned runtime (web, CLI, Electron) before Phase 2 introduces the [pi](https://pi.dev) integration. Runtime behavior, the OpenCode SDK integration, and the still-active OpenChamber protocol namespaces (HTTP routes, custom events, IPC commands, window globals, URL schemes) remain unchanged unless explicitly named below.
+### The UI was rebuilt
 
-**Phase 1 scope (shipped in this stabilization pass):**
+The first Pi cutover unmounted the OpenChamber workspace and briefly shipped a stripped prototype. This release puts a **full workspace back on Pi**: session sidebar, composer, settings, files, Git, terminal, and the context rail, all talking to `/api/pi/*` instead of OpenCode.
 
-- **VS Code extension removed:** the `packages/vscode` extension (extension host, webview, and its `pichamber.*` command namespace) was removed from the repository; the runtime contract no longer includes a VS Code platform.
-- **PWA-specific localStorage keys:** the four PWA keys were renamed to `pichamber.*` (`pichamber.pwaName`, `pichamber.pwaOrientation`, `pichamber.mobileKeyboardMode`, `pichamber.pwaRecentSessions`) in this stabilization pass. The shared UI constants and the literal `<script>` strings in `packages/web/index.html` are now locked by a focused contract test.
-- **Application data root:** every PiChamber-owned file (settings, themes, projects, walkthroughs, goals, quota credentials, passkeys, managed-process records, install IDs) resolves through one canonical resolver at `~/.config/pichamber`, overridable by `PICHAMBER_DATA_DIR`. Web, CLI, and Electron share the same default and the same override semantics. Web `GET /api/fs/home` exposes `pichamberDataDir` so the shared UI can resolve `projects/` beneath the authoritative root rather than reconstructing `<home>/.config/pichamber` on its own.
-- **Package ownership detection:** global-bin detection in `package-manager.js` now probes only `pichamber` / `pichamber.cmd`, and `isPackageInstalledWith()` validates `@pichamber/web` rather than a generic `openchamber` substring.
-- **Default update checks:** desktop update checks use GitHub Releases for `RyderAsKing/PiChamber`. `PICHAMBER_UPDATE_API_URL` remains an opt-in override for deployment integrations.
-- **Process identity:** `cli-process.js` now recognizes only the `pichamber` / `pichamber.cmd` / `pichamber.exe` executable tokens and the `@pichamber/web/bin/cli.js`, `@pichamber/web/server/index.js`, `PiChamber/packages/web/bin/cli.js`, and `PiChamber/packages/web/server/index.js` entrypoints. OpenChamber-only paths, `pichamber` appearing in usernames, hostnames, project files, or unrelated package names, and generic `cli.js` / `server/index.js` paths are no longer accepted.
+That was not a reskin. Session truth moved to a Pi session store and a live session catalog. The sidebar, streaming chat, loaders, deep links, and default theme were redone around that catalog. Git and Changes sit on one rail. Streaming no longer stutters duplicate characters or paints the wrong transcript on switch. The default look is a new PiChamber theme; startup uses a shimmer loader instead of a dead chrome flash.
 
-The Phase 1 “keep OpenChamber protocol names” non-goals above were revoked by the hard rename in this same `0.1.0` cut. There is still no automatic import of legacy `~/.config/openchamber` data.
+### What was removed
 
-- **Observability panel:** a new panel near to the chat brings the active goal, tasks, subagents, pinned context, MCP servers, and context usage into one live view. The session list also shows how long an agent has been working.
-- **Scheduled Tasks:** projects can now define recurring tasks as Markdown files in `.agents/loops`; opening the task list discovers file changes without a restart, and loop tasks can be edited, enabled, disabled, deleted, or run from the app (thanks to @makeittech).
-- **Settings:** OpenCode configuration changes now accumulate behind a single Apply & Restart action instead of restarting OpenCode after every edit; the confirmation warns when active chats will be stopped (thanks to @makeittech).
-- Remote access: paired devices that use the private relay no longer lose relay access when no browser client is currently connected or device-state loading temporarily fails.
-- Performance: the initial web download is about 58% smaller and startup memory use is about 22% lower; heavy Settings and syntax-highlighting code now loads only when opened (thanks to @makeittech).
-- Git/Worktrees: prompts now wait for a new worktree to finish checkout before sending, and sessions resolve to the worktree that owns them instead of occasionally opening or sending against the parent repository (thanks to @ftzi).
-- Git/Worktrees: setup now runs the repository's `post-checkout` hook after creating a worktree, and deeply nested worktrees no longer fail with “Filename too long” on Windows (thanks to @ftzi, @makeittech).
-- Projects: new project directories can now be created outside the current workspace, and adding, creating, or cloning a project opens a new-session draft targeted at that project instead of leaving the previous session context active.
-- Chat: messages submitted before switching sessions stay with the session and workspace they were sent from, and are cancelled rather than crossing into a different instance (thanks to @Wsyjq).
-- Chat: queued messages no longer send into a response that is still streaming, and tool cards left running by an interrupted response settle instead of remaining stuck (thanks to @makeittech).
-- Chat: shell command output is expanded by default, and adding a message to context returns focus to the composer (thanks to @pascalandr, @makeittech).
-- Chat: fresh messages no longer replay their entry animation after they have already been shown, and iOS users can insert a newline with Shift+Enter again (thanks to @makeittech).
-- Chat: the composer caret is now easier to see.
-- MCP: authorization now handles browser callbacks more reliably, settings distinguish available and unavailable servers more clearly, and failed connections expose a retry action.
-- Usage: added xAI quota reporting (thanks to @iamhenry).
-- Terminal: default tab names remain unique after tabs are closed, Escape reaches terminal applications instead of closing the context panel, and background connections send fewer keepalives (thanks to @makeittech).
-- Desktop/macOS: choosing a folder after denying filesystem access now recovers correctly instead of leaving the app unable to open the directory (thanks to @deatheros).
-- Desktop/Windows: minimizing from the taskbar now remains a native minimize while the app's own minimize action can still hide to the tray (thanks to @pascalandr).
-- Desktop: overlay scrollbars auto-hide again after scrolling instead of remaining permanently visible.
-- Mobile/Android: pairing QR codes now work in older WebViews that misread `openchamber://` links (thanks to @CMBill).
-- Mobile: pending agent questions now reappear after a cold start instead of leaving the session waiting without an answer prompt.
-- Files: removing an attached Office or OpenDocument file also removes the images extracted from that document, and Linux reveal failures now surface as an error instead of escaping in the background (thanks to @chiamsun, @pascalandr).
-- Settings: rapid edits to notification templates no longer overwrite one another, and the collapsed-user-message preference now persists correctly (thanks to @AmanTahiliani, @pascalandr).
-- Walkthrough: branch comparisons now use the repository's actual remote default branch instead of assuming its name (thanks to @RyderAsKing).
-- Server: foreground installs managed by a user systemd service now update through a separate transient service instead of being interrupted by the server restart (thanks to @SYU8384).
-- Security: updated archive extraction to address GHSA-xcpc-8h2w-3j85 (thanks to @mel0nyrame).
-- UI: dialogs, dropdowns, popovers, and tooltips now use consistent glass styling; the macOS vibrancy option was removed to reduce rendering overhead.
+These OpenCode-era product surfaces are gone on purpose. They depended on a runtime Pi does not have, or they fought Pi's own resource model:
+
+- OpenCode as a managed process, bundled CLI, generic API proxy, SDK in the browser, and all `/api/opencode/*` upgrade/health routes
+- VS Code extension host (`packages/vscode`)
+- Goal Mode, Plan Mode, pinned/reinjected context, session assist, auto-review, and multi-run/fusion
+- Managed worktrees as an OpenCode-owned feature
+- Scheduled tasks and `.agents/loops` scheduling (UI, server, CLI, and Electron shutdown checks)
+- Agent/session-control CLI commands (`session`, `schedule`, and other OpenCode control paths)
+- OpenCode skill-catalog installer and Git/ZIP skill copy-into-project flow
+- OpenCode prompt optimizer and response-style settings
+- Voice, dictation, and TTS (local and cloud)
+- Quota / usage dashboard tied to the old runtime
+- MCP, agents, commands, and plugins settings pages (hidden and unwired; not a Pi surface yet)
+- Separate OpenCode in-app upgrade toasts, routes, and binary upgrade capability
+- Event realtime-proxy path, and unused tunnel/relay host orchestration that was never wired into the Pi daemon server
+- Floating work-status sidebar and "recent activity" sidebar section
+- Split Git/Changes toggle and the unused PR surface in the context rail
+- Non-English UI locales (de, fr, ja, ko, pl, pt-BR, uk, es, zh-CN, zh-TW) and the language picker; the app is English-only for this cut
+- Localized docs that would have described the old OpenCode product incorrectly
+
+OpenChamber settings, sessions, and `~/.config/openchamber` are **not migrated**. Pi owns `~/.pi/agent/`. PiChamber-owned files live under `~/.config/pichamber`.
+
+### How it was optimized
+
+The port was used to make the app smaller and the live path cheaper, not only to swap the agent:
+
+- About **50k lines** of dead code, unused exports, and orphan modules removed after the runtime cutover
+- Production UI no longer ships an OpenCode SDK chunk
+- i18n collapsed to a single English locale instead of shipping eleven locale bundles
+- Live **session catalog** owns sidebar membership and status per directory, with bounded in-flight refreshes, so project/worktree switches do not reload from cold global state
+- Topic-isolated session notifiers so chat, sidebar, and other subscribers do not share one coarse store ping
+- Streaming markdown chunking and turn-timing without overlapping delta stutter
+- Daemon recovery from a dead assistant stream without sticking the session; directory event streams no longer rewind on reconnect
+- React Compiler babel pass is opt-in (it was costing a large share of production UI build time)
+- Workspace builds run in parallel with a cached UI type-check
+- Attachments are temp-path files for Pi tools instead of inline base64 that bloated context
+- URL-token auth narrowed to the Pi event stream; other routes stay on the bearer boundary
+- Headless `pichamber update` installs before restart and refuses unsafe in-container replacement; Electron still owns its own updater; there is no third OpenCode-upgrade channel
+
+### This desktop cut
+
+Identifiers are PiChamber (`PICHAMBER_*`, `pichamber-ui://`, `/api/pichamber/*`, `/api/pi/*`) with no OpenChamber aliases. MIT attribution to OpenChamber stays. Historical changelog entries below `1.18.1` are the inherited OpenChamber record, not claims about this Pi build.
 
 ## [1.18.1] - 2026-08-04
 
