@@ -13,7 +13,10 @@ export const ChatView: React.FC<ChatViewProps> = ({ active = true, readOnly = fa
 
     return (
         <ChatErrorBoundary sessionId={currentSessionId || undefined}>
-            <ChatContainer active={active} readOnly={readOnly} />
+            {/* Remount on session switch so composer drafts, viewport anchors,
+                and the message timeline reset to the right session even when
+                the cluster preserves resident transcripts during the switch. */}
+            <ChatContainer key={currentSessionId ?? 'no-session'} active={active} readOnly={readOnly} />
         </ChatErrorBoundary>
     );
 };

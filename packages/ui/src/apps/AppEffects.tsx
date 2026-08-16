@@ -84,7 +84,7 @@ export function SyncRuntimeEffects({ embeddedBackgroundWorkEnabled }: {
 const PiSessionBootstrapBridge: React.FC = () => {
   const store = React.useMemo(() => getPiSessionStore(), []);
   const snapshot = React.useSyncExternalStore(store.subscribe, store.getState, store.getState);
-  const { selectedSessionId, directory, connection } = snapshot;
+  const { selectedSessionId, directory, connection, focusPending } = snapshot;
 
   React.useEffect(() => {
     if (!directory) return;
@@ -96,15 +96,23 @@ const PiSessionBootstrapBridge: React.FC = () => {
 
   // The composer still reads the restored session UI store. Keep its complete
   // identity synchronized, including project switches and the no-project state.
+  // While the focus pointer is still resolving, leave the existing UI store
+  // identity in place so the chat pane keeps its loader instead of clearing
+  // back to `ChatEmptyState`. Likewise, while the cluster is in its first
+  // attach `'loading'` window we don't want to clear the existing identity.
   React.useEffect(() => {
     const ui = useSessionUIStore.getState();
     if (!selectedSessionId || !directory) {
-      if (connection === 'loading') {
-        return;
-      }
+      if (connection === 'loading' || focusPending) return;
       if (ui.currentSessionId !== null || ui.currentSessionDirectory !== null) {
         useSessionUIStore.setState({ currentSessionId: null, currentSessionDirectory: null });
       }
+      return;
+    }
+    if (focusPending) {
+      // Focus is still resolving — preserve the existing chat identity so
+      // the chat pane can show the PiChamber logo loader instead of
+      // `ChatEmptyState`.
       return;
     }
     // When a new session draft is intentionally open, background directory switches
@@ -143,7 +151,7 @@ const PiSessionBootstrapBridge: React.FC = () => {
       });
       markSessionViewed(selectedSessionId);
     }
-  }, [selectedSessionId, directory, connection]);
+  }, [selectedSessionId, directory, connection, focusPending]);
 
   return null;
 };

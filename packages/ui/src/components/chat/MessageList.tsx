@@ -1167,6 +1167,7 @@ StaticHistoryList.displayName = 'StaticHistoryList';
 
 const StreamingTailContent: React.FC<{
     entry: RenderEntry;
+    sessionId: string | null;
     directory?: string;
     onMessageContentChange: (reason?: ContentChangeReason) => void;
     getAnimationHandlers: (messageId: string) => AnimationHandlers;
@@ -1184,6 +1185,7 @@ const StreamingTailContent: React.FC<{
     activeStreamingPhase?: StreamPhase | null;
 }> = ({
     entry,
+    sessionId,
     directory,
     onMessageContentChange,
     getAnimationHandlers,
@@ -1200,7 +1202,7 @@ const StreamingTailContent: React.FC<{
     activeStreamingMessageId,
     activeStreamingPhase,
 }) => {
-    const liveParts = useSessionParts(activeStreamingMessageId ?? '', directory);
+    const liveParts = useSessionParts(sessionId, activeStreamingMessageId ?? '', directory);
     const liveEntry = React.useMemo(() => buildLiveStreamingEntry(entry, {
         activeStreamingMessageId,
         liveParts,
@@ -1824,6 +1826,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
                         {trailingStreamingEntry ? (
                             <StreamingTailContent
                                 entry={trailingStreamingEntry}
+                                sessionId={sessionKey ?? null}
                                 directory={directory}
                                 onMessageContentChange={stableTailContentChange}
                                 getAnimationHandlers={stableGetAnimationHandlers}

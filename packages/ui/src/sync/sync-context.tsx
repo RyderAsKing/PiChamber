@@ -17,6 +17,7 @@ const EMPTY_QUESTIONS: QuestionRequest[] = [];
 const EMPTY_USER_HISTORY: string[] = [];
 const EMPTY_MESSAGE_RECORDS: ReturnType<typeof piProjectedToRecords> = [];
 const READY_LOAD_STATE = { loading: false, complete: true, status: 'ready' as const, cursor: undefined, error: null as string | null };
+const EMPTY_PARTS: Part[] = [];
 
 const statusesFromSignature = (signature: string): Record<string, SessionStatus> => {
   if (!signature) return {};
@@ -57,12 +58,10 @@ export function useAllLiveSessions(): Session[] {
   return mapPiSessionList(sessions);
 }
 export function setActiveSession(directory: string, sessionId: string) {
-  const store = getPiSessionStore();
-  if (directory && store.getState().directory !== directory) {
-    void store.open(directory, sessionId);
-    return;
-  }
-  void store.select(sessionId);
+  // Cross-folder select is a runtime-cluster focus change, never a
+  // teardown. `select` itself focuses the new directory without disposing
+  // the stream or dropping other folders' hydrated transcripts.
+  void getPiSessionStore().select(sessionId, directory || undefined);
 }
 export function setExternallyViewedSession(_directory: string, _sessionId: string, _viewed: boolean) {}
 
@@ -93,19 +92,42 @@ export function useSessionMessagesResolved(_sessionID: string, _directory?: stri
   return true;
 }
 
-export function useSessionParts(messageID: string, _directory?: string): Part[] {
-  const bySession = usePiSessionSnapshot((state) => state.reducer.bySession);
-  const session = useMemo(() => {
-    if (!messageID) return null;
+/**
+ * Live-tail part lookup. Pass a `sessionId` whenever the caller knows it so
+ * the hook subscribes to a single session's reducer entry rather than the
+ * whole cluster map (and never scans all sessions on every event).
+ */
+export function useSessionParts(
+  sessionId: string | null | undefined,
+  messageID: string,
+  directory?: string,
+): Part[] {
+  // Narrow subscription: subscribe to that one session's reducer record
+  // only. When the caller doesn't know the session id (legacy
+  // single-arg form), subscribe to the cluster map and fall back to a scan.
+  const narrow = usePiSessionSnapshot((state) => (
+    sessionId ? state.reducer.bySession.get(sessionId) ?? null : null
+  ));
+  // The legacy scan path requires the cluster map. The narrow path does
+  // not, so we skip subscribing in that case to keep background events
+  // from invalidating the components that don't need them.
+  const bySession = usePiSessionSnapshot((state) => (
+    sessionId ? null : state.reducer.bySession
+  ));
+  const legacyScan = useMemo(() => {
+    if (sessionId) return null;
+    if (!messageID || directory !== undefined) return null;
+    if (!bySession) return null;
     for (const candidate of bySession.values()) {
       if (candidate.messages.has(messageID)) return candidate;
     }
     return null;
-  }, [bySession, messageID]);
+  }, [bySession, messageID, sessionId, directory]);
+  const session = narrow ?? legacyScan;
   return useMemo(() => {
-    if (!messageID || !session) return [];
+    if (!messageID || !session) return EMPTY_PARTS;
     const message = session.messages.get(messageID);
-    if (!message) return [];
+    if (!message) return EMPTY_PARTS;
     const order = session.partOrder.get(messageID) ?? [];
     if (order.length > 0) {
       const parts: Part[] = [];
@@ -138,8 +160,14 @@ export function useSessionParts(messageID: string, _directory?: string): Part[] 
 }
 
 export function useSessionStatus(sessionID: string, _directory?: string): SessionStatus {
-  const bySession = usePiSessionSnapshot((state) => state.reducer.bySession);
-  return sessionStatusFromReducer(sessionID ? bySession.get(sessionID) : undefined);
+  // Subscribe to a single session's lifecycle directly; reference-stable
+  // when other sessions stream events. The cache short-circuits re-renders
+  // unless that session's lifecycle string actually flipped.
+  return usePiSessionSnapshot((state) => (
+    sessionID
+      ? sessionStatusFromReducer(state.reducer.bySession.get(sessionID))
+      : IDLE
+  ));
 }
 
 export function useSessionPermissions(_sessionID: string, _directory?: string): PermissionRequest[] {
@@ -222,9 +250,13 @@ export function useSessionRenderable(sessionID: string, _directory?: string): bo
 }
 
 export function useUserMessageHistory(sessionID: string): string[] {
-  const bySession = usePiSessionSnapshot((state) => state.reducer.bySession);
+  // Subscribe narrowly to one session's reducer record — other sessions'
+  // events won't invalidate the memo. The projected text is canonical,
+  // so we treat the session reference change as the recompute trigger.
+  const session = usePiSessionSnapshot((state) => (
+    sessionID ? state.reducer.bySession.get(sessionID) ?? null : null
+  ));
   return useMemo(() => {
-    const session = sessionID ? bySession.get(sessionID) : undefined;
     if (!session) return EMPTY_USER_HISTORY;
     const history: string[] = [];
     const seen = new Set<string>();
@@ -247,7 +279,7 @@ export function useUserMessageHistory(sessionID: string): string[] {
       if (text) history.push(text);
     }
     return history;
-  }, [bySession, sessionID]);
+  }, [session, sessionID]);
 }
 
 export function useSessionMessageRecords(
@@ -259,22 +291,29 @@ export function useSessionMessageRecords(
     suspendPartUpdatesForMessageId?: string | null;
   },
 ) {
-  const bySession = usePiSessionSnapshot((state) => state.reducer.bySession);
-  const session = sessionID ? bySession.get(sessionID) ?? null : null;
+  // Subscribe to one session's reducer entry; other sessions' stream
+  // events keep the same reference so React skips recomputation.
+  const session = usePiSessionSnapshot((state) => (
+    sessionID ? state.reducer.bySession.get(sessionID) ?? null : null
+  ));
   return useMemo(() => (
     session ? piProjectedToRecords(projectSession(session)) : EMPTY_MESSAGE_RECORDS
   ), [session]);
 }
 
 export function useSessionMessageCount(sessionID: string, _directory?: string): number {
-  const bySession = usePiSessionSnapshot((state) => state.reducer.bySession);
-  const session = sessionID ? bySession.get(sessionID) : undefined;
+  const session = usePiSessionSnapshot((state) => (
+    sessionID ? state.reducer.bySession.get(sessionID) : undefined
+  ));
   return session ? session.messages.size : 0;
 }
 
 export function useEnsureSessionMessages(sessionID: string, _directory?: string, enabled = true) {
   const store = usePiSessionStore();
-  if (enabled && sessionID && store.getState().selectedSessionId !== sessionID) {
-    void store.select(sessionID);
-  }
+  if (!enabled || !sessionID) return;
+  // Background hydrations (e.g. child sessions inside a tool call) must
+  // not change `selectedSessionId` or directory focus: they would steal
+  // the visible chat. The store's `ensureHydrated` hydrates the session
+  // if it isn't already resident and is otherwise a no-op.
+  void store.ensureHydrated(sessionID);
 }
