@@ -16,6 +16,8 @@ import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { formatSessionCompactDateLabel } from './sidebar/utils';
 import type { SessionNode } from './sidebar/types';
 import { SessionActivityDuration } from '@/components/session/SessionActivityDuration';
+import { SessionUnreadDot } from './sidebar/SessionUnreadDot';
+import { useSessionUnseenCount } from '@/sync/notification-store';
 import { cn } from '@/lib/utils';
 
 type SecondaryMeta = SwitcherItem['secondaryMeta'];
@@ -190,10 +192,12 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
   const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
 
   const sessionStatus = useGlobalSessionStatus(session.id);
+  const unseenCount = useSessionUnseenCount(session.id);
   const isActive = currentSessionId === session.id;
   const sessionTitle = session.title?.trim() || "Untitled Session";
   const statusType = sessionStatus?.type ?? 'idle';
   const isStreaming = statusType === 'busy' || statusType === 'retry';
+  const showUnreadCompleteDot = !isStreaming && unseenCount > 0 && !isActive;
 
   const timestamp = session.time?.updated || session.time?.created || Date.now();
   const timeLabel = formatSessionCompactDateLabel(timestamp);
@@ -268,7 +272,7 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
                 {isExpanded ? <Icon name="arrow-down-s" className="h-3 w-3" /> : <Icon name="arrow-right-s" className="h-3 w-3" />}
               </span>
             ) : null}
-            <span className="flex-shrink-0">{isStreaming ? <SessionActivityDuration sessionId={session.id} running={true} /> : timeLabel}</span>
+            <span className="flex-shrink-0">{isStreaming ? <SessionActivityDuration sessionId={session.id} running={true} /> : showUnreadCompleteDot ? <SessionUnreadDot label={"Session complete"} /> : timeLabel}</span>
             {projectLabel ? <span className="truncate">{projectLabel}</span> : null}
             {branchLabel ? (
               <span className="inline-flex min-w-0 items-center gap-0.5">

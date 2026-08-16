@@ -6,6 +6,7 @@ import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
 export function CollapsedActivityIndicator({
   state,
   activeLabel,
+  unreadLabel,
   className,
 }: {
   state: Exclude<CollapsedActivityState, null>;
@@ -13,7 +14,17 @@ export function CollapsedActivityIndicator({
   unreadLabel?: string;
   className?: string;
 }): React.ReactNode {
-  if (state !== 'active') return null;
+  if (state === 'unread') {
+    return (
+      <span
+        className={cn('inline-flex items-center', className)}
+        aria-label={unreadLabel ?? activeLabel}
+        title={unreadLabel ?? activeLabel}
+      >
+        <span className="size-1.5 shrink-0 rounded-full bg-foreground" />
+      </span>
+    );
+  }
   return (
     <span
       className={cn('inline-flex items-center', className)}

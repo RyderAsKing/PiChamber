@@ -39,6 +39,7 @@ import { getGitHubPrStatusKey, usePrVisualSummary } from '@/stores/useGitHubPrSt
 import { useSessionUnseenCount } from '@/sync/notification-store';
 import { useHasSessionActivityDuration } from '@/sync/session-activity-timing';
 import { SessionActivityDuration } from '@/components/session/SessionActivityDuration';
+import { SessionUnreadDot } from './SessionUnreadDot';
 import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore';
 import { useShiftKeyHeld } from '@/hooks/useShiftKeyHeld';
 import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
@@ -659,6 +660,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   const pendingQuestionLabel = pendingQuestionCount === 1
     ? "1 pending question"
     : `${pendingQuestionCount} pending questions`;
+  const showUnreadCompleteDot = !isStreaming && needsAttention && !isActive;
   const showActivityDuration = isStreaming && hasActivityDuration;
   const hideLeadingIndicatorOnHover = !alwaysShowActions && hasChildren && isPinnedSession;
   const showPinnedMarker = isPinnedSession;
@@ -1115,6 +1117,8 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                             speedMs={80}
                             className="text-primary text-xs shrink-0"
                           />
+                        ) : showUnreadCompleteDot ? (
+                          <SessionUnreadDot label={"Session complete"} />
                         ) : (
                           <span className="text-[11px] text-muted-foreground/75 whitespace-nowrap" title={sessionUpdatedLabel}>
                             {sessionCompactUpdatedLabel}
@@ -1221,6 +1225,8 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                       <span className="min-w-0 truncate font-normal text-foreground">{sessionTitle}</span>
                       {isStreaming ? (
                         <SessionActivityDuration sessionId={session.id} running={true} className="flex-shrink-0 text-primary font-medium" />
+                      ) : showUnreadCompleteDot ? (
+                        <SessionUnreadDot label={"Session complete"} />
                       ) : (
                         <span className="flex-shrink-0 text-muted-foreground" title={sessionUpdatedLabel}>{sessionCompactUpdatedLabel}</span>
                       )}
