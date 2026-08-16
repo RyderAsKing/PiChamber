@@ -7,6 +7,7 @@ This directory owns the Pi-native runtime boundary. It defines:
 - The Pi session / message / part data shapes (`types.ts`).
 - The public `/api/pi/` IPC envelope (`protocol.ts`).
 - The browser-side transport for `/api/pi/events` (`transport.ts`), using authenticated SSE by default and one active connection per stream generation. Explicit WebSocket mode remains only for runtimes that provide a matching upgrade endpoint; SSE comment heartbeats count as liveness.
+- Stream cadence (`stream-cadence.ts`): adjacent same-part token deltas fold, then flush on `requestAnimationFrame`; boundary events flush pending deltas first.
 - The service facade that wraps every `/api/pi/*` call (`client.ts`).
 - The snapshot reducer helpers (`snapshot.ts`).
 - The event reducer helpers (`event-reducer.ts`).
@@ -44,12 +45,23 @@ caller can render the correct message.
 ## Sequencing and reconnect
 
 Every event the public stream publishes carries a monotonically increasing
-`sequence` number scoped to a session id. Pi's delta `contentIndex` is a stable content-block identity and may repeat for every chunk in that block; reducers append those chunks and use event sequence for deduplication. The reducer rejects any event
-whose sequence is `<=` the last accepted sequence, so a reconnect that
-resumes from `snapshot.lastSequence` cannot double-apply events. A snapshot
-is itself an event with `name: 'session.snapshot'`; the snapshot reducer
-replaces the running state when the snapshot's `lastSequence` is strictly
-greater than the previously accepted snapshot.
+`sequence` number from the daemon's global counter. The reducer stores the last
+accepted sequence per session id and rejects any event for that session whose
+sequence is `<=` the last accepted value. `getSession` reports that same global
+cursor, not proof that the returned transcript contains every locally applied
+delta, so hydration overlays an in-flight busy/retry turn onto the fetched
+history instead of replacing it. Reconnect resumes from
+`max(clientAppliedMax, snapshot.lastSequence)` so a quieter session cannot
+rewind the directory stream into the retained event log. It fetches the
+selected session snapshot but reattaches a directory-wide stream; narrowing
+that stream would lose events after the next resident session switch. Pi's delta
+`contentIndex` is a stable content-block identity and may repeat for every
+chunk in that block; reducers append those chunks and use event sequence for
+deduplication. A snapshot is itself an event with `name: 'session.snapshot'`;
+The snapshot reducer replaces the running state when the snapshot's
+`lastSequence` is strictly greater than the previously accepted snapshot.
+Reconnect still unions an in-flight session's existing messages onto that
+snapshot so a mid-send reconnect cannot blank the open transcript.
 
 ## Runtime-switch and failure handling
 
@@ -66,12 +78,47 @@ reconnect begins.
 
 `packages/ui/src/apps/pi-session-store.ts` owns one active user-selected project,
 including explicit daemon project selection, bootstrap, sequenced event reduction,
-reconnect hydration, and runtime-switch disposal. It allocates a new hydration generation for every ready-state session selection, so stale rapid-click completions cannot replace the latest transcript. Cross-directory selection opens the target project and preferred session as one operation.
+reconnect hydration, and runtime-switch disposal. Directory generation advances on
+project open, clear, and runtime switch — not on session selection. Selecting a
+session that is already hydrated is a pointer change on the live directory
+stream; an unhydrated session fetches its transcript without tearing the stream
+down. The chat surface waits on `hydratedSessionIds` before painting a session,
+so a cached or event-partial transcript cannot flash thinking-block animations
+while `getSession` is still merging. Selecting the already-open session retries
+hydrate when that id is missing from `hydratedSessionIds`. Live event stubs are not treated as complete transcripts. Hydration writes into `bySession` by session id, so an in-flight fetch for
+session A cannot replace session B's transcript. An in-flight `getSession` that
+finishes after the user has already started a turn keeps every live message and
+part (existing ids win on overlap) and only fills in history the live reducer
+does not yet have. A stale or empty-bodied fetch must not blank a transcript
+the user is already looking at. Stream user events use synthetic ids
+(`user-<sessionId>-<sequence>`); hydration aliases those onto the persisted
+JSONL user with the same text and matching event timestamp so a single send
+cannot render twice while a genuinely repeated prompt remains a separate turn.
+An empty intermediate assistant error is omitted from projection only when a
+later assistant record under the same user turn proves the run recovered;
+unrecovered terminal errors remain visible. `session.error` ends the live
+assistant: streaming flags clear, duration is filled, and running tools go to
+`error` so the status row cannot keep "Analyzing" after the provider stream
+dies. A follow-up send after that error is a new turn; skipped stale error
+events and idle reconnect snapshots must not settle a prompt that has already
+been accepted. Stream token deltas are folded
+and flushed once per animation frame; start/end/lifecycle events flush immediately
+and keep sequence order. The directory stream attaches with the hydrated lastSequence
+cursor so the client does not replay the retained event log from zero. Cross-directory selection opens the target project and preferred session as one operation.
 
 The global session store separately retains authoritative per-directory snapshots for every added project; switching the active Pi runtime directory must not erase unrelated project sessions. The mounted provider follows the
 persisted PiChamber project store; with no project selected it clears session state
 instead of adopting the daemon process cwd or the filesystem home as a visible project. `App.tsx`, `MobileApp.tsx`, and `ElectronMiniChatApp.tsx`
 mount `PiSessionProvider` around `MainLayout` / the mobile shell / mini-chat.
+
+`usePiSessionSnapshot` caches by store snapshot identity and does not re-run a
+selector that closed over a different session or message id while that snapshot
+is unchanged. Chat hooks subscribe to `reducer.bySession` / `hydratedSessionIds`
+and look the id up after the snapshot read, so opening session B cannot keep
+rendering session A's transcript.
+React consumers read `PiSessionStore` through `usePiSessionSnapshot(selector)`.
+The selector must return a leaf or a stable per-session record; omitting it
+re-renders every subscriber on each accepted event.
 The restored web shell bootstraps provider/model config through
 `initializeApp()` in `SyncAppEffects`; `legacy-ui-client.getProvidersForConfig`
 must return `{ providers, default }` so the config store can leave the picker

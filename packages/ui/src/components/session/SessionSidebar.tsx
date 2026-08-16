@@ -8,8 +8,9 @@ import { sessionEvents } from '@/lib/sessionEvents';
 import { formatDirectoryName, cn } from '@/lib/utils';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
+import { isPiSessionLive, piLiveSessionIdsKey } from '@/sync/pi-session-live';
 import { useChildStoreManager } from '@/sync/sync-context';
-import { getAllSyncSessionMap } from '@/sync/sync-refs';
+import { mapPiSessionList } from '@/sync/sync-refs';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSync } from '@/sync/use-sync';
 import { SessionPrefetchEffect } from './sidebar/hooks/useSessionPrefetch';
@@ -221,17 +222,14 @@ const ProjectAggregateStatusIndicator: React.FC<{ directories: Array<string | nu
     }
     return false;
   }, [directorySet]));
-  const piSnapshot = usePiSessionSnapshot();
-  const hasPiBusySession = React.useMemo(() => {
-    for (const session of piSnapshot.reducer.bySession.values()) {
-      if (session.lifecycle === 'busy' || session.lifecycle === 'retry' || (session.streamingMessages && session.streamingMessages.size > 0)) {
-        const directory = normalizePath(session.directory)?.toLowerCase();
-        if (directory && directorySet.has(directory)) return true;
-        if (directorySet.size === 0) return true;
-      }
+  const hasPiBusySession = usePiSessionSnapshot((state) => {
+    for (const session of state.reducer.bySession.values()) {
+      if (!isPiSessionLive(session)) continue;
+      const directory = normalizePath(session.directory)?.toLowerCase();
+      if (directory && directorySet.has(directory)) return true;
     }
     return false;
-  }, [piSnapshot.reducer.bySession, directorySet]);
+  });
 
   if (hasBusySession || hasPiBusySession) {
     return (
@@ -269,7 +267,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const [sessionSearchQuery, setSessionSearchQuery] = React.useState('');
   const sessionSearchContainerRef = React.useRef<HTMLDivElement | null>(null);
   const sessionSearchInputRef = React.useRef<HTMLInputElement | null>(null);
-  const piSnapshot = usePiSessionSnapshot();
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editTitle, setEditTitle] = React.useState('');
   const [editingProjectDialogId, setEditingProjectDialogId] = React.useState<string | null>(null);
@@ -295,16 +292,13 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const activeSessionIds = useGlobalSessionStatusStore(useShallow(
     (state) => isVisible ? [...state.statusById.keys()].sort() : EMPTY_STRING_ARRAY,
   ));
-  const piActiveSessionIds = React.useMemo(() => {
-    if (!isVisible) return EMPTY_STRING_ARRAY;
-    const ids: string[] = [];
-    for (const [id, s] of piSnapshot.reducer.bySession.entries()) {
-      if (s.lifecycle === 'busy' || s.lifecycle === 'retry' || (s.streamingMessages && s.streamingMessages.size > 0)) {
-        ids.push(id);
-      }
-    }
-    return ids;
-  }, [isVisible, piSnapshot.reducer.bySession]);
+  const piActiveKey = usePiSessionSnapshot((state) => (
+    isVisible ? piLiveSessionIdsKey(state.reducer.bySession) : ''
+  ));
+  const piActiveSessionIds = React.useMemo(
+    () => (piActiveKey ? piActiveKey.split('|') : EMPTY_STRING_ARRAY),
+    [piActiveKey],
+  );
   const activeSessionIdSet = React.useMemo(() => new Set([...activeSessionIds, ...piActiveSessionIds]), [activeSessionIds, piActiveSessionIds]);
   const unreadSessionIds = useNotificationStore(useShallow(
     (state) => isVisible
@@ -429,9 +423,14 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
   const sync = useSync();
   const childStores = useChildStoreManager();
-  const piConnection = usePiSessionSnapshot().connection;
+  const piConnection = usePiSessionSnapshot((state) => state.connection);
+  const piSessions = usePiSessionSnapshot((state) => state.sessions);
   const bootstrapDemandOwner = `session-sidebar:${React.useId()}`;
-  const liveSessionIndex = getAllSyncSessionMap();
+  const liveSessionIndex = React.useMemo(() => {
+    const map = new Map<string, Session>();
+    for (const session of mapPiSessionList(piSessions)) map.set(session.id, session);
+    return map;
+  }, [piSessions]);
   const liveSessions = React.useMemo(() => Array.from(liveSessionIndex.values()), [liveSessionIndex]);
   const hasAuthoritativeGlobalSessions = useGlobalSessionsStore((state) => state.status === 'ready');
   const activeSessionStructure = useGlobalSessionsStore(useShallow(

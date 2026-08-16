@@ -2,6 +2,7 @@
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { piListItemToUiSession } from '@/lib/chat/pi-to-renderable';
 import type { Config, Message, Session } from '@/lib/chat/types';
+import type { PiSessionListItem } from '@/lib/pi/protocol';
 
 export function setSyncRefs() {}
 export function getDirectoryState(...args: unknown[]) {
@@ -18,8 +19,19 @@ export function subscribeToSyncConfigChanges() {
   return () => {};
 }
 export function emitSyncConfigChanged() {}
+let mappedSessionListCache: { source: readonly PiSessionListItem[]; mapped: Session[] } | null = null;
+
+export function mapPiSessionList(sessions: readonly PiSessionListItem[]): Session[] {
+  if (mappedSessionListCache && mappedSessionListCache.source === sessions) {
+    return mappedSessionListCache.mapped;
+  }
+  const mapped = sessions.map(piListItemToUiSession);
+  mappedSessionListCache = { source: sessions, mapped };
+  return mapped;
+}
+
 export function getSyncSessions(): Session[] {
-  return getPiSessionStore().getState().sessions.map(piListItemToUiSession);
+  return mapPiSessionList(getPiSessionStore().getState().sessions);
 }
 export function getAllSyncSessions(): Session[] {
   return getSyncSessions();

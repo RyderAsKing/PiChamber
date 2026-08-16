@@ -1,37 +1,60 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 import { useMemo } from 'react';
-import { getPiSessionStore } from '@/apps/pi-session-store';
-import { piProjectedToRecords, mapPart } from '@/lib/chat/pi-to-renderable';
+import { getPiSessionStore, type PiSessionStoreState } from '@/apps/pi-session-store';
+import { piListItemToUiSession, piProjectedToRecords, mapPart } from '@/lib/chat/pi-to-renderable';
 import type { Message, Part, PermissionRequest, QuestionRequest, Session, SessionStatus } from '@/lib/chat/types';
-import { projectSession } from '@/lib/pi/event-reducer';
+import { projectSession, type PiReducerMessage, type PiReducerSessionState } from '@/lib/pi/event-reducer';
 import { usePiSessionSnapshot, usePiSessionStore } from './pi-session-context';
+import { piLiveStatusSignature } from './pi-session-live';
+import { mapPiSessionList } from './sync-refs';
 import { INITIAL_STATE, type State } from './types';
 
 const IDLE: SessionStatus = { type: 'idle' };
+const BUSY: SessionStatus = { type: 'busy' };
+const RETRY: SessionStatus = { type: 'retry' };
 const EMPTY_PERMISSIONS: PermissionRequest[] = [];
 const EMPTY_QUESTIONS: QuestionRequest[] = [];
+const EMPTY_USER_HISTORY: string[] = [];
+const EMPTY_MESSAGE_RECORDS: ReturnType<typeof piProjectedToRecords> = [];
+const READY_LOAD_STATE = { loading: false, complete: true, status: 'ready' as const, cursor: undefined, error: null as string | null };
+
+const statusesFromSignature = (signature: string): Record<string, SessionStatus> => {
+  if (!signature) return {};
+  const statuses: Record<string, SessionStatus> = {};
+  for (const part of signature.split('|')) {
+    const splitAt = part.lastIndexOf(':');
+    const sessionId = part.slice(0, splitAt);
+    const kind = part.slice(splitAt + 1);
+    statuses[sessionId] = kind === 'retry' ? RETRY : BUSY;
+  }
+  return statuses;
+};
+
+const directoryStateFromPi = (state: PiSessionStoreState): State => ({
+  ...INITIAL_STATE,
+  status: 'complete',
+  session: mapPiSessionList(state.sessions),
+  sessionTotal: state.sessions.length,
+});
+
+const sessionStatusFromReducer = (session: PiReducerSessionState | undefined): SessionStatus => {
+  if (!session) return IDLE;
+  if (session.lifecycle === 'busy' || session.lifecycle === 'retry') {
+    return session.lifecycle === 'retry' ? RETRY : BUSY;
+  }
+  return IDLE;
+};
 
 export function useGlobalSessionStatus(sessionID: string, directory?: string): SessionStatus {
   return useSessionStatus(sessionID, directory);
 }
 export function useAllSessionStatuses(): Record<string, SessionStatus> {
-  const state = usePiSessionSnapshot();
-  const statuses: Record<string, SessionStatus> = {};
-  for (const [sessionId, session] of state.reducer.bySession.entries()) {
-    if (session.lifecycle === 'busy' || session.lifecycle === 'retry' || (session.streamingMessages && session.streamingMessages.size > 0)) {
-      statuses[sessionId] = { type: session.lifecycle === 'retry' ? 'retry' : 'busy' };
-    }
-  }
-  return statuses;
+  const signature = usePiSessionSnapshot((state) => piLiveStatusSignature(state.reducer.bySession));
+  return useMemo(() => statusesFromSignature(signature), [signature]);
 }
 export function useAllLiveSessions(): Session[] {
-  const state = usePiSessionSnapshot();
-  return state.sessions.map((item) => ({
-    id: item.session.id,
-    directory: item.session.directory,
-    title: item.session.title,
-    time: { created: item.session.createdAt, updated: item.session.updatedAt },
-  }));
+  const sessions = usePiSessionSnapshot((state) => state.sessions);
+  return mapPiSessionList(sessions);
 }
 export function setActiveSession(directory: string, sessionId: string) {
   const store = getPiSessionStore();
@@ -43,20 +66,7 @@ export function setActiveSession(directory: string, sessionId: string) {
 }
 export function setExternallyViewedSession(_directory: string, _sessionId: string, _viewed: boolean) {}
 
-const mapPiSessions = (): Session[] =>
-  getPiSessionStore().getState().sessions.map((item) => ({
-    id: item.session.id,
-    directory: item.session.directory,
-    title: item.session.title,
-    time: { created: item.session.createdAt, updated: item.session.updatedAt },
-  }));
-
-const buildPiDirectoryState = (): State => ({
-  ...INITIAL_STATE,
-  status: 'complete',
-  session: mapPiSessions(),
-  sessionTotal: getPiSessionStore().getState().sessions.length,
-});
+const buildPiDirectoryState = (): State => directoryStateFromPi(getPiSessionStore().getState());
 
 const piDirectoryChildStore = {
   subscribe: (listener: () => void) => getPiSessionStore().subscribe(listener),
@@ -67,9 +77,12 @@ export function useDirectoryStore(_directory?: string, _options?: { bootstrap?: 
   return piDirectoryChildStore;
 }
 
-export function useDirectorySync<T>(selector: (state: any) => T): T {
-  usePiSessionSnapshot();
-  return selector(buildPiDirectoryState());
+export function useDirectorySync<T>(
+  selector: (state: any) => T,
+  _directory?: string,
+  isEqual?: (a: T, b: T) => boolean,
+): T {
+  return usePiSessionSnapshot((state) => selector(directoryStateFromPi(state)), isEqual);
 }
 
 export function useSessionMessages(sessionID: string, _directory?: string) {
@@ -81,53 +94,52 @@ export function useSessionMessagesResolved(_sessionID: string, _directory?: stri
 }
 
 export function useSessionParts(messageID: string, _directory?: string): Part[] {
-  const state = usePiSessionSnapshot();
-  return useMemo(() => {
-    if (!messageID) return [];
-    for (const session of state.reducer.bySession.values()) {
-      const message = session.messages.get(messageID);
-      if (message) {
-        const order = session.partOrder.get(messageID) ?? [];
-        if (order.length > 0) {
-          const parts: Part[] = [];
-          for (const partId of order) {
-            const part = session.parts.get(partId);
-            if (part) {
-              parts.push(
-                mapPart({
-                  id: part.id,
-                  type: part.type,
-                  text: part.text,
-                  streaming: part.streaming,
-                  ...(part.tool ? { tool: part.tool } : {}),
-                  ...(part.attachment ? { attachment: part.attachment } : {}),
-                }),
-              );
-            }
-          }
-          return parts;
-        }
-        const fallback: Part[] = [];
-        if (message.thinking) {
-          fallback.push({ id: `${message.id}:thinking`, type: 'reasoning', text: message.thinking });
-        }
-        if (message.text) {
-          fallback.push({ id: `${message.id}:text`, type: 'text', text: message.text });
-        }
-        return fallback;
-      }
+  const bySession = usePiSessionSnapshot((state) => state.reducer.bySession);
+  const session = useMemo(() => {
+    if (!messageID) return null;
+    for (const candidate of bySession.values()) {
+      if (candidate.messages.has(messageID)) return candidate;
     }
-    return [];
-  }, [messageID, state.reducer]);
+    return null;
+  }, [bySession, messageID]);
+  return useMemo(() => {
+    if (!messageID || !session) return [];
+    const message = session.messages.get(messageID);
+    if (!message) return [];
+    const order = session.partOrder.get(messageID) ?? [];
+    if (order.length > 0) {
+      const parts: Part[] = [];
+      for (const partId of order) {
+        const part = session.parts.get(partId);
+        if (part) {
+          parts.push(
+            mapPart({
+              id: part.id,
+              type: part.type,
+              text: part.text,
+              streaming: part.streaming,
+              ...(part.tool ? { tool: part.tool } : {}),
+              ...(part.attachment ? { attachment: part.attachment } : {}),
+            }),
+          );
+        }
+      }
+      return parts;
+    }
+    const fallback: Part[] = [];
+    if (message.thinking) {
+      fallback.push({ id: `${message.id}:thinking`, type: 'reasoning', text: message.thinking });
+    }
+    if (message.text) {
+      fallback.push({ id: `${message.id}:text`, type: 'text', text: message.text });
+    }
+    return fallback;
+  }, [messageID, session]);
 }
 
 export function useSessionStatus(sessionID: string, _directory?: string): SessionStatus {
-  const state = usePiSessionSnapshot();
-  const session = state.reducer.bySession.get(sessionID);
-  if (!session) return IDLE;
-  if (session.lifecycle === 'busy' || session.lifecycle === 'retry') return { type: session.lifecycle };
-  if (session.lifecycle === 'interrupted') return { type: 'idle' };
-  return IDLE;
+  const bySession = usePiSessionSnapshot((state) => state.reducer.bySession);
+  return sessionStatusFromReducer(sessionID ? bySession.get(sessionID) : undefined);
 }
 
 export function useSessionPermissions(_sessionID: string, _directory?: string): PermissionRequest[] {
@@ -150,22 +162,20 @@ export function useParentSession(): Session | null {
   return null;
 }
 export function useSession(sessionID?: string | null, _directory?: string): Session | undefined {
-  const state = usePiSessionSnapshot();
-  const item = state.sessions.find((entry) => entry.session.id === sessionID);
-  if (!item) return undefined;
-  return {
-    id: item.session.id,
-    directory: item.session.directory,
-    title: item.session.title,
-    time: { created: item.session.createdAt, updated: item.session.updatedAt },
-  };
+  const sessions = usePiSessionSnapshot((state) => state.sessions);
+  const item = sessionID ? sessions.find((entry) => entry.session.id === sessionID) ?? null : null;
+  return item ? piListItemToUiSession(item) : undefined;
 }
+
 export function useSessionDirectory(sessionID?: string | null): string | undefined {
-  const state = usePiSessionSnapshot();
-  return state.sessions.find((entry) => entry.session.id === sessionID)?.session.directory ?? state.directory ?? undefined;
+  const sessions = usePiSessionSnapshot((state) => state.sessions);
+  const directory = usePiSessionSnapshot((state) => state.directory);
+  return (sessionID ? sessions.find((entry) => entry.session.id === sessionID)?.session.directory : undefined)
+    ?? directory
+    ?? undefined;
 }
 export function useSyncDirectory(): string {
-  return usePiSessionSnapshot().directory ?? '';
+  return usePiSessionSnapshot((state) => state.directory ?? '');
 }
 const noopUnsubscribe = () => undefined;
 const piChildStoreManager = {
@@ -181,21 +191,23 @@ const piChildStoreManager = {
 };
 
 export function useSessionMessageLoadState(sessionID: string, _directory?: string) {
-  const state = usePiSessionSnapshot();
-  if (!sessionID) {
-    return { loading: false, complete: true, status: 'ready' as const, cursor: undefined, error: null as string | null };
-  }
-  const isHydrated = state.reducer.bySession.has(sessionID);
-  const isLoading = !isHydrated && (state.selectedSessionId === sessionID || state.connection === 'loading');
-  const isError = state.connection === 'error' && state.error !== null;
-
-  return {
-    loading: isLoading,
-    complete: isHydrated,
-    status: isError ? ('error' as const) : isLoading ? ('loading' as const) : ('ready' as const),
-    cursor: undefined,
-    error: isError ? (state.error?.message ?? 'Session load failed') : null,
-  };
+  const hydratedSessionIds = usePiSessionSnapshot((state) => state.hydratedSessionIds);
+  const selectedSessionId = usePiSessionSnapshot((state) => state.selectedSessionId);
+  const connection = usePiSessionSnapshot((state) => state.connection);
+  const error = usePiSessionSnapshot((state) => state.error);
+  return useMemo(() => {
+    if (!sessionID) return READY_LOAD_STATE;
+    const isHydrated = hydratedSessionIds.has(sessionID);
+    const isLoading = !isHydrated && (selectedSessionId === sessionID || connection === 'loading');
+    const isError = connection === 'error' && error !== null;
+    return {
+      loading: isLoading,
+      complete: isHydrated,
+      status: isError ? ('error' as const) : isLoading ? ('loading' as const) : ('ready' as const),
+      cursor: undefined,
+      error: isError ? (error?.message ?? 'Session load failed') : null,
+    };
+  }, [connection, error, hydratedSessionIds, selectedSessionId, sessionID]);
 }
 
 export function useChildStoreManager() {
@@ -205,29 +217,59 @@ export function useChildStoreManager() {
 export function buildSessionMessageRecordsSnapshot(_state?: any, _sessionId?: any) { return { list: [] as any[] }; }
 
 export function useSessionRenderable(sessionID: string, _directory?: string): boolean {
-  const state = usePiSessionSnapshot();
-  if (!sessionID) return true;
-  return state.reducer.bySession.has(sessionID);
+  const hydratedSessionIds = usePiSessionSnapshot((state) => state.hydratedSessionIds);
+  return !sessionID || hydratedSessionIds.has(sessionID);
 }
 
 export function useUserMessageHistory(sessionID: string): string[] {
-  return useSessionMessageRecords(sessionID)
-    .filter((record) => record.info.role === 'user')
-    .map((record) => record.parts.filter((part) => part.type === 'text').map((part) => part.text ?? '').join(''))
-    .filter(Boolean);
-}
-
-export function useSessionMessageRecords(sessionID: string, _directory?: string) {
-  const store = usePiSessionStore();
-  const state = usePiSessionSnapshot();
+  const bySession = usePiSessionSnapshot((state) => state.reducer.bySession);
   return useMemo(() => {
-    const session = state.reducer.bySession.get(sessionID);
-    return piProjectedToRecords(session ? projectSession(session) : store.selected()?.sessionId === sessionID ? store.selected() : null);
-  }, [sessionID, state.reducer, store]);
+    const session = sessionID ? bySession.get(sessionID) : undefined;
+    if (!session) return EMPTY_USER_HISTORY;
+    const history: string[] = [];
+    const seen = new Set<string>();
+    const users: PiReducerMessage[] = [];
+    for (const message of session.messages.values()) {
+      if (message.role !== 'user' || seen.has(message.id)) continue;
+      seen.add(message.id);
+      users.push(message);
+    }
+    users.sort((a, b) => a.createdAt - b.createdAt);
+    for (const message of users) {
+      const order = session.partOrder.get(message.id) ?? [];
+      const text = order.length > 0
+        ? order
+          .map((partId) => session.parts.get(partId))
+          .filter((part) => part?.type === 'text')
+          .map((part) => part?.text ?? '')
+          .join('')
+        : (message.text ?? '');
+      if (text) history.push(text);
+    }
+    return history;
+  }, [bySession, sessionID]);
 }
 
-export function useSessionMessageCount(sessionID: string): number {
-  return useSessionMessageRecords(sessionID).length;
+export function useSessionMessageRecords(
+  sessionID: string,
+  _directory?: string,
+  _options?: {
+    enabled?: boolean;
+    suspendPartUpdates?: boolean;
+    suspendPartUpdatesForMessageId?: string | null;
+  },
+) {
+  const bySession = usePiSessionSnapshot((state) => state.reducer.bySession);
+  const session = sessionID ? bySession.get(sessionID) ?? null : null;
+  return useMemo(() => (
+    session ? piProjectedToRecords(projectSession(session)) : EMPTY_MESSAGE_RECORDS
+  ), [session]);
+}
+
+export function useSessionMessageCount(sessionID: string, _directory?: string): number {
+  const bySession = usePiSessionSnapshot((state) => state.reducer.bySession);
+  const session = sessionID ? bySession.get(sessionID) : undefined;
+  return session ? session.messages.size : 0;
 }
 
 export function useEnsureSessionMessages(sessionID: string, _directory?: string, enabled = true) {

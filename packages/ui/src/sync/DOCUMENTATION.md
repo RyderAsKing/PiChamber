@@ -131,7 +131,11 @@ Cross-directory selectors subscribe to the narrow child-store field they aggrega
 
 Session display order is independent from streaming-frequency `time.updated` publications. `session-ordering.ts` promotes a session exactly when its authoritative activity phase crosses `settled` (`idle`/`error`) and `active` (`busy`/`retry`) in either direction. Repeated busy/retry or idle/error events are no-ops. The first authoritative status snapshot establishes a baseline without synthetic promotions; later snapshots reconcile missed transitions. Root sessions compare lifecycle rank only with other roots, while child sessions compare lifecycle rank only with siblings sharing the same `parentID`, so child activity never moves its root conversation. Pins remain the first ordering bucket. The timestamp/creation fallback is frozen when a session first participates in ordering, so later metadata-only updates cannot reorder it; creation time and ID provide deterministic ties. Runtime switches clear all phases, baselines, and ranks.
 
-`session-activity-timing.ts` measures how long a turn has been running, because `SessionStatus` carries no timestamps. It is driven from the same two write paths as `global-session-status.ts`, so a row can never count a turn that index calls idle. A session gains a start on its first `active` observation and keeps it across repeated busy/retry events; settling converts that start into a finished duration, which rows show only while the session is unread and which is therefore never persisted.
+`session-activity-timing.ts` measures how long a turn has been running, because `SessionStatus` carries no timestamps. It is driven from the same two write paths as `global-session-status.ts`, so a row can never count a turn that index calls idle. A session gains a start on its first `active` observation and keeps it across repeated busy/retry events; settling converts that start into a finished duration used by live running rows. Unread completion is a separate `turn-complete` notification: Pi lifecycle `idle`/`error`/`interrupted` after a live `active` turn appends it for any session that is not currently open, and opening the session marks it viewed.
+
+Sending a prompt promotes that session immediately (`observeSessionActivityEvent('active')` plus a list recency bump). A later `settled` transition on another session can still outrank it, which is how a finishing background agent takes the top of the list. Skipped/out-of-order stream events must not drive that promotion: a replayed `session.error` cannot settle a turn whose later `busy` event already applied. An idle reconnect snapshot also cannot settle a session whose prompt is accepted but whose `agent_start` has not arrived yet.
+
+A provider stream that ends without `finish_reason` publishes `session.error` and must complete the in-flight assistant (duration, running tools) so the chat does not stay on "Analyzing". The next send is a new turn even if the UI still tried steer/follow-up.
 
 Starts are persisted so a reload resumes the same count, but a persisted start is a lookup table and never a claim of activity. **Nothing in the protocol marks where a turn begins.** OpenCode calls `SessionStatus.set` with `busy` at every step of the agent loop and publishes an event each time, so a busy event means "still running", not "just started"; after a refresh one of those repeats normally beats the first status snapshot, so treating it as a turn boundary reset the counter on nearly every reload. Turn *ends* are marked — `session.idle` and `session.error` fire once, live, and retire the persisted record — while a snapshot that omits a session is not evidence of anything, since it may simply not see it yet.
 
@@ -166,6 +170,8 @@ VS Code does not run the server permission-auto-accept runtime. The extension ho
 This keeps cold/global lists responsive without requiring a refetch after every change.
 
 Live activity/status indicators must not depend on this cache. They must use the event/snapshot-reconciled global live status index.
+
+`usePiSessionSnapshot` caches by store snapshot identity. Selectors that close over a session or message id will keep returning the previous entity when the store has not emitted. Subscribe to the collection (`reducer.bySession`, `sessions`, `hydratedSessionIds`) and look the id up in the hook body.
 
 ## Session message loading
 
@@ -391,6 +397,14 @@ useDirectorySync((s) => s.permission[sessionID] ?? EMPTY)
 ```
 
 Same applies to `useStreamingStore` — select `.get(key)` not the Map itself.
+
+`usePiSessionSnapshot(selector, isEqual?)` is the Pi store equivalent of a Zustand selector. It caches the selected value against the store snapshot identity: if `getState()` has not published a new object, the previous selection is returned without re-running the selector. Re-running an allocating selector on an unchanged snapshot makes `useSyncExternalStore` loop and freeze the tab. Session-id closures therefore take effect on the next store publication (`select()` emits). A hook that omits the selector subscribes to the entire snapshot and re-renders on every accepted stream event. Chat and sidebar leaves must select a stable entity or primitive:
+
+- `state.reducer.bySession.get(sessionId)` for one session's reducer record
+- `state.sessions` for the directory session list (the store keeps this array identity stable during token deltas)
+- `state.connection` / `state.directory` for connection chrome
+
+`applyPiEvent` clones only the mutated session; other `bySession` entries keep their previous references, so a selector that returns one session skips React work for background sessions. Custom `isEqual` is for derived arrays/records whose contents are unchanged even though the selector allocated a new container (user-message history, load-state tuples). Token deltas are folded by `PiStreamCadence` and flushed once per animation frame, so selector subscribers see at most one store publication per frame unless a boundary event (start/end/lifecycle) flushes immediately.
 
 ## Store splitting pattern
 
