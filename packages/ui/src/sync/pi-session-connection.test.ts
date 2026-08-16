@@ -62,4 +62,47 @@ describe('PiSessionStore connection and selection', () => {
     }
     store.dispose();
   });
+
+  test('preserves existing sessions in reducer when removing an unrelated session', async () => {
+    const store = new PiSessionStore();
+    const internal = store as unknown as {
+      state: ReturnType<PiSessionStore['getState']>;
+    };
+    const s1 = { sessionId: 'sess-1', directory: '/repo', lifecycle: 'busy' as const, messages: new Map(), partOrder: new Map(), parts: new Map(), toolsByCallId: new Map(), streamingMessages: new Set(['m1']), queue: { steering: 0, followUp: 0 }, lastSequence: 5 };
+    const s2 = { sessionId: 'sess-2', directory: '/repo', lifecycle: 'idle' as const, messages: new Map(), partOrder: new Map(), parts: new Map(), toolsByCallId: new Map(), streamingMessages: new Set(), queue: { steering: 0, followUp: 0 }, lastSequence: 3 };
+    const bySession = new Map();
+    bySession.set('sess-1', s1);
+    bySession.set('sess-2', s2);
+    const lastSequence = new Map();
+    lastSequence.set('sess-1', 5);
+    lastSequence.set('sess-2', 3);
+
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      connection: 'ready',
+      sessions: [
+        { session: { id: 'sess-1', directory: '/repo', archived: false } as never, updatedAt: 1 },
+        { session: { id: 'sess-2', directory: '/repo', archived: false } as never, updatedAt: 2 },
+      ],
+      selectedSessionId: 'sess-1',
+      reducer: { bySession, lastSequence },
+    };
+
+    // Remove sess-2
+    const nextBySession = new Map(internal.state.reducer.bySession);
+    nextBySession.delete('sess-2');
+    const nextLastSequence = new Map(internal.state.reducer.lastSequence);
+    nextLastSequence.delete('sess-2');
+    internal.state = {
+      ...internal.state,
+      sessions: internal.state.sessions.filter((item) => item.session.id !== 'sess-2'),
+      reducer: { bySession: nextBySession, lastSequence: nextLastSequence },
+    };
+
+    expect(store.getState().reducer.bySession.has('sess-1')).toBe(true);
+    expect(store.getState().reducer.bySession.get('sess-1')?.lifecycle).toBe('busy');
+    expect(store.getState().reducer.bySession.has('sess-2')).toBe(false);
+    store.dispose();
+  });
 });

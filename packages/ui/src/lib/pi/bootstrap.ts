@@ -241,7 +241,6 @@ export const bootstrapPiDirectory = async (
       },
       {
         ...(typeof streamFromSequence === 'number' && streamFromSequence >= 0 ? { fromSequence: streamFromSequence } : {}),
-        ...(options.selectedSessionId ? { sessionId: options.selectedSessionId } : {}),
         ...(options.runtimeKey ? { runtimeKey: options.runtimeKey } : {}),
         signal: options.signal,
       },

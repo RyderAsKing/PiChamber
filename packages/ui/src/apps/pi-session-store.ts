@@ -12,6 +12,7 @@ import { reconnectPiSession } from '@/lib/pi/reconnect';
 import type { PiSessionEvent, PiSessionListItem } from '@/lib/pi/protocol';
 import type { PiSessionId } from '@/lib/pi/types';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import { observeSessionActivityTiming, removeSessionActivityTiming } from '@/sync/session-activity-timing';
 
 export type PiConnectionState = 'loading' | 'ready' | 'unavailable' | 'error';
 export interface PiSessionStoreState {
@@ -101,10 +102,14 @@ export class PiSessionStore {
     this.pendingPreferredSessionId = preferredSessionId ?? null;
     this.stream?.dispose(); this.stream = null;
     this.state = {
-      ...initial(),
+      ...this.state,
       directory,
       selectedSessionId: preferredSessionId ?? null,
       connection: 'loading',
+      reducer: {
+        bySession: new Map(this.state.reducer.bySession),
+        lastSequence: new Map(this.state.reducer.lastSequence),
+      },
     };
     this.emit();
     const runtimeKey = getRuntimeKey();
@@ -205,11 +210,39 @@ export class PiSessionStore {
 
   async rename(sessionId: string, title: string) { await piClient.renameSession({ sessionId, title }, this.scope()); this.state = { ...this.state, sessions: this.state.sessions.map((item) => item.session.id === sessionId ? { ...item, session: { ...item.session, title } } : item) }; this.emit(); }
   async archive(sessionId: string, archived: boolean) { await piClient.archiveSession({ sessionId, archived }, this.scope()); this.state = { ...this.state, sessions: this.state.sessions.map((item) => item.session.id === sessionId ? { ...item, session: { ...item.session, archived } } : item) }; this.emit(); }
-  async remove(sessionId: string) { const expected = this.generation; await piClient.deleteSession({ sessionId, ignoreMissing: true }, this.scope()); if (expected !== this.generation) return; const sessions = this.state.sessions.filter((item) => item.session.id !== sessionId); const selectedSessionId = this.state.selectedSessionId === sessionId ? sessions.find((item) => !item.session.archived)?.session.id ?? null : this.state.selectedSessionId; this.state = { ...this.state, sessions, selectedSessionId, reducer: createReducerState() }; this.emit(); if (selectedSessionId) await this.hydrate(selectedSessionId, expected); }
+  async remove(sessionId: string) {
+    const expected = this.generation;
+    await piClient.deleteSession({ sessionId, ignoreMissing: true }, this.scope());
+    if (expected !== this.generation) return;
+    removeSessionActivityTiming(sessionId);
+    const sessions = this.state.sessions.filter((item) => item.session.id !== sessionId);
+    const selectedSessionId = this.state.selectedSessionId === sessionId ? sessions.find((item) => !item.session.archived)?.session.id ?? null : this.state.selectedSessionId;
+    const nextBySession = new Map(this.state.reducer.bySession);
+    nextBySession.delete(sessionId);
+    const nextLastSequence = new Map(this.state.reducer.lastSequence);
+    nextLastSequence.delete(sessionId);
+    this.state = { ...this.state, sessions, selectedSessionId, reducer: { bySession: nextBySession, lastSequence: nextLastSequence } };
+    this.emit();
+    if (selectedSessionId && selectedSessionId !== this.state.selectedSessionId) await this.hydrate(selectedSessionId, expected);
+  }
   async fork(sessionId: string) { const detail = await piClient.forkSession({ sessionId }, this.scope()); this.upsertAndHydrate(detail); }
   async clone(sessionId: string) { const detail = await piClient.cloneSession({ sessionId }, this.scope()); this.upsertAndHydrate(detail); }
   async navigate(sessionId: string, messageId: string) { const detail = await piClient.navigateSession(sessionId, messageId, this.scope()); await this.hydrate(sessionId, this.generation, detail); }
-  async prompt(sessionId: string, text: string, delivery: 'prompt' | 'steer' | 'followUp', attachments?: Array<{ id: string }>) { const input = { sessionId, text, messageId: `msg_${crypto.randomUUID()}`, ...(attachments?.length ? { attachments } : {}) }; if (delivery === 'steer') return piClient.sendSteer(input, this.scope()); if (delivery === 'followUp') return piClient.sendFollowUp(input, this.scope()); return piClient.sendPrompt(input, this.scope()); }
+  async prompt(sessionId: string, text: string, delivery: 'prompt' | 'steer' | 'followUp', attachments?: Array<{ id: string }>) {
+    const existing = this.state.reducer.bySession.get(sessionId);
+    if (existing) {
+      const nextSession = { ...existing, lifecycle: 'busy' as const };
+      const nextBySession = new Map(this.state.reducer.bySession);
+      nextBySession.set(sessionId, nextSession);
+      this.state = { ...this.state, reducer: { ...this.state.reducer, bySession: nextBySession } };
+      this.emit();
+    }
+    observeSessionActivityTiming(sessionId, 'active');
+    const input = { sessionId, text, messageId: `msg_${crypto.randomUUID()}`, ...(attachments?.length ? { attachments } : {}) };
+    if (delivery === 'steer') return piClient.sendSteer(input, this.scope());
+    if (delivery === 'followUp') return piClient.sendFollowUp(input, this.scope());
+    return piClient.sendPrompt(input, this.scope());
+  }
   abort = (sessionId: string) => piClient.abortSession({ sessionId }, this.scope());
   compact = (sessionId: string) => piClient.compactSession({ sessionId }, this.scope());
   setModel = (sessionId: string, providerId: string, modelId: string) => piClient.setSessionModel({ sessionId, model: { providerId, modelId } }, this.scope());
@@ -229,7 +262,24 @@ export class PiSessionStore {
       if (expected !== this.generation) { bootstrap.stream?.dispose(); return; }
       if (bootstrap.phase === 'failed') throw new PiRequestError(bootstrap.errors[0]?.error.code ?? 'DAEMON_UNAVAILABLE');
       const detail = known ?? await piClient.getSession(sessionId, { directory, runtimeKey });
-      let reducer = hydrateSessionFromDetail({ session: { id: detail.session.id, directory: detail.session.directory }, lastSequence: detail.lastSequence, messages: detail.messages }).state;
+      const { session: hydratedSession } = hydrateSessionFromDetail({
+        session: { id: detail.session.id, directory: detail.session.directory },
+        lastSequence: detail.lastSequence,
+        messages: detail.messages,
+      });
+      const existingSession = this.state.reducer.bySession.get(hydratedSession.sessionId);
+      if (existingSession && (existingSession.lifecycle === 'busy' || existingSession.lifecycle === 'retry')) {
+        hydratedSession.lifecycle = existingSession.lifecycle;
+      }
+      if (hydratedSession.lifecycle === 'busy' || hydratedSession.lifecycle === 'retry') {
+        observeSessionActivityTiming(hydratedSession.sessionId, 'active');
+      }
+      let reducer: PiReducerState = {
+        bySession: new Map(this.state.reducer.bySession),
+        lastSequence: new Map(this.state.reducer.lastSequence),
+      };
+      reducer.bySession.set(hydratedSession.sessionId, hydratedSession);
+      reducer.lastSequence.set(hydratedSession.sessionId, hydratedSession.lastSequence);
       for (const event of buffered) reducer = applyPiEvent(reducer, event).state;
       ready = true;
       this.stream = bootstrap.stream;
@@ -240,9 +290,44 @@ export class PiSessionStore {
 
   private async reconnect(sessionId: string, expected: number, runtimeKey: string) {
     if (this.recovering || expected !== this.generation) return; this.recovering = true; this.stream?.dispose(); this.stream = null;
-    try { const result = await reconnectPiSession({ directory: this.directory(), sessionId, runtimeKey, lastKnownSequence: this.state.reducer.lastSequence.get(sessionId), onEvent: (event) => this.apply(event) }); if (expected !== this.generation) { result.stream?.dispose(); return; } if (result.phase === 'ready') { this.stream = result.stream; this.state = { ...this.state, reducer: result.reducerState, connection: 'ready', error: null }; this.emit(); } else this.reportError(new PiRequestError(result.error?.code ?? 'DAEMON_UNAVAILABLE', result.error?.message)); } finally { this.recovering = false; }
+    try {
+      const result = await reconnectPiSession({ directory: this.directory(), sessionId, runtimeKey, lastKnownSequence: this.state.reducer.lastSequence.get(sessionId), onEvent: (event) => this.apply(event) });
+      if (expected !== this.generation) { result.stream?.dispose(); return; }
+      if (result.phase === 'ready') {
+        this.stream = result.stream;
+        const reducer: PiReducerState = {
+          bySession: new Map(this.state.reducer.bySession),
+          lastSequence: new Map(this.state.reducer.lastSequence),
+        };
+        for (const [sId, sState] of result.reducerState.bySession.entries()) {
+          reducer.bySession.set(sId, sState);
+        }
+        for (const [sId, seq] of result.reducerState.lastSequence.entries()) {
+          reducer.lastSequence.set(sId, seq);
+        }
+        this.state = { ...this.state, reducer, connection: 'ready', error: null };
+        this.emit();
+      } else this.reportError(new PiRequestError(result.error?.code ?? 'DAEMON_UNAVAILABLE', result.error?.message));
+    } finally { this.recovering = false; }
   }
-  private apply(event: PiSessionEvent) { const result = applyPiEvent(this.state.reducer, event); if (result.didApply) { this.state = { ...this.state, reducer: result.state }; this.emit(); } }
+  private apply(event: PiSessionEvent) {
+    if (event.name === 'session.lifecycle') {
+      const isRunning = event.payload.state === 'busy' || event.payload.state === 'retry';
+      observeSessionActivityTiming(event.sessionId, isRunning ? 'active' : 'settled');
+    } else if (event.name === 'session.snapshot') {
+      const isRunning = Boolean(event.payload.snapshot.isStreaming);
+      observeSessionActivityTiming(event.sessionId, isRunning ? 'active' : 'settled');
+    } else if (event.name === 'assistant.message.start') {
+      observeSessionActivityTiming(event.sessionId, 'active');
+    } else if (event.name === 'session.interrupted' || event.name === 'session.error') {
+      observeSessionActivityTiming(event.sessionId, 'settled');
+    }
+    const result = applyPiEvent(this.state.reducer, event);
+    if (result.didApply) {
+      this.state = { ...this.state, reducer: result.state };
+      this.emit();
+    }
+  }
   private async upsertAndHydrate(detail: Awaited<ReturnType<typeof piClient.getSession>>) { const expected = this.generation; this.state = { ...this.state, sessions: [{ session: detail.session, updatedAt: detail.session.updatedAt }, ...this.state.sessions.filter((item) => item.session.id !== detail.session.id)], selectedSessionId: detail.session.id }; this.emit(); await this.hydrate(detail.session.id, expected, detail); }
   private directory() { if (!this.state.directory) throw new PiRequestError('DAEMON_UNAVAILABLE'); return this.state.directory; }
   private scope(): PiClientScope { return { directory: this.directory(), runtimeKey: getRuntimeKey() }; }

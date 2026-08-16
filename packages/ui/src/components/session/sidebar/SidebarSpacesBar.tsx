@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from '@/components/icon/Icon';
+import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -44,7 +45,6 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
   onOpenProjectEditDialog,
   onRemoveProject,
   hasActiveSessionByProject,
-  hasUnseenByProject,
   homeDirectory,
   className,
 }) => {
@@ -79,7 +79,6 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
           || project.normalizedPath,
         );
         const hasActive = hasActiveSessionByProject?.(project.id);
-        const hasUnseen = hasUnseenByProject?.(project.id);
 
         return (
           <ContextMenu key={project.id}>
@@ -118,14 +117,12 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
               {/* Status indicators */}
               <div className="flex items-center gap-1 shrink-0 ml-1">
                 {hasActive ? (
-                  <span
-                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary animate-pulse"
-                    title={"Active session running"}
-                  />
-                ) : hasUnseen ? (
-                  <span
-                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--status-info)]"
-                    title={"Unread updates"}
+                  <AgentThinkingLoader
+                    variant="inline"
+                    text={null}
+                    animationType="spinner"
+                    speedMs={80}
+                    className="text-primary text-xs shrink-0"
                   />
                 ) : null}
               </div>

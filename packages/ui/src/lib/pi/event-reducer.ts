@@ -446,8 +446,12 @@ export const applyPiEvent = (
 
   switch (event.name) {
     case 'session.snapshot':
-      // Snapshots are handled by the snapshot reducer; we only track the
-      // sequence so the next deltas reject anything the snapshot covered.
+      if (event.payload?.snapshot) {
+        session.lifecycle = event.payload.snapshot.lifecycle ?? (event.payload.snapshot.isStreaming ? 'busy' : 'idle');
+        if (event.payload.snapshot.model) session.model = event.payload.snapshot.model;
+        if (event.payload.snapshot.thinking) session.thinking = event.payload.snapshot.thinking;
+        if (event.payload.snapshot.queue) session.queue = { ...event.payload.snapshot.queue };
+      }
       break;
     case 'session.lifecycle':
       reduceLifecycle(session, event.payload.state, event.payload.attempt);

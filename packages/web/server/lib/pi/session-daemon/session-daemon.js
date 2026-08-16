@@ -224,10 +224,14 @@ export function createSessionDaemon({
   };
 
   const publishSnapshot = (socket, requestedSessionId) => {
-    const session = getSessionState();
+    const targetRuntime = requestedSessionId ? runtimeRegistry?.findBySessionId(requestedSessionId) : runtime;
+    const session = targetRuntime?.session
+      ? { sessionId: targetRuntime.session.sessionId, isStreaming: targetRuntime.session.isStreaming }
+      : getSessionState();
     if (requestedSessionId && requestedSessionId !== session.sessionId) return;
-    const activeSession = runtime?.session;
-    const messages = activeSession ? projectMessageEntries(activeSession, activeDirectory || cwd) : [];
+    const activeSession = targetRuntime?.session || runtime?.session;
+    const targetDirectory = targetRuntime?.cwd || activeDirectory || cwd;
+    const messages = activeSession ? projectMessageEntries(activeSession, targetDirectory) : [];
     const lastAssistant = [...messages].reverse().find((entry) => entry.message.role === 'assistant')?.message;
     const model = activeSession?.model;
     const snapshotSequence = ++sequence;
@@ -238,7 +242,7 @@ export function createSessionDaemon({
       sequence: snapshotSequence,
       payload: {
         ...(session.sessionId ? { sessionId: session.sessionId } : {}),
-        directory: activeDirectory || cwd,
+        directory: targetDirectory,
         isStreaming: session.isStreaming ?? false,
         lifecycle: session.isStreaming ? 'busy' : 'idle',
         queue: activeSession ? {
@@ -254,9 +258,17 @@ export function createSessionDaemon({
     });
   };
 
-  const clearIdleDisposal = () => {
-    if (idleDisposeTimer) clearTimeout(idleDisposeTimer);
-    idleDisposeTimer = undefined;
+  const idleDisposeTimers = new Map();
+
+  const clearIdleDisposal = (sessionId) => {
+    if (sessionId) {
+      const timer = idleDisposeTimers.get(sessionId);
+      if (timer) clearTimeout(timer);
+      idleDisposeTimers.delete(sessionId);
+    } else {
+      for (const timer of idleDisposeTimers.values()) clearTimeout(timer);
+      idleDisposeTimers.clear();
+    }
   };
 
   const disposeRuntime = async () => {
@@ -301,13 +313,24 @@ export function createSessionDaemon({
   };
 
   const scheduleIdleDisposal = (sessionId) => {
-    clearIdleDisposal();
-    idleDisposeTimer = setTimeout(() => {
-      idleDisposeTimer = undefined;
-      if (!runtime || runtime.session.sessionId !== sessionId || runtime.session.isStreaming) return;
-      rememberRuntimeSession();
-      void disposeRuntime().catch(() => publish('session.error', { code: 'RUNTIME_DISPOSAL_FAILED' }, sessionId));
+    clearIdleDisposal(sessionId);
+    const timer = setTimeout(async () => {
+      idleDisposeTimers.delete(sessionId);
+      const targetRuntime = runtimeRegistry?.findBySessionId(sessionId);
+      if (!targetRuntime || targetRuntime.session?.isStreaming) return;
+      try {
+        if (targetRuntime === runtime) {
+          rememberRuntimeSession();
+        }
+        await runtimeRegistry.dispose(targetRuntime);
+        if (targetRuntime === runtime) {
+          runtime = undefined;
+        }
+      } catch {
+        publish('session.error', { code: 'RUNTIME_DISPOSAL_FAILED' }, sessionId);
+      }
     }, idleTimeoutMs);
+    idleDisposeTimers.set(sessionId, timer);
   };
 
   const listSessionItems = async (requestedDirectory) => {
@@ -491,17 +514,11 @@ export function createSessionDaemon({
       return existingAnywhere;
     }
     const { target, directory } = await findPersistedSession(sessionId, requestedDirectory);
-    if (runtime && typeof runtime.switchSession === 'function' && runtime.cwd === directory) {
-      const result = await runtime.switchSession(target.path);
-      if (result && !result.cancelled) {
-        runtimeRegistry.register(runtime, { cwd: directory });
-        activeDirectory = directory;
-        rememberRuntimeSession();
-        return runtime;
-      }
-    }
     const newRuntime = await createRuntime({ cwd: directory, agentDir, sessionFile: target.path });
     if (!newRuntime.cwd) newRuntime.cwd = directory;
+    if (newRuntime.session?.sessionId !== sessionId && typeof newRuntime.switchSession === 'function') {
+      await newRuntime.switchSession(target.path);
+    }
     runtimeRegistry.register(newRuntime, { cwd: directory });
     runtime = newRuntime;
     activeDirectory = directory;
@@ -1392,7 +1409,7 @@ export function createSessionDaemon({
         publish('session.queue', { steering: event.steering.length, followUp: event.followUp.length }, sessionId, directory);
         break;
       case 'agent_start':
-        clearIdleDisposal();
+        clearIdleDisposal(sessionId);
         publish('session.lifecycle', { state: 'busy' }, sessionId, directory);
         break;
       case 'agent_end': {

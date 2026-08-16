@@ -11,11 +11,18 @@ const IDLE: SessionStatus = { type: 'idle' };
 const EMPTY_PERMISSIONS: PermissionRequest[] = [];
 const EMPTY_QUESTIONS: QuestionRequest[] = [];
 
-export function useGlobalSessionStatus(_sessionId: string): SessionStatus | undefined {
-  return undefined;
+export function useGlobalSessionStatus(sessionID: string, directory?: string): SessionStatus {
+  return useSessionStatus(sessionID, directory);
 }
 export function useAllSessionStatuses(): Record<string, SessionStatus> {
-  return {};
+  const state = usePiSessionSnapshot();
+  const statuses: Record<string, SessionStatus> = {};
+  for (const [sessionId, session] of state.reducer.bySession.entries()) {
+    if (session.lifecycle === 'busy' || session.lifecycle === 'retry' || (session.streamingMessages && session.streamingMessages.size > 0)) {
+      statuses[sessionId] = { type: session.lifecycle === 'retry' ? 'retry' : 'busy' };
+    }
+  }
+  return statuses;
 }
 export function useAllLiveSessions(): Session[] {
   const state = usePiSessionSnapshot();

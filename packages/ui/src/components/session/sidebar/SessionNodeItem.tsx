@@ -659,29 +659,9 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   const pendingQuestionLabel = pendingQuestionCount === 1
     ? "1 pending question"
     : `${pendingQuestionCount} pending questions`;
-  const showUnreadStatus = !isStreaming && needsAttention && !isActive;
-  const showStatusMarker = isStreaming || showUnreadStatus;
-  // Both states are the same static dot; only the color separates "running"
-  // from "unread". The elapsed-turn readout on the right carries the motion
-  // that a spinner used to, at one repaint per second instead of per frame.
-  const statusMarkerLabel = isStreaming
-    ? "Session active"
-    : "Unread updates";
-  const statusMarkerContent = (
-    <span
-      className={cn(
-        'h-1.5 w-1.5 rounded-full',
-        isStreaming ? 'bg-primary' : 'bg-[var(--status-info)]',
-      )}
-      aria-label={statusMarkerLabel}
-      title={statusMarkerLabel}
-    />
-  );
-  // The settled duration lives exactly as long as the unread marker does, so a
-  // session read (or watched) while it finishes never keeps a stale total.
-  const showActivityDuration = (isStreaming || showUnreadStatus) && hasActivityDuration;
-  const hideLeadingIndicatorOnHover = !alwaysShowActions && hasChildren && (showStatusMarker || isPinnedSession);
-  const showPinnedMarker = isPinnedSession && !showStatusMarker;
+  const showActivityDuration = isStreaming && hasActivityDuration;
+  const hideLeadingIndicatorOnHover = !alwaysShowActions && hasChildren && isPinnedSession;
+  const showPinnedMarker = isPinnedSession;
   const pinnedMarkerContent = (
     <Icon
       name="pushpin"
@@ -689,9 +669,9 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
       aria-label={"Pinned session"}
     />
   );
-  const leadingIndicators = showStatusMarker || showPinnedMarker ? (
+  const leadingIndicators = showPinnedMarker ? (
     <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-      {showStatusMarker ? statusMarkerContent : showPinnedMarker ? pinnedMarkerContent : null}
+      {pinnedMarkerContent}
     </span>
   ) : null;
   const subsessionChevron = hasChildren ? (
@@ -1128,7 +1108,13 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                       {/* Status / Loader / Timestamp */}
                       <div className="ml-1 flex items-center gap-1 shrink-0">
                         {isStreaming ? (
-                          <AgentThinkingLoader variant="badge" text="Thinking" animationType="spinner" speedMs={80} className="px-1.5 py-0.2 text-[10px] font-normal leading-tight shadow-2xs" />
+                          <AgentThinkingLoader
+                            variant="inline"
+                            text={null}
+                            animationType="spinner"
+                            speedMs={80}
+                            className="text-primary text-xs shrink-0"
+                          />
                         ) : (
                           <span className="text-[11px] text-muted-foreground/75 whitespace-nowrap" title={sessionUpdatedLabel}>
                             {sessionCompactUpdatedLabel}
@@ -1233,8 +1219,20 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                   <div className="flex min-w-44 flex-col gap-1.5 text-left text-xs">
                     <div className="flex items-center justify-between gap-3">
                       <span className="min-w-0 truncate font-normal text-foreground">{sessionTitle}</span>
-                      <span className="flex-shrink-0 text-muted-foreground" title={sessionUpdatedLabel}>{sessionCompactUpdatedLabel}</span>
+                      {isStreaming ? (
+                        <SessionActivityDuration sessionId={session.id} running={true} className="flex-shrink-0 text-primary font-medium" />
+                      ) : (
+                        <span className="flex-shrink-0 text-muted-foreground" title={sessionUpdatedLabel}>{sessionCompactUpdatedLabel}</span>
+                      )}
                     </div>
+                    {isStreaming ? (
+                      <div className="flex min-w-0 items-center gap-1.5 text-primary">
+                        <AgentThinkingLoader variant="inline" text={null} animationType="spinner" speedMs={80} className="h-3 w-3 shrink-0" />
+                        <span className="min-w-0 truncate font-medium">
+                          Running for <SessionActivityDuration sessionId={session.id} running={true} />
+                        </span>
+                      </div>
+                    ) : null}
                     {tooltipProjectLabel ? (
                       <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
                         <Icon name="folder" className="h-3 w-3 flex-shrink-0" />

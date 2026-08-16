@@ -18,6 +18,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
 import { useGitStore, useGitAllBranches, useGitRepoStatusMap } from '@/stores/useGitStore';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useArchivedAutoFolders } from './sidebar/hooks/useArchivedAutoFolders';
@@ -220,33 +221,33 @@ const ProjectAggregateStatusIndicator: React.FC<{ directories: Array<string | nu
     }
     return false;
   }, [directorySet]));
-  const hasUnseenNotification = useNotificationStore(React.useCallback((state) => {
-    for (const [directory, count] of Object.entries(state.index.project.unseenCount)) {
-      if (!count) continue;
-      const normalized = normalizePath(directory)?.toLowerCase();
-      if (normalized && directorySet.has(normalized)) return true;
+  const piSnapshot = usePiSessionSnapshot();
+  const hasPiBusySession = React.useMemo(() => {
+    for (const session of piSnapshot.reducer.bySession.values()) {
+      if (session.lifecycle === 'busy' || session.lifecycle === 'retry' || (session.streamingMessages && session.streamingMessages.size > 0)) {
+        const directory = normalizePath(session.directory)?.toLowerCase();
+        if (directory && directorySet.has(directory)) return true;
+        if (directorySet.size === 0) return true;
+      }
     }
     return false;
-  }, [directorySet]));
+  }, [piSnapshot.reducer.bySession, directorySet]);
 
-  // Aggregate header: dot only. A collapsed project can hold several running
-  // turns, so a single elapsed counter would have nothing to count.
-  if (hasBusySession) {
+  if (hasBusySession || hasPiBusySession) {
     return (
       <span
-        className="h-1.5 w-1.5 rounded-full bg-primary"
+        className="inline-flex items-center"
         aria-label={"Session active"}
         title={"Session active"}
-      />
-    );
-  }
-  if (hasUnseenNotification) {
-    return (
-      <span
-        className="h-1.5 w-1.5 rounded-full bg-[var(--status-info)]"
-        aria-label={"Unread updates"}
-        title={"Unread updates"}
-      />
+      >
+        <AgentThinkingLoader
+          variant="inline"
+          text={null}
+          animationType="spinner"
+          speedMs={80}
+          className="text-primary text-xs shrink-0"
+        />
+      </span>
     );
   }
   return null;
@@ -268,6 +269,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const [sessionSearchQuery, setSessionSearchQuery] = React.useState('');
   const sessionSearchContainerRef = React.useRef<HTMLDivElement | null>(null);
   const sessionSearchInputRef = React.useRef<HTMLInputElement | null>(null);
+  const piSnapshot = usePiSessionSnapshot();
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editTitle, setEditTitle] = React.useState('');
   const [editingProjectDialogId, setEditingProjectDialogId] = React.useState<string | null>(null);
@@ -293,7 +295,17 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const activeSessionIds = useGlobalSessionStatusStore(useShallow(
     (state) => isVisible ? [...state.statusById.keys()].sort() : EMPTY_STRING_ARRAY,
   ));
-  const activeSessionIdSet = React.useMemo(() => new Set(activeSessionIds), [activeSessionIds]);
+  const piActiveSessionIds = React.useMemo(() => {
+    if (!isVisible) return EMPTY_STRING_ARRAY;
+    const ids: string[] = [];
+    for (const [id, s] of piSnapshot.reducer.bySession.entries()) {
+      if (s.lifecycle === 'busy' || s.lifecycle === 'retry' || (s.streamingMessages && s.streamingMessages.size > 0)) {
+        ids.push(id);
+      }
+    }
+    return ids;
+  }, [isVisible, piSnapshot.reducer.bySession]);
+  const activeSessionIdSet = React.useMemo(() => new Set([...activeSessionIds, ...piActiveSessionIds]), [activeSessionIds, piActiveSessionIds]);
   const unreadSessionIds = useNotificationStore(useShallow(
     (state) => isVisible
       ? Object.entries(state.index.session.unseenCount)

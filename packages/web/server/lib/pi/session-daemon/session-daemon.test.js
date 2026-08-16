@@ -957,4 +957,66 @@ describe('Pi session daemon spike', () => {
       else process.env.PI_OFFLINE = previousOffline;
     }
   });
+
+  it('supports multiple sessions running concurrently without stopping earlier sessions on switch', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-multi-'));
+    const endpoint = join(root, 'daemon.sock');
+    const file1 = join(root, 'session-1.jsonl');
+    const file2 = join(root, 'session-2.jsonl');
+    await writeFile(file1, `{"type":"session","id":"session-1","cwd":"${root}"}\n`);
+    await writeFile(file2, `{"type":"session","id":"session-2","cwd":"${root}"}\n`);
+
+    const sessions = new Map();
+    sessions.set('session-1', new FakeSession('session-1', file1));
+    sessions.set('session-2', new FakeSession('session-2', file2));
+
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async ({ sessionFile }) => {
+        const id = sessionFile?.includes('session-2') ? 'session-2' : 'session-1';
+        return new FakeRuntime({ cwd: root, session: sessions.get(id) });
+      },
+      listSessions: async () => [
+        { path: file1, id: 'session-1', cwd: root, created: new Date(), modified: new Date(), messageCount: 0 },
+        { path: file2, id: 'session-2', cwd: root, created: new Date(), modified: new Date(), messageCount: 0 },
+      ],
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+
+    // 1. Open session 1 and prompt it
+    await client.request('sessions.open', { sessionId: 'session-1' });
+    const s1 = sessions.get('session-1');
+    await client.request('sessions.prompt', { sessionId: 'session-1', text: 'Prompt in session 1' });
+    s1.isStreaming = true;
+
+    expect(s1.sent).toHaveLength(1);
+    expect(s1.sent[0].text).toBe('Prompt in session 1');
+
+    // 2. Switch to session 2 while session 1 is still streaming
+    const open2 = await client.request('sessions.open', { sessionId: 'session-2' });
+    expect(open2.result).toMatchObject({
+      session: { id: 'session-2' },
+    });
+
+    // Session 1 is still streaming and not aborted
+    expect(s1.isStreaming).toBe(true);
+    expect(s1.aborted).toBe(0);
+
+    // 3. Prompt session 2 concurrently
+    const s2 = sessions.get('session-2');
+    await client.request('sessions.prompt', { sessionId: 'session-2', text: 'Prompt in session 2' });
+
+    expect(s2.sent).toHaveLength(1);
+    expect(s2.sent[0].text).toBe('Prompt in session 2');
+
+    // Both sessions processed their prompts independently
+    expect(s1.sent).toHaveLength(1);
+    expect(s2.sent).toHaveLength(1);
+
+    await client.close();
+  });
 });

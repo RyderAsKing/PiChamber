@@ -10,12 +10,12 @@ import {
 import { Icon } from '@/components/icon/Icon';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useGlobalSessionStatus } from '@/sync/sync-context';
-import { useSessionUnseenCount } from '@/sync/notification-store';
 import { useSwitcherItems, type SwitcherItem } from '@/components/session/sidebar/hooks/useSwitcherItems';
 import { useUIStore } from '@/stores/useUIStore';
 import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { formatSessionCompactDateLabel } from './sidebar/utils';
 import type { SessionNode } from './sidebar/types';
+import { SessionActivityDuration } from '@/components/session/SessionActivityDuration';
 import { cn } from '@/lib/utils';
 
 type SecondaryMeta = SwitcherItem['secondaryMeta'];
@@ -188,18 +188,12 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
   
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
-  const notifyOnSubtasks = useUIStore((state) => state.notifyOnSubtasks);
 
   const sessionStatus = useGlobalSessionStatus(session.id);
-  const unseenCount = useSessionUnseenCount(session.id);
-
   const isActive = currentSessionId === session.id;
   const sessionTitle = session.title?.trim() || "Untitled Session";
-  const isSubtask = Boolean((session as Session & { parentID?: string | null }).parentID);
-  const needsAttention = unseenCount > 0 && (!isSubtask || notifyOnSubtasks);
   const statusType = sessionStatus?.type ?? 'idle';
   const isStreaming = statusType === 'busy' || statusType === 'retry';
-  const showUnreadDot = !isStreaming && needsAttention && !isActive;
 
   const timestamp = session.time?.updated || session.time?.created || Date.now();
   const timeLabel = formatSessionCompactDateLabel(timestamp);
@@ -274,7 +268,7 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
                 {isExpanded ? <Icon name="arrow-down-s" className="h-3 w-3" /> : <Icon name="arrow-right-s" className="h-3 w-3" />}
               </span>
             ) : null}
-            <span className="flex-shrink-0">{timeLabel}</span>
+            <span className="flex-shrink-0">{isStreaming ? <SessionActivityDuration sessionId={session.id} running={true} /> : timeLabel}</span>
             {projectLabel ? <span className="truncate">{projectLabel}</span> : null}
             {branchLabel ? (
               <span className="inline-flex min-w-0 items-center gap-0.5">
@@ -286,21 +280,13 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
         ) : null}
       </div>
 
-      {isStreaming || showUnreadDot ? (
+      {isStreaming ? (
         <span className="flex h-3 w-3 flex-shrink-0 items-center justify-center self-center">
-          {isStreaming ? (
-            <span
-              className="h-1.5 w-1.5 rounded-full bg-primary animate-busy-pulse"
-              aria-label={"Session active"}
-              title={"Session active"}
-            />
-          ) : (
-            <span
-              className="h-1.5 w-1.5 rounded-full bg-[var(--status-info)]"
-              aria-label={"Unread updates"}
-              title={"Unread updates"}
-            />
-          )}
+          <span
+            className="h-1.5 w-1.5 rounded-full bg-primary animate-busy-pulse"
+            aria-label={"Session active"}
+            title={"Session active"}
+          />
         </span>
       ) : null}
     </BaseMenu.Item>
