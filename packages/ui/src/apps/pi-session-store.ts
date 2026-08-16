@@ -13,12 +13,44 @@ import { PiRequestError, piClient, type PiClientScope } from '@/lib/pi/client';
 import { reconnectPiSession } from '@/lib/pi/reconnect';
 import { PiStreamCadence } from '@/lib/pi/stream-cadence';
 import type { PiSessionEvent, PiSessionListItem } from '@/lib/pi/protocol';
-import type { PiSessionId } from '@/lib/pi/types';
+import type { PiSession, PiSessionId, PiSessionLifecycleState } from '@/lib/pi/types';
 import { normalizePath } from '@/lib/pathNormalization';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { observeSessionActivityTiming, removeSessionActivityTiming } from '@/sync/session-activity-timing';
 import { observeSessionActivityEvent, removeSessionOrdering } from '@/sync/session-ordering';
 import { notifySessionTurnComplete } from '@/sync/notification-store';
+import {
+  applyArchiveChange,
+  applyDirectoryListToCatalog,
+  applyHydratedChange,
+  applyLifecycleChange,
+  applyTitleChange,
+  initialCatalog,
+  markDirectoryFailed,
+  markDirectoryLoading,
+  mapDirectoriesWithRefreshSlot,
+  removeRecord,
+  upsertRecord,
+  type LiveSessionLifecycle,
+  type LiveSessionRecord,
+  type PiSessionCatalogState,
+} from '@/sync/pi-session-catalog';
+
+/**
+ * Narrow the reducer's `PiSessionLifecycleState` to the catalog's
+ * `LiveSessionLifecycle`. The reducer carries `'interrupted'` for sessions
+ * whose assistant turn ended without a final tool (e.g. daemon crash); the
+ * catalog treats those as `'idle'` because the session is no longer
+ * running. Any unknown future state falls back to `'idle'` rather than
+ * claiming authoritative activity.
+ */
+const catalogLifecycleFromReducer = (
+  lifecycle: PiSessionLifecycleState,
+): LiveSessionLifecycle => {
+  if (lifecycle === 'busy' || lifecycle === 'retry') return lifecycle;
+  if (lifecycle === 'error') return 'error';
+  return 'idle';
+};
 
 export type PiConnectionState = 'loading' | 'ready' | 'unavailable' | 'error';
 export type PiSessionsListStatus = 'idle' | 'loading' | 'ready' | 'failed';
@@ -44,6 +76,13 @@ export interface PiSessionStoreState {
    *  alive and surfaces a Try-again block in the chat rather than an
    *  empty success. */
   sessionsListStatus: PiSessionsListStatus;
+  /** Runtime-scoped live catalog — metadata for every Pi session this
+   *  runtime has surfaced, kept in lockstep with the SSE event stream
+   *  and per-directory listings. Transcripts stay in `reducer.bySession`
+   *  (LRU-capped); the catalog is metadata-only. See
+   *  `pi-session-catalog.ts` for membership, lifecycle, and reference-
+   *  hygiene rules. */
+  catalog: PiSessionCatalogState;
 }
 type Listener = () => void;
 
@@ -68,6 +107,7 @@ const initial = (): PiSessionStoreState => ({
   hydratedSessionIds: new Set(),
   focusPending: false,
   sessionsListStatus: 'idle',
+  catalog: initialCatalog(),
 });
 
 interface PendingFocus {
@@ -186,6 +226,73 @@ export class PiSessionStore {
     this.state = { ...initial(), connection: 'ready' };
     this.emit();
   };
+
+  // -------------------------------------------------------------------------
+  // Catalog refresh — per-directory listings populate `state.catalog` with
+  // metadata for every known session. Failures preserve prior rows and flip
+  // the directory's `listStatusByDirectory` entry to `'failed'`; other
+  // directories are untouched. The at-most-2 in-flight scheduler lives in
+  // `pi-session-catalog.ts` so the retiring global store can call through a
+  // thin wrapper instead of owning its own.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Refresh the catalog for a single directory. A successful list replaces
+   * that directory's membership; other directories are untouched. Failure
+   * keeps the prior catalog rows for the directory and marks it `'failed'`,
+   * so the sidebar / archive pages can still render the directory with its
+   * last known state — failure is not empty success.
+   */
+  async refreshDirectoryCatalog(directory: string): Promise<{ ok: true } | { ok: false; error: PiRequestError }> {
+    const normalized = normalizePath(directory);
+    if (!normalized) return { ok: false, error: asError(new PiRequestError('INVALID_ARGUMENT', 'directory is required')) };
+    const runtimeKey = getRuntimeKey();
+    this.state = {
+      ...this.state,
+      catalog: markDirectoryLoading(this.state.catalog, normalized),
+    };
+    this.emit();
+    try {
+      const result = await piClient.listSessions({ directory: normalized, runtimeKey });
+      if (runtimeKey !== getRuntimeKey()) return { ok: true }; // runtime switch mid-flight
+      const nextCatalog = applyDirectoryListToCatalog(this.state.catalog, normalized, result.sessions, Date.now());
+      if (nextCatalog === this.state.catalog) {
+        // Membership and rows unchanged — still flip status to ready if
+        // we were loading. The helper handles that internally.
+      }
+      this.state = { ...this.state, catalog: nextCatalog };
+      this.emit();
+      return { ok: true };
+    } catch (error) {
+      if (runtimeKey !== getRuntimeKey()) return { ok: true }; // runtime switch mid-flight
+      const requestError = asError(error);
+      this.state = {
+        ...this.state,
+        catalog: markDirectoryFailed(this.state.catalog, normalized),
+        // Per-directory failures are recorded against the focused slice's
+        // `state.error` only when the focused directory is the one that
+        // failed; otherwise the catalog's `listStatusByDirectory` carries
+        // the signal without leaking into the cluster `connection`.
+        ...(normalizePath(this.state.directory) === normalized
+          ? { error: requestError }
+          : {}),
+      };
+      this.emit();
+      return { ok: false, error: requestError };
+    }
+  }
+
+  /**
+   * Refresh the catalog for many directories concurrently. Schedules at
+   * most two listings in flight at any moment — same rule the retiring
+   * global store used. Each directory's success/failure is independent;
+   * a failed directory does not affect the others.
+   */
+  async refreshAllDirectoryCatalogs(directories: Iterable<string>): Promise<void> {
+    const ordered = [...new Set(directories)].map((directory) => normalizePath(directory)).filter((directory): directory is string => Boolean(directory));
+    if (ordered.length === 0) return;
+    await mapDirectoriesWithRefreshSlot(ordered, (directory) => this.refreshDirectoryCatalog(directory));
+  }
 
   async start(options: { directory?: string | null; sessionId?: PiSessionId | null } = {}): Promise<void> {
     // Once the cluster is attached on this runtime (or has reached
@@ -367,6 +474,7 @@ export class PiSessionStore {
         sessionsListStatus: 'ready',
         focusPending: !!nextSelectedSessionId && !this.hydratedSessionIds.has(nextSelectedSessionId),
         error: null,
+        catalog: applyDirectoryListToCatalog(this.state.catalog, resolvedDirectory, listPayload.sessions, Date.now()),
       };
       this.emit();
       if (nextSelectedSessionId) this.touchLastAccess(nextSelectedSessionId);
@@ -571,6 +679,7 @@ export class PiSessionStore {
         sessions: result.sessions,
         selectedSessionId,
         connection: 'ready',
+        catalog: applyDirectoryListToCatalog(this.state.catalog, selected.directory, result.sessions, Date.now()),
       };
       this.emit();
       if (selectedSessionId) await this.hydrate(selectedSessionId, expected);
@@ -669,16 +778,39 @@ export class PiSessionStore {
       ...(options?.thinking ? { thinking: options.thinking } : (settings.pichamber.defaultThinking ? { thinking: settings.pichamber.defaultThinking } : {})),
     }, { directory, runtimeKey: getRuntimeKey() });
     if (expected !== this.runtimeGeneration) return detail.session.id;
-    this.state = { ...this.state, sessions: [{ session: detail.session, updatedAt: detail.session.updatedAt }, ...this.state.sessions], selectedSessionId: detail.session.id }; this.emit();
+    this.state = { ...this.state, sessions: [{ session: detail.session, updatedAt: detail.session.updatedAt }, ...this.state.sessions], selectedSessionId: detail.session.id };
+    // Seed the catalog with the freshly created row before hydration so
+    // sidebar / header surfaces see the new session without waiting for
+    // the SSE echo. `upsertRecord` is a no-op when the row already exists
+    // (e.g. a parallel event arrived first).
+    this.state = {
+      ...this.state,
+      catalog: upsertRecord(this.state.catalog, this.recordFromPiSession(detail.session)),
+    };
+    this.emit();
     await this.hydrate(detail.session.id, expected, detail);
     return detail.session.id;
   }
 
-  async rename(sessionId: string, title: string) { await piClient.renameSession({ sessionId, title }, this.scope()); this.state = { ...this.state, sessions: this.state.sessions.map((item) => item.session.id === sessionId ? { ...item, session: { ...item.session, title } } : item) }; this.emit(); }
+  async rename(sessionId: string, title: string) {
+    await piClient.renameSession({ sessionId, title }, this.scope());
+    const now = Date.now();
+    this.state = {
+      ...this.state,
+      sessions: this.state.sessions.map((item) => item.session.id === sessionId ? { ...item, session: { ...item.session, title } } : item),
+      catalog: applyTitleChange(this.state.catalog, sessionId, title, now),
+    };
+    this.emit();
+  }
   async archive(sessionId: string, archived: boolean) {
     const sessionDir = this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory;
     await piClient.archiveSession({ sessionId, archived }, this.scope(sessionDir));
-    this.state = { ...this.state, sessions: this.state.sessions.map((item) => item.session.id === sessionId ? { ...item, session: { ...item.session, archived } } : item) };
+    const now = Date.now();
+    this.state = {
+      ...this.state,
+      sessions: this.state.sessions.map((item) => item.session.id === sessionId ? { ...item, session: { ...item.session, archived } } : item),
+      catalog: applyArchiveChange(this.state.catalog, sessionId, archived, now),
+    };
     this.emit();
   }
   async remove(sessionId: string) {
@@ -704,6 +836,7 @@ export class PiSessionStore {
       selectedSessionId,
       hydratedSessionIds: new Set(this.hydratedSessionIds),
       reducer: { bySession: nextBySession, lastSequence: nextLastSequence },
+      catalog: removeRecord(this.state.catalog, sessionId),
     };
     this.emit();
     if (selectedSessionId && selectedSessionId !== this.state.selectedSessionId) await this.hydrate(selectedSessionId, expected);
@@ -773,6 +906,38 @@ export class PiSessionStore {
       lastSequence: detail.lastSequence,
       messages: detail.messages,
     }).session;
+  }
+
+  /**
+   * Build a `LiveSessionRecord` from a server-confirmed `PiSession` for
+   * catalog seeding. Preserves an existing row's `lifecycle` and
+   * `hydrated` flag so the event-driven mirrors win over the listing's
+   * snapshot of the moment.
+   */
+  private recordFromPiSession(session: PiSession, options?: { now?: number }): LiveSessionRecord {
+    const now = options?.now ?? Date.now();
+    const existing = this.state.catalog.byId.get(session.id);
+    const directory = normalizePath(session.directory) ?? session.directory;
+    // `timeArchived === 0` is the restored-session convention (see
+    // `sync/DOCUMENTATION.md`); treat as active even when `archived`
+    // is true so the catalog matches the UI archive split.
+    const isArchived = typeof session.timeArchived === 'number'
+      ? session.timeArchived > 0
+      : Boolean(session.archived);
+    return {
+      id: session.id,
+      directory,
+      parentId: session.parentId ?? null,
+      title: session.title ?? '',
+      archived: isArchived,
+      createdAt: session.createdAt,
+      updatedAt: typeof session.updatedAt === 'number' && Number.isFinite(session.updatedAt)
+        ? session.updatedAt
+        : now,
+      ...(typeof session.messageCount === 'number' ? { messageCount: session.messageCount } : {}),
+      lifecycle: existing?.lifecycle ?? 'idle',
+      hydrated: existing?.hydrated ?? false,
+    };
   }
 
   private mergeHydratedSession(
@@ -856,12 +1021,24 @@ export class PiSessionStore {
     // by hydration. Treat the merge as a no-op for `connection` so a
     // hydrate completion doesn't unexpectedly flip a `'loading'` window
     // back to `'ready'` ahead of the SSE plug.
+    // Catalog row mirrors the reducer: `hydrated` flips to true for the
+    // freshly committed transcript; `lifecycle` mirrors whatever the
+    // merged reducer now holds. A buffered-event batch is folded into the
+    // catalog via the same `applyCatalogFromEvents` path the SSE uses.
+    let nextCatalog = this.applyCatalogFromEvents(buffered, reducer);
+    nextCatalog = applyHydratedChange(nextCatalog, session.sessionId, true);
+    const reducerLifecycle = reducer.bySession.get(session.sessionId)?.lifecycle;
+    const catalogLifecycle = reducerLifecycle ? catalogLifecycleFromReducer(reducerLifecycle) : undefined;
+    if (catalogLifecycle !== undefined) {
+      nextCatalog = applyLifecycleChange(nextCatalog, session.sessionId, catalogLifecycle);
+    }
     this.state = {
       ...this.state,
       reducer,
       error: null,
       focusPending: nextFocusPending,
       hydratedSessionIds: new Set(this.hydratedSessionIds),
+      catalog: nextCatalog,
     };
     this.emit();
     this.scheduleIdleEviction();
@@ -1094,8 +1271,62 @@ export class PiSessionStore {
     }
     if (!applied) return;
     this.state = { ...this.state, reducer: working };
+    // Mirror accepted events into the catalog. Lifecycle transitions flip
+    // a row's `lifecycle`; other events are reference-stable updates
+    // (`applyLifecycleChange` is a no-op when the value matches). Bump
+    // `updatedAt` for the lifecycle/snapshot boundary events so a busy
+    // session's row reflects recent activity even when the user has not
+    // opened it.
+    this.state = {
+      ...this.state,
+      catalog: this.applyCatalogFromEvents(events, working),
+    };
     this.emit();
     if (touched) this.scheduleIdleEviction();
+  }
+
+  /**
+   * Apply accepted events to the catalog row mirror. Lifecycle / snapshot
+   * events flip the catalog row's `lifecycle` field; everything else is a
+   * structural no-op (helpers short-circuit on unchanged values). Walks
+   * the events in order and chains helpers so a single batch of N events
+   * produces at most N narrow row updates.
+   */
+  private applyCatalogFromEvents(
+    events: readonly PiSessionEvent[],
+    working: PiReducerState,
+  ): PiSessionCatalogState {
+    let catalog = this.state.catalog;
+    let now = 0;
+    for (const event of events) {
+      const reducerSession = working.bySession.get(event.sessionId);
+      const reducerLifecycle = reducerSession?.lifecycle;
+      if (reducerLifecycle !== undefined) {
+        catalog = applyLifecycleChange(catalog, event.sessionId, catalogLifecycleFromReducer(reducerLifecycle));
+      }
+      // Activity timestamp: only update on the events that mark a real
+      // turn boundary. Token deltas (`assistant.message.delta`,
+      // `assistant.thinking.delta`, `session.tool.update`) must not bump
+      // `updatedAt` — they fire at token rate and would rebuild every
+      // subscribed sidebar row on every delta.
+      if (
+        event.name === 'session.lifecycle'
+        || event.name === 'session.snapshot'
+        || event.name === 'session.error'
+        || event.name === 'session.interrupted'
+      ) {
+        const existing = catalog.byId.get(event.sessionId);
+        if (existing) {
+          if (now === 0) now = Date.now();
+          if (existing.updatedAt < now) {
+            const nextById = new Map(catalog.byId);
+            nextById.set(event.sessionId, { ...existing, updatedAt: now });
+            catalog = { ...catalog, byId: nextById };
+          }
+        }
+      }
+    }
+    return catalog;
   }
 
   /** Coalesce an idle-transcript eviction scan onto the next macrotask so a
@@ -1137,6 +1368,7 @@ export class PiSessionStore {
     let nextBySession: Map<PiSessionId, PiReducerSessionState> | null = null;
     let nextHydratedIds: Set<PiSessionId> | null = null;
     let nextLastAccess: Map<PiSessionId, number> | null = null;
+    let nextCatalog: PiSessionCatalogState | null = null;
     let evicted = 0;
     for (const [sessionId] of candidates) {
       if (bySession.size - evicted <= PI_TRANSCRIPT_EVICTION_SOFT_CAP) break;
@@ -1147,6 +1379,10 @@ export class PiSessionStore {
       nextHydratedIds.delete(sessionId);
       nextLastAccess.delete(sessionId);
       this.activityPhaseById.delete(sessionId);
+      // The catalog row stays — only the `hydrated` pointer flips so the
+      // sidebar / header can still render metadata for an evicted session.
+      nextCatalog = nextCatalog ?? this.state.catalog;
+      nextCatalog = applyHydratedChange(nextCatalog, sessionId, false);
       evicted += 1;
     }
     if (!nextBySession || !nextHydratedIds || !nextLastAccess) return;
@@ -1155,11 +1391,22 @@ export class PiSessionStore {
       ...this.state,
       reducer: { bySession: nextBySession, lastSequence: new Map(this.state.reducer.lastSequence) },
       hydratedSessionIds: nextHydratedIds,
+      ...(nextCatalog ? { catalog: nextCatalog } : {}),
     };
     this.emit();
   }
 
-  private async upsertAndHydrate(detail: Awaited<ReturnType<typeof piClient.getSession>>) { const expected = this.runtimeGeneration; this.state = { ...this.state, sessions: [{ session: detail.session, updatedAt: detail.session.updatedAt }, ...this.state.sessions.filter((item) => item.session.id !== detail.session.id)], selectedSessionId: detail.session.id }; this.emit(); await this.hydrate(detail.session.id, expected, detail); }
+  private async upsertAndHydrate(detail: Awaited<ReturnType<typeof piClient.getSession>>) {
+    const expected = this.runtimeGeneration;
+    this.state = {
+      ...this.state,
+      sessions: [{ session: detail.session, updatedAt: detail.session.updatedAt }, ...this.state.sessions.filter((item) => item.session.id !== detail.session.id)],
+      selectedSessionId: detail.session.id,
+      catalog: upsertRecord(this.state.catalog, this.recordFromPiSession(detail.session)),
+    };
+    this.emit();
+    await this.hydrate(detail.session.id, expected, detail);
+  }
   private directory() { if (!this.state.directory) throw new PiRequestError('DAEMON_UNAVAILABLE'); return this.state.directory; }
   private streamCursor(): number | undefined {
     let max = -1;
