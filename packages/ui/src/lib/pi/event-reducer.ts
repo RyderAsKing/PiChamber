@@ -243,36 +243,93 @@ const reduceMessageStart = (
   ensureMessage(session, payload, directory);
 };
 
+const resolveAssistantMessage = (
+  session: PiReducerSessionState,
+  messageId: string,
+): PiReducerMessage | undefined => {
+  const direct = session.messages.get(messageId);
+  if (direct && direct.role === 'assistant') return direct;
+  const messages = Array.from(session.messages.values());
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const candidate = messages[index];
+    if (candidate.role === 'assistant' && (candidate.streaming || candidate.durationMs === undefined)) {
+      session.messages.set(messageId, candidate);
+      if (!session.partOrder.has(messageId) && session.partOrder.has(candidate.id)) {
+        session.partOrder.set(messageId, session.partOrder.get(candidate.id)!);
+      }
+      return candidate;
+    }
+  }
+  const trailing = messages[messages.length - 1];
+  if (trailing && trailing.role === 'assistant') {
+    session.messages.set(messageId, trailing);
+    if (!session.partOrder.has(messageId) && session.partOrder.has(trailing.id)) {
+      session.partOrder.set(messageId, session.partOrder.get(trailing.id)!);
+    }
+    return trailing;
+  }
+  return undefined;
+};
+
 const reduceAssistantDelta = (
   session: PiReducerSessionState,
   payload: PiAssistantMessageDeltaPayload | PiAssistantThinkingDeltaPayload,
   type: 'text' | 'thinking',
 ): void => {
-  const message = session.messages.get(payload.messageId);
-  if (!message || message.role !== 'assistant') return;
+  const message = resolveAssistantMessage(session, payload.messageId);
+  if (!message) return;
+  message.streaming = true;
+  session.streamingMessages.add(message.id);
+  session.streamingMessages.add(payload.messageId);
   const partId = payload.partId ?? `${message.id}:${type}`;
-  const existing = session.parts.get(partId);
+  let existing = session.parts.get(partId);
+  if (!existing) {
+    const contentIndex = (payload as { contentIndex?: number }).contentIndex;
+    if (typeof contentIndex === 'number') {
+      const candidateIds = [
+        `${message.id}:${type}:${contentIndex}`,
+        `${message.id}:${contentIndex}`,
+        `${message.id}:${type}`,
+      ];
+      for (const candidateId of candidateIds) {
+        const candidate = session.parts.get(candidateId);
+        if (candidate && candidate.type === type) {
+          existing = candidate;
+          break;
+        }
+      }
+      if (!existing) {
+        const order = session.partOrder.get(message.id) ?? [];
+        for (const id of order) {
+          const candidate = session.parts.get(id);
+          if (candidate && candidate.type === type && candidate.index === contentIndex) {
+            existing = candidate;
+            break;
+          }
+        }
+      }
+    }
+  }
   if (existing) {
     if (existing.type !== type) return;
-    // Pi's contentIndex identifies the content block; it is intentionally
-    // identical for every delta appended to that block. Event sequence owns
-    // replay and out-of-order rejection at the session boundary.
-    session.parts.set(partId, { ...existing, text: existing.text + payload.delta });
+    const updated = { ...existing, text: existing.text + payload.delta, streaming: true };
+    session.parts.set(existing.id, updated);
+    if (partId !== existing.id) {
+      session.parts.set(partId, updated);
+    }
     return;
   }
   const part = ensureTextPart(session, message, type, partId);
-  session.parts.set(part.id, { ...part, text: payload.delta });
+  session.parts.set(part.id, { ...part, text: payload.delta, streaming: true });
 };
 
 const reduceMessageEnd = (
   session: PiReducerSessionState,
   payload: PiMessageEndPayload,
 ): void => {
-  const current = session.messages.get(payload.messageId);
-  if (!current) return;
-  const message = { ...current };
-  session.messages.set(payload.messageId, message);
-  const { text, thinking } = assembleMessageText(session, payload.messageId);
+  const message = resolveAssistantMessage(session, payload.messageId);
+  if (!message) return;
+  const { text, thinking } = assembleMessageText(session, message.id);
   message.text = typeof payload.text === 'string' ? payload.text : text;
   message.thinking = typeof payload.thinking === 'string' ? payload.thinking : thinking;
   message.streaming = false;
@@ -283,6 +340,7 @@ const reduceMessageEnd = (
   }
   if (payload.thinkingLevel) message.thinkingLevel = payload.thinkingLevel;
   if (payload.error) message.error = payload.error;
+  session.streamingMessages.delete(message.id);
   session.streamingMessages.delete(payload.messageId);
 };
 
@@ -293,9 +351,13 @@ const reduceTool = (
 ): void => {
   // Look up the existing part by toolCallId when the start event already
   // produced it.
-  const messageId = session.toolsByCallId.get(payload.toolCallId) ?? payload.messageId;
-  const message = session.messages.get(messageId);
+  const rawMessageId = session.toolsByCallId.get(payload.toolCallId) ?? payload.messageId;
+  const message = resolveAssistantMessage(session, rawMessageId);
   if (!message) return;
+  if (phase !== 'end') {
+    message.streaming = true;
+    session.streamingMessages.add(message.id);
+  }
   const part =
     session.parts.get(payload.partId) ??
     Array.from(session.parts.values()).find(

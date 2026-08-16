@@ -313,11 +313,11 @@ export class PiService {
 
   async archiveSession(input: PiArchiveInput, scope?: PiClientScope): Promise<void> {
     assertRuntimeUnchanged(scope);
-    await jsonRequest<{ sessionId: PiSessionId; archived: boolean }, undefined>(
+    await jsonRequest<{ sessionId: PiSessionId; archived: boolean; directory?: string }, undefined>(
       `/api/pi/sessions/${encodeURIComponent(input.sessionId)}/archive`,
       {
         method: 'POST',
-        body: { sessionId: input.sessionId, archived: input.archived },
+        body: { sessionId: input.sessionId, archived: input.archived, ...(scope?.directory ? { directory: scope.directory } : {}) },
         ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
       },
     );

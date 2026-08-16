@@ -241,6 +241,71 @@ describe("hydrateSessionFromDetail", () => {
     const session = state.bySession.get("sess-1") as PiReducerSessionState
     expect(session.parts.get("p1")?.tool?.state).toBe("completed")
   })
+
+  test("resumes delta streaming on a hydrated message", () => {
+    const { state: initial } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 2,
+      messages: [{
+        message: {
+          id: "m1", sessionId: "sess-1", directory: "/work", role: "assistant",
+          text: "Hello", thinking: "", createdAt: 1_000,
+        },
+        parts: [{ id: "m1:text:0", index: 0, type: "text", text: "Hello" }],
+      }],
+    })
+    const updated = applyPiEvent(initial, baseEvent("assistant.message.delta", 3, {
+      messageId: "m1", partId: "m1:text:0", contentIndex: 0, delta: " world",
+    }))
+    expect(updated.didApply).toBe(true)
+    const session = updated.state.bySession.get("sess-1") as PiReducerSessionState
+    expect(session.parts.get("m1:text:0")?.text).toBe("Hello world")
+    expect(session.parts.get("m1:text:0")?.streaming).toBe(true)
+    expect(session.messages.get("m1")?.streaming).toBe(true)
+    expect(session.streamingMessages.has("m1")).toBe(true)
+  })
+
+  test("reconciles synthetic SSE messageId with hydrated session entry", () => {
+    const { state: initial } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 2,
+      messages: [{
+        message: {
+          id: "entry_uuid_123", sessionId: "sess-1", directory: "/work", role: "assistant",
+          text: "Thinking...", thinking: "", createdAt: 1_000,
+        },
+        parts: [{ id: "entry_uuid_123:text:0", index: 0, type: "text", text: "Thinking..." }],
+      }],
+    })
+    // SSE emits synthetic messageId: assistant-sess-1-4
+    let state = applyPiEvent(initial, baseEvent("assistant.message.delta", 3, {
+      messageId: "assistant-sess-1-4", partId: "assistant-sess-1-4:text:0", contentIndex: 0, delta: " and answering",
+    })).state
+    const session = state.bySession.get("sess-1") as PiReducerSessionState
+    expect(session.parts.get("entry_uuid_123:text:0")?.text).toBe("Thinking... and answering")
+    expect(session.parts.get("entry_uuid_123:text:0")?.streaming).toBe(true)
+
+    // Tool execution with synthetic messageId
+    state = applyPiEvent(state, baseEvent("session.tool.start", 4, {
+      toolCallId: "tc-live",
+      partId: "assistant-sess-1-4:tool:tc-live",
+      messageId: "assistant-sess-1-4",
+      name: "bash",
+      state: "running",
+      input: { command: "ls" },
+      startedAt: 1_200,
+    })).state
+    expect(state.bySession.get("sess-1")?.parts.get("assistant-sess-1-4:tool:tc-live")?.tool?.name).toBe("bash")
+
+    // Message end with synthetic messageId
+    state = applyPiEvent(state, baseEvent("assistant.message.end", 5, {
+      messageId: "assistant-sess-1-4",
+      text: "Thinking... and answering",
+      durationMs: 500,
+    })).state
+    expect(state.bySession.get("sess-1")?.messages.get("entry_uuid_123")?.streaming).toBe(false)
+    expect(state.bySession.get("sess-1")?.messages.get("entry_uuid_123")?.durationMs).toBe(500)
+  })
 })
 
 describe("projectSession", () => {

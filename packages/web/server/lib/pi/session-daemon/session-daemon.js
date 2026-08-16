@@ -556,13 +556,13 @@ export function createSessionDaemon({
       const text = redactAttachmentPaths(entry.message.content.filter((part) => part?.type === 'text').map((part) => part.text).join(''));
       const thinking = redactAttachmentPaths(entry.message.content.filter((part) => part?.type === 'thinking').map((part) => part.thinking).join(''));
       const parts = entry.message.content.flatMap((part, index) => {
-        if (part?.type === 'text') return [{ type: 'text', id: `${entry.id}:${index}`, index, text: redactAttachmentPaths(part.text) }];
-        if (part?.type === 'thinking') return [{ type: 'thinking', id: `${entry.id}:${index}`, index, text: redactAttachmentPaths(part.thinking) }];
+        if (part?.type === 'text') return [{ type: 'text', id: `${entry.id}:text:${index}`, index, text: redactAttachmentPaths(part.text) }];
+        if (part?.type === 'thinking') return [{ type: 'thinking', id: `${entry.id}:thinking:${index}`, index, text: redactAttachmentPaths(part.thinking) }];
         if (part?.type === 'toolCall') {
           const result = toolResults.get(part.id);
           return [{
             type: 'tool',
-            id: `${entry.id}:${index}`,
+            id: `${entry.id}:tool:${part.id}`,
             index,
             toolCallId: part.id,
             name: part.name,

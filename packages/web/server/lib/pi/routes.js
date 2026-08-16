@@ -755,8 +755,9 @@ export const registerPiRuntimeRoutes = (app, {
   });
 
   app.post('/api/pi/sessions/:sessionId/archive', async (req, res) => {
-    const archived = req.body?.archived;
-    const sessionId = sessionIdFrom(req);
+    const { sessionId } = req.params;
+    const { archived } = req.body || {};
+    const directory = req.body?.directory || req.query?.directory;
     if (!sessionId || typeof archived !== 'boolean') {
       res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
       return;
@@ -764,7 +765,10 @@ export const registerPiRuntimeRoutes = (app, {
     try {
       // Confirm membership without selecting/replacing the daemon's active
       // runtime: archive is PiChamber metadata, not a Pi session mutation.
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('sessions.list');
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request(
+        'sessions.list',
+        directory ? { directory } : undefined,
+      );
       const items = projectSessionList(result?.sessions);
       if (!items.some((item) => item.session.id === sessionId)) {
         const error = new Error('The Pi session does not exist.');

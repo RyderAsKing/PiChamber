@@ -528,8 +528,12 @@ const TurnBlock = React.memo(({
             }
         }
 
+        if (isLastTurn && sessionIsWorking && turn.assistantMessages.length > 0) {
+            return turn.assistantMessages[turn.assistantMessages.length - 1].info.id;
+        }
+
         return null;
-    }, [activeStreamingMessageId, turn.assistantMessages]);
+    }, [activeStreamingMessageId, isLastTurn, sessionIsWorking, turn.assistantMessages]);
 
     const visibleAssistantMessages = React.useMemo(() => {
         if (chatRenderMode === 'live') {
