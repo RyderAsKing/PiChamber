@@ -14,9 +14,13 @@ edge (`components/layout/ContextPanelRail.tsx`) and rendered by
   `availability: 'has-content'` surfaces (preview, chat) are hidden from the
   rail until a tab of their mode exists, and stay visible for as long as one
   does — they must not disappear while in use.
-- `defaultWidthFraction` is the panel width as a fraction of the content area,
-  used until the user manually resizes that surface (manual widths are stored
-  per mode in `useUIStore.contextPanelByDirectory[dir].widthByMode`).
+- `CONTEXT_SURFACE_DEFAULT_WIDTH_FRACTION` is the panel width as a fraction of
+  the content area for every surface. A user resize is stored once per
+  directory (`contextPanelByDirectory[dir].width`) and applies to every rail
+  surface.
+- Git includes working-tree diffs, so there is no separate Changes rail. The
+  Git rail uses the Changes icon and label when the current directory is not a
+  Git repository. There is no Pull Request rail until that integration exists.
 - Rail order is user-reorderable and persisted globally in
   `useUIStore.contextRailOrder`; `sortContextSurfaces` applies it on top of the
   registry's default order and appends any missing surfaces.
@@ -31,7 +35,7 @@ edge (`components/layout/ContextPanelRail.tsx`) and rendered by
 
 1. Add a `ContextPanelMode` value in `useUIStore` (type union plus the
    sanitizer whitelist in `sanitizeContextPanelTabs`).
-2. Register a descriptor here (icon, label key, availability, width fraction).
+2. Register a descriptor here (icon, label, availability).
 3. Render the mode in `ContextPanel.tsx` (content dispatch, label, icon).
 4. Provide direct user-facing `label` and `description` in the descriptor.
 
@@ -43,11 +47,12 @@ the `openContext*` actions in `useUIStore`.
 
 - Opening a surface must never require a control outside the rail, the
   command palette, or an in-content link.
-- Multi-instance and session-holding surfaces (file/editor, chat, diff,
-  browser, terminal) are keep-alive panes in `ContextPanel.tsx`: switching
-  surfaces must not reset their state (open tabs, xterm session, scroll
-  positions). Singleton surfaces (git, pr, notes, plan, context) and preview
-  tabs intentionally remount on switch and must restore themselves from
-  their stores/snapshots instead.
+- Multi-instance and session-holding surfaces (file/editor, chat, browser,
+  terminal) are keep-alive panes in `ContextPanel.tsx`: switching surfaces
+  must not reset their state (open tabs, xterm session, scroll positions).
+  Singleton surfaces (git, notes, context) and preview tabs intentionally
+  remount on switch and must restore themselves from their stores/snapshots
+  instead. Git embeds a stacked diff list of changed files, collapsed until
+  the user expands a file.
 - Runtime scope: desktop/web `MainLayout` only. VS Code and the dedicated
   mobile shell have their own layouts and do not consume this registry.

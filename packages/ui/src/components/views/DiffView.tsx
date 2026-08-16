@@ -745,8 +745,16 @@ const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(({
     }, [directory, fetchStatus, file.path, fileAction, git]);
 
     return (
-        <div ref={setSectionRef} className="scroll-mt-9 border-b border-[var(--interactive-border)]/40 last:border-b-0">
-            <div className="sticky top-0 z-30 border-b border-[var(--interactive-border)]/35 bg-[var(--surface-elevated)]/90 backdrop-blur-md supports-[backdrop-filter]:bg-[var(--surface-elevated)]/80">
+        <div
+            ref={setSectionRef}
+            className={cn(
+                'scroll-mt-9 border-b border-[var(--interactive-border)]/40 last:border-b-0',
+            )}
+        >
+            <div className={cn(
+                'z-30 border-b border-[var(--interactive-border)]/35 bg-[var(--surface-elevated)]/90 backdrop-blur-md supports-[backdrop-filter]:bg-[var(--surface-elevated)]/80',
+                'sticky top-0',
+            )}>
                 <div
                     role="button"
                     tabIndex={0}
@@ -857,7 +865,7 @@ const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(({
                 </div>
             </div>
             {isExpanded && (
-                <div className="relative bg-background overflow-hidden">
+                <div className="relative overflow-hidden bg-background">
                     {!isMounted && !diffLoadError ? (
                         <div className="h-40 border border-border/40 bg-background/40" />
                     ) : null}
@@ -1672,7 +1680,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
         <div className="flex h-full flex-col overflow-hidden bg-background">
             <div className="@container/diff-toolbar flex min-w-0 items-center gap-2 px-3 py-2 bg-background">
                 {!isMobile && (
-                    activeDiffScope === 'working' || activeDiffScope === 'staged' || activeDiffScope === 'turn' ? (
+                    isGitRepo !== false && (activeDiffScope === 'working' || activeDiffScope === 'staged' || activeDiffScope === 'turn') ? (
                         <ChangeScopeSelector
                             scope={activeDiffScope}
                             workingCount={workingFileCount}

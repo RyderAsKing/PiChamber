@@ -1295,7 +1295,7 @@ export const Header: React.FC<HeaderProps> = ({
       const base: TabConfig[] = [
         { id: 'chat', label: "Chat", icon: "chat-4" },
         { id: 'diff', label: "Diff", icon: 'diff' },
-        { id: 'files', label: "Files", icon: "folder-6" },
+        { id: 'files', label: "Files", icon: "file-text" },
         { id: 'terminal', label: "Terminal", icon: "terminal-box" },
         { id: 'context', label: "Context", icon: "file-list-2" },
         { id: 'diagram', label: "Diagram", icon: 'file' },

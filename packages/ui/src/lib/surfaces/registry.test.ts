@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   CONTEXT_SURFACES,
+  getGitRailPresentation,
   getVisibleContextRailSurfaces,
 } from './registry';
 
@@ -31,5 +32,24 @@ describe('getVisibleContextRailSurfaces', () => {
   test('respects the persisted user rail order', () => {
     const surfaces = getVisibleContextRailSurfaces({ ...baseOptions, railOrder: ['git', 'context'] });
     expect(surfaces.slice(0, 2).map((surface) => surface.id)).toEqual(['git', 'context']);
+  });
+
+  test('puts Files directly under Context and omits a separate Changes surface', () => {
+    const ids = CONTEXT_SURFACES.filter((surface) => surface.availability === 'always').map((surface) => surface.id);
+    expect(ids.slice(0, 3)).toEqual(['context', 'editor', 'git']);
+    expect(CONTEXT_SURFACES.map((surface) => surface.id)).not.toContain('diff');
+    expect(CONTEXT_SURFACES.map((surface) => surface.id)).not.toContain('pr');
+    expect(CONTEXT_SURFACES.find((surface) => surface.id === 'editor')?.icon).toBe('file-text');
+  });
+
+  test('uses the Changes icon when the directory is not a git repository', () => {
+    expect(getGitRailPresentation(true).icon).toBe('git-branch');
+    expect(getGitRailPresentation(true).label).toBe('Git');
+    expect(getGitRailPresentation(null).icon).toBe('git-branch');
+    expect(getGitRailPresentation(false)).toEqual({
+      icon: 'arrow-left-right',
+      label: 'Changes',
+      description: 'Review working and last-turn changes',
+    });
   });
 });

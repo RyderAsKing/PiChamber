@@ -17,11 +17,12 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 
 import { Icon } from '@/components/icon/Icon';
-import { DiffViewIcon } from '@/components/icons/DiffIcon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
+import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useDeviceInfo } from '@/lib/device';
 import {
+  getGitRailPresentation,
   getVisibleContextRailSurfaces,
   sortContextSurfaces,
   type ContextSurfaceDescriptor,
@@ -31,7 +32,7 @@ import {
   isShortcutPrefixHeld,
 } from '@/lib/shortcuts';
 import { cn } from '@/lib/utils';
-import { useGitStatus } from '@/stores/useGitStore';
+import { useGitStatus, useGitStore, useIsGitRepo } from '@/stores/useGitStore';
 import { normalizeContextPanelDirectoryKey, useUIStore } from '@/stores/useUIStore';
 
 const RAIL_TOOLTIP_DELAY_MS = 150;
@@ -102,11 +103,7 @@ const ContextPanelRailItem: React.FC<RailItemProps> = ({
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            {surface.id === 'diff' ? (
-              <DiffViewIcon />
-            ) : (
-              <Icon name={surface.icon} className="h-[18px] w-[18px]" />
-            )}
+            <Icon name={surface.icon} className="h-[18px] w-[18px]" />
             {showOrderNumber && orderNumber != null ? (
               <span
                 aria-hidden="true"
@@ -160,7 +157,15 @@ export const ContextPanelRail: React.FC = () => {
   const openContextSurface = useUIStore((state) => state.openContextSurface);
   const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
   const { screenWidth } = useDeviceInfo();
+  const { git } = useRuntimeAPIs();
   const gitStatus = useGitStatus(directoryKey || null);
+  const isGitRepo = useIsGitRepo(directoryKey || null);
+  const ensureStatus = useGitStore((state) => state.ensureStatus);
+
+  React.useEffect(() => {
+    if (!directoryKey) return;
+    void ensureStatus(directoryKey, git);
+  }, [directoryKey, ensureStatus, git]);
 
   const surfaceSwitchPrefix = React.useMemo(
     () => getEffectiveShortcutPrefix('switch_context_surface', shortcutOverrides),
@@ -283,17 +288,19 @@ export const ContextPanelRail: React.FC = () => {
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={surfaces.map((surface) => surface.id)} strategy={verticalListSortingStrategy}>
           {surfaces.map((surface, index) => {
-            const label = surface.label;
-            const gitChangedCount = surface.id === 'git' ? changedFilesCount : 0;
+            const gitPresentation = surface.id === 'git' ? getGitRailPresentation(isGitRepo) : null;
+            const railSurface = gitPresentation ? { ...surface, ...gitPresentation } : surface;
+            const label = railSurface.label;
+            const gitChangedCount = surface.id === 'git' && isGitRepo === true ? changedFilesCount : 0;
             const badgeCount = gitChangedCount > 0 ? gitChangedCount : null;
             return (
               <ContextPanelRailItem
                 key={surface.id}
-                surface={surface}
+                surface={railSurface}
                 isActive={activeMode === surface.mode}
                 showActivityDot={false}
                 label={label}
-                description={surface.description}
+                description={railSurface.description}
                 badgeCount={badgeCount}
                 badgeAriaLabel={badgeCount !== null
                   ? (badgeCount === 1 ? "{label}, {count} changed file" : "{label}, {count} changed files")

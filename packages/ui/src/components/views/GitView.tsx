@@ -19,8 +19,6 @@ import {
   useGitLoadingStatus,
   useGitLoadingLog,
 } from '@/stores/useGitStore';
-import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
-import { ScrollShadow } from '@/components/ui/ScrollShadow';
 import { toast } from '@/components/ui';
 import {
   Dialog,
@@ -42,11 +40,9 @@ import { Icon } from "@/components/icon/Icon";
 import { Button } from '@/components/ui/button';
 
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
-import { useUIStore } from '@/stores/useUIStore';
 
 import { GitHeader } from './git/GitHeader';
 import { StashesDialog } from './git/StashesDialog';
-import { ChangesPanel, type ChangesGroupConfig } from './git/ChangesPanel';
 import { CommitSection } from './git/CommitSection';
 import { GitEmptyState } from './git/GitEmptyState';
 import { HistorySection } from './git/HistorySection';
@@ -55,12 +51,14 @@ import { StashDialog } from './git/StashDialog';
 import { InProgressOperationBanner } from './git/InProgressOperationBanner';
 import { BranchIntegrationSection, type OperationLogEntry } from './git/BranchIntegrationSection';
 import { deriveBaseBranch } from './git/baseBranch';
-import { getFreshestPrStatusForBranch, useGitHubPrStatusStore } from '@/stores/useGitHubPrStatusStore';
 import { createGitIndexMutationQueue, type GitIndexMutationDirection, type GitIndexMutationQueue } from './git/gitIndexMutationQueue';
 import type { GitRemote } from '@/lib/gitApi';
 import { cn } from '@/lib/utils';
 import { generateCommitMessage as generateSessionCommitMessage } from '@/lib/gitApi';
 import { sessionEvents } from '@/lib/sessionEvents';
+import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
+
+const DiffView = lazyWithChunkRecovery(() => import('./DiffView').then((m) => ({ default: m.DiffView })));
 
 type SyncAction = 'fetch' | 'pull' | 'push' | 'sync' | null;
 type CommitAction = 'commit' | 'commitAndPush' | null;
@@ -180,12 +178,6 @@ const isStagedStatusFile = (file: GitStatus['files'][number]): boolean => {
   return Boolean(indexStatus && indexStatus !== '?');
 };
 
-const isUnstagedStatusFile = (file: GitStatus['files'][number]): boolean => {
-  const workingStatus = file.working_dir?.trim();
-  const indexStatus = file.index?.trim();
-  return Boolean(workingStatus || indexStatus === '?');
-};
-
 type GitViewProps = {
   isActive: boolean;
 };
@@ -241,13 +233,6 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     restoreStatus: state.restoreStatus,
     bumpIndexRevision: state.bumpIndexRevision,
   })));
-  const isMobile = useUIStore((state) => state.isMobile);
-  const openContextDiff = useUIStore((state) => state.openContextDiff);
-  const openContextSurface = useUIStore((state) => state.openContextSurface);
-
-  const prStatusBranch = status?.current ?? null;
-  const prChipStatus = null;
-  const navigateToDiff = useUIStore((state) => state.navigateToDiff);
 
   const previousBootstrapStatusRef = React.useRef<'pending' | 'ready' | 'failed' | null>(null);
   const gitReconcileTimeoutRef = React.useRef<number | null>(null);
@@ -366,9 +351,8 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
   const [commitMessage, setCommitMessage] = React.useState(
     initialSnapshot?.commitMessage ?? ''
   );
-  const [visibleChangePaths, setVisibleChangePaths] = React.useState<string[]>([]);
   const [isGitmojiPickerOpen, setIsGitmojiPickerOpen] = React.useState(false);
-  const actionPanelScrollRef = React.useRef<HTMLElement | null>(null);
+  const actionPanelScrollRef = React.useRef<HTMLDivElement | null>(null);
   const [syncAction, setSyncAction] = React.useState<SyncAction>(null);
   const [isStashesDialogOpen, setIsStashesDialogOpen] = React.useState(false);
   const [commitAction, setCommitAction] = React.useState<CommitAction>(null);
@@ -753,11 +737,6 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     [changeEntries]
   );
 
-  const unstagedChangeEntries = React.useMemo(
-    () => changeEntries.filter(isUnstagedStatusFile),
-    [changeEntries]
-  );
-
   React.useEffect(() => {
     if (!currentDirectory || changeEntries.length === 0) {
       return;
@@ -775,7 +754,6 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     };
 
     stagedChangeEntries.forEach((entry) => pushPath(entry.path));
-    visibleChangePaths.forEach(pushPath);
     changeEntries.slice(0, GIT_DIFF_PRIORITY_BASELINE_LIMIT).forEach((entry) => pushPath(entry.path));
 
     if (orderedPaths.length === 0) {
@@ -789,7 +767,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [changeEntries, currentDirectory, git, prefetchDiffs, stagedChangeEntries, visibleChangePaths]);
+  }, [changeEntries, currentDirectory, git, prefetchDiffs, stagedChangeEntries]);
 
   const getPushedRemoteName = (result?: Awaited<ReturnType<typeof git.gitPush>>) => {
     return result?.pushed[0]?.remote
@@ -1527,59 +1505,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     [handleRevertPaths]
   );
 
-  const handleViewChangeDiff = React.useCallback((path: string, staged: boolean) => {
-    if (currentDirectory && !isMobile) {
-      openContextDiff(currentDirectory, path, staged);
-      return;
-    }
-    navigateToDiff(path, staged);
-  }, [currentDirectory, isMobile, navigateToDiff, openContextDiff]);
-
   const openStashes = React.useCallback(() => setIsStashesDialogOpen(true), []);
-
-  const changeGroups = React.useMemo<ChangesGroupConfig[]>(() => {
-    const groups: ChangesGroupConfig[] = [];
-
-    if (stagedChangeEntries.length > 0) {
-      groups.push({
-        id: 'staged',
-        title: "Staged",
-        entries: stagedChangeEntries,
-        actionSymbol: '-',
-        actionAllLabel: "Unstage all changes",
-        getActionLabel: (path) => `Unstage ${path}`,
-        onActionFile: (path) => void moveChangePaths([path], 'unstage'),
-        onActionAll: (paths) => void moveChangePaths(paths, 'unstage'),
-        onViewDiff: (path) => handleViewChangeDiff(path, true),
-        onRevertFile: handleRevertFile,
-        showRevertActions: false,
-        accent: true,
-      });
-    }
-
-    if (unstagedChangeEntries.length > 0) {
-      groups.push({
-        id: 'unstaged',
-        title: "Changes",
-        entries: unstagedChangeEntries,
-        actionSymbol: '+',
-        actionAllLabel: "Stage all changes",
-        getActionLabel: (path) => `Stage ${path}`,
-        onActionFile: (path) => void moveChangePaths([path], 'stage'),
-        onActionAll: (paths) => void moveChangePaths(paths, 'stage'),
-        onViewDiff: (path) => handleViewChangeDiff(path, false),
-        onRevertFile: handleRevertFile,
-      });
-    }
-
-    return groups;
-  }, [
-    handleRevertFile,
-    handleViewChangeDiff,
-    moveChangePaths,
-    stagedChangeEntries,
-    unstagedChangeEntries,
-  ]);
 
   const handleInsertHighlights = React.useCallback((sourceHighlights: string[]) => {
     if (sourceHighlights.length === 0) return;
@@ -2052,14 +1978,15 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
 
   if (isGitRepo === false) {
     return (
-      <div className="flex h-full flex-col items-center justify-center px-4 text-center">
-        <Icon name="git-branch" className="mb-3 size-6 text-muted-foreground" />
-        <p className="typography-ui-label font-semibold text-foreground">
-          {"This directory is not a Git repository"}
-        </p>
-        <p className="typography-meta mt-1 text-muted-foreground">
-          {"Initialize Git in this directory or open a repository."}
-        </p>
+      <div className="flex h-full min-h-0 flex-col overflow-hidden">
+        <React.Suspense fallback={null}>
+          <DiffView
+            diffScope="turn"
+            hideStackedFileSidebar
+            stackedDefaultCollapsedAll
+            flushContent
+          />
+        </React.Suspense>
       </div>
     );
   }
@@ -2091,9 +2018,6 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
         onOpenUpdateBranch={canShowBranchWorkflows ? () => setIsUpdateBranchDialogOpen(true) : undefined}
         pullRequest={null}
         prChecks={null}
-        onOpenPullRequest={
-          currentDirectory ? () => openContextSurface(currentDirectory, 'pr') : undefined
-        }
       />
 
       {/* In-progress operation banner */}
@@ -2113,54 +2037,40 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
         )}
 
       <div className="flex-1 min-h-0 overflow-hidden">
-        <div className="h-full min-h-0 flex flex-col">
-          <div className={cn('min-w-0 min-h-0 h-full flex flex-col')}>
-            <ScrollableOverlay
-              as={ScrollShadow}
-              ref={actionPanelScrollRef}
-              outerClassName="flex-1 min-h-0"
-              className={cn('px-4', 'pt-1 pb-4')}
-              disableHorizontal
-              preventOverscroll
-            >
-              <div className="flex h-full min-h-0 flex-col gap-3">
-                  {(changeEntries?.length ?? 0) > 0 ? (
-                    <>
-                      <div className="min-h-0 flex-1 overflow-hidden">
-                        <ChangesPanel
-                          groups={changeGroups}
-                          diffStats={status?.diffStats}
-                          revertingPaths={revertingPaths}
-                          isRevertingAll={isRevertingAll}
-                          onVisiblePathsChange={setVisibleChangePaths}
-                          onRevertAll={handleRevertAll}
-                          onRevertDirectory={handleRevertDirectory}
-                          headerBackgroundClassName="bg-background"
-                        />
-                      </div>
-
-                      <CommitSection
-                        stagedCount={stagedCount}
-                        commitMessage={commitMessage}
-                        onCommitMessageChange={setCommitMessage}
-                        generatedHighlights={generatedHighlights}
-                        onInsertHighlights={handleInsertHighlights}
-                        onGenerateMessage={handleGenerateCommitMessage}
-                        isGeneratingMessage={isGeneratingMessage}
-                        onCommit={() => handleCommit({ pushAfter: false })}
-                        onCommitAndPush={() => handleCommit({ pushAfter: true })}
-                        commitAction={commitAction}
-                        hasPendingIndexMutation={hasPendingIndexMutation}
-                        gitmojiEnabled={settingsGitmojiEnabled}
-                        onOpenGitmojiPicker={() => setIsGitmojiPickerOpen(true)}
-                      />
-                    </>
-                  ) : (
-                      <GitEmptyState onOpenStashes={() => setIsStashesDialogOpen(true)} />
-                  )}
-                </div>
-            </ScrollableOverlay>
-          </div>
+        <div className="flex h-full min-h-0 flex-col">
+          {(changeEntries?.length ?? 0) > 0 ? (
+            <>
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <React.Suspense fallback={null}>
+                  <DiffView
+                    showOpenInEditorAction
+                    hideStackedFileSidebar
+                    stackedDefaultCollapsedAll
+                    flushContent
+                  />
+                </React.Suspense>
+              </div>
+              <div ref={actionPanelScrollRef} className="shrink-0 px-4 pb-4 pt-2">
+                <CommitSection
+                  stagedCount={stagedCount}
+                  commitMessage={commitMessage}
+                  onCommitMessageChange={setCommitMessage}
+                  generatedHighlights={generatedHighlights}
+                  onInsertHighlights={handleInsertHighlights}
+                  onGenerateMessage={handleGenerateCommitMessage}
+                  isGeneratingMessage={isGeneratingMessage}
+                  onCommit={() => handleCommit({ pushAfter: false })}
+                  onCommitAndPush={() => handleCommit({ pushAfter: true })}
+                  commitAction={commitAction}
+                  hasPendingIndexMutation={hasPendingIndexMutation}
+                  gitmojiEnabled={settingsGitmojiEnabled}
+                  onOpenGitmojiPicker={() => setIsGitmojiPickerOpen(true)}
+                />
+              </div>
+            </>
+          ) : (
+            <GitEmptyState onOpenStashes={() => setIsStashesDialogOpen(true)} />
+          )}
         </div>
       </div>
 

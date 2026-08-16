@@ -22,6 +22,8 @@ import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { cn } from '@/lib/utils';
 import { useFilesViewTabsStore } from '@/stores/useFilesViewTabsStore';
 import { useUIStore, type ContextPanelMode, type PendingDiffScope } from '@/stores/useUIStore';
+import { getGitRailPresentation } from '@/lib/surfaces/registry';
+import { useIsGitRepo } from '@/stores/useGitStore';
 import { useInlineCommentDraftStore } from '@/stores/useInlineCommentDraftStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useInputStore } from '@/sync/input-store';
@@ -45,7 +47,7 @@ import {
   type EmbeddedSessionChatURLCacheEntry,
   type EmbeddedSessionRuntimeBootstrap,
 } from './contextPanelEmbeddedChat';
-import { getContextSurfaceWidthFraction } from '@/lib/surfaces/registry';
+import { CONTEXT_SURFACE_DEFAULT_WIDTH_FRACTION } from '@/lib/surfaces/registry';
 import { isTerminalEventTarget } from '@/lib/terminalFocus';
 import {
   type PreviewElementMetadata,
@@ -155,14 +157,13 @@ const getRelativePathLabel = (filePath: string | null, directory: string): strin
   return normalizedFile;
 };
 
-const getModeLabel = (mode: ContextPanelMode): string => {
+const getModeLabel = (mode: ContextPanelMode, isGitRepo: boolean | null = null): string => {
   if (mode === 'chat') return "Chat";
   if (mode === 'file') return "Files";
   if (mode === 'diff') return "Changes";
   if (mode === 'preview') return "Preview";
   if (mode === 'browser') return "Browser";
-  if (mode === 'git') return "Git";
-  if (mode === 'pr') return "Pull Request";
+  if (mode === 'git') return getGitRailPresentation(isGitRepo).label;
   if (mode === 'notes') return "Project notes";
   if (mode === 'terminal') return "Terminal";
   return "Context";
@@ -188,7 +189,8 @@ const getFileNameFromPath = (path: string | null): string | null => {
 
 const getTabLabel = (
   tab: { mode: ContextPanelMode; label: string | null; targetPath: string | null; dedupeKey?: string; sessionTitleFallback?: string | null; stagedDiff?: boolean },
-  sessionTitleById: ReadonlyMap<string, string>
+  sessionTitleById: ReadonlyMap<string, string>,
+  isGitRepo: boolean | null = null,
 ): string => {
   if (tab.mode === 'chat') {
     const sessionID = getSessionIDFromDedupeKey(tab.dedupeKey);
@@ -232,10 +234,10 @@ const getTabLabel = (
     return "Changes";
   }
 
-  return getModeLabel(tab.mode);
+  return getModeLabel(tab.mode, isGitRepo);
 };
 
-const getTabIcon = (tab: { mode: ContextPanelMode; targetPath: string | null }): React.ReactNode | undefined => {
+const getTabIcon = (tab: { mode: ContextPanelMode; targetPath: string | null }, isGitRepo: boolean | null = null): React.ReactNode | undefined => {
   if (tab.mode === 'file') {
     return tab.targetPath
       ? <FileTypeIcon filePath={tab.targetPath} className="h-3.5 w-3.5" />
@@ -247,11 +249,7 @@ const getTabIcon = (tab: { mode: ContextPanelMode; targetPath: string | null }):
   }
 
   if (tab.mode === 'git') {
-    return <Icon name="git-branch" className="h-3.5 w-3.5" />;
-  }
-
-  if (tab.mode === 'pr') {
-    return <Icon name="github" className="h-3.5 w-3.5" />;
+    return <Icon name={getGitRailPresentation(isGitRepo).icon} className="h-3.5 w-3.5" />;
   }
 
   if (tab.mode === 'notes') {
@@ -2237,9 +2235,8 @@ export const ContextPanel: React.FC = () => {
   const isOpen = Boolean(panelState?.isOpen && activeTab);
   const isExpanded = Boolean(isOpen && panelState?.expanded);
   const [availablePanelAreaWidth, setAvailablePanelAreaWidth] = React.useState<number | null>(null);
-  const activeModeForWidth = activeTab?.mode ?? null;
-  const manualWidth = activeModeForWidth ? panelState?.widthByMode?.[activeModeForWidth] : undefined;
-  const widthFraction = activeModeForWidth ? getContextSurfaceWidthFraction(activeModeForWidth) : 0.5;
+  const manualWidth = panelState?.width;
+  const widthFraction = CONTEXT_SURFACE_DEFAULT_WIDTH_FRACTION;
   const widthFallbackBase = availablePanelAreaWidth
     ?? (typeof window !== 'undefined' ? window.innerWidth : CONTEXT_PANEL_DEFAULT_WIDTH * 2);
   const width = clampWidth(manualWidth ?? Math.round(widthFraction * widthFallbackBase));
@@ -2253,6 +2250,7 @@ export const ContextPanel: React.FC = () => {
     return ids;
   }, [tabs]);
   const sessionTitleById = useSessionTitleMap(directoryKey || undefined, chatSessionIDs);
+  const isGitRepo = useIsGitRepo(directoryKey || null);
 
   const [isResizing, setIsResizing] = React.useState(false);
   const startXRef = React.useRef(0);
@@ -2354,12 +2352,12 @@ export const ContextPanel: React.FC = () => {
       resizeFollowTimerRef.current = null;
     }
     document.documentElement.style.cursor = '';
-    if (directoryKey && activeModeForWidth) {
-      setContextPanelWidth(directoryKey, activeModeForWidth, finalWidth);
+    if (directoryKey) {
+      setContextPanelWidth(directoryKey, finalWidth);
     }
     setIsResizing(false);
     activeResizePointerIDRef.current = null;
-  }, [activeModeForWidth, clampWidthForDrag, directoryKey, setContextPanelWidth, width]);
+  }, [clampWidthForDrag, directoryKey, setContextPanelWidth, width]);
 
   // Window-level drag listeners: tracking the pointer via the 3px handle and
   // pointer capture is unreliable (capture can fail over iframes and a missed
@@ -2664,30 +2662,22 @@ export const ContextPanel: React.FC = () => {
   );
 
   const tabItems = React.useMemo(() => activeModeTabs.map((tab) => {
-    const rawLabel = getTabLabel(tab, sessionTitleById);
+    const rawLabel = getTabLabel(tab, sessionTitleById, isGitRepo);
     const label = truncateTabLabel(rawLabel, CONTEXT_TAB_LABEL_MAX_CHARS);
     const tabPathLabel = getRelativePathLabel(tab.targetPath, effectiveDirectory);
     return {
       id: tab.id,
       label,
-      icon: getTabIcon(tab),
+      icon: getTabIcon(tab, isGitRepo),
       title: tabPathLabel ? `${rawLabel}: ${tabPathLabel}` : rawLabel,
       closeLabel: `Close ${label} tab`,
     };
-  }), [activeModeTabs, effectiveDirectory, sessionTitleById]);
+  }), [activeModeTabs, effectiveDirectory, isGitRepo, sessionTitleById]);
 
   const activeNonChatContent = activeTab?.mode === 'context'
         ? <ContextPanelContent />
         : activeTab?.mode === 'git'
             ? <React.Suspense fallback={null}><GitView isActive={isOpen} /></React.Suspense>
-            : activeTab?.mode === 'pr'
-                ? (
-                  <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-                    <Icon name="github" className="h-12 w-12 text-muted-foreground/50" />
-                    <div className="typography-ui-header text-foreground">{"Pull Request"}</div>
-                    <div className="max-w-sm typography-micro text-muted-foreground">{"GitHub pull request integration is not configured."}</div>
-                  </div>
-                )
             : activeTab?.mode === 'notes'
                 ? <ProjectContextPanel />
             : activeTab?.mode === 'preview'
@@ -2757,9 +2747,9 @@ export const ContextPanel: React.FC = () => {
         />
       ) : (
         <div className="flex min-w-0 flex-1 items-center gap-1.5 px-3">
-          {activeTab ? getTabIcon(activeTab) : null}
+          {activeTab ? getTabIcon(activeTab, isGitRepo) : null}
           <span className="truncate typography-ui-label text-foreground">
-            {activeTab ? getModeLabel(activeTab.mode) : null}
+            {activeTab ? getModeLabel(activeTab.mode, isGitRepo) : null}
           </span>
         </div>
       )}
