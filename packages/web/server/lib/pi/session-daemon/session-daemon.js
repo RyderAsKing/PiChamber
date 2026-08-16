@@ -129,6 +129,7 @@ export function createSessionDaemon({
   const messageStartedAt = new Map();
   const toolStartedAt = new Map();
   const latestUserMessageIds = new Map();
+  const sendGenerationBySession = new Map();
   const streamingRedactionBuffers = new Map();
   const loginAttempts = new Map();
   const MAX_REPLAY_EVENTS = 1_024;
@@ -1217,11 +1218,11 @@ export function createSessionDaemon({
     }
     if (payload.thinking !== undefined) validateThinking(payload.thinking);
     const activeRuntime = await activateSession(payload.sessionId, payload.directory);
-    if (!delivery && activeRuntime.session.isStreaming) {
+    // After a provider stream dies, Pi can report idle while the UI still
+    // retries as steer/follow-up. Start a new turn instead of rejecting.
+    const deliverAs = delivery && activeRuntime.session.isStreaming ? delivery : undefined;
+    if (!deliverAs && activeRuntime.session.isStreaming) {
       throw new SessionDaemonProtocolError('SESSION_BUSY', 'The Pi session already has an active run.');
-    }
-    if (delivery && !activeRuntime.session.isStreaming) {
-      throw new SessionDaemonProtocolError('SESSION_NOT_RUNNING', 'The Pi session has no active run.');
     }
     if (payload.model !== undefined) {
       await setSessionModel(activeRuntime, payload.model);
@@ -1247,13 +1248,28 @@ export function createSessionDaemon({
     const content = attachments.images.length > 0
       ? [{ type: 'text', text }, ...attachments.images]
       : text;
-    await activeRuntime.session.sendUserMessage(content, delivery ? { deliverAs: delivery } : undefined);
     const messageId = typeof payload.messageId === 'string' && payload.messageId.length > 0
       ? payload.messageId
-      : activeRuntime.session.sessionManager?.getLeafId?.();
-    if (typeof messageId !== 'string' || messageId.length === 0) {
-      throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi did not persist the prompt.');
-    }
+      : activeRuntime.session.sessionManager?.getLeafId?.() ?? `msg_${randomUUID()}`;
+    // Prompt acceptance is not turn completion. Pi's send promise remains
+    // pending for the whole agent loop, which can legitimately exceed the
+    // 30-second HTTP/private-IPC request budget. Own it in the daemon and
+    // report asynchronous failure through the existing session event channel.
+    const generation = (sendGenerationBySession.get(payload.sessionId) ?? 0) + 1;
+    sendGenerationBySession.set(payload.sessionId, generation);
+    Promise.resolve(
+      activeRuntime.session.sendUserMessage(content, deliverAs ? { deliverAs } : undefined),
+    ).catch((error) => {
+      if (sendGenerationBySession.get(payload.sessionId) !== generation) return;
+      publish('session.error', {
+        code: 'ASSISTANT_ERROR',
+        ...(error instanceof Error && error.message
+          ? { message: redactAttachmentPaths(error.message) }
+          : {}),
+      }, payload.sessionId, activeRuntime.cwd);
+      if (!activeRuntime.session?.isStreaming) return;
+      Promise.resolve(activeRuntime.session.abort()).catch(() => {});
+    });
     return { accepted: true, messageId };
   };
 

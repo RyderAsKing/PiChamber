@@ -64,7 +64,7 @@ class FakeSession {
 
   setThinkingLevel(thinking) { this.thinkingLevel = thinking; }
 
-  async abort() { this.aborted += 1; }
+  async abort() { this.aborted += 1; this.isStreaming = false; }
 
   async compact() { this.compacted += 1; }
 
@@ -1017,6 +1017,141 @@ describe('Pi session daemon spike', () => {
     expect(s1.sent).toHaveLength(1);
     expect(s2.sent).toHaveLength(1);
 
+    await client.close();
+  });
+
+  it('acknowledges a prompt without waiting for the agent turn to finish', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-prompt-ack-'));
+    const endpoint = join(root, 'daemon.sock');
+    const sessionFile = join(root, 'session-1.jsonl');
+    await writeFile(sessionFile, `{"type":"session","id":"session-1","cwd":"${root}"}\n`);
+    const session = new FakeSession('session-1', sessionFile);
+    let finishTurn;
+    session.sendUserMessage = (text, options) => {
+      session.sent.push({ text, options });
+      return new Promise((resolve) => {
+        finishTurn = resolve;
+      });
+    };
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => new FakeRuntime({ cwd: root, session }),
+      listSessions: async () => [
+        { path: sessionFile, id: 'session-1', cwd: root, created: new Date(), modified: new Date(), messageCount: 0 },
+      ],
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+
+    const response = await client.request('sessions.prompt', {
+      sessionId: 'session-1',
+      text: 'keep working',
+      messageId: 'client-message-1',
+    });
+
+    expect(response.result).toEqual({ accepted: true, messageId: 'client-message-1' });
+    expect(session.sent).toHaveLength(1);
+    finishTurn();
+    await client.close();
+  });
+
+  it('starts a new turn when follow-up arrives after the stream has already ended', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-followup-idle-'));
+    const endpoint = join(root, 'daemon.sock');
+    const sessionFile = join(root, 'session-1.jsonl');
+    await writeFile(sessionFile, `{"type":"session","id":"session-1","cwd":"${root}"}\n`);
+    const session = new FakeSession('session-1', sessionFile);
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => new FakeRuntime({ cwd: root, session }),
+      listSessions: async () => [
+        { path: sessionFile, id: 'session-1', cwd: root, created: new Date(), modified: new Date(), messageCount: 0 },
+      ],
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+
+    const response = await client.request('sessions.followUp', {
+      sessionId: 'session-1',
+      text: 'continue after the stream died',
+    });
+
+    expect(response.result.accepted).toBe(true);
+    expect(session.sent).toHaveLength(1);
+    expect(session.sent[0].options).toBeUndefined();
+    await client.close();
+  });
+
+  it('ignores a stale send rejection after a newer prompt', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-stale-send-'));
+    const endpoint = join(root, 'daemon.sock');
+    const sessionFile = join(root, 'session-1.jsonl');
+    await writeFile(sessionFile, `{"type":"session","id":"session-1","cwd":"${root}"}\n`);
+    const session = new FakeSession('session-1', sessionFile);
+    let rejectFirst;
+    let finishSecond;
+    let sendCount = 0;
+    session.sendUserMessage = (text, options) => {
+      session.sent.push({ text, options });
+      sendCount += 1;
+      if (sendCount === 1) return new Promise((_, reject) => { rejectFirst = reject; });
+      return new Promise((resolve) => { finishSecond = resolve; });
+    };
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => new FakeRuntime({ cwd: root, session }),
+      listSessions: async () => [
+        { path: sessionFile, id: 'session-1', cwd: root, created: new Date(), modified: new Date(), messageCount: 0 },
+      ],
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.prompt', { sessionId: 'session-1', text: 'first' });
+    await client.request('sessions.prompt', { sessionId: 'session-1', text: 'second' });
+    const staleError = client.next((message) => message.kind === 'event' && message.event === 'session.error');
+    rejectFirst(new Error('Stream ended without finish_reason'));
+    await expect(staleError).rejects.toThrow(/Timed out/);
+    finishSecond();
+    await client.close();
+  });
+
+  it('aborts a stuck stream after the owned send promise rejects', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-abort-stuck-'));
+    const endpoint = join(root, 'daemon.sock');
+    const sessionFile = join(root, 'session-1.jsonl');
+    await writeFile(sessionFile, `{"type":"session","id":"session-1","cwd":"${root}"}\n`);
+    const session = new FakeSession('session-1', sessionFile);
+    session.sendUserMessage = (text, options) => {
+      session.sent.push({ text, options });
+      session.isStreaming = true;
+      return Promise.reject(new Error('Stream ended without finish_reason'));
+    };
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => new FakeRuntime({ cwd: root, session }),
+      listSessions: async () => [
+        { path: sessionFile, id: 'session-1', cwd: root, created: new Date(), modified: new Date(), messageCount: 0 },
+      ],
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    const error = client.next((message) => message.kind === 'event' && message.event === 'session.error');
+    await client.request('sessions.prompt', { sessionId: 'session-1', text: 'go' });
+    await error;
+    expect(session.aborted).toBe(1);
+    expect(session.isStreaming).toBe(false);
     await client.close();
   });
 });

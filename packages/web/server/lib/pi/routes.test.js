@@ -408,7 +408,7 @@ describe('Pi runtime route', () => {
     const detail = {
       session: { id: 'pi-session-4', directory: '/workspace', createdAt: 1, updatedAt: 2, sessionFile: '/private/session.jsonl' },
       messages: [{
-        message: { id: 'entry-1', sessionId: 'pi-session-4', directory: '/workspace', role: 'assistant', parentId: 'user-1', text: 'hello', thinking: '', createdAt: 2, secret: 'never-expose' },
+        message: { id: 'entry-1', sessionId: 'pi-session-4', directory: '/workspace', role: 'assistant', parentId: 'user-1', text: 'hello', thinking: '', createdAt: 2, error: { code: 'ASSISTANT_ERROR', message: 'provider request timed out' }, secret: 'never-expose' },
         parts: [{ type: 'text', id: 'entry-1:0', index: 0, text: 'hello', privatePath: '/private' }],
       }],
       lastSequence: 9,
@@ -432,7 +432,7 @@ describe('Pi runtime route', () => {
     await expect(detailResponse.json()).resolves.toEqual({
       session: { id: 'pi-session-4', directory: '/workspace', createdAt: 1, updatedAt: 2 },
       messages: [{
-        message: { id: 'entry-1', sessionId: 'pi-session-4', directory: '/workspace', role: 'assistant', parentId: 'user-1', text: 'hello', thinking: '', createdAt: 2 },
+        message: { id: 'entry-1', sessionId: 'pi-session-4', directory: '/workspace', role: 'assistant', parentId: 'user-1', text: 'hello', thinking: '', createdAt: 2, error: { code: 'ASSISTANT_ERROR', message: 'provider request timed out' } },
         parts: [{ type: 'text', id: 'entry-1:0', index: 0, text: 'hello' }],
       }],
       lastSequence: 9,
@@ -508,6 +508,8 @@ describe('Pi runtime route', () => {
       subscribe: async ({ onEvent }) => {
         onEvent({ protocolVersion: 1, kind: 'event', event: 'session.snapshot', sequence: 4, payload: { sessionId: 'pi-session-5', directory: '/workspace', isStreaming: false, lifecycle: 'idle', queue: { steering: 0, followUp: 0 }, lastSequence: 4, endpoint: '/private/socket' } });
         onEvent({ protocolVersion: 1, kind: 'event', event: 'assistant.message.start', sequence: 5, payload: { sessionId: 'pi-session-5', directory: '/workspace', messageId: 'assistant-1', parentId: 'user-1', role: 'assistant', startedAt: 1 } });
+        onEvent({ protocolVersion: 1, kind: 'event', event: 'assistant.message.end', sequence: 6, payload: { sessionId: 'pi-session-5', directory: '/workspace', messageId: 'assistant-1', durationMs: 42, error: { code: 'ASSISTANT_ERROR', message: 'provider request timed out' } } });
+        onEvent({ protocolVersion: 1, kind: 'event', event: 'session.error', sequence: 7, payload: { sessionId: 'pi-session-5', directory: '/workspace', code: 'ASSISTANT_ERROR', message: 'provider request timed out' } });
         return () => {};
       },
     };
@@ -518,14 +520,17 @@ describe('Pi runtime route', () => {
     const reader = response.body.getReader();
     const first = await reader.read();
     let text = new TextDecoder().decode(first.value);
-    if (!text.includes('"parentId":"user-1"')) {
-      const second = await reader.read();
-      text += new TextDecoder().decode(second.value);
+    while (!text.includes('"message":"provider request timed out"')) {
+      const next = await reader.read();
+      if (next.done) break;
+      text += new TextDecoder().decode(next.value);
     }
     await reader.cancel();
     expect(text).toContain('"name":"session.snapshot"');
     expect(text).toContain('"lastSequence":4');
     expect(text).toContain('"parentId":"user-1"');
+    expect(text).toContain('"durationMs":42');
+    expect(text).toContain('"message":"provider request timed out"');
     expect(text).not.toContain('/private/socket');
   });
 

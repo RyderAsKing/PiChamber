@@ -93,7 +93,14 @@ const projectSessionDetail = (value) => {
       ...(typeof message.text === 'string' ? { text: message.text } : {}),
       ...(message.role === 'assistant' && typeof message.thinking === 'string' ? { thinking: message.thinking } : {}),
       ...(message.model && typeof message.model.providerId === 'string' && typeof message.model.modelId === 'string' ? { model: { providerId: message.model.providerId, modelId: message.model.modelId } } : {}),
-      ...(message.error && typeof message.error.code === 'string' ? { error: { code: message.error.code } } : {}),
+      ...(message.error && typeof message.error.code === 'string'
+        ? {
+            error: {
+              code: message.error.code,
+              ...(typeof message.error.message === 'string' ? { message: message.error.message } : {}),
+            },
+          }
+        : {}),
     };
     const parts = item.parts.map((part) => {
       if (!part || typeof part !== 'object' || typeof part.type !== 'string' || typeof part.id !== 'string' || !Number.isSafeInteger(part.index)) throw protocolMismatch();
@@ -283,12 +290,34 @@ const projectEventFrame = (frame) => {
     case 'assistant.message.start': return { ...common, payload: { messageId: frame.payload.messageId, role: frame.payload.role, startedAt: frame.payload.startedAt, ...(typeof frame.payload.parentId === 'string' ? { parentId: frame.payload.parentId } : {}), ...(typeof frame.payload.text === 'string' ? { text: frame.payload.text } : {}), ...(frame.payload.model ? { model: frame.payload.model } : {}) } };
     case 'assistant.message.delta':
     case 'assistant.thinking.delta': return { ...common, payload: { messageId: frame.payload.messageId, contentIndex: frame.payload.contentIndex, delta: frame.payload.delta, ...(typeof frame.payload.partId === 'string' ? { partId: frame.payload.partId } : {}) } };
-    case 'assistant.message.end': return { ...common, payload: { messageId: frame.payload.messageId, ...(typeof frame.payload.text === 'string' ? { text: frame.payload.text } : {}), ...(typeof frame.payload.thinking === 'string' ? { thinking: frame.payload.thinking } : {}) } };
+    case 'assistant.message.end': return {
+      ...common,
+      payload: {
+        messageId: frame.payload.messageId,
+        ...(typeof frame.payload.text === 'string' ? { text: frame.payload.text } : {}),
+        ...(typeof frame.payload.thinking === 'string' ? { thinking: frame.payload.thinking } : {}),
+        ...(Number.isFinite(frame.payload.durationMs) ? { durationMs: frame.payload.durationMs } : {}),
+        ...(frame.payload.error && typeof frame.payload.error.code === 'string'
+          ? {
+              error: {
+                code: frame.payload.error.code,
+                ...(typeof frame.payload.error.message === 'string' ? { message: frame.payload.error.message } : {}),
+              },
+            }
+          : {}),
+      },
+    };
     case 'session.queue': return { ...common, payload: { steering: frame.payload.steering, followUp: frame.payload.followUp } };
     case 'session.model': return { ...common, payload: { model: frame.payload.model } };
     case 'session.thinking': return { ...common, payload: { thinking: frame.payload.thinking } };
     case 'session.compaction': return { ...common, payload: { running: frame.payload.running === true } };
-    case 'session.error': return { ...common, payload: { code: frame.payload.code } };
+    case 'session.error': return {
+      ...common,
+      payload: {
+        code: frame.payload.code,
+        ...(typeof frame.payload.message === 'string' ? { message: frame.payload.message } : {}),
+      },
+    };
     case 'session.interrupted': return { ...common, payload: { reason: frame.payload.reason, streaming: frame.payload.streaming === true } };
     case 'session.tool.start':
     case 'session.tool.update':
