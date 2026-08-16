@@ -3,12 +3,15 @@
 @import "./styles/design-system.css";
 @import "./styles/typography.css";
 @import "./styles/mobile.css";
-/* Load KaTeX styles eagerly with the main bundle. Importing them inside the
-   lazy MarkdownRendererImpl chunk meant a stylesheet was injected late on the
-   first markdown render of a session; that late injection triggered a style
-   recalc during which the layered `.chat-message-column` width clamp briefly
-   lost, flashing message text to full width before it snapped back. */
-@import "katex/dist/katex.min.css";
+/* KaTeX styles load eagerly with the main bundle via a JS import in
+   `styles/fonts.ts`. Importing them inside the lazy MarkdownRendererImpl
+   chunk meant a stylesheet was injected late on the first markdown render of
+   a session; that late injection triggered a style recalc during which the
+   layered `.chat-message-column` width clamp briefly lost, flashing message
+   text to full width before it snapped back. They must also stay a JS import
+   rather than a CSS `@import`: Tailwind v4 inlines `@import`ed CSS without
+   rebasing its relative url() font references, so Vite warns that they
+   "didn't resolve at build time" and ships no KaTeX font files. */
 @source "./**/*.{ts,tsx,css}";
 
 /* KaTeX theme overrides for light/dark mode */
