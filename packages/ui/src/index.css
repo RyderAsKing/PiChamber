@@ -1223,9 +1223,17 @@ html:not(.dark) .chat-scroll {
   border-left-color: var(--markdown-blockquote-border, var(--border));
 }
 
-/* Markdown horizontal rule - use theme colors */
+/* Markdown horizontal rule. Equal block spacing on both sides; headings that
+   follow an hr already have their own margin-top, which made the gap below the
+   line look larger than the gap above (lists/paragraphs sit tight to the rule). */
 .markdown-content hr {
   border-color: var(--markdown-hr, var(--border));
+  margin-block: var(--markdown-divider-spacing);
+}
+
+.markdown-content hr + :is(h1, h2, h3, h4, h5, h6),
+.markdown-content [data-md-block]:has(> hr:last-child) + [data-md-block] > :is(h1, h2, h3, h4, h5, h6):first-child {
+  margin-top: 0;
 }
 
 /* Markdown bold/italic/strikethrough - use theme colors */
