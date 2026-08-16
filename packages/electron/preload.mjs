@@ -22,11 +22,11 @@ const trayEnabled = process.platform !== 'darwin' || readArgValue('--pichamber-t
 
 // Preload re-executes on every cross-origin navigation (we run with
 // sandbox:false, per-document). Two separate concerns to balance:
-//  - __OPENCHAMBER_ELECTRON__ is a shell-identity flag (no capability).
+//  - __PICHAMBER_ELECTRON__ is a shell-identity flag (no capability).
 //    Remote UIs still need it so isDesktopShell() returns true and the
 //    window renders with desktop affordances (DesktopHostSwitcher,
 //    title bar offsets, etc.). Expose unconditionally.
-//  - __OPENCHAMBER_DESKTOP__ is the IPC channel to the main process. It is
+//  - __PICHAMBER_DESKTOP__ is the IPC channel to the main process. It is
 //    exposed broadly, but privileged commands are gated in main.mjs.
 //    Local-only globals below stay limited to packaged UI / exact localOrigin.
 // Everything driven by localOrigin (home dir, macOS hints) also stays
@@ -39,24 +39,24 @@ const currentOrigin = (() => {
   }
 })();
 const isLocalPage = currentOrigin !== 'null'
-  && (currentOrigin === 'openchamber-ui://app'
+  && (currentOrigin === 'pichamber-ui://app'
   || (localOrigin && currentOrigin === localOrigin));
 
-// Remote pages need __OPENCHAMBER_LOCAL_ORIGIN__ so the HostSwitcher knows
+// Remote pages need __PICHAMBER_LOCAL_ORIGIN__ so the HostSwitcher knows
 // the URL of the Local entry (isDesktopLocalOriginActive() falls back to
 // window.location.origin otherwise — wrong on remote). Low risk: the value
 // is just "http://127.0.0.1:<port>" which is not exploitable without the
 // IPC channel, and CORS on the local server prevents remote-origin fetches.
 if (localOrigin) {
-  contextBridge.exposeInMainWorld('__OPENCHAMBER_LOCAL_ORIGIN__', localOrigin);
+  contextBridge.exposeInMainWorld('__PICHAMBER_LOCAL_ORIGIN__', localOrigin);
 }
 
 if (apiBaseUrl) {
-  contextBridge.exposeInMainWorld('__OPENCHAMBER_API_BASE_URL__', apiBaseUrl);
+  contextBridge.exposeInMainWorld('__PICHAMBER_API_BASE_URL__', apiBaseUrl);
 }
 
 if (clientToken && isLocalPage) {
-  contextBridge.exposeInMainWorld('__OPENCHAMBER_CLIENT_TOKEN__', clientToken);
+  contextBridge.exposeInMainWorld('__PICHAMBER_CLIENT_TOKEN__', clientToken);
 }
 
 // Which saved host this window should connect to over the relay-capable path
@@ -64,14 +64,14 @@ if (clientToken && isLocalPage) {
 // only useful together with the desktop IPC channel anyway.
 const relayHostId = readArgValue('--pichamber-relay-host-id');
 if (relayHostId && isLocalPage) {
-  contextBridge.exposeInMainWorld('__OPENCHAMBER_RELAY_HOST_ID__', relayHostId);
+  contextBridge.exposeInMainWorld('__PICHAMBER_RELAY_HOST_ID__', relayHostId);
 }
 
 if (runtimeHeadersRaw && isLocalPage) {
   try {
     const runtimeHeaders = JSON.parse(runtimeHeadersRaw);
     if (runtimeHeaders && typeof runtimeHeaders === 'object') {
-      contextBridge.exposeInMainWorld('__OPENCHAMBER_RUNTIME_HEADERS__', runtimeHeaders);
+      contextBridge.exposeInMainWorld('__PICHAMBER_RUNTIME_HEADERS__', runtimeHeaders);
     }
   } catch {
   }
@@ -81,22 +81,22 @@ if (runtimeHeadersRaw && isLocalPage) {
 // operate on the REMOTE server's filesystem, local home is irrelevant
 // (and would be misleading if consumed as a workspace hint).
 if (isLocalPage && homeDirectory) {
-  contextBridge.exposeInMainWorld('__OPENCHAMBER_HOME__', homeDirectory);
+  contextBridge.exposeInMainWorld('__PICHAMBER_HOME__', homeDirectory);
 }
 
 // macOS major version drives window chrome offsets (traffic lights) — UI
 // presentation only, safe to expose.
 if (Number.isFinite(macosMajor) && macosMajor > 0) {
-  contextBridge.exposeInMainWorld('__OPENCHAMBER_MACOS_MAJOR__', macosMajor);
+  contextBridge.exposeInMainWorld('__PICHAMBER_MACOS_MAJOR__', macosMajor);
 }
 
-contextBridge.exposeInMainWorld('__OPENCHAMBER_ELECTRON__', {
+contextBridge.exposeInMainWorld('__PICHAMBER_ELECTRON__', {
   runtime: 'electron',
   arch: process.arch,
   trayEnabled,
 });
 
-contextBridge.exposeInMainWorld('__OPENCHAMBER_PLATFORM__', process.platform);
+contextBridge.exposeInMainWorld('__PICHAMBER_PLATFORM__', process.platform);
 
 // Note: bootOutcome must stay writable from the main world's initScript so
 // re-navigations (host switch via deep link) can refresh it. contextBridge-
@@ -145,7 +145,7 @@ const dispatchNativeEvent = (event, detail) => {
 // Main-process events are read-only notifications (update progress,
 // window focus, etc.) — safe to deliver to any page rendered in this
 // webContents. The events themselves don't grant capability.
-ipcRenderer.on('openchamber:emit', (_evt, payload) => {
+ipcRenderer.on('pichamber:emit', (_evt, payload) => {
   if (!payload || typeof payload !== 'object') {
     return;
   }
@@ -159,13 +159,13 @@ ipcRenderer.on('openchamber:emit', (_evt, payload) => {
 });
 
 // The desktop bridge is exposed on all pages; the main-process gate in
-// ipcMain.handle('openchamber:invoke') decides per-command what is safe
+// ipcMain.handle('pichamber:invoke') decides per-command what is safe
 // for non-local callers (window/host-switcher ops yes, file/shell ops
 // no). See COMMANDS_SAFE_FOR_REMOTE in main.mjs.
-contextBridge.exposeInMainWorld('__OPENCHAMBER_DESKTOP__', {
-  invoke: (cmd, args) => ipcRenderer.invoke('openchamber:invoke', cmd, args || {}),
-  openDialog: (options) => ipcRenderer.invoke('openchamber:dialog:open', options || {}),
-  grantFileAccess: (filePath) => ipcRenderer.invoke('openchamber:file:grant-existing', filePath),
-  openExternal: (url) => ipcRenderer.invoke('openchamber:invoke', 'desktop_open_external_url', { url }),
+contextBridge.exposeInMainWorld('__PICHAMBER_DESKTOP__', {
+  invoke: (cmd, args) => ipcRenderer.invoke('pichamber:invoke', cmd, args || {}),
+  openDialog: (options) => ipcRenderer.invoke('pichamber:dialog:open', options || {}),
+  grantFileAccess: (filePath) => ipcRenderer.invoke('pichamber:file:grant-existing', filePath),
+  openExternal: (url) => ipcRenderer.invoke('pichamber:invoke', 'desktop_open_external_url', { url }),
   listen: async (event, handler) => addListener(event, handler),
 });

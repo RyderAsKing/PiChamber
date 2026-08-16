@@ -96,7 +96,7 @@ describe('ElectronSshManager', () => {
     expect(path.basename(result.askpassPath)).toBe('askpass.cmd');
     expect(result.cleanupPaths.map((filePath) => path.basename(filePath))).toEqual(['askpass.cmd', 'askpass.ps1']);
     expect(await fsp.readFile(path.join(tempDir, 'askpass.cmd'), 'utf8')).toContain('WindowsPowerShell');
-    expect(await fsp.readFile(path.join(tempDir, 'askpass.ps1'), 'utf8')).toContain('OPENCHAMBER_SSH_ASKPASS_VALUE');
+    expect(await fsp.readFile(path.join(tempDir, 'askpass.ps1'), 'utf8')).toContain('PICHAMBER_SSH_ASKPASS_VALUE');
   });
 
   test('runs each Windows port forward as an independent hidden SSH process', async () => {
@@ -133,7 +133,7 @@ describe('ElectronSshManager', () => {
       expect(call.args).toContain('-N');
       expect(call.options.windowsHide).toBe(true);
       expect(call.options.env.SSH_ASKPASS).toBe('C:\\PiChamber\\askpass.cmd');
-      expect(call.options.env.OPENCHAMBER_SSH_ASKPASS_VALUE).toBe('secret-value');
+      expect(call.options.env.PICHAMBER_SSH_ASKPASS_VALUE).toBe('secret-value');
     }
     expect(calls[0].args).toContain('-L');
     expect(calls[1].args).toContain('-D');

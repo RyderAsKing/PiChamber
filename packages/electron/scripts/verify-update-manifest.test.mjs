@@ -8,7 +8,7 @@ import test from 'node:test';
 import { verifyUpdateManifest } from './verify-update-manifest.mjs';
 
 const fixture = (manifestName, artifactName, fields) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'openchamber-manifest-test-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pichamber-manifest-test-'));
   const artifactPath = path.join(root, artifactName);
   const manifestPath = path.join(root, manifestName);
   const bytes = Buffer.from(`artifact:${artifactName}`);
