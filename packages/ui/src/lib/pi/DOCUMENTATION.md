@@ -57,8 +57,12 @@ session snapshot into the existing cluster without disposing other hydrated
 sessions, and reattaches the runtime-wide stream; narrowing that stream would
 lose events after the next resident session switch. Pi's delta
 `contentIndex` is a stable content-block identity and may repeat for every
-chunk in that block; reducers append those chunks and use event sequence for
-deduplication. A snapshot is itself an event with `name: 'session.snapshot'`;
+chunk in that block; reducers apply those chunks with `applyAssistantTextDelta`
+(incremental suffix, cumulative snapshot, or bounded overlapping tail) and
+use event sequence for deduplication. Cadence folding uses the same merge so
+a frame of cumulative chunks cannot concatenate into stuttering markdown.
+`assistant.message.end` writes the canonical `text`/`thinking` onto the
+rendered parts; message-level fields alone are not what the chat paints. A snapshot is itself an event with `name: 'session.snapshot'`;
 The snapshot reducer replaces the running state when the snapshot's
 `lastSequence` is strictly greater than the previously accepted snapshot.
 Reconnect still unions an in-flight session's existing messages onto that
