@@ -16,7 +16,7 @@
  *   bottleneck it is measuring.
  */
 
-export const IDLE_PROBE_GLOBAL = "__openchamberIdleProbe"
+export const IDLE_PROBE_GLOBAL = "__pichamberIdleProbe"
 
 const probeFactory = function installOpenchamberIdleProbe(globalName, stackCaptureBudget) {
   if (globalThis[globalName]) return

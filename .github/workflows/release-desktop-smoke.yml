@@ -279,11 +279,11 @@ jobs:
       - name: Verify native Linux architecture
         env:
           EXPECTED_HOST_ARCH: ${{ matrix.host_arch }}
-          OPENCHAMBER_TARGET_ARCH: ${{ matrix.arch }}
+          PICHAMBER_TARGET_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           test "$(uname -m)" = "$EXPECTED_HOST_ARCH"
-          test "$(node -p 'process.arch')" = "$OPENCHAMBER_TARGET_ARCH"
+          test "$(node -p 'process.arch')" = "$PICHAMBER_TARGET_ARCH"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -303,7 +303,7 @@ jobs:
       - name: Build and package Linux AppImage
         working-directory: packages/electron
         env:
-          OPENCHAMBER_TARGET_ARCH: ${{ matrix.arch }}
+          PICHAMBER_TARGET_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           bun run build:web-assets

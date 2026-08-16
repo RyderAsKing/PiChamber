@@ -22,7 +22,7 @@ changelog-*.png
 *.vsix
 /npm
 /tsc
-/openchamber@*
+/pichamber@*
 local-dev*
 .tmp/
 /tmp/

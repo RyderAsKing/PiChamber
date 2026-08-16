@@ -49,7 +49,7 @@
     "stop": "node packages/web/bin/cli.js stop",
     "pack:web": "bun pm pack --cwd packages/web",
     "electron:dev": "node ./packages/electron/scripts/electron-dev.mjs",
-    "electron:dev:bundled": "OPENCHAMBER_ELECTRON_USE_BUNDLED_UI=1 node ./packages/electron/scripts/electron-dev.mjs",
+    "electron:dev:bundled": "PICHAMBER_ELECTRON_USE_BUNDLED_UI=1 node ./packages/electron/scripts/electron-dev.mjs",
     "electron:build": "bun run --cwd packages/electron package",
     "mobile:build": "bun run --cwd packages/mobile build",
     "mobile:sync": "bun run --cwd packages/mobile sync",
