@@ -27,6 +27,8 @@ Packaging builds web assets, bundles the Electron main process, rebuilds native 
 
 GitHub Releases for this package are produced by `.github/workflows/release.yml`. Desktop is the default published artifact; npm and mobile jobs stay disabled unless a workflow dispatch explicitly enables them. See `CONTRIBUTING.md` for the version/tag steps.
 
+macOS notarized builds need `APPLE_CERTIFICATE` as base64 of a Developer ID Application `.p12`. Missing or unreadable certificates produce unsigned `.dmg`/`.zip` files instead of failing the job.
+
 ## Platform rules
 
 - Keep native windows, menus, updater, deep-link, SSH, and IPC behavior in this package.

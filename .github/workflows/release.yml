@@ -163,26 +163,11 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Install Apple Certificate
+        id: apple_cert
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          KEYCHAIN_PATH=$RUNNER_TEMP/electron-signing.keychain-db
-          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
-          security import "$RUNNER_TEMP/certificate.p12" \
-            -P "$APPLE_CERTIFICATE_PASSWORD" \
-            -A -t cert -f pkcs12 \
-            -k "$KEYCHAIN_PATH"
-
-          security list-keychain -d user -s "$KEYCHAIN_PATH"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: \
-            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+        run: bash packages/electron/scripts/install-apple-certificate.sh
 
       - name: Build Electron app
         working-directory: packages/electron
@@ -193,6 +178,7 @@ jobs:
           # rebuild-native.mjs reads this to target the right arch when
           # cross-building (runner is arm64; x64 matrix needs the hint).
           ELECTRON_BUILDER_ARCH: ${{ matrix.arch }}
+          MAC_SIGNED: ${{ steps.apple_cert.outputs.signed }}
         run: |
           bun run build:web-assets
           bun run bundle:main
@@ -201,9 +187,17 @@ jobs:
           # target Electron ABI before packaging, otherwise node-pty/bun-pty
           # crash on require inside the packaged app.
           bun run rebuild:native
-          bunx electron-builder --mac --${{ matrix.arch }} --publish=never
+          if [ "$MAC_SIGNED" = "true" ]; then
+            bunx electron-builder --mac --${{ matrix.arch }} --publish=never
+          else
+            unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            bunx electron-builder --mac --${{ matrix.arch }} --publish=never \
+              -c.mac.identity=null -c.mac.notarize=false
+          fi
 
       - name: Verify signature + entitlements + notarization
+        if: ${{ steps.apple_cert.outputs.signed == 'true' }}
         run: |
           set -euo pipefail
 
