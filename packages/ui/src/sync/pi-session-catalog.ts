@@ -92,6 +92,50 @@ export const initialCatalog = (): PiSessionCatalogState => ({
   listStatusByDirectory: new Map(),
 });
 
+/**
+ * Insert a minimal catalog row for a session that has not been listed by
+ * any directory's RPC yet. Stubs carry only the identity, the event's
+ * directory, and the lifecycle from the payload so the sidebar can render
+ * the session as busy. The row is replaced wholesale when the directory's
+ * listing finally lands; `applyDirectoryListToCatalog` preserves a non-idle
+ * lifecycle on that path so a stub never gets downgraded to idle by a slow
+ * list.
+ */
+export const upsertStubRecord = (
+  state: PiSessionCatalogState,
+  sessionId: PiSessionId,
+  directory: string,
+  lifecycle: LiveSessionLifecycle,
+  now?: number,
+): PiSessionCatalogState => {
+  if (state.byId.has(sessionId)) return state;
+  const normalized = normalizedDirectory(directory);
+  const timestamp = now ?? Date.now();
+  const record: LiveSessionRecord = {
+    id: sessionId,
+    directory: normalized,
+    parentId: null,
+    title: '',
+    archived: false,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    lifecycle,
+    hydrated: false,
+  };
+  const nextById = new Map(state.byId);
+  nextById.set(sessionId, record);
+  const prior = state.byDirectory.get(normalized);
+  const nextByDirectory = new Map(state.byDirectory);
+  if (prior && prior.includes(sessionId)) {
+    nextByDirectory.set(normalized, prior);
+  } else if (prior) {
+    nextByDirectory.set(normalized, [sessionId, ...prior]);
+  } else {
+    nextByDirectory.set(normalized, [sessionId]);
+  }
+  return { ...state, byId: nextById, byDirectory: nextByDirectory };
+};
+
 // ---------------------------------------------------------------------------
 // Pure helpers
 // ---------------------------------------------------------------------------
@@ -115,18 +159,27 @@ const recordsStructurallyEqual = (left: LiveSessionRecord, right: LiveSessionRec
 );
 
 /** Drop the prior membership for `directory` and seed `next`. The order in
- *  `next` is preserved by the caller (typically the listing API's order). */
+ *  `next` is preserved by the caller (typically the listing API's order).
+ *  A row is removed from `byId` only when no other directory still owns
+ *  it — a session that has moved A → B must keep its B row when A's
+ *  listing comes back without it. */
 const replaceDirectoryMembership = (
   byId: Map<PiSessionId, LiveSessionRecord>,
   byDirectory: Map<string, readonly PiSessionId[]>,
   directory: string,
   next: readonly PiSessionId[],
 ): void => {
-  // Delete records that are no longer in this directory's listing.
   const prior = byDirectory.get(directory) ?? [];
   for (const id of prior) {
     if (next.includes(id)) continue;
-    byId.delete(id);
+    // Only drop the row if this session does not belong to any other
+    // directory in the catalog. A record whose `directory` is still `B`
+    // means B's listing owns it; A's stale entry must not erase it.
+    const record = byId.get(id);
+    const ownedElsewhere = record && record.directory !== directory;
+    if (!ownedElsewhere) {
+      byId.delete(id);
+    }
   }
   byDirectory.set(directory, [...next]);
 };
@@ -452,11 +505,19 @@ export const withDirectoryRefreshSlot = async <T>(task: () => Promise<T>): Promi
   }
 };
 
-/** Run many directory refresh tasks with at most two in flight. */
+/** Run many directory refresh tasks with at most two in flight. The
+ *  `withDirectoryRefreshSlot` limiter is the single concurrency cap; the
+ *  scheduler inside `mapWithConcurrency` would create a *nested* cap that
+ *  could deadlock once the catalog owner also takes slots internally.
+ *  Keep this single-limiter rule documented at every call site. */
 export const mapDirectoriesWithRefreshSlot = <T, R>(
   directories: readonly T[],
   mapper: (value: T) => Promise<R>,
-): Promise<R[]> => mapWithConcurrency([...directories], DIRECTORY_REFRESH_CONCURRENCY, async (directory) => withDirectoryRefreshSlot(() => mapper(directory)));
+): Promise<R[]> => mapWithConcurrency(
+  [...directories],
+  DIRECTORY_REFRESH_CONCURRENCY,
+  async (directory) => mapper(directory),
+);
 
 // ---------------------------------------------------------------------------
 // Test helpers

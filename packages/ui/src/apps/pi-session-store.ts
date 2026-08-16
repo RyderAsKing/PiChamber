@@ -31,6 +31,7 @@ import {
   mapDirectoriesWithRefreshSlot,
   removeRecord,
   upsertRecord,
+  upsertStubRecord,
   type LiveSessionLifecycle,
   type LiveSessionRecord,
   type PiSessionCatalogState,
@@ -50,6 +51,24 @@ const catalogLifecycleFromReducer = (
   if (lifecycle === 'busy' || lifecycle === 'retry') return lifecycle;
   if (lifecycle === 'error') return 'error';
   return 'idle';
+};
+
+/**
+ * Extract the catalog lifecycle a stub row should carry when an event
+ * arrives for an unlisted session. `session.lifecycle` is the authoritative
+ * source; `assistant.message.start` implies busy; everything else returns
+ * `undefined` so we do not synthesize stubs from token deltas.
+ */
+const lifecycleFromEvent = (event: PiSessionEvent): LiveSessionLifecycle | undefined => {
+  if (event.name === 'session.lifecycle') {
+    const state = event.payload.state;
+    if (state === 'busy' || state === 'retry' || state === 'error') return state;
+    if (state === 'idle') return 'idle';
+    return undefined;
+  }
+  if (event.name === 'assistant.message.start') return 'busy';
+  if (event.name === 'session.error') return 'error';
+  return undefined;
 };
 
 export type PiConnectionState = 'loading' | 'ready' | 'unavailable' | 'error';
@@ -169,6 +188,11 @@ export class PiSessionStore {
    *  `resetForRuntime`. Private — callers pass the hint explicitly when
    *  they have a better one (sidebar / project picker history). */
   private lastSelectedByDirectory = new Map<string, PiSessionId>();
+  /** Per-directory refresh generation. Bumped every time a directory's
+   *  list starts; stale completions (a slow RPC returning after a newer
+   *  refresh has begun, or after a runtime switch) commit nothing. Cleared
+   *  on `dispose` / `clear` / `resetForRuntime`. */
+  private directoryRefreshGenerationByDirectory = new Map<string, number>();
   private evictionScheduled = false;
   private readonly cadence = new PiStreamCadence((events) => this.commitEvents(events));
   private unsubscribeRuntime = subscribeRuntimeEndpointChanged(() => this.resetForRuntime());
@@ -197,6 +221,7 @@ export class PiSessionStore {
     this.lastAccessById.clear();
     this.lastAccessClock = 0;
     this.lastSelectedByDirectory.clear();
+    this.directoryRefreshGenerationByDirectory.clear();
     this.evictionScheduled = false;
     this.cadence.dispose();
     this.stream?.dispose();
@@ -220,6 +245,7 @@ export class PiSessionStore {
     this.lastAccessById.clear();
     this.lastAccessClock = 0;
     this.lastSelectedByDirectory.clear();
+    this.directoryRefreshGenerationByDirectory.clear();
     this.evictionScheduled = false;
     this.cadence.dispose();
     this.stream?.dispose(); this.stream = null;
@@ -247,6 +273,14 @@ export class PiSessionStore {
     const normalized = normalizePath(directory);
     if (!normalized) return { ok: false, error: asError(new PiRequestError('INVALID_ARGUMENT', 'directory is required')) };
     const runtimeKey = getRuntimeKey();
+    // Per-directory generation. A newer call to `refreshDirectoryCatalog`
+    // for the same directory bumps the generation and a slow completion
+    // from the previous call commits nothing. This keeps a stale RPC
+    // from clobbering a fresher snapshot while the scheduler still
+    // permits up to two listings in flight at once.
+    const generation = (this.directoryRefreshGenerationByDirectory.get(normalized) ?? 0) + 1;
+    this.directoryRefreshGenerationByDirectory.set(normalized, generation);
+    const startedRuntimeGeneration = this.runtimeGeneration;
     this.state = {
       ...this.state,
       catalog: markDirectoryLoading(this.state.catalog, normalized),
@@ -254,17 +288,19 @@ export class PiSessionStore {
     this.emit();
     try {
       const result = await piClient.listSessions({ directory: normalized, runtimeKey });
-      if (runtimeKey !== getRuntimeKey()) return { ok: true }; // runtime switch mid-flight
+      // Three guards, in order: stale per-directory generation, runtime
+      // switch, runtime-key drift.
+      if (this.directoryRefreshGenerationByDirectory.get(normalized) !== generation) return { ok: true };
+      if (startedRuntimeGeneration !== this.runtimeGeneration) return { ok: true };
+      if (runtimeKey !== getRuntimeKey()) return { ok: true };
       const nextCatalog = applyDirectoryListToCatalog(this.state.catalog, normalized, result.sessions, Date.now());
-      if (nextCatalog === this.state.catalog) {
-        // Membership and rows unchanged — still flip status to ready if
-        // we were loading. The helper handles that internally.
-      }
       this.state = { ...this.state, catalog: nextCatalog };
       this.emit();
       return { ok: true };
     } catch (error) {
-      if (runtimeKey !== getRuntimeKey()) return { ok: true }; // runtime switch mid-flight
+      if (this.directoryRefreshGenerationByDirectory.get(normalized) !== generation) return { ok: true };
+      if (startedRuntimeGeneration !== this.runtimeGeneration) return { ok: true };
+      if (runtimeKey !== getRuntimeKey()) return { ok: true };
       const requestError = asError(error);
       this.state = {
         ...this.state,
@@ -617,6 +653,7 @@ export class PiSessionStore {
     this.lastAccessById.clear();
     this.lastAccessClock = 0;
     this.lastSelectedByDirectory.clear();
+    this.directoryRefreshGenerationByDirectory.clear();
     this.evictionScheduled = false;
     this.cadence.dispose();
     this.stream?.dispose(); this.stream = null;
@@ -1291,6 +1328,14 @@ export class PiSessionStore {
    * structural no-op (helpers short-circuit on unchanged values). Walks
    * the events in order and chains helpers so a single batch of N events
    * produces at most N narrow row updates.
+   *
+   * When an event arrives for a session that has not yet been listed by
+   * any directory's RPC, `upsertStubRecord` inserts a minimal catalog row
+   * (no title, no preview) so the sidebar can render the session as busy
+   * instead of painting it idle. The stub is replaced wholesale when the
+   * directory's listing finally lands — `applyDirectoryListToCatalog`
+   * preserves a non-idle lifecycle on that path so a stub never gets
+   * downgraded to idle by a slow list.
    */
   private applyCatalogFromEvents(
     events: readonly PiSessionEvent[],
@@ -1301,6 +1346,10 @@ export class PiSessionStore {
     for (const event of events) {
       const reducerSession = working.bySession.get(event.sessionId);
       const reducerLifecycle = reducerSession?.lifecycle;
+      const stubLifecycle = lifecycleFromEvent(event);
+      if (stubLifecycle !== undefined && !catalog.byId.has(event.sessionId)) {
+        catalog = upsertStubRecord(catalog, event.sessionId, event.directory, stubLifecycle);
+      }
       if (reducerLifecycle !== undefined) {
         catalog = applyLifecycleChange(catalog, event.sessionId, catalogLifecycleFromReducer(reducerLifecycle));
       }
@@ -1429,6 +1478,7 @@ export class PiSessionStore {
     this.lastAccessById.clear();
     this.lastAccessClock = 0;
     this.lastSelectedByDirectory.clear();
+    this.directoryRefreshGenerationByDirectory.clear();
     this.evictionScheduled = false;
     this.cadence.dispose();
     this.stream?.dispose();
