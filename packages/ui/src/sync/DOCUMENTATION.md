@@ -61,11 +61,15 @@ The Pi cluster belongs to the connected runtime, not the focused project:
 |---|---|---|
 | `ChildStoreManager` and child directory stores | Priority-scheduled directory bootstrap plus `session`, `message`, `part`, `permission`, `question`, etc. | One runtime and one store per directory |
 | `SessionMessageLoader` | Initial message loading, pagination, prefetch, retries, load state, and optimistic reconciliation | One runtime, directory, and session ID |
+| `pi-session-catalog.ts` | Live runtime-scoped metadata catalog (`byId`, `byDirectory`, `listStatusByDirectory`); the at-most-2-in-flight directory refresh scheduler | All known directories in the active runtime |
+| `PiSessionStore` (`pi-session-store.ts`) | Live event stream, reducer `bySession` (LRU-capped transcripts), `hydratedSessionIds`, `lastAccessById`, the live catalog, and per-directory refresh generation | One runtime-wide cluster |
+| `PiSessionCatalogFeeder` (`pi-session-catalog-feeder.tsx`) | Subscribes to `useProjectsStore` + `useSessionUIStore`; fills the catalog for every known directory (project roots + worktrees), deduped by sorted signature | All known directories; React-mount lifecycle |
 | `global-session-status.ts` | Incremental non-idle session status index reconciled from events and authoritative directory snapshots | All known directories in the active runtime |
 | `session-ordering.ts` | Ephemeral lifecycle rank used by every user-visible session list | All known sessions in the active runtime |
 | `session-activity-timing.ts` | Elapsed time of the running turn and of the turn that just finished, plus the persisted starts that survive a reload | All known sessions in the active runtime |
 | `session-ui-store.ts` | Session selection, draft lifecycle, abort prompts, action entrypoints | App UI state |
-| `useGlobalSessionsStore.ts` | Global active sessions, global archived sessions, `sessionsByDirectory` | All added project session lists; each successful directory refresh replaces only that directory while failures preserve its prior sessions |
+| `useGlobalSessionsStore.ts` | Thin wrapper that reads the catalog via `liveSessionRecordToUiSession`; retains `upsertSession` / `removeSessions` / `archiveSessions` / `applySnapshot` / `resetForRuntimeSwitch` until `migrate-hooks` retires it | Derived view of the catalog; mutations for retained callers |
+| `known-session-directories.ts` | The shared `buildKnownSessionDirectories(projects, worktrees)` helper the sidebar and feeder use to agree on the directory set | App-wide |
 | `viewport-store.ts` | Scroll anchors, session memory, loading indicators | App UI state |
 | `attachment-files.ts` | Attachment picker allowlists, MIME/content validation, structured-text sanitization, and HEIC conversion | Local chat attachments across shared UI runtimes |
 | `document-attachments.ts` | Bounded Office/OpenDocument extraction, document text serialization, embedded-image extraction, and positional citations | DOCX, PPTX, XLSX, ODT, ODP, and ODS chat attachments |
@@ -77,6 +81,57 @@ Local chat attachments are normalized by `attachment-files.ts` before entering `
 Office and OpenDocument packages are metadata-validated before asynchronous extraction, with limits of 20 MB compressed input, 5,000 archive entries, 25 MB per entry, 8 MB per XML part, and 100 MB total uncompressed content. Unsafe or non-canonical archive paths reject the whole attachment, and only XML, relationship, and supported image entries are decompressed and retained. Extracted text, including its explicit truncation notice, is bounded to 2,000,000 characters. At most 50 signature-validated PNG, JPEG, GIF, or WebP images and 40 MB of image bytes are retained, with a 20 MB per-image limit; unsupported, invalid, omitted, and truncated content remains explicit in the extracted text. Images whose citations fall beyond text truncation are not attached. Extracted document content remains a `text/plain` file attachment with the original document filename, rather than becoming visible user-message text. Supported embedded images become separate image file parts; the extracted text contains `[filename]` citations at the source paragraph, slide object, spreadsheet cell anchor, or OpenDocument text position. Generated image filenames are re-evaluated if the composer changes during asynchronous preparation, avoiding collisions. The store publishes all generated parts atomically only after every data URL is ready.
 
 The composer compares normalized attachment MIME types with the selected model's declared input modalities. It warns when a newly attached file or an existing attachment after a model change requires an unsupported modality, but does not block sending. Missing modality metadata remains unknown and does not produce a warning. Pi sends upload every captured data URL before prompt dispatch and forward only the returned opaque attachment ids; dropping `files` is not a supported fallback.
+
+## Live session catalog
+
+`PiSessionStore` owns the runtime-scoped live catalog of every Pi session the connected runtime has surfaced. Transcripts continue to live in `reducer.bySession` (LRU-capped, soft cap 16, idle-eviction on the deferred microtask). The catalog is metadata-only — no messages, no parts — so it can survive an LRU drop and still render a sidebar row.
+
+### Shape
+
+```text
+catalog.byId:                    Map<sessionId, LiveSessionRecord>
+catalog.byDirectory:             Map<directory, sessionId[]>     // membership
+catalog.listStatusByDirectory:   Map<directory, 'idle'|'loading'|'ready'|'failed'>
+```
+
+`LiveSessionRecord` carries `id`, `directory`, `parentId`, `title`, `archived`, `createdAt`, `updatedAt`, optional `preview` / `messageCount`, a `lifecycle` mirror (`'idle' | 'busy' | 'retry' | 'error'`), and a `hydrated` flag (a pointer into `reducer.bySession`, not a copy of it).
+
+### Membership rules
+
+- A successful `listSessions` for directory `D` replaces `byDirectory[D]`; other directories are untouched. Rows for ids that left `D` are removed from `byId` only when no other directory in the catalog still owns the record (a session that has moved A → B must keep its B row when A is re-listed without it).
+- A failed `listSessions` for `D` keeps the prior rows for `D` and flips `listStatusByDirectory[D]` to `'failed'`. Failure is not empty success.
+- Pi events update rows in place: `session.lifecycle` flips `lifecycle`, snapshot boundary events bump `updatedAt`, token deltas do not bump `updatedAt` (they fire at token rate and would rebuild every subscribed sidebar row).
+- An event arriving for a session that has not been listed yet (`byId` has no row) inserts a `upsertStubRecord` so the sidebar can render the session as busy. `applyDirectoryListToCatalog` preserves a non-idle existing lifecycle on listed ids, so a stub is never downgraded to idle by a slow list.
+
+### Single fill path
+
+`PiSessionCatalogFeeder` is the only direct caller of `PiSessionStore.refreshAllDirectoryCatalogs` from React. It subscribes to both `useProjectsStore` (project roots) and `useSessionUIStore` (`availableWorktreesByProject` for discovered worktree paths). On every change in the union it:
+
+1. Computes the sorted directory-set signature.
+2. Skips the refresh when the signature has not changed (project-list reorders and worktree discovery that yields the same paths must not re-list).
+3. Otherwise calls `PiSessionStore.refreshAllDirectoryCatalogs(directories)`.
+
+`refreshDirectoryCatalog` is the single fill primitive. It captures a per-directory generation, bumps it on every call, and ignores stale completions (a slow RPC returning after a newer refresh has begun, or after a runtime switch, commits nothing). The at-most-2-in-flight scheduler is owned by `pi-session-catalog.ts` (`mapDirectoriesWithRefreshSlot` uses `mapWithConcurrency(2)`; the older nested `withDirectoryRefreshSlot` is exported only for direct callers and must not be re-nested — two limiters can deadlock).
+
+### Wrapper contract (until migrate-hooks)
+
+`useGlobalSessionsStore` is the retiring wrapper. Its `fetchDirectoryPages` and `syncFromPiStore` paths now read the catalog via `liveSessionRecordToUiSession` instead of calling the removed `piListItemToUiSession`. The wrapper skips sync when the focused folder's list is still in flight:
+
+- `connection === 'loading'`
+- `focusPending === true`
+- `sessionsListStatus === 'loading'` or `'idle'`
+
+Without those guards, a focused folder whose listing RPC has not resolved yet would publish `sessions: []` and wipe the focused slice in the global store. Mini-chat (no feeder) still reaches `loadSessions`; the wrapper must work without throwing there.
+
+`fetchDirectoryPages` also dedups: directories whose `listStatusByDirectory` is already `'ready'` are read straight from the catalog, and only `'idle'` / `'failed'` directories are passed to `refreshAllDirectoryCatalogs`. This prevents double-listing when the sidebar asks for a refresh while the catalog already has the data.
+
+### Failure handling
+
+Per-directory failures stay scoped to that directory. The catalog's `listStatusByDirectory` carries the signal without leaking into `state.connection` (which is owned by the bootstrap / reconnect path). A failed list does not erase other directories' rows.
+
+### Runtime switch
+
+`dispose` / `clear` / `resetForRuntime` reset the catalog via `initial()`. The `hydratedSessionIds` set, `lastAccessById`, and the per-directory refresh generations all clear in lockstep.
 
 ## Session list rules
 
