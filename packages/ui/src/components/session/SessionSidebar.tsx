@@ -68,8 +68,8 @@ import {
   normalizePath,
   selectExpandedParentKeysForContext,
   toggleExpandedParentKey,
-  SidebarSessionLikeButton,
 } from './sidebar/utils';
+import { SidebarSessionLikeButton } from './sidebar/sidebarRowChrome';
 import {
   compareSessionsByLifecycleOrder,
   EMPTY_SESSION_ORDER_RANKS,

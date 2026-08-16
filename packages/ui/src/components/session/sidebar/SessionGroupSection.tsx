@@ -19,7 +19,9 @@ import { SessionFolderItem } from '../SessionFolderItem';
 import type { SortableDragHandleProps } from './sortableItems';
 import { DroppableFolderWrapper, SessionFolderDndScope } from './sessionFolderDnd';
 import type { GroupSearchData, SessionGroup, SessionNode } from './types';
-import { isBranchDifferentFromLabel, normalizePath, renderHighlightedText, SidebarSessionLikeButton } from './utils';
+import { isBranchDifferentFromLabel, normalizePath } from './utils';
+import { renderHighlightedText } from './highlightedText';
+import { SidebarSessionLikeButton } from './sidebarRowChrome';
 import { compareSessionsByLifecycleOrder, EMPTY_SESSION_ORDER_RANKS } from '@/sync/session-ordering';
 import {
   collectSubtreeContainingId,

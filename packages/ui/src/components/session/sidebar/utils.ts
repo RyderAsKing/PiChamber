@@ -1,8 +1,4 @@
-import React from 'react';
 import type { Session } from '@/lib/chat/types';
-import { Icon } from '@/components/icon/Icon';
-import type { IconName } from '@/components/icon/icons';
-import { cn } from '@/lib/utils';
 
 import { normalizePath } from '@/lib/pathNormalization';
 export { normalizePath };
@@ -160,65 +156,8 @@ export const formatProjectLabel = (label: string): string => {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 };
 
-export const renderHighlightedText = (text: string, query: string): React.ReactNode => {
-  if (!query) {
-    return text;
-  }
-
-  const loweredText = text.toLowerCase();
-  const loweredQuery = query.toLowerCase();
-  const queryLength = loweredQuery.length;
-  if (queryLength === 0) {
-    return text;
-  }
-
-  const parts: React.ReactNode[] = [];
-  let cursor = 0;
-  let matchIndex = loweredText.indexOf(loweredQuery, cursor);
-
-  while (matchIndex !== -1) {
-    if (matchIndex > cursor) {
-      parts.push(text.slice(cursor, matchIndex));
-    }
-    const matchText = text.slice(matchIndex, matchIndex + queryLength);
-    parts.push(
-      <mark
-        key={`${matchIndex}-${matchText}`}
-        className="bg-primary text-primary-foreground ring-1 ring-primary/90"
-      >
-        {matchText}
-      </mark>,
-    );
-    cursor = matchIndex + queryLength;
-    matchIndex = loweredText.indexOf(loweredQuery, cursor);
-  }
-
-  if (cursor < text.length) {
-    parts.push(text.slice(cursor));
-  }
-
-  return parts.length > 0 ? parts : text;
-};
-
 /** Chrome shared by session rows and session-shaped actions (new session, show more). */
 export const sidebarRowIconClassName = 'size-4 shrink-0';
 export const sidebarRowLabelClassName = 'min-w-0 truncate typography-ui-label font-normal';
 export const sidebarSessionRowClassName =
   'group relative my-0.5 flex w-full cursor-pointer items-center gap-1.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50';
-
-export const SidebarSessionLikeButton = ({
-  icon,
-  children,
-  onClick,
-  className,
-}: {
-  icon: IconName;
-  children: React.ReactNode;
-  onClick: () => void;
-  className?: string;
-}): React.ReactNode => (
-  <button type="button" onClick={onClick} className={cn(sidebarSessionRowClassName, className)}>
-    <Icon name={icon} className={cn(sidebarRowIconClassName, 'text-muted-foreground')} />
-    <span className={cn(sidebarRowLabelClassName, 'flex-1 text-muted-foreground')}>{children}</span>
-  </button>
-);

@@ -296,7 +296,7 @@ export function useUserMessageHistory(sessionID: string): string[] {
       if (text) history.push(text);
     }
     return history;
-  }, [session, sessionID]);
+  }, [session]);
 }
 
 export function useSessionMessageRecords(

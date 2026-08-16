@@ -53,4 +53,6 @@
 
 - `types.ts`: Shared sidebar types (`SessionNode`, `SessionGroup`, summary/search metadata).
 - `sessionNodeItemUtils.ts`: Memoization and extraction utilities for session node rows.
-- `utils.ts`: Deduplication, search matching, and path normalization helpers.
+- `utils.ts`: Deduplication, search matching, path normalization, and shared row class names.
+- `highlightedText.tsx`: Search highlight markup for session and group labels.
+- `sidebarRowChrome.tsx`: Session-shaped row buttons.

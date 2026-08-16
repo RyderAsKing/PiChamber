@@ -127,6 +127,10 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
     // would risk re-running — and thus restarting — the animation on re-render).
     const onContentChangeRef = React.useRef(onContentChange);
     onContentChangeRef.current = onContentChange;
+    // First-mount height setup reads streaming state once; later expand/collapse
+    // must not restart when `isStreaming` flips.
+    const isStreamingRef = React.useRef(isStreaming);
+    isStreamingRef.current = isStreaming;
 
     const summary = React.useMemo(() => getReasoningSummary(text), [text]);
     const toggleAriaLabel = isExpanded
@@ -205,7 +209,7 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
                 return;
             }
 
-            if (!isStreaming) {
+            if (!isStreamingRef.current) {
                 element.style.height = 'auto';
                 element.style.overflow = 'visible';
                 return;
