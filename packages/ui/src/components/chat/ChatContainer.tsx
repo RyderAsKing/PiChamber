@@ -968,9 +968,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         && !hasRenderableSessionSnapshot;
     const isSessionLoading =
         Boolean(currentSessionId)
-        && (isSessionHydrating || sessionMessageLoadState.status === 'loading')
-        && sessionMessages.length === 0
-        && !sessionIsWorking;
+        && (isSessionHydrating || sessionMessageLoadState.status === 'loading');
     const retrySessionLoad = React.useCallback(() => {
         if (!active || !currentSessionId) return;
         void sync.ensureSessionRenderable(currentSessionId, true, effectiveSessionDirectory);
