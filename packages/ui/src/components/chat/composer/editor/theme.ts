@@ -44,9 +44,18 @@ export const COMPOSER_EDITOR_THEME_SPEC = {
     // The `&light` / `&dark` scopes are NOT usable here: EditorView.theme
     // builds its selectors without scopes and throws RangeError on them the
     // moment this module is imported.
+    //
+    // The base style also centres the bar on the text position with
+    // `margin-left: -0.6px`. At position 0 — an empty composer — that drags
+    // half the bar LEFT of the scroller's clip edge, and what remains is a
+    // sub-pixel sliver: at a fractional device pixel ratio (browser zoom
+    // 90%, dpr 0.9) Chrome snaps it to under one device pixel and the caret
+    // paints as nothing until the first keystroke moves it inside the clip.
+    // Zero margin keeps the whole bar inside the scroller at every position.
     '&.cm-editor .cm-cursor, &.cm-editor .cm-dropCursor': {
         borderLeftColor: 'var(--surface-foreground)',
         borderLeftWidth: '2px',
+        marginLeft: '0',
         transform: 'scaleY(1.15)',
         transformOrigin: 'center',
     },
