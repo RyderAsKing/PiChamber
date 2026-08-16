@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.openchamber.app', // Runtime contract; rename in a later phase with a deprecation alias.
+  appId: 'com.pichamber.app',
   appName: 'PiChamber',
   webDir: 'dist',
   server: {

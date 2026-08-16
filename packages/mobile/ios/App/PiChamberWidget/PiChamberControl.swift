@@ -33,6 +33,6 @@ struct OpenNewSessionIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & OpensIntent {
-        return .result(opensIntent: OpenURLIntent(URL(string: "openchamber://new")!))
+        return .result(opensIntent: OpenURLIntent(URL(string: "pichamber://new")!))
     }
 }

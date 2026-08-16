@@ -25,7 +25,7 @@ struct WidgetSnapshot: Codable {
 }
 
 enum WidgetStore {
-    static let appGroup = "group.com.openchamber.app"
+    static let appGroup = "group.com.pichamber.app"
     static let snapshotKey = "widgetSnapshot"
 
     /// Reads the latest snapshot the app persisted. Returns `.empty` when nothing has been
@@ -44,16 +44,16 @@ enum WidgetStore {
 // MARK: - Deep links (mirror packages/ui/src/apps/deepLinks.ts)
 
 enum WidgetDeepLink {
-    static func newSession() -> URL { URL(string: "openchamber://new")! }
-    static func attention() -> URL { URL(string: "openchamber://sessions?filter=attention")! }
-    static func status() -> URL { URL(string: "openchamber://status")! }
-    static func settings() -> URL { URL(string: "openchamber://settings")! }
-    static func changes() -> URL { URL(string: "openchamber://changes")! }
-    static func files() -> URL { URL(string: "openchamber://view/files")! }
-    static func instances() -> URL { URL(string: "openchamber://view/instances")! }
+    static func newSession() -> URL { URL(string: "pichamber://new")! }
+    static func attention() -> URL { URL(string: "pichamber://sessions?filter=attention")! }
+    static func status() -> URL { URL(string: "pichamber://status")! }
+    static func settings() -> URL { URL(string: "pichamber://settings")! }
+    static func changes() -> URL { URL(string: "pichamber://changes")! }
+    static func files() -> URL { URL(string: "pichamber://view/files")! }
+    static func instances() -> URL { URL(string: "pichamber://view/instances")! }
     static func session(_ id: String) -> URL {
         let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-        return URL(string: "openchamber://session/\(encoded)") ?? newSession()
+        return URL(string: "pichamber://session/\(encoded)") ?? newSession()
     }
 }
 

@@ -15,8 +15,6 @@ The mobile package reuses the web build, then rewrites `mobile.html` to `index.h
 - Password-protected PiChamber servers can be unlocked from the mobile app. The app stores the issued client token with the saved connection.
 - The Terminal workspace surface runs its PTY on the active PiChamber server over the shared authenticated runtime transport; it never opens a local shell on the phone or tablet. Closing the surface detaches the renderer while the server session remains available for reattachment. On touch devices, dragging scrolls the buffer while long-pressing and dragging selects terminal text.
 
-> Internal app identifiers (`com.openchamber.app` and the `openchamber://` pairing scheme) are intentional runtime contracts and are deferred to a later phase with a deprecation alias.
-
 ## Commands
 
 Run these from `packages/mobile`, or use the root `mobile:*` aliases.
