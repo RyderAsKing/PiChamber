@@ -540,3 +540,83 @@ describe("session.lifecycle", () => {
     expect(session?.messages.get("m1")?.streaming).toBe(false)
   })
 })
+
+describe("Pi usage", () => {
+  const sampleUsage = {
+    input: 100,
+    output: 50,
+    cacheRead: 10,
+    cacheWrite: 5,
+    totalTokens: 165,
+    cost: { input: 0.001, output: 0.002, cacheRead: 0.0001, cacheWrite: 0.0002, total: 0.0033 },
+  }
+
+  test("assistant.message.end attaches usage to the producing assistant message", () => {
+    let state = applyPiEvent(createReducerState(), assistantStart()).state
+    state = applyPiEvent(state, baseEvent("assistant.message.end", 2, {
+      messageId: "m1",
+      text: "ok",
+      durationMs: 100,
+      usage: sampleUsage,
+    })).state
+    const session = state.bySession.get("sess-1")
+    expect(session?.messages.get("m1")?.usage).toEqual(sampleUsage)
+  })
+
+  test("assistant.message.end without usage leaves the message without usage", () => {
+    let state = applyPiEvent(createReducerState(), assistantStart()).state
+    state = applyPiEvent(state, baseEvent("assistant.message.end", 2, {
+      messageId: "m1",
+      text: "ok",
+      durationMs: 100,
+    })).state
+    const session = state.bySession.get("sess-1")
+    expect(session?.messages.get("m1")?.usage).toBeFalsy()
+  })
+
+  test("hydrateSessionFromDetail carries usage onto assistant messages", () => {
+    const { session } = hydrateSessionFromDetail({
+      session: { id: "sess-usage", directory: "/work" },
+      lastSequence: 5,
+      messages: [{
+        message: {
+          id: "m-usage",
+          sessionId: "sess-usage",
+          directory: "/work",
+          role: "assistant",
+          createdAt: 1,
+          text: "ok",
+          thinking: "",
+          model: { providerId: "test", modelId: "model" },
+          usage: sampleUsage,
+        },
+        parts: [],
+      }],
+    })
+    expect(session.messages.get("m-usage")?.usage).toEqual(sampleUsage)
+  })
+
+  test("projectSession exposes usage on the public projection", () => {
+    const { session } = hydrateSessionFromDetail({
+      session: { id: "sess-usage", directory: "/work" },
+      lastSequence: 5,
+      messages: [{
+        message: {
+          id: "m-usage",
+          sessionId: "sess-usage",
+          directory: "/work",
+          role: "assistant",
+          createdAt: 1,
+          text: "ok",
+          thinking: "",
+          model: { providerId: "test", modelId: "model" },
+          usage: sampleUsage,
+        },
+        parts: [],
+      }],
+    })
+    const projected = projectSession(session)
+    const message = projected.messages.find((m) => m.id === "m-usage")
+    expect(message?.usage).toEqual(sampleUsage)
+  })
+})

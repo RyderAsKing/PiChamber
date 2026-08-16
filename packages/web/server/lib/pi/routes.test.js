@@ -534,6 +534,117 @@ describe('Pi runtime route', () => {
     expect(text).not.toContain('/private/socket');
   });
 
+  it('projects Pi usage through the public session and event envelopes', async () => {
+    const sampleUsage = {
+      input: 120, output: 80, cacheRead: 30, cacheWrite: 5, totalTokens: 235,
+      cost: { input: 0.0012, output: 0.0024, cacheRead: 0.0003, cacheWrite: 0.0005, total: 0.0044 },
+    };
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      request: async (command) => {
+        if (command === 'sessions.open') {
+          return {
+            session: { id: 'pi-session-usage', directory: '/workspace', createdAt: 0, updatedAt: 0 },
+            lastSequence: 1,
+            messages: [{
+              message: {
+                id: 'assistant-usage', sessionId: 'pi-session-usage', directory: '/workspace', role: 'assistant',
+                createdAt: 1, text: 'ok', thinking: '',
+                model: { providerId: 'test', modelId: 'model' },
+                usage: sampleUsage,
+              },
+              parts: [],
+            }],
+          };
+        }
+        throw new Error(`unexpected command: ${command}`);
+      },
+      subscribe: async ({ onEvent }) => {
+        onEvent({ protocolVersion: 1, kind: 'event', event: 'assistant.message.end', sequence: 1, payload: {
+          sessionId: 'pi-session-usage', directory: '/workspace', messageId: 'assistant-usage',
+          text: 'ok', durationMs: 100, usage: sampleUsage,
+        } });
+        return () => {};
+      },
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+
+    const detail = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions/pi-session-usage`);
+    expect(detail.status).toBe(200);
+    const detailBody = await detail.json();
+    expect(detailBody.messages[0].message.usage).toEqual(sampleUsage);
+
+    const events = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-usage&fromSequence=0`);
+    const reader = events.body.getReader();
+    const first = await reader.read();
+    const text = new TextDecoder().decode(first.value);
+    await reader.cancel();
+    expect(text).toContain('"usage"');
+    expect(text).toContain('"totalTokens":235');
+    expect(text).toContain('"cacheRead":30');
+  });
+
+  it('omits Pi usage when the message payload carries a malformed or missing usage record', async () => {
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      request: async (command) => {
+        if (command === 'sessions.open') {
+          return {
+            session: { id: 'pi-session-usage-malformed', directory: '/workspace', createdAt: 0, updatedAt: 0 },
+            lastSequence: 1,
+            messages: [{
+              message: {
+                id: 'assistant-no-usage', sessionId: 'pi-session-usage-malformed', directory: '/workspace', role: 'assistant',
+                createdAt: 1, text: 'ok', thinking: '',
+                model: { providerId: 'test', modelId: 'model' },
+              },
+              parts: [],
+            }, {
+              message: {
+                id: 'assistant-bad-usage', sessionId: 'pi-session-usage-malformed', directory: '/workspace', role: 'assistant',
+                createdAt: 2, text: 'partial', thinking: '',
+                model: { providerId: 'test', modelId: 'model' },
+                usage: { input: 'not-a-number', output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },
+              },
+              parts: [],
+            }],
+          };
+        }
+        throw new Error(`unexpected command: ${command}`);
+      },
+      subscribe: async ({ onEvent }) => {
+        onEvent({ protocolVersion: 1, kind: 'event', event: 'assistant.message.end', sequence: 1, payload: {
+          sessionId: 'pi-session-usage-malformed', directory: '/workspace', messageId: 'assistant-no-usage',
+          text: 'ok', durationMs: 100,
+        } });
+        onEvent({ protocolVersion: 1, kind: 'event', event: 'assistant.message.end', sequence: 2, payload: {
+          sessionId: 'pi-session-usage-malformed', directory: '/workspace', messageId: 'assistant-bad-usage',
+          text: 'partial', durationMs: 100,
+          usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10, cost: { input: 'x', output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        } });
+        return () => {};
+      },
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+
+    const detail = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions/pi-session-usage-malformed`);
+    expect(detail.status).toBe(200);
+    const detailBody = await detail.json();
+    expect(detailBody.messages[0].message.usage).toBeUndefined();
+    expect(detailBody.messages[1].message.usage).toBeUndefined();
+
+    const events = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-usage-malformed&fromSequence=0`);
+    const reader = events.body.getReader();
+    const first = await reader.read();
+    const text = new TextDecoder().decode(first.value);
+    await reader.cancel();
+    expect(text).not.toContain('"usage"');
+  });
+
   it('returns an explicit failure when the daemon session collection is unavailable or malformed', async () => {
     const runtime = {
       health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: ['sessions.list'] }),

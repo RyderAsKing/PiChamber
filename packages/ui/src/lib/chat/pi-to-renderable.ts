@@ -89,6 +89,19 @@ export const piMessageToRecord = (message: PiProjectedMessage, sessionId: string
     ...(message.durationMs !== undefined ? { durationMs: message.durationMs } : {}),
     ...(message.error ? { error: { name: message.error.code, message: message.error.message } } : {}),
     ...(message.model ? { model: { providerID: message.model.providerId, modelID: message.model.modelId } } : {}),
+    ...(message.role === 'assistant' && message.usage
+      ? {
+          usage: {
+            input: message.usage.input,
+            output: message.usage.output,
+            cacheRead: message.usage.cacheRead,
+            cacheWrite: message.usage.cacheWrite,
+            totalTokens: message.usage.totalTokens,
+            cost: message.usage.cost,
+          },
+          cost: message.usage.cost.total,
+        }
+      : {}),
     ...(finish ? { finish } : {}),
   } as Message;
   return { info, parts };

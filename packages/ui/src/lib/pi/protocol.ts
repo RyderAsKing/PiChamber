@@ -30,6 +30,7 @@ import type {
   PiSessionLifecycleState,
   PiSessionSnapshot,
   PiThinkingLevel,
+  PiUsage,
   PiUserMessage,
 } from './types';
 
@@ -468,6 +469,13 @@ export interface PiMessageEndPayload {
   thinkingLevel?: PiThinkingLevel;
   durationMs?: number;
   error?: PiError;
+  /**
+   * Pi-native usage for the turn that just ended. The daemon sanitizes the
+   * raw Pi `Usage` (numbers only, finite, ≥ 0) before publishing so the UI
+   * never sees NaN, strings, or unknown keys. Omitted when Pi did not
+   * publish usage (e.g. an interrupted turn with no provider response).
+   */
+  usage?: PiUsage;
 }
 
 export interface PiAssistantMessageDeltaPayload {

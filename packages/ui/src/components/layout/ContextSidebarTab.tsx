@@ -9,7 +9,13 @@ import { Icon } from "@/components/icon/Icon";
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { computeCacheHitRate } from '@/stores/utils/tokenUtils';
+import {
+  computeCacheHitRate,
+  computePiContextWindowTokens,
+  extractSessionMessageBreakdown,
+  type DetailedTokenBreakdown,
+  type PiUsageLike,
+} from '@/stores/utils/tokenUtils';
 import { useSessions, useSessionMessageRecords } from '@/sync/sync-context';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import {
@@ -35,14 +41,7 @@ type ProviderLike = {
   models?: ProviderModelLike[];
 };
 
-type TokenBreakdown = {
-  input: number;
-  output: number;
-  reasoning: number;
-  cacheRead: number;
-  cacheWrite: number;
-  total: number;
-};
+type TokenBreakdown = DetailedTokenBreakdown;
 
 type ContextBuckets = {
   user: number;
@@ -74,46 +73,7 @@ const toNonNegativeNumber = (value: unknown): number => {
   return value;
 };
 
-const extractTokenBreakdown = (message: SessionMessage): TokenBreakdown => {
-  const tokenCandidate = (message.info as { tokens?: unknown }).tokens;
-  const source =
-    tokenCandidate !== undefined
-      ? tokenCandidate
-      : (message.parts.find((part) => (part as { tokens?: unknown }).tokens !== undefined) as { tokens?: unknown } | undefined)?.tokens;
-
-  if (typeof source === 'number') {
-    return {
-      ...EMPTY_BREAKDOWN,
-      total: toNonNegativeNumber(source),
-    };
-  }
-
-  if (!source || typeof source !== 'object') {
-    return EMPTY_BREAKDOWN;
-  }
-
-  const breakdown = source as {
-    input?: unknown;
-    output?: unknown;
-    reasoning?: unknown;
-    cache?: { read?: unknown; write?: unknown };
-  };
-
-  const input = toNonNegativeNumber(breakdown.input);
-  const output = toNonNegativeNumber(breakdown.output);
-  const reasoning = toNonNegativeNumber(breakdown.reasoning);
-  const cacheRead = toNonNegativeNumber(breakdown.cache?.read);
-  const cacheWrite = toNonNegativeNumber(breakdown.cache?.write);
-
-  return {
-    input,
-    output,
-    reasoning,
-    cacheRead,
-    cacheWrite,
-    total: input + output + reasoning + cacheRead + cacheWrite,
-  };
-};
+const extractTokenBreakdown = (message: SessionMessage): TokenBreakdown => extractSessionMessageBreakdown(message);
 
 const pickString = (...values: unknown[]): string => {
   for (const value of values) {
@@ -322,6 +282,9 @@ export const ContextPanelContent: React.FC = () => {
     const assistantMessages = sessionMessages.filter((entry) => deriveMessageRole(entry.info).role === 'assistant');
     const userMessages = sessionMessages.filter((entry) => deriveMessageRole(entry.info).isUser);
 
+    // Prefer the most recent assistant message that carries Pi usage. Pi
+    // owns the token contract, so we only fall back to legacy OpenCode token
+    // extraction when no usage is present (e.g. older daemon builds).
     let contextMessage: SessionMessage | null = null;
     for (let i = assistantMessages.length - 1; i >= 0; i -= 1) {
       const message = assistantMessages[i];
@@ -332,6 +295,7 @@ export const ContextPanelContent: React.FC = () => {
     }
 
     const tokenBreakdown = contextMessage ? extractTokenBreakdown(contextMessage) : EMPTY_BREAKDOWN;
+    const contextUsage = (contextMessage?.info as { usage?: PiUsageLike } | undefined)?.usage;
 
     // Cache hit rate for the last assistant message. `input` is the non-cached portion
     // (total input - cache.read - cache.write per SDK's session.ts:getUsage),
@@ -346,16 +310,23 @@ export const ContextPanelContent: React.FC = () => {
       return sum + cost;
     }, 0);
 
-    const latestAssistantInfo = (contextMessage?.info ?? null) as (Message & { providerID?: string; modelID?: string }) | null;
+    const latestModel = (contextMessage?.info?.model as { providerID?: string; modelID?: string } | undefined) ?? null;
     const providerModel = resolveProviderAndModel(
       providers as ProviderLike[],
-      latestAssistantInfo?.providerID || '',
-      latestAssistantInfo?.modelID || '',
+      latestModel?.providerID || '',
+      latestModel?.modelID || '',
     );
 
     const contextLimit = providerModel.contextLimit;
+    // Pi resets the context-bar numerator to "tokens in the window"
+    // (input + cacheRead + cacheWrite) so the bar reflects what the model
+    // actually consumed, not the turn's own output. When usage is absent
+    // we keep the legacy total so the bar still matches the chart.
+    const contextWindowTokens = contextUsage
+      ? computePiContextWindowTokens(contextUsage)
+      : tokenBreakdown.total;
     const usagePercent = contextLimit && contextLimit > 0
-      ? Math.min(999, (tokenBreakdown.total / contextLimit) * 100)
+      ? Math.min(999, (contextWindowTokens / contextLimit) * 100)
       : 0;
 
     const systemPrompt = ([...sessionMessages].reverse().find(
@@ -367,7 +338,13 @@ export const ContextPanelContent: React.FC = () => {
     const userTokens = computedBreakdown.user;
     const assistantTokens = computedBreakdown.assistant;
     const toolTokens = computedBreakdown.tool;
-    const otherTokens = Math.max(0, tokenBreakdown.input - userTokens - assistantTokens - toolTokens);
+    // When Pi usage is present, the char/4 estimate is informational only; we
+    // never subtract a synthetic total from real Pi input to invent an "Other"
+    // bucket. The legacy fallback still derives "Other" from any leftover
+    // input that the role estimate did not cover.
+    const otherTokens = contextUsage
+      ? 0
+      : Math.max(0, tokenBreakdown.input - userTokens - assistantTokens - toolTokens);
     const breakdownTotal = userTokens + assistantTokens + toolTokens + otherTokens;
 
     const firstMessageTs = sessionMessages[0]?.info?.time?.created;
@@ -388,6 +365,8 @@ export const ContextPanelContent: React.FC = () => {
       cacheHitRate,
       totalAssistantCost,
       contextLimit,
+      contextWindowTokens,
+      hasUsage: contextUsage !== undefined,
       breakdown: {
         user: userTokens,
         assistant: assistantTokens,
@@ -410,7 +389,7 @@ export const ContextPanelContent: React.FC = () => {
     { key: 'user', label: "User", value: viewModel.breakdown.user, color: 'var(--status-success)' },
     { key: 'assistant', label: "Assistant", value: viewModel.breakdown.assistant, color: 'var(--primary-base)' },
     { key: 'tool', label: "Tool Calls", value: viewModel.breakdown.tool, color: 'var(--status-warning)' },
-    { key: 'other', label: "Other", value: viewModel.breakdown.other, color: 'var(--surface-muted-foreground)' },
+    ...(viewModel.hasUsage ? [] : [{ key: 'other', label: "Other", value: viewModel.breakdown.other, color: 'var(--surface-muted-foreground)' }]),
   ];
 
   return (
@@ -436,7 +415,7 @@ export const ContextPanelContent: React.FC = () => {
           <div className="flex items-baseline justify-between">
             <span className="typography-micro text-muted-foreground">{"Context"}</span>
             <span className="typography-micro tabular-nums text-muted-foreground/70">
-              {formatNumber(viewModel.tokenBreakdown.total)}
+              {formatNumber(viewModel.contextWindowTokens)}
               {viewModel.contextLimit ? ` / ${formatNumber(viewModel.contextLimit)}` : ''}
             </span>
           </div>
