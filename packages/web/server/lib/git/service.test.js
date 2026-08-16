@@ -38,7 +38,7 @@ const tempDirs = [];
 
 /** Create a temp dir and register it for afterEach cleanup. */
 const createTempDir = () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openchamber-git-service-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pichamber-git-service-'));
   tempDirs.push(dir);
   return dir;
 };
@@ -579,7 +579,7 @@ describe('createWorktree', () => {
       const created = await createWorktree(repo, {
         mode: 'new',
         worktreeName: 'hook-test',
-        branchName: 'openchamber/hook-test',
+        branchName: 'pichamber/hook-test',
         returnAfterDirectoryCreated: true,
       });
 
@@ -631,7 +631,7 @@ describe('createWorktree', () => {
       const created = await createWorktree(repo, {
         mode: 'new',
         worktreeName: 'hook-skip-test',
-        branchName: 'openchamber/hook-skip-test',
+        branchName: 'pichamber/hook-skip-test',
         returnAfterDirectoryCreated: true,
       });
 
@@ -674,7 +674,7 @@ describe('createWorktree', () => {
       const created = await createWorktree(repo, {
         mode: 'new',
         worktreeName: 'hook-fail-test',
-        branchName: 'openchamber/hook-fail-test',
+        branchName: 'pichamber/hook-fail-test',
         returnAfterDirectoryCreated: true,
       });
 

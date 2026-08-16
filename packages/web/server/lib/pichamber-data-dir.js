@@ -6,10 +6,10 @@
  * derived from the single effective data root returned by
  * {@link resolvePiChamberDataDir}. This is the *only* supported PiChamber data
  * root; legacy `~/.config/openchamber` locations are intentionally ignored
- * (legacy-data migration is out of scope for the Phase 1 stabilization pass).
+ * (legacy-data migration is out of scope).
  *
  * Resolution rules:
- *   - A non-empty `OPENCHAMBER_DATA_DIR` env value is trimmed and resolved
+ *   - A non-empty `PICHAMBER_DATA_DIR` env value is trimmed and resolved
  *     against the current working directory so relative overrides behave
  *     predictably across runtimes.
  *   - The fallback is `path.join(home, '.config', 'pichamber')`.
@@ -43,7 +43,7 @@ function resolvePiChamberDataDir(deps = defaultDeps) {
 
   const override = typeof env?.PICHAMBER_DATA_DIR === 'string'
     ? env.PICHAMBER_DATA_DIR.trim()
-    : (typeof env?.OPENCHAMBER_DATA_DIR === 'string' ? env.OPENCHAMBER_DATA_DIR.trim() : '');
+    : '';
   if (override.length > 0) {
     return pathModule.resolve(override);
   }

@@ -676,7 +676,7 @@ async function tunnelCommand(options, subcommand, action, deps) {
         const results = [];
         for (const entry of entries) {
           try {
-            const { response, body } = await requestJson(entry.port, `/api/openchamber/tunnel/check?provider=${encodeURIComponent(provider)}`);
+            const { response, body } = await requestJson(entry.port, `/api/pichamber/tunnel/check?provider=${encodeURIComponent(provider)}`);
             if (!response.ok) {
               results.push({ port: entry.port, error: body?.error || `check ${response.status}` });
               continue;
@@ -732,7 +732,7 @@ async function tunnelCommand(options, subcommand, action, deps) {
         const results = [];
         for (const entry of entries) {
           try {
-            const { response, body } = await requestJson(entry.port, '/api/openchamber/tunnel/status');
+            const { response, body } = await requestJson(entry.port, '/api/pichamber/tunnel/status');
             if (!response.ok) {
               results.push({ port: entry.port, error: body?.error || `status ${response.status}` });
               continue;
@@ -866,7 +866,7 @@ async function tunnelCommand(options, subcommand, action, deps) {
               }
               const { response, body } = await requestJson(
                 diagnosticsEntry.port,
-                `/api/openchamber/tunnel/doctor?${query.toString()}`,
+                `/api/pichamber/tunnel/doctor?${query.toString()}`,
                 doctorFetchOptions,
               );
               if (response.ok && body?.ok && isValidTunnelDoctorResponse(body)) {
@@ -1536,7 +1536,7 @@ async function tunnelCommand(options, subcommand, action, deps) {
             managedRemoteTunnelHostname: hostname,
             managedRemoteTunnelToken: token,
           };
-          const { response: presetResponse, body: presetBody } = await requestJson(instance.port, '/api/openchamber/tunnel/managed-remote-token', {
+          const { response: presetResponse, body: presetBody } = await requestJson(instance.port, '/api/pichamber/tunnel/managed-remote-token', {
             method: 'PUT',
             body: JSON.stringify(tokenSyncPayload),
           });
@@ -1566,7 +1566,7 @@ async function tunnelCommand(options, subcommand, action, deps) {
         let response;
         let body;
         try {
-          ({ response, body } = await requestJson(instance.port, '/api/openchamber/tunnel/start', {
+          ({ response, body } = await requestJson(instance.port, '/api/pichamber/tunnel/start', {
             method: 'POST',
             body: JSON.stringify(payload),
             timeoutMs: 60000,
@@ -1687,7 +1687,7 @@ async function tunnelCommand(options, subcommand, action, deps) {
           const tunnelStopSpin = shouldRenderHumanOutput(options) ? createSpinner(options) : null;
           tunnelStopSpin?.start(`Stopping tunnel on port ${entry.port}...`);
           try {
-            const { response, body } = await requestJson(entry.port, '/api/openchamber/tunnel/stop', {
+            const { response, body } = await requestJson(entry.port, '/api/pichamber/tunnel/stop', {
               method: 'POST',
             });
             if (!response.ok) {

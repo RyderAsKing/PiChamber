@@ -26,7 +26,7 @@ import {
 const tempDirs = [];
 
 const createTempDir = () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openchamber-git-issue2746-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pichamber-git-issue2746-'));
   tempDirs.push(dir);
   return dir;
 };
@@ -95,7 +95,7 @@ describe('issue #2746 - worktree long path support', () => {
       const created = await createWorktree(repo, {
         mode: 'new',
         worktreeName: 'issue-2746',
-        branchName: 'openchamber/issue-2746',
+        branchName: 'pichamber/issue-2746',
       });
       expect(created.directoryCreated).toBe(true);
 
@@ -162,7 +162,7 @@ describe('issue #2746 - worktree long path support', () => {
       const created = await createWorktree(repo, {
         mode: 'new',
         worktreeName: 'issue-2746-namemax',
-        branchName: 'openchamber/issue-2746-namemax',
+        branchName: 'pichamber/issue-2746-namemax',
       });
       expect(created.directoryCreated).toBe(true);
 

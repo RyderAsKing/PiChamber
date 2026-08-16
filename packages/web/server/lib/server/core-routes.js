@@ -135,7 +135,7 @@ export const registerServerStatusRoutes = (app, dependencies) => {
   const isDevShutdownAllowed = () => {
     // Dev-only escape hatch: allow terminating the whole dev process group.
     // This should never be enabled in production runtimes.
-    return process.env.OPENCHAMBER_DEV_SHUTDOWN === 'true';
+    return process.env.PICHAMBER_DEV_SHUTDOWN === 'true';
   };
 
   const isSameOriginRequest = (req) => {

@@ -28,8 +28,8 @@ function resolveConfiguredBindHost(hostOverride) {
     ? hostOverride.trim()
     : typeof process.env.PICHAMBER_HOST === 'string'
       ? process.env.PICHAMBER_HOST.trim()
-      : typeof process.env.OPENCHAMBER_HOST === 'string'
-        ? process.env.OPENCHAMBER_HOST.trim()
+      : typeof process.env.PICHAMBER_HOST === 'string'
+        ? process.env.PICHAMBER_HOST.trim()
         : '';
   return configured || '127.0.0.1';
 }

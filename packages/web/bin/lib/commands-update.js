@@ -94,9 +94,9 @@ function createUpdateCommand({ importFromFilePath, packageManagerPath, serveComm
       throw new Error(msg);
     }
 
-    const isSystemdService = Boolean(process.env.INVOCATION_ID) || Boolean(process.env.OPENCHAMBER_SYSTEMD_UNIT);
+    const isSystemdService = Boolean(process.env.INVOCATION_ID) || Boolean(process.env.PICHAMBER_SYSTEMD_UNIT);
     if (isSystemdService) {
-      const msg = 'systemd deployments must be updated through package management and service restart (e.g. systemctl --user restart openchamber.service).';
+      const msg = 'systemd deployments must be updated through package management and service restart (e.g. systemctl --user restart pichamber.service).';
       updateSpin?.error('systemd service deployment detected');
       if (isJsonMode(options)) {
         printJson({

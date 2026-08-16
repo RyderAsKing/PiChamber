@@ -8,8 +8,8 @@ import '@pichamber/ui/styles/fonts';
 
 declare global {
   interface Window {
-    __OPENCHAMBER_RUNTIME_APIS__?: RuntimeAPIs;
-    __OPENCHAMBER_SURFACE__?: HostedSurface;
+    __PICHAMBER_RUNTIME_APIS__?: RuntimeAPIs;
+    __PICHAMBER_SURFACE__?: HostedSurface;
   }
 }
 
@@ -81,7 +81,7 @@ const unregisterDevelopmentServiceWorkers = (): void => {
 };
 
 const start = async (): Promise<void> => {
-  window.__OPENCHAMBER_RUNTIME_APIS__ = createConfiguredWebAPIs();
+  window.__PICHAMBER_RUNTIME_APIS__ = createConfiguredWebAPIs();
 
   if (hostedSurface === 'mobile') {
     const { renderMobileApp } = await import('@pichamber/ui/apps/renderMobileApp');
@@ -97,8 +97,8 @@ const start = async (): Promise<void> => {
 void start();
 
 if (import.meta.hot) {
-  import.meta.hot.on('openchamber:theme-updated', (theme: unknown) => {
-    window.dispatchEvent(new CustomEvent('openchamber:theme-hmr', { detail: theme }));
+  import.meta.hot.on('pichamber:theme-updated', (theme: unknown) => {
+    window.dispatchEvent(new CustomEvent('pichamber:theme-hmr', { detail: theme }));
   });
 }
 

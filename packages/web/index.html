@@ -353,18 +353,18 @@
       const initialInstallNameOverride = getQueryInstallNameOverride();
       void updateManifest(initialInstallNameOverride);
 
-      window.__OPENCHAMBER_GET_PWA_INSTALL_NAME__ = () => getStoredInstallName();
-      window.__OPENCHAMBER_SET_PWA_INSTALL_NAME__ = (value) => {
+      window.__PICHAMBER_GET_PWA_INSTALL_NAME__ = () => getStoredInstallName();
+      window.__PICHAMBER_SET_PWA_INSTALL_NAME__ = (value) => {
         const resolvedName = setStoredInstallName(value);
         void updateManifest(resolvedName);
         return resolvedName;
       };
-      window.__OPENCHAMBER_SET_PWA_ORIENTATION__ = (value) => {
+      window.__PICHAMBER_SET_PWA_ORIENTATION__ = (value) => {
         const resolvedOrientation = setStoredOrientation(value);
         void updateManifest(null, resolvedOrientation);
         return resolvedOrientation;
       };
-      window.__OPENCHAMBER_UPDATE_PWA_MANIFEST__ = () => {
+      window.__PICHAMBER_UPDATE_PWA_MANIFEST__ = () => {
         refreshManifestFromStorage();
       };
     </script>
@@ -585,7 +585,7 @@
       // Desktop shells manage their own splash via the injected boot outcome;
       // do not force-remove for desktop windows.
       setTimeout(function() {
-        if (typeof window.__OPENCHAMBER_LOCAL_ORIGIN__ === 'string' && window.__OPENCHAMBER_LOCAL_ORIGIN__.length > 0) {
+        if (typeof window.__PICHAMBER_LOCAL_ORIGIN__ === 'string' && window.__PICHAMBER_LOCAL_ORIGIN__.length > 0) {
           return;
         }
         var loading = document.getElementById('initial-loading');

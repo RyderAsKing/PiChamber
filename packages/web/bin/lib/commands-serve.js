@@ -153,14 +153,11 @@ async function serveCommand(options) {
       }
 
       // Propagate resolved values into env before importing the server module.
-      // Set both current and legacy spellings so mixed-version processes work.
       if (effectiveUiPassword) {
         process.env.PICHAMBER_UI_PASSWORD = effectiveUiPassword;
-        process.env.OPENCHAMBER_UI_PASSWORD = effectiveUiPassword;
       }
       process.env.PICHAMBER_HOST = effectiveHost;
-      process.env.OPENCHAMBER_HOST = effectiveHost;
-      process.env.OPENCHAMBER_RUNTIME = 'web';
+      process.env.PICHAMBER_RUNTIME = 'web';
 
       // In --quiet mode, redirect stdout/stderr to the log file so that
       // server runtime output (console.log calls) does not pollute the
@@ -280,14 +277,13 @@ async function serveCommand(options) {
       stdio: ['ignore', logFd, logFd, 'ipc'],
       env: {
         ...process.env,
-        OPENCHAMBER_PORT: String(targetPort),
-        OPENCHAMBER_RUNTIME: 'web',
+        PICHAMBER_PORT: String(targetPort),
+        PICHAMBER_RUNTIME: 'web',
         PICHAMBER_HOST: effectiveHost,
-        OPENCHAMBER_HOST: effectiveHost,
         ...(effectiveUiPassword
-          ? { PICHAMBER_UI_PASSWORD: effectiveUiPassword, OPENCHAMBER_UI_PASSWORD: effectiveUiPassword }
+          ? { PICHAMBER_UI_PASSWORD: effectiveUiPassword }
           : {}),
-        ...(options.apiOnly === true ? { PICHAMBER_API_ONLY: 'true', OPENCHAMBER_API_ONLY: 'true' } : {}),
+        ...(options.apiOnly === true ? { PICHAMBER_API_ONLY: 'true' } : {}),
       },
     });
 
@@ -306,7 +302,7 @@ async function serveCommand(options) {
 
         child.on('message', (msg) => {
           if (settled) return;
-          if (msg && msg.type === 'openchamber:ready' && typeof msg.port === 'number') {
+          if (msg && msg.type === 'pichamber:ready' && typeof msg.port === 'number') {
             settled = true;
             clearTimeout(timeout);
             resolve(msg.port);

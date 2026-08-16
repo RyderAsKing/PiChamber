@@ -36,16 +36,16 @@ import {
 } from './cli.js';
 
 async function withTempPiChamberDataDir(fn) {
-  const previous = process.env.OPENCHAMBER_DATA_DIR;
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openchamber-cli-test-'));
-  process.env.OPENCHAMBER_DATA_DIR = dir;
+  const previous = process.env.PICHAMBER_DATA_DIR;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pichamber-cli-test-'));
+  process.env.PICHAMBER_DATA_DIR = dir;
   try {
     return await fn(dir);
   } finally {
     if (typeof previous === 'string') {
-      process.env.OPENCHAMBER_DATA_DIR = previous;
+      process.env.PICHAMBER_DATA_DIR = previous;
     } else {
-      delete process.env.OPENCHAMBER_DATA_DIR;
+      delete process.env.PICHAMBER_DATA_DIR;
     }
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -251,10 +251,10 @@ describe('cli args', () => {
   });
 
   it('parses explicit connect-url server overrides', () => {
-    const parsed = parseArgs(['connect-url', '--server', 'https://openchamber.example.com', '--port', '3002']);
+    const parsed = parseArgs(['connect-url', '--server', 'https://pichamber.example.com', '--port', '3002']);
 
     expect(parsed.command).toBe('connect-url');
-    expect(parsed.options.server).toBe('https://openchamber.example.com');
+    expect(parsed.options.server).toBe('https://pichamber.example.com');
     expect(parsed.options.port).toBe(3002);
   });
 
@@ -382,15 +382,15 @@ describe('network-exposed auth validation', () => {
   });
 
   it('allows explicit unsafe LAN override from process env only', () => {
-    const previous = process.env.OPENCHAMBER_ALLOW_UNAUTHENTICATED_LAN;
-    process.env.OPENCHAMBER_ALLOW_UNAUTHENTICATED_LAN = 'true';
+    const previous = process.env.PICHAMBER_ALLOW_UNAUTHENTICATED_LAN;
+    process.env.PICHAMBER_ALLOW_UNAUTHENTICATED_LAN = 'true';
     try {
       expect(() => assertAuthenticatedNetworkExposure({ host: '0.0.0.0' })).not.toThrow();
     } finally {
       if (typeof previous === 'string') {
-        process.env.OPENCHAMBER_ALLOW_UNAUTHENTICATED_LAN = previous;
+        process.env.PICHAMBER_ALLOW_UNAUTHENTICATED_LAN = previous;
       } else {
-        delete process.env.OPENCHAMBER_ALLOW_UNAUTHENTICATED_LAN;
+        delete process.env.PICHAMBER_ALLOW_UNAUTHENTICATED_LAN;
       }
     }
   });
@@ -434,30 +434,30 @@ describe('serve UI password resolution', () => {
 });
 
 describe('serve host resolution', () => {
-  it('uses OPENCHAMBER_HOST when --host is not provided', () => {
-    const previous = process.env.OPENCHAMBER_HOST;
-    process.env.OPENCHAMBER_HOST = '192.0.2.20';
+  it('uses PICHAMBER_HOST when --host is not provided', () => {
+    const previous = process.env.PICHAMBER_HOST;
+    process.env.PICHAMBER_HOST = '192.0.2.20';
     try {
       expect(resolveServeHost(undefined)).toBe('192.0.2.20');
     } finally {
       if (typeof previous === 'string') {
-        process.env.OPENCHAMBER_HOST = previous;
+        process.env.PICHAMBER_HOST = previous;
       } else {
-        delete process.env.OPENCHAMBER_HOST;
+        delete process.env.PICHAMBER_HOST;
       }
     }
   });
 
-  it('prefers explicit --host over OPENCHAMBER_HOST', () => {
-    const previous = process.env.OPENCHAMBER_HOST;
-    process.env.OPENCHAMBER_HOST = '192.0.2.20';
+  it('prefers explicit --host over PICHAMBER_HOST', () => {
+    const previous = process.env.PICHAMBER_HOST;
+    process.env.PICHAMBER_HOST = '192.0.2.20';
     try {
       expect(resolveServeHost('192.0.2.21')).toBe('192.0.2.21');
     } finally {
       if (typeof previous === 'string') {
-        process.env.OPENCHAMBER_HOST = previous;
+        process.env.PICHAMBER_HOST = previous;
       } else {
-        delete process.env.OPENCHAMBER_HOST;
+        delete process.env.PICHAMBER_HOST;
       }
     }
   });
@@ -537,7 +537,7 @@ describe('CLI HTTP helpers', () => {
       };
 
       try {
-        const { response, body } = await requestJson(port, '/api/openchamber/tunnel/start', {
+        const { response, body } = await requestJson(port, '/api/pichamber/tunnel/start', {
           method: 'POST',
           body: JSON.stringify({ provider: 'ngrok', mode: 'quick' }),
         });
@@ -545,9 +545,9 @@ describe('CLI HTTP helpers', () => {
         expect(response.ok).toBe(true);
         expect(body).toEqual({ ok: true });
         expect(calls.map((call) => new URL(call.url).pathname)).toEqual([
-          '/api/openchamber/tunnel/start',
+          '/api/pichamber/tunnel/start',
           '/auth/session',
-          '/api/openchamber/tunnel/start',
+          '/api/pichamber/tunnel/start',
         ]);
       } finally {
         globalThis.fetch = originalFetch;
@@ -558,11 +558,11 @@ describe('CLI HTTP helpers', () => {
 });
 
 describe('cli entry detection', () => {
-  const modulePath = '/tmp/openchamber/bin/cli.js';
+  const modulePath = '/tmp/pichamber/bin/cli.js';
   const moduleUrl = pathToFileURL(modulePath).href;
 
   it('resolves symlinked entry paths before comparing', () => {
-    const symlinkPath = '/usr/local/bin/openchamber';
+    const symlinkPath = '/usr/local/bin/pichamber';
     const realpath = (filePath) => {
       if (filePath === path.resolve(symlinkPath)) {
         return modulePath;
@@ -594,8 +594,8 @@ describe('cli entry detection', () => {
   });
 
   it('accepts wrapper binary name fallback when requested', () => {
-    const wrapperPath = '/home/user/.local/bin/openchamber';
-    expect(isModuleCliExecution(wrapperPath, moduleUrl, undefined, 'openchamber')).toBe(true);
+    const wrapperPath = '/home/user/.local/bin/pichamber';
+    expect(isModuleCliExecution(wrapperPath, moduleUrl, undefined, 'pichamber')).toBe(true);
   });
 
   it('normalizes direct paths when realpath fails', () => {

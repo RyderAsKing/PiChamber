@@ -7,7 +7,7 @@ import { EXIT_CODE, TunnelCliError } from './cli-errors.js';
 import { getDataDir } from './cli-paths.js';
 import { hasUiPasswordConfigured } from './cli-network.js';
 
-const STARTUP_SERVICE_ID = 'dev.openchamber.web';
+const STARTUP_SERVICE_ID = 'dev.pichamber.web';
 
 function getStartupServicePaths() {
   if (process.platform === 'darwin') {
@@ -19,7 +19,7 @@ function getStartupServicePaths() {
   if (process.platform === 'linux') {
     return {
       platform: 'linux',
-      servicePath: path.join(os.homedir(), '.config', 'systemd', 'user', 'openchamber.service'),
+      servicePath: path.join(os.homedir(), '.config', 'systemd', 'user', 'pichamber.service'),
     };
   }
   if (process.platform === 'win32') {
@@ -83,20 +83,20 @@ function collectStartupEnv(options = {}) {
   const uiPassword = hasUiPasswordConfigured(options.uiPassword) ? options.uiPassword : undefined;
   if (uiPassword) {
     env.PICHAMBER_UI_PASSWORD = uiPassword;
-    env.OPENCHAMBER_UI_PASSWORD = uiPassword;
+    env.PICHAMBER_UI_PASSWORD = uiPassword;
   }
   if (options.apiOnly === true) {
     env.PICHAMBER_API_ONLY = 'true';
-    env.OPENCHAMBER_API_ONLY = 'true';
+    env.PICHAMBER_API_ONLY = 'true';
   }
   const configuredDataDir = typeof process.env.PICHAMBER_DATA_DIR === 'string' && process.env.PICHAMBER_DATA_DIR.trim().length > 0
     ? process.env.PICHAMBER_DATA_DIR.trim()
-    : (typeof process.env.OPENCHAMBER_DATA_DIR === 'string' && process.env.OPENCHAMBER_DATA_DIR.trim().length > 0
-      ? process.env.OPENCHAMBER_DATA_DIR.trim()
+    : (typeof process.env.PICHAMBER_DATA_DIR === 'string' && process.env.PICHAMBER_DATA_DIR.trim().length > 0
+      ? process.env.PICHAMBER_DATA_DIR.trim()
       : '');
   if (configuredDataDir.length > 0) {
     env.PICHAMBER_DATA_DIR = path.resolve(configuredDataDir);
-    env.OPENCHAMBER_DATA_DIR = path.resolve(configuredDataDir);
+    env.PICHAMBER_DATA_DIR = path.resolve(configuredDataDir);
   }
   return env;
 }
@@ -272,8 +272,8 @@ function getStartupStatus() {
     return { supported: true, platform: paths.platform, enabled: result.status === 0, active: null, servicePath: paths.servicePath };
   }
   if (paths.platform === 'linux') {
-    const enabledResult = runStartupCommand('systemctl', ['--user', 'is-enabled', 'openchamber.service'], { allowFailure: true });
-    const activeResult = runStartupCommand('systemctl', ['--user', 'is-active', 'openchamber.service'], { allowFailure: true });
+    const enabledResult = runStartupCommand('systemctl', ['--user', 'is-enabled', 'pichamber.service'], { allowFailure: true });
+    const activeResult = runStartupCommand('systemctl', ['--user', 'is-active', 'pichamber.service'], { allowFailure: true });
     const activeState = (activeResult.stdout || '').trim() || 'inactive';
     return {
       supported: true,
@@ -315,7 +315,7 @@ function enableStartupService(options = {}) {
     fs.mkdirSync(path.dirname(paths.servicePath), { recursive: true, mode: 0o700 });
     fs.writeFileSync(paths.servicePath, buildSystemdUserService(options), { mode: 0o600 });
     runStartupCommand('systemctl', ['--user', 'daemon-reload']);
-    runStartupCommand('systemctl', ['--user', 'enable', '--now', 'openchamber.service']);
+    runStartupCommand('systemctl', ['--user', 'enable', '--now', 'pichamber.service']);
     return getStartupStatus();
   }
 
@@ -352,7 +352,7 @@ function disableStartupService() {
   }
 
   if (paths.platform === 'linux') {
-    runStartupCommand('systemctl', ['--user', 'disable', '--now', 'openchamber.service'], { allowFailure: true });
+    runStartupCommand('systemctl', ['--user', 'disable', '--now', 'pichamber.service'], { allowFailure: true });
     try { fs.unlinkSync(paths.servicePath); } catch {}
     runStartupCommand('systemctl', ['--user', 'daemon-reload'], { allowFailure: true });
     return getStartupStatus();

@@ -177,7 +177,7 @@ function isPiChamberCmdline(cmdline) {
   return isNodeOrBunExecutableToken(tokens[0]) && isPiChamberEntrypointToken(tokens[1] || '');
 }
 
-// Compatibility alias kept for in-process callers (the OpenChamber
+// Compatibility alias kept for in-process callers (the PiChamber
 // accept-fallback was removed for Phase 1 stabilization — only an explicit
 // PiChamber executable or package/checkout entrypoint is recognized).
 function isOpenchamberCmdline(cmdline) {

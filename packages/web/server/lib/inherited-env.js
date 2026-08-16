@@ -6,7 +6,7 @@
  * external command it spawns, which corrupts Python venv detection and any
  * other program that reads argv[0]/$0 while leaving `/proc/self/exe` correct.
  *
- * See openchamber/openchamber#2588 and pingdotgg/t3code#2509.
+ * See pichamber/pichamber#2588 and pingdotgg/t3code#2509.
  */
 
 import { createRequire } from 'node:module';

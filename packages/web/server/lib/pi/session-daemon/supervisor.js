@@ -67,8 +67,8 @@ const resolvePiSessionDaemonPaths = ({
   const runtimeDir = typeof env.XDG_RUNTIME_DIR === 'string' && env.XDG_RUNTIME_DIR.trim()
     ? pathModule.join(pathModule.resolve(env.XDG_RUNTIME_DIR.trim()), 'pichamber')
     : pathModule.join(dataDir, 'runtime');
-  const configuredEndpoint = typeof env.OPENCHAMBER_PI_SESSION_DAEMON_ENDPOINT === 'string'
-    ? env.OPENCHAMBER_PI_SESSION_DAEMON_ENDPOINT.trim()
+  const configuredEndpoint = typeof env.PICHAMBER_PI_SESSION_DAEMON_ENDPOINT === 'string'
+    ? env.PICHAMBER_PI_SESSION_DAEMON_ENDPOINT.trim()
     : '';
   const endpoint = configuredEndpoint || (platform === 'win32'
     ? `\\\\.\\pipe\\pichamber-pi-session-daemon-${getWindowsOwnerKey()}`
@@ -78,7 +78,7 @@ const resolvePiSessionDaemonPaths = ({
     throw new PiSessionDaemonUnavailableError('INVALID_DAEMON_ENDPOINT');
   }
 
-  const configuredAgentDir = typeof env.OPENCHAMBER_PI_AGENT_DIR === 'string' ? env.OPENCHAMBER_PI_AGENT_DIR.trim() : '';
+  const configuredAgentDir = typeof env.PICHAMBER_PI_AGENT_DIR === 'string' ? env.PICHAMBER_PI_AGENT_DIR.trim() : '';
   return {
     endpoint,
     agentDir: configuredAgentDir ? pathModule.resolve(configuredAgentDir) : undefined,

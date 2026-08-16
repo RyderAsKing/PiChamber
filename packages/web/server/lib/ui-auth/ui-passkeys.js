@@ -14,7 +14,7 @@ const DEFAULT_STORE_VERSION = 1;
 const DEFAULT_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_RP_NAME = 'PiChamber';
 
-const OPENCHAMBER_DATA_DIR = resolvePiChamberDataDir();
+const PICHAMBER_DATA_DIR = resolvePiChamberDataDir();
 const PASSKEY_STORE_FILE = resolvePiChamberDataPath('ui-passkeys.json');
 
 const createUserId = () => crypto.randomBytes(32).toString('base64url');
@@ -328,7 +328,7 @@ export const createUiPasskeys = ({
       rpName,
       rpID,
       userID,
-      userName: 'openchamber-ui',
+      userName: 'pichamber-ui',
       userDisplayName: 'PiChamber UI',
       attestationType: 'none',
       excludeCredentials: getPasskeysForRpId(store, rpID).map((passkey) => ({

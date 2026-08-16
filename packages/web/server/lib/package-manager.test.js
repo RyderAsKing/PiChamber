@@ -37,15 +37,15 @@ function createFetchMock() {
 }
 
 const withNoHostedApi = async (fn) => {
-  const previous = process.env.OPENCHAMBER_UPDATE_API_URL;
-  delete process.env.OPENCHAMBER_UPDATE_API_URL;
+  const previous = process.env.PICHAMBER_UPDATE_API_URL;
+  delete process.env.PICHAMBER_UPDATE_API_URL;
   try {
     return await fn();
   } finally {
     if (typeof previous === 'string') {
-      process.env.OPENCHAMBER_UPDATE_API_URL = previous;
+      process.env.PICHAMBER_UPDATE_API_URL = previous;
     } else {
-      delete process.env.OPENCHAMBER_UPDATE_API_URL;
+      delete process.env.PICHAMBER_UPDATE_API_URL;
     }
   }
 };
@@ -124,8 +124,8 @@ describe('checkForUpdates (no hosted API by default)', () => {
   });
 
   it('uses configured hosted notes only after the reported version matches npm latest', async () => {
-    const previous = process.env.OPENCHAMBER_UPDATE_API_URL;
-    process.env.OPENCHAMBER_UPDATE_API_URL = 'https://updates.example.test/api/check';
+    const previous = process.env.PICHAMBER_UPDATE_API_URL;
+    process.env.PICHAMBER_UPDATE_API_URL = 'https://updates.example.test/api/check';
     try {
       fetchMock
         .when('updates.example.test', {
@@ -153,16 +153,16 @@ describe('checkForUpdates (no hosted API by default)', () => {
       expect(urls.some((u) => u.includes('api.pichamber.dev'))).toBe(false);
     } finally {
       if (typeof previous === 'string') {
-        process.env.OPENCHAMBER_UPDATE_API_URL = previous;
+        process.env.PICHAMBER_UPDATE_API_URL = previous;
       } else {
-        delete process.env.OPENCHAMBER_UPDATE_API_URL;
+        delete process.env.PICHAMBER_UPDATE_API_URL;
       }
     }
   });
 
   it('ignores a configured hosted update that disagrees with npm latest', async () => {
-    const previous = process.env.OPENCHAMBER_UPDATE_API_URL;
-    process.env.OPENCHAMBER_UPDATE_API_URL = 'https://updates.example.test/api/check';
+    const previous = process.env.PICHAMBER_UPDATE_API_URL;
+    process.env.PICHAMBER_UPDATE_API_URL = 'https://updates.example.test/api/check';
     try {
       fetchMock
         .when('updates.example.test', {
@@ -194,14 +194,14 @@ describe('checkForUpdates (no hosted API by default)', () => {
       });
     } finally {
       if (typeof previous === 'string') {
-        process.env.OPENCHAMBER_UPDATE_API_URL = previous;
+        process.env.PICHAMBER_UPDATE_API_URL = previous;
       } else {
-        delete process.env.OPENCHAMBER_UPDATE_API_URL;
+        delete process.env.PICHAMBER_UPDATE_API_URL;
       }
     }
   });
 
-  it('does not advertise an OpenChamber package or release URL', async () => {
+  it('does not advertise an PiChamber package or release URL', async () => {
     await withNoHostedApi(async () => {
       fetchMock
         .when('registry.npmjs.org', {
@@ -235,7 +235,7 @@ describe('checkForUpdates (no hosted API by default)', () => {
           json: async () => ({
             assets: [
               { name: 'PiChamber-1.10.0-42-android.aab', browser_download_url: 'https://dl/a.aab' },
-              { name: 'OpenChamber-1.10.0-android.apk', browser_download_url: 'https://dl/legacy.apk' },
+              { name: 'PiChamber-1.10.0-android.apk', browser_download_url: 'https://dl/legacy.apk' },
               { name: 'PiChamber-1.10.0-42-android.apk', browser_download_url: 'https://dl/correct.apk' },
               { name: 'app-release.apk', browser_download_url: 'https://dl/random.apk' },
             ],
@@ -282,8 +282,8 @@ describe('checkForUpdates (no hosted API by default)', () => {
   });
 
   it('ignores a hosted APK URL and selects only the canonical GitHub release APK', async () => {
-    const previous = process.env.OPENCHAMBER_UPDATE_API_URL;
-    process.env.OPENCHAMBER_UPDATE_API_URL = 'https://updates.example.test/api/check';
+    const previous = process.env.PICHAMBER_UPDATE_API_URL;
+    process.env.PICHAMBER_UPDATE_API_URL = 'https://updates.example.test/api/check';
     try {
       fetchMock
         .when('updates.example.test', {
@@ -316,19 +316,19 @@ describe('checkForUpdates (no hosted API by default)', () => {
       expect(result.downloadUrl).not.toContain('untrusted.example');
     } finally {
       if (typeof previous === 'string') {
-        process.env.OPENCHAMBER_UPDATE_API_URL = previous;
+        process.env.PICHAMBER_UPDATE_API_URL = previous;
       } else {
-        delete process.env.OPENCHAMBER_UPDATE_API_URL;
+        delete process.env.PICHAMBER_UPDATE_API_URL;
       }
     }
   });
 });
 
 describe('package-manager ownership detection', () => {
-  it('detects PiChamber-claimed paths only and rejects legacy openchamber package output', () => {
+  it('detects PiChamber-claimed paths only and rejects legacy pichamber package output', () => {
     const containsPackage = (stdout) => stdout.includes('@pichamber/web');
     expect(containsPackage('/home/u/.npm-global/lib/node_modules/@pichamber/web')).toBe(true);
-    expect(containsPackage('openchamber@1.0.0')).toBe(false);
+    expect(containsPackage('pichamber@1.0.0')).toBe(false);
   });
 });
 

@@ -201,7 +201,7 @@ const resolveGitBinary = () => {
     return resolvedGitBinary;
   }
 
-  const explicit = [process.env.GIT_BINARY, process.env.OPENCHAMBER_GIT_BINARY]
+  const explicit = [process.env.GIT_BINARY, process.env.PICHAMBER_GIT_BINARY]
     .map((value) => (typeof value === 'string' ? value.trim() : ''))
     .filter(Boolean);
   for (const candidate of explicit) {
@@ -1619,7 +1619,7 @@ const resolveCandidateDirectory = async (worktreeRoot, preferredName, explicitBr
       return { name, directory, branch: explicitBranchName };
     }
 
-    const branch = `openchamber/${name}`;
+    const branch = `pichamber/${name}`;
     const branchRef = `refs/heads/${branch}`;
     const branchExists = await runGitCommand(primaryWorktree, ['show-ref', '--verify', '--quiet', branchRef]);
     if (branchExists.success) {
@@ -2843,7 +2843,7 @@ const extractPatchTargetPath = (patch) => {
 
 const writeTempPatchFile = async (patch) => {
   const tmpDir = os.tmpdir();
-  const tmpPath = path.join(tmpDir, `openchamber-hunk-${Date.now()}-${Math.random().toString(36).slice(2)}.patch`);
+  const tmpPath = path.join(tmpDir, `pichamber-hunk-${Date.now()}-${Math.random().toString(36).slice(2)}.patch`);
   await fsp.writeFile(tmpPath, patch, 'utf8');
   return tmpPath;
 };

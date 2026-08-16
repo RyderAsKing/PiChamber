@@ -35,7 +35,7 @@ const installWindow = (value: Record<string, unknown>) => {
 
 const makeWindow = (search = ''): Record<string, unknown> => {
   const value: Record<string, unknown> = {
-    location: { origin: 'openchamber-ui://app', search },
+    location: { origin: 'pichamber-ui://app', search },
     setTimeout: vi.fn(() => 1),
   };
   value.parent = value;
@@ -57,26 +57,26 @@ afterAll(() => {
 describe('readRuntimeBootstrapConfig', () => {
   test('reads the runtime injected into the current window', () => {
     const current = makeWindow();
-    current.__OPENCHAMBER_API_BASE_URL__ = ' https://remote.example.com ';
-    current.__OPENCHAMBER_CLIENT_TOKEN__ = ' remote-token ';
-    current.__OPENCHAMBER_LOCAL_ORIGIN__ = ' http://127.0.0.1:3000 ';
-    current.__OPENCHAMBER_RUNTIME_HEADERS__ = { 'x-openchamber-relay': 'relay-value' };
-    current.__OPENCHAMBER_RELAY_HOST_ID__ = ' remote-host ';
+    current.__PICHAMBER_API_BASE_URL__ = ' https://remote.example.com ';
+    current.__PICHAMBER_CLIENT_TOKEN__ = ' remote-token ';
+    current.__PICHAMBER_LOCAL_ORIGIN__ = ' http://127.0.0.1:3000 ';
+    current.__PICHAMBER_RUNTIME_HEADERS__ = { 'x-pichamber-relay': 'relay-value' };
+    current.__PICHAMBER_RELAY_HOST_ID__ = ' remote-host ';
     installWindow(current);
 
     expect(readRuntimeBootstrapConfig()).toEqual({
       apiBaseUrl: 'https://remote.example.com',
       clientToken: 'remote-token',
       localOrigin: 'http://127.0.0.1:3000',
-      runtimeHeaders: { 'x-openchamber-relay': 'relay-value' },
+      runtimeHeaders: { 'x-pichamber-relay': 'relay-value' },
       relayHostId: 'remote-host',
     });
   });
 
   test('does not read runtime credentials directly from a parent window', () => {
     const parent = makeWindow();
-    parent.__OPENCHAMBER_API_BASE_URL__ = 'https://remote.example.com';
-    parent.__OPENCHAMBER_CLIENT_TOKEN__ = 'remote-token';
+    parent.__PICHAMBER_API_BASE_URL__ = 'https://remote.example.com';
+    parent.__PICHAMBER_CLIENT_TOKEN__ = 'remote-token';
     const child = makeWindow('?ocPanel=session-chat&sessionId=ses_child');
     child.parent = parent;
     installWindow(child);
@@ -97,7 +97,7 @@ describe('createConfiguredWebAPIs', () => {
     const bootstrap = {
       apiBaseUrl: 'https://remote.example.com',
       clientToken: 'client-token',
-      localOrigin: 'openchamber-ui://app',
+      localOrigin: 'pichamber-ui://app',
       runtimeHeaders: { 'x-runtime': 'value' },
       relayHostId: 'host-1',
     };
@@ -120,7 +120,7 @@ describe('createConfiguredWebAPIs', () => {
       hostEncPubJwk: { kty: 'EC', crv: 'P-256', x: 'public-x', y: 'public-y' },
     };
     const bootstrap = {
-      apiBaseUrl: 'openchamber-ui://app',
+      apiBaseUrl: 'pichamber-ui://app',
       clientToken: 'client-token',
       localOrigin: 'http://127.0.0.1:3000',
       relayHostId: 'host-1',

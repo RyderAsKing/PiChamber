@@ -58,7 +58,7 @@ function parseArgs(argv = process.argv.slice(2)) {
   const options = {
     port: DEFAULT_PORT,
     host: undefined,
-    uiPassword: process.env.PICHAMBER_UI_PASSWORD || process.env.OPENCHAMBER_UI_PASSWORD || undefined,
+    uiPassword: process.env.PICHAMBER_UI_PASSWORD || process.env.PICHAMBER_UI_PASSWORD || undefined,
     json: false,
     all: false,
     follow: true,
@@ -513,7 +513,7 @@ ENVIRONMENT:
   PICHAMBER_API_ONLY           Set to true/1 to start API routes only
   PICHAMBER_DATA_DIR           Override PiChamber data directory
 
-  (Legacy OPENCHAMBER_* spellings are still honored.)
+  (Legacy PICHAMBER_* spellings are still honored.)
 
 EXAMPLES:
   pichamber                    # Start in daemon mode on default port 3000 (or free port)
@@ -565,7 +565,7 @@ USAGE:
   pichamber connect-url [OPTIONS]
 
 DESCRIPTION:
-  Generate an openchamber:// connection link for adding this server to another
+  Generate an pichamber:// connection link for adding this server to another
   PiChamber app. If no server is running on the selected port, it starts one.
 
 OPTIONS:
@@ -579,7 +579,7 @@ OPTIONS:
                           so the link works away from the local network. The
                           device prefers the direct connection when reachable;
                           the instance brings the relay up on its own. Set
-                          OPENCHAMBER_RELAY_URL to use a self-hosted relay.
+                          PICHAMBER_RELAY_URL to use a self-hosted relay.
   --name <label>          Label saved with the remote client token
   --ui-password <value>   Protect browser access when UI routes are enabled
   --api-only              Start in headless/API-only mode when starting

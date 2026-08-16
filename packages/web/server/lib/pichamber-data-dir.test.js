@@ -18,13 +18,13 @@ describe('resolvePiChamberDataDir', () => {
 
   it('resolves non-empty whitespace-trimmed overrides absolutely', () => {
     expect(
-      resolvePiChamberDataDir({ env: { OPENCHAMBER_DATA_DIR: '   /tmp/pichamber-data   ' }, homedir: () => '/home/u', path }),
+      resolvePiChamberDataDir({ env: { PICHAMBER_DATA_DIR: '   /tmp/pichamber-data   ' }, homedir: () => '/home/u', path }),
     ).toBe(path.resolve('/tmp/pichamber-data'));
   });
 
   it('normalizes relative overrides against the current working directory', () => {
     const resolved = resolvePiChamberDataDir({
-      env: { OPENCHAMBER_DATA_DIR: 'var/pichamber' },
+      env: { PICHAMBER_DATA_DIR: 'var/pichamber' },
       homedir: () => '/home/u',
       path,
     });
@@ -33,17 +33,17 @@ describe('resolvePiChamberDataDir', () => {
 
   it('treats whitespace-only overrides as absent and falls back', () => {
     expect(
-      resolvePiChamberDataDir({ env: { OPENCHAMBER_DATA_DIR: '   ' }, homedir: () => '/home/u', path }),
+      resolvePiChamberDataDir({ env: { PICHAMBER_DATA_DIR: '   ' }, homedir: () => '/home/u', path }),
     ).toBe(path.join('/home/u', '.config', 'pichamber'));
   });
 
   it('treats empty-string overrides as absent', () => {
     expect(
-      resolvePiChamberDataDir({ env: { OPENCHAMBER_DATA_DIR: '' }, homedir: () => '/home/u', path }),
+      resolvePiChamberDataDir({ env: { PICHAMBER_DATA_DIR: '' }, homedir: () => '/home/u', path }),
     ).toBe(path.join('/home/u', '.config', 'pichamber'));
   });
 
-  it('does not consult any openchamber fallback', () => {
+  it('does not consult any legacy openchamber data dir fallback', () => {
     expect(DEFAULT_CONFIG_DIR_NAME).toBe('pichamber');
     const resolved = resolvePiChamberDataDir({ env: {}, homedir: () => '/home/u', path });
     expect(resolved.endsWith('.config/openchamber')).toBe(false);
@@ -79,10 +79,10 @@ describe('resolvePiChamberDataPath', () => {
     );
   });
 
-  it('honors OPENCHAMBER_DATA_DIR overrides', () => {
+  it('honors PICHAMBER_DATA_DIR overrides', () => {
     expect(
       resolvePiChamberDataPath('settings.json', {
-        env: { OPENCHAMBER_DATA_DIR: '/custom/root' },
+        env: { PICHAMBER_DATA_DIR: '/custom/root' },
         homedir: () => '/home/u',
         path,
       }),

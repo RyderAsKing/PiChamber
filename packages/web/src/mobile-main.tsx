@@ -5,11 +5,11 @@ import '@pichamber/ui/styles/fonts';
 
 declare global {
   interface Window {
-    __OPENCHAMBER_RUNTIME_APIS__?: RuntimeAPIs;
+    __PICHAMBER_RUNTIME_APIS__?: RuntimeAPIs;
   }
 }
 
-window.__OPENCHAMBER_RUNTIME_APIS__ = createConfiguredWebAPIs();
+window.__PICHAMBER_RUNTIME_APIS__ = createConfiguredWebAPIs();
 
 void import('@pichamber/ui/apps/renderMobileApp')
   .then(({ renderMobileApp }) => {
