@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-17
+
+First public **PiChamber** release. This tag publishes **Electron desktop** builds only (macOS, Windows, Linux AppImage). `@pichamber/web` is not published to npm, and mobile artifacts are not attached.
+
+Desktop starts the PiChamber backend in-process and runs a Pi-native session daemon. It does not require a separately installed Pi CLI or server.
+
 ### Protocol hard rename: OpenChamber identifiers → PiChamber (breaking)
 
 Phase 1 protocol preservation is revoked. Remaining in-repo OpenChamber runtime identifiers are renamed to PiChamber with **no compatibility aliases**:
@@ -27,31 +33,12 @@ This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.
 
 - **VS Code extension removed:** the `packages/vscode` extension (extension host, webview, and its `pichamber.*` command namespace) was removed from the repository; the runtime contract no longer includes a VS Code platform.
 - **PWA-specific localStorage keys:** the four PWA keys were renamed to `pichamber.*` (`pichamber.pwaName`, `pichamber.pwaOrientation`, `pichamber.mobileKeyboardMode`, `pichamber.pwaRecentSessions`) in this stabilization pass. The shared UI constants and the literal `<script>` strings in `packages/web/index.html` are now locked by a focused contract test.
-- **Application data root:** every PiChamber-owned file (settings, themes, projects, walkthroughs, goals, quota credentials, passkeys, managed-process records, install IDs) resolves through one canonical resolver at `~/.config/pichamber`, overridable by `OPENCHAMBER_DATA_DIR`. Web, CLI, and Electron share the same default and the same override semantics. Web `GET /api/fs/home` exposes `pichamberDataDir` so the shared UI can resolve `projects/` beneath the authoritative root rather than reconstructing `<home>/.config/pichamber` on its own.
+- **Application data root:** every PiChamber-owned file (settings, themes, projects, walkthroughs, goals, quota credentials, passkeys, managed-process records, install IDs) resolves through one canonical resolver at `~/.config/pichamber`, overridable by `PICHAMBER_DATA_DIR`. Web, CLI, and Electron share the same default and the same override semantics. Web `GET /api/fs/home` exposes `pichamberDataDir` so the shared UI can resolve `projects/` beneath the authoritative root rather than reconstructing `<home>/.config/pichamber` on its own.
 - **Package ownership detection:** global-bin detection in `package-manager.js` now probes only `pichamber` / `pichamber.cmd`, and `isPackageInstalledWith()` validates `@pichamber/web` rather than a generic `openchamber` substring.
-- **Default update checks:** the hosted update check no longer defaults to a placeholder host. Web/CLI versions come from the authoritative npm `@pichamber/web` `dist-tags.latest`, release notes from the PiChamber changelog after the npm cross-check, GitHub assets from `RyderAsKing/PiChamber`, and Android selects the canonical PiChamber APK and refuses AAB-only/unrelated releases. `OPENCHAMBER_UPDATE_API_URL` remains an opt-in override for deployment integrations.
+- **Default update checks:** desktop update checks use GitHub Releases for `RyderAsKing/PiChamber`. `PICHAMBER_UPDATE_API_URL` remains an opt-in override for deployment integrations.
 - **Process identity:** `cli-process.js` now recognizes only the `pichamber` / `pichamber.cmd` / `pichamber.exe` executable tokens and the `@pichamber/web/bin/cli.js`, `@pichamber/web/server/index.js`, `PiChamber/packages/web/bin/cli.js`, and `PiChamber/packages/web/server/index.js` entrypoints. OpenChamber-only paths, `pichamber` appearing in usernames, hostnames, project files, or unrelated package names, and generic `cli.js` / `server/index.js` paths are no longer accepted.
 
-**Phase 1 non-goals (intentionally deferred to later phases):**
-
-- `/api/openchamber/*` remains the sole active HTTP route prefix.
-- `openchamber:*` custom events, `__openchamber*` window globals, and `openchamber-ui://` / `openchamber://` URL schemes are unchanged.
-- `OPENCHAMBER_*` environment variables are unchanged.
-- No automatic import or fallback read of legacy `~/.config/openchamber` data is provided. Legacy-data migration is out of scope.
-- OpenCode runtime behavior (SDK calls, proxy, SSE) is unchanged.
-
-### Deferred to later phases (intentional, to keep upgrades non-breaking)
-
-- Env var rename: `OPENCHAMBER_*` → `PICHAMBER_*` (and aliases).
-- URL scheme rename: `openchamber-ui://` → `pichamber-ui://`.
-- Electron `appId` / bundle id rename (`dev.openchamber.desktop` → `dev.pichamber.desktop`).
-- Mobile `capacitor.config.ts` `appId` (`com.openchamber.app` → `com.pichamber.app`).
-- Workspace localStorage key rename (`openchamber_*` → `pichamber_*`) for keys outside the four PWA keys above.
-- HTTP route rename: `/api/openchamber/*` → `/api/pichamber/*`.
-- Custom-event / window-global renames (`openchamber:*`, `__openchamber*`).
-- `.agents/skills/openchamber-change-discipline/` directory rename (kept as-is to preserve skill loaders and references).
-- SSH secret name migration (`openchamberPassword` / `openchamber_password` → `pichamberPassword`) continues to be served as a read fallback to `pichamberPassword` for backwards compatibility.
-
+The Phase 1 “keep OpenChamber protocol names” non-goals above were revoked by the hard rename in this same `0.1.0` cut. There is still no automatic import of legacy `~/.config/openchamber` data.
 
 - **Observability panel:** a new panel near to the chat brings the active goal, tasks, subagents, pinned context, MCP servers, and context usage into one live view. The session list also shows how long an agent has been working.
 - **Scheduled Tasks:** projects can now define recurring tasks as Markdown files in `.agents/loops`; opening the task list discovers file changes without a restart, and loop tasks can be edited, enabled, disabled, deleted, or run from the app (thanks to @makeittech).

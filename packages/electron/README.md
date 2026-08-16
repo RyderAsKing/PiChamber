@@ -25,6 +25,8 @@ bun run electron:build
 
 Packaging builds web assets, bundles the Electron main process, rebuilds native modules, and runs electron-builder. It stages only the web UI and native desktop resources; Pi sessions are served by the in-process PiChamber server.
 
+GitHub Releases for this package are produced by `.github/workflows/release.yml`. Desktop is the default published artifact; npm and mobile jobs stay disabled unless a workflow dispatch explicitly enables them. See `CONTRIBUTING.md` for the version/tag steps.
+
 ## Platform rules
 
 - Keep native windows, menus, updater, deep-link, SSH, and IPC behavior in this package.

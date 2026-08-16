@@ -22,7 +22,7 @@ PiChamber runs a Pi-native session daemon on the host, provides an authenticated
 
 ### Desktop — macOS, Windows, and Linux
 
-Download the latest release from [GitHub Releases](https://github.com/RyderAsKing/PiChamber/releases/latest). Desktop includes the Pi SDK integration; it does not require a separately installed Pi CLI or server.
+Download the latest **desktop** release from [GitHub Releases](https://github.com/RyderAsKing/PiChamber/releases/latest). The first public line (`0.1.0`) ships Electron only. Desktop includes the Pi SDK integration; it does not require a separately installed Pi CLI or server.
 
 Linux releases are available as x86_64 and ARM64 AppImages. Make the downloaded AppImage executable and keep it in a writable location for in-app updates:
 

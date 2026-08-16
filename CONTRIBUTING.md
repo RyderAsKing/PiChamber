@@ -104,6 +104,19 @@ bun run --cwd packages/electron verify:linux-appimage
 
 The final AppImage verifier checks desktop identity and the architecture of Electron and packaged native modules.
 
+## Desktop releases
+
+PiChamber's public GitHub Release path is **Electron desktop** (macOS, Windows, Linux AppImage). npm (`@pichamber/web`) and mobile artifacts are opt-in workflow inputs and stay off unless a later release explicitly enables them.
+
+To cut a version:
+
+1. Bump workspace versions: `bun run version:bump 0.1.0` (does not bump `packages/mobile`).
+2. Move notes from `CHANGELOG.md` `[Unreleased]` into a `## [0.1.0] - YYYY-MM-DD` section. The release workflow fails if that heading is missing.
+3. Merge the bump to `main`.
+4. Push tag `v0.1.0`, or run the **Release** workflow with `version=0.1.0`. Tag pushes skip npm and mobile.
+
+The draft GitHub Release is published after macOS, Windows, and Linux desktop jobs succeed.
+
 ## Before Submitting
 
 ```bash
