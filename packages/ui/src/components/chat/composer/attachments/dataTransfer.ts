@@ -15,7 +15,7 @@
 import { parseDroppedFileReferences, VS_CODE_DROP_DATA_TYPES } from './filePaths';
 
 /** Data type marking a drag that started in PiChamber's own file tree. */
-export const INTERNAL_FILE_PATH_TYPE = 'application/x-openchamber-file-path';
+export const INTERNAL_FILE_PATH_TYPE = 'application/x-pichamber-file-path';
 
 /** Data types that, by their presence alone, mean files are being dragged. */
 const FILE_BEARING_TYPES = [

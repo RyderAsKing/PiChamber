@@ -4,7 +4,7 @@ Electron is PiChamber's native desktop shell for macOS, Windows, and Linux.
 
 ## Runtime
 
-`main.mjs` starts `@pichamber/web/server/index.js` in the Electron main process. It never starts a server sidecar or manages an external coding-agent binary. Development loads the HMR UI; packaged builds load staged assets from `openchamber-ui://` while the in-process loopback server remains the authenticated API backend.
+`main.mjs` starts `@pichamber/web/server/index.js` in the Electron main process. It never starts a server sidecar or manages an external coding-agent binary. Development loads the HMR UI; packaged builds load staged assets from `pichamber-ui://` while the in-process loopback server remains the authenticated API backend.
 
 The preload bridge exposes only desktop-owned capabilities. Main-process handlers enforce every privileged action; remote pages do not receive local filesystem, shell, token, or host privileges.
 

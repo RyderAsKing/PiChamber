@@ -140,16 +140,16 @@ jobs:
             echo "ANDROID_KEYSTORE_BASE64 secret is required."
             exit 1
           fi
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/openchamber-release.keystore"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/pichamber-release.keystore"
 
       - name: Build signed Android release
         env:
-          OPENCHAMBER_ANDROID_VERSION_CODE: ${{ needs.resolve-version.outputs.build_number }}
-          OPENCHAMBER_ANDROID_VERSION_NAME: ${{ needs.resolve-version.outputs.version_name }}
-          OPENCHAMBER_ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/openchamber-release.keystore
-          OPENCHAMBER_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          OPENCHAMBER_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          OPENCHAMBER_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          PICHAMBER_ANDROID_VERSION_CODE: ${{ needs.resolve-version.outputs.build_number }}
+          PICHAMBER_ANDROID_VERSION_NAME: ${{ needs.resolve-version.outputs.version_name }}
+          PICHAMBER_ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/pichamber-release.keystore
+          PICHAMBER_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          PICHAMBER_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          PICHAMBER_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           bun run mobile:sync
           ./packages/mobile/android/gradlew -p packages/mobile/android bundleRelease assembleRelease
@@ -228,9 +228,9 @@ jobs:
           security import "$cert_path" -P "$IOS_DISTRIBUTION_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
           security list-keychain -d user -s "$keychain_path"
 
-          app_profile="$RUNNER_TEMP/openchamber-app.mobileprovision"
-          widget_profile="$RUNNER_TEMP/openchamber-widget.mobileprovision"
-          nse_profile="$RUNNER_TEMP/openchamber-notification-service.mobileprovision"
+          app_profile="$RUNNER_TEMP/pichamber-app.mobileprovision"
+          widget_profile="$RUNNER_TEMP/pichamber-widget.mobileprovision"
+          nse_profile="$RUNNER_TEMP/pichamber-notification-service.mobileprovision"
           printf '%s' "$IOS_APP_PROFILE_BASE64" | base64 -D > "$app_profile"
           printf '%s' "$IOS_WIDGET_PROFILE_BASE64" | base64 -D > "$widget_profile"
           printf '%s' "$IOS_NSE_PROFILE_BASE64" | base64 -D > "$nse_profile"
@@ -277,17 +277,17 @@ jobs:
           const releaseBlockPattern = /\n\t\t[^\n]+ \/\* Release \*\/ = \{\n\t\t\tisa = XCBuildConfiguration;[\s\S]*?\n\t\t\tname = Release;\n\t\t\};/g;
           const replacements = [
             {
-              bundle: 'com.openchamber.app',
+              bundle: 'com.pichamber.app',
               profile: process.env.IOS_APP_PROFILE_NAME,
               uuid: process.env.IOS_APP_PROFILE_UUID,
             },
             {
-              bundle: 'com.openchamber.app.OpenChamberWidget',
+              bundle: 'com.pichamber.app.PiChamberWidget',
               profile: process.env.IOS_WIDGET_PROFILE_NAME,
               uuid: process.env.IOS_WIDGET_PROFILE_UUID,
             },
             {
-              bundle: 'com.openchamber.app.OpenChamberNotificationService',
+              bundle: 'com.pichamber.app.PiChamberNotificationService',
               profile: process.env.IOS_NSE_PROFILE_NAME,
               uuid: process.env.IOS_NSE_PROFILE_UUID,
             },
@@ -363,11 +363,11 @@ jobs:
             <string>manual</string>
             <key>provisioningProfiles</key>
             <dict>
-              <key>com.openchamber.app</key>
+              <key>com.pichamber.app</key>
               <string>$IOS_APP_PROFILE_NAME</string>
-              <key>com.openchamber.app.OpenChamberWidget</key>
+              <key>com.pichamber.app.PiChamberWidget</key>
               <string>$IOS_WIDGET_PROFILE_NAME</string>
-              <key>com.openchamber.app.OpenChamberNotificationService</key>
+              <key>com.pichamber.app.PiChamberNotificationService</key>
               <string>$IOS_NSE_PROFILE_NAME</string>
             </dict>
             <key>uploadSymbols</key>

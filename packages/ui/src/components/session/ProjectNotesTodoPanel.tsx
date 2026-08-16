@@ -25,9 +25,9 @@ import {
   deleteProjectPlanFile,
   getProjectContextData,
   importProjectPlanFileFromContent,
-  OPENCHAMBER_PROJECT_NOTES_MAX_LENGTH,
+  PICHAMBER_PROJECT_NOTES_MAX_LENGTH,
   readProjectPlanFile,
-  OPENCHAMBER_PROJECT_TODO_TEXT_MAX_LENGTH,
+  PICHAMBER_PROJECT_TODO_TEXT_MAX_LENGTH,
   saveProjectNotesAndTodos,
   type PiChamberProjectPlanFileLink,
   type PiChamberProjectTodoItem,
@@ -287,11 +287,11 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
       setContextReloadTick((previous) => previous + 1);
     };
 
-    window.addEventListener('openchamber:project-plan-saved', handleProjectContextRefresh);
-    window.addEventListener('openchamber:project-notes-updated', handleProjectContextRefresh);
+    window.addEventListener('pichamber:project-plan-saved', handleProjectContextRefresh);
+    window.addEventListener('pichamber:project-notes-updated', handleProjectContextRefresh);
     return () => {
-      window.removeEventListener('openchamber:project-plan-saved', handleProjectContextRefresh);
-      window.removeEventListener('openchamber:project-notes-updated', handleProjectContextRefresh);
+      window.removeEventListener('pichamber:project-plan-saved', handleProjectContextRefresh);
+      window.removeEventListener('pichamber:project-notes-updated', handleProjectContextRefresh);
     };
   }, [projectRef]);
 
@@ -388,7 +388,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
 
     const nextTodos = insertTodoBeforeCompleted(todos, {
       id: createTodoId(),
-      text: trimmed.slice(0, OPENCHAMBER_PROJECT_TODO_TEXT_MAX_LENGTH),
+      text: trimmed.slice(0, PICHAMBER_PROJECT_TODO_TEXT_MAX_LENGTH),
       completed: false,
       createdAt: Date.now(),
     });
@@ -466,7 +466,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
-  const todoInputValue = newTodoText.slice(0, OPENCHAMBER_PROJECT_TODO_TEXT_MAX_LENGTH);
+  const todoInputValue = newTodoText.slice(0, PICHAMBER_PROJECT_TODO_TEXT_MAX_LENGTH);
   const completedTodoCount = todos.reduce((count, todo) => count + (todo.completed ? 1 : 0), 0);
 
   const routeToChat = React.useCallback(() => {
@@ -584,7 +584,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
           return;
         }
         setPlans((previous) => previous.filter((entry) => entry.id !== planId));
-        window.dispatchEvent(new CustomEvent('openchamber:project-plan-saved', {
+        window.dispatchEvent(new CustomEvent('pichamber:project-plan-saved', {
           detail: { projectId: projectRef.id },
         }));
       } finally {
@@ -631,7 +631,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
           toast.error("Failed to import plan");
           return;
         }
-        window.dispatchEvent(new CustomEvent('openchamber:project-plan-saved', {
+        window.dispatchEvent(new CustomEvent('pichamber:project-plan-saved', {
           detail: { projectId: projectRef.id },
         }));
         toast.success("Plan imported");
@@ -665,7 +665,7 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
           toast.error("Failed to import plan");
           return;
         }
-        window.dispatchEvent(new CustomEvent('openchamber:project-plan-saved', {
+        window.dispatchEvent(new CustomEvent('pichamber:project-plan-saved', {
           detail: { projectId: projectRef.id },
         }));
         toast.success("Plan imported");
@@ -713,11 +713,11 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
           <h3 className="min-w-0 truncate typography-ui-label font-semibold text-foreground" title={projectRef.path}>
             {`Quick notes - ${projectLabel?.trim() || projectRef.path.split('/').filter(Boolean).pop() || projectRef.path}`}
           </h3>
-          <span className="typography-meta text-muted-foreground">{notes.length}/{OPENCHAMBER_PROJECT_NOTES_MAX_LENGTH}</span>
+          <span className="typography-meta text-muted-foreground">{notes.length}/{PICHAMBER_PROJECT_NOTES_MAX_LENGTH}</span>
         </div>
         <Textarea
           value={notes}
-          onChange={(event) => setNotes(event.target.value.slice(0, OPENCHAMBER_PROJECT_NOTES_MAX_LENGTH))}
+          onChange={(event) => setNotes(event.target.value.slice(0, PICHAMBER_PROJECT_NOTES_MAX_LENGTH))}
           onBlur={handleNotesBlur}
           placeholder={"Capture context, reminders, or links"}
           resizedHeight={notesPanelHeight}
@@ -748,13 +748,13 @@ export const ProjectNotesTodoPanel: React.FC<ProjectNotesTodoPanelProps> = ({
               {"Clear completed"}
             </button>
           </div>
-          <span className="typography-meta text-muted-foreground">{todoInputValue.length}/{OPENCHAMBER_PROJECT_TODO_TEXT_MAX_LENGTH}</span>
+          <span className="typography-meta text-muted-foreground">{todoInputValue.length}/{PICHAMBER_PROJECT_TODO_TEXT_MAX_LENGTH}</span>
         </div>
 
         <div className="flex items-center gap-1.5">
           <Input
             value={todoInputValue}
-            onChange={(event) => setNewTodoText(event.target.value.slice(0, OPENCHAMBER_PROJECT_TODO_TEXT_MAX_LENGTH))}
+            onChange={(event) => setNewTodoText(event.target.value.slice(0, PICHAMBER_PROJECT_TODO_TEXT_MAX_LENGTH))}
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
                 event.preventDefault();

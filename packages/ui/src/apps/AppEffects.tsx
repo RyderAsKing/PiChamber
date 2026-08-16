@@ -15,7 +15,7 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { parseRoute } from '@/lib/router';
 import { PiSessionCatalogFeeder } from '@/sync/pi-session-catalog-feeder';
 
-const MINI_CHAT_PRESENCE_CHANNEL = 'openchamber:mini-chat-presence';
+const MINI_CHAT_PRESENCE_CHANNEL = 'pichamber:mini-chat-presence';
 
 type MiniChatPresenceMessage = {
   type?: string;
@@ -84,7 +84,15 @@ export function SyncRuntimeEffects({ embeddedBackgroundWorkEnabled }: {
  */
 const PiSessionBootstrapBridge: React.FC = () => {
   const store = React.useMemo(() => getPiSessionStore(), []);
-  const snapshot = React.useSyncExternalStore(store.subscribe, store.getState, store.getState);
+  // Only chrome fields are consumed below. Subscribe on `chrome` so
+  // token deltas on background sessions do not wake this bridge. The
+  // `subscribe` closure must be stable across renders — a fresh
+  // closure makes `useSyncExternalStore` re-subscribe every render.
+  const subscribe = React.useMemo(
+    () => (listener: () => void) => store.subscribe(listener, 'chrome'),
+    [store],
+  );
+  const snapshot = React.useSyncExternalStore(subscribe, store.getState, store.getState);
   const { selectedSessionId, directory, connection, focusPending } = snapshot;
 
   React.useEffect(() => {
@@ -159,7 +167,13 @@ const PiSessionBootstrapBridge: React.FC = () => {
 
 const ConfigStoreBootstrap: React.FC = () => {
   const store = React.useMemo(() => getPiSessionStore(), []);
-  const pi = React.useSyncExternalStore(store.subscribe, store.getState, store.getState);
+  // Only `directory` and `connection` (chrome) are consumed below;
+  // subscribe on `chrome` so token deltas do not wake this bridge.
+  const subscribe = React.useMemo(
+    () => (listener: () => void) => store.subscribe(listener, 'chrome'),
+    [store],
+  );
+  const pi = React.useSyncExternalStore(subscribe, store.getState, store.getState);
   const initializeApp = useConfigStore((state) => state.initializeApp);
   const isInitialized = useConfigStore((state) => state.isInitialized);
   const isConnected = useConfigStore((state) => state.isConnected);

@@ -187,7 +187,7 @@ const TOOL_METADATA: Record<string, ToolMetadata> = {
       ]
     },
 
-    openchamber: {
+    pichamber: {
       displayName: 'PiChamber',
       category: 'system',
       outputLanguage: 'json',

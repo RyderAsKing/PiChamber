@@ -9,19 +9,19 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./data/pichamber:/home/openchamber/.config/pichamber
-      - ./data/pi/agent:/home/openchamber/.pi/agent
-      - ./data/ssh:/home/openchamber/.ssh
-      - ./data/workspaces:/home/openchamber/workspaces
+      - ./data/pichamber:/home/pichamber/.config/pichamber
+      - ./data/pi/agent:/home/pichamber/.pi/agent
+      - ./data/ssh:/home/pichamber/.ssh
+      - ./data/workspaces:/home/pichamber/workspaces
     environment:
       # Docker binds PiChamber to 0.0.0.0 for port mapping, so UI auth is required.
       # Set this before starting, for example:
-      #   OPENCHAMBER_UI_PASSWORD="$(openssl rand -base64 24)" docker compose up -d
-      OPENCHAMBER_UI_PASSWORD: ${OPENCHAMBER_UI_PASSWORD:?Set OPENCHAMBER_UI_PASSWORD before exposing PiChamber through Docker}
-    # OPENCHAMBER_HOST: 0.0.0.0  # Bind address (default in Docker entrypoint: 0.0.0.0)
-    # OPENCHAMBER_TUNNEL_PROVIDER: cloudflare
-    # OPENCHAMBER_TUNNEL_MODE: quick  # quick | managed-remote | managed-local
-    # OPENCHAMBER_TUNNEL_HOSTNAME: app.example.com  # required for managed-remote
-    # OPENCHAMBER_TUNNEL_TOKEN: your_cloudflare_token  # required for managed-remote
-    # OPENCHAMBER_TUNNEL_CONFIG: /home/openchamber/.cloudflared/config.yml  # optional for managed-local
+      #   PICHAMBER_UI_PASSWORD="$(openssl rand -base64 24)" docker compose up -d
+      PICHAMBER_UI_PASSWORD: ${PICHAMBER_UI_PASSWORD:?Set PICHAMBER_UI_PASSWORD before exposing PiChamber through Docker}
+    # PICHAMBER_HOST: 0.0.0.0  # Bind address (default in Docker entrypoint: 0.0.0.0)
+    # PICHAMBER_TUNNEL_PROVIDER: cloudflare
+    # PICHAMBER_TUNNEL_MODE: quick  # quick | managed-remote | managed-local
+    # PICHAMBER_TUNNEL_HOSTNAME: app.example.com  # required for managed-remote
+    # PICHAMBER_TUNNEL_TOKEN: your_cloudflare_token  # required for managed-remote
+    # PICHAMBER_TUNNEL_CONFIG: /home/pichamber/.cloudflared/config.yml  # optional for managed-local
     restart: unless-stopped

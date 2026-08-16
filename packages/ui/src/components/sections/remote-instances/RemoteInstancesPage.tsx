@@ -1663,7 +1663,7 @@ export const RemoteInstancesPage: React.FC = () => {
               <DialogDescription>{"Paste a connection link from another PiChamber server."}</DialogDescription>
             </DialogHeader>
             <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void importDirectConnectLink(); }}>
-              <Input className="h-8" value={directConnectLink} onChange={(event) => setDirectConnectLink(event.target.value)} placeholder={"openchamber://connect?..."} disabled={directSaving} autoFocus />
+              <Input className="h-8" value={directConnectLink} onChange={(event) => setDirectConnectLink(event.target.value)} placeholder={"pichamber://connect?..."} disabled={directSaving} autoFocus />
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" size="xs" className="!font-normal" onClick={() => setDirectImportDialogOpen(false)} disabled={directSaving}>{"Cancel"}</Button>
                 <Button type="submit" size="xs" className="!font-normal" disabled={directSaving || !directConnectLink.trim()}>{"Import Link"}</Button>

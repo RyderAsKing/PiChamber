@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { toast } from '@/components/ui';
 import { Icon } from "@/components/icon/Icon";
-import { OPENCHAMBER_PROJECT_NOTES_MAX_LENGTH, getProjectNotesAndTodos, saveProjectNotesAndTodos } from '@/lib/pichamberConfig';
+import { PICHAMBER_PROJECT_NOTES_MAX_LENGTH, getProjectNotesAndTodos, saveProjectNotesAndTodos } from '@/lib/pichamberConfig';
 import { summarizeSelectionForNotes } from '@/lib/smallModel';
 import { resolveProjectForSessionDirectory } from '@/lib/projectResolution';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
@@ -33,7 +33,7 @@ interface SelectionPayload {
 }
 
 const appendDistilledInsightToNotes = (existingNotes: string, insight: string): string => {
-  const trimmedInsight = insight.trim().replace(/^[-*+]\s+/, '').slice(0, OPENCHAMBER_PROJECT_NOTES_MAX_LENGTH);
+  const trimmedInsight = insight.trim().replace(/^[-*+]\s+/, '').slice(0, PICHAMBER_PROJECT_NOTES_MAX_LENGTH);
   if (!trimmedInsight) {
     return existingNotes;
   }
@@ -372,7 +372,7 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
         toast.error("Failed to add to notes");
         return;
       }
-      window.dispatchEvent(new CustomEvent('openchamber:project-notes-updated', {
+      window.dispatchEvent(new CustomEvent('pichamber:project-notes-updated', {
         detail: { projectId: currentProjectRef.id },
       }));
       toast.success("Added selected text to notes");

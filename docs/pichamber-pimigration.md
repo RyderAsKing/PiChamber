@@ -8,7 +8,7 @@ A workstream is complete only when its stated exit gate has focused validation. 
 
 ## Purpose
 
-PiChamber began as an MIT-licensed OpenChamber fork. The product direction is now different: PiChamber is to become a high-quality GUI and remote-hosting surface for Pi Coding Agent, while retaining the useful PiChamber-owned product features that do not depend on OpenCode semantics.
+PiChamber began as an MIT-licensed PiChamber fork. The product direction is now different: PiChamber is to become a high-quality GUI and remote-hosting surface for Pi Coding Agent, while retaining the useful PiChamber-owned product features that do not depend on OpenCode semantics.
 
 The final product must:
 
@@ -17,7 +17,7 @@ The final product must:
 - support a personal, single-owner workspace server on a local machine or VPS;
 - preserve trusted-device access, pairing, direct connections, SSH, tunnels, and relay capabilities;
 - remain Pi-native rather than recreating OpenCode concepts that Pi does not have; and
-- retain required OpenChamber/OpenCode MIT attribution without retaining an OpenCode runtime dependency or compatibility layer.
+- retain required PiChamber/OpenCode MIT attribution without retaining an OpenCode runtime dependency or compatibility layer.
 
 ## Final Architectural Decision
 
@@ -97,7 +97,7 @@ The following are deliberately not part of the initial Pi migration:
 - A PiChamber GUI-extension API or bundled subagent feature in the Pi core milestone.
 - A remote-to-local execution bridge.
 - Multi-tenant accounts, per-user filesystem isolation, or a public multi-user service model.
-- Migration of existing OpenChamber/OpenCode server state, sessions, credentials, or VPS data.
+- Migration of existing PiChamber/OpenCode server state, sessions, credentials, or VPS data.
 - Pi's experimental remote server/protocol/harness as a PiChamber production dependency.
 
 ## Product Decisions and Invariants
@@ -176,7 +176,7 @@ The Providers UI remains a first-class PiChamber feature, but becomes Pi-native:
 - Pi global/project skills and prompt templates are used directly.
 - PiChamber Snippets becomes a UI for native Pi prompt-template Markdown files, including global `~/.pi/agent/prompts/` and trusted project `.pi/prompts/` locations.
 - PiChamber Magic Prompts remain PiChamber-owned feature configuration.
-- The existing OpenChamber catalog is not ported as a copy-based installer. It currently sparse-copies skill directories from sources such as Anthropic and ClawdHub into OpenCode/`.agents` locations, is coupled to OpenCode discovery, and has no Pi package semantics.
+- The existing PiChamber catalog is not ported as a copy-based installer. It currently sparse-copies skill directories from sources such as Anthropic and ClawdHub into OpenCode/`.agents` locations, is coupled to OpenCode discovery, and has no Pi package semantics.
 - A later skills-installation surface may curate packages, but installation/update/remove must use Pi-native package/resource configuration and honor the extension trust policy.
 
 ### Behavior and instructions
@@ -241,7 +241,7 @@ The current boundary, naming, and OpenCode inventory are recorded in [the Workst
 1. Add the exact Pi SDK dependency only after implementation approval.
 2. Pin and review the Pi SDK version deliberately; do not treat 0.x minor changes as transparent updates.
 3. Create Pi-owned module boundaries rather than adding Pi behavior to existing `lib/opencode` modules.
-4. Inventory all `@opencode-ai/sdk`, OpenCode process, `/api/openchamber`, `OPENCODE_*`, `OPENCHAMBER_*`, OpenCode config, and OpenCode event consumers.
+4. Inventory all `@opencode-ai/sdk`, OpenCode process, `/api/pichamber`, `OPENCODE_*`, `PICHAMBER_*`, OpenCode config, and OpenCode event consumers.
 5. Define final PiChamber names for new routes, IPC messages, daemon commands, persisted sidecars, and environment variables. Historical MIT notices are the only intentional OpenCode references in final runtime/product code.
 6. Do not ship a production engine selector or a long-lived dual-runtime UI.
 
@@ -580,7 +580,7 @@ The original idea of an in-process SDK server was revisited after comparing Open
 
 ### Q3 — Breaking migration policy
 
-PiChamber is a clean Pi-only breaking migration. It will preserve MIT notices and attribution from OpenChamber/OpenCode where legally required, but it will not retain OpenCode execution, configuration editing, session semantics, or a dual-engine compatibility mode. Existing OpenChamber/VPS data does not need migration.
+PiChamber is a clean Pi-only breaking migration. It will preserve MIT notices and attribution from PiChamber/OpenCode where legally required, but it will not retain OpenCode execution, configuration editing, session semantics, or a dual-engine compatibility mode. Existing PiChamber/VPS data does not need migration.
 
 ### Q4 / Q19 — Core product boundary and timing
 
@@ -594,7 +594,7 @@ PiChamber will eventually have a PiChamber-specific extension API, but it is not
 
 ### Q6 / Q13 — Connection methods
 
-PiChamber retains every existing OpenChamber connection direction: direct local/LAN IPs, reverse proxy/HTTPS, private networks such as Tailscale, Desktop SSH forwarding, managed tunnels, and E2EE relay. Direct server connections are proved first; tunnel and relay provider ports occur after core Pi connectivity is stable.
+PiChamber retains every existing PiChamber connection direction: direct local/LAN IPs, reverse proxy/HTTPS, private networks such as Tailscale, Desktop SSH forwarding, managed tunnels, and E2EE relay. Direct server connections are proved first; tunnel and relay provider ports occur after core Pi connectivity is stable.
 
 ### Q7 — Ownership model
 
@@ -606,7 +606,7 @@ When connected to a VPS/server, all Pi work occurs on that server's filesystem a
 
 ### Q14 — Authentication and pairing
 
-PiChamber retains the existing password, passkey, trusted-device token, pairing link/QR, and connection-candidate model. No legacy OpenChamber server data migration is required. The model remains a prerequisite for safely using direct, SSH, tunnel, and relay connections.
+PiChamber retains the existing password, passkey, trusted-device token, pairing link/QR, and connection-candidate model. No legacy PiChamber server data migration is required. The model remains a prerequisite for safely using direct, SSH, tunnel, and relay connections.
 
 ### Q20 — Shared session control
 
@@ -666,7 +666,7 @@ PiChamber retains a small/utility-model setting. After removal of goals, session
 
 ### Q29 / Q33 — Skills
 
-Pi native skill discovery is used directly. The existing OpenChamber catalog is not copied mechanically because it is a Git/ZIP copy installer tied to OpenCode discovery and locations. A later PiChamber skills UI may curate packages but must use Pi's package/resource mechanisms, scopes, updates, and extension security model.
+Pi native skill discovery is used directly. The existing PiChamber catalog is not copied mechanically because it is a Git/ZIP copy installer tied to OpenCode discovery and locations. A later PiChamber skills UI may curate packages but must use Pi's package/resource mechanisms, scopes, updates, and extension security model.
 
 ### Q34 — Snippets and Magic Prompts
 

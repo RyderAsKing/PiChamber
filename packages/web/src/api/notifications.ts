@@ -2,7 +2,7 @@ import type { NotificationPayload, NotificationsAPI } from '@pichamber/ui/lib/ap
 
 const SW_READY_TIMEOUT_MS = 1500;
 const NOTIFICATION_DEDUPE_TTL_MS = 5000;
-const NOTIFICATION_DEDUPE_STORAGE_PREFIX = 'openchamber-notification-claim:';
+const NOTIFICATION_DEDUPE_STORAGE_PREFIX = 'pichamber-notification-claim:';
 
 const notificationClaims = new Map<string, number>();
 
@@ -184,7 +184,7 @@ const notifyWithDesktop = async (payload?: NotificationPayload): Promise<boolean
     return false;
   }
 
-  const desktop = (window as unknown as { __OPENCHAMBER_DESKTOP__?: DesktopBridgeGlobal }).__OPENCHAMBER_DESKTOP__;
+  const desktop = (window as unknown as { __PICHAMBER_DESKTOP__?: DesktopBridgeGlobal }).__PICHAMBER_DESKTOP__;
   if (!desktop?.invoke) {
     return false;
   }
@@ -214,7 +214,7 @@ export const createWebNotificationsAPI = (): NotificationsAPI => ({
   },
   canNotify: () => {
     if (typeof window !== 'undefined') {
-      const desktop = (window as unknown as { __OPENCHAMBER_DESKTOP__?: DesktopBridgeGlobal }).__OPENCHAMBER_DESKTOP__;
+      const desktop = (window as unknown as { __PICHAMBER_DESKTOP__?: DesktopBridgeGlobal }).__PICHAMBER_DESKTOP__;
       if (desktop?.invoke) {
         return true;
       }

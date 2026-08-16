@@ -121,7 +121,7 @@ const WEB_UPDATE_MAX_WAIT_MS = 10 * 60 * 1000;
 
 async function installWebUpdate(): Promise<InstallWebUpdateResult> {
   try {
-    const response = await runtimeFetch('/api/openchamber/update-install', {
+    const response = await runtimeFetch('/api/pichamber/update-install', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });

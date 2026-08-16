@@ -310,7 +310,7 @@ export const NotificationSettings: React.FC = () => {
       const success = await apis.notifications.notifyAgentCompletion({
         title: "Test Notification",
         body: "This is a test notification from PiChamber.",
-        tag: 'openchamber-test',
+        tag: 'pichamber-test',
       });
 
       if (success) {

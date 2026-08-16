@@ -1,13 +1,13 @@
 export const streamDebugEnabled = (): boolean => {
     if (typeof window === 'undefined') return false;
     try {
-        return window.localStorage.getItem('openchamber_stream_debug') === '1';
+        return window.localStorage.getItem('pichamber_stream_debug') === '1';
     } catch {
         return false;
     }
 };
 
-const STREAM_PERF_STORAGE_KEY = 'openchamber_stream_perf';
+const STREAM_PERF_STORAGE_KEY = 'pichamber_stream_perf';
 
 type PerfCounter = {
     count: number;
@@ -41,8 +41,8 @@ export type StreamPerfSnapshot = {
 
 declare global {
     interface Window {
-        __openchamberStreamPerfState?: StreamPerfState;
-        __openchamberStreamPerformance?: {
+        __pichamberStreamPerfState?: StreamPerfState;
+        __pichamberStreamPerformance?: {
             setEnabled: (enabled: boolean) => void;
             reset: () => void;
             getSnapshot: () => StreamPerfSnapshot;
@@ -73,16 +73,16 @@ const ensureStreamPerfState = (): StreamPerfState | null => {
         return null;
     }
 
-    if (!window.__openchamberStreamPerfState) {
+    if (!window.__pichamberStreamPerfState) {
         const startedAt = Date.now();
-        window.__openchamberStreamPerfState = {
+        window.__pichamberStreamPerfState = {
             counters: new Map<string, PerfCounter>(),
             startedAt,
             lastUpdatedAt: startedAt,
         };
     }
 
-    return window.__openchamberStreamPerfState;
+    return window.__pichamberStreamPerfState;
 };
 
 const normalizePerfEntries = (counters: Map<string, PerfCounter>): StreamPerfEntry[] => {
@@ -122,7 +122,7 @@ export const setStreamPerfEnabled = (enabled: boolean): void => {
     try {
         if (enabled) {
             window.localStorage.setItem(STREAM_PERF_STORAGE_KEY, '1');
-            window.__openchamberStreamPerfState = {
+            window.__pichamberStreamPerfState = {
                 counters: new Map<string, PerfCounter>(),
                 startedAt: Date.now(),
                 lastUpdatedAt: Date.now(),
@@ -131,7 +131,7 @@ export const setStreamPerfEnabled = (enabled: boolean): void => {
         }
 
         window.localStorage.removeItem(STREAM_PERF_STORAGE_KEY);
-        delete window.__openchamberStreamPerfState;
+        delete window.__pichamberStreamPerfState;
     } catch {
         // ignore storage failures in debug helper
     }
@@ -143,7 +143,7 @@ export const resetStreamPerf = (): void => {
     }
 
     if (streamPerfEnabled) {
-        window.__openchamberStreamPerfState = {
+        window.__pichamberStreamPerfState = {
             counters: new Map<string, PerfCounter>(),
             startedAt: Date.now(),
             lastUpdatedAt: Date.now(),
@@ -162,7 +162,7 @@ export const getStreamPerfSnapshot = (): StreamPerfSnapshot => {
         };
     }
 
-    const state = window.__openchamberStreamPerfState;
+    const state = window.__pichamberStreamPerfState;
     if (!streamPerfEnabled || !state) {
         return {
             enabled: false,
@@ -194,7 +194,7 @@ export const streamPerfMark = (metric: string): void => {
     if (!streamPerfEnabled || typeof performance === 'undefined' || typeof performance.mark !== 'function') {
         return;
     }
-    performance.mark(`openchamber.${metric}`);
+    performance.mark(`pichamber.${metric}`);
 };
 
 export const streamPerfMeasure = <T>(metric: string, fn: () => T): T => {
@@ -211,7 +211,7 @@ export const streamPerfMeasure = <T>(metric: string, fn: () => T): T => {
 };
 
 if (typeof window !== 'undefined') {
-    window.__openchamberStreamPerformance = {
+    window.__pichamberStreamPerformance = {
         setEnabled: setStreamPerfEnabled,
         reset: resetStreamPerf,
         getSnapshot: getStreamPerfSnapshot,

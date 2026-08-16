@@ -20,7 +20,7 @@ This record documents the completed Workstream 7 (Remote, desktop, and deploymen
 | Supervisor | `packages/web/server/lib/pi/session-daemon/supervisor.js` manages local daemon process start/reuse/stop and authentication verification. |
 | Server Integration | `packages/web/server/index.js` instantiates supervisor on startup, exposes public health at `/api/pi/runtime`, and registers daemon stop in graceful shutdown hooks. |
 | Desktop Boundary | `packages/electron/main.mjs` imports `startWebUiServer` in-process, starting the web server and supervising the private session daemon in-process without sidecars. |
-| CLI Commands | `packages/web/bin/lib/commands-serve.js` and `commands-lifecycle.js` handle single/daemon host startup and shutdown via server `/api/openchamber/shutdown`. |
+| CLI Commands | `packages/web/bin/lib/commands-serve.js` and `commands-lifecycle.js` handle single/daemon host startup and shutdown via server `/api/pichamber/shutdown`. |
 
 ## Validation evidence
 

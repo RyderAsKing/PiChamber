@@ -1,5 +1,5 @@
 ---
-name: openchamber-change-discipline
+name: pichamber-change-discipline
 description: Use when implementing, fixing, refactoring, or otherwise modifying PiChamber source code, dependencies, exports, build configuration, generated assets, package contracts, or module ownership.
 ---
 

@@ -35,7 +35,7 @@ const environment = ({ artifacts, output }) => ({
   LATEST_YML_DIR: artifacts,
   RUNNER_TEMP: output,
   GH_REPO: 'RyderAsKing/PiChamber',
-  OPENCHAMBER_VERSION: '1.2.3',
+  PICHAMBER_VERSION: '1.2.3',
 });
 
 test('writes separate x64 and ARM64 Windows update channels', (context) => {

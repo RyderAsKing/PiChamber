@@ -43,10 +43,10 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>com.openchamber.app.deeplink</string>
+			<string>com.pichamber.app.deeplink</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>openchamber</string>
+				<string>pichamber</string>
 			</array>
 		</dict>
 	</array>

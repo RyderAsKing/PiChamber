@@ -20,19 +20,19 @@ let cachedDetectedPm = null;
 function getSpawnSyncBaseOptions() {
   return process.platform === 'win32' ? { windowsHide: true } : {};
 }
-// The hosted update API is intentionally opt-in. When OPENCHAMBER_UPDATE_API_URL
+// The hosted update API is intentionally opt-in. When PICHAMBER_UPDATE_API_URL
 // is absent or blank the web/CLI surface MUST NOT contact a hosted API and
 // MUST NOT substitute a placeholder host; the npm-registry fallback in
 // `checkForUpdates` is authoritative in that case.
 function getConfiguredUpdateCheckUrl() {
-  const override = typeof process.env.OPENCHAMBER_UPDATE_API_URL === 'string'
-    ? process.env.OPENCHAMBER_UPDATE_API_URL.trim()
+  const override = typeof process.env.PICHAMBER_UPDATE_API_URL === 'string'
+    ? process.env.PICHAMBER_UPDATE_API_URL.trim()
     : '';
   return override.length > 0 ? override : null;
 }
 
 function getPiChamberConfigDir() {
-  // Use the canonical resolver so OPENCHAMBER_DATA_DIR is honored everywhere.
+  // Use the canonical resolver so PICHAMBER_DATA_DIR is honored everywhere.
   return resolvePiChamberDataDir();
 }
 
@@ -111,7 +111,7 @@ async function resolveAndroidApkUrl(version) {
         && typeof asset.browser_download_url === 'string'
       ))
       : [];
-    const canonicalAsset = apkAssets.find((asset) => /^PiChamber-.+-android\.apk$/i.test(asset.name));
+    const canonicalAsset = apkAssets.find((asset) => /^PiChamber-.+-\d+-android\.apk$/i.test(asset.name));
     return canonicalAsset?.browser_download_url;
   } catch {
     return undefined;
@@ -378,7 +378,7 @@ export function detectPackageManagerDetails() {
   // dozen spawnSync(pm, ['bin', '-g']) calls with 10s timeouts each; under
   // the in-process server every one blocks the Electron main event loop and
   // manifests as a multi-second UI freeze. Short-circuit here.
-  if (process.env.OPENCHAMBER_RUNTIME === 'desktop') {
+  if (process.env.PICHAMBER_RUNTIME === 'desktop') {
     return {
       packageManager: 'electron',
       reason: 'desktop-runtime',
@@ -398,7 +398,7 @@ export function detectPackageManagerDetails() {
       };
   }
 
-  const forcedPm = process.env.OPENCHAMBER_PACKAGE_MANAGER?.trim();
+  const forcedPm = process.env.PICHAMBER_PACKAGE_MANAGER?.trim();
   if (forcedPm && ['npm', 'pnpm', 'yarn', 'bun'].includes(forcedPm)) {
     const forcedPmCommand = resolvePackageManagerCommand(forcedPm);
     if (isCommandAvailable(forcedPmCommand)) {

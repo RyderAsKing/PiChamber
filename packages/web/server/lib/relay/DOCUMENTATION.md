@@ -6,11 +6,11 @@ The private relay lets an PiChamber client (mobile app, browser, or another desk
 
 Traffic is **end-to-end encrypted between the two endpoints** (client and host instance). The relay infrastructure forwards opaque ciphertext and cannot read application traffic — it is an untrusted transport, not a trusted middlebox.
 
-This module (`packages/web/server/lib/relay/`) is the **host side**: it runs inside the PiChamber web server (so it works for Electron desktop, headless server, and CLI installs alike). The **client side** lives in `packages/ui/src/lib/relay/`. The **relay service itself** is a separate Cloudflare Worker in the `openchamber-website` repo and only brokers connections.
+This module (`packages/web/server/lib/relay/`) is the **host side**: it runs inside the PiChamber web server (so it works for Electron desktop, headless server, and CLI installs alike). The **client side** lives in `packages/ui/src/lib/relay/`. The **relay service itself** is a separate Cloudflare Worker in the `pichamber-website` repo and only brokers connections.
 
 > **Wiring status:** the relay host runtime is not currently started by any
 > runtime entrypoint. The host entrypoint (`createRelayService` — settings
-> persistence, the `/api/openchamber/relay/*` management routes, and lifecycle
+> persistence, the `/api/pichamber/relay/*` management routes, and lifecycle
 > wiring) and `host-lock.js` (the per-machine host claim) were removed as dead
 > code. The remaining host files below are kept as the implementation and are
 > exercised by their own tests and the TS↔JS cross-compat test; restoring relay
@@ -28,7 +28,7 @@ Traffic is modeled as three stacked layers. The relay understands only Layer 1; 
 ## Entrypoints and structure
 
 Host side (`packages/web/server/lib/relay/`):
-- `service.js` — relay endpoint configuration only: exports `DEFAULT_RELAY_URL`. The host entrypoint (`createRelayService`: settings persistence, the `GET/POST /api/openchamber/relay/{status,enable,disable}` management routes, the `getPairingCandidate()` accessor, and host lifecycle wiring) was removed as dead code — no runtime wired it in. The CLI connect-url command resolves the relay endpoint (`DEFAULT_RELAY_URL`, the `OPENCHAMBER_RELAY_URL` env override, stored `settings.privateRelay.relayUrl`) the same way a host would.
+- `service.js` — relay endpoint configuration only: exports `DEFAULT_RELAY_URL`. The host entrypoint (`createRelayService`: settings persistence, the `GET/POST /api/pichamber/relay/{status,enable,disable}` management routes, the `getPairingCandidate()` accessor, and host lifecycle wiring) was removed as dead code — no runtime wired it in. The CLI connect-url command resolves the relay endpoint (`DEFAULT_RELAY_URL`, the `PICHAMBER_RELAY_URL` env override, stored `settings.privateRelay.relayUrl`) the same way a host would.
 - `identity.js` — the host's stable identity: the long-lived signing keypair (shared with the push relay, defines the routing id) plus a long-lived encryption keypair (the E2EE trust anchor). Reused across restarts; never rotated implicitly.
 - `signing-key.js` — storage/derivation of the signing keypair and the routing id, shared with the notifications runtime.
 - `host-client.js` — the long-lived connection manager: one outbound control connection to the relay, a per-client data connection for each connected device, reconnect/backoff, and the E2EE responder handshake per connection.

@@ -58,7 +58,7 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
       setProjectSortOrder: (order) => set({ projectSortOrder: order }),
     }),
     {
-      name: 'openchamber:session-display-settings',
+      name: 'pichamber:session-display-settings',
       version: 5,
       migrate: migrateSessionDisplayState,
     },

@@ -2,8 +2,8 @@
  * PiChamber project-level configuration service.
  * Stores per-project settings in the PiChamber data root's projects directory
  * (default `~/.config/pichamber/projects/<projectId>.json`, overridable via
- * `OPENCHAMBER_DATA_DIR`). Migrates from legacy
- * `<project>/.openchamber/openchamber.json`.
+ * `PICHAMBER_DATA_DIR`). Migrates from legacy
+ * `<project>/.pichamber/pichamber.json`.
  */
 
 import type { FilesAPI } from './api/types';
@@ -15,9 +15,9 @@ import { runtimeFetch } from './runtime-fetch';
 
 type ProjectRef = { id: string; path: string };
 
-const CONFIG_FILENAME = 'openchamber.json';
+const CONFIG_FILENAME = 'pichamber.json';
 // LEGACY_PROJECT_CONFIG: legacy per-project config root inside repo.
-const LEGACY_CONFIG_DIR = '.openchamber';
+const LEGACY_CONFIG_DIR = '.pichamber';
 const USER_PROJECTS_DIR_SEGMENTS = ['.config', 'pichamber', 'projects'];
 
 /**
@@ -90,15 +90,15 @@ export interface PiChamberProjectContextData extends PiChamberProjectNotesTodos 
   plans: PiChamberProjectPlanFileLink[];
 }
 
-export const OPENCHAMBER_PROJECT_NOTES_MAX_LENGTH = 3000;
-export const OPENCHAMBER_PROJECT_TODO_TEXT_MAX_LENGTH = 120;
-const OPENCHAMBER_PROJECT_ACTION_NAME_MAX_LENGTH = 80;
-const OPENCHAMBER_PROJECT_ACTION_COMMAND_MAX_LENGTH = 4000;
-const OPENCHAMBER_PROJECT_ACTION_OPEN_URL_MAX_LENGTH = 2000;
-const OPENCHAMBER_PROJECT_ACTION_DESKTOP_FORWARD_MAX_LENGTH = 300;
-const OPENCHAMBER_PROJECT_PLAN_TITLE_MAX_LENGTH = 160;
+export const PICHAMBER_PROJECT_NOTES_MAX_LENGTH = 3000;
+export const PICHAMBER_PROJECT_TODO_TEXT_MAX_LENGTH = 120;
+const PICHAMBER_PROJECT_ACTION_NAME_MAX_LENGTH = 80;
+const PICHAMBER_PROJECT_ACTION_COMMAND_MAX_LENGTH = 4000;
+const PICHAMBER_PROJECT_ACTION_OPEN_URL_MAX_LENGTH = 2000;
+const PICHAMBER_PROJECT_ACTION_DESKTOP_FORWARD_MAX_LENGTH = 300;
+const PICHAMBER_PROJECT_PLAN_TITLE_MAX_LENGTH = 160;
 
-const OPENCHAMBER_ACTION_PLATFORM_SET = new Set<PiChamberProjectActionPlatform>(['macos', 'linux', 'windows']);
+const PICHAMBER_ACTION_PLATFORM_SET = new Set<PiChamberProjectActionPlatform>(['macos', 'linux', 'windows']);
 
 const normalize = (value: string): string => {
   if (!value) return '';
@@ -209,7 +209,7 @@ const resolveServerHome = async (): Promise<ResolvedServerHome> => {
   let home: string | null = null;
   let pichamberDataDir: string | null = null;
   // Use server-reported home as the source of truth for user config paths.
-  // In some runtimes, window.__OPENCHAMBER_HOME__ can be workspace/project-root
+  // In some runtimes, window.__PICHAMBER_HOME__ can be workspace/project-root
   // scoped, which would incorrectly route writes into the project directory.
   try {
     const response = await runtimeFetch(`${getBaseUrl()}/fs/home`, {
@@ -261,8 +261,8 @@ const getUserProjectsDirectory = async (): Promise<string | null> => {
     return joinPath(pichamberDataDir, 'projects');
   }
   // Narrow compatibility fallback for a PiChamber runtime too old to return
-  // pichamberDataDir: honor OPENCHAMBER_DATA_DIR fallback relative to home.
-  // Not an OpenChamber-data fallback.
+  // pichamberDataDir: honor PICHAMBER_DATA_DIR fallback relative to home.
+  // Not an PiChamber-data fallback.
   const home = await resolveHomeDirectory();
   if (!home) {
     return null;
@@ -300,7 +300,7 @@ const sanitizeProjectNotes = (value: unknown): string => {
   if (typeof value !== 'string') {
     return '';
   }
-  return trimToMaxLength(value, OPENCHAMBER_PROJECT_NOTES_MAX_LENGTH);
+  return trimToMaxLength(value, PICHAMBER_PROJECT_NOTES_MAX_LENGTH);
 };
 
 const sanitizeProjectTodoItems = (value: unknown): PiChamberProjectTodoItem[] => {
@@ -323,7 +323,7 @@ const sanitizeProjectTodoItems = (value: unknown): PiChamberProjectTodoItem[] =>
 
     const id = typeof record.id === 'string' ? record.id.trim() : '';
     const textRaw = typeof record.text === 'string' ? record.text : '';
-    const text = trimToMaxLength(textRaw.trim(), OPENCHAMBER_PROJECT_TODO_TEXT_MAX_LENGTH);
+    const text = trimToMaxLength(textRaw.trim(), PICHAMBER_PROJECT_TODO_TEXT_MAX_LENGTH);
     if (!id || !text) {
       continue;
     }
@@ -395,7 +395,7 @@ const sanitizeProjectActionPlatforms = (value: unknown): PiChamberProjectActionP
       continue;
     }
     const normalized = entry.trim().toLowerCase() as PiChamberProjectActionPlatform;
-    if (!OPENCHAMBER_ACTION_PLATFORM_SET.has(normalized) || seen.has(normalized)) {
+    if (!PICHAMBER_ACTION_PLATFORM_SET.has(normalized) || seen.has(normalized)) {
       continue;
     }
     seen.add(normalized);
@@ -430,8 +430,8 @@ const sanitizeProjectActions = (value: unknown): PiChamberProjectAction[] => {
     };
 
     const id = typeof record.id === 'string' ? record.id.trim() : '';
-    const name = trimToMaxLength(typeof record.name === 'string' ? record.name.trim() : '', OPENCHAMBER_PROJECT_ACTION_NAME_MAX_LENGTH);
-    const command = trimToMaxLength(typeof record.command === 'string' ? record.command.trim() : '', OPENCHAMBER_PROJECT_ACTION_COMMAND_MAX_LENGTH);
+    const name = trimToMaxLength(typeof record.name === 'string' ? record.name.trim() : '', PICHAMBER_PROJECT_ACTION_NAME_MAX_LENGTH);
+    const command = trimToMaxLength(typeof record.command === 'string' ? record.command.trim() : '', PICHAMBER_PROJECT_ACTION_COMMAND_MAX_LENGTH);
 
     if (!id || !name || !command || seenIds.has(id)) {
       continue;
@@ -442,13 +442,13 @@ const sanitizeProjectActions = (value: unknown): PiChamberProjectAction[] => {
     const platforms = sanitizeProjectActionPlatforms(record.platforms);
     const autoOpenUrl = record.autoOpenUrl === true;
     const openUrlRaw = typeof record.openUrl === 'string' ? record.openUrl.trim() : '';
-    const openUrl = trimToMaxLength(openUrlRaw, OPENCHAMBER_PROJECT_ACTION_OPEN_URL_MAX_LENGTH);
+    const openUrl = trimToMaxLength(openUrlRaw, PICHAMBER_PROJECT_ACTION_OPEN_URL_MAX_LENGTH);
     const desktopOpenSshForwardRaw = typeof record.desktopOpenSshForward === 'string'
       ? record.desktopOpenSshForward.trim()
       : '';
     const desktopOpenSshForward = trimToMaxLength(
       desktopOpenSshForwardRaw,
-      OPENCHAMBER_PROJECT_ACTION_DESKTOP_FORWARD_MAX_LENGTH
+      PICHAMBER_PROJECT_ACTION_DESKTOP_FORWARD_MAX_LENGTH
     );
 
     sanitized.push({
@@ -518,7 +518,7 @@ const slugifyPlanTitle = (value: string): string => {
 };
 
 const sanitizePlanTitle = (value: string): string => {
-  return trimToMaxLength(value.trim(), OPENCHAMBER_PROJECT_PLAN_TITLE_MAX_LENGTH);
+  return trimToMaxLength(value.trim(), PICHAMBER_PROJECT_PLAN_TITLE_MAX_LENGTH);
 };
 
 const createProjectPlanId = (): string => {
@@ -621,8 +621,8 @@ async function readPiChamberConfig(project: ProjectRef): Promise<PiChamberConfig
     }
   }
 
-  // 2) Migrate legacy <project>/.openchamber/openchamber.json.
-  // LEGACY_PROJECT_CONFIG: migrate project-local openchamber.json -> ~/.config/pichamber/projects/<projectId>.json
+  // 2) Migrate legacy <project>/.pichamber/pichamber.json.
+  // LEGACY_PROJECT_CONFIG: migrate project-local pichamber.json -> ~/.config/pichamber/projects/<projectId>.json
   const legacyPath = getLegacyConfigPath(projectDirectory);
   const legacyConfig = parseConfig(await readText(legacyPath, projectDirectory));
   if (!legacyConfig) {
@@ -693,7 +693,7 @@ async function writePiChamberConfig(
     }, null, 2);
     return await writeTextFile(configPath, content);
   } catch (error) {
-    console.error('Failed to write openchamber config:', error);
+    console.error('Failed to write pichamber config:', error);
     return false;
   }
 }

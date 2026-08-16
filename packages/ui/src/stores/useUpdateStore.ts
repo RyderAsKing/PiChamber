@@ -38,7 +38,7 @@ interface UpdateStore extends UpdateState {
 
 type ClientRuntime = 'desktop' | 'web' | 'mobile';
 
-const CLIENT_INSTALL_ID_KEY = 'openchamber.update-install-id';
+const CLIENT_INSTALL_ID_KEY = 'pichamber.update-install-id';
 
 function getClientInstallId(): string | undefined {
   if (typeof window === 'undefined' || typeof crypto.randomUUID !== 'function') return undefined;
@@ -67,7 +67,7 @@ function detectDeviceClass(): 'mobile' | 'tablet' | 'desktop' | 'unknown' {
 
 function detectArch(): 'arm64' | 'x64' | 'unknown' {
   const electronArch = typeof window !== 'undefined'
-    ? window.__OPENCHAMBER_ELECTRON__?.arch?.toLowerCase?.()
+    ? window.__PICHAMBER_ELECTRON__?.arch?.toLowerCase?.()
     : undefined;
   if (electronArch === 'arm64' || electronArch === 'aarch64') return 'arm64';
   if (electronArch === 'x64' || electronArch === 'amd64' || electronArch === 'x86_64') return 'x64';

@@ -239,11 +239,11 @@ export const createRemoteClientAuthRuntime = ({ fsPromises, path, crypto, storeP
       return null;
     }
     // Which transport carried this request: the relay tunnel proxy stamps every
-    // forwarded request with x-openchamber-relay-connection; anything else is a
+    // forwarded request with x-pichamber-relay-connection; anything else is a
     // direct (local/LAN/tunnel-URL) request. Feeds device display AND relay
     // demand (hasActiveRelayClients), so a relay request must never be
     // misclassified as direct.
-    const transport = req?.headers?.['x-openchamber-relay-connection'] ? 'relay' : 'direct';
+    const transport = req?.headers?.['x-pichamber-relay-connection'] ? 'relay' : 'direct';
     return withStoreMutation(async () => {
       const tokenHash = hashToken(token);
       const store = await readStore();

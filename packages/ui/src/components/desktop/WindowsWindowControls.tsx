@@ -102,10 +102,10 @@ export const WindowsWindowControls = React.memo(function WindowsWindowControls({
       setIsMaximized(Boolean(detail?.maximized));
     };
 
-    window.addEventListener('openchamber:window-maximized-changed', handleMaximizedChange);
+    window.addEventListener('pichamber:window-maximized-changed', handleMaximizedChange);
     return () => {
       disposed = true;
-      window.removeEventListener('openchamber:window-maximized-changed', handleMaximizedChange);
+      window.removeEventListener('pichamber:window-maximized-changed', handleMaximizedChange);
     };
   }, [visible]);
 

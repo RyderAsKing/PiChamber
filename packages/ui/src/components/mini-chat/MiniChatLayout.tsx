@@ -29,7 +29,7 @@ type MiniChatLayoutProps = {
 const compactPath = (value: string | null | undefined): string => {
   const path = typeof value === 'string' ? value.trim() : '';
   if (!path) return '';
-  const home = typeof window !== 'undefined' ? window.__OPENCHAMBER_HOME__ : '';
+  const home = typeof window !== 'undefined' ? window.__PICHAMBER_HOME__ : '';
   if (home && path === home) return '~';
   if (home && path.startsWith(`${home}/`)) return `~/${path.slice(home.length + 1)}`;
   const segments = path.split('/').filter(Boolean);
@@ -63,7 +63,7 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
     return normalizePath(state.newSessionDraft.directoryOverride ?? '');
   });
   const [pinned, setPinned] = React.useState(false);
-  const macosMajor = typeof window !== 'undefined' ? window.__OPENCHAMBER_MACOS_MAJOR__ ?? 0 : 0;
+  const macosMajor = typeof window !== 'undefined' ? window.__PICHAMBER_MACOS_MAJOR__ ?? 0 : 0;
   const hasMacTrafficLights = Number.isFinite(macosMajor) && macosMajor > 0;
   const { usesFramelessChrome, side: windowControlsSide } = useDesktopWindowControlsLayout();
   const macosHeaderSizeClass = hasMacTrafficLights

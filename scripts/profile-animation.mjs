@@ -85,7 +85,7 @@ const parseArgs = (argv) => {
     settle: 3,
     filler: 0,
     chrome: null,
-    profileDir: join(homedir(), ".openchamber", "browser-profile-google-chrome"),
+    profileDir: join(homedir(), ".pichamber", "browser-profile-google-chrome"),
     headless: true,
     json: false,
   }

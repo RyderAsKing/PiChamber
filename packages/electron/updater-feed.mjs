@@ -36,12 +36,12 @@ export const resolveUpdaterFeed = ({
   environment = process.env,
   testBuild = false,
 } = {}) => {
-  if (environment.OPENCHAMBER_E2E !== '1'
+  if (environment.PICHAMBER_E2E !== '1'
     || testBuild !== true) {
     return PRODUCTION_UPDATER_FEED;
   }
 
-  const url = parseLoopbackUpdaterUrl(environment.OPENCHAMBER_UPDATER_E2E_URL);
+  const url = parseLoopbackUpdaterUrl(environment.PICHAMBER_UPDATER_E2E_URL);
   if (!url) return PRODUCTION_UPDATER_FEED;
   return { provider: 'generic', url };
 };

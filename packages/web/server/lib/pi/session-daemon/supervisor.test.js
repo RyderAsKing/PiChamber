@@ -35,8 +35,8 @@ describe('Pi session daemon supervisor', () => {
     const env = {
       ...process.env,
       PI_OFFLINE: '1',
-      OPENCHAMBER_DATA_DIR: join(root, 'data'),
-      OPENCHAMBER_PI_AGENT_DIR: agentDir,
+      PICHAMBER_DATA_DIR: join(root, 'data'),
+      PICHAMBER_PI_AGENT_DIR: agentDir,
       XDG_RUNTIME_DIR: join(root, 'runtime'),
     };
 
@@ -60,8 +60,8 @@ describe('Pi session daemon supervisor', () => {
     const env = {
       ...process.env,
       PI_OFFLINE: '1',
-      OPENCHAMBER_DATA_DIR: join(root, 'data'),
-      OPENCHAMBER_PI_AGENT_DIR: agentDir,
+      PICHAMBER_DATA_DIR: join(root, 'data'),
+      PICHAMBER_PI_AGENT_DIR: agentDir,
       XDG_RUNTIME_DIR: join(root, 'runtime'),
     };
 
@@ -81,8 +81,8 @@ describe('Pi session daemon supervisor', () => {
     const env = {
       ...process.env,
       PI_OFFLINE: '1',
-      OPENCHAMBER_DATA_DIR: join(root, 'data'),
-      OPENCHAMBER_PI_AGENT_DIR: agentDir,
+      PICHAMBER_DATA_DIR: join(root, 'data'),
+      PICHAMBER_PI_AGENT_DIR: agentDir,
       XDG_RUNTIME_DIR: join(root, 'runtime'),
     };
 

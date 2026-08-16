@@ -5,7 +5,7 @@ const CLIENT_TOKEN_QUERY_PARAM = 'oc_client_token';
 const URL_AUTH_TOKEN_QUERY_PARAM = 'oc_url_token';
 const PREVIEW_PASSTHROUGH_REQUEST_HEADERS = ['x-inertia', 'x-inertia-version'];
 const PREVIEW_PASSTHROUGH_RESPONSE_HEADERS = ['x-inertia', 'x-inertia-location'];
-export const PREVIEW_TARGET_ERROR_HEADER = 'x-openchamber-preview-target-error';
+export const PREVIEW_TARGET_ERROR_HEADER = 'x-pichamber-preview-target-error';
 
 const LOOPBACK_HOSTS = new Set([
   'localhost',
@@ -196,14 +196,14 @@ export const classifyPreviewNavigation = ({ url, currentUrl, targetOrigin }) => 
 };
 
 const PREVIEW_BRIDGE_SCRIPT = String.raw`(() => {
-  if (window.__openchamberPreviewBridgeInstalled) return;
-  window.__openchamberPreviewBridgeInstalled = true;
+  if (window.__pichamberPreviewBridgeInstalled) return;
+  window.__pichamberPreviewBridgeInstalled = true;
 
   const SOURCE = 'pichamber-preview-bridge';
   const VERSION = 1;
   const MAX_TEXT = 500;
   const MAX_ARG = 1000;
-  const TARGET_ORIGIN = typeof window.__openchamberPreviewTargetOrigin === 'string' ? window.__openchamberPreviewTargetOrigin : '';
+  const TARGET_ORIGIN = typeof window.__pichamberPreviewTargetOrigin === 'string' ? window.__pichamberPreviewTargetOrigin : '';
   let inspectMode = false;
   let lastHoverKey = '';
   let pendingHover = null;
@@ -274,8 +274,8 @@ const PREVIEW_BRIDGE_SCRIPT = String.raw`(() => {
   };
 
   const installColorSchemeMatchMediaPatch = () => {
-    if (window.__openchamberPreviewColorSchemePatched || typeof window.matchMedia !== 'function') return;
-    window.__openchamberPreviewColorSchemePatched = true;
+    if (window.__pichamberPreviewColorSchemePatched || typeof window.matchMedia !== 'function') return;
+    window.__pichamberPreviewColorSchemePatched = true;
     nativeMatchMedia = window.matchMedia.bind(window);
     window.matchMedia = function(query) {
       const nativeMql = nativeMatchMedia(query);
@@ -475,8 +475,8 @@ const PREVIEW_BRIDGE_SCRIPT = String.raw`(() => {
   };
 
   const installViteHmrProxyPatch = () => {
-    if (window.__openchamberViteHmrProxyPatched || typeof window.WebSocket !== 'function') return;
-    window.__openchamberViteHmrProxyPatched = true;
+    if (window.__pichamberViteHmrProxyPatched || typeof window.WebSocket !== 'function') return;
+    window.__pichamberViteHmrProxyPatched = true;
     const NativeWebSocket = window.WebSocket;
     const proxyMatch = window.location.pathname.match(/^(\/api\/preview\/proxy\/[a-f0-9]{16,64})(?:\/|$)/i);
     if (!proxyMatch) return;
@@ -543,8 +543,8 @@ const PREVIEW_BRIDGE_SCRIPT = String.raw`(() => {
   };
 
   const installAppRequestProxyPatch = () => {
-    if (window.__openchamberAppRequestProxyPatched) return;
-    window.__openchamberAppRequestProxyPatched = true;
+    if (window.__pichamberAppRequestProxyPatched) return;
+    window.__pichamberAppRequestProxyPatched = true;
     const proxyMatch = window.location.pathname.match(/^(\/api\/preview\/proxy\/[a-f0-9]{16,64})(?:\/|$)/i);
     if (!proxyMatch) return;
     const proxyBase = proxyMatch[1];
@@ -777,9 +777,9 @@ const PREVIEW_BRIDGE_SCRIPT = String.raw`(() => {
   const sendHover = (event) => {
     if (!inspectMode) return;
     pendingHover = event;
-    if (window.__openchamberPreviewHoverFrame) return;
-    window.__openchamberPreviewHoverFrame = window.requestAnimationFrame(() => {
-      window.__openchamberPreviewHoverFrame = 0;
+    if (window.__pichamberPreviewHoverFrame) return;
+    window.__pichamberPreviewHoverFrame = window.requestAnimationFrame(() => {
+      window.__pichamberPreviewHoverFrame = 0;
       const currentEvent = pendingHover;
       pendingHover = null;
       if (!currentEvent || !inspectMode) return;
@@ -1319,7 +1319,7 @@ export const createPreviewProxyRuntime = ({
       }
 
       const nonceAttr = bridgeNonce ? ` nonce="${bridgeNonce}"` : '';
-      const targetOriginScript = `<script${nonceAttr}>window.__openchamberPreviewTargetOrigin=${JSON.stringify(targetOrigin || '')};</script>`;
+      const targetOriginScript = `<script${nonceAttr}>window.__pichamberPreviewTargetOrigin=${JSON.stringify(targetOrigin || '')};</script>`;
       const script = `${targetOriginScript}<script id="${PREVIEW_BRIDGE_SCRIPT_ID}"${nonceAttr}>${PREVIEW_BRIDGE_SCRIPT}</script>`;
       if (/<head(?:\s[^>]*)?>/i.test(bodyText)) {
         return bodyText.replace(/<head(\s[^>]*)?>/i, (match) => `${match}${script}`);
@@ -1448,7 +1448,7 @@ export const createPreviewProxyRuntime = ({
           // Keep local dev servers from receiving PiChamber credentials.
           proxyReq.removeHeader('cookie');
           proxyReq.removeHeader('authorization');
-          proxyReq.removeHeader('x-openchamber-ui-session');
+          proxyReq.removeHeader('x-pichamber-ui-session');
           proxyReq.setHeader('accept-encoding', 'identity');
         },
         proxyRes: responseInterceptor(async (responseBuffer, proxyRes, req, res) => {

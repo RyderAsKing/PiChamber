@@ -19,18 +19,18 @@ const withTempDir = (label, fn) => {
 };
 
 describe('data root authority', () => {
-  it('electron-style OPENCHAMBER_DATA_DIR override is honored by the canonical resolver', () => {
+  it('electron-style PICHAMBER_DATA_DIR override is honored by the canonical resolver', () => {
     withTempDir('override', (dir) => {
-      const previous = process.env.OPENCHAMBER_DATA_DIR;
-      process.env.OPENCHAMBER_DATA_DIR = dir;
+      const previous = process.env.PICHAMBER_DATA_DIR;
+      process.env.PICHAMBER_DATA_DIR = dir;
       try {
         const web = resolvePiChamberDataDir({ env: process.env, homedir: () => '/home/u', path });
         expect(web).toBe(path.resolve(dir));
       } finally {
         if (typeof previous === 'string') {
-          process.env.OPENCHAMBER_DATA_DIR = previous;
+          process.env.PICHAMBER_DATA_DIR = previous;
         } else {
-          delete process.env.OPENCHAMBER_DATA_DIR;
+          delete process.env.PICHAMBER_DATA_DIR;
         }
       }
     });
@@ -38,7 +38,7 @@ describe('data root authority', () => {
 
   it('all canonical child paths stay beneath the effective root', () => {
     withTempDir('children', (dir) => {
-      const deps = { env: { OPENCHAMBER_DATA_DIR: dir }, homedir: () => '/home/u', path };
+      const deps = { env: { PICHAMBER_DATA_DIR: dir }, homedir: () => '/home/u', path };
       const root = resolvePiChamberDataDir(deps);
       const children = [
         'settings.json',
@@ -61,7 +61,7 @@ describe('data root authority', () => {
     });
   });
 
-  it('no production module independently hardcodes ~/.config/openchamber', () => {
+  it('no production module independently hardcodes ~/.config/pichamber', () => {
     // This is a coarse search; the precise contract is that production code
     // resolves through pichamber-data-dir.js. The grep target covers the
     // server/CLI tree we changed; if new owners are added they MUST route

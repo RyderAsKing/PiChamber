@@ -1,4 +1,4 @@
-package com.openchamber.app;
+package com.pichamber.app;
 
 import com.getcapacitor.BridgeActivity;
 

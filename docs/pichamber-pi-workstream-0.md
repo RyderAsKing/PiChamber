@@ -121,12 +121,12 @@ Every session event includes `sessionId` and a monotonically increasing `sequenc
 | Item | Canonical name and invariant |
 | --- | --- |
 | Daemon module | `packages/web/server/lib/pi/session-daemon/` |
-| POSIX endpoint | `$XDG_RUNTIME_DIR/pichamber/pi-session-daemon.sock`; when `XDG_RUNTIME_DIR` is unavailable, `$OPENCHAMBER_DATA_DIR/runtime/pi-session-daemon.sock`. The parent directory is mode `0700`; the socket is mode `0600`. |
+| POSIX endpoint | `$XDG_RUNTIME_DIR/pichamber/pi-session-daemon.sock`; when `XDG_RUNTIME_DIR` is unavailable, `$PICHAMBER_DATA_DIR/runtime/pi-session-daemon.sock`. The parent directory is mode `0700`; the socket is mode `0600`. |
 | Windows endpoint | `\\.\pipe\pichamber-pi-session-daemon-<owner-key>`, where `owner-key` is a stable non-secret identifier derived from the current OS user. The pipe ACL is restricted to that user. |
-| Daemon state | `$OPENCHAMBER_DATA_DIR/pi/session-daemon-state.json`; non-secret lifecycle/protocol metadata only. |
-| Daemon lock | `$OPENCHAMBER_DATA_DIR/pi/session-daemon.lock`; serializes start/reuse/stop ownership. |
-| Daemon credential | `$OPENCHAMBER_DATA_DIR/pi/session-daemon.key`; generated locally, mode `0600`, read only by the PiChamber server and daemon, never exposed to the browser or logs. |
-| Archive sidecar | `$OPENCHAMBER_DATA_DIR/pi/session-archive.json`; PiChamber-only archive metadata keyed by Pi session identity/path. It never edits Pi JSONL. |
+| Daemon state | `$PICHAMBER_DATA_DIR/pi/session-daemon-state.json`; non-secret lifecycle/protocol metadata only. |
+| Daemon lock | `$PICHAMBER_DATA_DIR/pi/session-daemon.lock`; serializes start/reuse/stop ownership. |
+| Daemon credential | `$PICHAMBER_DATA_DIR/pi/session-daemon.key`; generated locally, mode `0600`, read only by the PiChamber server and daemon, never exposed to the browser or logs. |
+| Archive sidecar | `$PICHAMBER_DATA_DIR/pi/session-archive.json`; PiChamber-only archive metadata keyed by Pi session identity/path. It never edits Pi JSONL. |
 
 Stale endpoint, state, and lock cleanup must verify daemon identity before removal. A crash during cleanup must leave a visible unavailable/interrupted state rather than fabricate an empty bootstrap.
 
@@ -134,13 +134,13 @@ Stale endpoint, state, and lock cleanup must verify daemon identity before remov
 
 | Variable | Status and meaning |
 | --- | --- |
-| `OPENCHAMBER_DATA_DIR` | Retained PiChamber data-root variable; owns the PiChamber sidecars above, not Pi credentials or JSONL sessions. |
-| `OPENCHAMBER_PI_AGENT_DIR` | New optional server-only override for the Pi agent directory. Its default is Pi's normal `~/.pi/agent` discovery. It is intended for controlled deployments and disposable tests; it is never returned to browsers. |
-| `OPENCHAMBER_PI_SESSION_DAEMON_ENDPOINT` | New optional server-only local-endpoint override for controlled tests and supervised deployments. Values must resolve to a local Unix socket or Windows named pipe; TCP URLs are invalid. |
+| `PICHAMBER_DATA_DIR` | Retained PiChamber data-root variable; owns the PiChamber sidecars above, not Pi credentials or JSONL sessions. |
+| `PICHAMBER_PI_AGENT_DIR` | New optional server-only override for the Pi agent directory. Its default is Pi's normal `~/.pi/agent` discovery. It is intended for controlled deployments and disposable tests; it is never returned to browsers. |
+| `PICHAMBER_PI_SESSION_DAEMON_ENDPOINT` | New optional server-only local-endpoint override for controlled tests and supervised deployments. Values must resolve to a local Unix socket or Windows named pipe; TCP URLs are invalid. |
 
 No PiChamber variable carries a daemon credential. Provider environment variables remain subject to Pi's normal provider resolution and are not copied into PiChamber configuration.
 
-All `OPENCODE_*` variables and the OpenCode-specific `OPENCHAMBER_*` variables in the inventory below are deletion targets, not names to translate mechanically. Retained generic PiChamber variables keep their existing names unless a separate product-identity migration explicitly changes them.
+All `OPENCODE_*` variables and the OpenCode-specific `PICHAMBER_*` variables in the inventory below are deletion targets, not names to translate mechanically. Retained generic PiChamber variables keep their existing names unless a separate product-identity migration explicitly changes them.
 
 ## Current OpenCode inventory
 
@@ -167,18 +167,18 @@ This is a baseline for deletion and port planning, not a compatibility commitmen
 | Current surface | Current owner | Disposition |
 | --- | --- | --- |
 | Generic `/api/*` OpenCode proxy, `/api/event`, `/api/global/event`, and session message forwarding | `packages/web/server/lib/opencode/proxy.js` | Remove; replace only the required product operations under `/api/pi/`. |
-| `/api/openchamber/realtime-proxy/{sse,ws}` | `packages/web/server/lib/realtime-proxy.js` | Retain only as generic PiChamber transport if a Pi-native consumer still needs it; it is not the daemon protocol. |
-| `/api/openchamber/relay/{status,enable,disable}` | `relay/service.js` | Retain as PiChamber-owned relay management and port after direct Pi connections are stable. |
-| `/api/openchamber/tunnel/{check,doctor,providers,status,managed-remote-token,start,stop}` | `tunnels/routes.js` | Retain as PiChamber-owned tunnel management; port after direct Pi connections are stable. |
+| `/api/pichamber/realtime-proxy/{sse,ws}` | `packages/web/server/lib/realtime-proxy.js` | Retain only as generic PiChamber transport if a Pi-native consumer still needs it; it is not the daemon protocol. |
+| `/api/pichamber/relay/{status,enable,disable}` | `relay/service.js` | Retain as PiChamber-owned relay management and port after direct Pi connections are stable. |
+| `/api/pichamber/tunnel/{check,doctor,providers,status,managed-remote-token,start,stop}` | `tunnels/routes.js` | Retain as PiChamber-owned tunnel management; port after direct Pi connections are stable. |
 | `/api/opencode/*` health/version/directory/upgrade and `/api/config/opencode-resolution` | `packages/web/server/lib/opencode/routes.js` | Remove. |
 | `/api/config/{agents,commands,mcp,plugins}` and reload | `config-entity-routes.js`, `plugin-routes.js`, `core-routes.js` | Remove: these are explicit migration non-goals. |
 | `/api/config/skills*` and catalog installer | `skill-routes.js` | Replace only with Pi native resource discovery in `/api/pi/resources`; do not port catalog copying. |
 | `/api/config/snippets*` | `config-entity-routes.js` | Rebuild as Pi prompt-template operations under the Pi resource contract. |
 | `/api/provider/*` and provider OAuth proxy | `opencode/routes.js`, `opencode/proxy.js` | Replace with `/api/pi/providers/*`; no raw auth material reaches a browser. |
-| `/api/openchamber/models-metadata` and `/api/zen/models` | `opencode/pichamber-routes.js` | Replace with Pi model/provider discovery; do not retain the endpoint names. |
-| `/api/openchamber/update-*` | `opencode/pichamber-routes.js` | Rehome under PiChamber update ownership; it is not part of the daemon protocol. |
+| `/api/pichamber/models-metadata` and `/api/zen/models` | `opencode/pichamber-routes.js` | Replace with Pi model/provider discovery; do not retain the endpoint names. |
+| `/api/pichamber/update-*` | `opencode/pichamber-routes.js` | Rehome under PiChamber update ownership; it is not part of the daemon protocol. |
 
-The PiChamber-owned transport, authentication, pairing, direct connection, tunnel, relay, filesystem, terminal, and Git routes need separate per-module classification during their port work. Their `/api/openchamber/` prefix alone does not make them OpenCode-owned.
+The PiChamber-owned transport, authentication, pairing, direct connection, tunnel, relay, filesystem, terminal, and Git routes need separate per-module classification during their port work. Their `/api/pichamber/` prefix alone does not make them OpenCode-owned.
 
 ### Environment-variable baseline
 
@@ -211,32 +211,32 @@ OPENCODE_SHUTDOWN_GRACE_MS
 OPENCODE_SKIP_START
 OPENCODE_UI_PASSWORD
 OPENCODE_UPGRADE_IN_PROGRESS
-OPENCODE_UPGRADE_MANAGED_BY_OPENCHAMBER
+OPENCODE_UPGRADE_MANAGED_BY_PICHAMBER
 OPENCODE_UPGRADE_UNSUPPORTED
 OPENCODE_WORKTREE_ATTEMPTS
 OPENCODE_WSL_DISTRO
 ```
 
-These `OPENCHAMBER_*` variables are currently OpenCode-specific and are also deletion targets rather than Pi names:
+These `PICHAMBER_*` variables are currently OpenCode-specific and are also deletion targets rather than Pi names:
 
 ```text
-OPENCHAMBER_AGENT_TOOL_ACTIONS
-OPENCHAMBER_AGENT_TOOL_ACTION_DEFINITIONS
-OPENCHAMBER_AGENT_TOOL_TOKEN
-OPENCHAMBER_AGENT_TOOL_URL
-OPENCHAMBER_BUNDLED_OPENCODE_CLI_DIR
-OPENCHAMBER_OPENCODE_BIN
-OPENCHAMBER_OPENCODE_CLI_VERSION
-OPENCHAMBER_OPENCODE_CWD
-OPENCHAMBER_OPENCODE_HEALTH_CACHE_MS
-OPENCHAMBER_OPENCODE_HEALTH_CONSECUTIVE_FAILURES
-OPENCHAMBER_OPENCODE_HEALTH_INTERVAL_MS
-OPENCHAMBER_OPENCODE_HEALTH_TIMEOUT_MS
-OPENCHAMBER_OPENCODE_HOSTNAME
-OPENCHAMBER_OPENCODE_PATH
-OPENCHAMBER_OPENCODE_PORT
-OPENCHAMBER_OPENCODE_WSL_DISTRO
-OPENCHAMBER_SKIP_OPENCODE_START
+PICHAMBER_AGENT_TOOL_ACTIONS
+PICHAMBER_AGENT_TOOL_ACTION_DEFINITIONS
+PICHAMBER_AGENT_TOOL_TOKEN
+PICHAMBER_AGENT_TOOL_URL
+PICHAMBER_BUNDLED_OPENCODE_CLI_DIR
+PICHAMBER_OPENCODE_BIN
+PICHAMBER_OPENCODE_CLI_VERSION
+PICHAMBER_OPENCODE_CWD
+PICHAMBER_OPENCODE_HEALTH_CACHE_MS
+PICHAMBER_OPENCODE_HEALTH_CONSECUTIVE_FAILURES
+PICHAMBER_OPENCODE_HEALTH_INTERVAL_MS
+PICHAMBER_OPENCODE_HEALTH_TIMEOUT_MS
+PICHAMBER_OPENCODE_HOSTNAME
+PICHAMBER_OPENCODE_PATH
+PICHAMBER_OPENCODE_PORT
+PICHAMBER_OPENCODE_WSL_DISTRO
+PICHAMBER_SKIP_OPENCODE_START
 ```
 
 ### Inventory refresh commands
@@ -247,8 +247,8 @@ Run these commands from the repository root before beginning a batch that remove
 rg -l '@opencode-ai/sdk' packages | sort
 rg -n '@opencode-ai/sdk|lib/opencode|src/lib/opencode' packages
 rg -o --no-filename 'OPENCODE_[A-Z0-9_]+' packages | sort -u
-rg -o --no-filename 'OPENCHAMBER_[A-Z0-9_]+' packages | sort -u
-rg -n '/api/(openchamber|opencode|config|zen)' packages/web packages/ui packages/electron
+rg -o --no-filename 'PICHAMBER_[A-Z0-9_]+' packages | sort -u
+rg -n '/api/(pichamber|opencode|config|zen)' packages/web packages/ui packages/electron
 find packages/web/server/lib/opencode -type f | sort
 ```
 

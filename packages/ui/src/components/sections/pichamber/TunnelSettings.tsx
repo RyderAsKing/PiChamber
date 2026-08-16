@@ -168,8 +168,8 @@ interface TunnelDependencyInstallInfo {
 const getProviderDependencyName = (provider: string): string => (provider === 'ngrok' ? 'ngrok' : 'cloudflared');
 
 const getClientInstallPlatform = (): string => {
-  if (typeof window !== 'undefined' && typeof window.__OPENCHAMBER_PLATFORM__ === 'string') {
-    const platform = window.__OPENCHAMBER_PLATFORM__;
+  if (typeof window !== 'undefined' && typeof window.__PICHAMBER_PLATFORM__ === 'string') {
+    const platform = window.__PICHAMBER_PLATFORM__;
     if (platform === 'win32' || platform === 'darwin' || platform === 'linux') {
       return platform;
     }
@@ -495,7 +495,7 @@ export const TunnelSettings: React.FC = () => {
 
   const refreshTunnelDependencyCheck = React.useCallback(async (provider: string, signal?: AbortSignal): Promise<boolean | null> => {
     try {
-      const checkRes = await runtimeFetch('/api/openchamber/tunnel/check', {
+      const checkRes = await runtimeFetch('/api/pichamber/tunnel/check', {
         query: { provider },
         ...(signal ? { signal } : {}),
       });
@@ -522,10 +522,10 @@ export const TunnelSettings: React.FC = () => {
   const checkAvailabilityAndStatus = React.useCallback(async (signal: AbortSignal) => {
     try {
       const [checkRes, statusRes, settingsRes, providersRes] = await Promise.all([
-        runtimeFetch('/api/openchamber/tunnel/check', { signal }),
-        runtimeFetch('/api/openchamber/tunnel/status', { signal }),
+        runtimeFetch('/api/pichamber/tunnel/check', { signal }),
+        runtimeFetch('/api/pichamber/tunnel/status', { signal }),
         runtimeFetch('/api/pi/ui-settings', { signal, headers: { Accept: 'application/json' } }),
-        runtimeFetch('/api/openchamber/tunnel/providers', { signal }),
+        runtimeFetch('/api/pichamber/tunnel/providers', { signal }),
       ]);
 
       const checkData = (await checkRes.json()) as TunnelCheckResponse;
@@ -739,7 +739,7 @@ export const TunnelSettings: React.FC = () => {
     let cancelled = false;
     const refreshSessions = async () => {
       try {
-        const statusRes = await runtimeFetch('/api/openchamber/tunnel/status');
+        const statusRes = await runtimeFetch('/api/pichamber/tunnel/status');
         if (!statusRes.ok || cancelled) {
           return;
         }
@@ -944,7 +944,7 @@ export const TunnelSettings: React.FC = () => {
         });
       }
 
-      const res = await runtimeFetch('/api/openchamber/tunnel/start', {
+      const res = await runtimeFetch('/api/pichamber/tunnel/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1038,8 +1038,8 @@ export const TunnelSettings: React.FC = () => {
     setState('stopping');
 
     try {
-      await runtimeFetch('/api/openchamber/tunnel/stop', { method: 'POST' });
-      const statusRes = await runtimeFetch('/api/openchamber/tunnel/status');
+      await runtimeFetch('/api/pichamber/tunnel/stop', { method: 'POST' });
+      const statusRes = await runtimeFetch('/api/pichamber/tunnel/status');
       if (statusRes.ok) {
         const statusData = (await statusRes.json()) as TunnelStatusResponse;
         setSessionRecords(Array.isArray(statusData.activeSessions) ? statusData.activeSessions : []);

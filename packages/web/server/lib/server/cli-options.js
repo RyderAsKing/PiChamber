@@ -6,17 +6,17 @@ export const parseServeCliOptions = ({
   managedLocalMode,
 }) => {
   const args = Array.isArray(argv) ? [...argv] : [];
-  const envPassword = env.PICHAMBER_UI_PASSWORD || env.OPENCHAMBER_UI_PASSWORD || null;
-  const envCfTunnel = env.OPENCHAMBER_TRY_CF_TUNNEL === 'true';
-  const envTunnelProvider = env.OPENCHAMBER_TUNNEL_PROVIDER || undefined;
-  const envTunnelMode = env.OPENCHAMBER_TUNNEL_MODE || undefined;
-  const envTunnelConfigRaw = env.OPENCHAMBER_TUNNEL_CONFIG;
+  const envPassword = env.PICHAMBER_UI_PASSWORD || env.PICHAMBER_UI_PASSWORD || null;
+  const envCfTunnel = env.PICHAMBER_TRY_CF_TUNNEL === 'true';
+  const envTunnelProvider = env.PICHAMBER_TUNNEL_PROVIDER || undefined;
+  const envTunnelMode = env.PICHAMBER_TUNNEL_MODE || undefined;
+  const envTunnelConfigRaw = env.PICHAMBER_TUNNEL_CONFIG;
   const envTunnelConfig = typeof envTunnelConfigRaw === 'string'
     ? (envTunnelConfigRaw.trim().length > 0 ? envTunnelConfigRaw.trim() : null)
     : undefined;
-  const envTunnelToken = env.OPENCHAMBER_TUNNEL_TOKEN || undefined;
-  const envTunnelHostname = env.OPENCHAMBER_TUNNEL_HOSTNAME || undefined;
-  const envApiOnly = env.OPENCHAMBER_API_ONLY === '1' || env.OPENCHAMBER_API_ONLY === 'true';
+  const envTunnelToken = env.PICHAMBER_TUNNEL_TOKEN || undefined;
+  const envTunnelHostname = env.PICHAMBER_TUNNEL_HOSTNAME || undefined;
+  const envApiOnly = env.PICHAMBER_API_ONLY === '1' || env.PICHAMBER_API_ONLY === 'true';
 
   const options = {
     port: defaultPort,

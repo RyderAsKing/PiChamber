@@ -17,11 +17,11 @@ const sameOrigin = (left: string, right: string): boolean => {
 
 declare global {
   interface Window {
-    __OPENCHAMBER_API_BASE_URL__?: string;
-    __OPENCHAMBER_CLIENT_TOKEN__?: string;
-    __OPENCHAMBER_RUNTIME_HEADERS__?: Record<string, string>;
-    __OPENCHAMBER_LOCAL_ORIGIN__?: string;
-    __OPENCHAMBER_RELAY_HOST_ID__?: string;
+    __PICHAMBER_API_BASE_URL__?: string;
+    __PICHAMBER_CLIENT_TOKEN__?: string;
+    __PICHAMBER_RUNTIME_HEADERS__?: Record<string, string>;
+    __PICHAMBER_LOCAL_ORIGIN__?: string;
+    __PICHAMBER_RELAY_HOST_ID__?: string;
   }
 }
 
@@ -29,11 +29,11 @@ export const readRuntimeBootstrapConfig = (): EmbeddedSessionRuntimeBootstrap =>
   const readString = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
 
   return {
-    apiBaseUrl: readString(window.__OPENCHAMBER_API_BASE_URL__),
-    clientToken: readString(window.__OPENCHAMBER_CLIENT_TOKEN__),
-    localOrigin: readString(window.__OPENCHAMBER_LOCAL_ORIGIN__),
-    runtimeHeaders: window.__OPENCHAMBER_RUNTIME_HEADERS__,
-    relayHostId: readString(window.__OPENCHAMBER_RELAY_HOST_ID__),
+    apiBaseUrl: readString(window.__PICHAMBER_API_BASE_URL__),
+    clientToken: readString(window.__PICHAMBER_CLIENT_TOKEN__),
+    localOrigin: readString(window.__PICHAMBER_LOCAL_ORIGIN__),
+    runtimeHeaders: window.__PICHAMBER_RUNTIME_HEADERS__,
+    relayHostId: readString(window.__PICHAMBER_RELAY_HOST_ID__),
   };
 };
 

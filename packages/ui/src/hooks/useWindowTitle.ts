@@ -67,7 +67,7 @@ export const useWindowTitle = () => {
           return;
         }
 
-        const localOrigin = window.__OPENCHAMBER_LOCAL_ORIGIN__ || window.location.origin;
+        const localOrigin = window.__PICHAMBER_LOCAL_ORIGIN__ || window.location.origin;
         const runtimeApiBaseUrl = getRuntimeApiBaseUrl();
 
         if (runtimeApiBaseUrl && locationMatchesHost(runtimeApiBaseUrl, localOrigin)) {

@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-HOME="/home/openchamber"
+HOME="/home/pichamber"
 
 SSH_DIR="${HOME}/.ssh"
 SSH_PRIVATE_KEY_PATH="${SSH_DIR}/id_ed25519"
@@ -37,19 +37,19 @@ if [ -f "${SSH_PUBLIC_KEY_PATH}" ]; then
 fi
 
 # Handle UI password environment variables. UI_PASSWORD is kept as a legacy
-# alias; OPENCHAMBER_UI_PASSWORD is the canonical runtime variable.
-if [ -z "${OPENCHAMBER_UI_PASSWORD:-}" ] && [ -n "${UI_PASSWORD:-}" ]; then
-  OPENCHAMBER_UI_PASSWORD="$UI_PASSWORD"
-  export OPENCHAMBER_UI_PASSWORD
+# alias; PICHAMBER_UI_PASSWORD is the canonical runtime variable.
+if [ -z "${PICHAMBER_UI_PASSWORD:-}" ] && [ -n "${UI_PASSWORD:-}" ]; then
+  PICHAMBER_UI_PASSWORD="$UI_PASSWORD"
+  export PICHAMBER_UI_PASSWORD
 fi
 
-if [ -n "${OPENCHAMBER_UI_PASSWORD:-}" ]; then
+if [ -n "${PICHAMBER_UI_PASSWORD:-}" ]; then
   echo "[entrypoint] UI password set, enabling authentication"
 fi
 
 # Docker containers need to listen on all interfaces for port mapping to work.
-OPENCHAMBER_HOST="${OPENCHAMBER_HOST:-0.0.0.0}"
-export OPENCHAMBER_HOST
+PICHAMBER_HOST="${PICHAMBER_HOST:-0.0.0.0}"
+export PICHAMBER_HOST
 
 echo "[entrypoint] starting..."
 
@@ -58,8 +58,8 @@ if [ "$#" -gt 0 ]; then
 fi
 
 set -- bun packages/web/bin/cli.js
-if [ -n "${OPENCHAMBER_UI_PASSWORD:-}" ]; then
-  set -- "$@" --ui-password "$OPENCHAMBER_UI_PASSWORD"
+if [ -n "${PICHAMBER_UI_PASSWORD:-}" ]; then
+  set -- "$@" --ui-password "$PICHAMBER_UI_PASSWORD"
 fi
 "$@"
 

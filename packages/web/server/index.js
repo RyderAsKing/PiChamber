@@ -31,8 +31,8 @@ import { createUiAuth } from './lib/ui-auth/ui-auth.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_PORT = 3000;
-const OPENCHAMBER_DATA_DIR = resolvePiChamberDataDir();
-const OPENCHAMBER_VERSION = (() => {
+const PICHAMBER_DATA_DIR = resolvePiChamberDataDir();
+const PICHAMBER_VERSION = (() => {
   try {
     return JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.json'), 'utf8')).version || 'unknown';
   } catch {
@@ -46,7 +46,7 @@ let signalsAttached = false;
 const isEnvFlagEnabled = (value) => value === true || value === 1 || (typeof value === 'string' && ['1', 'true'].includes(value.trim().toLowerCase()));
 
 const resolveDistPath = () => {
-  const configured = typeof process.env.OPENCHAMBER_DIST_DIR === 'string' ? process.env.OPENCHAMBER_DIST_DIR.trim() : '';
+  const configured = typeof process.env.PICHAMBER_DIST_DIR === 'string' ? process.env.PICHAMBER_DIST_DIR.trim() : '';
   return configured ? path.resolve(configured) : path.join(__dirname, '..', 'dist');
 };
 
@@ -90,21 +90,21 @@ export async function gracefulShutdown({ exitProcess = false } = {}) {
 
 export async function startWebUiServer(options = {}) {
   const port = Number.isInteger(options.port) && options.port >= 0 ? options.port : DEFAULT_PORT;
-  const host = typeof options.host === 'string' && options.host.trim() ? options.host.trim() : (process.env.PICHAMBER_HOST || process.env.OPENCHAMBER_HOST || '127.0.0.1');
-  const uiPassword = typeof options.uiPassword === 'string' ? options.uiPassword : (process.env.PICHAMBER_UI_PASSWORD || process.env.OPENCHAMBER_UI_PASSWORD || null);
+  const host = typeof options.host === 'string' && options.host.trim() ? options.host.trim() : (process.env.PICHAMBER_HOST || process.env.PICHAMBER_HOST || '127.0.0.1');
+  const uiPassword = typeof options.uiPassword === 'string' ? options.uiPassword : (process.env.PICHAMBER_UI_PASSWORD || process.env.PICHAMBER_UI_PASSWORD || null);
   if (isNetworkExposedBindHost(host) && !uiPassword?.trim() && !isUnsafeUnauthenticatedLanAllowed(process.env)) {
     throw new Error(getUnauthenticatedLanErrorMessage(host));
   }
-  const apiOnly = options.apiOnly === true || isEnvFlagEnabled(process.env.PICHAMBER_API_ONLY ?? process.env.OPENCHAMBER_API_ONLY);
+  const apiOnly = options.apiOnly === true || isEnvFlagEnabled(process.env.PICHAMBER_API_ONLY ?? process.env.PICHAMBER_API_ONLY);
   const app = express();
   const server = http.createServer(app);
   const serverStartedAt = new Date().toISOString();
-  const dataPath = (name) => path.join(OPENCHAMBER_DATA_DIR, name);
+  const dataPath = (name) => path.join(PICHAMBER_DATA_DIR, name);
   const remoteClientAuthRuntime = createRemoteClientAuthRuntime({ fsPromises: fs.promises, path, crypto: await import('node:crypto'), storePath: dataPath('remote-clients.json') });
   const clientPairingRuntime = createClientPairingRuntime({ fsPromises: fs.promises, path, crypto: await import('node:crypto'), storePath: dataPath('client-pairing-sessions.json'), remoteClientAuthRuntime });
   const tunnelAuthController = createTunnelAuth();
   const uiAuthController = createUiAuth({ password: uiPassword, readSettingsFromDiskMigrated: async () => ({}) , clientAuthController: remoteClientAuthRuntime });
-  const piSessionDaemonRuntime = createPiSessionDaemonSupervisor({ dataDir: OPENCHAMBER_DATA_DIR });
+  const piSessionDaemonRuntime = createPiSessionDaemonSupervisor({ dataDir: PICHAMBER_DATA_DIR });
   let stopped = false;
 
   app.set('trust proxy', true);
@@ -112,7 +112,7 @@ export async function startWebUiServer(options = {}) {
   app.get('/robots.txt', (_req, res) => res.type('text/plain').send('User-agent: *\nDisallow: /\n'));
   app.use((req, res, next) => {
     const origin = typeof req.headers.origin === 'string' ? req.headers.origin : '';
-    if (origin === 'openchamber-ui://app' || origin === 'capacitor://localhost' || /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) {
+    if (origin === 'pichamber-ui://app' || origin === 'capacitor://localhost' || /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
@@ -127,8 +127,8 @@ export async function startWebUiServer(options = {}) {
   registerServerStatusRoutes(app, {
     express,
     process,
-    pichamberVersion: OPENCHAMBER_VERSION,
-    runtimeName: process.env.OPENCHAMBER_RUNTIME || 'web',
+    pichamberVersion: PICHAMBER_VERSION,
+    runtimeName: process.env.PICHAMBER_RUNTIME || 'web',
     serverStartedAt,
     gracefulShutdown,
     getHealthSnapshot: () => ({ pi: { state: 'ready' }, apiOnly }),
@@ -141,7 +141,7 @@ export async function startWebUiServer(options = {}) {
     tunnelAuthController,
     uiAuthController,
   });
-  registerCommonRequestMiddleware(app, { express, verboseRequestLogs: isEnvFlagEnabled(process.env.OPENCHAMBER_VERBOSE_REQUEST_LOGS) });
+  registerCommonRequestMiddleware(app, { express, verboseRequestLogs: isEnvFlagEnabled(process.env.PICHAMBER_VERBOSE_REQUEST_LOGS) });
   registerAuthAndAccessRoutes(app, {
     express,
     tunnelAuthController,
@@ -161,7 +161,7 @@ export async function startWebUiServer(options = {}) {
 
   await listen(server, port, host);
   const resolvedPort = typeof server.address() === 'object' && server.address() ? server.address().port : null;
-  if (typeof resolvedPort === 'number') process.send?.({ type: 'openchamber:ready', port: resolvedPort });
+  if (typeof resolvedPort === 'number') process.send?.({ type: 'pichamber:ready', port: resolvedPort });
   await piSessionDaemonRuntime.start().catch((error) => console.warn(`[PiSessionDaemon] unavailable: ${error?.code ?? 'DAEMON_UNAVAILABLE'}`));
   const controller = {
     expressApp: app,

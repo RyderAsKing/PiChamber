@@ -32,9 +32,7 @@ read. Skill loading is a required part of the task, not optional guidance.
 
 Shared UI calls Pi through `/api/pi/*` using `runtimeFetch` and shared browser/realtime transport helpers. Runtime-specific PiChamber capabilities use `RuntimeAPIs`.
 
-Electron starts the PiChamber backend in-process, never as a sidecar. Development may load loopback/HMR UI; packaged builds load staged assets through `openchamber-ui://` while the loopback server remains the API backend. Keep domain backends in web/runtime modules unless behavior is inherently native.
-
-> The `openchamber-ui://` protocol is an internal runtime contract and is intentionally preserved in Phase 1. It will be renamed in a later phase with a deprecation alias.
+Electron starts the PiChamber backend in-process, never as a sidecar. Development may load loopback/HMR UI; packaged builds load staged assets through `pichamber-ui://` while the loopback server remains the API backend. Keep domain backends in web/runtime modules unless behavior is inherently native.
 
 Shared contracts must define intentional behavior for every applicable runtime: web, desktop, hosted mobile, and Capacitor mobile.
 
@@ -83,7 +81,7 @@ process violation.
 
 | Trigger | Required skill |
 |---|---|
-| Any source, dependency, export, build-config, generated-asset, package-contract, or module-ownership change | `openchamber-change-discipline` |
+| Any source, dependency, export, build-config, generated-asset, package-contract, or module-ownership change | `pichamber-change-discipline` |
 | CLI commands, prompts, terminal output, non-TTY, `--quiet`, or `--json` behavior | `clack-cli-patterns` |
 | Shared UI data access, Pi API, `RuntimeAPIs`, runtime fetch/auth/URLs, bridges/proxies, runtime switching, or server API routes | `ui-api-decoupling` |
 | Electron main/preload, IPC, native UI, updater, deep links, SSH/tunnels, packaging, or child processes | `desktop-shell` |

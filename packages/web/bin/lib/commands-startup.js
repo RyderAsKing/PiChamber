@@ -36,7 +36,7 @@ async function startupCommand(options, action = 'status') {
   }
   if (normalized === 'enable' && result.activeState === 'failed') {
     throw new TunnelCliError(
-      'Startup service was installed but failed to start. Run `journalctl --user -u openchamber.service -n 80 --no-pager` for details.',
+      'Startup service was installed but failed to start. Run `journalctl --user -u pichamber.service -n 80 --no-pager` for details.',
       EXIT_CODE.GENERAL_ERROR
     );
   }
