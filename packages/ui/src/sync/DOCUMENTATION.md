@@ -6,9 +6,11 @@ This document covers the current client-side session/data architecture in `packa
 
 There are **two distinct session data scopes** in the UI:
 
-1. **Pi session store** (`PiSessionProvider` / `PiSessionStore`; OpenCode SSE child stores are not session truth)
+1. **Pi runtime-scoped session store** (`PiSessionProvider` / `PiSessionStore`; OpenCode SSE child stores are not session truth)
    - Owned by `PiSessionStore` via `pi-session-context.tsx` and the restored UI-facing sync hooks
-   - Source for live session/message/part state for the active directory
+   - Cluster source for live session/message/part state across the connected runtime: a single event stream, one `reducer.bySession` map, one `hydratedSessionIds` set
+   - Backs the focused project's sidebar list, the chat timeline, and the in-flight busy/retry panels for every resident session
+   - Folder focus swaps the sidebar list pointer without touching the cluster; only `clear()` / `dispose()` / runtime switch resets the cluster
    - Backed by `/api/pi/*` and the Pi event stream
    - Read via hooks like `useSessions()`, `useSessionMessageRecords()`, `getSyncSessions()`
 
@@ -24,18 +26,34 @@ These two scopes are intentionally different, but they are no longer equal peers
 
 ### Why both exist
 
-The directory-scoped sync stores are **not** a complete global view.
+The Pi runtime-scoped store is **not** a complete global view.
 
-- They are created lazily per directory
-- They only contain data for directories initialized in the current app session
-- They are optimized for live per-directory domain data
-- They do not maintain the complete global active+archived session view needed by the sidebar and retention settings
+- It is created lazily for each connected runtime
+- It only hydrates sessions the user has visited (subject to the soft eviction cap)
+- It is optimized for live, in-flight session data across the cluster
+- It does not maintain the complete global active+archived session view needed by the sidebar's cold directories and retention settings
 
 So:
 
-- Use the **directory sync stores** for per-directory live session/message state
+- Use the **Pi runtime-scoped store** for live session/message state on the connected runtime, including background busy sessions the focused folder does not own
 - Use the **global sessions store** for cold/global session coverage (especially archived pages and unopened directories)
 - Use **aggregated child-store sessions and the global live status index** for live truth across initialized directories
+
+### Runtime-scoped sessions
+
+The Pi cluster belongs to the connected runtime, not the focused project:
+
+- One event stream, one `reducer.bySession`, one `hydratedSessionIds` set, and one runtime generation guard
+- `directory` is a focus pointer for the sidebar list, the new-session cwd, and the `selectProject` daemon focus — not a liveness boundary
+- Folder focus (`focusProject(directory, preferredSessionId?)`) replaces the `sessions[]`, sets the `selectedSessionId`, hydrates the new id only when cold, and never disposes the stream, clears `hydratedSessionIds`, drops other folders' hydrated transcripts, or rewrites `connection: 'loading'` for the cluster
+- Folder focus sets `focusPending: true` while the list is in flight so the chat can keep its existing view (or its existing PiChamber logo loader) instead of clearing back to `ChatEmptyState`. `sessionsListStatus` distinguishes `'loading'` / `'ready'` / `'failed'` and discriminates authoritative empty success from list failure
+- Same-folder selection is a pointer change on the resident cluster (`select(id)`)
+- A failed list for the new folder surfaces an error on that slice only after one automatic retry on transient 5xx / 408 / 429; previous folder sessions, the stream, and other folders' hydrated transcripts all survive
+- Warm folder switches skip the loader: if the preferred id is already hydrated, `focusProject` selects it immediately and resolves the list in the background. `start({directory})` also seeds the focus with `lastSelectedSessionForDirectory(directory)` so the chat reopens on the remembered session with no spinner
+- Idle transcripts are evicted by a deferred microtask scan (default cap 16) that walks `lastAccessById` in ascending order and never evicts the selected, busy/retry, or pending-prompt session; it keeps the evicted session's `lastSequence`, never runs on the hydrate acquisition path, and is scheduled after both `commitEvents` and `commitHydratedSession` so a render mounting many entries scans once, not once per entry
+- `applyPiEvent` only clones the session the event touches; other resident sessions keep their previous references so a background busy turn does not rebuild the visible transcript tree
+- `ensureHydrated(id)` hydrates a session if cold without changing `selectedSessionId` or directory focus — chat surfaces that read a child session inside a tool part must use it instead of `select`, so background hydrations never steal the visible chat
+- Reconnect merges the snapshot into the existing cluster without disposals, then hydrates any resident session whose `lastSequence` is behind the resumed cursor so a quiet background turn does not lose the disconnect gap
 
 ## Ownership map
 
