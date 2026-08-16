@@ -369,7 +369,7 @@ const UserShellActionPart: React.FC<{ part: ShellActionPartLike }> = ({ part }) 
 };
 
 const formatTurnDuration = (durationMs: number): string => {
-    const totalSeconds = durationMs / 1000;
+    const totalSeconds = Math.max(0.1, durationMs / 1000);
     if (totalSeconds < 60) {
         return `${totalSeconds.toFixed(1)}s`;
     }
@@ -387,6 +387,7 @@ interface MessageBodyProps {
     messageFinish?: string;
     messageCompletedAt?: number;
     messageCreatedAt?: number;
+    durationMs?: number;
 
 
     isMobile: boolean;
@@ -940,6 +941,7 @@ const AssistantMessageBody = React.memo(({
     messageFinish,
     messageCompletedAt,
     messageCreatedAt,
+    durationMs,
 
     isMobile,
     alwaysShowActions,
@@ -1433,7 +1435,12 @@ const AssistantMessageBody = React.memo(({
     const showErrorMessage = Boolean(errorMessage);
     const errorIconName = errorVariant === 'info' ? 'information' : 'error-warning';
     const shouldShowMessageActions = hasCopyableText;
-    const shouldShowTurnFooter = isLastAssistantInTurn && hasTextContent && (hasStopFinish || Boolean(errorMessage));
+    const isTurnWorking = Boolean(turnGroupingContext?.isWorking);
+    const shouldShowTurnFooter = isLastAssistantInTurn
+        && hasTextContent
+        && !isTurnWorking
+        && streamPhase === 'completed'
+        && (hasStopFinish || Boolean(errorMessage));
     const shouldRenderActionsInActivity = isSortedRenderMode;
     const shouldShowStandaloneMessageActions = showSplitAssistantMessageActions && shouldShowMessageActions && !shouldShowTurnFooter && !shouldRenderActionsInActivity;
 
@@ -1777,11 +1784,21 @@ const AssistantMessageBody = React.memo(({
 
     const turnDurationText = React.useMemo(() => {
         if (!isLastAssistantInTurn || !hasStopFinish) return undefined;
+        // Priority 1: Assistant message explicit durationMs (measured from first token to stream completion)
+        if (typeof durationMs === 'number' && durationMs > 0) {
+            return formatTurnDuration(durationMs);
+        }
+        // Priority 2: Assistant message completedAt - createdAt
+        if (typeof messageCompletedAt === 'number' && typeof messageCreatedAt === 'number' && messageCompletedAt > messageCreatedAt) {
+            return formatTurnDuration(messageCompletedAt - messageCreatedAt);
+        }
+        // Priority 3: Turn span from user prompt to assistant completion
         const userCreatedAt = turnGroupingContext?.userMessageCreatedAt;
-        if (typeof userCreatedAt !== 'number' || typeof messageCompletedAt !== 'number') return undefined;
-        if (messageCompletedAt <= userCreatedAt) return undefined;
-        return formatTurnDuration(messageCompletedAt - userCreatedAt);
-    }, [isLastAssistantInTurn, hasStopFinish, turnGroupingContext?.userMessageCreatedAt, messageCompletedAt]);
+        if (typeof userCreatedAt === 'number' && typeof messageCompletedAt === 'number' && messageCompletedAt > userCreatedAt) {
+            return formatTurnDuration(messageCompletedAt - userCreatedAt);
+        }
+        return undefined;
+    }, [isLastAssistantInTurn, hasStopFinish, durationMs, messageCompletedAt, messageCreatedAt, turnGroupingContext?.userMessageCreatedAt]);
 
     const footerTimestamp = React.useMemo(() => {
         const timestamp = typeof messageCompletedAt === 'number' && messageCompletedAt > 0

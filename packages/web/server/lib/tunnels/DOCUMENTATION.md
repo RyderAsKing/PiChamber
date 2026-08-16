@@ -19,12 +19,12 @@ The actual tunnel start implementations live in
 ## Entrypoints and structure
 - `packages/web/server/lib/tunnels/executable-search.js`: cross-platform executable discovery, including Windows Store app aliases. Consumed by the tunnel providers and `packages/web/server/lib/workspace/host.js`.
 - `packages/web/server/lib/tunnels/install-help.js`: provider/platform install command metadata (`getTunnelDependencyInstallInfo`) for missing tunnel dependencies.
-- `packages/web/server/lib/tunnels/types.js`: shared tunnel provider constants (`TUNNEL_PROVIDER_CLOUDFLARE`, `TUNNEL_PROVIDER_NGROK`).
+- `packages/web/server/lib/tunnels/types.js`: shared tunnel provider, mode, and intent constants plus the shared `TunnelServiceError` class.
 
 ## Public exports
 - `install-help.js` → `getTunnelDependencyInstallInfo(provider, platform)`
 - `executable-search.js` → `getExecutableSearchDirectories`, `createExecutableSearchEnv`, `findExecutableOnPath`, `resolveExecutableLaunchTarget`
-- `types.js` → `TUNNEL_PROVIDER_CLOUDFLARE`, `TUNNEL_PROVIDER_NGROK`
+- `types.js` → `TUNNEL_PROVIDER_CLOUDFLARE`, `TUNNEL_PROVIDER_NGROK`, `TUNNEL_MODE_QUICK`, `TUNNEL_MODE_MANAGED_REMOTE`, `TUNNEL_MODE_MANAGED_LOCAL`, `TUNNEL_INTENT_EPHEMERAL_PUBLIC`, `TUNNEL_INTENT_PERSISTENT_PUBLIC`, `TunnelServiceError`
 
 ## Consumers
 - `packages/web/bin/lib/cli-tunnel-capabilities.js`: provider capability metadata for CLI tunnel commands.

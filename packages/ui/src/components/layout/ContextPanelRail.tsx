@@ -155,7 +155,6 @@ export const ContextPanelRail: React.FC = () => {
   const directoryKey = effectiveDirectory ? normalizeContextPanelDirectoryKey(effectiveDirectory) : '';
 
   const panelState = useUIStore((state) => (directoryKey ? state.contextPanelByDirectory[directoryKey] : undefined));
-  const workStatusPanelVisible = useUIStore((state) => state.workStatusPanelVisible);
   const contextRailOrder = useUIStore((state) => state.contextRailOrder);
   const setContextRailOrder = useUIStore((state) => state.setContextRailOrder);
   const openContextSurface = useUIStore((state) => state.openContextSurface);
@@ -285,11 +284,7 @@ export const ContextPanelRail: React.FC = () => {
         <SortableContext items={surfaces.map((surface) => surface.id)} strategy={verticalListSortingStrategy}>
           {surfaces.map((surface, index) => {
             const label = surface.label;
-            // Git shows a numeric badge instead of the old activity dot.
-            // Other surfaces never inherit git's changed-files signal.
-            // The work-status panel reports the same count in words a few
-            // pixels away; two live counts for one fact is one too many.
-            const gitChangedCount = surface.id === 'git' && !workStatusPanelVisible ? changedFilesCount : 0;
+            const gitChangedCount = surface.id === 'git' ? changedFilesCount : 0;
             const badgeCount = gitChangedCount > 0 ? gitChangedCount : null;
             return (
               <ContextPanelRailItem

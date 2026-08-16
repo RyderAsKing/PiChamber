@@ -1111,6 +1111,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                 messageFinish={messageFinish}
                                 messageCompletedAt={messageCompletedAt ?? undefined}
                                 messageCreatedAt={messageCreatedAt ?? undefined}
+                                durationMs={(message.info as { durationMs?: number }).durationMs}
                                 contextPinned={isPinnedIntoContext}
                                 contextPinPending={pinPending}
                                 onToggleContextPin={canPinIntoContext && messageCreatedAt ? handleToggleContextPin : undefined}

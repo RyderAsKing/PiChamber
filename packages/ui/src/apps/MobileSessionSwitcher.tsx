@@ -12,6 +12,7 @@ import { useSessionUnseenCount } from '@/sync/notification-store';
 import { useHasSessionActivityDuration } from '@/sync/session-activity-timing';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useGlobalSessionStatus } from '@/sync/sync-context';
+import { SessionUnreadDot } from '@/components/session/sidebar/SessionUnreadDot';
 
 const RECENT_SESSIONS_LIMIT = 10;
 /** Matches the metadata popover's width so both header dropdowns read as a pair. */
@@ -36,7 +37,7 @@ const SwitcherRow: React.FC<{
   const isStreaming = statusType === 'busy' || statusType === 'retry';
   const showUnreadDot = !isStreaming && unseenCount > 0 && !active;
   const hasActivityDuration = useHasSessionActivityDuration(session.id, isStreaming);
-  const showActivityDuration = (isStreaming || showUnreadDot) && hasActivityDuration;
+  const showActivityDuration = isStreaming && hasActivityDuration;
   const timeLabel = formatSessionCompactDateLabel(session.time?.updated ?? session.time?.created ?? 0);
 
   return (
@@ -58,24 +59,21 @@ const SwitcherRow: React.FC<{
         ) : null}
       </span>
       {/* Activity sits on the right, before the time — no reserved left gutter. */}
-      {isStreaming || showUnreadDot ? (
+      {isStreaming ? (
         <span
-          className={cn(
-            'size-1.5 shrink-0 rounded-full',
-            isStreaming ? 'bg-primary' : 'bg-[var(--status-info)]',
-          )}
+          className="size-1.5 shrink-0 rounded-full bg-primary"
           aria-hidden
         />
+      ) : showUnreadDot ? (
+        <SessionUnreadDot label={"Session complete"} />
       ) : null}
-      {/* The elapsed turn takes the time slot while it matters, then hands it
-          back to the relative timestamp. */}
       {showActivityDuration ? (
         <SessionActivityDuration
           sessionId={session.id}
           running={isStreaming}
           className="typography-micro"
         />
-      ) : timeLabel ? (
+      ) : showUnreadDot ? null : timeLabel ? (
         <span className="shrink-0 typography-micro text-muted-foreground tabular-nums">{timeLabel}</span>
       ) : null}
     </button>

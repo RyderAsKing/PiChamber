@@ -59,13 +59,28 @@
       html[data-splash-variant='light'] { --splash-background: var(--splash-background-light); }
       html[data-splash-variant='dark'] { --splash-background: var(--splash-background-dark); }
 
+      html, body {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        overscroll-behavior: none;
+      }
+      #root {
+        height: 100%;
+        width: 100%;
+        overflow: hidden;
+      }
+
       #initial-loading {
         background-color: var(--splash-background);
-        height: 100vh;
+        height: 100%;
         width: 100%;
-        position: absolute;
+        position: fixed;
         inset: 0;
         z-index: 9999;
+        overflow: hidden;
         transition: opacity 0.3s ease-out;
       }
       #initial-loading.fade-out {

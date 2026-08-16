@@ -149,6 +149,18 @@ export function markSessionViewed(sessionId: string) {
   useNotificationStore.getState().markSessionViewed(sessionId)
 }
 
+export function notifySessionTurnComplete(sessionId: string, directory?: string) {
+  const current = useNotificationStore.getState()
+  if ((current.index.session.unseenCount[sessionId] ?? 0) > 0) return
+  current.append({
+    type: 'turn-complete',
+    session: sessionId,
+    directory,
+    time: Date.now(),
+    viewed: false,
+  })
+}
+
 // ---------------------------------------------------------------------------
 // React hooks for fine-grained subscriptions
 // ---------------------------------------------------------------------------

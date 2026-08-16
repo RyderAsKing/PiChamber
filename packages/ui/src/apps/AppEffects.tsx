@@ -12,6 +12,7 @@ import { getPiSessionStore } from '@/apps/pi-session-store';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useConfigStore } from '@/stores/useConfigStore';
+import { parseRoute } from '@/lib/router';
 
 const MINI_CHAT_PRESENCE_CHANNEL = 'openchamber:mini-chat-presence';
 
@@ -108,8 +109,9 @@ const PiSessionBootstrapBridge: React.FC = () => {
     }
     // When a new session draft is intentionally open, background directory switches
     // (such as changing the project picker on the new session page) must not force-open
-    // the project's last session and dismiss the draft.
-    if (ui.newSessionDraft?.open && ui.currentSessionId === null) {
+    // the project's last session and dismiss the draft, unless a specific session was deep-linked.
+    const hasExplicitRouteSession = typeof window !== 'undefined' && Boolean(parseRoute().sessionId);
+    if (ui.newSessionDraft?.open && ui.currentSessionId === null && !hasExplicitRouteSession) {
       return;
     }
     if (ui.currentSessionId !== selectedSessionId || ui.currentSessionDirectory !== directory) {

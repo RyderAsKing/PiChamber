@@ -3,16 +3,16 @@ import { presetThemes } from './presets';
 import { withPrColors } from './prColors';
 import flexokiLightRaw from './flexoki-light.json';
 import flexokiDarkRaw from './flexoki-dark.json';
-import pichamberLightRaw from './openchamber-light.json';
-import pichamberDarkRaw from './openchamber-dark.json';
+import pichamberLightRaw from './pichamber-light.json';
+import pichamberDarkRaw from './pichamber-dark.json';
 
 const flexokiLightTheme = withPrColors(flexokiLightRaw as Theme);
 const flexokiDarkTheme = withPrColors(flexokiDarkRaw as Theme);
 const pichamberLightTheme = withPrColors(pichamberLightRaw as Theme);
 const pichamberDarkTheme = withPrColors(pichamberDarkRaw as Theme);
 
-export const DEFAULT_LIGHT_THEME_ID = 'openchamber-light' as const;
-export const DEFAULT_DARK_THEME_ID = 'openchamber-dark' as const;
+export const DEFAULT_LIGHT_THEME_ID = 'pichamber-light' as const;
+export const DEFAULT_DARK_THEME_ID = 'pichamber-dark' as const;
 
 export const themes: Theme[] = [
   pichamberLightTheme,
@@ -20,15 +20,19 @@ export const themes: Theme[] = [
   flexokiLightTheme,
   flexokiDarkTheme,
   ...presetThemes.filter(
-    (theme) => theme.metadata.id !== 'openchamber-light' && theme.metadata.id !== 'openchamber-dark',
+    (theme) =>
+      theme.metadata.id !== 'pichamber-light' &&
+      theme.metadata.id !== 'pichamber-dark' &&
+      theme.metadata.id !== 'openchamber-light' &&
+      theme.metadata.id !== 'openchamber-dark',
   ),
 ];
 
 export function getThemeById(id: string): Theme | undefined {
-  // Back-compat for a short-lived rename.
+  // Back-compat for renames.
   const resolvedId =
-    id === 'app-light' ? 'flexoki-light' :
-    id === 'app-dark' ? 'flexoki-dark' :
+    id === 'app-light' || id === 'openchamber-light' ? 'pichamber-light' :
+    id === 'app-dark' || id === 'openchamber-dark' ? 'pichamber-dark' :
     id;
 
   return themes.find(theme => theme.metadata.id === resolvedId);

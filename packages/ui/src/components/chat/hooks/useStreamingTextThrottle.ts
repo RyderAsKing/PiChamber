@@ -8,8 +8,6 @@ interface UseStreamingTextThrottleInput {
     allowTextReplacement?: boolean;
 }
 
-const DEFAULT_STREAMING_TEXT_THROTTLE_MS = 100;
-
 export const getStreamingThrottleText = (
     current: string,
     next: string,
@@ -19,101 +17,91 @@ export const getStreamingThrottleText = (
     return isStreaming && !allowTextReplacement && current.length > next.length ? current : next;
 };
 
-const computeStreamingThrottleDelay = (lastEmitAt: number, now: number, throttleMs: number): number => {
-    const elapsed = now - lastEmitAt;
-    return Math.max(0, throttleMs - elapsed);
-};
-
-interface StreamingThrottleState {
-    timer: ReturnType<typeof setTimeout> | null;
-    pendingText: string;
-    lastEmitAt: number;
-}
-
-const clearTimer = (state: StreamingThrottleState): void => {
-    if (!state.timer) {
-        return;
-    }
-    clearTimeout(state.timer);
-    state.timer = null;
-};
-
 export const useStreamingTextThrottle = ({
     text,
     isStreaming,
-    throttleMs = DEFAULT_STREAMING_TEXT_THROTTLE_MS,
     identityKey,
     allowTextReplacement = false,
 }: UseStreamingTextThrottleInput): string => {
-    const [throttledText, setThrottledText] = React.useState(text);
-    const latestTextRef = React.useRef(text);
-    const throttledTextRef = React.useRef(throttledText);
+    const [displayedText, setDisplayedText] = React.useState(text);
+    const targetTextRef = React.useRef(text);
+    const displayedTextRef = React.useRef(displayedText);
+    const rafIdRef = React.useRef<number | null>(null);
 
-    const stateRef = React.useRef<StreamingThrottleState>({
-        timer: null,
-        pendingText: text,
-        lastEmitAt: 0,
-    });
+    targetTextRef.current = text;
+    displayedTextRef.current = displayedText;
 
+    // Reset immediately when identity changes
     React.useEffect(() => {
-        latestTextRef.current = text;
-    }, [text]);
-
-    React.useEffect(() => {
-        throttledTextRef.current = throttledText;
-    }, [throttledText]);
-
-    React.useEffect(() => {
-        const state = stateRef.current;
-        clearTimer(state);
-        state.pendingText = latestTextRef.current;
-        state.lastEmitAt = 0;
-        setThrottledText(latestTextRef.current);
+        if (rafIdRef.current !== null) {
+            cancelAnimationFrame(rafIdRef.current);
+            rafIdRef.current = null;
+        }
+        setDisplayedText(targetTextRef.current);
     }, [identityKey]);
 
     React.useEffect(() => {
-        const state = stateRef.current;
-        state.pendingText = text;
-        const currentThrottled = throttledTextRef.current;
-        const stableText = getStreamingThrottleText(currentThrottled, text, isStreaming, allowTextReplacement);
-
+        // If not streaming, snap immediately to full text
         if (!isStreaming) {
-            clearTimer(state);
-            state.lastEmitAt = Date.now();
-            setThrottledText(stableText);
+            if (rafIdRef.current !== null) {
+                cancelAnimationFrame(rafIdRef.current);
+                rafIdRef.current = null;
+            }
+            setDisplayedText(text);
             return;
         }
 
-        const now = Date.now();
-        const remaining = computeStreamingThrottleDelay(state.lastEmitAt, now, throttleMs);
-
-        if (remaining <= 0) {
-            clearTimer(state);
-            state.lastEmitAt = now;
-            setThrottledText(stableText);
+        if (allowTextReplacement && text.length < displayedTextRef.current.length) {
+            setDisplayedText(text);
             return;
         }
 
-        clearTimer(state);
-        state.timer = setTimeout(() => {
-            state.timer = null;
-            state.lastEmitAt = Date.now();
-            setThrottledText((prev) => {
-                return getStreamingThrottleText(prev, state.pendingText, isStreaming, allowTextReplacement);
-            });
-        }, remaining);
+        // Progressive animation loop to smoothly catch up to targetText frame by frame
+        const step = () => {
+            const current = displayedTextRef.current;
+            const target = targetTextRef.current;
+
+            if (current === target) {
+                rafIdRef.current = null;
+                return;
+            }
+
+            if (target.length < current.length) {
+                if (allowTextReplacement) {
+                    setDisplayedText(target);
+                }
+                rafIdRef.current = null;
+                return;
+            }
+
+            // Adaptive step calculation:
+            // For small distances (1-5 chars), advance 1-2 chars per frame for a silky smooth reveal.
+            // For larger bursts (30+ chars), scale gracefully to catch up in a few frames without lag.
+            const distance = target.length - current.length;
+            const charsToAdvance = Math.max(1, Math.min(distance, Math.ceil(distance / 4)));
+            const nextLength = current.length + charsToAdvance;
+            const nextText = target.slice(0, nextLength);
+
+            setDisplayedText(nextText);
+
+            if (nextLength < target.length) {
+                rafIdRef.current = requestAnimationFrame(step);
+            } else {
+                rafIdRef.current = null;
+            }
+        };
+
+        if (rafIdRef.current === null && displayedTextRef.current !== text) {
+            rafIdRef.current = requestAnimationFrame(step);
+        }
 
         return () => {
-            clearTimer(state);
+            if (rafIdRef.current !== null) {
+                cancelAnimationFrame(rafIdRef.current);
+                rafIdRef.current = null;
+            }
         };
-    }, [allowTextReplacement, isStreaming, text, throttleMs]);
+    }, [text, isStreaming, allowTextReplacement]);
 
-    React.useEffect(() => {
-        const state = stateRef.current;
-        return () => {
-            clearTimer(state);
-        };
-    }, []);
-
-    return throttledText;
+    return displayedText;
 };

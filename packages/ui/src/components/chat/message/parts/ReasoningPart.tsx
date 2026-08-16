@@ -205,6 +205,12 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
                 return;
             }
 
+            if (!isStreaming) {
+                element.style.height = 'auto';
+                element.style.overflow = 'visible';
+                return;
+            }
+
             element.style.height = '0px';
             element.style.overflow = 'hidden';
 

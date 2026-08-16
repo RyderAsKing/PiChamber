@@ -1079,9 +1079,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         }
 
         void sendPromise.then(() => {
-            // Record what this session was pointed at, so the work-status panel
-            // can show it as a context source long after the message scrolled
-            // away. A snapshot only — never re-fetched, never authoritative.
+            // Record what this session was pointed at. A snapshot only —
+            // never re-fetched, never authoritative.
             // Failures are swallowed: the message went out, and a missing
             // bookkeeping entry must not surface as a send error.
             const attachedThread = linkedIssue
@@ -1933,10 +1932,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     }, [attachFiles]);
 
     const footerGapClass = 'gap-x-1.5 gap-y-0';
-    // The work-status panel carries the agent's todos and the changed-file
-    // count, but only on the desktop/web layout — mobile has no panel, so
-    // these keep their place above the composer there.
-    const composerStatusExtrasEnabled = isMobile;
+    const composerStatusExtrasEnabled = true;
     const showDraftTargetSelectors = newSessionDraftOpen;
 
     // Which project and directory a new session will target.

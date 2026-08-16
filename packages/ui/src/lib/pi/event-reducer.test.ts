@@ -174,7 +174,28 @@ describe("applyPiEvent", () => {
     })).state
     expect(state.bySession.get("sess-1")?.messages.get("m1")?.error?.code)
       .toBe("PROVIDER_AUTH_REQUIRED")
+    expect(state.bySession.get("sess-1")?.messages.get("m1")?.streaming).toBe(false)
+    expect(state.bySession.get("sess-1")?.messages.get("m1")?.durationMs).toBeGreaterThan(0)
     expect(state.bySession.get("sess-1")?.lifecycle).toBe("error")
+  })
+
+  test("session.error completes running tools on the interrupted assistant", () => {
+    let state = applyPiEvent(createReducerState(), assistantStart()).state
+    state = applyPiEvent(state, baseEvent("session.tool.start", 2, {
+      toolCallId: "t1",
+      partId: "m1:tool:t1",
+      messageId: "m1",
+      name: "bash",
+      state: "running",
+      startedAt: 1_000,
+    })).state
+    state = applyPiEvent(state, baseEvent("session.error", 3, {
+      code: "ASSISTANT_ERROR", message: "Stream ended without finish_reason",
+    })).state
+    const part = state.bySession.get("sess-1")?.parts.get("m1:tool:t1")
+    expect(part?.streaming).toBe(false)
+    expect(part?.tool?.state).toBe("error")
+    expect(state.bySession.get("sess-1")?.streamingMessages.size).toBe(0)
   })
 
   test("queue, model, and thinking events update session state", () => {
@@ -241,6 +262,162 @@ describe("hydrateSessionFromDetail", () => {
     const session = state.bySession.get("sess-1") as PiReducerSessionState
     expect(session.parts.get("p1")?.tool?.state).toBe("completed")
   })
+
+  test("resumes delta streaming on a hydrated message", () => {
+    const { state: initial } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 2,
+      messages: [{
+        message: {
+          id: "m1", sessionId: "sess-1", directory: "/work", role: "assistant",
+          text: "Hello", thinking: "", createdAt: 1_000,
+        },
+        parts: [{ id: "m1:text:0", index: 0, type: "text", text: "Hello" }],
+      }],
+    })
+    const updated = applyPiEvent(initial, baseEvent("assistant.message.delta", 3, {
+      messageId: "m1", partId: "m1:text:0", contentIndex: 0, delta: " world",
+    }))
+    expect(updated.didApply).toBe(true)
+    const session = updated.state.bySession.get("sess-1") as PiReducerSessionState
+    expect(session.parts.get("m1:text:0")?.text).toBe("Hello world")
+    expect(session.parts.get("m1:text:0")?.streaming).toBe(true)
+    expect(session.messages.get("m1")?.streaming).toBe(true)
+    expect(session.streamingMessages.has("m1")).toBe(true)
+  })
+
+  test("reconciles synthetic SSE messageId with hydrated session entry", () => {
+    const { state: initial } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 2,
+      messages: [{
+        message: {
+          id: "entry_uuid_123", sessionId: "sess-1", directory: "/work", role: "assistant",
+          text: "Thinking...", thinking: "", createdAt: 1_000,
+        },
+        parts: [{ id: "entry_uuid_123:text:0", index: 0, type: "text", text: "Thinking..." }],
+      }],
+    })
+    // SSE emits synthetic messageId: assistant-sess-1-4
+    let state = applyPiEvent(initial, baseEvent("assistant.message.delta", 3, {
+      messageId: "assistant-sess-1-4", partId: "assistant-sess-1-4:text:0", contentIndex: 0, delta: " and answering",
+    })).state
+    const session = state.bySession.get("sess-1") as PiReducerSessionState
+    expect(session.parts.get("entry_uuid_123:text:0")?.text).toBe("Thinking... and answering")
+    expect(session.parts.get("entry_uuid_123:text:0")?.streaming).toBe(true)
+
+    // Tool execution with synthetic messageId
+    state = applyPiEvent(state, baseEvent("session.tool.start", 4, {
+      toolCallId: "tc-live",
+      partId: "assistant-sess-1-4:tool:tc-live",
+      messageId: "assistant-sess-1-4",
+      name: "bash",
+      state: "running",
+      input: { command: "ls" },
+      startedAt: 1_200,
+    })).state
+    expect(state.bySession.get("sess-1")?.parts.get("assistant-sess-1-4:tool:tc-live")?.tool?.name).toBe("bash")
+
+    // Message end with synthetic messageId
+    state = applyPiEvent(state, baseEvent("assistant.message.end", 5, {
+      messageId: "assistant-sess-1-4",
+      text: "Thinking... and answering",
+      durationMs: 500,
+    })).state
+    expect(state.bySession.get("sess-1")?.messages.get("entry_uuid_123")?.streaming).toBe(false)
+    expect(state.bySession.get("sess-1")?.messages.get("entry_uuid_123")?.durationMs).toBe(500)
+  })
+
+  test("aliases a synthetic stream user onto the persisted user with the same text", () => {
+    const { state: initial } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 2,
+      messages: [{
+        message: {
+          id: "entry_user_1", sessionId: "sess-1", directory: "/work", role: "user",
+          text: "write a 500 words poem", createdAt: 1_000,
+        },
+        parts: [],
+      }],
+    })
+    const state = applyPiEvent(initial, baseEvent("assistant.message.start", 3, {
+      messageId: "user-sess-1-3",
+      role: "user",
+      text: "write a 500 words poem",
+      startedAt: 1_001,
+    })).state
+    const session = state.bySession.get("sess-1") as PiReducerSessionState
+    expect(session.messages.get("user-sess-1-3")?.id).toBe("entry_user_1")
+    const projected = projectSession(session)
+    expect(projected.messages.filter((message) => message.role === "user")).toHaveLength(1)
+    expect(projected.messages[0]?.id).toBe("entry_user_1")
+
+    const withAssistant = applyPiEvent(state, baseEvent("assistant.message.start", 4, {
+      messageId: "assistant-sess-1-4",
+      role: "assistant",
+      parentId: "user-sess-1-3",
+      startedAt: 1_002,
+    })).state
+    expect(projectSession(withAssistant.bySession.get("sess-1") as PiReducerSessionState).messages[1]?.parentId).toBe("entry_user_1")
+  })
+
+  test("does not alias a second send of the same text after a completed assistant", () => {
+    const { state: initial } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 4,
+      messages: [{
+        message: {
+          id: "entry_user_1", sessionId: "sess-1", directory: "/work", role: "user",
+          text: "hello", createdAt: 1_000,
+        },
+        parts: [],
+      }, {
+        message: {
+          id: "entry_asst_1", sessionId: "sess-1", directory: "/work", role: "assistant",
+          text: "hi", thinking: "", createdAt: 1_100, durationMs: 80,
+        },
+        parts: [{ id: "entry_asst_1:text:0", index: 0, type: "text", text: "hi" }],
+      }],
+    })
+    const state = applyPiEvent(initial, baseEvent("assistant.message.start", 5, {
+      messageId: "user-sess-1-5",
+      role: "user",
+      text: "hello",
+      startedAt: 2_000,
+    })).state
+    const session = state.bySession.get("sess-1") as PiReducerSessionState
+    expect(session.messages.get("user-sess-1-5")?.id).toBe("user-sess-1-5")
+    expect(projectSession(session).messages.filter((message) => message.role === "user")).toHaveLength(2)
+  })
+
+  test("aliases a replayed synthetic user even when completed assistant history follows it", () => {
+    const { state: initial } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 4,
+      messages: [{
+        message: {
+          id: "entry_user_1", sessionId: "sess-1", directory: "/work", role: "user",
+          text: "find the biggest codebase", createdAt: 1_000,
+        },
+        parts: [],
+      }, {
+        message: {
+          id: "entry_asst_1", sessionId: "sess-1", directory: "/work", role: "assistant",
+          parentId: "entry_user_1", text: "checking", thinking: "", createdAt: 1_100, durationMs: 80,
+        },
+        parts: [{ id: "entry_asst_1:text:0", index: 0, type: "text", text: "checking" }],
+      }],
+    })
+    const state = applyPiEvent(initial, baseEvent("assistant.message.start", 5, {
+      messageId: "user-sess-1-5",
+      role: "user",
+      text: "find the biggest codebase",
+      startedAt: 1_001,
+    })).state
+    const session = state.bySession.get("sess-1") as PiReducerSessionState
+    expect(session.messages.get("user-sess-1-5")?.id).toBe("entry_user_1")
+    expect(projectSession(session).messages.filter((message) => message.role === "user")).toHaveLength(1)
+  })
 })
 
 describe("projectSession", () => {
@@ -255,5 +432,85 @@ describe("projectSession", () => {
     expect(projected.messages[0]?.parts[0]?.streaming).toBe(true)
     expect(projected.messages[0]?.parentId).toBe("u1")
     expect((projected as unknown as { lastSequence?: number }).lastSequence).toBe(undefined)
+  })
+
+  test("hides an empty intermediate assistant error after the same turn recovers", () => {
+    const { session } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 5,
+      messages: [{
+        message: {
+          id: "u1", sessionId: "sess-1", directory: "/work", role: "user",
+          text: "inspect", createdAt: 1_000,
+        },
+        parts: [],
+      }, {
+        message: {
+          id: "a-error", sessionId: "sess-1", directory: "/work", role: "assistant",
+          parentId: "u1", text: "", thinking: "", createdAt: 1_100,
+          error: { code: "ASSISTANT_ERROR", message: "temporary provider failure" },
+        },
+        parts: [],
+      }, {
+        message: {
+          id: "a-ok", sessionId: "sess-1", directory: "/work", role: "assistant",
+          parentId: "u1", text: "Recovered", thinking: "", createdAt: 1_200, durationMs: 100,
+        },
+        parts: [{ id: "a-ok:text:0", index: 0, type: "text", text: "Recovered" }],
+      }],
+    })
+    expect(projectSession(session).messages.map((message) => message.id)).toEqual(["u1", "a-ok"])
+  })
+
+  test("keeps an unrecovered terminal assistant error visible", () => {
+    const { session } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 3,
+      messages: [{
+        message: {
+          id: "u1", sessionId: "sess-1", directory: "/work", role: "user",
+          text: "inspect", createdAt: 1_000,
+        },
+        parts: [],
+      }, {
+        message: {
+          id: "a-error", sessionId: "sess-1", directory: "/work", role: "assistant",
+          parentId: "u1", text: "", thinking: "", createdAt: 1_100,
+          error: { code: "ASSISTANT_ERROR", message: "provider failed" },
+        },
+        parts: [],
+      }],
+    })
+    expect(projectSession(session).messages.map((message) => message.id)).toEqual(["u1", "a-error"])
+  })
+})
+
+describe("applyPiEvent reference stability", () => {
+  test("preserves unrelated session object identity", () => {
+    let state = applyPiEvent(createReducerState(), baseEvent("session.lifecycle", 1, { state: "idle" }, "background")).state
+    const background = state.bySession.get("background")
+    expect(background).toBeDefined()
+    state = applyPiEvent(state, assistantStart()).state
+    state = applyPiEvent(state, baseEvent("assistant.message.delta", 2, {
+      messageId: "m1", contentIndex: 0, delta: "token",
+    })).state
+    expect(state.bySession.get("background")).toBe(background)
+    expect(state.bySession.get("sess-1")).not.toBe(undefined)
+    expect(state.bySession.get("sess-1")).not.toBe(background)
+  })
+})
+
+describe("session.lifecycle", () => {
+  test("idle clears leftover streaming flags", () => {
+    let state = applyPiEvent(createReducerState(), assistantStart()).state
+    state = applyPiEvent(state, baseEvent("assistant.message.delta", 2, {
+      messageId: "m1", contentIndex: 0, delta: "Hi",
+    })).state
+    expect(state.bySession.get("sess-1")?.streamingMessages.size).toBeGreaterThan(0)
+    state = applyPiEvent(state, baseEvent("session.lifecycle", 3, { state: "idle" })).state
+    const session = state.bySession.get("sess-1")
+    expect(session?.lifecycle).toBe("idle")
+    expect(session?.streamingMessages.size).toBe(0)
+    expect(session?.messages.get("m1")?.streaming).toBe(false)
   })
 })

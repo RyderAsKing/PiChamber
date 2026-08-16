@@ -58,10 +58,6 @@ export type DesktopSettings = {
   securityScopedBookmarks?: string[];
   pinnedDirectories?: string[];
   showReasoningTraces?: boolean;
-  /** Whether the in-chat work-status panel may render. */
-  workStatusPanelEnabled?: boolean;
-  /** Work-status panel sections the user switched off. */
-  workStatusHiddenSections?: string[];
   collapsibleThinkingBlocks?: boolean;
   showDeletionDialog?: boolean;
   nativeNotificationsEnabled?: boolean;

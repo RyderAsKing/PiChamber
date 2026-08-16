@@ -8,7 +8,7 @@
  *
  * The protocol guarantees:
  *
- * - Every session event has a monotonically increasing `sequence`.
+ * - Every session event has a monotonically increasing global `sequence`.
  * - `session.snapshot` is the reconnect baseline; it carries `lastSequence`.
  * - Errors are stable codes, never empty success or fabricated idle state.
  * - No credentials, pairing secrets, bearer tokens, or attachment bytes are

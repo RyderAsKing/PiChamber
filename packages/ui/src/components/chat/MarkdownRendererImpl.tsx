@@ -921,7 +921,18 @@ const useMorphdomMarkdown = ({
         const tempHasMermaidBlock = shouldRefreshMermaidViewers(temp);
         morphdom(el, temp, {
           childrenOnly: true,
-          onBeforeElUpdated: (fromEl, toEl) => !fromEl.isEqualNode(toEl),
+          onBeforeElUpdated: (fromEl, toEl) => {
+            if (fromEl.isEqualNode(toEl)) return false;
+            if (streaming && fromEl.nodeType === 1 && fromEl.textContent !== toEl.textContent) {
+              (fromEl as HTMLElement).classList.add('stream-text-fade');
+            }
+            return true;
+          },
+          onNodeAdded: (node) => {
+            if (streaming && node.nodeType === 1) {
+              (node as HTMLElement).classList.add('stream-text-reveal');
+            }
+          },
         });
         el.setAttribute('data-md-id', block.id);
         if (hadMermaidBlock || tempHasMermaidBlock || shouldRefreshMermaidViewers(el)) {
@@ -976,12 +987,15 @@ const useMorphdomMarkdown = ({
 
 };
 
-const markdownContentClassName = (variant: MarkdownVariant): string =>
-  variant === 'tool'
-    ? 'markdown-content markdown-tool'
-    : variant === 'reasoning'
-      ? 'markdown-content markdown-reasoning'
-      : 'markdown-content leading-relaxed';
+const markdownContentClassName = (variant: MarkdownVariant, isStreaming?: boolean): string =>
+  cn(
+    variant === 'tool'
+      ? 'markdown-content markdown-tool'
+      : variant === 'reasoning'
+        ? 'markdown-content markdown-reasoning'
+        : 'markdown-content leading-relaxed',
+    isStreaming && 'markdown-streaming',
+  );
 
 const MarkdownRendererImpl: React.FC<MarkdownRendererProps> = ({
   content,
@@ -1035,7 +1049,7 @@ const MarkdownRendererImpl: React.FC<MarkdownRendererProps> = ({
 
   const markdownContent = (
     <div className={cn('break-words w-full min-w-0', className)} ref={containerRef}>
-      <div className={markdownContentClassName(variant)} data-markdown-content />
+      <div className={markdownContentClassName(variant, live)} data-markdown-content />
     </div>
   );
 

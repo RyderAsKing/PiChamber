@@ -103,6 +103,43 @@ describe("reconnectPiSession", () => {
     expect(result.phase).toBe("ready")
     expect(result.lastSequence).toBe(12)
     expect(result.stream).not.toBeNull()
+    expect(mockCreatePiEventStream.mock.calls[0]?.[1]?.fromSequence).toBe(12)
+    expect(mockCreatePiEventStream.mock.calls[0]?.[1]?.sessionId).toBe(undefined)
+  })
+
+  test("resumes from the client cursor when it is ahead of the snapshot sequence", async () => {
+    mockFetchPiRuntimeHealth.mockResolvedValueOnce({
+      state: "ready",
+      protocolVersion: 1,
+      capabilities: [],
+    })
+    mockCreatePiEventStream.mockReturnValueOnce({
+      dispose: () => undefined,
+      reconnect: () => undefined,
+      eventsUrl: "ws://test/events",
+    } as never)
+    installFetchMock((call) => {
+      const url = new URL(call.url, "http://localhost")
+      if (url.pathname === "/api/pi/sessions/s1") {
+        return jsonResponse({
+          session: { id: "s1", directory: "/work" },
+          messages: [],
+          lastSequence: 12,
+        })
+      }
+      return jsonResponse({}, { status: 500 })
+    })
+    const { reconnectPiSession } = await import("./reconnect")
+    const result = await reconnectPiSession({
+      directory: "/work",
+      sessionId: "s1",
+      lastKnownSequence: 40,
+      onEvent: () => {},
+    }, dependencies)
+    expect(result.phase).toBe("ready")
+    expect(result.lastSequence).toBe(40)
+    expect(mockCreatePiEventStream.mock.calls[0]?.[1]?.fromSequence).toBe(40)
+    expect(mockCreatePiEventStream.mock.calls[0]?.[1]?.sessionId).toBe(undefined)
   })
 
   test("returns failed when the session is not indexed", async () => {

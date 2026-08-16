@@ -56,7 +56,8 @@ function serializeRoute(state: AppRouteState): URLSearchParams {
  * Returns just the pathname if no params, otherwise pathname + search string.
  */
 function buildURL(params: URLSearchParams, pathname?: string): string {
-  const path = pathname ?? (typeof window !== 'undefined' ? window.location.pathname : '/');
+  const rawPath = pathname ?? (typeof window !== 'undefined' ? window.location.pathname : '/');
+  const path = rawPath.startsWith('/session') || rawPath.startsWith('/s/') ? '/' : rawPath;
   const search = params.toString();
 
   if (!search) {
@@ -78,6 +79,12 @@ function routeMatchesURL(state: AppRouteState): boolean {
   try {
     const currentParams = new URLSearchParams(window.location.search);
     const newParams = serializeRoute(state);
+
+    const pathSessionMatch = window.location.pathname.match(/^\/(?:session|s)\/([^/?#]+)/i);
+    const currentSessionInPath = pathSessionMatch?.[1] ? decodeURIComponent(pathSessionMatch[1].trim()) : null;
+    if (currentSessionInPath && !currentParams.has(ROUTE_PARAMS.SESSION)) {
+      currentParams.set(ROUTE_PARAMS.SESSION, currentSessionInPath);
+    }
 
     // Compare sorted param strings for equality
     const currentSorted = [...currentParams.entries()].sort((a, b) => a[0].localeCompare(b[0]));

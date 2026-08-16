@@ -14,7 +14,6 @@ import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 
 type Props = {
   hideDirectoryControls: boolean;
-  showRecentControls: boolean;
   handleOpenDirectoryDialog: () => void;
   onOpenArchive: () => void;
   headerActionIconClass: string;
@@ -35,7 +34,6 @@ type Props = {
 export function SidebarHeader(props: Props): React.ReactNode {
   const {
     hideDirectoryControls,
-    showRecentControls,
     handleOpenDirectoryDialog,
     onOpenArchive,
     headerActionIconClass,
@@ -53,8 +51,6 @@ export function SidebarHeader(props: Props): React.ReactNode {
     onToggleSelectionMode,
   } = props;
 
-  const showRecentSection = useSessionDisplayStore((state) => state.showRecentSection);
-  const toggleRecentSection = useSessionDisplayStore((state) => state.toggleRecentSection);
   const projectSortOrder = useSessionDisplayStore((state) => state.projectSortOrder);
   const setProjectSortOrder = useSessionDisplayStore((state) => state.setProjectSortOrder);
   const stickyZoneHeaders = useSessionDisplayStore((state) => state.stickyZoneHeaders);
@@ -175,15 +171,6 @@ export function SidebarHeader(props: Props): React.ReactNode {
                   </DropdownMenuItem>
                 ))}
                 <DropdownMenuSeparator />
-                {showRecentControls ? (
-                  <DropdownMenuItem
-                    onClick={toggleRecentSection}
-                    className="flex items-center justify-between"
-                  >
-                    <span>{"Show recent section"}</span>
-                    {showRecentSection ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
-                  </DropdownMenuItem>
-                ) : null}
                 <DropdownMenuItem
                   onClick={toggleStickyZoneHeaders}
                   className="flex items-center justify-between"

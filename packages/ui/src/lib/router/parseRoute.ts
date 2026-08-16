@@ -41,11 +41,17 @@ function getSearchParams(): URLSearchParams {
  * Returns null if missing or empty.
  */
 function parseSessionId(params: URLSearchParams): string | null {
-  const value = params.get(ROUTE_PARAMS.SESSION);
-  if (!value || value.trim().length === 0) {
-    return null;
+  const value = params.get(ROUTE_PARAMS.SESSION) ?? params.get('s');
+  if (value && value.trim().length > 0) {
+    return value.trim();
   }
-  return value.trim();
+  if (typeof window !== 'undefined') {
+    const match = window.location.pathname.match(/^\/(?:session|s)\/([^/?#]+)/i);
+    if (match?.[1]) {
+      return decodeURIComponent(match[1].trim());
+    }
+  }
+  return null;
 }
 
 /**
@@ -124,8 +130,11 @@ export function hasRouteParams(): boolean {
 
   try {
     const params = new URLSearchParams(window.location.search);
+    const hasPathSession = /^\/(?:session|s)\/[^/?#]+/i.test(window.location.pathname);
     return (
+      hasPathSession ||
       params.has(ROUTE_PARAMS.SESSION) ||
+      params.has('s') ||
       params.has(ROUTE_PARAMS.TAB) ||
       params.has(ROUTE_PARAMS.SETTINGS) ||
       params.has(ROUTE_PARAMS.FILE)

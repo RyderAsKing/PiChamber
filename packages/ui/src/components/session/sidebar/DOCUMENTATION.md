@@ -3,10 +3,10 @@
 ## Architecture & Layout
 
 - `SessionSidebar.tsx` orchestrates sidebar components and lifecycle; core state and rendering logic lives in focused hooks and components.
-- Layout (web/desktop): top navigation (`SidebarNav`: New session, Archive), then the `recent` zone, then one zone per project with a flat session list.
+- Layout (web/desktop): top navigation (`SidebarNav`: New session, Archive), then one zone per project with a flat session list.
 - **Project zones & session lists**: Project zones display sessions in a unified recency and lifecycle order with per-row branch markers. Folders render after loose sessions.
-- When sticky zone headers are enabled, project headers are sticky "zone" bands (`SortableProjectItem`); on a vibrant desktop the scrolling content fades behind an unmasked, non-interactive copy of the stuck icon/title without painting a background. The transparent fade zone blocks interaction with obscured rows. The `recent` section uses the same overlay while it is the leading sticky header. Collapsed projects show an aggregated busy/unseen indicator (`ProjectAggregateStatusIndicator`), derived from the live status index and notification store scoped to the project's directories.
-- **Activity indicator**: The row's left gutter shows a static dot — primary while the session runs (`busy`/`retry`), info while it is unread — and the metadata slot on the right swaps the goal/branch/date group for the elapsed time of the turn (`SessionActivityDuration`, ticking once per second). Aggregate indicators for collapsed folders and projects show the dot only.
+- When sticky zone headers are enabled, project headers are sticky "zone" bands (`SortableProjectItem`); on a vibrant desktop the scrolling content fades behind an unmasked, non-interactive copy of the stuck icon/title without painting a background. The transparent fade zone blocks interaction with obscured rows. Collapsed projects show an aggregated busy/unseen indicator (`ProjectAggregateStatusIndicator`), derived from the live status index and notification store scoped to the project's directories.
+- **Activity indicator**: While a session is running (`busy`/`retry`), the row shows a spinner and elapsed turn time. When a background session finishes a turn, the relative timestamp is replaced by a foreground unread dot until that session is opened. Aggregate indicators for collapsed folders and projects show a spinner while any child is running, or the unread dot when a finished turn is still unseen.
 - Session rows have a single layout; rows show an inline branch label when the session lives in a branch or sub-directory, and bold titles while unread.
 - Folders render **flat** after loose sessions: nested folders display at one level with a "Parent / Child" path label (`SessionFolderItem.displayName`); collapsing a folder hides its whole subtree.
 - Archived sessions are not shown in the web/desktop sidebar; the Archive page (`ArchiveView`, `useUIStore.isArchivePageOpen`) replaces the old toggle. VS Code keeps inline archived buckets behind `showArchivedSessions` (compact webview has no page surfaces). Restore (unarchive) is available per session (row context menu, Archive page row) and in bulk (selection bar) and writes `time.archived = 0`.
@@ -22,9 +22,8 @@
 
 ### Components
 
-- `SidebarHeader.tsx`: Top header UI for add-project, session search, selection mode, project sort, and the display menu (recent toggle, collapse/expand all).
+- `SidebarHeader.tsx`: Top header UI for add-project, session search, selection mode, project sort, and the display menu (collapse/expand all).
 - `SidebarNav.tsx`: Text navigation rows above the tree (New session, Archive); hidden in VS Code.
-- `SidebarActivitySections.tsx`: Global top section renderer; currently used for the `recent` section only, styled as a zone header.
 - `SidebarFooter.tsx`: Static footer with icon-only settings, shortcuts, and about actions.
 - `SidebarProjectsList.tsx`: Main scrollable renderer for project zones and their flat/archived groups plus empty/search states; owns project drag-to-reorder.
 - `SessionGroupSection.tsx`: Renders one flat (or archived) group: sessions first, then flat folder entries with path labels, show-more batching, and explicit loading/error/retry state for empty groups.

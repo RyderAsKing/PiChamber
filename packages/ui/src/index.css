@@ -3,12 +3,15 @@
 @import "./styles/design-system.css";
 @import "./styles/typography.css";
 @import "./styles/mobile.css";
-/* Load KaTeX styles eagerly with the main bundle. Importing them inside the
-   lazy MarkdownRendererImpl chunk meant a stylesheet was injected late on the
-   first markdown render of a session; that late injection triggered a style
-   recalc during which the layered `.chat-message-column` width clamp briefly
-   lost, flashing message text to full width before it snapped back. */
-@import "katex/dist/katex.min.css";
+/* KaTeX styles load eagerly with the main bundle via a JS import in
+   `styles/fonts.ts`. Importing them inside the lazy MarkdownRendererImpl
+   chunk meant a stylesheet was injected late on the first markdown render of
+   a session; that late injection triggered a style recalc during which the
+   layered `.chat-message-column` width clamp briefly lost, flashing message
+   text to full width before it snapped back. They must also stay a JS import
+   rather than a CSS `@import`: Tailwind v4 inlines `@import`ed CSS without
+   rebasing its relative url() font references, so Vite warns that they
+   "didn't resolve at build time" and ships no KaTeX font files. */
 @source "./**/*.{ts,tsx,css}";
 
 /* KaTeX theme overrides for light/dark mode */
@@ -1004,6 +1007,45 @@ html:not(.dark) .chat-scroll {
    messages don't gain extra space at the bottom. */
 .markdown-content > [data-md-block]:last-child p:last-child {
   margin-bottom: 0;
+}
+
+/* Streaming text reveal animation */
+.markdown-content.markdown-streaming {
+  position: relative;
+}
+
+.markdown-content.markdown-streaming > [data-md-block]:last-child > * {
+  animation: stream-text-reveal 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.stream-text-reveal {
+  animation: stream-text-reveal 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.stream-text-fade {
+  animation: stream-text-fade 0.22s ease-out both;
+}
+
+@keyframes stream-text-reveal {
+  0% {
+    opacity: 0.25;
+    transform: translateY(2px);
+    filter: blur(0.5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes stream-text-fade {
+  0% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 1;
+  }
 }
 
 /* Tool cards (code size) and reasoning (meta size, dimmed) are intentionally

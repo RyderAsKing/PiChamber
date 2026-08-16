@@ -55,6 +55,19 @@ describe('composerEditorTheme', () => {
     });
 
     /**
+     * CodeMirror's base style centres the caret bar on the text position with
+     * `margin-left: -0.6px`. At position 0 that drags half the bar outside the
+     * scroller's clip; combined with device-pixel snapping at fractional zoom
+     * (dpr 0.9) the remaining sliver painted as nothing, so an empty focused
+     * composer showed no caret until the first keystroke moved it inside.
+     */
+    test('the drawn caret keeps zero margin so position 0 stays inside the scroller clip', () => {
+        const cursorRule = selectors.find((selector) => selector.includes('.cm-cursor'));
+        const rule = (COMPOSER_EDITOR_THEME_SPEC as Record<string, Record<string, string>>)[cursorRule!];
+        expect(rule.marginLeft).toBe('0');
+    });
+
+    /**
      * CodeMirror's own `.cm-cursor` rule and its `&dark` override are one and
      * two classes deep respectively; a bare `.cm-cursor` selector loses to the
      * latter. `&.cm-editor` matches it.

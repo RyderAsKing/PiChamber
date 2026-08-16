@@ -210,6 +210,22 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
                 // Measurements taken while detached are meaningless; the view
                 // re-reads its geometry now that it is back in the document.
                 keptView.requestMeasure();
+                // The drawn caret does not. CodeMirror's cursor layer only
+                // redraws on a transaction (doc/selection/config) — a plain
+                // `requestMeasure` re-measures the document but never re-runs
+                // the layer's own draw — so if the view's only layer draw
+                // happened while it was detached (React StrictMode's mount →
+                // unmount → remount detaches it before the first frame), the
+                // caret marker keeps its all-zero detached coordinates and
+                // renders as an invisible zero-size sliver. Focus alone cannot
+                // repair that: programmatic focus (draft open, session switch)
+                // issues no transaction, leaving a focused composer with no
+                // visible caret until the first keystroke. One
+                // selection-preserving transaction schedules the layer redraw
+                // with real coordinates. The anchor/head are passed
+                // explicitly so a non-empty selection survives the reattach.
+                const { anchor, head } = keptView.state.selection.main;
+                keptView.dispatch({ selection: { anchor, head } });
                 viewRef.current = keptView;
                 return () => {
                     keptView.dom.remove();

@@ -155,6 +155,72 @@ const getOrCreateSession = (
   return fresh;
 };
 
+const isSyntheticUserMessageId = (messageId: string, sessionId: string): boolean => (
+  messageId.startsWith(`user-${sessionId}-`)
+);
+
+const USER_MESSAGE_RECONCILE_WINDOW_MS = 250;
+
+const uniqueSessionMessages = (session: PiReducerSessionState): PiReducerMessage[] => {
+  const seen = new Set<string>();
+  const messages: PiReducerMessage[] = [];
+  for (const message of session.messages.values()) {
+    if (seen.has(message.id)) continue;
+    seen.add(message.id);
+    messages.push(message);
+  }
+  messages.sort((left, right) => left.createdAt - right.createdAt);
+  return messages;
+};
+
+const findReusablePersistedUser = (
+  session: PiReducerSessionState,
+  text: string,
+  createdAt: number,
+): PiReducerMessage | undefined => {
+  if (!text) return undefined;
+  let closest: PiReducerMessage | undefined;
+  let closestDistance = Number.POSITIVE_INFINITY;
+  for (const candidate of uniqueSessionMessages(session)) {
+    if (
+      candidate.role !== 'user'
+      || candidate.text !== text
+      || isSyntheticUserMessageId(candidate.id, session.sessionId)
+    ) {
+      continue;
+    }
+    const distance = Math.abs(candidate.createdAt - createdAt);
+    if (distance <= USER_MESSAGE_RECONCILE_WINDOW_MS && distance < closestDistance) {
+      closest = candidate;
+      closestDistance = distance;
+    }
+  }
+  return closest;
+};
+
+export const aliasSyntheticUserIfPersisted = (
+  session: PiReducerSessionState,
+  key: string,
+  message: PiReducerMessage,
+): void => {
+  if (
+    message.role === 'user'
+    && isSyntheticUserMessageId(key, session.sessionId)
+  ) {
+    const persisted = findReusablePersistedUser(session, message.text, message.createdAt);
+    if (persisted) {
+      session.messages.set(key, persisted);
+      return;
+    }
+  }
+  session.messages.set(key, message);
+};
+
+const resolveParentId = (session: PiReducerSessionState, parentId?: string): string | undefined => {
+  if (!parentId) return undefined;
+  return session.messages.get(parentId)?.id ?? parentId;
+};
+
 const ensureMessage = (
   session: PiReducerSessionState,
   payload: PiMessageStartPayload,
@@ -162,12 +228,23 @@ const ensureMessage = (
 ): PiReducerMessage => {
   const existing = session.messages.get(payload.messageId);
   if (existing) return existing;
+  if (
+    payload.role === 'user'
+    && isSyntheticUserMessageId(payload.messageId, session.sessionId)
+  ) {
+    const persisted = findReusablePersistedUser(session, payload.text ?? '', payload.startedAt);
+    if (persisted) {
+      session.messages.set(payload.messageId, persisted);
+      return persisted;
+    }
+  }
+  const parentId = resolveParentId(session, payload.parentId);
   const message: PiReducerMessage = {
     id: payload.messageId,
     sessionId: session.sessionId,
     directory,
     role: payload.role,
-    ...(payload.parentId ? { parentId: payload.parentId } : {}),
+    ...(parentId ? { parentId } : {}),
     createdAt: payload.startedAt,
     text: payload.role === 'user' ? payload.text ?? '' : '',
     thinking: '',
@@ -233,6 +310,12 @@ const reduceLifecycle = (
   if (attempt !== undefined) {
     // Retry metadata is surfaced to consumers through `lifecycle: 'retry'`.
   }
+  if (state === 'busy' || state === 'retry') return;
+  session.streamingMessages = new Set();
+  session.messages = new Map(session.messages);
+  for (const [messageId, message] of session.messages) {
+    if (message.streaming) session.messages.set(messageId, { ...message, streaming: false });
+  }
 };
 
 const reduceMessageStart = (
@@ -243,44 +326,104 @@ const reduceMessageStart = (
   ensureMessage(session, payload, directory);
 };
 
+const resolveAssistantMessage = (
+  session: PiReducerSessionState,
+  messageId: string,
+): PiReducerMessage | undefined => {
+  const direct = session.messages.get(messageId);
+  if (direct && direct.role === 'assistant') return direct;
+  const messages = uniqueSessionMessages(session);
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const candidate = messages[index];
+    if (candidate.role === 'assistant' && (candidate.streaming || candidate.durationMs === undefined)) {
+      session.messages.set(messageId, candidate);
+      if (!session.partOrder.has(messageId) && session.partOrder.has(candidate.id)) {
+        session.partOrder.set(messageId, session.partOrder.get(candidate.id)!);
+      }
+      return candidate;
+    }
+  }
+  const trailing = messages[messages.length - 1];
+  if (trailing && trailing.role === 'assistant') {
+    session.messages.set(messageId, trailing);
+    if (!session.partOrder.has(messageId) && session.partOrder.has(trailing.id)) {
+      session.partOrder.set(messageId, session.partOrder.get(trailing.id)!);
+    }
+    return trailing;
+  }
+  return undefined;
+};
+
 const reduceAssistantDelta = (
   session: PiReducerSessionState,
   payload: PiAssistantMessageDeltaPayload | PiAssistantThinkingDeltaPayload,
   type: 'text' | 'thinking',
 ): void => {
-  const message = session.messages.get(payload.messageId);
-  if (!message || message.role !== 'assistant') return;
+  const message = resolveAssistantMessage(session, payload.messageId);
+  if (!message) return;
+  message.streaming = true;
+  session.streamingMessages.add(message.id);
+  session.streamingMessages.add(payload.messageId);
   const partId = payload.partId ?? `${message.id}:${type}`;
-  const existing = session.parts.get(partId);
+  let existing = session.parts.get(partId);
+  if (!existing) {
+    const contentIndex = (payload as { contentIndex?: number }).contentIndex;
+    if (typeof contentIndex === 'number') {
+      const candidateIds = [
+        `${message.id}:${type}:${contentIndex}`,
+        `${message.id}:${contentIndex}`,
+        `${message.id}:${type}`,
+      ];
+      for (const candidateId of candidateIds) {
+        const candidate = session.parts.get(candidateId);
+        if (candidate && candidate.type === type) {
+          existing = candidate;
+          break;
+        }
+      }
+      if (!existing) {
+        const order = session.partOrder.get(message.id) ?? [];
+        for (const id of order) {
+          const candidate = session.parts.get(id);
+          if (candidate && candidate.type === type && candidate.index === contentIndex) {
+            existing = candidate;
+            break;
+          }
+        }
+      }
+    }
+  }
   if (existing) {
     if (existing.type !== type) return;
-    // Pi's contentIndex identifies the content block; it is intentionally
-    // identical for every delta appended to that block. Event sequence owns
-    // replay and out-of-order rejection at the session boundary.
-    session.parts.set(partId, { ...existing, text: existing.text + payload.delta });
+    const updated = { ...existing, text: existing.text + payload.delta, streaming: true };
+    session.parts.set(existing.id, updated);
+    if (partId !== existing.id) {
+      session.parts.set(partId, updated);
+    }
     return;
   }
   const part = ensureTextPart(session, message, type, partId);
-  session.parts.set(part.id, { ...part, text: payload.delta });
+  session.parts.set(part.id, { ...part, text: payload.delta, streaming: true });
 };
 
 const reduceMessageEnd = (
   session: PiReducerSessionState,
   payload: PiMessageEndPayload,
 ): void => {
-  const current = session.messages.get(payload.messageId);
-  if (!current) return;
-  const message = { ...current };
-  session.messages.set(payload.messageId, message);
-  const { text, thinking } = assembleMessageText(session, payload.messageId);
+  const message = resolveAssistantMessage(session, payload.messageId);
+  if (!message) return;
+  const { text, thinking } = assembleMessageText(session, message.id);
   message.text = typeof payload.text === 'string' ? payload.text : text;
   message.thinking = typeof payload.thinking === 'string' ? payload.thinking : thinking;
   message.streaming = false;
   if (typeof payload.durationMs === 'number') {
     message.durationMs = payload.durationMs;
+  } else if (typeof message.createdAt === 'number' && message.createdAt > 0) {
+    message.durationMs = Math.max(100, Date.now() - message.createdAt);
   }
   if (payload.thinkingLevel) message.thinkingLevel = payload.thinkingLevel;
   if (payload.error) message.error = payload.error;
+  session.streamingMessages.delete(message.id);
   session.streamingMessages.delete(payload.messageId);
 };
 
@@ -291,9 +434,13 @@ const reduceTool = (
 ): void => {
   // Look up the existing part by toolCallId when the start event already
   // produced it.
-  const messageId = session.toolsByCallId.get(payload.toolCallId) ?? payload.messageId;
-  const message = session.messages.get(messageId);
+  const rawMessageId = session.toolsByCallId.get(payload.toolCallId) ?? payload.messageId;
+  const message = resolveAssistantMessage(session, rawMessageId);
   if (!message) return;
+  if (phase !== 'end') {
+    message.streaming = true;
+    session.streamingMessages.add(message.id);
+  }
   const part =
     session.parts.get(payload.partId) ??
     Array.from(session.parts.values()).find(
@@ -384,11 +531,33 @@ const reduceInterrupted = (session: PiReducerSessionState, streaming: boolean): 
 
 const reduceError = (session: PiReducerSessionState, code: string, message?: string): void => {
   session.lifecycle = 'error';
+  const now = Date.now();
+  session.parts = new Map(session.parts);
+  session.partOrder = new Map(session.partOrder);
   for (const messageId of session.streamingMessages) {
     const entry = session.messages.get(messageId);
     if (!entry) continue;
     entry.streaming = false;
     entry.error = { code, ...(message ? { message } : {}) };
+    if (entry.durationMs === undefined && entry.createdAt > 0) {
+      entry.durationMs = Math.max(100, now - entry.createdAt);
+    }
+    for (const partId of session.partOrder.get(messageId) ?? []) {
+      const part = session.parts.get(partId);
+      if (!part) continue;
+      const toolRunning = part.tool?.state === 'running' || part.tool?.state === 'pending';
+      if (!part.streaming && !toolRunning) continue;
+      const next = { ...part, streaming: false };
+      if (toolRunning && next.tool) {
+        next.tool = {
+          ...next.tool,
+          state: 'error',
+          ...(message ? { error: message } : {}),
+          endedAt: next.tool.endedAt ?? now,
+        };
+      }
+      session.parts.set(partId, next);
+    }
   }
   session.streamingMessages.clear();
 };
@@ -444,8 +613,12 @@ export const applyPiEvent = (
 
   switch (event.name) {
     case 'session.snapshot':
-      // Snapshots are handled by the snapshot reducer; we only track the
-      // sequence so the next deltas reject anything the snapshot covered.
+      if (event.payload?.snapshot) {
+        session.lifecycle = event.payload.snapshot.lifecycle ?? (event.payload.snapshot.isStreaming ? 'busy' : 'idle');
+        if (event.payload.snapshot.model) session.model = event.payload.snapshot.model;
+        if (event.payload.snapshot.thinking) session.thinking = event.payload.snapshot.thinking;
+        if (event.payload.snapshot.queue) session.queue = { ...event.payload.snapshot.queue };
+      }
       break;
     case 'session.lifecycle':
       reduceLifecycle(session, event.payload.state, event.payload.attempt);
@@ -616,8 +789,28 @@ export interface PiProjectedSession {
  * UI cannot accidentally leak it.
  */
 export const projectSession = (session: PiReducerSessionState): PiProjectedSession => {
-  const messages = Array.from(session.messages.values())
-    .sort((a, b) => a.createdAt - b.createdAt)
+  const sourceMessages = uniqueSessionMessages(session);
+  const recoveredParents = new Set<string>();
+  const recoveredErrorIds = new Set<string>();
+  for (let index = sourceMessages.length - 1; index >= 0; index -= 1) {
+    const message = sourceMessages[index];
+    if (message.role !== 'assistant') continue;
+    const parentId = resolveParentId(session, message.parentId);
+    if (!parentId) continue;
+    const hasVisibleContent = Boolean(
+      message.text
+      || message.thinking
+      || (session.partOrder.get(message.id)?.length ?? 0) > 0,
+    );
+    if (message.error && !hasVisibleContent && recoveredParents.has(parentId)) {
+      recoveredErrorIds.add(message.id);
+      continue;
+    }
+    if (!message.error) recoveredParents.add(parentId);
+  }
+
+  const messages = sourceMessages
+    .filter((message) => !recoveredErrorIds.has(message.id))
     .map<PiProjectedMessage>((message) => {
       const order = session.partOrder.get(message.id) ?? [];
       const parts: PiProjectedMessagePart[] = order
@@ -631,10 +824,11 @@ export const projectSession = (session: PiReducerSessionState): PiProjectedSessi
           ...(part.tool ? { tool: part.tool } : {}),
           ...(part.attachment ? { attachment: part.attachment } : {}),
         }));
+      const parentId = resolveParentId(session, message.parentId);
       return {
         id: message.id,
         role: message.role,
-        ...(message.parentId ? { parentId: message.parentId } : {}),
+        ...(parentId ? { parentId } : {}),
         text: message.text,
         thinking: message.thinking,
         streaming: message.streaming,

@@ -3,7 +3,7 @@ import { create } from "zustand";
 
 /**
  * Session todos are a deferred follow-up feature in the Pi port. This store
- * keeps the work-status/status-row wiring intact while behaving as a stable
+ * keeps the status-row wiring intact while behaving as a stable
  * no-op: no todos are persisted, so reads return undefined and mutations are
  * no-ops.
  */

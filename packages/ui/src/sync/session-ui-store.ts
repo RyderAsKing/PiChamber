@@ -543,11 +543,18 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       persistLastActiveSession(key, { sessionId: id, directory: rememberedDir })
     }
 
-    // Kick off the message fetch on the same tick, before React commits the
-    // state change and fires ChatContainer.useEffect. The fetch is
-    // fire-and-forget — any transient failure gets retried by the reactive path.
+    // Kick off the session selection and message hydration on the same tick,
+    // before React commits the state change and fires ChatContainer.useEffect.
+    // Only pass the directory when it is authoritative (from stored session memory
+    // or an explicit caller hint). When the directory is just a fallback guess
+    // (e.g. the current active-project path), passing it causes select() to call
+    // open(wrongDirectory, sessionId), which then has to rediscover the real
+    // directory via getSession/findPersistedSession — wasting round-trips and
+    // thrashing the daemon's activeDirectory. Passing undefined instead lets
+    // select() hit the connection=loading early-return and defer to PiSessionProvider
+    // start() which resolves the authoritative directory via getSession.
     if (id) {
-      void fetchMessagesForSession(id, resolvedDir)
+      void getPiSessionStore().select(id, isGuessedDir ? undefined : resolvedDir)
     }
 
     try {
