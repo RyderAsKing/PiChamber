@@ -1064,14 +1064,12 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                 onClick={handleRowBackgroundClick}
                 style={depth > 0 ? { marginLeft: `${depth * 14}px` } : undefined}
                 className={cn(
-                  'group relative my-0.5 flex cursor-pointer items-center rounded-xl border border-transparent px-2.5 py-2 transition-all',
+                  'group relative my-0.5 flex cursor-pointer items-center rounded-xl px-2.5 py-2 transition-colors',
                   depth > 0
                     ? 'bg-secondary/30 hover:bg-interactive-hover'
                     : 'hover:bg-interactive-hover',
-                  // Active (currently open) session gets a subtle primary tint and border;
-                  // multi-select highlight takes precedence when both apply.
-                  isActive && !isRowSelected && 'border-primary/40 bg-primary/10 ring-1 ring-primary/20 shadow-2xs',
-                  isRowSelected && 'border-primary/40 bg-interactive-selection',
+                  isActive && !isRowSelected && 'bg-interactive-selection',
+                  isRowSelected && 'bg-interactive-selection',
                 )}
               />
             }

@@ -19,7 +19,7 @@ import { SessionFolderItem } from '../SessionFolderItem';
 import type { SortableDragHandleProps } from './sortableItems';
 import { DroppableFolderWrapper, SessionFolderDndScope } from './sessionFolderDnd';
 import type { GroupSearchData, SessionGroup, SessionNode } from './types';
-import { isBranchDifferentFromLabel, normalizePath, renderHighlightedText } from './utils';
+import { isBranchDifferentFromLabel, normalizePath, renderHighlightedText, SidebarSessionLikeButton } from './utils';
 import { compareSessionsByLifecycleOrder, EMPTY_SESSION_ORDER_RANKS } from '@/sync/session-ordering';
 import {
   collectSubtreeContainingId,
@@ -1036,22 +1036,40 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
         ))
       )}
       {totalSessions === 0 && allFoldersForGroup.length === 0 ? (
-        // pl-[26px] lines the text up with the worktree sub-header label
-        // (gutter + icon + gap).
-        <div className="py-1 pl-[26px] text-left typography-micro text-muted-foreground">
-          {group.isArchivedBucket
-            ? "No archived sessions yet."
-            : bootstrapLoading
-              ? (
+        group.isArchivedBucket
+          ? (
+            <div className="py-1 text-left typography-ui-label text-muted-foreground">
+              {"No archived sessions yet."}
+            </div>
+          )
+          : bootstrapLoading
+            ? (
+              <div className="py-1 text-left typography-ui-label text-muted-foreground">
                 <span className="inline-flex items-center gap-1.5">
-                  <Icon name="loader-4" className="size-3 animate-spin" />
+                  <Icon name="loader-4" className="size-4 animate-spin" />
                   {"Loading sessions…"}
                 </span>
+              </div>
+            )
+            : bootstrapFailureNotice
+              ? (
+                <div className="py-1 text-left typography-ui-label text-muted-foreground">
+                  {bootstrapFailureNotice}
+                </div>
               )
-              : bootstrapFailureNotice
-                ? bootstrapFailureNotice
-            : "No sessions in this workspace yet."}
-        </div>
+              : (
+                <SidebarSessionLikeButton
+                  icon="chat-new"
+                  onClick={() => {
+                    openNewSessionDraft({
+                      selectedProjectId: projectId,
+                      directoryOverride: group.directory,
+                    });
+                  }}
+                >
+                  {"New session"}
+                </SidebarSessionLikeButton>
+              )
       ) : null}
       {totalSessions > 0 && bootstrapFailureNotice ? (
         <div className="py-1 pl-[26px] text-left typography-micro text-status-error">
@@ -1059,36 +1077,32 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
         </div>
       ) : null}
       {remainingCount > 0 ? (
-        <button
-          type="button"
+        <SidebarSessionLikeButton
+          icon="arrow-down-s"
           onClick={() => showMoreGroupSessions(groupKey, visibleSessions.length)}
-          className="mt-0.5 flex items-center justify-start rounded-md pl-[26px] pr-1.5 py-0.5 text-left text-xs text-muted-foreground/70 leading-tight hover:text-foreground hover:underline"
         >
-          {"Show more sessions"}
-        </button>
+          {remainingCount === 1 ? "Show 1 more session" : `Show ${remainingCount} more sessions`}
+        </SidebarSessionLikeButton>
       ) : null}
       {canShowLess ? (
-        <button
-          type="button"
+        <SidebarSessionLikeButton
+          icon="arrow-up-s"
           onClick={() => resetGroupSessionLimit(groupKey)}
-          className="mt-0.5 flex items-center justify-start rounded-md pl-[26px] pr-1.5 py-0.5 text-left text-xs text-muted-foreground/70 leading-tight hover:text-foreground hover:underline"
         >
           {"Show fewer sessions"}
-        </button>
+        </SidebarSessionLikeButton>
       ) : null}
     </SessionFolderDndScope>
   );
 
   // Rows own their left gutter (aligned with the zone-header text), so the
-  // group body adds no extra indentation.
+  // group body adds no extra indentation. Keep top spacing identical between
+  // All Folders and a single folder — session rows already use my-0.5.
   void compactBodyPadding;
-  // Folder nesting is legacy-only: existing sub-folders keep working (path
-  // labels), but the UI no longer offers creating new ones.
   void createFolderAndStartRename;
-  const groupBodyPaddingClass = 'pb-2';
 
   if (hideGroupLabel) {
-    return <div className="oc-group"><div className={cn('oc-group-body', groupBodyPaddingClass)}>{body}</div></div>;
+    return <div className="oc-group"><div className="oc-group-body">{body}</div></div>;
   }
 
   return (
@@ -1120,16 +1134,16 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
           {...(dragHandleProps?.listeners ?? {})}
         >
           <div className="min-w-0 flex flex-1 flex-col justify-center gap-0.5 overflow-hidden">
-            <p className="text-[14px] font-normal truncate text-foreground/92">
+            <p className="typography-ui-label font-normal truncate text-foreground/92">
               {group.isArchivedBucket ? (
                 <span className="inline-flex min-w-0 max-w-full items-center gap-1">
-                  <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-                    <Icon name="archive" className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground', alwaysShowActions ? 'hidden' : 'group-hover/gh:hidden')} />
+                  <span className="inline-flex size-4 shrink-0 items-center justify-center">
+                    <Icon name="archive" className={cn('size-4 shrink-0 text-muted-foreground', alwaysShowActions ? 'hidden' : 'group-hover/gh:hidden')} />
                     <span className={cn(
-                      'text-muted-foreground h-3.5 w-3.5 items-center justify-center',
+                      'text-muted-foreground size-4 items-center justify-center',
                       alwaysShowActions ? 'inline-flex' : 'hidden group-hover/gh:inline-flex',
                     )}>
-                      {isCollapsed ? <Icon name="arrow-right-s" className="h-3.5 w-3.5" /> : <Icon name="arrow-down-s" className="h-3.5 w-3.5" />}
+                      {isCollapsed ? <Icon name="arrow-right-s" className="size-4" /> : <Icon name="arrow-down-s" className="size-4" />}
                     </span>
                   </span>
                   <span className="min-w-0 flex-1 truncate">{renderHighlightedText(group.label, normalizedSessionSearchQuery)}</span>
@@ -1139,16 +1153,16 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
                 // Worktree sub-header in the flat visual language: slim
                 // folder-style row with a PR-tinted branch icon and PR badge.
                 <span className="flex w-full min-w-0 items-center gap-1.5">
-                  <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                  <span className="inline-flex size-4 shrink-0 items-center justify-center">
                     <Icon name="git-branch"
-                      className={cn('h-3.5 w-3.5 shrink-0', !groupPrColor && 'text-muted-foreground', alwaysShowActions ? 'hidden' : 'group-hover/gh:hidden')}
+                      className={cn('size-4 shrink-0', !groupPrColor && 'text-muted-foreground', alwaysShowActions ? 'hidden' : 'group-hover/gh:hidden')}
                       style={groupPrColor ? { color: groupPrColor } : undefined}
                     />
                     <span className={cn(
-                      'text-muted-foreground h-3.5 w-3.5 items-center justify-center',
+                      'text-muted-foreground size-4 items-center justify-center',
                       alwaysShowActions ? 'inline-flex' : 'hidden group-hover/gh:inline-flex',
                     )}>
-                      {isCollapsed ? <Icon name="arrow-right-s" className="h-3.5 w-3.5" /> : <Icon name="arrow-down-s" className="h-3.5 w-3.5" />}
+                      {isCollapsed ? <Icon name="arrow-right-s" className="size-4" /> : <Icon name="arrow-down-s" className="size-4" />}
                     </span>
                   </span>
                   <span className="min-w-0 truncate typography-ui-label font-normal text-muted-foreground">
@@ -1174,9 +1188,9 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
             {showBranchSubtitle && statusLine ? (
               <span className="inline-flex min-w-0 items-center gap-1.5 leading-tight">
                 {group.isArchivedBucket ? (
-                  <Icon name="archive" className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                  <Icon name="archive" className="size-4 flex-shrink-0 text-muted-foreground" />
                 ) : (
-                  <Icon name="git-branch" className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                  <Icon name="git-branch" className="size-4 flex-shrink-0 text-muted-foreground" />
                 )}
                 <span className="min-w-0 truncate text-[11px] font-medium text-muted-foreground/80">
                   {statusLine.label}
@@ -1232,7 +1246,7 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
            </div>
          ) : null}
       </div>
-      {!isCollapsed ? <div className={cn('oc-group-body', groupBodyPaddingClass)}>{body}</div> : null}
+      {!isCollapsed ? <div className="oc-group-body">{body}</div> : null}
     </div>
   );
 }

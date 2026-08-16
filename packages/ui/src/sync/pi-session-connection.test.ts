@@ -793,7 +793,7 @@ describe('PiSessionStore hydrate/overlay reconciliation', () => {
     internal.promoteSession('background', 'active');
     internal.promoteSession('background', 'settled', { notifyIfSettled: true });
     expect(useNotificationStore.getState().sessionUnseenCount('background')).toBe(1);
-    expect(useSessionOrderingStore.getState().rankById.has('background')).toBe(true);
+    expect(useSessionOrderingStore.getState().rankById.has('background')).toBe(false);
 
     internal.promoteSession('open', 'active');
     internal.promoteSession('open', 'settled', { notifyIfSettled: true });

@@ -1,5 +1,8 @@
 import React from 'react';
 import type { Session } from '@/lib/chat/types';
+import { Icon } from '@/components/icon/Icon';
+import type { IconName } from '@/components/icon/icons';
+import { cn } from '@/lib/utils';
 
 import { normalizePath } from '@/lib/pathNormalization';
 export { normalizePath };
@@ -196,3 +199,26 @@ export const renderHighlightedText = (text: string, query: string): React.ReactN
 
   return parts.length > 0 ? parts : text;
 };
+
+/** Chrome shared by session rows and session-shaped actions (new session, show more). */
+export const sidebarRowIconClassName = 'size-4 shrink-0';
+export const sidebarRowLabelClassName = 'min-w-0 truncate typography-ui-label font-normal';
+export const sidebarSessionRowClassName =
+  'group relative my-0.5 flex w-full cursor-pointer items-center gap-1.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50';
+
+export const SidebarSessionLikeButton = ({
+  icon,
+  children,
+  onClick,
+  className,
+}: {
+  icon: IconName;
+  children: React.ReactNode;
+  onClick: () => void;
+  className?: string;
+}): React.ReactNode => (
+  <button type="button" onClick={onClick} className={cn(sidebarSessionRowClassName, className)}>
+    <Icon name={icon} className={cn(sidebarRowIconClassName, 'text-muted-foreground')} />
+    <span className={cn(sidebarRowLabelClassName, 'flex-1 text-muted-foreground')}>{children}</span>
+  </button>
+);

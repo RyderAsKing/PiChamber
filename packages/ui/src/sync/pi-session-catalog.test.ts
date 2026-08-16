@@ -9,6 +9,7 @@ import {
   applyDirectoryListToCatalog,
   applyLifecycleChange,
   initialCatalog,
+  listUiSessionsFromCatalog,
   liveSessionRecordToUiSession,
   mapDirectoriesWithRefreshSlot,
   markDirectoryFailed,
@@ -85,6 +86,7 @@ interface StubOptions {
   renameSession?: (input: { sessionId: string; title: string }) => Promise<unknown>;
   archiveSession?: (input: { sessionId: string; archived: boolean }) => Promise<unknown>;
   deleteSession?: (input: { sessionId: string }) => Promise<unknown>;
+  sendPrompt?: (input: unknown) => Promise<unknown>;
 }
 
 const stubDaemons = (options: StubOptions = {}) => {
@@ -98,6 +100,7 @@ const stubDaemons = (options: StubOptions = {}) => {
     renameSession: piClient.renameSession.bind(piClient),
     archiveSession: piClient.archiveSession.bind(piClient),
     deleteSession: piClient.deleteSession.bind(piClient),
+    sendPrompt: piClient.sendPrompt.bind(piClient),
   };
   piClient.selectProject = (async (dir: string) =>
     options.selectProject ? options.selectProject(dir) : { directory: dir }) as typeof piClient.selectProject;
@@ -147,6 +150,10 @@ const stubDaemons = (options: StubOptions = {}) => {
     if (options.deleteSession) return options.deleteSession(input);
     return { session: { id: input.sessionId } };
   }) as typeof piClient.deleteSession;
+  piClient.sendPrompt = (async (input: unknown) => {
+    if (options.sendPrompt) return options.sendPrompt(input);
+    return undefined;
+  }) as typeof piClient.sendPrompt;
   return {
     restore: () => {
       piClient.selectProject = originals.selectProject;
@@ -158,6 +165,7 @@ const stubDaemons = (options: StubOptions = {}) => {
       piClient.renameSession = originals.renameSession;
       piClient.archiveSession = originals.archiveSession;
       piClient.deleteSession = originals.deleteSession;
+      piClient.sendPrompt = originals.sendPrompt;
     },
   };
 };
@@ -777,6 +785,67 @@ describe('PiSessionStore catalog', () => {
       stubs.restore();
       store.dispose();
     }
+  });
+
+  test('lifecycle events do not bump catalog updatedAt; prompt does', async () => {
+    const stubs = stubDaemons({
+      listSessions: async () => ({ sessions: [listItem('a-1', '/repo-a', { updatedAt: 10 })] }),
+      getSession: async (id) => ({
+        session: { id, directory: '/repo-a', createdAt: 0, updatedAt: 0 },
+        lastSequence: 0,
+        messages: [],
+      }),
+      sendPrompt: async () => undefined,
+    });
+    const store = new PiSessionStore();
+    try {
+      await store.start({ directory: '/repo-a' });
+      await tickMicrotasks();
+      const listedAt = store.getState().catalog.byId.get('a-1')?.updatedAt;
+      expect(listedAt).toBe(10);
+
+      const internal = store as unknown as { commitEvents: (events: PiSessionEvent[]) => void };
+      internal.commitEvents([lifecycleEvent('a-1', '/repo-a', 'busy', 2)]);
+      expect(store.getState().catalog.byId.get('a-1')?.updatedAt).toBe(listedAt);
+      expect(store.getState().catalog.byId.get('a-1')?.lifecycle).toBe('busy');
+
+      await store.prompt('a-1', 'hello', 'prompt');
+      const promptedAt = store.getState().catalog.byId.get('a-1')?.updatedAt ?? 0;
+      expect(promptedAt).toBeGreaterThan(listedAt ?? 0);
+
+      internal.commitEvents([lifecycleEvent('a-1', '/repo-a', 'idle', 3)]);
+      expect(store.getState().catalog.byId.get('a-1')?.updatedAt).toBe(promptedAt);
+      expect(store.getState().catalog.byId.get('a-1')?.lifecycle).toBe('idle');
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+});
+
+describe('listUiSessionsFromCatalog', () => {
+  test('omitted and undefined directory list the runtime-wide catalog', () => {
+    let catalog = initialCatalog();
+    catalog = applyDirectoryListToCatalog(catalog, '/repo-a', [listItem('a-1', '/repo-a')], 1);
+    catalog = applyDirectoryListToCatalog(catalog, '/repo-b', [listItem('b-1', '/repo-b')], 1);
+    const omitted = listUiSessionsFromCatalog(catalog, { archived: false }).map((session) => session.id).sort();
+    const undef = listUiSessionsFromCatalog(catalog, { archived: false, directory: undefined }).map((session) => session.id).sort();
+    expect(omitted).toEqual(['a-1', 'b-1']);
+    expect(undef).toEqual(['a-1', 'b-1']);
+  });
+
+  test('null or empty directory is an empty focused slice', () => {
+    let catalog = initialCatalog();
+    catalog = applyDirectoryListToCatalog(catalog, '/repo-a', [listItem('a-1', '/repo-a')], 1);
+    expect(listUiSessionsFromCatalog(catalog, { archived: false, directory: null })).toEqual([]);
+    expect(listUiSessionsFromCatalog(catalog, { archived: false, directory: '' })).toEqual([]);
+  });
+
+  test('a concrete directory lists only that membership', () => {
+    let catalog = initialCatalog();
+    catalog = applyDirectoryListToCatalog(catalog, '/repo-a', [listItem('a-1', '/repo-a')], 1);
+    catalog = applyDirectoryListToCatalog(catalog, '/repo-b', [listItem('b-1', '/repo-b')], 1);
+    expect(listUiSessionsFromCatalog(catalog, { archived: false, directory: '/repo-a' }).map((session) => session.id)).toEqual(['a-1']);
   });
 });
 

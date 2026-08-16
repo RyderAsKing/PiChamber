@@ -9,7 +9,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { cn, formatDirectoryName } from '@/lib/utils';
-import { formatProjectLabel } from './utils';
+import { formatProjectLabel, sidebarRowIconClassName, sidebarRowLabelClassName } from './utils';
 
 export type SpaceProject = {
   id: string;
@@ -57,16 +57,16 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
         type="button"
         onClick={() => onSelectProject(null)}
         className={cn(
-          'group relative flex w-full h-8 items-center justify-between rounded-lg px-2.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
+          'group relative flex w-full items-center justify-between rounded-xl px-2.5 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
           isAllSelected
-            ? 'bg-primary/10 text-primary font-medium border border-primary/25 shadow-2xs'
-            : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground border border-transparent',
+            ? 'bg-interactive-selection text-interactive-selection-foreground'
+            : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
         )}
         aria-pressed={isAllSelected}
       >
-        <div className="flex min-w-0 items-center gap-2">
-          <Icon name="folder" className="h-4 w-4 shrink-0" />
-          <span className="truncate">{"All Folders"}</span>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Icon name="folder" className={sidebarRowIconClassName} />
+          <span className={sidebarRowLabelClassName}>{"All Folders"}</span>
         </div>
       </button>
 
@@ -90,28 +90,27 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
                     onSelectProject(isSelected ? null : project.id);
                   }}
                   className={cn(
-                    'relative flex w-full h-8 items-center justify-between rounded-lg px-2.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
+                    'relative flex w-full items-center justify-between rounded-xl px-2.5 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
                     isSelected
-                      ? 'bg-primary/10 text-primary font-medium border border-primary/25 shadow-2xs'
-                      : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground border border-transparent',
+                      ? 'bg-interactive-selection text-interactive-selection-foreground'
+                      : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
                   )}
                   aria-pressed={isSelected}
                 />
               }
             >
-              <div className="flex min-w-0 flex-1 items-center gap-2">
-                {/* Project Icon or Folder Icon */}
+              <div className="flex min-w-0 flex-1 items-center gap-1.5">
                 {project.iconImage ? (
                   <img
                     src={`/api/projects/${project.id}/icon?t=${project.iconImage.updatedAt}`}
                     alt=""
-                    className="h-4 w-4 shrink-0 rounded object-cover"
+                    className={cn(sidebarRowIconClassName, 'rounded object-cover')}
                   />
                 ) : (
-                  <Icon name="folder" className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <Icon name="folder" className={cn(sidebarRowIconClassName, 'text-muted-foreground')} />
                 )}
 
-                <span className="truncate">{label}</span>
+                <span className={sidebarRowLabelClassName}>{label}</span>
               </div>
 
               {/* Status indicators */}
@@ -150,10 +149,10 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
       <button
         type="button"
         onClick={onOpenDirectoryDialog}
-        className="flex w-full h-8 items-center gap-2 rounded-lg px-2.5 text-xs text-muted-foreground/75 hover:bg-interactive-hover hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
+        className="flex w-full items-center gap-1.5 rounded-xl px-2.5 py-2 typography-ui-label text-muted-foreground hover:bg-interactive-hover hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
       >
-        <Icon name="add" className="h-4 w-4 shrink-0" />
-        <span>{"Add folder"}</span>
+        <Icon name="add" className={sidebarRowIconClassName} />
+        <span className={sidebarRowLabelClassName}>{"Add folder"}</span>
       </button>
     </div>
   );

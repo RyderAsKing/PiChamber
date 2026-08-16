@@ -1,12 +1,18 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 import { useMemo } from 'react';
 import { getPiSessionStore, type PiSessionStoreState } from '@/apps/pi-session-store';
-import { piListItemToUiSession, piProjectedToRecords, mapPart } from '@/lib/chat/pi-to-renderable';
+import { piProjectedToRecords, mapPart } from '@/lib/chat/pi-to-renderable';
 import type { Message, Part, PermissionRequest, QuestionRequest, Session, SessionStatus } from '@/lib/chat/types';
 import { projectSession, type PiReducerMessage, type PiReducerSessionState } from '@/lib/pi/event-reducer';
 import { usePiSessionSnapshot, usePiSessionStore } from './pi-session-context';
-import { piLiveStatusSignature } from './pi-session-live';
 import { mapPiSessionList } from './sync-refs';
+import {
+  catalogLiveSessionIdsKey,
+  listUiSessionsFromCatalog,
+  liveSessionRecordToUiSession,
+  uiSessionListEqual,
+  type LiveSessionLifecycle,
+} from './pi-session-catalog';
 import { INITIAL_STATE, type State } from './types';
 
 const IDLE: SessionStatus = { type: 'idle' };
@@ -19,24 +25,18 @@ const EMPTY_MESSAGE_RECORDS: ReturnType<typeof piProjectedToRecords> = [];
 const READY_LOAD_STATE = { loading: false, complete: true, status: 'ready' as const, cursor: undefined, error: null as string | null };
 const EMPTY_PARTS: Part[] = [];
 
-const statusesFromSignature = (signature: string): Record<string, SessionStatus> => {
-  if (!signature) return {};
-  const statuses: Record<string, SessionStatus> = {};
-  for (const part of signature.split('|')) {
-    const splitAt = part.lastIndexOf(':');
-    const sessionId = part.slice(0, splitAt);
-    const kind = part.slice(splitAt + 1);
-    statuses[sessionId] = kind === 'retry' ? RETRY : BUSY;
-  }
-  return statuses;
-};
-
 const directoryStateFromPi = (state: PiSessionStoreState): State => ({
   ...INITIAL_STATE,
   status: 'complete',
   session: mapPiSessionList(state.sessions),
   sessionTotal: state.sessions.length,
 });
+
+const sessionStatusFromLifecycle = (lifecycle: LiveSessionLifecycle | undefined): SessionStatus => {
+  if (lifecycle === 'busy') return BUSY;
+  if (lifecycle === 'retry') return RETRY;
+  return IDLE;
+};
 
 const sessionStatusFromReducer = (session: PiReducerSessionState | undefined): SessionStatus => {
   if (!session) return IDLE;
@@ -46,16 +46,33 @@ const sessionStatusFromReducer = (session: PiReducerSessionState | undefined): S
   return IDLE;
 };
 
+export function useCatalogUiSessions(options?: { archived?: boolean; directory?: string | null }): Session[] {
+  const archived = options?.archived ?? false;
+  const directory = options?.directory;
+  return usePiSessionSnapshot(
+    (state) => listUiSessionsFromCatalog(state.catalog, { archived, directory }),
+    uiSessionListEqual,
+  );
+}
+
 export function useGlobalSessionStatus(sessionID: string, directory?: string): SessionStatus {
   return useSessionStatus(sessionID, directory);
 }
 export function useAllSessionStatuses(): Record<string, SessionStatus> {
-  const signature = usePiSessionSnapshot((state) => piLiveStatusSignature(state.reducer.bySession));
-  return useMemo(() => statusesFromSignature(signature), [signature]);
+  const signature = usePiSessionSnapshot((state) => catalogLiveSessionIdsKey(state.catalog));
+  const catalog = usePiSessionSnapshot((state) => state.catalog);
+  return useMemo(() => {
+    if (!signature) return {};
+    const statuses: Record<string, SessionStatus> = {};
+    for (const part of signature.split('|')) {
+      const record = catalog.byId.get(part);
+      statuses[part] = sessionStatusFromLifecycle(record?.lifecycle);
+    }
+    return statuses;
+  }, [catalog, signature]);
 }
 export function useAllLiveSessions(): Session[] {
-  const sessions = usePiSessionSnapshot((state) => state.sessions);
-  return mapPiSessionList(sessions);
+  return useCatalogUiSessions({ archived: false });
 }
 export function setActiveSession(directory: string, sessionId: string) {
   // Cross-folder select is a runtime-cluster focus change, never a
@@ -160,14 +177,12 @@ export function useSessionParts(
 }
 
 export function useSessionStatus(sessionID: string, _directory?: string): SessionStatus {
-  // Subscribe to a single session's lifecycle directly; reference-stable
-  // when other sessions stream events. The cache short-circuits re-renders
-  // unless that session's lifecycle string actually flipped.
-  return usePiSessionSnapshot((state) => (
-    sessionID
-      ? sessionStatusFromReducer(state.reducer.bySession.get(sessionID))
-      : IDLE
-  ));
+  return usePiSessionSnapshot((state) => {
+    if (!sessionID) return IDLE;
+    const record = state.catalog.byId.get(sessionID);
+    if (record) return sessionStatusFromLifecycle(record.lifecycle);
+    return sessionStatusFromReducer(state.reducer.bySession.get(sessionID));
+  });
 }
 
 export function useSessionPermissions(_sessionID: string, _directory?: string): PermissionRequest[] {
@@ -178,7 +193,8 @@ export function useSessionQuestions(_sessionID: string, _directory?: string): Qu
 }
 export function useSessionQuestionCount(_scopes?: unknown) { return 0; }
 export function useSessions(): Session[] {
-  return useAllLiveSessions();
+  const directory = usePiSessionSnapshot((state) => state.directory);
+  return useCatalogUiSessions({ archived: false, directory: directory || null });
 }
 export function useScopedBlockingPermissions(): PermissionRequest[] {
   return EMPTY_PERMISSIONS;
@@ -190,17 +206,18 @@ export function useParentSession(): Session | null {
   return null;
 }
 export function useSession(sessionID?: string | null, _directory?: string): Session | undefined {
-  const sessions = usePiSessionSnapshot((state) => state.sessions);
-  const item = sessionID ? sessions.find((entry) => entry.session.id === sessionID) ?? null : null;
-  return item ? piListItemToUiSession(item) : undefined;
+  const record = usePiSessionSnapshot((state) => (
+    sessionID ? state.catalog.byId.get(sessionID) ?? null : null
+  ));
+  return record ? liveSessionRecordToUiSession(record) : undefined;
 }
 
 export function useSessionDirectory(sessionID?: string | null): string | undefined {
-  const sessions = usePiSessionSnapshot((state) => state.sessions);
+  const recordDirectory = usePiSessionSnapshot((state) => (
+    sessionID ? state.catalog.byId.get(sessionID)?.directory : undefined
+  ));
   const directory = usePiSessionSnapshot((state) => state.directory);
-  return (sessionID ? sessions.find((entry) => entry.session.id === sessionID)?.session.directory : undefined)
-    ?? directory
-    ?? undefined;
+  return recordDirectory ?? directory ?? undefined;
 }
 export function useSyncDirectory(): string {
   return usePiSessionSnapshot((state) => state.directory ?? '');

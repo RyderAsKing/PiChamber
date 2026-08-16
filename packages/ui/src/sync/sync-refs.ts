@@ -3,6 +3,7 @@ import { getPiSessionStore } from '@/apps/pi-session-store';
 import { piListItemToUiSession } from '@/lib/chat/pi-to-renderable';
 import type { Config, Message, Session } from '@/lib/chat/types';
 import type { PiSessionListItem } from '@/lib/pi/protocol';
+import { listUiSessionsFromCatalog } from './pi-session-catalog';
 
 export function setSyncRefs() {}
 export function getDirectoryState(...args: unknown[]) {
@@ -31,10 +32,14 @@ export function mapPiSessionList(sessions: readonly PiSessionListItem[]): Sessio
 }
 
 export function getSyncSessions(): Session[] {
-  return mapPiSessionList(getPiSessionStore().getState().sessions);
+  return listUiSessionsFromCatalog(getPiSessionStore().getState().catalog, { archived: false });
 }
 export function getAllSyncSessions(): Session[] {
-  return getSyncSessions();
+  const catalog = getPiSessionStore().getState().catalog;
+  return [
+    ...listUiSessionsFromCatalog(catalog, { archived: false }),
+    ...listUiSessionsFromCatalog(catalog, { archived: true }),
+  ];
 }
 export function getAllSyncSessionMap(): ReadonlyMap<string, Session> {
   const map = new Map<string, Session>();
@@ -42,7 +47,10 @@ export function getAllSyncSessionMap(): ReadonlyMap<string, Session> {
   return map;
 }
 export function getSyncSessionDirectory(sessionId: string): string | null {
-  return getPiSessionStore().getState().sessions.find((item) => item.session.id === sessionId)?.session.directory ?? getPiSessionStore().getState().directory;
+  const state = getPiSessionStore().getState();
+  return state.catalog.byId.get(sessionId)?.directory
+    ?? state.sessions.find((item) => item.session.id === sessionId)?.session.directory
+    ?? state.directory;
 }
 export function getSyncMessages(sessionId: string, _directory?: string): Message[] {
   void sessionId;

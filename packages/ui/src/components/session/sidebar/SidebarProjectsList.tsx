@@ -2,7 +2,7 @@ import React from 'react';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { formatDirectoryName, cn } from '@/lib/utils';
 import type { SessionGroup, SessionNode } from './types';
-import { formatProjectLabel } from './utils';
+import { formatProjectLabel, SidebarSessionLikeButton } from './utils';
 import type { ProjectSortOrder } from '@/stores/useSessionDisplayStore';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import type { SortableDragHandleProps } from './sortableItems';
@@ -262,7 +262,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
     >
       {props.topContent}
       {props.showOnlyMainWorkspace ? (
-        <div className="space-y-[0.6rem] py-1">
+        <div className="space-y-[0.6rem]">
           {(() => {
             const activeSection = props.sectionsForRender.find((section) => section.project.id === props.activeProjectId) ?? props.sectionsForRender[0];
             if (!activeSection) {
@@ -274,7 +274,17 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
               ?? activeSection.groups.find((candidate) => candidate.isMain)
               ?? activeSection.groups[0];
             if (!primaryGroup) {
-              return <div className="py-1 text-left typography-micro text-muted-foreground">{"No sessions yet"}</div>;
+              return (
+                <SidebarSessionLikeButton
+                  icon="chat-new"
+                  onClick={() => props.openNewSessionDraft({
+                    selectedProjectId: activeSection.project.id,
+                    directoryOverride: activeSection.project.normalizedPath,
+                  })}
+                >
+                  {"New session"}
+                </SidebarSessionLikeButton>
+              );
             }
             const archivedGroup = activeSection.groups.find((candidate) => candidate.isArchivedBucket);
             const groupsToRender = [
@@ -294,7 +304,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
           })()}
         </div>
       ) : props.isAllFoldersView && props.renderSessionNode ? (
-        <div className="space-y-1 py-1">
+        <div>
           {allFolderSessions.length === 0 ? (
             props.hasSessionSearchQuery ? props.searchEmptyState : props.emptyState
           ) : (
@@ -316,28 +326,28 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
                 );
               })}
               {remainingAllFoldersCount > 0 ? (
-                <button
-                  type="button"
+                <SidebarSessionLikeButton
+                  icon="arrow-down-s"
                   onClick={() => setAllFoldersLimit((prev) => prev + 30)}
-                  className="mt-1 flex items-center justify-start rounded-md pl-[26px] pr-1.5 py-0.5 text-left text-xs text-muted-foreground/70 leading-tight hover:text-foreground hover:underline"
                 >
-                  {"Show more sessions"}
-                </button>
+                  {remainingAllFoldersCount === 1
+                    ? "Show 1 more session"
+                    : `Show ${remainingAllFoldersCount} more sessions`}
+                </SidebarSessionLikeButton>
               ) : null}
               {allFoldersLimit > 30 && allFolderSessions.length > 30 ? (
-                <button
-                  type="button"
+                <SidebarSessionLikeButton
+                  icon="arrow-up-s"
                   onClick={() => setAllFoldersLimit(30)}
-                  className="mt-0.5 flex items-center justify-start rounded-md pl-[26px] pr-1.5 py-0.5 text-left text-xs text-muted-foreground/70 leading-tight hover:text-foreground hover:underline"
                 >
                   {"Show fewer sessions"}
-                </button>
+                </SidebarSessionLikeButton>
               ) : null}
             </>
           )}
         </div>
       ) : (
-        <div className="space-y-1 py-1">
+        <div>
           {props.sectionsForRender.map((section) => {
             const projectKey = section.project.id;
             const orderedGroups = cachedGetOrderedGroups(projectKey, section.groups);
@@ -347,7 +357,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
               : orderedGroups;
 
             return (
-              <div key={projectKey} className="space-y-1">
+              <div key={projectKey}>
                 {rootGroup ? props.renderGroupSessions(rootGroup, `${projectKey}:${rootGroup.id}`, projectKey, true, null, undefined, scrollContainerRef) : null}
                 {nestedGroups.map((group) => {
                   const groupKey = `${projectKey}:${group.id}`;

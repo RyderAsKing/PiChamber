@@ -6,7 +6,7 @@ import { formatSessionCompactDateLabel } from '@/components/session/sidebar/util
 import { useSwitcherItems } from '@/components/session/sidebar/hooks/useSwitcherItems';
 import { useTabletLayout } from '@/lib/device';
 import { cn } from '@/lib/utils';
-import { refreshGlobalSessions, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionUnseenCount } from '@/sync/notification-store';
 import { useHasSessionActivityDuration } from '@/sync/session-activity-timing';
@@ -135,9 +135,6 @@ export const MobileSessionSwitcher: React.FC<{
 
   React.useEffect(() => {
     if (open) {
-      // Fresh authoritative snapshot on open — updated stamps re-sort recents
-      // (see raiseSessionOrderingBaselines) while the cached list shows first.
-      void refreshGlobalSessions();
       setShouldRender(true);
       setIsExiting(false);
       return;

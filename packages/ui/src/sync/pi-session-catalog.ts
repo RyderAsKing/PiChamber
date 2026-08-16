@@ -213,6 +213,12 @@ export const applyDirectoryListToCatalog = (
     const isArchived = typeof session.timeArchived === 'number'
       ? session.timeArchived > 0
       : Boolean(session.archived);
+    const existing = state.byId.get(session.id);
+    const listedUpdatedAt = typeof item.updatedAt === 'number' && Number.isFinite(item.updatedAt)
+      ? item.updatedAt
+      : (typeof session.updatedAt === 'number' && Number.isFinite(session.updatedAt)
+        ? session.updatedAt
+        : now);
     const nextRecord: LiveSessionRecord = {
       id: session.id,
       directory: sessionDirectory,
@@ -220,19 +226,15 @@ export const applyDirectoryListToCatalog = (
       title: session.title ?? '',
       archived: isArchived,
       createdAt: session.createdAt,
-      updatedAt: typeof item.updatedAt === 'number' && Number.isFinite(item.updatedAt)
-        ? item.updatedAt
-        : (typeof session.updatedAt === 'number' && Number.isFinite(session.updatedAt)
-          ? session.updatedAt
-          : now),
+      // Recency is last-prompt. A later list must not overwrite a prompt stamp.
+      updatedAt: existing ? existing.updatedAt : listedUpdatedAt,
       ...(typeof item.preview === 'string' ? { preview: item.preview } : {}),
       ...(typeof session.messageCount === 'number' ? { messageCount: session.messageCount } : {}),
       // Listings do not carry lifecycle; preserve whatever the catalog
       // already had for this session (event-driven mirror), default to idle.
-      lifecycle: state.byId.get(session.id)?.lifecycle ?? 'idle',
-      hydrated: state.byId.get(session.id)?.hydrated ?? false,
+      lifecycle: existing?.lifecycle ?? 'idle',
+      hydrated: existing?.hydrated ?? false,
     };
-    const existing = state.byId.get(session.id);
     if (existing && recordsStructurallyEqual(existing, nextRecord)) {
       nextIds.push(session.id);
       continue;
@@ -371,6 +373,39 @@ export const applyTitleChange = (
 };
 
 /**
+ * Last-prompt recency. Only the send path should call this — lifecycle and
+ * snapshot events must not bump `updatedAt` or the sidebar would reorder
+ * mid-turn and on session switch.
+ */
+export const touchRecordUpdatedAt = (
+  state: PiSessionCatalogState,
+  sessionId: PiSessionId,
+  updatedAt: number,
+  stub?: { directory: string; lifecycle: LiveSessionLifecycle },
+): PiSessionCatalogState => {
+  const existing = state.byId.get(sessionId);
+  if (!existing) {
+    if (!stub) return state;
+    const withStub = upsertStubRecord(state, sessionId, stub.directory, stub.lifecycle, updatedAt);
+    const stubRow = withStub.byId.get(sessionId);
+    if (!stubRow || stubRow.updatedAt === updatedAt) return withStub;
+    const nextById = new Map(withStub.byId);
+    nextById.set(sessionId, { ...stubRow, updatedAt });
+    return { ...withStub, byId: nextById };
+  }
+  if (existing.updatedAt >= updatedAt && existing.lifecycle === (stub?.lifecycle ?? existing.lifecycle)) {
+    return state;
+  }
+  const nextById = new Map(state.byId);
+  nextById.set(sessionId, {
+    ...existing,
+    updatedAt: Math.max(existing.updatedAt, updatedAt),
+    ...(stub?.lifecycle ? { lifecycle: stub.lifecycle } : {}),
+  });
+  return { ...state, byId: nextById };
+};
+
+/**
  * Update a single row's `archived` flag. Does not move the row between the
  * active and archived categories — that is the consumer's responsibility
  * (the reducer does the same: archive flips a flag, the sidebar filters).
@@ -456,17 +491,73 @@ export const removeRecord = (
  * API returns, so this stays a thin structural mapping. The global
  * sessions store calls through to this helper until that store retires.
  */
-export const liveSessionRecordToUiSession = (record: LiveSessionRecord): Session => ({
-  id: record.id,
-  directory: record.directory,
-  parentID: record.parentId,
-  title: record.title,
-  time: {
-    created: record.createdAt,
-    updated: record.updatedAt,
-    ...(record.archived ? { archived: record.updatedAt } : {}),
-  },
-});
+const uiSessionByRecord = new WeakMap<LiveSessionRecord, Session>();
+
+export const liveSessionRecordToUiSession = (record: LiveSessionRecord): Session => {
+  const cached = uiSessionByRecord.get(record);
+  if (cached) return cached;
+  const session: Session = {
+    id: record.id,
+    directory: record.directory,
+    parentID: record.parentId,
+    title: record.title,
+    time: {
+      created: record.createdAt,
+      updated: record.updatedAt,
+      ...(record.archived ? { archived: record.updatedAt } : {}),
+    },
+  };
+  uiSessionByRecord.set(record, session);
+  return session;
+};
+
+export const EMPTY_UI_SESSIONS: Session[] = [];
+
+export const uiSessionListEqual = (left: readonly Session[], right: readonly Session[]): boolean => {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+};
+
+export const listUiSessionsFromCatalog = (
+  catalog: PiSessionCatalogState,
+  options?: { archived?: boolean; directory?: string | null },
+): Session[] => {
+  const archived = options?.archived ?? false;
+  // Omitted or `undefined` directory = runtime-wide catalog. The React hook
+  // always passes `{ archived, directory }`, so `undefined` must not be
+  // treated as an empty focused slice. Only `null` / `''` mean "no
+  // focused directory; show nothing."
+  const directory = options?.directory;
+  let ids: readonly string[];
+  if (typeof directory === 'string' && directory.length > 0) {
+    ids = catalog.byDirectory.get(normalizedDirectory(directory)) ?? [];
+  } else if (directory === null || directory === '') {
+    return EMPTY_UI_SESSIONS;
+  } else {
+    ids = [...catalog.byId.keys()];
+  }
+  const sessions: Session[] = [];
+  for (const id of ids) {
+    const record = catalog.byId.get(id);
+    if (!record) continue;
+    if (Boolean(record.archived) !== archived) continue;
+    sessions.push(liveSessionRecordToUiSession(record));
+  }
+  return sessions.length === 0 ? EMPTY_UI_SESSIONS : sessions;
+};
+
+export const catalogLiveSessionIdsKey = (catalog: PiSessionCatalogState): string => {
+  const ids: string[] = [];
+  for (const record of catalog.byId.values()) {
+    if (record.lifecycle === 'busy' || record.lifecycle === 'retry') ids.push(record.id);
+  }
+  ids.sort();
+  return ids.join('|');
+};
 
 // ---------------------------------------------------------------------------
 // Concurrency-2 directory refresh scheduler

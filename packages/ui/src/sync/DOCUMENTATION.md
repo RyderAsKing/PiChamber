@@ -69,7 +69,7 @@ The Pi cluster belongs to the connected runtime, not the focused project:
 | `session-activity-timing.ts` | Elapsed time of the running turn and of the turn that just finished, plus the persisted starts that survive a reload | All known sessions in the active runtime |
 | `session-ui-store.ts` | Session selection, draft lifecycle, abort prompts, action entrypoints | App UI state |
 | `useGlobalSessionsStore.ts` | Thin wrapper that reads the catalog via `liveSessionRecordToUiSession`; retains `upsertSession` / `removeSessions` / `archiveSessions` / `applySnapshot` / `resetForRuntimeSwitch` until `migrate-hooks` retires it | Derived view of the catalog; mutations for retained callers |
-| `known-session-directories.ts` | The shared `buildKnownSessionDirectories(projects, worktrees)` helper the sidebar and feeder use to agree on the directory set | App-wide |
+| `known-session-directories.ts` | The shared `buildKnownSessionDirectories(projects, worktrees)` helper the sidebar and feeder use to agree on the directory set. Dedupe is case-insensitive; returned paths keep filesystem casing for daemon list RPC | App-wide |
 | `viewport-store.ts` | Scroll anchors, session memory, loading indicators | App UI state |
 | `attachment-files.ts` | Attachment picker allowlists, MIME/content validation, structured-text sanitization, and HEIC conversion | Local chat attachments across shared UI runtimes |
 | `document-attachments.ts` | Bounded Office/OpenDocument extraction, document text serialization, embedded-image extraction, and positional citations | DOCX, PPTX, XLSX, ODT, ODP, and ODS chat attachments |
@@ -100,7 +100,7 @@ catalog.listStatusByDirectory:   Map<directory, 'idle'|'loading'|'ready'|'failed
 
 - A successful `listSessions` for directory `D` replaces `byDirectory[D]`; other directories are untouched. Rows for ids that left `D` are removed from `byId` only when no other directory in the catalog still owns the record (a session that has moved A → B must keep its B row when A is re-listed without it).
 - A failed `listSessions` for `D` keeps the prior rows for `D` and flips `listStatusByDirectory[D]` to `'failed'`. Failure is not empty success.
-- Pi events update rows in place: `session.lifecycle` flips `lifecycle`, snapshot boundary events bump `updatedAt`, token deltas do not bump `updatedAt` (they fire at token rate and would rebuild every subscribed sidebar row).
+- Pi events update rows in place: `session.lifecycle` flips `lifecycle`. Token deltas and lifecycle/snapshot boundaries do **not** bump `updatedAt`. Last-prompt recency is written only by `PiSessionStore.prompt()` via `touchRecordUpdatedAt`.
 - An event arriving for a session that has not been listed yet (`byId` has no row) inserts a `upsertStubRecord` so the sidebar can render the session as busy. `applyDirectoryListToCatalog` preserves a non-idle existing lifecycle on listed ids, so a stub is never downgraded to idle by a slow list.
 
 ### Single fill path
@@ -113,17 +113,13 @@ catalog.listStatusByDirectory:   Map<directory, 'idle'|'loading'|'ready'|'failed
 
 `refreshDirectoryCatalog` is the single fill primitive. It captures a per-directory generation, bumps it on every call, and ignores stale completions (a slow RPC returning after a newer refresh has begun, or after a runtime switch, commits nothing). The at-most-2-in-flight scheduler is owned by `pi-session-catalog.ts` (`mapDirectoriesWithRefreshSlot` uses `mapWithConcurrency(2)`; the older nested `withDirectoryRefreshSlot` is exported only for direct callers and must not be re-nested — two limiters can deadlock).
 
-### Wrapper contract (until migrate-hooks)
+### Wrapper contract (until retire-duplicates)
 
-`useGlobalSessionsStore` is the retiring wrapper. Its `fetchDirectoryPages` and `syncFromPiStore` paths now read the catalog via `liveSessionRecordToUiSession` instead of calling the removed `piListItemToUiSession`. The wrapper skips sync when the focused folder's list is still in flight:
+`useGlobalSessionsStore` remains a thin wrapper for retention/pin metadata and mini-chat fill. Sidebar, header, command palette, archive, and mobile session lists read `catalog.byId` / `catalog.byDirectory` through `useCatalogUiSessions` / `useSession` / `useSessionStatus`. `useSessions()` is the focused directory slice; `useAllLiveSessions()` / `getSyncSessions()` are the runtime-wide active catalog.
 
-- `connection === 'loading'`
-- `focusPending === true`
-- `sessionsListStatus === 'loading'` or `'idle'`
+`listUiSessionsFromCatalog` treats an omitted or `undefined` `directory` as runtime-wide. `null` or `''` is an empty focused slice (`useSessions()` when the cluster has no directory). A non-empty string is that directory's membership. The React hook always passes `{ archived, directory }`, so `undefined` must not be treated as empty.
 
-Without those guards, a focused folder whose listing RPC has not resolved yet would publish `sessions: []` and wipe the focused slice in the global store. Mini-chat (no feeder) still reaches `loadSessions`; the wrapper must work without throwing there.
-
-`fetchDirectoryPages` also dedups: directories whose `listStatusByDirectory` is already `'ready'` are read straight from the catalog, and only `'idle'` / `'failed'` directories are passed to `refreshAllDirectoryCatalogs`. This prevents double-listing when the sidebar asks for a refresh while the catalog already has the data.
+The wrapper still skips sync when the focused folder's list is still in flight (`connection === 'loading'`, `focusPending`, or `sessionsListStatus` `'loading'`/`'idle'`). Mini-chat (no feeder) still reaches `loadSessions`. `fetchDirectoryPages` reads `'ready'` directories from the catalog and only refreshes `'idle'` / `'failed'` directories.
 
 ### Failure handling
 
@@ -202,11 +198,11 @@ Current consumers:
 
 Cross-directory selectors subscribe to the narrow child-store field they aggregate. Session aggregation listens to `state.session`. Live busy/retry state is also maintained in `global-session-status.ts`, where each row subscribes to one session ID instead of scanning every child store. Events update the index incrementally; authoritative per-directory status snapshots seed it, clear sessions omitted as idle, and reconcile missed events. Unrelated streaming events such as `message.part.delta` must not trigger global session/status scans.
 
-Session display order is independent from streaming-frequency `time.updated` publications. `session-ordering.ts` promotes a session exactly when its authoritative activity phase crosses `settled` (`idle`/`error`) and `active` (`busy`/`retry`) in either direction. Repeated busy/retry or idle/error events are no-ops. The first authoritative status snapshot establishes a baseline without synthetic promotions; later snapshots reconcile missed transitions. Root sessions compare lifecycle rank only with other roots, while child sessions compare lifecycle rank only with siblings sharing the same `parentID`, so child activity never moves its root conversation. Pins remain the first ordering bucket. The timestamp/creation fallback is frozen when a session first participates in ordering, so later metadata-only updates cannot reorder it; creation time and ID provide deterministic ties. Runtime switches clear all phases, baselines, and ranks.
+Session display order is last-prompt recency, not last turn stage. `session-ordering.ts` promotes a session only when `observeSessionActivityEvent` sees a new `active` phase (the send path). Settled/idle, hydrate replay, reconnect snapshots, and list `time.updated` stamps do not promote. Pins remain the first ordering bucket. The timestamp/creation fallback is frozen when a session first participates in ordering; creation time and ID provide deterministic ties. Runtime switches clear all phases, baselines, and ranks.
 
 `session-activity-timing.ts` measures how long a turn has been running, because `SessionStatus` carries no timestamps. It is driven from the same two write paths as `global-session-status.ts`, so a row can never count a turn that index calls idle. A session gains a start on its first `active` observation and keeps it across repeated busy/retry events; settling converts that start into a finished duration used by live running rows. Unread completion is a separate `turn-complete` notification: Pi lifecycle `idle`/`error`/`interrupted` after a live `active` turn appends it for any session that is not currently open, and opening the session marks it viewed.
 
-Sending a prompt promotes that session immediately (`observeSessionActivityEvent('active')` plus a list recency bump). A later `settled` transition on another session can still outrank it, which is how a finishing background agent takes the top of the list. Skipped/out-of-order stream events must not drive that promotion: a replayed `session.error` cannot settle a turn whose later `busy` event already applied. An idle reconnect snapshot also cannot settle a session whose prompt is accepted but whose `agent_start` has not arrived yet.
+Sending a prompt promotes that session immediately (`observeSessionActivityEvent('active', reorder)` plus a catalog `updatedAt` bump). Finishing or switching sessions does not reorder. Status dots still follow catalog `lifecycle` (`idle` when the agent is done).
 
 A provider stream that ends without `finish_reason` publishes `session.error` and must complete the in-flight assistant (duration, running tools) so the chat does not stay on "Analyzing". The next send is a new turn even if the UI still tried steer/follow-up.
 

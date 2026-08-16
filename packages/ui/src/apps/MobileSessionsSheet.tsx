@@ -42,7 +42,7 @@ import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { getProjectLabel, normalizePath } from './mobilePaths';
 import { PROJECT_COLOR_MAP, PROJECT_ICON_MAP, ProjectIconImage } from '@/lib/projectMeta';
 import { cn } from '@/lib/utils';
-import { mergeLiveSessionWithGlobalSession, refreshGlobalSessions, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
+import { useAllLiveSessions, useGlobalSessionStatus } from '@/sync/sync-context';
 import { useMobileSessionExpansionStore } from '@/stores/useMobileSessionExpansionStore';
 import { useMobileSessionTreeStore } from '@/stores/useMobileSessionTreeStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -53,7 +53,6 @@ import {
   useSessionOrderingStore,
 } from '@/sync/session-ordering';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useAllLiveSessions, useGlobalSessionStatus } from '@/sync/sync-context';
 import { useSessionUnseenCount } from '@/sync/notification-store';
 import { useHasSessionActivityDuration } from '@/sync/session-activity-timing';
 import { SessionActivityDuration } from '@/components/session/SessionActivityDuration';
@@ -575,7 +574,6 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
 }) => {
   
   const liveSessions = useAllLiveSessions();
-  const globalActiveSessions = useGlobalSessionsStore((state) => state.activeSessions);
   const pinnedSessionIds = useSessionPinnedStore(React.useCallback(
     (state) => open || variant === 'sidebar' ? state.ids : EMPTY_PINNED_SESSION_IDS,
     [open, variant],
@@ -625,8 +623,6 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
       setConfirmingRemoveProjectId(null);
       return;
     }
-    void refreshGlobalSessions(liveSessions);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const projectsMeta = React.useMemo<ProjectMeta[]>(
@@ -643,18 +639,10 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
     [projects],
   );
 
-  const sessions = React.useMemo(() => {
-    const liveById = new Map(liveSessions.map((session) => [session.id, session]));
-    const merged = globalActiveSessions.map((session) => {
-      const liveSession = liveById.get(session.id);
-      return liveSession ? mergeLiveSessionWithGlobalSession(liveSession, session) : session;
-    });
-    const seenIds = new Set(merged.map((session) => session.id));
-    for (const session of liveSessions) {
-      if (!seenIds.has(session.id)) merged.push(session);
-    }
-    return merged.filter((session) => !session.time?.archived);
-  }, [globalActiveSessions, liveSessions]);
+  const sessions = React.useMemo(
+    () => liveSessions.filter((session) => !session.time?.archived),
+    [liveSessions],
+  );
 
   const normalizedQuery = query.trim().toLowerCase();
 

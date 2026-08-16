@@ -32,6 +32,7 @@ import {
   removeRecord,
   upsertRecord,
   upsertStubRecord,
+  touchRecordUpdatedAt,
   type LiveSessionLifecycle,
   type LiveSessionRecord,
   type PiSessionCatalogState,
@@ -905,8 +906,21 @@ export class PiSessionStore {
     const generation = (this.promptGenerationById.get(sessionId) ?? 0) + 1;
     this.promptGenerationById.set(sessionId, generation);
     this.pendingPromptById.add(sessionId);
-    this.promoteSession(sessionId, 'active');
+    this.promoteSession(sessionId, 'active', { reorder: true });
     this.touchSessionList(sessionId);
+    const promptedAt = Date.now();
+    this.state = {
+      ...this.state,
+      catalog: touchRecordUpdatedAt(
+        applyLifecycleChange(this.state.catalog, sessionId, 'busy'),
+        sessionId,
+        promptedAt,
+        {
+          directory: nextSession.directory || this.state.directory || '',
+          lifecycle: 'busy',
+        },
+      ),
+    };
     this.emit();
     const input = { sessionId, text, messageId: `msg_${crypto.randomUUID()}`, ...(attachments?.length ? { attachments } : {}) };
     try {
@@ -1245,12 +1259,12 @@ export class PiSessionStore {
   private promoteSession(
     sessionId: PiSessionId,
     phase: 'active' | 'settled',
-    options?: { notifyIfSettled?: boolean },
+    options?: { notifyIfSettled?: boolean; reorder?: boolean },
   ) {
     const previous = this.activityPhaseById.get(sessionId);
     this.activityPhaseById.set(sessionId, phase);
     observeSessionActivityTiming(sessionId, phase);
-    observeSessionActivityEvent(sessionId, phase);
+    if (options?.reorder) observeSessionActivityEvent(sessionId, phase);
     if (
       phase === 'settled'
       && options?.notifyIfSettled
@@ -1310,10 +1324,8 @@ export class PiSessionStore {
     this.state = { ...this.state, reducer: working };
     // Mirror accepted events into the catalog. Lifecycle transitions flip
     // a row's `lifecycle`; other events are reference-stable updates
-    // (`applyLifecycleChange` is a no-op when the value matches). Bump
-    // `updatedAt` for the lifecycle/snapshot boundary events so a busy
-    // session's row reflects recent activity even when the user has not
-    // opened it.
+    // (`applyLifecycleChange` is a no-op when the value matches). Do not
+    // bump `updatedAt` here — last-prompt recency is owned by `prompt()`.
     this.state = {
       ...this.state,
       catalog: this.applyCatalogFromEvents(events, working),
@@ -1342,7 +1354,6 @@ export class PiSessionStore {
     working: PiReducerState,
   ): PiSessionCatalogState {
     let catalog = this.state.catalog;
-    let now = 0;
     for (const event of events) {
       const reducerSession = working.bySession.get(event.sessionId);
       const reducerLifecycle = reducerSession?.lifecycle;
@@ -1352,27 +1363,6 @@ export class PiSessionStore {
       }
       if (reducerLifecycle !== undefined) {
         catalog = applyLifecycleChange(catalog, event.sessionId, catalogLifecycleFromReducer(reducerLifecycle));
-      }
-      // Activity timestamp: only update on the events that mark a real
-      // turn boundary. Token deltas (`assistant.message.delta`,
-      // `assistant.thinking.delta`, `session.tool.update`) must not bump
-      // `updatedAt` — they fire at token rate and would rebuild every
-      // subscribed sidebar row on every delta.
-      if (
-        event.name === 'session.lifecycle'
-        || event.name === 'session.snapshot'
-        || event.name === 'session.error'
-        || event.name === 'session.interrupted'
-      ) {
-        const existing = catalog.byId.get(event.sessionId);
-        if (existing) {
-          if (now === 0) now = Date.now();
-          if (existing.updatedAt < now) {
-            const nextById = new Map(catalog.byId);
-            nextById.set(event.sessionId, { ...existing, updatedAt: now });
-            catalog = { ...catalog, byId: nextById };
-          }
-        }
       }
     }
     return catalog;

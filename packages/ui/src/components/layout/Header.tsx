@@ -20,12 +20,11 @@ import { DiffIcon } from '@/components/icons/DiffIcon';
 import { useUIStore, type ContextPanelMode, type MainTab } from '@/stores/useUIStore';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useSessionMessages } from '@/sync/sync-context';
-import { buildSessionMessageRecordsSnapshot, useDirectoryStore, useGlobalSessionStatus, useSessionMessagesResolved } from '@/sync/sync-context';
+import { buildSessionMessageRecordsSnapshot, useDirectoryStore, useGlobalSessionStatus, useSession, useSessionMessages, useSessionMessagesResolved } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useGitBranchLabel } from '@/stores/useGitStore';
-import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
+import { getAllSyncSessions } from '@/sync/sync-refs';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 
 import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
@@ -467,23 +466,19 @@ export const Header: React.FC<HeaderProps> = ({
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const currentSessionMessagesResolved = useSessionMessagesResolved(currentSessionId ?? '');
   const currentSessionStatus = useGlobalSessionStatus(currentSessionId ?? '');
-  const currentGlobalSession = useGlobalSessionsStore(useShallow(React.useCallback(
-    (state): HeaderSessionSnapshot | null => {
-      if (!currentSessionId) return null;
-      const session = state.activeSessions.find((candidate) => candidate.id === currentSessionId);
-      if (!session) return null;
-      const record = session as typeof session & { directory?: string | null; slug?: string | null };
-      return {
-        title: session.title ?? null,
-        directory: record.directory ?? null,
-        created: session.time?.created ?? null,
-        slug: record.slug ?? null,
-        shareUrl: (session as any).share?.url ?? null,
-        parentId: session.parentID ?? null,
-      };
-    },
-    [currentSessionId],
-  )));
+  const currentSessionRecord = useSession(currentSessionId);
+  const currentGlobalSession = React.useMemo((): HeaderSessionSnapshot | null => {
+    if (!currentSessionRecord) return null;
+    const record = currentSessionRecord as typeof currentSessionRecord & { directory?: string | null; slug?: string | null };
+    return {
+      title: currentSessionRecord.title ?? null,
+      directory: record.directory ?? null,
+      created: currentSessionRecord.time?.created ?? null,
+      slug: record.slug ?? null,
+      shareUrl: (currentSessionRecord as { share?: { url?: string } }).share?.url ?? null,
+      parentId: currentSessionRecord.parentID ?? null,
+    };
+  }, [currentSessionRecord]);
   const activeProject = useProjectsStore(useShallow((state) => {
     if (!state.activeProjectId) {
       return null;
@@ -951,7 +946,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const confirmHeaderRetentionAction = React.useCallback(async () => {
     if (!currentSessionId || !pendingHeaderRetentionAction) return;
-    const sessions = useGlobalSessionsStore.getState().activeSessions;
+    const sessions = getAllSyncSessions();
     const ids = [currentSessionId];
     for (let index = 0; index < ids.length; index += 1) {
       const parentId = ids[index];
