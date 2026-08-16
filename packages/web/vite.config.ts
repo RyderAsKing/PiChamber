@@ -11,6 +11,12 @@ const packageJson = JSON.parse(readFileSync(path.resolve(__dirname, 'package.jso
 const pwaDevEnabled = process.env.OPENCHAMBER_DISABLE_PWA_DEV !== '1';
 const reactScanToggle = (process.env.VITE_ENABLE_REACT_SCAN ?? '').toLowerCase();
 const enableReactScan = reactScanToggle === '1' || reactScanToggle === 'true' || reactScanToggle === 'on' || reactScanToggle === 'yes';
+const reactCompilerToggle = (process.env.VITE_REACT_COMPILER ?? '').toLowerCase();
+// The React Compiler babel pass runs a full optimizing compiler over every
+// module and costs ~25s of the ~52s production build (measured), plus a
+// per-transform slowdown in dev. It is opt-in: set VITE_REACT_COMPILER=1 for
+// release builds that want compiler memoization in the shipped bundle.
+const enableReactCompiler = reactCompilerToggle === '1' || reactCompilerToggle === 'true' || reactCompilerToggle === 'on' || reactCompilerToggle === 'yes';
 const themeDirectory = path.resolve(__dirname, '../ui/src/lib/theme/themes');
 
 const themeJsonHmrPlugin = () => ({
@@ -40,11 +46,15 @@ const themeJsonHmrPlugin = () => ({
 export default defineConfig({
   root: path.resolve(__dirname, '.'),
   plugins: [
-    react({
-      babel: {
-        plugins: ['babel-plugin-react-compiler'],
-      },
-    }),
+    react(
+      enableReactCompiler
+        ? {
+            babel: {
+              plugins: ['babel-plugin-react-compiler'],
+            },
+          }
+        : undefined,
+    ),
     {
       name: 'inject-react-scan-script',
       transformIndexHtml() {

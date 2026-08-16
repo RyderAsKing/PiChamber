@@ -34,3 +34,10 @@ bun run --cwd packages/web build
 bun run --cwd packages/web type-check
 bun run --cwd packages/web test
 ```
+
+Build flags:
+
+- `VITE_REACT_COMPILER=1` re-enables the `babel-plugin-react-compiler` pass for
+  release builds. It is opt-in because the pass costs ~25s of the ~52s
+  production build; the default build ships without compiler memoization.
+- `VITE_ENABLE_REACT_SCAN=1` injects the react-scan dev script into the page.
