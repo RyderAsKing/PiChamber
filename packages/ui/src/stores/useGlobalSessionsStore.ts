@@ -2,15 +2,15 @@
 // @ts-nocheck
 import { create } from 'zustand';
 import type { Session } from '@/lib/chat/types';
-import { piClient } from '@/lib/pi/client';
 import { splitGlobalSessionsByArchived } from '@/stores/globalSessions';
 import { normalizePath } from '@/lib/pathNormalization';
 import { raiseSessionOrderingBaselines } from '@/sync/session-ordering';
-import { mapWithConcurrency } from '@/lib/concurrency';
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { piListItemToUiSession } from '@/lib/chat/pi-to-renderable';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import {
+  liveSessionRecordToUiSession,
+} from '@/sync/pi-session-catalog';
 
 type GlobalSessionsStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -37,25 +37,6 @@ type GlobalSessionsState = {
   /** Drop every session from the previous runtime instance and go back to the
       unloaded state, so a fresh load runs against the new endpoint. */
   resetForRuntimeSwitch: () => void;
-};
-
-const DIRECTORY_SESSION_REFRESH_CONCURRENCY = 2;
-let directorySessionRefreshActive = 0;
-const directorySessionRefreshWaiters: Array<() => void> = [];
-
-const withDirectorySessionRefreshSlot = async <T>(task: () => Promise<T>): Promise<T> => {
-  if (directorySessionRefreshActive >= DIRECTORY_SESSION_REFRESH_CONCURRENCY) {
-    await new Promise<void>((resolve) => directorySessionRefreshWaiters.push(resolve));
-  } else {
-    directorySessionRefreshActive += 1;
-  }
-  try {
-    return await task();
-  } finally {
-    const next = directorySessionRefreshWaiters.shift();
-    if (next) next();
-    else directorySessionRefreshActive = Math.max(0, directorySessionRefreshActive - 1);
-  }
 };
 
 let inflightLoad: Promise<LoadResult> | null = null;
@@ -262,32 +243,41 @@ const fetchDirectoryPages = async (
     if (right === currentDirectory) return 1;
     return left.localeCompare(right);
   });
-  const results = await mapWithConcurrency(orderedDirectories, DIRECTORY_SESSION_REFRESH_CONCURRENCY, async (directory) => {
-    try {
-      const result = await withDirectorySessionRefreshSlot(() => piClient.listSessions({ directory, runtimeKey }));
-      return {
-        status: 'fulfilled' as const,
-        value: {
-          directory,
-          sessions: result.sessions.map(piListItemToUiSession),
-        },
-      };
-    } catch (reason) {
-      return { status: 'rejected' as const, reason };
-    }
-  });
-
+  // Delegate to the catalog owner's `refreshAllDirectoryCatalogs`. The
+  // at-most-2-in-flight scheduler lives in `pi-session-catalog.ts`; this
+  // store calls through a thin wrapper until the catalog's stability is
+  // proven and the store itself retires. The runtime-key guard rejects
+  // stale completions from the previous runtime instance, which matches
+  // the previous `loadGeneration` semantics.
+  const generation = loadGeneration;
+  await getPiSessionStore().refreshAllDirectoryCatalogs(orderedDirectories);
+  if (generation !== loadGeneration) {
+    return { directories: new Set(), sessions: [], errors: [] };
+  }
+  if (runtimeKey !== getRuntimeKey()) {
+    return { directories: new Set(), sessions: [], errors: [] };
+  }
+  const catalog = getPiSessionStore().getState().catalog;
   const fulfilledDirectories = new Set<string>();
   const sessions: Session[] = [];
   const errors: unknown[] = [];
 
-  for (const result of results) {
-    if (result.status === 'fulfilled') {
-      fulfilledDirectories.add(result.value.directory);
-      sessions.push(...result.value.sessions);
-    } else {
-      errors.push(result.reason);
+  for (const directory of orderedDirectories) {
+    const normalized = normalizePath(directory);
+    const status = catalog.listStatusByDirectory.get(normalized ?? directory);
+    if (status === 'failed') {
+      errors.push(new Error(`session list failed for ${directory}`));
+      continue;
     }
+    if (status !== 'ready') continue;
+    const ids = catalog.byDirectory.get(normalized ?? directory);
+    if (!ids) continue;
+    for (const id of ids) {
+      const record = catalog.byId.get(id);
+      if (!record) continue;
+      sessions.push(liveSessionRecordToUiSession(record));
+    }
+    fulfilledDirectories.add(directory);
   }
 
   return { directories: fulfilledDirectories, sessions, errors };
