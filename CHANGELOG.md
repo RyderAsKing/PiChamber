@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Protocol hard rename: OpenChamber identifiers → PiChamber (breaking)
+
+Phase 1 protocol preservation is revoked. Remaining in-repo OpenChamber runtime identifiers are renamed to PiChamber with **no compatibility aliases**:
+
+- `PICHAMBER_*` environment variables (no `OPENCHAMBER_*` fallback).
+- `pichamber-ui://` and `pichamber://` URL schemes (replacing `openchamber-ui://` / `openchamber://`).
+- `pichamber:*` custom events, `__PICHAMBER_*` window globals, and Electron/CLI IPC namespaces.
+- PiChamber-owned HTTP routes under `/api/pichamber/*` (Pi session APIs remain `/api/pi/*`).
+- Mobile bundle IDs (`com.pichamber.app`), app groups, and extension targets (`PiChamberWidget`, `PiChamberNotificationService`).
+- Workspace `localStorage` / secure-storage keys and session metadata field `metadata.pichamber`.
+
+**Not migrated:** legacy `~/.config/openchamber` data, old localStorage keys, or existing mobile installs paired under `openchamber://` / `com.openchamber.app`.
+
+**Preserved:** fork/MIT attribution to [OpenChamber](https://github.com/openchamber/openchamber), historical changelog entries, and external URLs we do not control (`docs.openchamber.dev`, `relay.openchamber.dev`).
+
 ### Project rebrand: OpenChamber → PiChamber (Phase 1 stabilization)
 
 This is the metadata-only Phase 1 stabilization of [OpenChamber](https://github.com/openchamber/openchamber). It makes the PiChamber identity coherent across every owned runtime (web, CLI, Electron) before Phase 2 introduces the [pi](https://pi.dev) integration. Runtime behavior, the OpenCode SDK integration, and the still-active OpenChamber protocol namespaces (HTTP routes, custom events, IPC commands, window globals, URL schemes) remain unchanged unless explicitly named below.

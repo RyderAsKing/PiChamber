@@ -16,7 +16,7 @@ This record documents the completed Workstream 8 (Update ownership) for the PiCh
 | Component | Responsibility / Contract |
 | --- | --- |
 | Headless CLI Update | `packages/web/bin/lib/commands-update.js` checks for updates, guards Docker (`fs.existsSync('/.dockerenv')`) and systemd (`INVOCATION_ID`) environments, installs package before restart, and safely restarts instances only after success. |
-| Server Update Route | `packages/web/server/lib/opencode/pichamber-routes.js` (`/api/openchamber/update-install`) rejects container mode in-app replacement with HTTP 409 and delegates to container image update workflows. |
+| Server Update Route | `packages/web/server/lib/opencode/pichamber-routes.js` (`/api/pichamber/update-install`) rejects container mode in-app replacement with HTTP 409 and delegates to container image update workflows. |
 | UI & About Dialog | `packages/ui/src/components/sections/pichamber/AboutSettings.tsx` and `AboutDialog.tsx` display PiChamber version and native update status without OpenCode upgrade calls or toasts. |
 | Cleanup | Removed `upgrade-capability.js`, `routes-upgrade.test.js`, `OpenCodeUpdateToast.tsx`, `openCodeUpdateDedup.ts`, and related OpenCode upgrade settings. |
 

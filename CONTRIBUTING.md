@@ -31,7 +31,7 @@ Run commands from the project root unless a section says otherwise.
 | `bun run dev:web:hmr` | Vite dev server + Express API. **Open the Vite URL for HMR**, not the backend. | `5180` (Vite HMR), `3902` (API) |
 | `bun run start:web` | Start the packaged web server. | `3000` by default |
 
-Both are configurable via env vars: `OPENCHAMBER_PORT`, `OPENCHAMBER_HMR_UI_PORT`, `OPENCHAMBER_HMR_API_PORT`.
+Both are configurable via env vars: `PICHAMBER_PORT`, `PICHAMBER_HMR_UI_PORT`, `PICHAMBER_HMR_API_PORT`.
 
 ### Desktop (Electron)
 
@@ -95,9 +95,9 @@ bun run electron:build
 Linux x64 and arm64 AppImages are packaged natively on the matching host architecture. Use Bun for dependency installation and packaging orchestration:
 
 ```bash
-OPENCHAMBER_TARGET_ARCH=x64 bun run electron:build
+PICHAMBER_TARGET_ARCH=x64 bun run electron:build
 # On an arm64 host:
-OPENCHAMBER_TARGET_ARCH=arm64 bun run electron:build
+PICHAMBER_TARGET_ARCH=arm64 bun run electron:build
 
 bun run --cwd packages/electron verify:linux-appimage
 ```

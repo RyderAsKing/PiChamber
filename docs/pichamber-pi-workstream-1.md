@@ -22,17 +22,17 @@ All paths are server-only. Browser clients neither receive nor construct them.
 
 | Item | Path | Rule |
 | --- | --- | --- |
-| POSIX endpoint | `$XDG_RUNTIME_DIR/pichamber/pi-session-daemon.sock`, or `$OPENCHAMBER_DATA_DIR/runtime/pi-session-daemon.sock` | Parent is `0700`; socket is `0600`. TCP is rejected. |
+| POSIX endpoint | `$XDG_RUNTIME_DIR/pichamber/pi-session-daemon.sock`, or `$PICHAMBER_DATA_DIR/runtime/pi-session-daemon.sock` | Parent is `0700`; socket is `0600`. TCP is rejected. |
 | Windows endpoint | `\\.\pipe\pichamber-pi-session-daemon-<owner-key>` | Named-pipe endpoint only; credential authentication remains mandatory. Windows ACL enforcement needs a dedicated platform implementation before claiming equivalent owner-only OS permissions. |
-| Credential | `$OPENCHAMBER_DATA_DIR/pi/session-daemon.key` | 32 random bytes encoded as hex, created/read `0600`; passed by file access, never command line, public response, or logs. |
-| State | `$OPENCHAMBER_DATA_DIR/pi/session-daemon-state.json` | `0600`; non-secret protocol, PID, endpoint, and start-time metadata written only after daemon readiness. |
-| Operation lock | `$OPENCHAMBER_DATA_DIR/pi/session-daemon.lock` | `0600`; `wx` claim serializes start/reuse/stop. A stale claim is removed only after its PID is no longer alive. |
+| Credential | `$PICHAMBER_DATA_DIR/pi/session-daemon.key` | 32 random bytes encoded as hex, created/read `0600`; passed by file access, never command line, public response, or logs. |
+| State | `$PICHAMBER_DATA_DIR/pi/session-daemon-state.json` | `0600`; non-secret protocol, PID, endpoint, and start-time metadata written only after daemon readiness. |
+| Operation lock | `$PICHAMBER_DATA_DIR/pi/session-daemon.lock` | `0600`; `wx` claim serializes start/reuse/stop. A stale claim is removed only after its PID is no longer alive. |
 
 An existing socket that cannot be authenticated and matched to the state PID is never removed automatically. The supervisor reports `DAEMON_ENDPOINT_UNVERIFIED`, preserving safety over speculative cleanup.
 
 ## Runtime behavior
 
-- The supervisor honors `OPENCHAMBER_DATA_DIR`, `OPENCHAMBER_PI_AGENT_DIR`, and `OPENCHAMBER_PI_SESSION_DAEMON_ENDPOINT` only on the server.
+- The supervisor honors `PICHAMBER_DATA_DIR`, `PICHAMBER_PI_AGENT_DIR`, and `PICHAMBER_PI_SESSION_DAEMON_ENDPOINT` only on the server.
 - The Pi runtime resolves its cwd-scoped session directory from the configured Pi agent directory, preserving Pi's normal `sessions/<encoded-cwd>` discovery layout while honoring the server-only agent override.
 - The private health response includes a daemon PID only for supervisor identity verification. The public adapter strips it.
 - A valid owner-only failure sidecar makes health explicitly unavailable with `MALFORMED_SESSION_JSONL` or `SESSION_JSONL_UNREADABLE`; it never becomes an empty session list or synthetic idle state.

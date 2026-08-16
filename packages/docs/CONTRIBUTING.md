@@ -214,7 +214,7 @@ other language mirrors the English files under a locale folder.
 > in both columns.
 
 This locale set is mirrored in the website at
-`openchamber-website/apps/docs/astro.config.mjs` (`locales`). If a language is
+`pichamber-website/apps/docs/astro.config.mjs` (`locales`). If a language is
 added or removed, update both places.
 
 ### Translate a page
@@ -310,16 +310,16 @@ translations** — and fails if any page is missing `title` or `description`
 frontmatter, or if a sidebar `link` does not resolve to an English page. Run it
 after adding or translating pages.
 
-## Sync into openchamber-website
+## Sync into pichamber-website
 
-`openchamber-website` renders/deploys docs via Starlight in `apps/docs`.
+`pichamber-website` renders/deploys docs via Starlight in `apps/docs`.
 
 After docs content updates here:
 
-1. copy `packages/docs/content/docs/*` -> `openchamber-website/apps/docs/src/content/docs/*`
+1. copy `packages/docs/content/docs/*` -> `pichamber-website/apps/docs/src/content/docs/*`
    (this is recursive, so locale folders like `uk/` and `zh-cn/` carry over with
    no extra steps)
-2. map `packages/docs/sidebar.config.json` into `openchamber-website/apps/docs/astro.config.mjs` sidebar
+2. map `packages/docs/sidebar.config.json` into `pichamber-website/apps/docs/astro.config.mjs` sidebar
    (the `translations` maps carry over as-is)
 3. run docs checks/build in website repo
 

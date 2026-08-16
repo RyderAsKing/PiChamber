@@ -27,6 +27,6 @@ This validates:
 
 This repo owns docs content.
 
-Website rendering/deployment happens in `openchamber-website` (`apps/docs`).
+Website rendering/deployment happens in `pichamber-website` (`apps/docs`).
 
 Use `.github/workflows/docs-source.yml` to package docs source on release or manual trigger.

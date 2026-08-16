@@ -11,7 +11,7 @@ Workstream 9 removes released OpenCode-runtime ownership and updates product doc
 - Narrowed URL-token authentication to the Pi event stream and kept the existing bearer-token boundary for all other API routes.
 - Removed OpenCode-specific settings, shortcuts, provider/config wording, metadata, environment setup, Docker mounts, and obsolete test fixtures.
 - Replaced public docs with Pi-native installation, server, pairing, security, environment, and troubleshooting guidance; removed obsolete localized pages rather than publishing inaccurate translations.
-- Preserved required OpenChamber attribution and intentionally retained internal `openchamber-*` compatibility identifiers that are not an agent-runtime dependency.
+- Preserved required PiChamber attribution and intentionally retained internal `pichamber-*` compatibility identifiers that are not an agent-runtime dependency.
 
 ## Validation
 

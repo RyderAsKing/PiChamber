@@ -7,7 +7,7 @@
 3. Keep Electron shared through the web runtime unless behavior is inherently native.
 4. Register APIs through app entrypoints and consume via `RuntimeAPIProvider` hooks.
 
-React components use `useRuntimeAPIs()`. Non-React modules use `getRegisteredRuntimeAPIs()` only when hooks are impossible. Do not introduce direct reads of the legacy runtime global `window.__OPENCHAMBER_RUNTIME_APIS__` in feature code.
+React components use `useRuntimeAPIs()`. Non-React modules use `getRegisteredRuntimeAPIs()` only when hooks are impossible. Do not introduce direct reads of the legacy runtime global `window.__PICHAMBER_RUNTIME_APIS__` in feature code.
 
 ## Electron Boundary
 
