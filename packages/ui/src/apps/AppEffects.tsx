@@ -13,6 +13,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { parseRoute } from '@/lib/router';
+import { PiSessionCatalogFeeder } from '@/sync/pi-session-catalog-feeder';
 
 const MINI_CHAT_PRESENCE_CHANNEL = 'openchamber:mini-chat-presence';
 
@@ -191,6 +192,7 @@ export function SyncAppEffects({ embeddedBackgroundWorkEnabled }: {
       <SyncRuntimeEffects embeddedBackgroundWorkEnabled={embeddedBackgroundWorkEnabled} />
       <PiSessionBootstrapBridge />
       <MiniChatPresenceBridge />
+      <PiSessionCatalogFeeder />
     </>
   );
 }
