@@ -10,7 +10,11 @@ const directory = () => getPiSessionStore().getState().directory ?? useDirectory
 export const opencodeClient = {
   getDirectory: () => directory() ?? null,
   setDirectory: (next?: string) => {
-    if (next) void getPiSessionStore().open(next);
+    if (!next) return;
+    // `focusProject` swaps the cluster's directory pointer without disposing
+    // the live event stream or dropping resident sessions, so a sidebar
+    // project switch keeps background busy chats streaming.
+    void getPiSessionStore().focusProject(next, null);
   },
   checkHealth: async () => {
     const health = await piClient.health({ runtimeKey: getRuntimeKey() });

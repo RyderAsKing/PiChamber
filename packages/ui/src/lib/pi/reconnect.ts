@@ -8,8 +8,10 @@
  *      UI shows the warning instead of an idle spinner.
  *   2. We re-attach the live stream. If the runtime is `ready`, we ask
  *      the daemon for a fresh snapshot of the selected session and resume the
- *      directory-wide stream from there. The stream must stay directory-wide
- *      so a later session switch keeps receiving events.
+ *      runtime-wide stream from there. The stream must stay runtime-scoped
+ *      so a later session switch (or folder focus change) keeps receiving
+ *      events for every resident session, not just the one we reconnected
+ *      for.
  *   3. If the daemon is `unavailable`, we do NOT fabricate an empty
  *      session — we surface the unavailable state until the daemon
  *      reports ready again.
