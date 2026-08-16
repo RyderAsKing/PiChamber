@@ -50,7 +50,14 @@ accepted sequence per session id and rejects any event for that session whose
 sequence is `<=` the last accepted value. `getSession` reports that same global
 cursor, not proof that the returned transcript contains every locally applied
 delta, so hydration overlays an in-flight busy/retry turn onto the fetched
-history instead of replacing it. Reconnect resumes from
+history instead of replacing it. Sending a prompt on an already-open session
+must not install an empty `bySession` row: live events only carry the new
+turn, so a blank placeholder would make prior history disappear. If the
+resident transcript is missing or empty, `prompt()` re-hydrates from the
+append-only session log first. The same restore runs when a live event
+arrives for a session whose transcript was dropped but whose `lastSequence`
+cursor remains. That restore forces `getSession` even if the live event already
+created a one-turn resident row, then overlays the JSONL log onto it. Reconnect resumes from
 `max(clientAppliedMax, snapshot.lastSequence)` so a quieter session cannot
 rewind the runtime stream into the retained event log. It merges the selected
 session snapshot into the existing cluster without disposing other hydrated

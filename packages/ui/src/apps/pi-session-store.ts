@@ -195,6 +195,9 @@ export class PiSessionStore {
    *  on `dispose` / `clear` / `resetForRuntime`. */
   private directoryRefreshGenerationByDirectory = new Map<string, number>();
   private evictionScheduled = false;
+  /** Sessions currently being re-fetched because a live event arrived after
+   *  their transcript was dropped. Dedupes overlapping prompt/event hydrates. */
+  private restoringTranscriptById = new Set<PiSessionId>();
   private readonly cadence = new PiStreamCadence((events) => this.commitEvents(events));
   private unsubscribeRuntime = subscribeRuntimeEndpointChanged(() => this.resetForRuntime());
 
@@ -224,6 +227,7 @@ export class PiSessionStore {
     this.lastSelectedByDirectory.clear();
     this.directoryRefreshGenerationByDirectory.clear();
     this.evictionScheduled = false;
+    this.restoringTranscriptById.clear();
     this.cadence.dispose();
     this.stream?.dispose();
     this.stream = null;
@@ -248,6 +252,7 @@ export class PiSessionStore {
     this.lastSelectedByDirectory.clear();
     this.directoryRefreshGenerationByDirectory.clear();
     this.evictionScheduled = false;
+    this.restoringTranscriptById.clear();
     this.cadence.dispose();
     this.stream?.dispose(); this.stream = null;
     this.state = { ...initial(), connection: 'ready' };
@@ -656,6 +661,7 @@ export class PiSessionStore {
     this.lastSelectedByDirectory.clear();
     this.directoryRefreshGenerationByDirectory.clear();
     this.evictionScheduled = false;
+    this.restoringTranscriptById.clear();
     this.cadence.dispose();
     this.stream?.dispose(); this.stream = null;
     this.state = {
@@ -757,7 +763,8 @@ export class PiSessionStore {
     }
     if (sessionId === this.state.selectedSessionId) {
       this.touchLastAccess(sessionId);
-      if (!this.hydratedSessionIds.has(sessionId)) {
+      const resident = this.state.reducer.bySession.get(sessionId);
+      if (!this.hydratedSessionIds.has(sessionId) || !resident || resident.messages.size === 0) {
         await this.hydrate(sessionId, this.runtimeGeneration);
       }
       this.scheduleIdleEviction();
@@ -772,7 +779,8 @@ export class PiSessionStore {
     this.state = { ...this.state, selectedSessionId: sessionId, error: null, focusPending: false };
     this.emit();
     this.touchLastAccess(sessionId);
-    if (this.stream && this.hydratedSessionIds.has(sessionId)) {
+    const resident = this.state.reducer.bySession.get(sessionId);
+    if (this.stream && this.hydratedSessionIds.has(sessionId) && resident && resident.messages.size > 0) {
       this.scheduleIdleEviction();
       return;
     }
@@ -795,7 +803,8 @@ export class PiSessionStore {
    *  no-op when the session is already hydrated. */
   async ensureHydrated(sessionId: string): Promise<void> {
     if (!sessionId) return;
-    if (this.hydratedSessionIds.has(sessionId)) {
+    const resident = this.state.reducer.bySession.get(sessionId);
+    if (this.hydratedSessionIds.has(sessionId) && resident && resident.messages.size > 0) {
       this.touchLastAccess(sessionId);
       return;
     }
@@ -883,7 +892,17 @@ export class PiSessionStore {
   async clone(sessionId: string) { const detail = await piClient.cloneSession({ sessionId }, this.scope()); this.upsertAndHydrate(detail); }
   async navigate(sessionId: string, messageId: string) { const detail = await piClient.navigateSession(sessionId, messageId, this.scope()); await this.hydrate(sessionId, this.runtimeGeneration, detail); }
   async prompt(sessionId: string, text: string, delivery: 'prompt' | 'steer' | 'followUp', attachments?: Array<{ id: string }>) {
-    const existing = this.state.reducer.bySession.get(sessionId);
+    const expected = this.runtimeGeneration;
+    let existing = this.state.reducer.bySession.get(sessionId);
+    // A send must not install an empty transcript over a session the user
+    // already had open. If the resident row is missing or blank, re-fetch
+    // the append-only log before flipping busy — live events only carry the
+    // new turn and would otherwise paint that turn as the whole history.
+    if (!existing || existing.messages.size === 0) {
+      await this.hydrate(sessionId, expected);
+      if (expected !== this.runtimeGeneration) return;
+      existing = this.state.reducer.bySession.get(sessionId);
+    }
     const nextSession: PiReducerSessionState = existing
       ? { ...existing, lifecycle: 'busy' }
       : {
@@ -1001,8 +1020,8 @@ export class PiSessionStore {
     if (existing.messages.size === 0 && !liveTurn) return fetched;
 
     // Fetched fills in history the live reducer does not have. Existing wins on
-    // overlapping ids so a stale getSession cannot blank a transcript the user
-    // is already looking at — including when they send mid-hydrate.
+    // overlapping ids so a stale or folded getSession cannot blank a transcript
+    // the user is already looking at — including when they send mid-hydrate.
     const session: PiReducerSessionState = {
       ...fetched,
       lifecycle: liveTurn ? existing.lifecycle : fetched.lifecycle,
@@ -1095,12 +1114,25 @@ export class PiSessionStore {
     this.scheduleIdleEviction();
   }
 
-  private async hydrate(sessionId: string, expected: number, known?: Awaited<ReturnType<typeof piClient.getSession>>) {
+  private async hydrate(
+    sessionId: string,
+    expected: number,
+    known?: Awaited<ReturnType<typeof piClient.getSession>>,
+    options?: { force?: boolean },
+  ) {
     if (expected !== this.runtimeGeneration) return;
     const sessionDir = this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory;
     const directory = sessionDir || this.directory();
     const runtimeKey = getRuntimeKey();
-    if (this.stream && this.hydratedSessionIds.has(sessionId) && !known) {
+    const resident = this.state.reducer.bySession.get(sessionId);
+    const residentHasTranscript = Boolean(resident && resident.messages.size > 0);
+    if (
+      !options?.force
+      && this.stream
+      && this.hydratedSessionIds.has(sessionId)
+      && residentHasTranscript
+      && !known
+    ) {
       if (this.state.connection !== 'ready' || this.state.error) {
         this.state = { ...this.state, connection: 'ready', error: null };
         this.emit();
@@ -1291,15 +1323,31 @@ export class PiSessionStore {
     this.state = { ...this.state, sessions: next };
   }
 
+  private restoreTranscript(sessionId: PiSessionId) {
+    if (!sessionId || this.restoringTranscriptById.has(sessionId)) return;
+    this.restoringTranscriptById.add(sessionId);
+    const expected = this.runtimeGeneration;
+    // Force the fetch: a live event may already have created a one-turn
+    // resident row, which would otherwise look like a warm transcript and
+    // skip getSession. Overlay still unions the JSONL log onto that turn.
+    void this.hydrate(sessionId, expected, undefined, { force: true }).finally(() => {
+      this.restoringTranscriptById.delete(sessionId);
+    });
+  }
+
   private commitEvents(events: readonly PiSessionEvent[]) {
     if (events.length === 0) return;
     let working = this.state.reducer;
     let applied = false;
     let touched = false;
+    const restoreIds = new Set<PiSessionId>();
     for (const event of events) {
+      const missingBefore = !working.bySession.has(event.sessionId);
+      const hadCursor = (working.lastSequence.get(event.sessionId) ?? -1) >= 0;
       const result = applyPiEvent(working, event);
       working = result.state;
       if (!result.didApply) continue;
+      if (missingBefore && hadCursor) restoreIds.add(event.sessionId);
       applied = true;
       this.notePromptProgress(event);
       if (
@@ -1332,6 +1380,7 @@ export class PiSessionStore {
     };
     this.emit();
     if (touched) this.scheduleIdleEviction();
+    for (const sessionId of restoreIds) this.restoreTranscript(sessionId);
   }
 
   /**
@@ -1470,6 +1519,7 @@ export class PiSessionStore {
     this.lastSelectedByDirectory.clear();
     this.directoryRefreshGenerationByDirectory.clear();
     this.evictionScheduled = false;
+    this.restoringTranscriptById.clear();
     this.cadence.dispose();
     this.stream?.dispose();
     this.stream = null;

@@ -60,7 +60,7 @@ interface StoreInternal {
   touchSessionList: (sessionId: string) => void;
   touchLastAccess: (sessionId: string) => void;
   evictIdleTranscripts: () => void;
-  hydrate: (sessionId: string, runtimeGeneration: number, known?: unknown) => Promise<void>;
+  hydrate: (sessionId: string, runtimeGeneration: number, known?: unknown, options?: { force?: boolean }) => Promise<void>;
   reconnect: (sessionId: string, expected: number, runtimeKey: string) => Promise<void>;
 }
 
@@ -822,6 +822,7 @@ describe('PiSessionStore hydrate/overlay reconciliation', () => {
         sessionId,
         directory: '/repo-a',
         lastSequence: 1,
+        messages: new Map([['u1', reducerMessage({ id: 'u1', role: 'user', text: 'hi' })]]),
       });
       internal.hydratedSessionIds.add(sessionId);
       const nextBySession = new Map(internal.state.reducer.bySession);
@@ -929,6 +930,7 @@ describe('PiSessionStore behaviour parity', () => {
     try {
       const store = new PiSessionStore();
       const internal = asInternal(store);
+      internal.stream = { dispose: () => {} };
       internal.state = {
         ...store.getState(),
         directory: '/repo',
@@ -940,6 +942,155 @@ describe('PiSessionStore behaviour parity', () => {
       store.dispose();
     } finally {
       piClient.sendPrompt = originalSendPrompt;
+      stubs.restore();
+    }
+  });
+
+  test('prompt keeps hydrated history instead of replacing it with an empty busy stub', async () => {
+    const stubs = stubDaemons();
+    const originalSendPrompt = piClient.sendPrompt.bind(piClient);
+    piClient.sendPrompt = (async () => ({ accepted: true, messageId: 'msg_1' })) as typeof piClient.sendPrompt;
+    try {
+      const store = new PiSessionStore();
+      const internal = asInternal(store);
+      const priorUser = reducerMessage({ id: 'u-old', role: 'user', text: 'hello from earlier', createdAt: 1 });
+      const priorAssistant = reducerMessage({
+        id: 'a-old',
+        role: 'assistant',
+        text: 'hi',
+        createdAt: 2,
+        durationMs: 50,
+        parentId: 'u-old',
+      });
+      internal.hydratedSessionIds = new Set(['s1']);
+      internal.state = {
+        ...store.getState(),
+        directory: '/repo',
+        connection: 'ready',
+        selectedSessionId: 's1',
+        sessions: [{ session: { id: 's1', directory: '/repo', createdAt: 1, updatedAt: 1 } as never, updatedAt: 1 }],
+        hydratedSessionIds: new Set(['s1']),
+        reducer: {
+          bySession: new Map([['s1', reducerSession({
+            sessionId: 's1',
+            lastSequence: 8,
+            messages: new Map([['u-old', priorUser], ['a-old', priorAssistant]]),
+          })]]),
+          lastSequence: new Map([['s1', 8]]),
+        },
+      };
+
+      await store.prompt('s1', 'how are you?', 'prompt');
+
+      const session = store.getState().reducer.bySession.get('s1');
+      expect(session?.lifecycle).toBe('busy');
+      expect(session?.messages.get('u-old')?.text).toBe('hello from earlier');
+      expect(session?.messages.get('a-old')?.text).toBe('hi');
+      expect(stubs.calls.getSession).toBe(0);
+      store.dispose();
+    } finally {
+      piClient.sendPrompt = originalSendPrompt;
+      stubs.restore();
+    }
+  });
+
+  test('prompt re-hydrates a dropped transcript before sending so history is not replaced by the new turn', async () => {
+    const priorUser = reducerMessage({ id: 'u-old', role: 'user', text: 'prior prompt', createdAt: 1 });
+    const stubs = stubDaemons({
+      getSession: async (id) => ({
+        session: { id, directory: '/repo', createdAt: 1, updatedAt: 1 },
+        lastSequence: 8,
+        messages: [{
+          message: { ...priorUser, sessionId: id, directory: '/repo' },
+          parts: [{ id: 'u-old:text', index: 0, type: 'text', text: 'prior prompt' }],
+        }],
+      }),
+    });
+    const originalSendPrompt = piClient.sendPrompt.bind(piClient);
+    piClient.sendPrompt = (async () => ({ accepted: true, messageId: 'msg_1' })) as typeof piClient.sendPrompt;
+    try {
+      const store = new PiSessionStore();
+      const internal = asInternal(store);
+      internal.stream = { dispose: () => {} };
+      internal.hydratedSessionIds = new Set(['s1']);
+      internal.state = {
+        ...store.getState(),
+        directory: '/repo',
+        connection: 'ready',
+        selectedSessionId: 's1',
+        sessions: [{ session: { id: 's1', directory: '/repo', createdAt: 1, updatedAt: 1 } as never, updatedAt: 1 }],
+        hydratedSessionIds: new Set(['s1']),
+        reducer: {
+          bySession: new Map(),
+          lastSequence: new Map([['s1', 8]]),
+        },
+      };
+
+      await store.prompt('s1', 'how are you?', 'prompt');
+
+      expect(stubs.calls.getSession).toBe(1);
+      const session = store.getState().reducer.bySession.get('s1');
+      expect(session?.lifecycle).toBe('busy');
+      expect(session?.messages.get('u-old')?.text).toBe('prior prompt');
+      store.dispose();
+    } finally {
+      piClient.sendPrompt = originalSendPrompt;
+      stubs.restore();
+    }
+  });
+
+  test('a live event after transcript drop restores history instead of keeping only the new turn', async () => {
+    const priorUser = reducerMessage({ id: 'u-old', role: 'user', text: 'prior prompt', createdAt: 1 });
+    const stubs = stubDaemons({
+      getSession: async (id) => ({
+        session: { id, directory: '/repo', createdAt: 1, updatedAt: 1 },
+        lastSequence: 9,
+        messages: [{
+          message: { ...priorUser, sessionId: id, directory: '/repo' },
+          parts: [{ id: 'u-old:text', index: 0, type: 'text', text: 'prior prompt' }],
+        }],
+      }),
+    });
+    try {
+      const store = new PiSessionStore();
+      const internal = asInternal(store);
+      internal.stream = { dispose: () => {} };
+      internal.hydratedSessionIds = new Set(['s1']);
+      internal.state = {
+        ...store.getState(),
+        directory: '/repo',
+        connection: 'ready',
+        selectedSessionId: 's1',
+        sessions: [{ session: { id: 's1', directory: '/repo', createdAt: 1, updatedAt: 1 } as never, updatedAt: 1 }],
+        hydratedSessionIds: new Set(['s1']),
+        reducer: {
+          bySession: new Map(),
+          lastSequence: new Map([['s1', 8]]),
+        },
+      };
+
+      internal.commitEvents([{
+        protocolVersion: 1,
+        kind: 'event',
+        name: 'assistant.message.start',
+        sequence: 9,
+        sessionId: 's1',
+        directory: '/repo',
+        payload: {
+          messageId: 'user-s1-9',
+          role: 'user',
+          text: 'how are you?',
+          startedAt: 1_000,
+        },
+      } as PiSessionEvent]);
+
+      expect(store.getState().reducer.bySession.get('s1')?.messages.get('user-s1-9')?.text).toBe('how are you?');
+      await tickMicrotasks(16);
+      const session = store.getState().reducer.bySession.get('s1');
+      expect(session?.messages.get('u-old')?.text).toBe('prior prompt');
+      expect(session?.messages.get('user-s1-9')?.text).toBe('how are you?');
+      store.dispose();
+    } finally {
       stubs.restore();
     }
   });
