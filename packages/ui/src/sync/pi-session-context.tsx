@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
-import React, { useCallback, useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
-import { getPiSessionStore, type PiSessionStore, type PiSessionStoreState } from '@/apps/pi-session-store';
+import React, { useCallback, useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react';
+import { getPiSessionStore, type PiSessionStore, type PiSessionStoreState, type PiSessionTopic } from '@/apps/pi-session-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 
 import { parseRoute } from '@/lib/router';
@@ -54,10 +54,12 @@ export function usePiSessionSnapshot(): PiSessionStoreState;
 export function usePiSessionSnapshot<T>(
   selector: (state: PiSessionStoreState) => T,
   isEqual?: (a: T, b: T) => boolean,
+  topic?: PiSessionTopic,
 ): T;
 export function usePiSessionSnapshot<T>(
   selector?: (state: PiSessionStoreState) => T,
   isEqual?: (a: T, b: T) => boolean,
+  topic: PiSessionTopic = '*',
 ): T {
   const store = usePiSessionStore();
   const selectorRef = useRef(selector);
@@ -76,7 +78,15 @@ export function usePiSessionSnapshot<T>(
     return cacheRef.current!(store.getState(), select, equal);
   }, [store]);
 
-  return useSyncExternalStore(store.subscribe, getSelection, getSelection);
+  // `useSyncExternalStore` requires a stable `subscribe` reference per
+  // topic. Without `useMemo` keyed on `topic`, every render would
+  // re-subscribe (and re-run the snapshot read on the next store commit).
+  const subscribe = useMemo(
+    () => (listener: () => void) => store.subscribe(listener, topic),
+    [store, topic],
+  );
+
+  return useSyncExternalStore(subscribe, getSelection, getSelection);
 }
 
 /** @deprecated OpenCode SyncProvider name kept for restored shell call sites. */

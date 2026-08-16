@@ -24,6 +24,10 @@ const EMPTY_USER_HISTORY: string[] = [];
 const EMPTY_MESSAGE_RECORDS: ReturnType<typeof piProjectedToRecords> = [];
 const READY_LOAD_STATE = { loading: false, complete: true, status: 'ready' as const, cursor: undefined, error: null as string | null };
 const EMPTY_PARTS: Part[] = [];
+const TOPIC_CATALOG = 'catalog';
+const TOPIC_CHROME = 'chrome';
+/** Build the per-session topic key for `usePiSessionSnapshot`. */
+const sessionTopic = (sessionId: string) => `session:${sessionId}` as const;
 
 const directoryStateFromPi = (state: PiSessionStoreState): State => ({
   ...INITIAL_STATE,
@@ -52,6 +56,7 @@ export function useCatalogUiSessions(options?: { archived?: boolean; directory?:
   return usePiSessionSnapshot(
     (state) => listUiSessionsFromCatalog(state.catalog, { archived, directory }),
     uiSessionListEqual,
+    TOPIC_CATALOG,
   );
 }
 
@@ -59,8 +64,8 @@ export function useGlobalSessionStatus(sessionID: string, directory?: string): S
   return useSessionStatus(sessionID, directory);
 }
 export function useAllSessionStatuses(): Record<string, SessionStatus> {
-  const signature = usePiSessionSnapshot((state) => catalogLiveSessionIdsKey(state.catalog));
-  const catalog = usePiSessionSnapshot((state) => state.catalog);
+  const signature = usePiSessionSnapshot((state) => catalogLiveSessionIdsKey(state.catalog), undefined, TOPIC_CATALOG);
+  const catalog = usePiSessionSnapshot((state) => state.catalog, undefined, TOPIC_CATALOG);
   return useMemo(() => {
     if (!signature) return {};
     const statuses: Record<string, SessionStatus> = {};
@@ -85,7 +90,11 @@ export function setExternallyViewedSession(_directory: string, _sessionId: strin
 const buildPiDirectoryState = (): State => directoryStateFromPi(getPiSessionStore().getState());
 
 const piDirectoryChildStore = {
-  subscribe: (listener: () => void) => getPiSessionStore().subscribe(listener),
+  // Topic-scoped subscribe: legacy callers that consume this child store
+  // (e.g. `useDirectorySync`) only need chrome — directory focus,
+  // session list status, connection, error. Token deltas on background
+  // sessions should not wake that path.
+  subscribe: (listener: () => void) => getPiSessionStore().subscribe(listener, TOPIC_CHROME),
   getState: buildPiDirectoryState,
 };
 
@@ -98,7 +107,10 @@ export function useDirectorySync<T>(
   _directory?: string,
   isEqual?: (a: T, b: T) => boolean,
 ): T {
-  return usePiSessionSnapshot((state) => selector(directoryStateFromPi(state)), isEqual);
+  // The child-store path subscribes on `chrome` only — directory focus,
+  // session list status, connection. Token deltas on background sessions
+  // must not wake callers of this hook.
+  return usePiSessionSnapshot((state) => selector(directoryStateFromPi(state)), isEqual, TOPIC_CHROME);
 }
 
 export function useSessionMessages(sessionID: string, _directory?: string) {
@@ -121,16 +133,24 @@ export function useSessionParts(
 ): Part[] {
   // Narrow subscription: subscribe to that one session's reducer record
   // only. When the caller doesn't know the session id (legacy
-  // single-arg form), subscribe to the cluster map and fall back to a scan.
-  const narrow = usePiSessionSnapshot((state) => (
-    sessionId ? state.reducer.bySession.get(sessionId) ?? null : null
-  ));
-  // The legacy scan path requires the cluster map. The narrow path does
-  // not, so we skip subscribing in that case to keep background events
-  // from invalidating the components that don't need them.
-  const bySession = usePiSessionSnapshot((state) => (
-    sessionId ? null : state.reducer.bySession
-  ));
+  // single-arg form), fall back to a broadcast scan — the legacy path
+  // cannot be topic-narrowed because it has no session id to scope to.
+  const narrow = usePiSessionSnapshot(
+    (state) => (sessionId ? state.reducer.bySession.get(sessionId) ?? null : null),
+    undefined,
+    sessionId ? sessionTopic(sessionId) : '*',
+  );
+  // Legacy scan: subscribe to the cluster map and walk every session. The
+  // topic stays broadcast (`*`) only when the caller has no id to narrow
+  // on. When the caller does pass a session id the selector returns
+  // `null`, but it must still sit on `session:{id}` — a leftover
+  // `*` subscription wakes this hook on every catalog chrome flip even
+  // though it has nothing to return for background sessions.
+  const bySession = usePiSessionSnapshot(
+    (state) => (sessionId ? null : state.reducer.bySession),
+    undefined,
+    sessionId ? sessionTopic(sessionId) : '*',
+  );
   const legacyScan = useMemo(() => {
     if (sessionId) return null;
     if (!messageID || directory !== undefined) return null;
@@ -182,7 +202,7 @@ export function useSessionStatus(sessionID: string, _directory?: string): Sessio
     const record = state.catalog.byId.get(sessionID);
     if (record) return sessionStatusFromLifecycle(record.lifecycle);
     return sessionStatusFromReducer(state.reducer.bySession.get(sessionID));
-  });
+  }, undefined, TOPIC_CATALOG);
 }
 
 export function useSessionPermissions(_sessionID: string, _directory?: string): PermissionRequest[] {
@@ -193,7 +213,11 @@ export function useSessionQuestions(_sessionID: string, _directory?: string): Qu
 }
 export function useSessionQuestionCount(_scopes?: unknown) { return 0; }
 export function useSessions(): Session[] {
-  const directory = usePiSessionSnapshot((state) => state.directory);
+  // Directory pointer lives on `chrome`; the catalog-driven list comes
+  // from `useCatalogUiSessions` on `catalog`. Both are needed because
+  // `refreshDirectoryCatalog` success is catalog-only — chrome-only
+  // would miss list/title/membership updates.
+  const directory = usePiSessionSnapshot((state) => state.directory, undefined, TOPIC_CHROME);
   return useCatalogUiSessions({ archived: false, directory: directory || null });
 }
 export function useScopedBlockingPermissions(): PermissionRequest[] {
@@ -206,21 +230,25 @@ export function useParentSession(): Session | null {
   return null;
 }
 export function useSession(sessionID?: string | null, _directory?: string): Session | undefined {
-  const record = usePiSessionSnapshot((state) => (
-    sessionID ? state.catalog.byId.get(sessionID) ?? null : null
-  ));
+  const record = usePiSessionSnapshot(
+    (state) => (sessionID ? state.catalog.byId.get(sessionID) ?? null : null),
+    undefined,
+    TOPIC_CATALOG,
+  );
   return record ? liveSessionRecordToUiSession(record) : undefined;
 }
 
 export function useSessionDirectory(sessionID?: string | null): string | undefined {
-  const recordDirectory = usePiSessionSnapshot((state) => (
-    sessionID ? state.catalog.byId.get(sessionID)?.directory : undefined
-  ));
-  const directory = usePiSessionSnapshot((state) => state.directory);
+  const recordDirectory = usePiSessionSnapshot(
+    (state) => (sessionID ? state.catalog.byId.get(sessionID)?.directory : undefined),
+    undefined,
+    TOPIC_CATALOG,
+  );
+  const directory = usePiSessionSnapshot((state) => state.directory, undefined, TOPIC_CHROME);
   return recordDirectory ?? directory ?? undefined;
 }
 export function useSyncDirectory(): string {
-  return usePiSessionSnapshot((state) => state.directory ?? '');
+  return usePiSessionSnapshot((state) => state.directory ?? '', undefined, TOPIC_CHROME);
 }
 const noopUnsubscribe = () => undefined;
 const piChildStoreManager = {
@@ -236,10 +264,13 @@ const piChildStoreManager = {
 };
 
 export function useSessionMessageLoadState(sessionID: string, _directory?: string) {
-  const hydratedSessionIds = usePiSessionSnapshot((state) => state.hydratedSessionIds);
-  const selectedSessionId = usePiSessionSnapshot((state) => state.selectedSessionId);
-  const connection = usePiSessionSnapshot((state) => state.connection);
-  const error = usePiSessionSnapshot((state) => state.error);
+  // Load state is a chrome signal — it depends on `hydratedSessionIds`,
+  // `selectedSessionId`, `connection`, and `error`. Token deltas on
+  // background sessions must not wake the loader math.
+  const hydratedSessionIds = usePiSessionSnapshot((state) => state.hydratedSessionIds, undefined, TOPIC_CHROME);
+  const selectedSessionId = usePiSessionSnapshot((state) => state.selectedSessionId, undefined, TOPIC_CHROME);
+  const connection = usePiSessionSnapshot((state) => state.connection, undefined, TOPIC_CHROME);
+  const error = usePiSessionSnapshot((state) => state.error, undefined, TOPIC_CHROME);
   return useMemo(() => {
     if (!sessionID) return READY_LOAD_STATE;
     const isHydrated = hydratedSessionIds.has(sessionID);
@@ -262,7 +293,7 @@ export function useChildStoreManager() {
 export function buildSessionMessageRecordsSnapshot(_state?: any, _sessionId?: any) { return { list: [] as any[] }; }
 
 export function useSessionRenderable(sessionID: string, _directory?: string): boolean {
-  const hydratedSessionIds = usePiSessionSnapshot((state) => state.hydratedSessionIds);
+  const hydratedSessionIds = usePiSessionSnapshot((state) => state.hydratedSessionIds, undefined, TOPIC_CHROME);
   return !sessionID || hydratedSessionIds.has(sessionID);
 }
 
@@ -270,9 +301,11 @@ export function useUserMessageHistory(sessionID: string): string[] {
   // Subscribe narrowly to one session's reducer record — other sessions'
   // events won't invalidate the memo. The projected text is canonical,
   // so we treat the session reference change as the recompute trigger.
-  const session = usePiSessionSnapshot((state) => (
-    sessionID ? state.reducer.bySession.get(sessionID) ?? null : null
-  ));
+  const session = usePiSessionSnapshot(
+    (state) => (sessionID ? state.reducer.bySession.get(sessionID) ?? null : null),
+    undefined,
+    sessionID ? sessionTopic(sessionID) : '*',
+  );
   return useMemo(() => {
     if (!session) return EMPTY_USER_HISTORY;
     const history: string[] = [];
@@ -310,18 +343,22 @@ export function useSessionMessageRecords(
 ) {
   // Subscribe to one session's reducer entry; other sessions' stream
   // events keep the same reference so React skips recomputation.
-  const session = usePiSessionSnapshot((state) => (
-    sessionID ? state.reducer.bySession.get(sessionID) ?? null : null
-  ));
+  const session = usePiSessionSnapshot(
+    (state) => (sessionID ? state.reducer.bySession.get(sessionID) ?? null : null),
+    undefined,
+    sessionID ? sessionTopic(sessionID) : '*',
+  );
   return useMemo(() => (
     session ? piProjectedToRecords(projectSession(session)) : EMPTY_MESSAGE_RECORDS
   ), [session]);
 }
 
 export function useSessionMessageCount(sessionID: string, _directory?: string): number {
-  const session = usePiSessionSnapshot((state) => (
-    sessionID ? state.reducer.bySession.get(sessionID) : undefined
-  ));
+  const session = usePiSessionSnapshot(
+    (state) => (sessionID ? state.reducer.bySession.get(sessionID) : undefined),
+    undefined,
+    sessionID ? sessionTopic(sessionID) : '*',
+  );
   return session ? session.messages.size : 0;
 }
 

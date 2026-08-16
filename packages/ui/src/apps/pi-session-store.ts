@@ -72,6 +72,30 @@ const lifecycleFromEvent = (event: PiSessionEvent): LiveSessionLifecycle | undef
   return undefined;
 };
 
+/**
+ * Topic keys for `PiSessionStore.subscribe(listener, topic)`. The store
+ * publishes one notification per topic touched by a commit so a token
+ * delta in session B does not wake session A's chat transcript selectors.
+ *
+ * - `session:{id}`: that session's reducer record changed (messages,
+ *   parts, lifecycle on the transcript). Token deltas that leave the
+ *   record reference-equal do **not** emit this.
+ * - `catalog`: `state.catalog` identity changed (lifecycle, title,
+ *   membership, stub insert). Token deltas that leave the catalog ref
+ *   unchanged do **not** emit this.
+ * - `chrome`: cluster UI — `connection`, `error`, `directory`,
+ *   `selectedSessionId`, `sessions[]`, `sessionsListStatus`,
+ *   `focusPending`, `hydratedSessionIds`.
+ * - `*` (default when `subscribe` is called without a topic): broadcast
+ *   to every listener regardless of topic. Kept for tests and any
+ *   unmigrated caller; production hooks pass an explicit topic so the
+ *   broadcast path is unused on the token hot path.
+ */
+export type PiSessionTopic = `session:${PiSessionId}` | 'catalog' | 'chrome' | '*';
+const TOPIC_BROADCAST = '*';
+const TOPIC_CATALOG = 'catalog';
+const TOPIC_CHROME = 'chrome';
+
 export type PiConnectionState = 'loading' | 'ready' | 'unavailable' | 'error';
 export type PiSessionsListStatus = 'idle' | 'loading' | 'ready' | 'failed';
 export interface PiSessionStoreState {
@@ -160,7 +184,7 @@ export const getPiSessionStore = (): PiSessionStore => {
  */
 export class PiSessionStore {
   private state = initial();
-  private listeners = new Set<Listener>();
+  private listenersByTopic = new Map<string, Set<Listener>>();
   private stream: { dispose: () => void } | null = null;
   /** Advances only on bootstrap / reconnect / runtime switch / dispose —
    *  guards every async completion that may still be in flight when the
@@ -212,7 +236,24 @@ export class PiSessionStore {
   hasClusterAttached = (): boolean => this.stream !== null || this.state.connection === 'ready';
 
   getState = () => this.state;
-  subscribe = (listener: Listener) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
+  /**
+   * Subscribe to store commits. Production hooks must pass an explicit
+   * topic so a token delta in one session does not wake every chat
+   * transcript selector; tests and legacy callers may omit the topic to
+   * receive every commit (broadcast).
+   */
+  subscribe = (listener: Listener, topic: string = TOPIC_BROADCAST): (() => void) => {
+    let set = this.listenersByTopic.get(topic);
+    if (!set) {
+      set = new Set();
+      this.listenersByTopic.set(topic, set);
+    }
+    set.add(listener);
+    return () => {
+      const bucket = this.listenersByTopic.get(topic);
+      if (bucket) bucket.delete(listener);
+    };
+  };
   dispose = () => {
     this.runtimeGeneration += 1;
     this.focusGeneration += 1;
@@ -232,12 +273,26 @@ export class PiSessionStore {
     this.stream?.dispose();
     this.stream = null;
     this.unsubscribeRuntime();
-    this.listeners.clear();
+    // Broadcast the reset so any mounted consumer sees the empty state
+    // before the listener sets are torn down.
     this.state = initial();
+    this.emitBroadcast();
+    this.listenersByTopic.clear();
   };
-  setShowArchived = (showArchived: boolean) => { if (showArchived !== this.state.showArchived) { this.state = { ...this.state, showArchived }; this.emit(); } };
-  clearError = () => { if (this.state.error) { this.state = { ...this.state, error: null }; this.emit(); } };
-  reportError = (error: unknown) => { this.state = { ...this.state, error: asError(error), connection: 'error' }; this.emit(); };
+  setShowArchived = (showArchived: boolean) => {
+    if (showArchived === this.state.showArchived) return;
+    this.state = { ...this.state, showArchived };
+    this.emitChrome();
+  };
+  clearError = () => {
+    if (!this.state.error) return;
+    this.state = { ...this.state, error: null };
+    this.emitChrome();
+  };
+  reportError = (error: unknown) => {
+    this.state = { ...this.state, error: asError(error), connection: 'error' };
+    this.emitChrome();
+  };
   clear = () => {
     this.runtimeGeneration += 1;
     this.focusGeneration += 1;
@@ -256,7 +311,9 @@ export class PiSessionStore {
     this.cadence.dispose();
     this.stream?.dispose(); this.stream = null;
     this.state = { ...initial(), connection: 'ready' };
-    this.emit();
+    // Broadcast the empty state so mounted UI hears the reset; listener
+    // sets stay intact so the cluster can be rebuilt without resubscribing.
+    this.emitBroadcast();
   };
 
   // -------------------------------------------------------------------------
@@ -287,11 +344,14 @@ export class PiSessionStore {
     const generation = (this.directoryRefreshGenerationByDirectory.get(normalized) ?? 0) + 1;
     this.directoryRefreshGenerationByDirectory.set(normalized, generation);
     const startedRuntimeGeneration = this.runtimeGeneration;
-    this.state = {
-      ...this.state,
-      catalog: markDirectoryLoading(this.state.catalog, normalized),
-    };
-    this.emit();
+    const nextLoadingCatalog = markDirectoryLoading(this.state.catalog, normalized);
+    if (nextLoadingCatalog !== this.state.catalog) {
+      this.state = {
+        ...this.state,
+        catalog: nextLoadingCatalog,
+      };
+      this.emit([TOPIC_CATALOG]);
+    }
     try {
       const result = await piClient.listSessions({ directory: normalized, runtimeKey });
       // Three guards, in order: stale per-directory generation, runtime
@@ -300,26 +360,28 @@ export class PiSessionStore {
       if (startedRuntimeGeneration !== this.runtimeGeneration) return { ok: true };
       if (runtimeKey !== getRuntimeKey()) return { ok: true };
       const nextCatalog = applyDirectoryListToCatalog(this.state.catalog, normalized, result.sessions, Date.now());
-      this.state = { ...this.state, catalog: nextCatalog };
-      this.emit();
+      if (nextCatalog !== this.state.catalog) {
+        this.state = { ...this.state, catalog: nextCatalog };
+        this.emit([TOPIC_CATALOG]);
+      }
       return { ok: true };
     } catch (error) {
       if (this.directoryRefreshGenerationByDirectory.get(normalized) !== generation) return { ok: true };
       if (startedRuntimeGeneration !== this.runtimeGeneration) return { ok: true };
       if (runtimeKey !== getRuntimeKey()) return { ok: true };
       const requestError = asError(error);
-      this.state = {
-        ...this.state,
-        catalog: markDirectoryFailed(this.state.catalog, normalized),
-        // Per-directory failures are recorded against the focused slice's
-        // `state.error` only when the focused directory is the one that
-        // failed; otherwise the catalog's `listStatusByDirectory` carries
-        // the signal without leaking into the cluster `connection`.
-        ...(normalizePath(this.state.directory) === normalized
-          ? { error: requestError }
-          : {}),
-      };
-      this.emit();
+      const failedCatalog = markDirectoryFailed(this.state.catalog, normalized);
+      const focusedDirectory = normalizePath(this.state.directory) === normalized;
+      const topics: string[] = [];
+      if (failedCatalog !== this.state.catalog) {
+        this.state = { ...this.state, catalog: failedCatalog };
+        topics.push(TOPIC_CATALOG);
+      }
+      if (focusedDirectory) {
+        this.state = { ...this.state, error: requestError };
+        topics.push(TOPIC_CHROME);
+      }
+      if (topics.length > 0) this.emit(topics);
       return { ok: false, error: requestError };
     }
   }
@@ -412,7 +474,7 @@ export class PiSessionStore {
         focusPending: false,
         error: null,
       };
-      this.emit();
+      this.emitChrome();
       return;
     }
     // Warm path: the preferred session is already hydrated. Select it
@@ -432,7 +494,7 @@ export class PiSessionStore {
       focusPending: !warmAlready,
       error: null,
     };
-    this.emit();
+    this.emitChrome();
     if (warmAlready) {
       this.touchLastAccess(desiredSessionId as PiSessionId);
     }
@@ -451,7 +513,7 @@ export class PiSessionStore {
         resolvedDirectory = selected.directory;
         if (normalizePath(resolvedDirectory) !== normalizePath(this.state.directory)) {
           this.state = { ...this.state, directory: resolvedDirectory };
-          this.emit();
+          this.emitChrome();
         }
       } catch (error) {
         // Transient selectProject failures are retried once. A persistent
@@ -464,7 +526,7 @@ export class PiSessionStore {
         resolvedDirectory = selectedRetry.directory;
         if (normalizePath(resolvedDirectory) !== normalizePath(this.state.directory)) {
           this.state = { ...this.state, directory: resolvedDirectory };
-          this.emit();
+          this.emitChrome();
         }
       }
       const result = await this.fetchFocusListWithRetry(resolvedDirectory, expected, startedRuntimeGeneration, runtimeKey);
@@ -509,6 +571,8 @@ export class PiSessionStore {
         ?? listPayload.sessions[0]?.session.id
         ?? null;
       this.pendingPreferredSessionId = null;
+      const nextCatalog = applyDirectoryListToCatalog(this.state.catalog, resolvedDirectory, listPayload.sessions, Date.now());
+      const catalogChanged = nextCatalog !== this.state.catalog;
       this.state = {
         ...this.state,
         sessions: listPayload.sessions,
@@ -516,9 +580,11 @@ export class PiSessionStore {
         sessionsListStatus: 'ready',
         focusPending: !!nextSelectedSessionId && !this.hydratedSessionIds.has(nextSelectedSessionId),
         error: null,
-        catalog: applyDirectoryListToCatalog(this.state.catalog, resolvedDirectory, listPayload.sessions, Date.now()),
+        catalog: nextCatalog,
       };
-      this.emit();
+      const listTopics: string[] = [TOPIC_CHROME];
+      if (catalogChanged) listTopics.push(TOPIC_CATALOG);
+      this.emit(listTopics);
       if (nextSelectedSessionId) this.touchLastAccess(nextSelectedSessionId);
       if (nextSelectedSessionId && !this.hydratedSessionIds.has(nextSelectedSessionId)) {
         await this.hydrate(nextSelectedSessionId, this.runtimeGeneration);
@@ -531,7 +597,7 @@ export class PiSessionStore {
             && this.hydratedSessionIds.has(nextSelectedSessionId)
           ) {
             this.state = { ...this.state, focusPending: false };
-            this.emit();
+            this.emitChrome();
           }
         }
       } else if (
@@ -540,7 +606,7 @@ export class PiSessionStore {
         && this.state.focusPending
       ) {
         this.state = { ...this.state, focusPending: false };
-        this.emit();
+        this.emitChrome();
       }
     } catch (error) {
       if (expected === this.focusGeneration && startedRuntimeGeneration === this.runtimeGeneration) {
@@ -565,7 +631,7 @@ export class PiSessionStore {
       focusPending: false,
       error,
     };
-    this.emit();
+    this.emitChrome();
   }
 
   /** Classify which errors are transient enough to retry once before we
@@ -640,7 +706,7 @@ export class PiSessionStore {
       if (preferredSessionId && preferredSessionId !== this.state.selectedSessionId) {
         this.pendingPreferredSessionId = preferredSessionId;
         this.state = { ...this.state, selectedSessionId: preferredSessionId, error: null };
-        this.emit();
+        this.emitChrome();
       }
       return;
     }
@@ -675,7 +741,7 @@ export class PiSessionStore {
         lastSequence: new Map(this.state.reducer.lastSequence),
       },
     };
-    this.emit();
+    this.emitChrome();
     const runtimeKey = getRuntimeKey();
     try {
       const selected = await piClient.selectProject(directory, { runtimeKey });
@@ -683,7 +749,7 @@ export class PiSessionStore {
       const scope: PiClientScope = { directory: selected.directory, runtimeKey };
       if (selected.directory !== directory) {
         this.state = { ...this.state, directory: selected.directory };
-        this.emit();
+        this.emitChrome();
       }
       const health = await piClient.health(scope);
       if (expected !== this.runtimeGeneration) return;
@@ -718,14 +784,18 @@ export class PiSessionStore {
       // must focus, not dispose. `commitHydratedSession` keeps
       // `connection` untouched; we flip to `'ready'` here so the cluster
       // is considered attached before SSE is plugged.
+      const nextCatalog = applyDirectoryListToCatalog(this.state.catalog, selected.directory, result.sessions, Date.now());
+      const catalogChanged = nextCatalog !== this.state.catalog;
       this.state = {
         ...this.state,
         sessions: result.sessions,
         selectedSessionId,
         connection: 'ready',
-        catalog: applyDirectoryListToCatalog(this.state.catalog, selected.directory, result.sessions, Date.now()),
+        catalog: nextCatalog,
       };
-      this.emit();
+      const openTopics: string[] = [TOPIC_CHROME];
+      if (catalogChanged) openTopics.push(TOPIC_CATALOG);
+      this.emit(openTopics);
       if (selectedSessionId) await this.hydrate(selectedSessionId, expected);
     } catch (error) { if (expected === this.runtimeGeneration) this.reportError(error); }
   }
@@ -752,7 +822,7 @@ export class PiSessionStore {
       }
       this.pendingPreferredSessionId = sessionId;
       this.state = { ...this.state, selectedSessionId: sessionId, error: null };
-      this.emit();
+      this.emitChrome();
       return;
     }
     if (!this.state.directory) {
@@ -777,7 +847,7 @@ export class PiSessionStore {
     }
     this.cadence.flush();
     this.state = { ...this.state, selectedSessionId: sessionId, error: null, focusPending: false };
-    this.emit();
+    this.emitChrome();
     this.touchLastAccess(sessionId);
     const resident = this.state.reducer.bySession.get(sessionId);
     if (this.stream && this.hydratedSessionIds.has(sessionId) && resident && resident.messages.size > 0) {
@@ -830,11 +900,12 @@ export class PiSessionStore {
     // sidebar / header surfaces see the new session without waiting for
     // the SSE echo. `upsertRecord` is a no-op when the row already exists
     // (e.g. a parallel event arrived first).
-    this.state = {
-      ...this.state,
-      catalog: upsertRecord(this.state.catalog, this.recordFromPiSession(detail.session)),
-    };
-    this.emit();
+    const nextCatalog = upsertRecord(this.state.catalog, this.recordFromPiSession(detail.session));
+    const catalogChanged = nextCatalog !== this.state.catalog;
+    this.state = { ...this.state, catalog: nextCatalog };
+    const createTopics: string[] = [TOPIC_CHROME];
+    if (catalogChanged) createTopics.push(TOPIC_CATALOG);
+    this.emit(createTopics);
     await this.hydrate(detail.session.id, expected, detail);
     return detail.session.id;
   }
@@ -842,23 +913,31 @@ export class PiSessionStore {
   async rename(sessionId: string, title: string) {
     await piClient.renameSession({ sessionId, title }, this.scope());
     const now = Date.now();
+    const nextCatalog = applyTitleChange(this.state.catalog, sessionId, title, now);
+    const catalogChanged = nextCatalog !== this.state.catalog;
     this.state = {
       ...this.state,
       sessions: this.state.sessions.map((item) => item.session.id === sessionId ? { ...item, session: { ...item.session, title } } : item),
-      catalog: applyTitleChange(this.state.catalog, sessionId, title, now),
+      catalog: nextCatalog,
     };
-    this.emit();
+    const topics: string[] = [TOPIC_CHROME];
+    if (catalogChanged) topics.push(TOPIC_CATALOG);
+    this.emit(topics);
   }
   async archive(sessionId: string, archived: boolean) {
     const sessionDir = this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory;
     await piClient.archiveSession({ sessionId, archived }, this.scope(sessionDir));
     const now = Date.now();
+    const nextCatalog = applyArchiveChange(this.state.catalog, sessionId, archived, now);
+    const catalogChanged = nextCatalog !== this.state.catalog;
     this.state = {
       ...this.state,
       sessions: this.state.sessions.map((item) => item.session.id === sessionId ? { ...item, session: { ...item.session, archived } } : item),
-      catalog: applyArchiveChange(this.state.catalog, sessionId, archived, now),
+      catalog: nextCatalog,
     };
-    this.emit();
+    const topics: string[] = [TOPIC_CHROME];
+    if (catalogChanged) topics.push(TOPIC_CATALOG);
+    this.emit(topics);
   }
   async remove(sessionId: string) {
     const expected = this.runtimeGeneration;
@@ -877,15 +956,19 @@ export class PiSessionStore {
     this.pendingPromptById.delete(sessionId);
     this.promptGenerationById.delete(sessionId);
     this.lastAccessById.delete(sessionId);
+    const nextCatalog = removeRecord(this.state.catalog, sessionId);
+    const catalogChanged = nextCatalog !== this.state.catalog;
     this.state = {
       ...this.state,
       sessions,
       selectedSessionId,
       hydratedSessionIds: new Set(this.hydratedSessionIds),
       reducer: { bySession: nextBySession, lastSequence: nextLastSequence },
-      catalog: removeRecord(this.state.catalog, sessionId),
+      catalog: nextCatalog,
     };
-    this.emit();
+    const removeTopics: string[] = [`session:${sessionId}`, TOPIC_CHROME];
+    if (catalogChanged) removeTopics.push(TOPIC_CATALOG);
+    this.emit(removeTopics);
     if (selectedSessionId && selectedSessionId !== this.state.selectedSessionId) await this.hydrate(selectedSessionId, expected);
   }
   async fork(sessionId: string) { const detail = await piClient.forkSession({ sessionId }, this.scope()); this.upsertAndHydrate(detail); }
@@ -928,19 +1011,20 @@ export class PiSessionStore {
     this.promoteSession(sessionId, 'active', { reorder: true });
     this.touchSessionList(sessionId);
     const promptedAt = Date.now();
-    this.state = {
-      ...this.state,
-      catalog: touchRecordUpdatedAt(
-        applyLifecycleChange(this.state.catalog, sessionId, 'busy'),
-        sessionId,
-        promptedAt,
-        {
-          directory: nextSession.directory || this.state.directory || '',
-          lifecycle: 'busy',
-        },
-      ),
-    };
-    this.emit();
+    const nextCatalog = touchRecordUpdatedAt(
+      applyLifecycleChange(this.state.catalog, sessionId, 'busy'),
+      sessionId,
+      promptedAt,
+      {
+        directory: nextSession.directory || this.state.directory || '',
+        lifecycle: 'busy',
+      },
+    );
+    const catalogChanged = nextCatalog !== this.state.catalog;
+    this.state = { ...this.state, catalog: nextCatalog };
+    const promptTopics: string[] = [`session:${sessionId}`, TOPIC_CHROME];
+    if (catalogChanged) promptTopics.push(TOPIC_CATALOG);
+    this.emit(promptTopics);
     const input = { sessionId, text, messageId: `msg_${crypto.randomUUID()}`, ...(attachments?.length ? { attachments } : {}) };
     try {
       if (delivery === 'steer') return await piClient.sendSteer(input, this.scope());
@@ -955,7 +1039,9 @@ export class PiSessionStore {
           reverted.set(sessionId, { ...current, lifecycle: 'error' });
           this.state = { ...this.state, reducer: { ...this.state.reducer, bySession: reverted } };
           this.promoteSession(sessionId, 'settled');
-          this.emit();
+          // The reducer record changed (lifecycle: error); chrome also
+          // flips via the next selector read. Catalog is unchanged.
+          this.emit([`session:${sessionId}`, TOPIC_CHROME]);
         }
       }
       throw error;
@@ -1102,6 +1188,7 @@ export class PiSessionStore {
     if (catalogLifecycle !== undefined) {
       nextCatalog = applyLifecycleChange(nextCatalog, session.sessionId, catalogLifecycle);
     }
+    const catalogChanged = nextCatalog !== this.state.catalog;
     this.state = {
       ...this.state,
       reducer,
@@ -1110,7 +1197,12 @@ export class PiSessionStore {
       hydratedSessionIds: new Set(this.hydratedSessionIds),
       catalog: nextCatalog,
     };
-    this.emit();
+    // commitHydratedSession always wraps `hydratedSessionIds` in a new
+    // Set; chrome listeners must hear that flip every time. The catalog
+    // emit is gated on the reference-stable helpers.
+    const hydrateTopics: string[] = [`session:${session.sessionId}`, TOPIC_CHROME];
+    if (catalogChanged) hydrateTopics.push(TOPIC_CATALOG);
+    this.emit(hydrateTopics);
     this.scheduleIdleEviction();
   }
 
@@ -1135,7 +1227,7 @@ export class PiSessionStore {
     ) {
       if (this.state.connection !== 'ready' || this.state.error) {
         this.state = { ...this.state, connection: 'ready', error: null };
-        this.emit();
+        this.emitChrome();
       }
       return;
     }
@@ -1204,21 +1296,29 @@ export class PiSessionStore {
           bySession: new Map(this.state.reducer.bySession),
           lastSequence: new Map(this.state.reducer.lastSequence),
         };
+        const mergedSessionIds: PiSessionId[] = [];
         for (const [sId, sState] of result.reducerState.bySession.entries()) {
           const merged = this.mergeHydratedSession(sState, reducer.bySession.get(sId));
           reducer.bySession.set(sId, merged);
           reducer.lastSequence.set(sId, merged.lastSequence);
           this.touchLastAccess(sId);
+          mergedSessionIds.push(sId);
         }
         for (const sId of result.reducerState.bySession.keys()) this.hydratedSessionIds.add(sId);
+        const reconnectCatalog = this.applyCatalogFromEvents([], reducer);
+        const catalogChanged = reconnectCatalog !== this.state.catalog;
         this.state = {
           ...this.state,
           reducer,
           connection: 'ready',
           error: null,
           hydratedSessionIds: new Set(this.hydratedSessionIds),
+          ...(catalogChanged ? { catalog: reconnectCatalog } : {}),
         };
-        this.emit();
+        const reconnectTopics: string[] = [TOPIC_CHROME];
+        for (const id of mergedSessionIds) reconnectTopics.push(`session:${id}`);
+        if (catalogChanged) reconnectTopics.push(TOPIC_CATALOG);
+        this.emit(reconnectTopics);
         // Catch up: reconnect resumes the stream from the max cursor, so
         // any resident session whose `lastSequence` is behind that
         // cursor missed events while disconnected. Hydrate those sessions
@@ -1341,6 +1441,7 @@ export class PiSessionStore {
     let applied = false;
     let touched = false;
     const restoreIds = new Set<PiSessionId>();
+    const touchedSessionIds = new Set<PiSessionId>();
     for (const event of events) {
       const missingBefore = !working.bySession.has(event.sessionId);
       const hadCursor = (working.lastSequence.get(event.sessionId) ?? -1) >= 0;
@@ -1349,6 +1450,7 @@ export class PiSessionStore {
       if (!result.didApply) continue;
       if (missingBefore && hadCursor) restoreIds.add(event.sessionId);
       applied = true;
+      touchedSessionIds.add(event.sessionId);
       this.notePromptProgress(event);
       if (
         this.pendingPromptById.has(event.sessionId)
@@ -1374,11 +1476,15 @@ export class PiSessionStore {
     // a row's `lifecycle`; other events are reference-stable updates
     // (`applyLifecycleChange` is a no-op when the value matches). Do not
     // bump `updatedAt` here — last-prompt recency is owned by `prompt()`.
-    this.state = {
-      ...this.state,
-      catalog: this.applyCatalogFromEvents(events, working),
-    };
-    this.emit();
+    const nextCatalog = this.applyCatalogFromEvents(events, working);
+    const catalogChanged = nextCatalog !== this.state.catalog;
+    if (catalogChanged) {
+      this.state = { ...this.state, catalog: nextCatalog };
+    }
+    const topics: string[] = [];
+    if (catalogChanged) topics.push(TOPIC_CATALOG);
+    for (const id of touchedSessionIds) topics.push(`session:${id}`);
+    if (topics.length > 0) this.emit(topics);
     if (touched) this.scheduleIdleEviction();
     for (const sessionId of restoreIds) this.restoreTranscript(sessionId);
   }
@@ -1457,6 +1563,7 @@ export class PiSessionStore {
     let nextHydratedIds: Set<PiSessionId> | null = null;
     let nextLastAccess: Map<PiSessionId, number> | null = null;
     let nextCatalog: PiSessionCatalogState | null = null;
+    const evictedIds: PiSessionId[] = [];
     let evicted = 0;
     for (const [sessionId] of candidates) {
       if (bySession.size - evicted <= PI_TRANSCRIPT_EVICTION_SOFT_CAP) break;
@@ -1472,27 +1579,42 @@ export class PiSessionStore {
       nextCatalog = nextCatalog ?? this.state.catalog;
       nextCatalog = applyHydratedChange(nextCatalog, sessionId, false);
       evicted += 1;
+      evictedIds.push(sessionId);
     }
     if (!nextBySession || !nextHydratedIds || !nextLastAccess) return;
     this.lastAccessById = nextLastAccess;
+    // Compare before the assignment so the catalog gate isn't trivially
+    // true after `state.catalog` is rewritten to `nextCatalog`.
+    const catalogChanged = !!nextCatalog && nextCatalog !== this.state.catalog;
     this.state = {
       ...this.state,
       reducer: { bySession: nextBySession, lastSequence: new Map(this.state.reducer.lastSequence) },
       hydratedSessionIds: nextHydratedIds,
       ...(nextCatalog ? { catalog: nextCatalog } : {}),
     };
-    this.emit();
+    // Each evicted id's reducer row was dropped, so chat selectors
+    // subscribed to that id must re-evaluate (they get `null` now).
+    // Chrome also flips via the new `hydratedSessionIds` Set; the catalog
+    // emit is gated on `applyHydratedChange` actually changing refs.
+    const evictTopics: string[] = [TOPIC_CHROME];
+    for (const id of evictedIds) evictTopics.push(`session:${id}`);
+    if (catalogChanged) evictTopics.push(TOPIC_CATALOG);
+    this.emit(evictTopics);
   }
 
   private async upsertAndHydrate(detail: Awaited<ReturnType<typeof piClient.getSession>>) {
     const expected = this.runtimeGeneration;
+    const nextCatalog = upsertRecord(this.state.catalog, this.recordFromPiSession(detail.session));
+    const catalogChanged = nextCatalog !== this.state.catalog;
     this.state = {
       ...this.state,
       sessions: [{ session: detail.session, updatedAt: detail.session.updatedAt }, ...this.state.sessions.filter((item) => item.session.id !== detail.session.id)],
       selectedSessionId: detail.session.id,
-      catalog: upsertRecord(this.state.catalog, this.recordFromPiSession(detail.session)),
+      catalog: nextCatalog,
     };
-    this.emit();
+    const topics: string[] = [TOPIC_CHROME];
+    if (catalogChanged) topics.push(TOPIC_CATALOG);
+    this.emit(topics);
     await this.hydrate(detail.session.id, expected, detail);
   }
   private directory() { if (!this.state.directory) throw new PiRequestError('DAEMON_UNAVAILABLE'); return this.state.directory; }
@@ -1524,8 +1646,52 @@ export class PiSessionStore {
     this.stream?.dispose();
     this.stream = null;
     this.state = initial();
-    this.emit();
+    // Broadcast so every subscriber sees the runtime switch before the
+    // cluster rebuilds; listener sets stay intact for the new runtime.
+    this.emitBroadcast();
     if (directory) void this.start({ directory });
   }
-  private emit() { for (const listener of this.listeners) listener(); }
+  /**
+   * Notify listeners registered on any of the supplied topics, plus the
+   * broadcast bucket. Each listener is invoked at most once per call.
+   * The broadcast fallback keeps `subscribe()`-without-topic tests and
+   * legacy callers working without forcing them onto a specific topic.
+   */
+  private emit(topics: readonly string[]): void {
+    if (topics.length === 0) return;
+    const seen = new Set<Listener>();
+    for (const topic of topics) {
+      const bucket = this.listenersByTopic.get(topic);
+      if (!bucket) continue;
+      for (const listener of bucket) {
+        if (seen.has(listener)) continue;
+        seen.add(listener);
+        listener();
+      }
+    }
+    const broadcast = this.listenersByTopic.get(TOPIC_BROADCAST);
+    if (!broadcast) return;
+    for (const listener of broadcast) {
+      if (seen.has(listener)) continue;
+      seen.add(listener);
+      listener();
+    }
+  }
+  /** Broadcast the current state to every listener regardless of topic. */
+  private emitBroadcast(): void {
+    const seen = new Set<Listener>();
+    for (const bucket of this.listenersByTopic.values()) {
+      for (const listener of bucket) {
+        if (seen.has(listener)) continue;
+        seen.add(listener);
+        listener();
+      }
+    }
+  }
+  /** `chrome`-only emit, gated by an `Object.is` field check. */
+  private emitChrome(): void {
+    // chrome topics never reference-equal on a real change; the explicit
+    // call sites guard their own no-ops before invoking this helper.
+    this.emit([TOPIC_CHROME]);
+  }
 }
