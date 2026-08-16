@@ -117,6 +117,12 @@ To cut a version:
 
 The draft GitHub Release is published after macOS, Windows, and Linux desktop jobs succeed.
 
+macOS signing uses `APPLE_CERTIFICATE` (base64-encoded Developer ID `.p12`) and `APPLE_CERTIFICATE_PASSWORD`. If those secrets are missing or not a readable PKCS#12, CI builds **unsigned** macOS artifacts and skips notarization instead of failing. Gatekeeper will warn until a valid Developer ID is stored:
+
+```bash
+base64 -i DeveloperID.p12 | pbcopy
+```
+
 ## Before Submitting
 
 ```bash
