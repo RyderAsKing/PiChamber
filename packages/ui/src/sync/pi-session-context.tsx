@@ -19,33 +19,31 @@ export const PiSessionProvider = ({ children, directory }: { children: ReactNode
     state.projects.find((project) => project.id === state.activeProjectId)?.path ?? null
   ));
   const targetDirectory = directory?.trim() || activeProjectDirectory;
-  const startedRef = React.useRef<string | null>(null);
 
+  // The cluster belongs to the connected runtime, not the focused project.
+  // `start` itself routes to `focusProject` once the cluster is attached, so
+  // we don't need a separate ref to remember which folder the cluster
+  // bootstrap covered — later folder changes focus in place. With no
+  // project selected we clear the focus pointer but never the resident
+  // session cluster, so background busy runs keep streaming.
   useEffect(() => {
     const route = parseRoute();
     if (route.sessionId) {
-      if (store.getState().selectedSessionId === route.sessionId && store.getState().connection === 'ready') {
-        return;
-      }
-      if (startedRef.current === `session:${route.sessionId}`) {
-        return;
-      }
-      startedRef.current = `session:${route.sessionId}`;
+      const state = store.getState();
+      if (state.selectedSessionId === route.sessionId && state.connection === 'ready') return;
       void store.start({ directory: targetDirectory ?? undefined, sessionId: route.sessionId });
       return;
     }
-
     if (!targetDirectory) {
-      startedRef.current = null;
-      store.clear();
+      void store.focusProject(null, null);
       return;
     }
-
-    if (startedRef.current === `dir:${targetDirectory}`) {
-      return;
-    }
-    startedRef.current = `dir:${targetDirectory}`;
-    void store.start({ directory: targetDirectory });
+    // Remembered session hint: warm folder switches can skip the chat
+    // loader by pre-selecting the last session the cluster attached for
+    // that directory. The hint is internal — explicit route / caller
+    // hints still win.
+    const remembered = store.lastSelectedSessionForDirectory(targetDirectory);
+    void store.start({ directory: targetDirectory, ...(remembered ? { sessionId: remembered } : {}) });
   }, [store, targetDirectory]);
   return <PiSessionContext.Provider value={store}>{children}</PiSessionContext.Provider>;
 };

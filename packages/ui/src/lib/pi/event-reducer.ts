@@ -9,10 +9,10 @@
  *   ignored. This is what makes reconnect safe: a client can resume from
  *   `snapshot.lastSequence` and the reducer will discard anything it has
  *   already applied.
- * - Stream assembly: text and thinking deltas are accumulated per part
- *   until the daemon publishes `part.end` with the final content. The
- *   reducer produces finalized text/thinking the moment the daemon says
- *   the message is done.
+ * - Stream assembly: text and thinking deltas are merged per part with
+ *   `applyAssistantTextDelta`. `assistant.message.end` writes canonical
+ *   text/thinking onto those parts so the chat does not keep a corrupted
+ *   live assembly after the daemon publishes the finished message.
  * - Lifecycle: the `session.lifecycle` event flips the running state.
  *   `session.interrupted` flips the streaming flag back off without
  *   marking the message completed; that is the visible "interrupted" UI
@@ -31,6 +31,7 @@ import type {
   PiSessionEvent,
   PiToolUpdatePayload,
 } from './protocol';
+import { applyAssistantTextDelta } from './text-delta';
 import type {
   PiAssistantMessage,
   PiAttachment,
@@ -297,6 +298,32 @@ const assembleMessageText = (session: PiReducerSessionState, messageId: string):
   return { text, thinking };
 };
 
+const finalizeAssembledParts = (
+  session: PiReducerSessionState,
+  messageId: string,
+  type: 'text' | 'thinking',
+  canonical: string,
+): void => {
+  const order = session.partOrder.get(messageId) ?? [];
+  const parts = order
+    .map((partId) => session.parts.get(partId))
+    .filter((part): part is PiReducerMessagePart => part?.type === type);
+  if (parts.length === 0) {
+    if (!canonical) return;
+    const message = session.messages.get(messageId);
+    if (!message) return;
+    const part = ensureTextPart(session, message, type);
+    session.parts.set(part.id, { ...part, text: canonical, streaming: false });
+    return;
+  }
+  const [primary, ...extras] = parts;
+  if (!primary) return;
+  session.parts.set(primary.id, { ...primary, text: canonical, streaming: false });
+  for (const extra of extras) {
+    session.parts.set(extra.id, { ...extra, text: '', streaming: false });
+  }
+};
+
 // ---------------------------------------------------------------------------
 // Event reducers
 // ---------------------------------------------------------------------------
@@ -395,7 +422,11 @@ const reduceAssistantDelta = (
   }
   if (existing) {
     if (existing.type !== type) return;
-    const updated = { ...existing, text: existing.text + payload.delta, streaming: true };
+    const updated = {
+      ...existing,
+      text: applyAssistantTextDelta(existing.text, payload.delta),
+      streaming: true,
+    };
     session.parts.set(existing.id, updated);
     if (partId !== existing.id) {
       session.parts.set(partId, updated);
@@ -415,6 +446,8 @@ const reduceMessageEnd = (
   const { text, thinking } = assembleMessageText(session, message.id);
   message.text = typeof payload.text === 'string' ? payload.text : text;
   message.thinking = typeof payload.thinking === 'string' ? payload.thinking : thinking;
+  finalizeAssembledParts(session, message.id, 'text', message.text);
+  finalizeAssembledParts(session, message.id, 'thinking', message.thinking);
   message.streaming = false;
   if (typeof payload.durationMs === 'number') {
     message.durationMs = payload.durationMs;
@@ -639,6 +672,8 @@ export const applyPiEvent = (
       break;
     case 'assistant.message.end':
       session.messages = new Map(session.messages);
+      session.parts = new Map(session.parts);
+      session.partOrder = new Map(session.partOrder);
       session.streamingMessages = new Set(session.streamingMessages);
       reduceMessageEnd(session, event.payload);
       break;

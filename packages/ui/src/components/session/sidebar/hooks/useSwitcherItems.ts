@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Session } from '@/lib/chat/types';
-import { useGlobalSessionsStore, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+import { useCatalogUiSessions } from '@/sync/sync-context';
+import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import { compareSessionsByLifecycleOrder, useSessionOrderingStore } from '@/sync/session-ordering';
@@ -47,7 +48,7 @@ type SwitcherItemsOptions = {
 
 export const useSwitcherItems = (enabled: boolean, options: SwitcherItemsOptions = {}): SwitcherItem[] => {
   const { scopeProjectId = null, maxParents = MAX_PARENT_SESSIONS } = options;
-  const activeSessions = useGlobalSessionsStore((state) => state.activeSessions);
+  const activeSessions = useCatalogUiSessions({ archived: false });
   const projects = useProjectsStore((state) => state.projects);
   const pinnedSessionIds = useSessionPinnedStore((state) => state.ids);
   const sessionOrderRanks = useSessionOrderingStore((state) => state.rankById);

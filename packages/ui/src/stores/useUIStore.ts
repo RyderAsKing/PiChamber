@@ -13,7 +13,7 @@ import { useFilesViewTabsStore } from './useFilesViewTabsStore';
 
 export type MainTab = 'chat' | 'git' | 'diff' | 'terminal' | 'files' | 'context' | 'diagram';
 export type PendingDiffScope = 'working' | 'staged' | 'turn';
-export type ContextPanelMode = 'diff' | 'file' | 'context' | 'chat' | 'preview' | 'browser' | 'git' | 'pr' | 'notes' | 'terminal';
+export type ContextPanelMode = 'diff' | 'file' | 'context' | 'chat' | 'preview' | 'browser' | 'git' | 'notes' | 'terminal';
 type MermaidRenderingMode = 'svg' | 'ascii';
 type UserMessageRenderingMode = 'markdown' | 'plain';
 type ChatRenderMode = 'sorted' | 'live';
@@ -58,9 +58,9 @@ type ContextPanelDirectoryState = {
   expanded: boolean;
   tabs: ContextPanelTab[];
   activeTabId: string | null;
-  // Manual per-surface widths (px), populated only by user resize; surfaces
-  // without an entry fall back to their registry defaultWidthFraction.
-  widthByMode: Partial<Record<ContextPanelMode, number>>;
+  // Manual panel width (px) shared by every surface. Missing values fall back
+  // to CONTEXT_SURFACE_DEFAULT_WIDTH_FRACTION.
+  width?: number;
   touchedAt: number;
 };
 
@@ -156,6 +156,32 @@ const clampContextPanelWidth = (width: number): number => {
   }
 
   return Math.min(CONTEXT_PANEL_MAX_WIDTH, Math.max(CONTEXT_PANEL_MIN_WIDTH, Math.round(width)));
+};
+
+const CONTEXT_PANEL_SHARED_WIDTH_FALLBACK_MODES: ContextPanelMode[] = [
+  'git', 'file', 'diff', 'context', 'terminal', 'browser', 'notes', 'chat', 'preview',
+];
+
+const resolveSharedContextPanelWidth = (candidate: { width?: unknown; widthByMode?: unknown }): number | undefined => {
+  if (typeof candidate.width === 'number' && Number.isFinite(candidate.width)) {
+    return clampContextPanelWidth(candidate.width);
+  }
+  if (!candidate.widthByMode || typeof candidate.widthByMode !== 'object') {
+    return undefined;
+  }
+  const byMode = candidate.widthByMode as Record<string, unknown>;
+  for (const mode of CONTEXT_PANEL_SHARED_WIDTH_FALLBACK_MODES) {
+    const value = byMode[mode];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return clampContextPanelWidth(value);
+    }
+  }
+  for (const value of Object.values(byMode)) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return clampContextPanelWidth(value);
+    }
+  }
+  return undefined;
 };
 
 const normalizeContextTargetPath = (value: string | null | undefined): string | null => {
@@ -287,7 +313,7 @@ const sanitizeContextPanelTabs = (tabs: unknown): ContextPanelTab[] => {
       touchedAt?: unknown;
     };
 
-    if (candidate.mode !== 'diff' && candidate.mode !== 'file' && candidate.mode !== 'context' && candidate.mode !== 'chat' && candidate.mode !== 'preview' && candidate.mode !== 'browser' && candidate.mode !== 'git' && candidate.mode !== 'pr' && candidate.mode !== 'notes' && candidate.mode !== 'terminal') {
+    if (candidate.mode !== 'diff' && candidate.mode !== 'file' && candidate.mode !== 'context' && candidate.mode !== 'chat' && candidate.mode !== 'preview' && candidate.mode !== 'browser' && candidate.mode !== 'git' && candidate.mode !== 'notes' && candidate.mode !== 'terminal') {
       continue;
     }
 
@@ -342,6 +368,7 @@ const touchContextPanelState = (prev?: ContextPanelDirectoryState): ContextPanel
       ...prev,
       tabs,
       activeTabId,
+      width: prev.width,
       touchedAt: Date.now(),
     };
   }
@@ -351,7 +378,6 @@ const touchContextPanelState = (prev?: ContextPanelDirectoryState): ContextPanel
     expanded: false,
     tabs: [],
     activeTabId: null,
-    widthByMode: {},
     touchedAt: Date.now(),
   };
 };
@@ -471,6 +497,23 @@ const setContextPanelTabTargetPath = (
   ),
 });
 
+const collapseDiffTabsToGit = (tabs: ContextPanelTab[]): ContextPanelTab[] => {
+  const next: ContextPanelTab[] = [];
+  let hasGit = false;
+  for (const tab of tabs) {
+    if (tab.mode !== 'diff' && tab.mode !== 'git') {
+      next.push(tab);
+      continue;
+    }
+    if (hasGit) {
+      continue;
+    }
+    hasGit = true;
+    next.push(tab.mode === 'git' ? tab : createContextPanelTab({ mode: 'git' }));
+  }
+  return next;
+};
+
 const sanitizeContextPanelByDirectory = (
   value: unknown,
 ): Record<string, ContextPanelDirectoryState> => {
@@ -492,6 +535,7 @@ const sanitizeContextPanelByDirectory = (
       expanded?: unknown;
       tabs?: unknown;
       activeTabId?: unknown;
+      width?: unknown;
       widthByMode?: unknown;
       touchedAt?: unknown;
       mode?: unknown;
@@ -500,7 +544,7 @@ const sanitizeContextPanelByDirectory = (
       label?: unknown;
     };
 
-    let tabs = sanitizeContextPanelTabs(candidate.tabs);
+    let tabs = collapseDiffTabsToGit(sanitizeContextPanelTabs(candidate.tabs));
     let activeTabId = typeof candidate.activeTabId === 'string' ? candidate.activeTabId : null;
 
     if (tabs.length === 0 && (candidate.mode === 'diff' || candidate.mode === 'file' || candidate.mode === 'context' || candidate.mode === 'chat')) {
@@ -516,27 +560,15 @@ const sanitizeContextPanelByDirectory = (
     const resolvedActiveTabId = resolveActiveContextPanelTabID(tabs, activeTabId);
     const clampedTabs = clampContextPanelTabs(tabs, CONTEXT_PANEL_MAX_TABS, resolvedActiveTabId);
 
-    // Legacy single `width` values are intentionally dropped: widths are now
-    // per-surface, seeded from registry defaults until the user resizes.
-    const widthByMode: Partial<Record<ContextPanelMode, number>> = {};
-    if (candidate.widthByMode && typeof candidate.widthByMode === 'object') {
-      for (const [mode, value] of Object.entries(candidate.widthByMode as Record<string, unknown>)) {
-        if (
-          (mode === 'diff' || mode === 'file' || mode === 'context' || mode === 'chat' || mode === 'preview' || mode === 'browser' || mode === 'git' || mode === 'pr' || mode === 'notes' || mode === 'terminal')
-          && typeof value === 'number'
-          && Number.isFinite(value)
-        ) {
-          widthByMode[mode] = clampContextPanelWidth(value);
-        }
-      }
-    }
+    // Legacy per-surface `widthByMode` values collapse to one shared width.
+    const width = resolveSharedContextPanelWidth(candidate);
 
     next[directory] = {
       isOpen: candidate.isOpen === true,
       expanded: candidate.expanded === true,
       tabs: clampedTabs,
       activeTabId: resolveActiveContextPanelTabID(clampedTabs, resolvedActiveTabId),
-      widthByMode,
+      ...(width !== undefined ? { width } : {}),
       touchedAt: typeof candidate.touchedAt === 'number' && Number.isFinite(candidate.touchedAt)
         ? candidate.touchedAt
         : Date.now(),
@@ -718,7 +750,7 @@ interface UIStore {
   closeContextPanelTab: (directory: string, tabID: string) => void;
   closeContextPanel: (directory: string) => void;
   toggleContextPanelExpanded: (directory: string) => void;
-  setContextPanelWidth: (directory: string, mode: ContextPanelMode, width: number) => void;
+  setContextPanelWidth: (directory: string, width: number) => void;
   setNotesPanelHeight: (height: number) => void;
   setTodoPanelHeight: (height: number) => void;
   setSessionSwitcherOpen: (open: boolean) => void;
@@ -1048,6 +1080,7 @@ export const useUIStore = create<UIStore>()(
         // mode, opens a fresh singleton tab when none exists, and toggles the
         // panel closed when the requested mode is already active and visible.
         openContextSurface: (directory, mode) => {
+          const requestedMode = mode === 'diff' ? 'git' : mode;
           const normalizedDirectory = normalizeDirectoryPath((directory || '').trim());
           if (!normalizedDirectory) {
             return;
@@ -1058,12 +1091,12 @@ export const useUIStore = create<UIStore>()(
           const tabs = panelState?.tabs ?? [];
           const activeTab = tabs.find((tab) => tab.id === panelState?.activeTabId) ?? null;
 
-          if (panelState?.isOpen && activeTab?.mode === mode) {
+          if (panelState?.isOpen && activeTab?.mode === requestedMode) {
             state.closeContextPanel(normalizedDirectory);
             return;
           }
 
-          const tabsOfMode = tabs.filter((tab) => tab.mode === mode);
+          const tabsOfMode = tabs.filter((tab) => tab.mode === requestedMode);
           if (tabsOfMode.length > 0) {
             // `>=` so equal timestamps (same-millisecond opens) resolve to the
             // later tab in insertion order.
@@ -1075,11 +1108,11 @@ export const useUIStore = create<UIStore>()(
           // Content-driven modes need a payload (a preview URL or session);
           // the rail renders them disabled until content exists. 'file' opens
           // an empty editor whose embedded tree picks the first file.
-          if (mode === 'preview' || mode === 'chat') {
+          if (requestedMode === 'preview' || requestedMode === 'chat') {
             return;
           }
 
-          state.openContextPanelTab(normalizedDirectory, { mode });
+          state.openContextPanelTab(normalizedDirectory, { mode: requestedMode });
         },
 
         openContextPanelTab: (directory, tab) => {
@@ -1109,12 +1142,8 @@ export const useUIStore = create<UIStore>()(
 
           const diffScope = normalizePendingDiffScope(scope) ?? (staged ? 'staged' : 'working');
 
-          get().openContextPanelTab(normalizedDirectory, {
-            mode: 'diff',
-            targetPath: normalizedFilePath,
-            stagedDiff: diffScope === 'staged',
-            diffScope,
-          });
+          get().setPendingDiffFile(normalizedFilePath, staged, diffScope);
+          get().openContextPanelTab(normalizedDirectory, { mode: 'git' });
         },
 
         openContextFile: (directory, filePath) => {
@@ -1349,7 +1378,7 @@ export const useUIStore = create<UIStore>()(
           });
         },
 
-        setContextPanelWidth: (directory, mode, width) => {
+        setContextPanelWidth: (directory, width) => {
           const normalizedDirectory = normalizeDirectoryPath((directory || '').trim());
           if (!normalizedDirectory) {
             return;
@@ -1362,10 +1391,7 @@ export const useUIStore = create<UIStore>()(
               ...state.contextPanelByDirectory,
               [normalizedDirectory]: {
                 ...current,
-                widthByMode: {
-                  ...current.widthByMode,
-                  [mode]: clampContextPanelWidth(width),
-                },
+                width: clampContextPanelWidth(width),
               },
             };
 
@@ -2116,13 +2142,28 @@ export const useUIStore = create<UIStore>()(
       {
         name: 'ui-store',
         storage: createDeferredSafeJSONStorage(),
-        version: 13,
+        version: 15,
         migrate: (persistedState, version) => {
           if (!persistedState || typeof persistedState !== 'object') {
             return persistedState;
           }
           const state = persistedState as Record<string, unknown>;
 
+          // v14 -> v15: drop the unsupported Pull Request rail and any PR tabs.
+          if (version < 15) {
+            state.contextPanelByDirectory = sanitizeContextPanelByDirectory(state.contextPanelByDirectory);
+            if (Array.isArray(state.contextRailOrder)) {
+              state.contextRailOrder = (state.contextRailOrder as unknown[]).filter((id) => id !== 'pr');
+            }
+          }
+
+          // v13 -> v14: one shared context-panel width; Git owns working-tree diffs.
+          if (version < 14) {
+            state.contextPanelByDirectory = sanitizeContextPanelByDirectory(state.contextPanelByDirectory);
+            if (Array.isArray(state.contextRailOrder)) {
+              state.contextRailOrder = (state.contextRailOrder as unknown[]).filter((id) => id !== 'diff');
+            }
+          }
           // v12 -> v13: promote FilesView localStorage autosave toggle into the store.
           if (version < 13) {
             if (typeof state.autoSaveEnabled !== 'boolean') {
@@ -2250,7 +2291,7 @@ export const useUIStore = create<UIStore>()(
           }
 
           state.contextRailOrder = Array.isArray(state.contextRailOrder)
-            ? (state.contextRailOrder as unknown[]).filter((id): id is string => typeof id === 'string' && id.trim() !== '')
+            ? (state.contextRailOrder as unknown[]).filter((id): id is string => typeof id === 'string' && id.trim() !== '' && id !== 'pr' && id !== 'diff')
             : [];
 
           return state;

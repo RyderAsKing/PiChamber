@@ -8,9 +8,9 @@ import { sessionEvents } from '@/lib/sessionEvents';
 import { formatDirectoryName, cn } from '@/lib/utils';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
-import { isPiSessionLive, piLiveSessionIdsKey } from '@/sync/pi-session-live';
-import { useChildStoreManager } from '@/sync/sync-context';
-import { mapPiSessionList } from '@/sync/sync-refs';
+import { catalogLiveSessionIdsKey } from '@/sync/pi-session-catalog';
+import { buildKnownSessionDirectories, knownSessionDirectoryKey } from '@/sync/known-session-directories';
+import { useCatalogUiSessions, useChildStoreManager } from '@/sync/sync-context';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSync } from '@/sync/use-sync';
 import { SessionPrefetchEffect } from './sidebar/hooks/useSessionPrefetch';
@@ -69,19 +69,15 @@ import {
   selectExpandedParentKeysForContext,
   toggleExpandedParentKey,
 } from './sidebar/utils';
+import { SidebarSessionLikeButton } from './sidebar/sidebarRowChrome';
 import {
   compareSessionsByLifecycleOrder,
   EMPTY_SESSION_ORDER_RANKS,
   orderSessionsByLifecycleScopes,
   useSessionOrderingStore,
 } from '@/sync/session-ordering';
-import { useGlobalSessionStatusStore } from '@/sync/global-session-status';
 import {
-  refreshGlobalSessions,
-  refreshGlobalSessionsForDirectories,
-  getSessionStructuralSignature,
   resolveGlobalSessionDirectory,
-  useGlobalSessionsStore,
 } from '@/stores/useGlobalSessionsStore';
 import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
 import { useNotificationStore } from '@/sync/notification-store';
@@ -101,38 +97,19 @@ const PROJECT_ACTIVE_SESSION_STORAGE_KEY = 'oc.sessions.activeSessionByProject';
 // mixed contexts and is intentionally not migrated.
 const SESSION_EXPANDED_STORAGE_KEY = 'oc.sessions.expandedParents.v3';
 
-const buildKnownSessionDirectories = (
-  projects: Array<{ path: string }>,
-  availableWorktreesByProject?: Map<string, any[]> | null,
-  options?: { includeWorktrees?: boolean },
-): Set<string> => {
-  const directories = new Set<string>();
-  for (const project of projects || []) {
-    const normalized = normalizePath(project?.path)?.toLowerCase();
-    if (normalized) directories.add(normalized);
-  }
-  if (options?.includeWorktrees === false || !availableWorktreesByProject) {
-    return directories;
-  }
-  for (const worktrees of availableWorktreesByProject.values()) {
-    for (const worktree of worktrees || []) {
-      const normalized = normalizePath(worktree?.path)?.toLowerCase();
-      if (normalized) directories.add(normalized);
-    }
-  }
-  return directories;
-};
-
 const isKnownActiveSessionDirectory = (
   session: Session,
   knownDirectories: Set<string>,
   options?: { allowUnknownDirectory?: boolean; allowEmptyDirectorySet?: boolean },
 ): boolean => {
   if (session.time?.archived) return true;
-  const directory = normalizePath(resolveGlobalSessionDirectory(session))?.toLowerCase();
+  const directory = knownSessionDirectoryKey(resolveGlobalSessionDirectory(session));
   if (!directory) return options?.allowUnknownDirectory ?? true;
   if (knownDirectories.size === 0) return options?.allowEmptyDirectorySet ?? true;
-  return knownDirectories.has(directory);
+  for (const known of knownDirectories) {
+    if (knownSessionDirectoryKey(known) === directory) return true;
+  }
+  return false;
 };
 
 const SIDEBAR_PR_NO_PR_RETRY_MS = 5 * 60_000;
@@ -214,24 +191,16 @@ const ProjectAggregateStatusIndicator: React.FC<{ directories: Array<string | nu
     });
     return set;
   }, [directories]);
-  const hasBusySession = useGlobalSessionStatusStore(React.useCallback((state) => {
-    for (const entry of state.statusById.values()) {
-      if (entry.status.type !== 'busy' && entry.status.type !== 'retry') continue;
-      const directory = normalizePath(entry.directory)?.toLowerCase();
-      if (directory && directorySet.has(directory)) return true;
-    }
-    return false;
-  }, [directorySet]));
-  const hasPiBusySession = usePiSessionSnapshot((state) => {
-    for (const session of state.reducer.bySession.values()) {
-      if (!isPiSessionLive(session)) continue;
-      const directory = normalizePath(session.directory)?.toLowerCase();
+  const hasBusySession = usePiSessionSnapshot((state) => {
+    for (const record of state.catalog.byId.values()) {
+      if (record.lifecycle !== 'busy' && record.lifecycle !== 'retry') continue;
+      const directory = normalizePath(record.directory)?.toLowerCase();
       if (directory && directorySet.has(directory)) return true;
     }
     return false;
   });
 
-  if (hasBusySession || hasPiBusySession) {
+  if (hasBusySession) {
     return (
       <span
         className="inline-flex items-center"
@@ -289,17 +258,14 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     (state) => isVisible ? state.rankById : EMPTY_SESSION_ORDER_RANKS,
     [isVisible],
   ));
-  const activeSessionIds = useGlobalSessionStatusStore(useShallow(
-    (state) => isVisible ? [...state.statusById.keys()].sort() : EMPTY_STRING_ARRAY,
+  const catalogLiveKey = usePiSessionSnapshot((state) => (
+    isVisible ? catalogLiveSessionIdsKey(state.catalog) : ''
   ));
-  const piActiveKey = usePiSessionSnapshot((state) => (
-    isVisible ? piLiveSessionIdsKey(state.reducer.bySession) : ''
-  ));
-  const piActiveSessionIds = React.useMemo(
-    () => (piActiveKey ? piActiveKey.split('|') : EMPTY_STRING_ARRAY),
-    [piActiveKey],
+  const activeSessionIds = React.useMemo(
+    () => (catalogLiveKey ? catalogLiveKey.split('|') : EMPTY_STRING_ARRAY),
+    [catalogLiveKey],
   );
-  const activeSessionIdSet = React.useMemo(() => new Set([...activeSessionIds, ...piActiveSessionIds]), [activeSessionIds, piActiveSessionIds]);
+  const activeSessionIdSet = React.useMemo(() => new Set(activeSessionIds), [activeSessionIds]);
   const unreadSessionIds = useNotificationStore(useShallow(
     (state) => isVisible
       ? Object.entries(state.index.session.unseenCount)
@@ -424,41 +390,15 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const sync = useSync();
   const childStores = useChildStoreManager();
   const piConnection = usePiSessionSnapshot((state) => state.connection);
-  const piSessions = usePiSessionSnapshot((state) => state.sessions);
-  const bootstrapDemandOwner = `session-sidebar:${React.useId()}`;
-  const liveSessionIndex = React.useMemo(() => {
-    const map = new Map<string, Session>();
-    for (const session of mapPiSessionList(piSessions)) map.set(session.id, session);
-    return map;
-  }, [piSessions]);
-  const liveSessions = React.useMemo(() => Array.from(liveSessionIndex.values()), [liveSessionIndex]);
-  const hasAuthoritativeGlobalSessions = useGlobalSessionsStore((state) => state.status === 'ready');
-  const activeSessionStructure = useGlobalSessionsStore(useShallow(
-    (state) => state.activeSessions.map(getSessionStructuralSignature).sort(),
-  ));
-  const archivedSessionStructure = useGlobalSessionsStore(useShallow(
-    (state) => state.archivedSessions.map(getSessionStructuralSignature).sort(),
-  ));
-  const globalSessionSnapshot = useGlobalSessionsStore.getState();
-  const globalActiveSessions = globalSessionSnapshot.activeSessions;
-  const archivedSessions = globalSessionSnapshot.archivedSessions;
-  const liveFallbackCacheRef = React.useRef<{ signature: string; sessions: Session[] }>({
-    signature: '',
-    sessions: [],
-  });
-  const globalActiveSessionIds = React.useMemo(
-    () => new Set(globalActiveSessions.map((session) => session.id)),
-    [globalActiveSessions],
-  );
-  const liveFallbackSessions = (() => {
-    const candidates = liveSessions.filter((session) => !globalActiveSessionIds.has(session.id));
-    const signature = candidates.map(getSessionStructuralSignature).sort().join('\n');
-    if (liveFallbackCacheRef.current.signature === signature) {
-      return liveFallbackCacheRef.current.sessions;
+  const catalogReady = usePiSessionSnapshot((state) => {
+    for (const status of state.catalog.listStatusByDirectory.values()) {
+      if (status === 'ready') return true;
     }
-    liveFallbackCacheRef.current = { signature, sessions: candidates };
-    return candidates;
-  })();
+    return false;
+  });
+  const catalogSessions = useCatalogUiSessions({ archived: false });
+  const archivedSessions = useCatalogUiSessions({ archived: true });
+  const bootstrapDemandOwner = `session-sidebar:${React.useId()}`;
   const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
   const updateSessionTitle = useSessionUIStore((state) => state.updateSessionTitle);
   const shareSession = useSessionUIStore((state) => state.shareSession);
@@ -496,31 +436,16 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   );
 
   const sessions = React.useMemo(() => {
-    const merged = [...globalActiveSessions];
-    const seenIds = new Set(merged.map((session) => session.id));
-
-    liveFallbackSessions.forEach((session) => {
-      if (seenIds.has(session.id)) {
-        return;
-      }
-      merged.push(session);
-    });
-
-    return merged.filter((session) => isKnownActiveSessionDirectory(session, knownSessionDirectories, {
+    return catalogSessions.filter((session) => isKnownActiveSessionDirectory(session, knownSessionDirectories, {
       allowUnknownDirectory: true,
       allowEmptyDirectorySet: true,
     }));
-  }, [globalActiveSessions, knownSessionDirectories, liveFallbackSessions]);
+  }, [catalogSessions, knownSessionDirectories]);
 
   const persistenceSessions = React.useMemo(
-    () => [...globalActiveSessions, ...archivedSessions],
-    [archivedSessions, globalActiveSessions],
+    () => [...sessions, ...archivedSessions],
+    [archivedSessions, sessions],
   );
-
-  const syncSessionsSnapshotRef = React.useRef<Session[]>(liveSessions);
-  React.useEffect(() => {
-    syncSessionsSnapshotRef.current = liveSessions;
-  }, [liveSessions]);
 
   const runtimeKey = getRuntimeKey();
   const projectWorktreeDiscoveryKey = React.useMemo(
@@ -532,17 +457,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const [resolvedWorktreeTopologyKey, setResolvedWorktreeTopologyKey] = React.useState<string | null>(null);
   const isWorktreeTopologyLoading = resolvedWorktreeTopologyKey !== projectWorktreeDiscoveryKey;
   const [unresolvedWorktreeProjectPaths, setUnresolvedWorktreeProjectPaths] = React.useState<ReadonlySet<string>>(new Set());
-
-  const initialGlobalSessionsRefreshStartedRef = React.useRef(false);
-  React.useEffect(() => {
-    if (initialGlobalSessionsRefreshStartedRef.current) {
-      return;
-    }
-    initialGlobalSessionsRefreshStartedRef.current = true;
-    void refreshGlobalSessions(syncSessionsSnapshotRef.current);
-  }, []);
-
-
 
   const isDesktopShellRuntime = React.useMemo(() => isDesktopShell(), []);
 
@@ -615,11 +529,13 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   }, [orderedSessions, pinnedSessionIds, sessionOrderRanks]);
 
   const emptyState = React.useMemo(() => (
-    <div className="py-6 text-center text-muted-foreground">
-      <p className="typography-ui-label font-semibold">{"No sessions yet"}</p>
-      <p className="typography-meta mt-1">{"Create your first session to start coding."}</p>
-    </div>
-  ), []);
+    <SidebarSessionLikeButton
+      icon="chat-new"
+      onClick={() => openNewSessionDraftFromTree()}
+    >
+      {"New session"}
+    </SidebarSessionLikeButton>
+  ), [openNewSessionDraftFromTree]);
 
   const editingProject = React.useMemo(
     () => projects.find((project) => project.id === editingProjectDialogId) ?? null,
@@ -897,39 +813,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     [normalizedProjects],
   );
 
-  const projectSessionDirectories = React.useMemo(() => {
-    const directories = new Set(normalizedProjects.map((project) => project.normalizedPath));
-    if (availableWorktreesByProject) {
-      for (const worktrees of availableWorktreesByProject.values()) {
-        for (const worktree of worktrees || []) {
-          const directory = normalizePath(worktree?.path);
-          if (directory) directories.add(directory);
-        }
-      }
-    }
-    return [...directories].sort();
-  }, [availableWorktreesByProject, normalizedProjects]);
-
-  const knownProjectSessionDirectoriesRef = React.useRef<Set<string> | null>(null);
-  React.useEffect(() => {
-    const nextDirectories = new Set(projectSessionDirectories);
-    const previousDirectories = knownProjectSessionDirectoriesRef.current;
-    knownProjectSessionDirectoriesRef.current = nextDirectories;
-    if (!previousDirectories) {
-      if (projectSessionDirectories.length > 0) {
-        void refreshGlobalSessionsForDirectories(projectSessionDirectories, syncSessionsSnapshotRef.current);
-      }
-      return;
-    }
-
-    const addedDirectories = projectSessionDirectories.filter((directory) => !previousDirectories.has(directory));
-    if (addedDirectories.length === 0) {
-      return;
-    }
-
-    void refreshGlobalSessionsForDirectories(addedDirectories, syncSessionsSnapshotRef.current);
-  }, [projectSessionDirectories]);
-
   const gitRepoStatus = useGitRepoStatusMap(isVisible ? normalizedProjectPaths : EMPTY_STRING_ARRAY);
 
   useProjectRepoStatus({
@@ -947,7 +830,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   );
   useAuthoritativeSessionCleanup({
     enabled: isVisible,
-    hasAuthoritativeGlobalSessions,
+    hasAuthoritativeGlobalSessions: catalogReady,
     sessions: persistenceSessions,
   });
 
@@ -960,7 +843,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     normalizedProjects,
     ownership: sessionOwnership,
     isSessionsLoading,
-    hasAuthoritativeGlobalSessions,
+    hasAuthoritativeGlobalSessions: catalogReady,
     isWorktreeTopologyLoading,
     unresolvedWorktreeProjectPaths,
     foldersMap,
@@ -994,10 +877,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     hideDirectoryControls,
     showOnlyMainWorkspace,
     isTablet,
-    liveSessions,
-    activeSessionStructure,
-    archivedSessionStructure,
-    globalActiveSessions,
+    catalogSessions,
     archivedSessions,
     projects,
     activeProjectId,

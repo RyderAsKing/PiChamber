@@ -17,7 +17,8 @@ import {
 } from '@/components/ui/dialog';
 import { useUIStore } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useGlobalSessionsStore, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+import { useCatalogUiSessions } from '@/sync/sync-context';
+import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import {
   EMPTY_SESSION_ORDER_RANKS,
@@ -58,7 +59,6 @@ type CommandEntry = {
 };
 
 type FileHit = { path: string; name: string; relativePath: string };
-const EMPTY_SESSIONS: Session[] = [];
 
 const normalizePath = (value: string): string => {
   if (!value) return '';
@@ -89,10 +89,7 @@ export const CommandPalette: React.FC = () => {
   const openNewSessionDraft = useSessionUIStore((s) => s.openNewSessionDraft);
   const setCurrentSession = useSessionUIStore((s) => s.setCurrentSession);
 
-  const activeSessions = useGlobalSessionsStore(React.useCallback(
-    (state) => isCommandPaletteOpen ? state.activeSessions : EMPTY_SESSIONS,
-    [isCommandPaletteOpen],
-  ));
+  const activeSessions = useCatalogUiSessions({ archived: false });
   const pinnedSessionIds = useSessionPinnedStore(React.useCallback(
     (state) => isCommandPaletteOpen ? state.ids : EMPTY_PINNED_SESSION_IDS,
     [isCommandPaletteOpen],

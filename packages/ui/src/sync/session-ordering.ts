@@ -45,8 +45,11 @@ export const observeSessionActivityEvent = (
   const previous = phaseById.get(sessionId);
   phaseById.set(sessionId, phase);
 
-  if (previous === phase) return;
-  if (previous === undefined && phase === 'settled') return;
+  // Sidebar order is last prompt, not last turn stage. Settling, hydrate
+  // replay, and repeated busy ticks must not move a row. Only a new
+  // `active` observation (the send path) promotes.
+  if (phase !== 'active') return;
+  if (previous === 'active') return;
   promoteSessions([sessionId]);
 };
 
@@ -56,18 +59,11 @@ export const reconcileSessionActivitySnapshot = (
 ): void => {
   const active = new Set(activeSessionIds);
   const observed = new Set([...knownSessionIds, ...active]);
-  const promoted: string[] = [];
 
   for (const sessionId of observed) {
     const phase: SessionActivityPhase = active.has(sessionId) ? 'active' : 'settled';
-    const previous = phaseById.get(sessionId);
     phaseById.set(sessionId, phase);
-    if (previous !== undefined && previous !== phase) promoted.push(sessionId);
   }
-
-  // A snapshot cannot recover the order of missed transitions. Give the batch
-  // one rank and let authoritative timestamps break ties deterministically.
-  promoteSessions(promoted, true);
 };
 
 export const removeSessionOrdering = (sessionId: string): void => {
@@ -131,21 +127,12 @@ const baselineRank = (session: Session, pinned: boolean): number => {
  */
 export const raiseSessionOrderingBaselines = (sessions: Iterable<Session>): void => {
   const currentRanks = useSessionOrderingStore.getState().rankById;
-  let nextRanks: Map<string, number> | null = null;
   let baselinesChanged = false;
 
   for (const session of sessions) {
     const fresh = updatedAt(session);
-    const liveRank = currentRanks.get(session.id);
-    if (liveRank !== undefined) {
-      // A live rank frozen BEFORE this newer authoritative stamp is stale —
-      // the session was active again while this client wasn't watching (its
-      // transition events never arrived, e.g. another device + sleep). Ranks
-      // share the epoch-ms scale with `updated`, so raising is well-ordered.
-      if (fresh > liveRank) {
-        nextRanks = nextRanks ?? new Map(currentRanks);
-        nextRanks.set(session.id, fresh);
-      }
+    if (currentRanks.get(session.id) !== undefined) {
+      // Live ranks are last-prompt order. List stamps must not outrank them.
       continue;
     }
     const existing = baselineRankById.get(session.id);
@@ -154,10 +141,7 @@ export const raiseSessionOrderingBaselines = (sessions: Iterable<Session>): void
     baselinesChanged = true;
   }
 
-  if (nextRanks) {
-    useSessionOrderingStore.setState({ rankById: nextRanks });
-  } else if (baselinesChanged) {
-    // Baselines live outside the store; nudge subscribers so open lists re-sort.
+  if (baselinesChanged) {
     useSessionOrderingStore.setState((state) => ({ rankById: new Map(state.rankById) }));
   }
 };

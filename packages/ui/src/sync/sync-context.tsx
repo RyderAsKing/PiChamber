@@ -1,12 +1,18 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 import { useMemo } from 'react';
 import { getPiSessionStore, type PiSessionStoreState } from '@/apps/pi-session-store';
-import { piListItemToUiSession, piProjectedToRecords, mapPart } from '@/lib/chat/pi-to-renderable';
+import { piProjectedToRecords, mapPart } from '@/lib/chat/pi-to-renderable';
 import type { Message, Part, PermissionRequest, QuestionRequest, Session, SessionStatus } from '@/lib/chat/types';
 import { projectSession, type PiReducerMessage, type PiReducerSessionState } from '@/lib/pi/event-reducer';
 import { usePiSessionSnapshot, usePiSessionStore } from './pi-session-context';
-import { piLiveStatusSignature } from './pi-session-live';
 import { mapPiSessionList } from './sync-refs';
+import {
+  catalogLiveSessionIdsKey,
+  listUiSessionsFromCatalog,
+  liveSessionRecordToUiSession,
+  uiSessionListEqual,
+  type LiveSessionLifecycle,
+} from './pi-session-catalog';
 import { INITIAL_STATE, type State } from './types';
 
 const IDLE: SessionStatus = { type: 'idle' };
@@ -17,18 +23,7 @@ const EMPTY_QUESTIONS: QuestionRequest[] = [];
 const EMPTY_USER_HISTORY: string[] = [];
 const EMPTY_MESSAGE_RECORDS: ReturnType<typeof piProjectedToRecords> = [];
 const READY_LOAD_STATE = { loading: false, complete: true, status: 'ready' as const, cursor: undefined, error: null as string | null };
-
-const statusesFromSignature = (signature: string): Record<string, SessionStatus> => {
-  if (!signature) return {};
-  const statuses: Record<string, SessionStatus> = {};
-  for (const part of signature.split('|')) {
-    const splitAt = part.lastIndexOf(':');
-    const sessionId = part.slice(0, splitAt);
-    const kind = part.slice(splitAt + 1);
-    statuses[sessionId] = kind === 'retry' ? RETRY : BUSY;
-  }
-  return statuses;
-};
+const EMPTY_PARTS: Part[] = [];
 
 const directoryStateFromPi = (state: PiSessionStoreState): State => ({
   ...INITIAL_STATE,
@@ -36,6 +31,12 @@ const directoryStateFromPi = (state: PiSessionStoreState): State => ({
   session: mapPiSessionList(state.sessions),
   sessionTotal: state.sessions.length,
 });
+
+const sessionStatusFromLifecycle = (lifecycle: LiveSessionLifecycle | undefined): SessionStatus => {
+  if (lifecycle === 'busy') return BUSY;
+  if (lifecycle === 'retry') return RETRY;
+  return IDLE;
+};
 
 const sessionStatusFromReducer = (session: PiReducerSessionState | undefined): SessionStatus => {
   if (!session) return IDLE;
@@ -45,24 +46,39 @@ const sessionStatusFromReducer = (session: PiReducerSessionState | undefined): S
   return IDLE;
 };
 
+export function useCatalogUiSessions(options?: { archived?: boolean; directory?: string | null }): Session[] {
+  const archived = options?.archived ?? false;
+  const directory = options?.directory;
+  return usePiSessionSnapshot(
+    (state) => listUiSessionsFromCatalog(state.catalog, { archived, directory }),
+    uiSessionListEqual,
+  );
+}
+
 export function useGlobalSessionStatus(sessionID: string, directory?: string): SessionStatus {
   return useSessionStatus(sessionID, directory);
 }
 export function useAllSessionStatuses(): Record<string, SessionStatus> {
-  const signature = usePiSessionSnapshot((state) => piLiveStatusSignature(state.reducer.bySession));
-  return useMemo(() => statusesFromSignature(signature), [signature]);
+  const signature = usePiSessionSnapshot((state) => catalogLiveSessionIdsKey(state.catalog));
+  const catalog = usePiSessionSnapshot((state) => state.catalog);
+  return useMemo(() => {
+    if (!signature) return {};
+    const statuses: Record<string, SessionStatus> = {};
+    for (const part of signature.split('|')) {
+      const record = catalog.byId.get(part);
+      statuses[part] = sessionStatusFromLifecycle(record?.lifecycle);
+    }
+    return statuses;
+  }, [catalog, signature]);
 }
 export function useAllLiveSessions(): Session[] {
-  const sessions = usePiSessionSnapshot((state) => state.sessions);
-  return mapPiSessionList(sessions);
+  return useCatalogUiSessions({ archived: false });
 }
 export function setActiveSession(directory: string, sessionId: string) {
-  const store = getPiSessionStore();
-  if (directory && store.getState().directory !== directory) {
-    void store.open(directory, sessionId);
-    return;
-  }
-  void store.select(sessionId);
+  // Cross-folder select is a runtime-cluster focus change, never a
+  // teardown. `select` itself focuses the new directory without disposing
+  // the stream or dropping other folders' hydrated transcripts.
+  void getPiSessionStore().select(sessionId, directory || undefined);
 }
 export function setExternallyViewedSession(_directory: string, _sessionId: string, _viewed: boolean) {}
 
@@ -93,19 +109,42 @@ export function useSessionMessagesResolved(_sessionID: string, _directory?: stri
   return true;
 }
 
-export function useSessionParts(messageID: string, _directory?: string): Part[] {
-  const bySession = usePiSessionSnapshot((state) => state.reducer.bySession);
-  const session = useMemo(() => {
-    if (!messageID) return null;
+/**
+ * Live-tail part lookup. Pass a `sessionId` whenever the caller knows it so
+ * the hook subscribes to a single session's reducer entry rather than the
+ * whole cluster map (and never scans all sessions on every event).
+ */
+export function useSessionParts(
+  sessionId: string | null | undefined,
+  messageID: string,
+  directory?: string,
+): Part[] {
+  // Narrow subscription: subscribe to that one session's reducer record
+  // only. When the caller doesn't know the session id (legacy
+  // single-arg form), subscribe to the cluster map and fall back to a scan.
+  const narrow = usePiSessionSnapshot((state) => (
+    sessionId ? state.reducer.bySession.get(sessionId) ?? null : null
+  ));
+  // The legacy scan path requires the cluster map. The narrow path does
+  // not, so we skip subscribing in that case to keep background events
+  // from invalidating the components that don't need them.
+  const bySession = usePiSessionSnapshot((state) => (
+    sessionId ? null : state.reducer.bySession
+  ));
+  const legacyScan = useMemo(() => {
+    if (sessionId) return null;
+    if (!messageID || directory !== undefined) return null;
+    if (!bySession) return null;
     for (const candidate of bySession.values()) {
       if (candidate.messages.has(messageID)) return candidate;
     }
     return null;
-  }, [bySession, messageID]);
+  }, [bySession, messageID, sessionId, directory]);
+  const session = narrow ?? legacyScan;
   return useMemo(() => {
-    if (!messageID || !session) return [];
+    if (!messageID || !session) return EMPTY_PARTS;
     const message = session.messages.get(messageID);
-    if (!message) return [];
+    if (!message) return EMPTY_PARTS;
     const order = session.partOrder.get(messageID) ?? [];
     if (order.length > 0) {
       const parts: Part[] = [];
@@ -138,8 +177,12 @@ export function useSessionParts(messageID: string, _directory?: string): Part[] 
 }
 
 export function useSessionStatus(sessionID: string, _directory?: string): SessionStatus {
-  const bySession = usePiSessionSnapshot((state) => state.reducer.bySession);
-  return sessionStatusFromReducer(sessionID ? bySession.get(sessionID) : undefined);
+  return usePiSessionSnapshot((state) => {
+    if (!sessionID) return IDLE;
+    const record = state.catalog.byId.get(sessionID);
+    if (record) return sessionStatusFromLifecycle(record.lifecycle);
+    return sessionStatusFromReducer(state.reducer.bySession.get(sessionID));
+  });
 }
 
 export function useSessionPermissions(_sessionID: string, _directory?: string): PermissionRequest[] {
@@ -150,7 +193,8 @@ export function useSessionQuestions(_sessionID: string, _directory?: string): Qu
 }
 export function useSessionQuestionCount(_scopes?: unknown) { return 0; }
 export function useSessions(): Session[] {
-  return useAllLiveSessions();
+  const directory = usePiSessionSnapshot((state) => state.directory);
+  return useCatalogUiSessions({ archived: false, directory: directory || null });
 }
 export function useScopedBlockingPermissions(): PermissionRequest[] {
   return EMPTY_PERMISSIONS;
@@ -162,17 +206,18 @@ export function useParentSession(): Session | null {
   return null;
 }
 export function useSession(sessionID?: string | null, _directory?: string): Session | undefined {
-  const sessions = usePiSessionSnapshot((state) => state.sessions);
-  const item = sessionID ? sessions.find((entry) => entry.session.id === sessionID) ?? null : null;
-  return item ? piListItemToUiSession(item) : undefined;
+  const record = usePiSessionSnapshot((state) => (
+    sessionID ? state.catalog.byId.get(sessionID) ?? null : null
+  ));
+  return record ? liveSessionRecordToUiSession(record) : undefined;
 }
 
 export function useSessionDirectory(sessionID?: string | null): string | undefined {
-  const sessions = usePiSessionSnapshot((state) => state.sessions);
+  const recordDirectory = usePiSessionSnapshot((state) => (
+    sessionID ? state.catalog.byId.get(sessionID)?.directory : undefined
+  ));
   const directory = usePiSessionSnapshot((state) => state.directory);
-  return (sessionID ? sessions.find((entry) => entry.session.id === sessionID)?.session.directory : undefined)
-    ?? directory
-    ?? undefined;
+  return recordDirectory ?? directory ?? undefined;
 }
 export function useSyncDirectory(): string {
   return usePiSessionSnapshot((state) => state.directory ?? '');
@@ -222,9 +267,13 @@ export function useSessionRenderable(sessionID: string, _directory?: string): bo
 }
 
 export function useUserMessageHistory(sessionID: string): string[] {
-  const bySession = usePiSessionSnapshot((state) => state.reducer.bySession);
+  // Subscribe narrowly to one session's reducer record — other sessions'
+  // events won't invalidate the memo. The projected text is canonical,
+  // so we treat the session reference change as the recompute trigger.
+  const session = usePiSessionSnapshot((state) => (
+    sessionID ? state.reducer.bySession.get(sessionID) ?? null : null
+  ));
   return useMemo(() => {
-    const session = sessionID ? bySession.get(sessionID) : undefined;
     if (!session) return EMPTY_USER_HISTORY;
     const history: string[] = [];
     const seen = new Set<string>();
@@ -247,7 +296,7 @@ export function useUserMessageHistory(sessionID: string): string[] {
       if (text) history.push(text);
     }
     return history;
-  }, [bySession, sessionID]);
+  }, [session]);
 }
 
 export function useSessionMessageRecords(
@@ -259,22 +308,29 @@ export function useSessionMessageRecords(
     suspendPartUpdatesForMessageId?: string | null;
   },
 ) {
-  const bySession = usePiSessionSnapshot((state) => state.reducer.bySession);
-  const session = sessionID ? bySession.get(sessionID) ?? null : null;
+  // Subscribe to one session's reducer entry; other sessions' stream
+  // events keep the same reference so React skips recomputation.
+  const session = usePiSessionSnapshot((state) => (
+    sessionID ? state.reducer.bySession.get(sessionID) ?? null : null
+  ));
   return useMemo(() => (
     session ? piProjectedToRecords(projectSession(session)) : EMPTY_MESSAGE_RECORDS
   ), [session]);
 }
 
 export function useSessionMessageCount(sessionID: string, _directory?: string): number {
-  const bySession = usePiSessionSnapshot((state) => state.reducer.bySession);
-  const session = sessionID ? bySession.get(sessionID) : undefined;
+  const session = usePiSessionSnapshot((state) => (
+    sessionID ? state.reducer.bySession.get(sessionID) : undefined
+  ));
   return session ? session.messages.size : 0;
 }
 
 export function useEnsureSessionMessages(sessionID: string, _directory?: string, enabled = true) {
   const store = usePiSessionStore();
-  if (enabled && sessionID && store.getState().selectedSessionId !== sessionID) {
-    void store.select(sessionID);
-  }
+  if (!enabled || !sessionID) return;
+  // Background hydrations (e.g. child sessions inside a tool call) must
+  // not change `selectedSessionId` or directory focus: they would steal
+  // the visible chat. The store's `ensureHydrated` hydrates the session
+  // if it isn't already resident and is otherwise a no-op.
+  void store.ensureHydrated(sessionID);
 }

@@ -6,9 +6,11 @@ This document covers the current client-side session/data architecture in `packa
 
 There are **two distinct session data scopes** in the UI:
 
-1. **Pi session store** (`PiSessionProvider` / `PiSessionStore`; OpenCode SSE child stores are not session truth)
+1. **Pi runtime-scoped session store** (`PiSessionProvider` / `PiSessionStore`; OpenCode SSE child stores are not session truth)
    - Owned by `PiSessionStore` via `pi-session-context.tsx` and the restored UI-facing sync hooks
-   - Source for live session/message/part state for the active directory
+   - Cluster source for live session/message/part state across the connected runtime: a single event stream, one `reducer.bySession` map, one `hydratedSessionIds` set
+   - Backs the focused project's sidebar list, the chat timeline, and the in-flight busy/retry panels for every resident session
+   - Folder focus swaps the sidebar list pointer without touching the cluster; only `clear()` / `dispose()` / runtime switch resets the cluster
    - Backed by `/api/pi/*` and the Pi event stream
    - Read via hooks like `useSessions()`, `useSessionMessageRecords()`, `getSyncSessions()`
 
@@ -24,18 +26,35 @@ These two scopes are intentionally different, but they are no longer equal peers
 
 ### Why both exist
 
-The directory-scoped sync stores are **not** a complete global view.
+The Pi runtime-scoped store is **not** a complete global view.
 
-- They are created lazily per directory
-- They only contain data for directories initialized in the current app session
-- They are optimized for live per-directory domain data
-- They do not maintain the complete global active+archived session view needed by the sidebar and retention settings
+- It is created lazily for each connected runtime
+- It only hydrates sessions the user has visited (subject to the soft eviction cap)
+- It is optimized for live, in-flight session data across the cluster
+- It does not maintain the complete global active+archived session view needed by the sidebar's cold directories and retention settings
 
 So:
 
-- Use the **directory sync stores** for per-directory live session/message state
+- Use the **Pi runtime-scoped store** for live session/message state on the connected runtime, including background busy sessions the focused folder does not own
 - Use the **global sessions store** for cold/global session coverage (especially archived pages and unopened directories)
 - Use **aggregated child-store sessions and the global live status index** for live truth across initialized directories
+
+### Runtime-scoped sessions
+
+The Pi cluster belongs to the connected runtime, not the focused project:
+
+- One event stream, one `reducer.bySession`, one `hydratedSessionIds` set, and one runtime generation guard
+- `directory` is a focus pointer for the sidebar list, the new-session cwd, and the `selectProject` daemon focus — not a liveness boundary
+- Folder focus (`focusProject(directory, preferredSessionId?)`) replaces the `sessions[]`, sets the `selectedSessionId`, hydrates the new id only when cold, and never disposes the stream, clears `hydratedSessionIds`, drops other folders' hydrated transcripts, or rewrites `connection: 'loading'` for the cluster
+- Folder focus sets `focusPending: true` while the list is in flight so the chat can keep its existing view (or its existing PiChamber logo loader) instead of clearing back to `ChatEmptyState`. `sessionsListStatus` distinguishes `'loading'` / `'ready'` / `'failed'` and discriminates authoritative empty success from list failure
+- Same-folder selection is a pointer change on the resident cluster (`select(id)`)
+- A failed list for the new folder surfaces an error on that slice only after one automatic retry on transient 5xx / 408 / 429; previous folder sessions, the stream, and other folders' hydrated transcripts all survive
+- Warm folder switches skip the loader: if the preferred id is already hydrated, `focusProject` selects it immediately and resolves the list in the background. `start({directory})` also seeds the focus with `lastSelectedSessionForDirectory(directory)` so the chat reopens on the remembered session with no spinner
+- Idle transcripts are evicted by a deferred microtask scan (default cap 16) that walks `lastAccessById` in ascending order and never evicts the selected, busy/retry, or pending-prompt session; it keeps the evicted session's `lastSequence`, never runs on the hydrate acquisition path, and is scheduled after both `commitEvents` and `commitHydratedSession` so a render mounting many entries scans once, not once per entry
+- `applyPiEvent` only clones the session the event touches; other resident sessions keep their previous references so a background busy turn does not rebuild the visible transcript tree
+- `ensureHydrated(id)` hydrates a session if cold without changing `selectedSessionId` or directory focus — chat surfaces that read a child session inside a tool part must use it instead of `select`, so background hydrations never steal the visible chat
+- `prompt()` must not replace a resident transcript with an empty busy stub. Live events only carry the new turn; installing a blank `bySession` row makes prior history disappear. If the row is missing or has no messages, re-hydrate from `getSession` first. `hydrate()` also refetches when `hydratedSessionIds` still lists the session but `bySession` has no messages. A live event for a session whose transcript was dropped but whose `lastSequence` cursor remains triggers the same restore and merges the fetched log onto the in-flight turn
+- Reconnect merges the snapshot into the existing cluster without disposals, then hydrates any resident session whose `lastSequence` is behind the resumed cursor so a quiet background turn does not lose the disconnect gap
 
 ## Ownership map
 
@@ -43,11 +62,15 @@ So:
 |---|---|---|
 | `ChildStoreManager` and child directory stores | Priority-scheduled directory bootstrap plus `session`, `message`, `part`, `permission`, `question`, etc. | One runtime and one store per directory |
 | `SessionMessageLoader` | Initial message loading, pagination, prefetch, retries, load state, and optimistic reconciliation | One runtime, directory, and session ID |
+| `pi-session-catalog.ts` | Live runtime-scoped metadata catalog (`byId`, `byDirectory`, `listStatusByDirectory`); the at-most-2-in-flight directory refresh scheduler | All known directories in the active runtime |
+| `PiSessionStore` (`pi-session-store.ts`) | Live event stream, reducer `bySession` (LRU-capped transcripts), `hydratedSessionIds`, `lastAccessById`, the live catalog, and per-directory refresh generation | One runtime-wide cluster |
+| `PiSessionCatalogFeeder` (`pi-session-catalog-feeder.tsx`) | Subscribes to `useProjectsStore` + `useSessionUIStore`; fills the catalog for every known directory (project roots + worktrees), deduped by sorted signature | All known directories; React-mount lifecycle |
 | `global-session-status.ts` | Incremental non-idle session status index reconciled from events and authoritative directory snapshots | All known directories in the active runtime |
 | `session-ordering.ts` | Ephemeral lifecycle rank used by every user-visible session list | All known sessions in the active runtime |
 | `session-activity-timing.ts` | Elapsed time of the running turn and of the turn that just finished, plus the persisted starts that survive a reload | All known sessions in the active runtime |
 | `session-ui-store.ts` | Session selection, draft lifecycle, abort prompts, action entrypoints | App UI state |
-| `useGlobalSessionsStore.ts` | Global active sessions, global archived sessions, `sessionsByDirectory` | All added project session lists; each successful directory refresh replaces only that directory while failures preserve its prior sessions |
+| `useGlobalSessionsStore.ts` | Thin wrapper that reads the catalog via `liveSessionRecordToUiSession`; retains `upsertSession` / `removeSessions` / `archiveSessions` / `applySnapshot` / `resetForRuntimeSwitch` until `migrate-hooks` retires it | Derived view of the catalog; mutations for retained callers |
+| `known-session-directories.ts` | The shared `buildKnownSessionDirectories(projects, worktrees)` helper the sidebar and feeder use to agree on the directory set. Dedupe is case-insensitive; returned paths keep filesystem casing for daemon list RPC | App-wide |
 | `viewport-store.ts` | Scroll anchors, session memory, loading indicators | App UI state |
 | `attachment-files.ts` | Attachment picker allowlists, MIME/content validation, structured-text sanitization, and HEIC conversion | Local chat attachments across shared UI runtimes |
 | `document-attachments.ts` | Bounded Office/OpenDocument extraction, document text serialization, embedded-image extraction, and positional citations | DOCX, PPTX, XLSX, ODT, ODP, and ODS chat attachments |
@@ -59,6 +82,53 @@ Local chat attachments are normalized by `attachment-files.ts` before entering `
 Office and OpenDocument packages are metadata-validated before asynchronous extraction, with limits of 20 MB compressed input, 5,000 archive entries, 25 MB per entry, 8 MB per XML part, and 100 MB total uncompressed content. Unsafe or non-canonical archive paths reject the whole attachment, and only XML, relationship, and supported image entries are decompressed and retained. Extracted text, including its explicit truncation notice, is bounded to 2,000,000 characters. At most 50 signature-validated PNG, JPEG, GIF, or WebP images and 40 MB of image bytes are retained, with a 20 MB per-image limit; unsupported, invalid, omitted, and truncated content remains explicit in the extracted text. Images whose citations fall beyond text truncation are not attached. Extracted document content remains a `text/plain` file attachment with the original document filename, rather than becoming visible user-message text. Supported embedded images become separate image file parts; the extracted text contains `[filename]` citations at the source paragraph, slide object, spreadsheet cell anchor, or OpenDocument text position. Generated image filenames are re-evaluated if the composer changes during asynchronous preparation, avoiding collisions. The store publishes all generated parts atomically only after every data URL is ready.
 
 The composer compares normalized attachment MIME types with the selected model's declared input modalities. It warns when a newly attached file or an existing attachment after a model change requires an unsupported modality, but does not block sending. Missing modality metadata remains unknown and does not produce a warning. Pi sends upload every captured data URL before prompt dispatch and forward only the returned opaque attachment ids; dropping `files` is not a supported fallback.
+
+## Live session catalog
+
+`PiSessionStore` owns the runtime-scoped live catalog of every Pi session the connected runtime has surfaced. Transcripts continue to live in `reducer.bySession` (LRU-capped, soft cap 16, idle-eviction on the deferred microtask). The catalog is metadata-only — no messages, no parts — so it can survive an LRU drop and still render a sidebar row.
+
+### Shape
+
+```text
+catalog.byId:                    Map<sessionId, LiveSessionRecord>
+catalog.byDirectory:             Map<directory, sessionId[]>     // membership
+catalog.listStatusByDirectory:   Map<directory, 'idle'|'loading'|'ready'|'failed'>
+```
+
+`LiveSessionRecord` carries `id`, `directory`, `parentId`, `title`, `archived`, `createdAt`, `updatedAt`, optional `preview` / `messageCount`, a `lifecycle` mirror (`'idle' | 'busy' | 'retry' | 'error'`), and a `hydrated` flag (a pointer into `reducer.bySession`, not a copy of it).
+
+### Membership rules
+
+- A successful `listSessions` for directory `D` replaces `byDirectory[D]`; other directories are untouched. Rows for ids that left `D` are removed from `byId` only when no other directory in the catalog still owns the record (a session that has moved A → B must keep its B row when A is re-listed without it).
+- A failed `listSessions` for `D` keeps the prior rows for `D` and flips `listStatusByDirectory[D]` to `'failed'`. Failure is not empty success.
+- Pi events update rows in place: `session.lifecycle` flips `lifecycle`. Token deltas and lifecycle/snapshot boundaries do **not** bump `updatedAt`. Last-prompt recency is written only by `PiSessionStore.prompt()` via `touchRecordUpdatedAt`.
+- An event arriving for a session that has not been listed yet (`byId` has no row) inserts a `upsertStubRecord` so the sidebar can render the session as busy. `applyDirectoryListToCatalog` preserves a non-idle existing lifecycle on listed ids, so a stub is never downgraded to idle by a slow list.
+
+### Single fill path
+
+`PiSessionCatalogFeeder` is the only direct caller of `PiSessionStore.refreshAllDirectoryCatalogs` from React. It subscribes to both `useProjectsStore` (project roots) and `useSessionUIStore` (`availableWorktreesByProject` for discovered worktree paths). On every change in the union it:
+
+1. Computes the sorted directory-set signature.
+2. Skips the refresh when the signature has not changed (project-list reorders and worktree discovery that yields the same paths must not re-list).
+3. Otherwise calls `PiSessionStore.refreshAllDirectoryCatalogs(directories)`.
+
+`refreshDirectoryCatalog` is the single fill primitive. It captures a per-directory generation, bumps it on every call, and ignores stale completions (a slow RPC returning after a newer refresh has begun, or after a runtime switch, commits nothing). The at-most-2-in-flight scheduler is owned by `pi-session-catalog.ts` (`mapDirectoriesWithRefreshSlot` uses `mapWithConcurrency(2)`; the older nested `withDirectoryRefreshSlot` is exported only for direct callers and must not be re-nested — two limiters can deadlock).
+
+### Wrapper contract (until retire-duplicates)
+
+`useGlobalSessionsStore` remains a thin wrapper for retention/pin metadata and mini-chat fill. Sidebar, header, command palette, archive, and mobile session lists read `catalog.byId` / `catalog.byDirectory` through `useCatalogUiSessions` / `useSession` / `useSessionStatus`. `useSessions()` is the focused directory slice; `useAllLiveSessions()` / `getSyncSessions()` are the runtime-wide active catalog.
+
+`listUiSessionsFromCatalog` treats an omitted or `undefined` `directory` as runtime-wide. `null` or `''` is an empty focused slice (`useSessions()` when the cluster has no directory). A non-empty string is that directory's membership. The React hook always passes `{ archived, directory }`, so `undefined` must not be treated as empty.
+
+The wrapper still skips sync when the focused folder's list is still in flight (`connection === 'loading'`, `focusPending`, or `sessionsListStatus` `'loading'`/`'idle'`). Mini-chat (no feeder) still reaches `loadSessions`. `fetchDirectoryPages` reads `'ready'` directories from the catalog and only refreshes `'idle'` / `'failed'` directories.
+
+### Failure handling
+
+Per-directory failures stay scoped to that directory. The catalog's `listStatusByDirectory` carries the signal without leaking into `state.connection` (which is owned by the bootstrap / reconnect path). A failed list does not erase other directories' rows.
+
+### Runtime switch
+
+`dispose` / `clear` / `resetForRuntime` reset the catalog via `initial()`. The `hydratedSessionIds` set, `lastAccessById`, and the per-directory refresh generations all clear in lockstep.
 
 ## Session list rules
 
@@ -129,11 +199,11 @@ Current consumers:
 
 Cross-directory selectors subscribe to the narrow child-store field they aggregate. Session aggregation listens to `state.session`. Live busy/retry state is also maintained in `global-session-status.ts`, where each row subscribes to one session ID instead of scanning every child store. Events update the index incrementally; authoritative per-directory status snapshots seed it, clear sessions omitted as idle, and reconcile missed events. Unrelated streaming events such as `message.part.delta` must not trigger global session/status scans.
 
-Session display order is independent from streaming-frequency `time.updated` publications. `session-ordering.ts` promotes a session exactly when its authoritative activity phase crosses `settled` (`idle`/`error`) and `active` (`busy`/`retry`) in either direction. Repeated busy/retry or idle/error events are no-ops. The first authoritative status snapshot establishes a baseline without synthetic promotions; later snapshots reconcile missed transitions. Root sessions compare lifecycle rank only with other roots, while child sessions compare lifecycle rank only with siblings sharing the same `parentID`, so child activity never moves its root conversation. Pins remain the first ordering bucket. The timestamp/creation fallback is frozen when a session first participates in ordering, so later metadata-only updates cannot reorder it; creation time and ID provide deterministic ties. Runtime switches clear all phases, baselines, and ranks.
+Session display order is last-prompt recency, not last turn stage. `session-ordering.ts` promotes a session only when `observeSessionActivityEvent` sees a new `active` phase (the send path). Settled/idle, hydrate replay, reconnect snapshots, and list `time.updated` stamps do not promote. Pins remain the first ordering bucket. The timestamp/creation fallback is frozen when a session first participates in ordering; creation time and ID provide deterministic ties. Runtime switches clear all phases, baselines, and ranks.
 
 `session-activity-timing.ts` measures how long a turn has been running, because `SessionStatus` carries no timestamps. It is driven from the same two write paths as `global-session-status.ts`, so a row can never count a turn that index calls idle. A session gains a start on its first `active` observation and keeps it across repeated busy/retry events; settling converts that start into a finished duration used by live running rows. Unread completion is a separate `turn-complete` notification: Pi lifecycle `idle`/`error`/`interrupted` after a live `active` turn appends it for any session that is not currently open, and opening the session marks it viewed.
 
-Sending a prompt promotes that session immediately (`observeSessionActivityEvent('active')` plus a list recency bump). A later `settled` transition on another session can still outrank it, which is how a finishing background agent takes the top of the list. Skipped/out-of-order stream events must not drive that promotion: a replayed `session.error` cannot settle a turn whose later `busy` event already applied. An idle reconnect snapshot also cannot settle a session whose prompt is accepted but whose `agent_start` has not arrived yet.
+Sending a prompt promotes that session immediately (`observeSessionActivityEvent('active', reorder)` plus a catalog `updatedAt` bump). Finishing or switching sessions does not reorder. Status dots still follow catalog `lifecycle` (`idle` when the agent is done).
 
 A provider stream that ends without `finish_reason` publishes `session.error` and must complete the in-flight assistant (duration, running tools) so the chat does not stay on "Analyzing". The next send is a new turn even if the UI still tried steer/follow-up.
 

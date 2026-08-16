@@ -4,8 +4,6 @@ import type { ContextPanelMode } from '@/stores/useUIStore';
 export type ContextSurfaceId =
   | 'editor'
   | 'git'
-  | 'pr'
-  | 'diff'
   | 'terminal'
   | 'notes'
   | 'context'
@@ -20,7 +18,7 @@ export type ContextSurfaceDescriptor = {
   icon: IconName;
   label: string;
   /**
-   * 'always' surfaces can be opened empty from the rail.
+   * 'always' surfaces are always present on the rail.
    * 'has-content' surfaces are content-driven: they need an existing tab of
    * their mode (a preview URL emitted, a split session) and stay hidden on
    * the rail until one exists.
@@ -28,63 +26,39 @@ export type ContextSurfaceDescriptor = {
   availability: 'always' | 'has-content';
   /** Short tooltip explanation shown on the rail. */
   description: string;
-  /**
-   * Default panel width as a fraction of the available content area, used
-   * until the user manually resizes this surface.
-   */
-  defaultWidthFraction: number;
 };
+
+/** Shared default panel width as a fraction of the content area. */
+export const CONTEXT_SURFACE_DEFAULT_WIDTH_FRACTION = 0.45;
 
 export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   {
     id: 'context',
     description: "Session context and token usage",
-    defaultWidthFraction: 0.45,
     mode: 'context',
     icon: 'donut-chart-fill',
     label: "Context",
     availability: 'always',
   },
   {
+    id: 'editor',
+    description: "Edit project files",
+    mode: 'file',
+    icon: 'file-text',
+    label: "Files",
+    availability: 'always',
+  },
+  {
     id: 'git',
-    description: "Commits, branches, and pull requests",
-    defaultWidthFraction: 2 / 5,
+    description: "Review diffs, commit, and push",
     mode: 'git',
     icon: 'git-branch',
     label: "Git",
     availability: 'always',
   },
   {
-    id: 'pr',
-    description: "Create, review, and merge the pull request for the current branch",
-    defaultWidthFraction: 0.45,
-    mode: 'pr',
-    icon: 'github',
-    label: "Pull Request",
-    availability: 'always',
-  },
-  {
-    id: 'diff',
-    description: "Review working changes",
-    defaultWidthFraction: 3 / 5,
-    mode: 'diff',
-    icon: 'arrow-left-right',
-    label: "Changes",
-    availability: 'always',
-  },
-  {
-    id: 'editor',
-    description: "Edit project files",
-    defaultWidthFraction: 3 / 5,
-    mode: 'file',
-    icon: 'braces',
-    label: "Files",
-    availability: 'always',
-  },
-  {
     id: 'terminal',
     description: "Built-in terminal",
-    defaultWidthFraction: 3 / 5,
     mode: 'terminal',
     icon: 'terminal-box',
     label: "Terminal",
@@ -93,7 +67,6 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   {
     id: 'notes',
     description: "Notes, todos, and plans for the project",
-    defaultWidthFraction: 1 / 3,
     mode: 'notes',
     icon: 'sticky-note',
     label: "Project notes",
@@ -103,7 +76,6 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   {
     id: 'browser',
     description: "Built-in web browser",
-    defaultWidthFraction: 0.45,
     mode: 'browser',
     icon: 'global',
     label: "Browser",
@@ -112,7 +84,6 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   {
     id: 'preview',
     description: "Dev server preview",
-    defaultWidthFraction: 0.45,
     mode: 'preview',
     icon: 'window',
     label: "Preview",
@@ -121,7 +92,6 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   {
     id: 'chat',
     description: "Session opened side by side",
-    defaultWidthFraction: 0.45,
     mode: 'chat',
     icon: 'chat-4',
     label: "Chat",
@@ -130,13 +100,23 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
 ];
 
 const SURFACE_BY_ID = new Map(CONTEXT_SURFACES.map((surface) => [surface.id, surface]));
-const FRACTION_BY_MODE = new Map(CONTEXT_SURFACES.map((surface) => [surface.mode, surface.defaultWidthFraction]));
 
-// Tablet width and up: below this the walkthrough cannot show a stop and its
-// code side by side, which is the whole point of the surface.
+const GIT_SURFACE = CONTEXT_SURFACES.find((surface) => surface.id === 'git');
 
-export const getContextSurfaceWidthFraction = (mode: ContextPanelMode): number => {
-  return FRACTION_BY_MODE.get(mode) ?? 1 / 2;
+/** Rail chrome for the Git surface: Changes when the directory is not a repo. */
+export const getGitRailPresentation = (isGitRepo: boolean | null): Pick<ContextSurfaceDescriptor, 'icon' | 'label' | 'description'> => {
+  if (isGitRepo === false) {
+    return {
+      icon: 'arrow-left-right',
+      label: "Changes",
+      description: "Review working and last-turn changes",
+    };
+  }
+  return {
+    icon: GIT_SURFACE?.icon ?? 'git-branch',
+    label: GIT_SURFACE?.label ?? "Git",
+    description: GIT_SURFACE?.description ?? "Review diffs, commit, and push",
+  };
 };
 
 const isContextSurfaceId = (value: unknown): value is ContextSurfaceId => {

@@ -2,15 +2,16 @@
 // @ts-nocheck
 import { create } from 'zustand';
 import type { Session } from '@/lib/chat/types';
-import { piClient } from '@/lib/pi/client';
 import { splitGlobalSessionsByArchived } from '@/stores/globalSessions';
 import { normalizePath } from '@/lib/pathNormalization';
 import { raiseSessionOrderingBaselines } from '@/sync/session-ordering';
-import { mapWithConcurrency } from '@/lib/concurrency';
+import type { PiSessionStore } from '@/apps/pi-session-store';
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { piListItemToUiSession } from '@/lib/chat/pi-to-renderable';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import {
+  liveSessionRecordToUiSession,
+} from '@/sync/pi-session-catalog';
 
 type GlobalSessionsStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -37,25 +38,6 @@ type GlobalSessionsState = {
   /** Drop every session from the previous runtime instance and go back to the
       unloaded state, so a fresh load runs against the new endpoint. */
   resetForRuntimeSwitch: () => void;
-};
-
-const DIRECTORY_SESSION_REFRESH_CONCURRENCY = 2;
-let directorySessionRefreshActive = 0;
-const directorySessionRefreshWaiters: Array<() => void> = [];
-
-const withDirectorySessionRefreshSlot = async <T>(task: () => Promise<T>): Promise<T> => {
-  if (directorySessionRefreshActive >= DIRECTORY_SESSION_REFRESH_CONCURRENCY) {
-    await new Promise<void>((resolve) => directorySessionRefreshWaiters.push(resolve));
-  } else {
-    directorySessionRefreshActive += 1;
-  }
-  try {
-    return await task();
-  } finally {
-    const next = directorySessionRefreshWaiters.shift();
-    if (next) next();
-    else directorySessionRefreshActive = Math.max(0, directorySessionRefreshActive - 1);
-  }
 };
 
 let inflightLoad: Promise<LoadResult> | null = null;
@@ -262,32 +244,51 @@ const fetchDirectoryPages = async (
     if (right === currentDirectory) return 1;
     return left.localeCompare(right);
   });
-  const results = await mapWithConcurrency(orderedDirectories, DIRECTORY_SESSION_REFRESH_CONCURRENCY, async (directory) => {
-    try {
-      const result = await withDirectorySessionRefreshSlot(() => piClient.listSessions({ directory, runtimeKey }));
-      return {
-        status: 'fulfilled' as const,
-        value: {
-          directory,
-          sessions: result.sessions.map(piListItemToUiSession),
-        },
-      };
-    } catch (reason) {
-      return { status: 'rejected' as const, reason };
-    }
+  // Delegate to the catalog owner's `refreshAllDirectoryCatalogs`, but only
+  // for directories that aren't already `'ready'` in the catalog. The
+  // catalog owner is the single fill path; reading the catalog is the
+  // single read path. Re-listing an already-ready directory would double
+  // the `/api/pi/sessions` traffic every time the sidebar or mini-chat
+  // asks for a refresh.
+  const generation = loadGeneration;
+  // Read the catalog once at the top of the function so both the dedup
+  // pass and the result-collection pass see the same snapshot.
+  const initialCatalog = getPiSessionStore().getState().catalog;
+  const toRefresh = orderedDirectories.filter((directory) => {
+    const normalized = normalizePath(directory);
+    const status = normalized ? initialCatalog.listStatusByDirectory.get(normalized) : undefined;
+    return status !== 'ready';
   });
-
+  if (toRefresh.length > 0) {
+    await getPiSessionStore().refreshAllDirectoryCatalogs(toRefresh);
+  }
+  if (generation !== loadGeneration) {
+    return { directories: new Set(), sessions: [], errors: [] };
+  }
+  if (runtimeKey !== getRuntimeKey()) {
+    return { directories: new Set(), sessions: [], errors: [] };
+  }
+  const catalog = getPiSessionStore().getState().catalog;
   const fulfilledDirectories = new Set<string>();
   const sessions: Session[] = [];
   const errors: unknown[] = [];
 
-  for (const result of results) {
-    if (result.status === 'fulfilled') {
-      fulfilledDirectories.add(result.value.directory);
-      sessions.push(...result.value.sessions);
-    } else {
-      errors.push(result.reason);
+  for (const directory of orderedDirectories) {
+    const normalized = normalizePath(directory);
+    const status = catalog.listStatusByDirectory.get(normalized ?? directory);
+    if (status === 'failed') {
+      errors.push(new Error(`session list failed for ${directory}`));
+      continue;
     }
+    if (status !== 'ready') continue;
+    const ids = catalog.byDirectory.get(normalized ?? directory);
+    if (!ids) continue;
+    for (const id of ids) {
+      const record = catalog.byId.get(id);
+      if (!record) continue;
+      sessions.push(liveSessionRecordToUiSession(record));
+    }
+    fulfilledDirectories.add(directory);
   }
 
   return { directories: fulfilledDirectories, sessions, errors };
@@ -552,40 +553,38 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
         const piStore = getPiSessionStore();
         const piState = piStore.getState();
 
-        // If the Pi store hasn't loaded yet, wait briefly for it to become
-        // ready rather than applying an empty snapshot.
-        let sessions = piState.sessions;
-        if (piState.connection === 'loading' && sessions.length === 0) {
-          sessions = await new Promise<typeof sessions>((resolve) => {
-            const timeout = setTimeout(() => { unsub(); resolve([]); }, 5000);
-            const unsub = piStore.subscribe(() => {
-              const s = piStore.getState();
-              if (s.connection !== 'loading' || s.sessions.length > 0) {
-                clearTimeout(timeout);
-                unsub();
-                resolve(s.sessions);
-              }
-            });
-          });
+        // Fallback path: there are no project directories and no current Pi
+        // directory to list. Mini-chat and other surfaces without a feeder
+        // reach this branch. Read the focused directory's rows out of the
+        // catalog (the authoritative live metadata). A focused directory
+        // whose list is still in flight (`focusPending`, `sessionsListStatus
+        // === 'loading'`, or `connection === 'loading'`) must NOT overwrite
+        // the global slice with `[]` — the focused listing is still in
+        // flight and would otherwise wipe a known folder.
+        const directory = normalizePath(piState.directory);
+        const listStillInFlight = piState.focusPending
+          || piState.sessionsListStatus === 'loading'
+          || piState.sessionsListStatus === 'idle'
+          || piState.connection === 'loading';
+        if (!directory || listStillInFlight) {
+          const committed = get();
+          return {
+            activeSessions: committed.activeSessions,
+            archivedSessions: committed.archivedSessions,
+          };
         }
-
-        const allSessions = sessions.map(piListItemToUiSession);
+        const catalogRows = collectCatalogRowsForDirectories(piState.catalog, [directory]);
 
         if (generation !== loadGeneration) {
           // Runtime switched mid-load: this snapshot belongs to the previous
           // instance — drop it.
           return { activeSessions: [], archivedSessions: [] };
         }
-        const { active, archived } = splitGlobalSessionsByArchived(allSessions);
+        const { active, archived } = splitGlobalSessionsByArchived(catalogRows);
         set((state) => {
-          const directory = normalizePath(piStore.getState().directory);
-          const directories = directory ? new Set([directory]) : new Set<string>();
-          const nextActive = directories.size > 0
-            ? replaceSessionsForDirectories(state.activeSessions, active, directories)
-            : mergeSessionLists(state.activeSessions, active);
-          const nextArchived = directories.size > 0
-            ? replaceSessionsForDirectories(state.archivedSessions, archived, directories)
-            : mergeSessionLists(state.archivedSessions, archived);
+          const directories = new Set([directory]);
+          const nextActive = replaceSessionsForDirectories(state.activeSessions, active, directories);
+          const nextArchived = replaceSessionsForDirectories(state.archivedSessions, archived, directories);
           const reconciled = overlayMutationsSince(state, nextActive, nextArchived, baselineRevision);
           return applySnapshot(state, reconciled.activeSessions, reconciled.archivedSessions, 'ready');
         });
@@ -766,19 +765,59 @@ let piStoreUnsubscribe: (() => void) | null = null;
 
 const syncFromPiStore = () => {
   const piState = getPiSessionStore().getState();
-  // Do not sync while the Pi store is still loading — an empty snapshot from a
-  // loading state would be a false authoritative empty result.
+  // Do not sync while the Pi store is still loading — an empty snapshot from
+  // a loading state would be a false authoritative empty result.
   if (piState.connection === 'loading') return;
+  // A focused folder whose list is still in flight must not overwrite the
+  // global slice. `focusPending` is true between pointer swap and list
+  // resolve; `sessionsListStatus` is `'loading'` while the listing RPC is in
+  // flight; `'idle'` means the directory has never been listed (e.g. when
+  // there is no focused project). In any of these cases `piState.sessions`
+  // is `[]` and replacing from it would wipe the focused folder.
+  if (piState.focusPending
+    || piState.sessionsListStatus === 'loading'
+    || piState.sessionsListStatus === 'idle') return;
   const directory = normalizePath(piState.directory);
   if (!directory) return;
-  const allSessions = piState.sessions.map(piListItemToUiSession);
-  const { active, archived } = splitGlobalSessionsByArchived(allSessions);
+  // Read catalog rows for the focused directory only. The catalog is the
+  // live source of truth for membership and metadata, including rows that
+  // arrive via Pi events before the directory's listing RPC resolves.
+  const rows = collectCatalogRowsForDirectories(piState.catalog, [directory]);
+  const { active, archived } = splitGlobalSessionsByArchived(rows);
   const directories = new Set([directory]);
   useGlobalSessionsStore.setState((state) => {
     const nextActive = replaceSessionsForDirectories(state.activeSessions, active, directories);
     const nextArchived = replaceSessionsForDirectories(state.archivedSessions, archived, directories);
     return applySnapshot(state, nextActive, nextArchived, 'ready');
   });
+};
+
+/**
+ * Project the catalog rows belonging to `directories` into the UI `Session`
+ * shape that the global store has always consumed. The catalog is the
+ * authoritative live metadata; the global store is a derived view until
+ * `migrate-hooks` retires it.
+ */
+const collectCatalogRowsForDirectories = (
+  catalog: ReturnType<PiSessionStore['getState']>['catalog'],
+  directories: readonly string[],
+): Session[] => {
+  const rows: Session[] = [];
+  const seen = new Set<string>();
+  for (const directory of directories) {
+    const normalized = normalizePath(directory);
+    if (!normalized) continue;
+    const ids = catalog.byDirectory.get(normalized);
+    if (!ids) continue;
+    for (const id of ids) {
+      if (seen.has(id)) continue;
+      const record = catalog.byId.get(id);
+      if (!record) continue;
+      rows.push(liveSessionRecordToUiSession(record));
+      seen.add(id);
+    }
+  }
+  return rows;
 };
 
 const ensurePiStoreSync = () => {

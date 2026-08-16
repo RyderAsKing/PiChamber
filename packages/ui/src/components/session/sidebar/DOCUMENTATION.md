@@ -26,7 +26,7 @@
 - `SidebarNav.tsx`: Text navigation rows above the tree (New session, Archive); hidden in VS Code.
 - `SidebarFooter.tsx`: Static footer with icon-only settings, shortcuts, and about actions.
 - `SidebarProjectsList.tsx`: Main scrollable renderer for project zones and their flat/archived groups plus empty/search states; owns project drag-to-reorder.
-- `SessionGroupSection.tsx`: Renders one flat (or archived) group: sessions first, then flat folder entries with path labels, show-more batching, and explicit loading/error/retry state for empty groups.
+- `SessionGroupSection.tsx`: Renders one flat (or archived) group: sessions first, then flat folder entries with path labels, session-shaped show-more/new-session rows, and explicit loading/error/retry state for empty groups.
 - `SessionNodeItem.tsx`: Renders one session row/tree node with a single-line layout, inline branch label, indicators, menu actions, and nested children. Pending-question counts stay per-session while expanded and roll up hidden descendants from their owning directory stores while collapsed.
 - `collapsedActivityIndicator.tsx`: Aggregate busy/unseen dot for collapsed groups and folders.
 - `ConfirmDialogs.tsx`: Shared confirm dialog wrappers for session delete and folder delete flows.
@@ -53,4 +53,6 @@
 
 - `types.ts`: Shared sidebar types (`SessionNode`, `SessionGroup`, summary/search metadata).
 - `sessionNodeItemUtils.ts`: Memoization and extraction utilities for session node rows.
-- `utils.ts`: Deduplication, search matching, and path normalization helpers.
+- `utils.ts`: Deduplication, search matching, path normalization, and shared row class names.
+- `highlightedText.tsx`: Search highlight markup for session and group labels.
+- `sidebarRowChrome.tsx`: Session-shaped row buttons.

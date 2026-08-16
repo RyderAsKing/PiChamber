@@ -36,6 +36,18 @@ describe('foldConsecutiveStreamDeltas', () => {
     expect(folded[0]?.name === 'assistant.message.delta' && folded[0].payload.delta).toBe('abc');
   });
 
+  test('folds cumulative snapshots without stuttering', () => {
+    const folded = foldConsecutiveStreamDeltas([
+      delta(1, 'Let'),
+      delta(2, 'Let me look'),
+      delta(3, 'Let me look at the tests'),
+    ]);
+    expect(folded).toHaveLength(1);
+    expect(folded[0]?.name === 'assistant.message.delta' && folded[0].payload.delta).toBe(
+      'Let me look at the tests',
+    );
+  });
+
   test('does not fold different content indexes or sessions', () => {
     const folded = foldConsecutiveStreamDeltas([
       delta(1, 'a', 'sess-1', 0),

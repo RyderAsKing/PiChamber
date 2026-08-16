@@ -83,6 +83,32 @@ describe("applyPiEvent", () => {
     expect(parts?.get("m1:thinking")?.text).toBe("thoughtful analysis")
   })
 
+  test("merges overlapping and cumulative deltas instead of stuttering markdown", () => {
+    let state = applyPiEvent(createReducerState(), assistantStart()).state
+    state = applyPiEvent(state, baseEvent("assistant.message.delta", 2, {
+      messageId: "m1", contentIndex: 0, delta: "Let",
+    })).state
+    state = applyPiEvent(state, baseEvent("assistant.message.delta", 3, {
+      messageId: "m1", contentIndex: 0, delta: "Let me look",
+    })).state
+    state = applyPiEvent(state, baseEvent("assistant.thinking.delta", 4, {
+      messageId: "m1", contentIndex: 1, delta: "Let me look at the tests",
+    })).state
+    state = applyPiEvent(state, baseEvent("assistant.thinking.delta", 5, {
+      messageId: "m1", contentIndex: 1, delta: " me look at the tests and documentation",
+    })).state
+    state = applyPiEvent(state, baseEvent("assistant.message.end", 6, {
+      messageId: "m1",
+      text: "Let me look at the tests",
+      thinking: "Let me look at the tests and documentation",
+    })).state
+
+    const session = state.bySession.get("sess-1")
+    expect(session?.parts.get("m1:text")?.text).toBe("Let me look at the tests")
+    expect(session?.parts.get("m1:thinking")?.text).toBe("Let me look at the tests and documentation")
+    expect(session?.messages.get("m1")?.text).toBe("Let me look at the tests")
+  })
+
   test("tracks canonical tool start, update, and end", () => {
     let state = applyPiEvent(createReducerState(), assistantStart()).state
     state = applyPiEvent(state, baseEvent("session.tool.start", 2, {

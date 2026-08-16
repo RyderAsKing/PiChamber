@@ -34,32 +34,32 @@ describe('useUIStore openContextSurface', () => {
   const directory = '/repo';
 
   test('opens a fresh singleton tab when none of that mode exists', () => {
-    useUIStore.getState().openContextSurface(directory, 'diff');
+    useUIStore.getState().openContextSurface(directory, 'git');
 
     const state = useUIStore.getState().contextPanelByDirectory[directory];
     expect(state?.isOpen).toBe(true);
-    expect(state?.tabs.map((tab) => tab.mode)).toEqual(['diff']);
+    expect(state?.tabs.map((tab) => tab.mode)).toEqual(['git']);
   });
 
   test('activates the existing tab of the requested mode instead of duplicating it', () => {
-    useUIStore.getState().openContextPanelTab(directory, { mode: 'diff' });
+    useUIStore.getState().openContextPanelTab(directory, { mode: 'git' });
     useUIStore.getState().openContextPanelTab(directory, { mode: 'file', targetPath: '/repo/a.ts' });
 
-    useUIStore.getState().openContextSurface(directory, 'diff');
+    useUIStore.getState().openContextSurface(directory, 'git');
 
     const state = useUIStore.getState().contextPanelByDirectory[directory];
-    expect(state?.tabs.filter((tab) => tab.mode === 'diff')).toHaveLength(1);
-    expect(state?.activeTabId).toBe('diff');
+    expect(state?.tabs.filter((tab) => tab.mode === 'git')).toHaveLength(1);
+    expect(state?.activeTabId).toBe('git');
     expect(state?.isOpen).toBe(true);
   });
 
   test('toggles the panel closed when the requested mode is already active and open', () => {
-    useUIStore.getState().openContextSurface(directory, 'diff');
-    useUIStore.getState().openContextSurface(directory, 'diff');
+    useUIStore.getState().openContextSurface(directory, 'git');
+    useUIStore.getState().openContextSurface(directory, 'git');
 
     const state = useUIStore.getState().contextPanelByDirectory[directory];
     expect(state?.isOpen).toBe(false);
-    expect(state?.tabs.map((tab) => tab.mode)).toEqual(['diff']);
+    expect(state?.tabs.map((tab) => tab.mode)).toEqual(['git']);
   });
 
   test('does nothing for content-driven modes without existing content', () => {
@@ -87,7 +87,7 @@ describe('useUIStore openContextSurface', () => {
   test('activates the most recently touched tab of a content-driven mode', () => {
     useUIStore.getState().openContextFile(directory, '/repo/a.ts');
     useUIStore.getState().openContextFile(directory, '/repo/b.ts');
-    useUIStore.getState().openContextPanelTab(directory, { mode: 'diff' });
+    useUIStore.getState().openContextPanelTab(directory, { mode: 'terminal' });
 
     useUIStore.getState().openContextSurface(directory, 'file');
 
@@ -143,32 +143,43 @@ describe('useUIStore closeContextPanelTab surface stability', () => {
   });
 });
 
-describe('useUIStore per-surface panel widths', () => {
+describe('useUIStore shared panel width', () => {
   const directory = '/repo';
 
-  test('setContextPanelWidth stores a clamped manual width for one mode only', () => {
-    useUIStore.getState().openContextPanelTab(directory, { mode: 'diff' });
-    useUIStore.getState().setContextPanelWidth(directory, 'diff', 700);
-    useUIStore.getState().setContextPanelWidth(directory, 'git', 100);
+  test('setContextPanelWidth stores one clamped width for every surface', () => {
+    useUIStore.getState().openContextPanelTab(directory, { mode: 'git' });
+    useUIStore.getState().setContextPanelWidth(directory, 700);
+    useUIStore.getState().setContextPanelWidth(directory, 100);
 
     const state = useUIStore.getState().contextPanelByDirectory[directory];
-    expect(state?.widthByMode.diff).toBe(700);
-    expect(state?.widthByMode.git).toBe(380);
-    expect(state?.widthByMode.browser).toBe(undefined);
+    expect(state?.width).toBe(380);
+  });
+});
+
+describe('useUIStore openContextDiff', () => {
+  const directory = '/repo';
+
+  test('opens Git and selects the pending file instead of a Changes surface', () => {
+    useUIStore.getState().openContextDiff(directory, 'src/app.ts', true);
+
+    const state = useUIStore.getState();
+    expect(state.contextPanelByDirectory[directory]?.tabs.map((tab) => tab.mode)).toEqual(['git']);
+    expect(state.pendingDiffFile).toBe('src/app.ts');
+    expect(state.pendingDiffStaged).toBe(true);
   });
 });
 
 describe('useUIStore contextRailOrder', () => {
   test('setContextRailOrder drops empty and duplicate ids', () => {
-    useUIStore.getState().setContextRailOrder(['diff', 'diff', '', 'editor']);
-    expect(useUIStore.getState().contextRailOrder).toEqual(['diff', 'editor']);
+    useUIStore.getState().setContextRailOrder(['git', 'git', '', 'editor']);
+    expect(useUIStore.getState().contextRailOrder).toEqual(['git', 'editor']);
   });
 
   test('sortContextSurfaces applies persisted order and appends missing surfaces', () => {
     const ordered = sortContextSurfaces(['browser', 'unknown-id', 'diff']);
     const ids = ordered.map((surface) => surface.id);
 
-    expect(ids.slice(0, 2)).toEqual(['browser', 'diff']);
+    expect(ids.slice(0, 2)).toEqual(['browser', 'context']);
     // Assert against the registry itself so this test cannot go stale when a
     // surface is added or removed.
     expect(new Set(ids)).toEqual(new Set(CONTEXT_SURFACES.map((surface) => surface.id)));

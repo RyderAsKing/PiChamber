@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { PROJECT_COLOR_MAP, PROJECT_ICON_MAP, ProjectIconImage } from '@/lib/projectMeta';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
+import { sidebarRowIconClassName, sidebarRowLabelClassName } from './utils';
 
 export type SortableDragHandleProps = {
   listeners: ReturnType<typeof useSortable>['listeners'];
@@ -54,19 +55,21 @@ export const ProjectHeaderIdentity: React.FC<ProjectHeaderIdentityProps> = ({
 
   return (
     <>
-      <span className="inline-flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center">
+      <span className={cn('inline-flex shrink-0 items-center justify-center', sidebarRowIconClassName)}>
         {hasCollapseControl ? (
           <span className={cn(
-            'h-3.5 w-3.5 items-center justify-center text-muted-foreground',
+            'items-center justify-center text-muted-foreground',
+            sidebarRowIconClassName,
             alwaysShowActions ? 'inline-flex' : 'hidden group-hover/project:inline-flex group-focus-within/project:inline-flex',
           )}>
-            <Icon name={isCollapsed ? 'arrow-right-s' : 'arrow-down-s'} className="h-3.5 w-3.5" />
+            <Icon name={isCollapsed ? 'arrow-right-s' : 'arrow-down-s'} className={sidebarRowIconClassName} />
           </span>
         ) : null}
         {projectIconImage ? (
           <span
             className={cn(
-              'h-3.5 w-3.5 items-center justify-center overflow-hidden rounded-[3px]',
+              'items-center justify-center overflow-hidden rounded-[3px]',
+              sidebarRowIconClassName,
               hasCollapseControl && alwaysShowActions ? 'hidden' : 'inline-flex',
               iconVisibilityClassName,
             )}
@@ -80,19 +83,19 @@ export const ProjectHeaderIdentity: React.FC<ProjectHeaderIdentityProps> = ({
               }}
               className="h-full w-full object-contain"
               fallback={projectIconName ? (
-                <Icon name={projectIconName} className="h-3.5 w-3.5" style={iconColor ? { color: iconColor } : undefined} />
+                <Icon name={projectIconName} className={sidebarRowIconClassName} style={iconColor ? { color: iconColor } : undefined} />
               ) : (
-                <Icon name="folder" className="h-3.5 w-3.5 text-muted-foreground/80" style={iconColor ? { color: iconColor } : undefined} />
+                <Icon name="folder" className={cn(sidebarRowIconClassName, 'text-muted-foreground/80')} style={iconColor ? { color: iconColor } : undefined} />
               )}
             />
           </span>
         ) : projectIconName ? (
-          <Icon name={projectIconName} className={cn('h-3.5 w-3.5', iconVisibilityClassName)} style={iconColor ? { color: iconColor } : undefined} />
+          <Icon name={projectIconName} className={cn(sidebarRowIconClassName, iconVisibilityClassName)} style={iconColor ? { color: iconColor } : undefined} />
         ) : (
-          <Icon name="folder" className={cn('h-3.5 w-3.5 text-muted-foreground/80', iconVisibilityClassName)} style={iconColor ? { color: iconColor } : undefined} />
+          <Icon name="folder" className={cn(sidebarRowIconClassName, 'text-muted-foreground/80', iconVisibilityClassName)} style={iconColor ? { color: iconColor } : undefined} />
         )}
       </span>
-      <span className="truncate text-[14px] font-semibold lowercase text-foreground">{projectLabel}</span>
+      <span className={cn(sidebarRowLabelClassName, 'text-foreground')}>{projectLabel}</span>
     </>
   );
 };
@@ -345,7 +348,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                         onMouseDown={handleMenuTriggerMouseDown}
                         onClick={handleMenuTriggerClick}
                       >
-                        <Icon name="more-2" className="h-3.5 w-3.5" />
+                        <Icon name="more-2" className="size-4" />
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="min-w-[180px]">

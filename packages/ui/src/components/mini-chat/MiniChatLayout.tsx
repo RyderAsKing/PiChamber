@@ -309,7 +309,7 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
 };
 
 export const MiniChatLayout: React.FC<MiniChatLayoutProps> = ({ mode, autoOpenDraft = false, unavailable = false }) => {
-  
+  const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
@@ -324,7 +324,7 @@ export const MiniChatLayout: React.FC<MiniChatLayoutProps> = ({ mode, autoOpenDr
           </div>
         ) : (
           <ChatSurfaceProvider mode="mini-chat">
-            <ChatContainer autoOpenDraft={autoOpenDraft} />
+            <ChatContainer key={currentSessionId ?? 'no-session'} autoOpenDraft={autoOpenDraft} />
           </ChatSurfaceProvider>
         )}
       </main>

@@ -8,9 +8,9 @@ import { sessionEvents } from '@/lib/sessionEvents';
 import { useUIStore } from '@/stores/useUIStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { resolveGlobalSessionDirectory, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
+import { useCatalogUiSessions } from '@/sync/sync-context';
+import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { formatSessionDateLabel, normalizePath } from '@/components/session/sidebar/utils';
-import { useShallow } from 'zustand/react/shallow';
 
 type DirectoryBucket = {
   directory: string;
@@ -29,7 +29,7 @@ export function ArchiveView(): React.ReactNode {
   const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
   const unarchiveSession = useSessionUIStore((state) => state.unarchiveSession);
   const homeDirectory = useDirectoryStore((state) => state.homeDirectory);
-  const archivedSessions = useGlobalSessionsStore(useShallow((state) => open ? state.archivedSessions : []));
+  const archivedSessions = useCatalogUiSessions({ archived: true });
   const [query, setQuery] = React.useState('');
   const [selectedDirectory, setSelectedDirectory] = React.useState<string | null>(null);
   const [visibleCount, setVisibleCount] = React.useState(PAGE_SIZE);

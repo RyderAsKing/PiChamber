@@ -1,4 +1,5 @@
 import type { PiSessionEvent } from './protocol';
+import { applyAssistantTextDelta } from './text-delta';
 
 const STREAM_FRAME_EVENT_NAMES = new Set(['assistant.message.delta', 'assistant.thinking.delta']);
 
@@ -29,7 +30,7 @@ const foldDeltas = (left: PiSessionEvent, right: PiSessionEvent): PiSessionEvent
     ...next,
     payload: {
       ...next.payload,
-      delta: previous.payload.delta + next.payload.delta,
+      delta: applyAssistantTextDelta(previous.payload.delta, next.payload.delta),
     },
   };
 };

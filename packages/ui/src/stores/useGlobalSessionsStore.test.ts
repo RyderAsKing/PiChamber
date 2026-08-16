@@ -11,6 +11,15 @@ import {
   useGlobalSessionsStore,
 } from './useGlobalSessionsStore';
 import { useProjectsStore } from './useProjectsStore';
+import { getPiSessionStore } from '@/apps/pi-session-store';
+
+beforeEach(() => {
+    // Reset the singleton's catalog so tests do not leak listSessions
+    // results into one another. The global store reads from the catalog
+    // via the dedup check; a stale `'ready'` from a prior test would skip
+    // this test's listing.
+    getPiSessionStore().clear();
+});
 
 type SessionExtra = Partial<Session> & {
   directory?: string | null;
@@ -237,6 +246,57 @@ describe('useGlobalSessionsStore', () => {
     expect(result.activeSessions.map((s) => s.id)).toEqual(['ses_a_1']);
     expect(useGlobalSessionsStore.getState().status).toBe('ready');
     expect(useGlobalSessionsStore.getState().hasLoaded).toBe(true);
+  });
+
+  test('syncFromPiStore does not throw when the Pi session store emits', async () => {
+    // The crash hotfix: the global store used to call a removed
+    // `piListItemToUiSession` here. A subsequent catalog emit would throw a
+    // ReferenceError on every refresh. This test pins the safe path.
+    useProjectsStore.setState({
+      projects: [{ id: 'proj-a', path: '/repo-a' }],
+      activeProjectId: 'proj-a',
+    });
+    const store = getPiSessionStore();
+    // Seed the catalog with a single session so the focused directory's
+    // listing is ready when the global store reads it.
+    store.getState();
+    await store.refreshDirectoryCatalog('/repo-a');
+    // The session-store subscription is set up by the first loadSessions;
+    // calling it once ensures the listener is attached.
+    piClient.listSessions = async () => ({
+      sessions: [{
+        session: { id: 'ses_a_1', directory: '/repo-a', title: 'Session A1', createdAt: 10, updatedAt: 20 },
+        updatedAt: 20,
+      }],
+    });
+    await useGlobalSessionsStore.getState().loadSessions();
+    // Now mutate the catalog \u2014 syncFromPiStore should not throw.
+    expect(() => store.refreshDirectoryCatalog('/repo-a')).not.toThrow();
+  });
+
+  test('focusPending does not empty the global folder slice', async () => {
+    useProjectsStore.setState({
+      projects: [{ id: 'proj-a', path: '/repo-a' }],
+      activeProjectId: 'proj-a',
+    });
+    piClient.listSessions = async ({ directory } = {}) => {
+      if (directory === '/repo-a') {
+        return {
+          sessions: [{
+            session: { id: 'ses_a_1', directory: '/repo-a', title: 'Session A1', createdAt: 10, updatedAt: 20 },
+            updatedAt: 20,
+          }],
+        };
+      }
+      return { sessions: [] };
+    };
+    const first = await useGlobalSessionsStore.getState().loadSessions();
+    expect(first.activeSessions.map((s) => s.id)).toEqual(['ses_a_1']);
+    // A second call while no project-store change happened must not wipe the
+    // existing slice, because the focused folder's catalog may already be
+    // ready and the second call should be a no-op read.
+    const second = await useGlobalSessionsStore.getState().loadSessions();
+    expect(second.activeSessions.map((s) => s.id)).toEqual(['ses_a_1']);
   });
 });
 

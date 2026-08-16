@@ -50,14 +50,26 @@ accepted sequence per session id and rejects any event for that session whose
 sequence is `<=` the last accepted value. `getSession` reports that same global
 cursor, not proof that the returned transcript contains every locally applied
 delta, so hydration overlays an in-flight busy/retry turn onto the fetched
-history instead of replacing it. Reconnect resumes from
+history instead of replacing it. Sending a prompt on an already-open session
+must not install an empty `bySession` row: live events only carry the new
+turn, so a blank placeholder would make prior history disappear. If the
+resident transcript is missing or empty, `prompt()` re-hydrates from the
+append-only session log first. The same restore runs when a live event
+arrives for a session whose transcript was dropped but whose `lastSequence`
+cursor remains. That restore forces `getSession` even if the live event already
+created a one-turn resident row, then overlays the JSONL log onto it. Reconnect resumes from
 `max(clientAppliedMax, snapshot.lastSequence)` so a quieter session cannot
-rewind the directory stream into the retained event log. It fetches the
-selected session snapshot but reattaches a directory-wide stream; narrowing
-that stream would lose events after the next resident session switch. Pi's delta
+rewind the runtime stream into the retained event log. It merges the selected
+session snapshot into the existing cluster without disposing other hydrated
+sessions, and reattaches the runtime-wide stream; narrowing that stream would
+lose events after the next resident session switch. Pi's delta
 `contentIndex` is a stable content-block identity and may repeat for every
-chunk in that block; reducers append those chunks and use event sequence for
-deduplication. A snapshot is itself an event with `name: 'session.snapshot'`;
+chunk in that block; reducers apply those chunks with `applyAssistantTextDelta`
+(incremental suffix, cumulative snapshot, or bounded overlapping tail) and
+use event sequence for deduplication. Cadence folding uses the same merge so
+a frame of cumulative chunks cannot concatenate into stuttering markdown.
+`assistant.message.end` writes the canonical `text`/`thinking` onto the
+rendered parts; message-level fields alone are not what the chat paints. A snapshot is itself an event with `name: 'session.snapshot'`;
 The snapshot reducer replaces the running state when the snapshot's
 `lastSequence` is strictly greater than the previously accepted snapshot.
 Reconnect still unions an in-flight session's existing messages onto that
@@ -76,35 +88,108 @@ reconnect begins.
 
 ## Mounted UI ownership
 
-`packages/ui/src/apps/pi-session-store.ts` owns one active user-selected project,
-including explicit daemon project selection, bootstrap, sequenced event reduction,
-reconnect hydration, and runtime-switch disposal. Directory generation advances on
-project open, clear, and runtime switch — not on session selection. Selecting a
-session that is already hydrated is a pointer change on the live directory
-stream; an unhydrated session fetches its transcript without tearing the stream
-down. The chat surface waits on `hydratedSessionIds` before painting a session,
+`packages/ui/src/apps/pi-session-store.ts` owns the active connected runtime's
+session cluster: one event stream, `reducer.bySession`, `hydratedSessionIds`,
+the runtime generation guard, and a separate `directory` focus pointer for the
+sidebar list and new-session cwd. The cluster lives until a runtime switch,
+`clear()`, or `dispose()`; switching the focused project is a pointer change
+that never disposes the stream, drops hydrated sessions, or rewrites
+`hydratedSessionIds`. The runtime generation advances on bootstrap / reconnect /
+runtime switch / dispose; the focus generation advances on every
+`focusProject` call so a stale promise cannot commit while a newer folder
+focus is already in flight.
+
+### Folder switch loading contract
+
+A folder click cannot flash `ChatEmptyState` or an auto-open blank chat.
+The chat surface already shows the existing PiChamber logo loader when its
+selected id is not yet in `hydratedSessionIds`; `focusPending` extends that
+loader preconditions to a folder switch without a known id, and
+`sessionsListStatus` lets the chat distinguish loading / ready / failed.
+`focusPending` is set the moment a folder click swaps the pointer and clears
+only when the selected id becomes hydrated, the focus resolves to an
+authoritative empty `sessions[]`, or the focus fails outright. While
+`focusPending` is true, `AppEffects` keeps the existing UI store identity so
+the chat does not collapse back to `ChatEmptyState`.
+
+Warm folder switches skip the loader: if the preferred session id is already
+in `hydratedSessionIds`, `focusProject` selects it immediately and resolves
+the list in the background. `PiSessionProvider` seeds `start({directory})`
+with the cluster's `lastSelectedSessionForDirectory(directory)` hint so a
+warm folder change lands the user on their remembered session with no
+spinner.
+
+### List failure vs empty success
+
+A folder-B list is retried exactly once on transient `DAEMON_UNAVAILABLE`
+or 5xx/408/429 before the focus slice flips to
+`sessionsListStatus: 'failed'`. Failed focus keeps the cluster, the stream,
+the previous folder's transcripts, and the focused `directory` intact; the
+chat's existing "Session could not be loaded" block exposes **Try again**,
+which re-runs `focusProject`. A successful empty list is the distinct
+`'ready'` case with `sessions: []` and no error, so an empty new project can
+auto-open its draft without flashing a failure banner.
+
+### First-attach race
+
+`hasClusterAttached()` is `stream !== null || connection === 'ready'`. Once
+the cluster enters the `'ready'` window — after the list resolves and
+during the SSE-plug window — a project click routes through `focusProject`,
+not `start` / `open`. Folder changes during that window do not bump
+`runtimeGeneration` and never dispose a soon-to-be-stream. The first-attach
+`open()` keeps `connection: 'loading'` while the cluster is genuinely
+uninitialized; it flips to `'ready'` once the list resolves, and the chat
+surfaces use that flag to gate the loader.
+
+### LRU eviction
+
+Idle transcripts are evicted by a deferred microtask scan after both
+`commitHydratedSession` and `commitEvents`. The scan walks resident
+sessions by `lastAccessById` (a per-process monotonic clock) in ascending
+order and drops the longest-idle until the cluster is at
+`PI_TRANSCRIPT_EVICTION_SOFT_CAP` (default 16). Selected, busy/retry, and
+pending-prompt sessions are protected; `lastSequence` for evicted sessions
+is retained so a later rehydrate resumes from the same cursor. The scan
+never runs on the hydrate acquisition path — a render mounting many
+entries schedules one scan, not one per entry.
+
+### Reconnect catch-up
+
+`reconnect()` merges the snapshot into the existing cluster (no disposals)
+and then iterates any hydrated resident whose `lastSequence` is behind the
+resumed cursor, issuing a `getSession` and `commitHydratedSession` for each.
+A quiet background turn does not lose the disconnect gap.
+
+### `ensureHydrated`
+
+`store.ensureHydrated(id)` hydrates a session if it isn't already resident,
+without changing `selectedSessionId` or the directory focus. Chat surfaces
+that mount a child session inside a tool part use it instead of `select`,
+so background hydrations don't steal the visible chat.
+
+`open(directory, sessionId)` is the first-attach entry: it probes health,
+selects the daemon project, lists and hydrates the selected session, and
+attaches the runtime-wide stream. After attach, `open` /
+`start` /
+`legacy-ui-client.setDirectory` / `setActiveSession` route to
+`focusProject(directory)` when the cluster is attached, then call
+`select(sessionId)` for the new pointer. Same-folder selects remain pure
+pointer changes on the resident cluster. Cross-folder
+selects swap the list, change the pointer, and hydrate only the new id if it
+wasn't already resident.
+
+A `select(project)` that brings the directory into focus calls
+`selectProject` (kept for the daemon focus identity used by `listSessions` and
+`createSession`); prompt/abort paths already go through
+`activateSession(sessionId)`, so a background run keeps its own cwd even when
+the focus pointer leaves its folder.
+
+The chat surface waits on `hydratedSessionIds` before painting a session,
 so a cached or event-partial transcript cannot flash thinking-block animations
-while `getSession` is still merging. Selecting the already-open session retries
-hydrate when that id is missing from `hydratedSessionIds`. Live event stubs are not treated as complete transcripts. Hydration writes into `bySession` by session id, so an in-flight fetch for
-session A cannot replace session B's transcript. An in-flight `getSession` that
-finishes after the user has already started a turn keeps every live message and
-part (existing ids win on overlap) and only fills in history the live reducer
-does not yet have. A stale or empty-bodied fetch must not blank a transcript
-the user is already looking at. Stream user events use synthetic ids
-(`user-<sessionId>-<sequence>`); hydration aliases those onto the persisted
-JSONL user with the same text and matching event timestamp so a single send
-cannot render twice while a genuinely repeated prompt remains a separate turn.
-An empty intermediate assistant error is omitted from projection only when a
-later assistant record under the same user turn proves the run recovered;
-unrecovered terminal errors remain visible. `session.error` ends the live
-assistant: streaming flags clear, duration is filled, and running tools go to
-`error` so the status row cannot keep "Analyzing" after the provider stream
-dies. A follow-up send after that error is a new turn; skipped stale error
-events and idle reconnect snapshots must not settle a prompt that has already
-been accepted. Stream token deltas are folded
-and flushed once per animation frame; start/end/lifecycle events flush immediately
-and keep sequence order. The directory stream attaches with the hydrated lastSequence
-cursor so the client does not replay the retained event log from zero. Cross-directory selection opens the target project and preferred session as one operation.
+while `getSession` is still merging. The chat body itself remounts with
+`key={sessionId}` so composer drafts and viewport anchors reset to the right
+session even when the cluster preserves resident transcripts during a folder
+switch.
 
 The global session store separately retains authoritative per-directory snapshots for every added project; switching the active Pi runtime directory must not erase unrelated project sessions. The mounted provider follows the
 persisted PiChamber project store; with no project selected it clears session state

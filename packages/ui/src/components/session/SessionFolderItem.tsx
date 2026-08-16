@@ -2,6 +2,7 @@ import React from 'react';
 import { cn } from '@/lib/utils';
 import type { SessionFolder } from '@/stores/useSessionFoldersStore';
 import { Icon } from "@/components/icon/Icon";
+import { sidebarRowIconClassName, sidebarRowLabelClassName } from './sidebar/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { SessionNodeChildRenderExtras, SessionNodeRenderExtras } from './sidebar/sessionNodeItemUtils';
 import { CollapsedActivityIndicator } from './sidebar/collapsedActivityIndicator';
@@ -186,7 +187,7 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
           : `Collapse folder ${folder.name}`}
       >
         <div className={cn(
-          'min-w-0 flex items-center gap-2 flex-1 transition-[padding]',
+          'min-w-0 flex items-center gap-1.5 flex-1 transition-[padding]',
           archivedBucket
             ? (alwaysShowActions ? 'pr-7' : 'group-hover/folder:pr-7 group-focus-within/folder:pr-7')
             // Actions overlay on hover (new session, rename, delete = three
@@ -194,7 +195,7 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
             // while they are revealed, mirroring session-row behavior.
             : (alwaysShowActions ? 'pr-20' : 'group-hover/folder:pr-20 group-focus-within/folder:pr-20'),
         )}>
-          <Icon name={folderIconName} className={cn('h-3.5 w-3.5 flex-shrink-0', isDropTarget ? 'text-primary' : 'text-muted-foreground')} />
+          <Icon name={folderIconName} className={cn(sidebarRowIconClassName, isDropTarget ? 'text-primary' : 'text-muted-foreground')} />
 
           {renaming ? (
             <form
@@ -254,7 +255,7 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
             <div className="min-w-0 flex items-center gap-1.5 flex-1">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className={cn('typography-ui-label font-normal truncate', isDropTarget ? 'text-primary' : 'text-muted-foreground')}>
+                  <span className={cn(sidebarRowLabelClassName, isDropTarget ? 'text-primary' : 'text-muted-foreground')}>
                     {displayName ?? folder.name}
                   </span>
                 </TooltipTrigger>
@@ -273,9 +274,9 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
                 />
               ) : null}
               {isCollapsed ? (
-                <Icon name="arrow-right-s" className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                <Icon name="arrow-right-s" className={cn(sidebarRowIconClassName, 'text-muted-foreground')} />
               ) : (
-                <Icon name="arrow-down-s" className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                <Icon name="arrow-down-s" className={cn(sidebarRowIconClassName, 'text-muted-foreground')} />
               )}
             </div>
           )}
@@ -304,7 +305,7 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
                   aria-label={`New session in ${folder.name}`}
                   title={"New session"}
                 >
-                  <Icon name="add" className="h-3.5 w-3.5" />
+                  <Icon name="add" className="size-4" />
                 </button>
               ) : null}
               {!archivedBucket ? (
@@ -317,7 +318,7 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
                   className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                   aria-label={`Rename folder ${folder.name}`}
                 >
-                  <Icon name="pencil-ai" className="h-3.5 w-3.5" />
+                  <Icon name="pencil-ai" className="size-4" />
                 </button>
               ) : null}
               <button
@@ -331,7 +332,7 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
                   ? `Delete archived sessions in folder ${folder.name}`
                   : `Delete folder ${folder.name}`}
               >
-                <Icon name="delete-bin" className="h-3.5 w-3.5" />
+                <Icon name="delete-bin" className="size-4" />
               </button>
             </div>
           </div>

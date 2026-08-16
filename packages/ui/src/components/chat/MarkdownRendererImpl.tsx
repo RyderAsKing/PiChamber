@@ -899,7 +899,7 @@ const useMorphdomMarkdown = ({
 
     void renderMarkdownBlocks(text, streaming, cacheKey).then((blocks) => {
       if (!active) return;
-      const existing = Array.from(target.children) as HTMLElement[];
+      const existing = Array.from(target.querySelectorAll<HTMLElement>(':scope > [data-md-block]'));
 
       // Reconcile per block: only re-morph blocks whose content changed, leaving
       // stable leading blocks untouched. Keeps per-stream-step DOM work bounded
