@@ -9,6 +9,7 @@ import { formatDirectoryName, cn } from '@/lib/utils';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { isPiSessionLive, piLiveSessionIdsKey } from '@/sync/pi-session-live';
+import { buildKnownSessionDirectories } from '@/sync/known-session-directories';
 import { useChildStoreManager } from '@/sync/sync-context';
 import { mapPiSessionList } from '@/sync/sync-refs';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
@@ -100,28 +101,6 @@ const PROJECT_ACTIVE_SESSION_STORAGE_KEY = 'oc.sessions.activeSessionByProject';
 // and a project's root) has independent expand state. Older expansion state
 // mixed contexts and is intentionally not migrated.
 const SESSION_EXPANDED_STORAGE_KEY = 'oc.sessions.expandedParents.v3';
-
-const buildKnownSessionDirectories = (
-  projects: Array<{ path: string }>,
-  availableWorktreesByProject?: Map<string, any[]> | null,
-  options?: { includeWorktrees?: boolean },
-): Set<string> => {
-  const directories = new Set<string>();
-  for (const project of projects || []) {
-    const normalized = normalizePath(project?.path)?.toLowerCase();
-    if (normalized) directories.add(normalized);
-  }
-  if (options?.includeWorktrees === false || !availableWorktreesByProject) {
-    return directories;
-  }
-  for (const worktrees of availableWorktreesByProject.values()) {
-    for (const worktree of worktrees || []) {
-      const normalized = normalizePath(worktree?.path)?.toLowerCase();
-      if (normalized) directories.add(normalized);
-    }
-  }
-  return directories;
-};
 
 const isKnownActiveSessionDirectory = (
   session: Session,
