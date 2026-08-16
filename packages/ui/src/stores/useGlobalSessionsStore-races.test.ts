@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import type { Session } from "@/lib/chat/types"
 
 import { piClient } from "@/lib/pi/client"
+import { getPiSessionStore } from "@/apps/pi-session-store"
 import { useGlobalSessionsStore } from "./useGlobalSessionsStore"
 
 type Deferred<T> = {
@@ -54,6 +55,11 @@ describe("global session mutation reconciliation", () => {
   beforeEach(() => {
     piClient.listSessions = originalListSessions
     useGlobalSessionsStore.getState().resetForRuntimeSwitch()
+    // Reset the singleton's catalog so tests do not leak listSessions
+    // results into one another. The global store reads from the catalog
+    // via the dedup check; a stale `'ready'` from a prior test would skip
+    // this test's listing.
+    getPiSessionStore().resetForRuntime()
   })
 
   afterEach(() => {

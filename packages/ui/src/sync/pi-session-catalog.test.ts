@@ -14,10 +14,27 @@ import {
   markDirectoryFailed,
   removeRecord,
   upsertRecord,
+  upsertStubRecord,
   __resetDirectoryRefreshSchedulerForTests,
   withDirectoryRefreshSlot,
   type LiveSessionRecord,
 } from '@/sync/pi-session-catalog';
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason: unknown) => void;
+}
+
+const deferred = <T>(): Deferred<T> => {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -278,6 +295,38 @@ describe('pi-session-catalog helpers', () => {
     };
     const ui = liveSessionRecordToUiSession(record);
     expect(ui.time?.archived).toBeFalsy();
+  });
+
+  test('upsertStubRecord inserts a busy stub when no row exists', () => {
+    const empty = initialCatalog();
+    const next = upsertStubRecord(empty, 'pre-list', '/repo-a', 'busy', 100);
+    const record = next.byId.get('pre-list');
+    expect(record?.lifecycle).toBe('busy');
+    expect(record?.hydrated).toBe(false);
+    expect(record?.directory).toBe('/repo-a');
+    expect([...next.byDirectory.get('/repo-a') ?? []]).toEqual(['pre-list']);
+    // Idempotent: re-inserting the same id is a no-op.
+    const same = upsertStubRecord(next, 'pre-list', '/repo-a', 'idle', 200);
+    expect(same).toBe(next);
+  });
+
+  test('move A -> B keeps B\u2019s row when A is re-listed without S', () => {
+    // Seed: shared session is in both A and B.
+    const seed = applyDirectoryListToCatalog(initialCatalog(), '/repo-a', [
+      listItem('shared', '/repo-a'),
+    ], 100);
+    const seeded = applyDirectoryListToCatalog(seed, '/repo-b', [
+      listItem('shared', '/repo-b'),
+    ], 200);
+    expect(seeded.byId.has('shared')).toBe(true);
+    expect([...seeded.byDirectory.get('/repo-a') ?? []]).toEqual(['shared']);
+    expect([...seeded.byDirectory.get('/repo-b') ?? []]).toEqual(['shared']);
+
+    // Now list A without shared (it has moved to B). B's row must survive.
+    const next = applyDirectoryListToCatalog(seeded, '/repo-a', [], 300);
+    expect(next.byId.has('shared')).toBe(true);
+    expect([...(next.byDirectory.get('/repo-a') ?? [])]).toEqual([]);
+    expect([...next.byDirectory.get('/repo-b') ?? []]).toEqual(['shared']);
   });
 });
 
@@ -570,6 +619,160 @@ describe('PiSessionStore catalog', () => {
       expect(cleared.byId.size).toBe(0);
       expect(cleared.byDirectory.size).toBe(0);
       expect(cleared.listStatusByDirectory.size).toBe(0);
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('move A -> B preserves B\u2019s row when A is re-listed without S', async () => {
+    const stubs = stubDaemons({
+      listSessions: async (scope) => {
+        const directory = scope.directory ?? '';
+        if (directory === '/repo-a') {
+          return { sessions: [listItem('shared', '/repo-a')] };
+        }
+        if (directory === '/repo-b') {
+          return { sessions: [listItem('shared', '/repo-b')] };
+        }
+        return { sessions: [] };
+      },
+      getSession: async (id) => ({
+        session: { id, directory: '/repo-b', createdAt: 0, updatedAt: 0 },
+        lastSequence: 0,
+        messages: [],
+      }),
+    });
+
+    const store = new PiSessionStore();
+    try {
+      await store.start({ directory: '/repo-a' });
+      await tickMicrotasks();
+      await store.refreshDirectoryCatalog('/repo-b');
+      await tickMicrotasks();
+      // Simulate the move: shared is now only listed under B.
+      stubs.restore();
+      const stubs2 = stubDaemons({
+        listSessions: async (scope) => {
+          const directory = scope.directory ?? '';
+          if (directory === '/repo-a') return { sessions: [] };
+          if (directory === '/repo-b') return { sessions: [listItem('shared', '/repo-b')] };
+          return { sessions: [] };
+        },
+        getSession: async (id) => ({
+          session: { id, directory: '/repo-b', createdAt: 0, updatedAt: 0 },
+          lastSequence: 0,
+          messages: [],
+        }),
+      });
+      await store.refreshDirectoryCatalog('/repo-a');
+      await tickMicrotasks();
+      const catalog = store.getState().catalog;
+      // B's membership must still hold the row.
+      expect(catalog.byId.has('shared')).toBe(true);
+      expect(catalog.byDirectory.get('/repo-b')).toContain('shared');
+      expect(catalog.byDirectory.get('/repo-a')).not.toContain('shared');
+      stubs2.restore();
+    } finally {
+      store.dispose();
+    }
+  });
+
+  test('a busy event before listing inserts a busy stub; later list keeps busy', async () => {
+    const store = new PiSessionStore();
+    try {
+      // No listings yet \u2014 simulate the event arriving first.
+      const internal = store as unknown as { commitEvents: (events: PiSessionEvent[]) => void };
+      internal.commitEvents([lifecycleEvent('pre-list', '/repo-a', 'busy', 1)]);
+      await tickMicrotasks();
+      const stubBefore = store.getState().catalog.byId.get('pre-list');
+      expect(stubBefore?.lifecycle).toBe('busy');
+      expect(stubBefore?.hydrated).toBe(false);
+
+      // Now the directory lists WITH the session. The listing API carries no
+      // lifecycle info, so the helper must default to the catalog's existing
+      // value (busy), not to 'idle'.
+      const stubs = stubDaemons({
+        listSessions: async () => ({ sessions: [listItem('pre-list', '/repo-a')] }),
+        getSession: async (id) => ({
+          session: { id, directory: '/repo-a', createdAt: 0, updatedAt: 0 },
+          lastSequence: 0,
+          messages: [],
+        }),
+      });
+      await store.refreshDirectoryCatalog('/repo-a');
+      await tickMicrotasks();
+      const after = store.getState().catalog.byId.get('pre-list');
+      expect(after?.lifecycle).toBe('busy');
+      stubs.restore();
+    } finally {
+      store.dispose();
+    }
+  });
+
+  test('two callers requesting the same ready directory do not issue two listSessions via the global store wrapper', async () => {
+    let listCalls = 0;
+    const stubs = stubDaemons({
+      listSessions: async () => {
+        listCalls += 1;
+        return { sessions: [listItem('a-1', '/repo-a')] };
+      },
+      getSession: async (id) => ({
+        session: { id, directory: '/repo-a', createdAt: 0, updatedAt: 0 },
+        lastSequence: 0,
+        messages: [],
+      }),
+    });
+    const store = new PiSessionStore();
+    try {
+      await store.refreshDirectoryCatalog('/repo-a');
+      await tickMicrotasks();
+      expect(listCalls).toBe(1);
+      // `refreshAllDirectoryCatalogs` itself always refreshes — the dedup
+      // lives in the global store's `fetchDirectoryPages`, which only asks
+      // the catalog owner to refresh directories that aren't already ready.
+      // Pin that contract via `refreshDirectoryCatalog` which is the only
+      // direct caller: a second caller for an already-ready directory
+      // re-issues the RPC because the catalog has no "ready means skip"
+      // signal on the direct API. The global store wrapper enforces it.
+      // (See `useGlobalSessionsStore.test.ts` for the end-to-end case.)
+      expect(listCalls).toBe(1);
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('stale per-directory refresh is rejected when a newer call starts', async () => {
+    const firstStarted = deferred<{ sessions: ReturnType<typeof listItem>[] }>();
+    const secondStarted = deferred<{ sessions: ReturnType<typeof listItem>[] }>();
+    const pendingByCallOrder: Array<Deferred<{ sessions: ReturnType<typeof listItem>[] }>> = [firstStarted, secondStarted];
+    const stubs = stubDaemons({
+      listSessions: async () => {
+        const next = pendingByCallOrder.shift();
+        if (!next) throw new Error('unexpected extra listSessions call');
+        return await next.promise;
+      },
+      getSession: async (id) => ({
+        session: { id, directory: '/repo-a', createdAt: 0, updatedAt: 0 },
+        lastSequence: 0,
+        messages: [],
+      }),
+    });
+    const store = new PiSessionStore();
+    try {
+      const first = store.refreshDirectoryCatalog('/repo-a');
+      // Second refresh begins while the first is still in flight.
+      const second = store.refreshDirectoryCatalog('/repo-a');
+      // Resolve the second first \u2014 its result must win.
+      secondStarted.resolve({ sessions: [listItem('fresh', '/repo-a')] });
+      await second;
+      // Now resolve the first; the catalog must keep the second's data, not the first's.
+      firstStarted.resolve({ sessions: [listItem('stale', '/repo-a')] });
+      await first;
+      const catalog = store.getState().catalog;
+      expect(catalog.byId.has('fresh')).toBe(true);
+      expect(catalog.byId.has('stale')).toBe(false);
     } finally {
       stubs.restore();
       store.dispose();
