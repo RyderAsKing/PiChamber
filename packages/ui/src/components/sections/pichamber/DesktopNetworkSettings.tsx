@@ -29,7 +29,7 @@ export const DesktopNetworkSettings: React.FC = () => {
   const isLocalDesktop = isDesktopShell() && isDesktopLocalOriginActive();
   const isMacDesktop = isLocalDesktop
     && typeof window !== 'undefined'
-    && window.__OPENCHAMBER_PLATFORM__ === 'darwin';
+    && window.__PICHAMBER_PLATFORM__ === 'darwin';
   const [savedValue, setSavedValue] = React.useState(false);
   const [draftValue, setDraftValue] = React.useState(false);
   const [savedPassword, setSavedPassword] = React.useState('');

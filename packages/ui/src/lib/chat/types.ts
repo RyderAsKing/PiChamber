@@ -1,5 +1,5 @@
 /**
- * PiChamber-owned render/session types used by the restored OpenChamber UI.
+ * PiChamber-owned render/session types used by the restored PiChamber UI.
  * They replace `@/lib/chat/types` at the TypeScript/bundler boundary.
  */
 

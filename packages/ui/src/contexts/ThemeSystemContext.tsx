@@ -215,8 +215,8 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
       });
     };
 
-    window.addEventListener('openchamber:theme-hmr', handleThemeHmr);
-    return () => window.removeEventListener('openchamber:theme-hmr', handleThemeHmr);
+    window.addEventListener('pichamber:theme-hmr', handleThemeHmr);
+    return () => window.removeEventListener('pichamber:theme-hmr', handleThemeHmr);
   }, []);
 
   const getThemeByIdFromAvailable = useCallback(
@@ -494,18 +494,18 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
     }
 
     const scopedWindow = window as unknown as {
-      __openchamberApplyThemeSync?: (payload: ThemeSyncPayload) => void;
+      __pichamberApplyThemeSync?: (payload: ThemeSyncPayload) => void;
     };
 
-    scopedWindow.__openchamberApplyThemeSync = applyIncomingThemeSync;
+    scopedWindow.__pichamberApplyThemeSync = applyIncomingThemeSync;
 
     if (receivesParentThemeSync && window.parent !== window) {
-      window.parent.postMessage({ type: 'openchamber:theme-sync-request' }, window.location.origin);
+      window.parent.postMessage({ type: 'pichamber:theme-sync-request' }, window.location.origin);
     }
 
     return () => {
-      if (scopedWindow.__openchamberApplyThemeSync === applyIncomingThemeSync) {
-        delete scopedWindow.__openchamberApplyThemeSync;
+      if (scopedWindow.__pichamberApplyThemeSync === applyIncomingThemeSync) {
+        delete scopedWindow.__pichamberApplyThemeSync;
       }
     };
   }, [applyIncomingThemeSync, receivesParentThemeSync]);
@@ -525,7 +525,7 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
         payload?: ThemeSyncPayload;
       };
 
-      if (data?.type !== 'openchamber:theme-sync' || !data.payload) {
+      if (data?.type !== 'pichamber:theme-sync' || !data.payload) {
         return;
       }
 
@@ -614,8 +614,8 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
       });
     };
 
-    window.addEventListener('openchamber:settings-synced', handleSettingsSynced);
-    return () => window.removeEventListener('openchamber:settings-synced', handleSettingsSynced);
+    window.addEventListener('pichamber:settings-synced', handleSettingsSynced);
+    return () => window.removeEventListener('pichamber:settings-synced', handleSettingsSynced);
   }, [receivesParentThemeSync]);
 
   const setTheme = useCallback(

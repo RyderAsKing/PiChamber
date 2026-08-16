@@ -262,13 +262,13 @@ Initial loads use smaller pages on constrained VS Code/mobile surfaces. Prefetch
 
 ## Loading diagnostics
 
-Session loading instrumentation is disabled by default. Set `localStorage.openchamber_session_load_perf` to `"1"`, reproduce the interaction, then inspect `window.__openchamberSessionLoadPerformance.events`.
+Session loading instrumentation is disabled by default. Set `localStorage.pichamber_session_load_perf` to `"1"`, reproduce the interaction, then inspect `window.__pichamberSessionLoadPerformance.events`.
 
 The bounded event buffer records only controlled bootstrap, message, and global-list operation/caller labels with queue/duration, outcome, retry count, and downloaded record count where applicable. Message-page events also record the requested limit and whether a cursor was present. When diagnostics are enabled, the selected chat records its first painted renderable message snapshot once per recent session identity and immediately clears the corresponding browser performance entry after emitting the trace mark. Canceled frames retain no measured identity, so returning to that session can schedule a replacement measurement; completed identity tracking uses the same 1,000-entry ceiling as the event buffer. Exported events never retain runtime keys, directories, session IDs, credentials, or message content. Initial-message expansion counts every downloaded page, not only the accepted page. The browser profiler independently validates the known labels and finite numeric fields before export. Instrumentation is diagnostic only; unit/type/lint checks do not replace production runtime profiling at representative project/session scale.
 
-High-frequency sync diagnostics are separately disabled by default. Set `localStorage.openchamber_sync_perf` to `"1"` before reload to enable fixed numeric counters for pipeline traffic, reducer publications, streaming reconciliations, entries/messages visited, targeted heartbeat work, and persistence serialization/write volume. The hot path performs only a null check while disabled; counters never retain IDs, payloads, or user content.
+High-frequency sync diagnostics are separately disabled by default. Set `localStorage.pichamber_sync_perf` to `"1"` before reload to enable fixed numeric counters for pipeline traffic, reducer publications, streaming reconciliations, entries/messages visited, targeted heartbeat work, and persistence serialization/write volume. The hot path performs only a null check while disabled; counters never retain IDs, payloads, or user content.
 
-Browser profiling also enables `localStorage.openchamber_stream_perf` to capture bounded aggregate timings and render counts for chat projections, message components, and major sidebar boundaries. These metrics contain no session IDs or user content and are reset immediately before each recording.
+Browser profiling also enables `localStorage.pichamber_stream_perf` to capture bounded aggregate timings and render counts for chat projections, message components, and major sidebar boundaries. These metrics contain no session IDs or user content and are reset immediately before each recording.
 
 The profiler also emits a user-timing mark when pending global-session recency is committed at a lifecycle edge. `summary.json.longTaskAttribution` correlates that mark with enclosing long tasks without recording session data.
 
@@ -284,7 +284,7 @@ Incomplete-session materialization is deduplicated by runtime, directory, and se
 
 When `session.idle` or `session.error` settles a session but the trailing assistant message still contains a `pending` or `running` tool, sync refreshes that session tail. This narrowly reconciles a missed terminal tool-part event without refetching normally completed turns or stale tools from older turns. A stale refresh or delayed part event cannot regress a locally observed terminal tool to an active status.
 
-When a session is authoritatively settled — `session.idle`/`session.error` event, or an authoritative status snapshot that lowers a previously busy session — and the trailing assistant message is still *unfinished* (`time.completed` missing) with active tool parts and no pending question/permission, the turn is treated as interrupted (managed OpenCode process died mid-turn; the server never finalizes the parts, see openchamber#2577 / anomalyco/opencode#19023). The active parts are finalized locally as `error`/`Interrupted` with an end time, so tool timers stop and cards render the error state. The mark is gated on an explicit idle status (absent status is "unknown", never judged), never applies while the session is busy (including question/permission waits), and a later terminal event or refresh supersedes it while a stale `running` refresh cannot regress it.
+When a session is authoritatively settled — `session.idle`/`session.error` event, or an authoritative status snapshot that lowers a previously busy session — and the trailing assistant message is still *unfinished* (`time.completed` missing) with active tool parts and no pending question/permission, the turn is treated as interrupted (managed OpenCode process died mid-turn; the server never finalizes the parts, see pichamber#2577 / anomalyco/opencode#19023). The active parts are finalized locally as `error`/`Interrupted` with an end time, so tool timers stop and cards render the error state. The mark is gated on an explicit idle status (absent status is "unknown", never judged), never applies while the session is busy (including question/permission waits), and a later terminal event or refresh supersedes it while a stale `running` refresh cannot regress it.
 
 Directory stores also own session-keyed sidecar notification channels for permissions, questions, and message materialization. High-frequency realtime part events annotate the exact session/message before committing, so visible records, user history, renderability, and sidebar permission and question rows are not notified by unrelated sessions. Structural message replacements notify only changed subscribed session buckets; unannotated bulk part replacement conservatively resets active message subscribers so bootstrap, pagination, rollback, and legacy writers cannot leave stale projections.
 
@@ -468,13 +468,28 @@ useDirectorySync((s) => s.permission[sessionID] ?? EMPTY)
 
 Same applies to `useStreamingStore` — select `.get(key)` not the Map itself.
 
-`usePiSessionSnapshot(selector, isEqual?)` is the Pi store equivalent of a Zustand selector. It caches the selected value against the store snapshot identity: if `getState()` has not published a new object, the previous selection is returned without re-running the selector. Re-running an allocating selector on an unchanged snapshot makes `useSyncExternalStore` loop and freeze the tab. Session-id closures therefore take effect on the next store publication (`select()` emits). A hook that omits the selector subscribes to the entire snapshot and re-renders on every accepted stream event. Chat and sidebar leaves must select a stable entity or primitive:
+### Topic-scoped subscribe (token-path isolation)
 
-- `state.reducer.bySession.get(sessionId)` for one session's reducer record
-- `state.sessions` for the directory session list (the store keeps this array identity stable during token deltas)
-- `state.connection` / `state.directory` for connection chrome
+`usePiSessionSnapshot(selector, isEqual?, topic?)` is the Pi store equivalent of a Zustand selector. The cache still keys on store snapshot identity: if `getState()` has not published a new object, the previous selection is returned without re-running the selector. Re-running an allocating selector on an unchanged snapshot makes `useSyncExternalStore` loop and freeze the tab. Equality on the *result* alone (`isEqual`) can skip React paint, but it cannot skip selector execution — and selector execution is what the topic bus eliminates.
 
-`applyPiEvent` clones only the mutated session; other `bySession` entries keep their previous references, so a selector that returns one session skips React work for background sessions. Custom `isEqual` is for derived arrays/records whose contents are unchanged even though the selector allocated a new container (user-message history, load-state tuples). Token deltas are folded by `PiStreamCadence` and flushed once per animation frame, so selector subscribers see at most one store publication per frame unless a boundary event (start/end/lifecycle) flushes immediately.
+`PiSessionStore` publishes one notification per topic touched by a commit:
+
+- `session:{id}` — that session's reducer record changed (messages, parts, lifecycle on the transcript). Token deltas on session B do not wake session A's chat selectors.
+- `catalog` — `state.catalog` identity changed (lifecycle, title, membership, stub insert). Token deltas that leave the catalog ref unchanged do not wake catalog subscribers.
+- `chrome` — cluster UI: `connection`, `error`, `directory`, `selectedSessionId`, `sessions[]`, `sessionsListStatus`, `focusPending`, `hydratedSessionIds`.
+- `*` (default when `subscribe` is called without a topic) — broadcast to every listener regardless of topic. Kept for tests and legacy callers; production hooks pass an explicit topic so the broadcast path is unused on the token hot path.
+
+Hook migration rules:
+
+- Chat transcript hooks (`useSessionMessageRecords`, `useSessionParts` narrow, `useSessionMessageCount`, `useUserMessageHistory`) subscribe on `session:{id}`.
+- Sidebar / list hooks (`useCatalogUiSessions`, `useSession`, `useSessionStatus`, `useAllSessionStatuses`, sidebar `hasBusySession` / `catalogLiveKey` / `catalogReady`) subscribe on `catalog`.
+- Loader / chrome hooks (`useSessionMessageLoadState`, `useSessionRenderable`, `useSyncDirectory`, sidebar `connection`, `piDirectoryChildStore.subscribe`) subscribe on `chrome`.
+- `useSessions` is two subscriptions: `directory` on `chrome`, list on `catalog` (via `useCatalogUiSessions`).
+- `useSessionParts` legacy scan (no sessionId known to the caller) subscribes on `*` — that path has no id to narrow on.
+
+Load-state hooks must not be put on `session:{id}` — that would keep ChatContainer waking on every token for loader math. Custom `isEqual` is for derived arrays/records whose contents are unchanged even though the selector allocated a new container (user-message history, load-state tuples). Token deltas are folded by `PiStreamCadence` and flushed once per animation frame, so selector subscribers see at most one store publication per frame unless a boundary event (start/end/lifecycle) flushes immediately.
+
+`applyPiEvent` clones only the mutated session; other `bySession` entries keep their previous references, so a selector that returns one session skips React work for background sessions. `commitEvents` emits `session:{id}` only for the ids touched by accepted events, plus `catalog` iff `nextCatalog !== prevCatalog`. It never emits `chrome` on the token path; chrome flips happen on hydrate, focus, reconnect, lifecycle-list changes, and resets.
 
 ## Store splitting pattern
 

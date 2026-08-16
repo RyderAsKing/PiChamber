@@ -107,6 +107,35 @@ runtime switch / dispose; the focus generation advances on every
 `focusProject` call so a stale promise cannot commit while a newer folder
 focus is already in flight.
 
+### Topic-bus notify contract
+
+`PiSessionStore.subscribe(listener, topic?)` registers a listener on one of
+four topic keys; `commitEvents` and other writers publish one notification
+per topic they touch so a token delta in session B does not wake session A
+chat transcript selectors.
+
+- `session:{id}` — that session's reducer record changed.
+- `catalog` — `state.catalog` identity changed.
+- `chrome` — cluster UI: `connection`, `error`, `directory`,
+  `selectedSessionId`, `sessions[]`, `sessionsListStatus`,
+  `focusPending`, `hydratedSessionIds`.
+- `*` (default) — broadcast every commit, for tests and legacy callers.
+
+`commitEvents` walks the event batch and collects the session ids whose
+reducer record changed; it emits `session:{id}` for each and `catalog`
+iff `nextCatalog !== prevCatalog`. Catalog helpers (`applyLifecycleChange`,
+`applyHydratedChange`, `markDirectoryLoading`, `markDirectoryFailed`,
+`applyDirectoryListToCatalog`, etc.) are reference-stable no-ops, so the
+catalog gate is a tight contract. `commitEvents` never emits `chrome` on
+the token path. Every other writer that mutates the catalog must capture
+`catalogChanged` **before** assigning `state.catalog`; the catalog gate
+is `nextCatalog !== this.state.catalog`, and after the assignment the
+two are always equal.
+
+Reset / dispose / runtime wipe broadcast the empty state to every topic
+bucket so mounted UI sees the reset before the listener sets are torn
+down; `dispose` may clear listener sets after the final broadcast.
+
 ### Folder switch loading contract
 
 A folder click cannot flash `ChatEmptyState` or an auto-open blank chat.
@@ -219,7 +248,7 @@ off the loading state. The picker only includes authenticated providers;
 unconfigured catalog entries stay on the Providers settings page. Composer
 chrome does not expose an OpenCode agent selector.
 Chat, sidebar, and composer mutations go through `PiSessionStore` and `/api/pi/*`. Pi assistant projections preserve their owning user-message id end to end because the restored chat renderer groups assistant output into user turns by that identity. Tool parts preserve input, cumulative partial output, final output, error text, metadata, and start/end timestamps through the reducer and `pi-to-renderable`, satisfying the restored renderer's finalized-tool contract (a completed tool needs an end time and keeps its status verbatim, including `cancelled`).
-Settings chrome is the restored OpenChamber hub limited to Pi-owned pages
+Settings chrome is the restored PiChamber hub limited to Pi-owned pages
 (Providers, Skills, Snippets, Behavior/`AGENTS.md`, Magic Prompts, appearance
 and other PiChamber pages). A failed daemon probe must show an error banner,
 never an empty idle session list.

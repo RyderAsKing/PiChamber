@@ -67,8 +67,8 @@ describe('createRuntimeUrlResolver', () => {
 
   test('uses injected desktop API base URL for packaged WebSocket URLs', () => {
     withWindow({
-      location: { origin: 'openchamber-ui://app', href: 'openchamber-ui://app/index.html' },
-      __OPENCHAMBER_API_BASE_URL__: 'http://127.0.0.1:57123',
+      location: { origin: 'pichamber-ui://app', href: 'pichamber-ui://app/index.html' },
+      __PICHAMBER_API_BASE_URL__: 'http://127.0.0.1:57123',
     }, () => {
       const urls = createRuntimeUrlResolver({});
 
@@ -81,8 +81,8 @@ describe('createRuntimeUrlResolver', () => {
     setRuntimeUrlAuthToken('runtime-url-token', Date.now() + 60_000);
     try {
       withWindow({
-        location: { origin: 'openchamber-ui://app', href: 'openchamber-ui://app/index.html' },
-        __OPENCHAMBER_API_BASE_URL__: 'https://remote.example',
+        location: { origin: 'pichamber-ui://app', href: 'pichamber-ui://app/index.html' },
+        __PICHAMBER_API_BASE_URL__: 'https://remote.example',
       }, () => {
         const urls = createRuntimeUrlResolver({});
         expect(urls.sse('/api/pi/events')).toBe('https://remote.example/api/pi/events?oc_url_token=runtime-url-token');
@@ -96,10 +96,10 @@ describe('createRuntimeUrlResolver', () => {
 
   test('reads injected desktop API base URL at call time', () => {
     withWindow({
-      location: { origin: 'openchamber-ui://app', href: 'openchamber-ui://app/index.html' },
+      location: { origin: 'pichamber-ui://app', href: 'pichamber-ui://app/index.html' },
     }, () => {
       const urls = createRuntimeUrlResolver({});
-      (window as typeof window & { __OPENCHAMBER_API_BASE_URL__?: string }).__OPENCHAMBER_API_BASE_URL__ = 'http://127.0.0.1:57123';
+      (window as typeof window & { __PICHAMBER_API_BASE_URL__?: string }).__PICHAMBER_API_BASE_URL__ = 'http://127.0.0.1:57123';
 
       expect(urls.api('/api/config/settings')).toBe('http://127.0.0.1:57123/api/config/settings');
       expect(urls.websocket('/api/global/event/ws')).toBe('ws://127.0.0.1:57123/api/global/event/ws');

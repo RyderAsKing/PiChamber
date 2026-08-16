@@ -181,8 +181,8 @@ const parseInstance = (value: unknown): DesktopSshInstance | null => {
 
   const remoteRaw = isRecord(value.remoteOpenchamber)
     ? value.remoteOpenchamber
-    : isRecord(value.remote_openchamber)
-      ? value.remote_openchamber
+    : isRecord(value.remote_pichamber)
+      ? value.remote_pichamber
       : {};
 
   const localRaw = isRecord(value.localForward)
@@ -225,16 +225,16 @@ const parseInstance = (value: unknown): DesktopSshInstance | null => {
   const preferredLocalPort =
     readNumber(localRaw, 'preferredLocalPort') ?? readNumber(localRaw, 'preferred_local_port');
   const sshPassword = parseStoredSecret(authRaw.sshPassword || authRaw.ssh_password);
-  // Accept the historical `openchamberPassword` (camelCase legacy from
-  // OpenChamber pre-rebrand) and the snake_case `openchamber_password`
+  // Accept the historical `pichamberPassword` (camelCase legacy from
+  // PiChamber pre-rebrand) and the snake_case `pichamber_password`
   // (intermediate shape written by older macOS-only SSH managers) alongside
   // the canonical `pichamberPassword` so existing remote instances keep
   // authenticating after the rebrand without forcing the user to re-enter
   // their remote PI server password.
   const pichamberPassword = parseStoredSecret(
     authRaw.pichamberPassword
-      || authRaw.openchamberPassword
-      || authRaw.openchamber_password
+      || authRaw.pichamberPassword
+      || authRaw.pichamber_password
   );
 
   return {
@@ -440,13 +440,13 @@ export const listenDesktopSshStatus = async (
     return async () => {};
   }
 
-  const desktop = (window as unknown as { __OPENCHAMBER_DESKTOP__?: DesktopBridgeGlobal }).__OPENCHAMBER_DESKTOP__;
+  const desktop = (window as unknown as { __PICHAMBER_DESKTOP__?: DesktopBridgeGlobal }).__PICHAMBER_DESKTOP__;
   const listen = desktop?.listen;
   if (typeof listen !== 'function') {
     return async () => {};
   }
 
-  const unlisten = await listen('openchamber:ssh-instance-status', (event) => {
+  const unlisten = await listen('pichamber:ssh-instance-status', (event) => {
     const status = parseStatus(event?.payload);
     if (!status) return;
     listener(status);

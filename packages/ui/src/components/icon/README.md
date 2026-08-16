@@ -57,7 +57,7 @@ const icon: IconName = "arrow-down-s"; // type-checked
 - `Icon.tsx` — The `<Icon>` component, injects sprite on first mount
 - `icons.ts` — TypeScript type `IconName`
 
-The sprite is injected as a hidden `<svg id="openchamber-icon-sprite">` element containing `<symbol>` elements. Each `<Icon>` renders `<svg><use href="#oc-{name}"/></svg>`.
+The sprite is injected as a hidden `<svg id="pichamber-icon-sprite">` element containing `<symbol>` elements. Each `<Icon>` renders `<svg><use href="#oc-{name}"/></svg>`.
 
 ## Migration from @remixicon/react
 

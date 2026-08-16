@@ -198,7 +198,7 @@ const ProjectAggregateStatusIndicator: React.FC<{ directories: Array<string | nu
       if (directory && directorySet.has(directory)) return true;
     }
     return false;
-  });
+  }, undefined, 'catalog');
 
   if (hasBusySession) {
     return (
@@ -260,7 +260,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   ));
   const catalogLiveKey = usePiSessionSnapshot((state) => (
     isVisible ? catalogLiveSessionIdsKey(state.catalog) : ''
-  ));
+  ), undefined, 'catalog');
   const activeSessionIds = React.useMemo(
     () => (catalogLiveKey ? catalogLiveKey.split('|') : EMPTY_STRING_ARRAY),
     [catalogLiveKey],
@@ -389,13 +389,13 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
   const sync = useSync();
   const childStores = useChildStoreManager();
-  const piConnection = usePiSessionSnapshot((state) => state.connection);
+  const piConnection = usePiSessionSnapshot((state) => state.connection, undefined, 'chrome');
   const catalogReady = usePiSessionSnapshot((state) => {
     for (const status of state.catalog.listStatusByDirectory.values()) {
       if (status === 'ready') return true;
     }
     return false;
-  });
+  }, undefined, 'catalog');
   const catalogSessions = useCatalogUiSessions({ archived: false });
   const archivedSessions = useCatalogUiSessions({ archived: true });
   const bootstrapDemandOwner = `session-sidebar:${React.useId()}`;
@@ -409,7 +409,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const openNewSessionDraft = useSessionUIStore((state) => state.openNewSessionDraft);
   // The sidebar tree's +-buttons (project / group / folder) open a draft but,
   // unlike selecting an existing session, don't navigate. VS Code's compact view
-  // is driven by the openchamber:navigate event, so switch to chat explicitly
+  // is driven by the pichamber:navigate event, so switch to chat explicitly
   // (a no-op in the expanded side-by-side layout, which is always showing chat).
   const openNewSessionDraftFromTree = React.useCallback<typeof openNewSessionDraft>((options) => {
     // Starting a draft always leaves any full-page surface, even when a

@@ -42,7 +42,7 @@ export const PiChamberPage: React.FC<PiChamberPageProps> = ({ section }) => {
     // If no section specified, show all (mobile/legacy behavior)
     if (!section) {
         return (
-            <SettingsPageLayout showSaveStatus className="openchamber-page-body space-y-3 sm:space-y-6">
+            <SettingsPageLayout showSaveStatus className="pichamber-page-body space-y-3 sm:space-y-6">
                 <PiChamberVisualSettings />
                 <DefaultsSettings />
                 {showDesktopNetworkSettings && <DesktopNetworkSettings />}
@@ -108,7 +108,7 @@ export const PiChamberPage: React.FC<PiChamberPageProps> = ({ section }) => {
             title={pageTitle}
             description={pageDescription}
             showSaveStatus
-            className="openchamber-page-body"
+            className="pichamber-page-body"
         >
             {renderSectionContent()}
         </SettingsPageLayout>

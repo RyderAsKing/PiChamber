@@ -60,7 +60,7 @@ import { parseRoute } from '@/lib/router';
 
 const EMPTY_MESSAGES: Array<{ info: Message; parts: Part[] }> = [];
 const IDLE_SESSION_STATUS = { type: 'idle' as const };
-const CHAT_FORCE_SCROLL_BOTTOM_EVENT = 'openchamber:chat-force-scroll-bottom';
+const CHAT_FORCE_SCROLL_BOTTOM_EVENT = 'pichamber:chat-force-scroll-bottom';
 const DEFAULT_RETRY_MESSAGE = 'Quota limit reached. Retrying automatically.';
 const CHAT_SCROLL_STYLE = {
     overflowAnchor: 'none',
@@ -747,7 +747,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
             useUIStore.getState().setAllowPromptingSubagentSessions(value);
         };
         const scopedWindow = window as typeof window & {
-            __openchamberApplyChatSettingsSync?: (payload: { allowPromptingSubagentSessions: boolean }) => void;
+            __pichamberApplyChatSettingsSync?: (payload: { allowPromptingSubagentSessions: boolean }) => void;
         };
         const applySync = (payload: { allowPromptingSubagentSessions: boolean }) => {
             applySetting(payload.allowPromptingSubagentSessions);
@@ -755,18 +755,18 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         const handleMessage = (event: MessageEvent) => {
             if (event.source !== parentWindow || event.origin !== window.location.origin) return;
             const data = event.data as { type?: unknown; payload?: { allowPromptingSubagentSessions?: unknown } };
-            if (data?.type !== 'openchamber:chat-settings-sync'
+            if (data?.type !== 'pichamber:chat-settings-sync'
                 || typeof data.payload?.allowPromptingSubagentSessions !== 'boolean') return;
             applySetting(data.payload.allowPromptingSubagentSessions);
         };
 
-        scopedWindow.__openchamberApplyChatSettingsSync = applySync;
+        scopedWindow.__pichamberApplyChatSettingsSync = applySync;
         window.addEventListener('message', handleMessage);
-        parentWindow.postMessage({ type: 'openchamber:chat-settings-request' }, window.location.origin);
+        parentWindow.postMessage({ type: 'pichamber:chat-settings-request' }, window.location.origin);
         return () => {
             window.removeEventListener('message', handleMessage);
-            if (scopedWindow.__openchamberApplyChatSettingsSync === applySync) {
-                delete scopedWindow.__openchamberApplyChatSettingsSync;
+            if (scopedWindow.__pichamberApplyChatSettingsSync === applySync) {
+                delete scopedWindow.__pichamberApplyChatSettingsSync;
             }
         };
     }, []);

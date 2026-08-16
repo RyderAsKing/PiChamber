@@ -1,8 +1,8 @@
-const STORAGE_KEY = "openchamber_sync_perf"
+const STORAGE_KEY = "pichamber_sync_perf"
 
 declare global {
   interface Window {
-    __openchamberSyncPerformance?: {
+    __pichamberSyncPerformance?: {
       getSnapshot: () => SyncPerformanceCounters | null
       reset: () => void
     }
@@ -117,7 +117,7 @@ export function countSyncPersistenceSerialization(serialized: string): void {
 }
 
 if (typeof window !== "undefined") {
-  window.__openchamberSyncPerformance = {
+  window.__pichamberSyncPerformance = {
     getSnapshot: getSyncPerformanceDiagnostics,
     reset: resetSyncPerformanceDiagnostics,
   }

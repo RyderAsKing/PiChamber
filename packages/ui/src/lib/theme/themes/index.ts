@@ -23,16 +23,16 @@ export const themes: Theme[] = [
     (theme) =>
       theme.metadata.id !== 'pichamber-light' &&
       theme.metadata.id !== 'pichamber-dark' &&
-      theme.metadata.id !== 'openchamber-light' &&
-      theme.metadata.id !== 'openchamber-dark',
+      theme.metadata.id !== 'pichamber-light' &&
+      theme.metadata.id !== 'pichamber-dark',
   ),
 ];
 
 export function getThemeById(id: string): Theme | undefined {
   // Back-compat for renames.
   const resolvedId =
-    id === 'app-light' || id === 'openchamber-light' ? 'pichamber-light' :
-    id === 'app-dark' || id === 'openchamber-dark' ? 'pichamber-dark' :
+    id === 'app-light' || id === 'pichamber-light' ? 'pichamber-light' :
+    id === 'app-dark' || id === 'pichamber-dark' ? 'pichamber-dark' :
     id;
 
   return themes.find(theme => theme.metadata.id === resolvedId);

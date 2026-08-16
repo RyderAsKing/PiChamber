@@ -9,7 +9,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useMobileAutocompleteMaxHeight } from './useMobileAutocompleteMaxHeight';
 import { commandMatchesSearch, mergeCommandAutocompleteItems } from './commandAutocompleteItems';
 
-type CommandSource = 'openchamber' | 'opencode' | 'skill';
+type CommandSource = 'pichamber' | 'opencode' | 'skill';
 
 export interface CommandInfo {
   id: string;
@@ -121,40 +121,40 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
 
         const builtInCommands: CommandInfo[] = [
           ...(hasSession && !hasMessagesInCurrentSession
-            ? [{ id: 'openchamber:init', name: 'init', source: 'openchamber' as const, description: "Create/update AGENTS.md file", isBuiltIn: true }]
+            ? [{ id: 'pichamber:init', name: 'init', source: 'pichamber' as const, description: "Create/update AGENTS.md file", isBuiltIn: true }]
             : []
           ),
           ...(hasSession  // Show when session exists, not when hasMessages
             ? [
-                { id: 'openchamber:undo', name: 'undo', source: 'openchamber' as const, description: "Undo the last message", isBuiltIn: true },
-                { id: 'openchamber:redo', name: 'redo', source: 'openchamber' as const, description: "Redo previously undone messages", isBuiltIn: true },
-                { id: 'openchamber:timeline', name: 'timeline', source: 'openchamber' as const, description: "Open the conversation timeline", isBuiltIn: true },
+                { id: 'pichamber:undo', name: 'undo', source: 'pichamber' as const, description: "Undo the last message", isBuiltIn: true },
+                { id: 'pichamber:redo', name: 'redo', source: 'pichamber' as const, description: "Redo previously undone messages", isBuiltIn: true },
+                { id: 'pichamber:timeline', name: 'timeline', source: 'pichamber' as const, description: "Open the conversation timeline", isBuiltIn: true },
               ]
             : []
           ),
-          { id: 'openchamber:compact', name: 'compact', source: 'openchamber' as const, description: "Compress session history using AI to reduce context size", isBuiltIn: true },
+          { id: 'pichamber:compact', name: 'compact', source: 'pichamber' as const, description: "Compress session history using AI to reduce context size", isBuiltIn: true },
           ...(hasSession
-            ? [{ id: 'openchamber:summary', name: 'summary', source: 'openchamber' as const, description: "Non-destructive session summary. Optional topic hint after the command.", isPiChamber: true }]
+            ? [{ id: 'pichamber:summary', name: 'summary', source: 'pichamber' as const, description: "Non-destructive session summary. Optional topic hint after the command.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:plan-feature', name: 'plan-feature', source: 'openchamber' as const, description: "Start a guided, back-and-forth planning session for a new feature.", isPiChamber: true }]
+            ? [{ id: 'pichamber:plan-feature', name: 'plan-feature', source: 'pichamber' as const, description: "Start a guided, back-and-forth planning session for a new feature.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:catch-up', name: 'catch-up', source: 'openchamber' as const, description: "Re-establish context: what you were doing and where to pick up.", isPiChamber: true }]
+            ? [{ id: 'pichamber:catch-up', name: 'catch-up', source: 'pichamber' as const, description: "Re-establish context: what you were doing and where to pick up.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:debug', name: 'debug', source: 'openchamber' as const, description: "Guided root-cause investigation for a bug before proposing a fix.", isPiChamber: true }]
+            ? [{ id: 'pichamber:debug', name: 'debug', source: 'pichamber' as const, description: "Guided root-cause investigation for a bug before proposing a fix.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:weigh', name: 'weigh', source: 'openchamber' as const, description: "Weigh 2-3 approaches with trade-offs and a recommendation before you commit.", isPiChamber: true }]
+            ? [{ id: 'pichamber:weigh', name: 'weigh', source: 'pichamber' as const, description: "Weigh 2-3 approaches with trade-offs and a recommendation before you commit.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:explore', name: 'explore', source: 'openchamber' as const, description: "Get oriented in this codebase: a high-level tour of the architecture and main parts.", isPiChamber: true }]
+            ? [{ id: 'pichamber:explore', name: 'explore', source: 'pichamber' as const, description: "Get oriented in this codebase: a high-level tour of the architecture and main parts.", isPiChamber: true }]
             : []
           ),
         ];
@@ -179,40 +179,40 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
         const allowInitCommand = !hasMessagesInCurrentSession;
         const builtInCommands: CommandInfo[] = [
           ...(hasSession && !hasMessagesInCurrentSession
-            ? [{ id: 'openchamber:init', name: 'init', source: 'openchamber' as const, description: "Create/update AGENTS.md file", isBuiltIn: true }]
+            ? [{ id: 'pichamber:init', name: 'init', source: 'pichamber' as const, description: "Create/update AGENTS.md file", isBuiltIn: true }]
             : []
           ),
           ...(hasSession  // Show when session exists, not when hasMessages
             ? [
-                { id: 'openchamber:undo', name: 'undo', source: 'openchamber' as const, description: "Undo the last message", isBuiltIn: true },
-                { id: 'openchamber:redo', name: 'redo', source: 'openchamber' as const, description: "Redo previously undone messages", isBuiltIn: true },
-                { id: 'openchamber:timeline', name: 'timeline', source: 'openchamber' as const, description: "Open the conversation timeline", isBuiltIn: true },
+                { id: 'pichamber:undo', name: 'undo', source: 'pichamber' as const, description: "Undo the last message", isBuiltIn: true },
+                { id: 'pichamber:redo', name: 'redo', source: 'pichamber' as const, description: "Redo previously undone messages", isBuiltIn: true },
+                { id: 'pichamber:timeline', name: 'timeline', source: 'pichamber' as const, description: "Open the conversation timeline", isBuiltIn: true },
               ]
             : []
           ),
-          { id: 'openchamber:compact', name: 'compact', source: 'openchamber' as const, description: "Compress session history using AI to reduce context size", isBuiltIn: true },
+          { id: 'pichamber:compact', name: 'compact', source: 'pichamber' as const, description: "Compress session history using AI to reduce context size", isBuiltIn: true },
           ...(hasSession
-            ? [{ id: 'openchamber:summary', name: 'summary', source: 'openchamber' as const, description: "Non-destructive session summary. Optional topic hint after the command.", isPiChamber: true }]
+            ? [{ id: 'pichamber:summary', name: 'summary', source: 'pichamber' as const, description: "Non-destructive session summary. Optional topic hint after the command.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:plan-feature', name: 'plan-feature', source: 'openchamber' as const, description: "Start a guided, back-and-forth planning session for a new feature.", isPiChamber: true }]
+            ? [{ id: 'pichamber:plan-feature', name: 'plan-feature', source: 'pichamber' as const, description: "Start a guided, back-and-forth planning session for a new feature.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:catch-up', name: 'catch-up', source: 'openchamber' as const, description: "Re-establish context: what you were doing and where to pick up.", isPiChamber: true }]
+            ? [{ id: 'pichamber:catch-up', name: 'catch-up', source: 'pichamber' as const, description: "Re-establish context: what you were doing and where to pick up.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:debug', name: 'debug', source: 'openchamber' as const, description: "Guided root-cause investigation for a bug before proposing a fix.", isPiChamber: true }]
+            ? [{ id: 'pichamber:debug', name: 'debug', source: 'pichamber' as const, description: "Guided root-cause investigation for a bug before proposing a fix.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:weigh', name: 'weigh', source: 'openchamber' as const, description: "Weigh 2-3 approaches with trade-offs and a recommendation before you commit.", isPiChamber: true }]
+            ? [{ id: 'pichamber:weigh', name: 'weigh', source: 'pichamber' as const, description: "Weigh 2-3 approaches with trade-offs and a recommendation before you commit.", isPiChamber: true }]
             : []
           ),
           ...(canStartSessionCommand
-            ? [{ id: 'openchamber:explore', name: 'explore', source: 'openchamber' as const, description: "Get oriented in this codebase: a high-level tour of the architecture and main parts.", isPiChamber: true }]
+            ? [{ id: 'pichamber:explore', name: 'explore', source: 'pichamber' as const, description: "Get oriented in this codebase: a high-level tour of the architecture and main parts.", isPiChamber: true }]
             : []
           ),
         ];
