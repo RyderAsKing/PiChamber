@@ -117,9 +117,9 @@ run_with_act() {
     ACT_CMD+=" --container-architecture linux/amd64"
     ACT_CMD+=" --artifact-server-path $REPO_ROOT/.act-artifacts"
 
-    # Filter to specific job for faster testing
-    # publish-npm works in Linux containers; build-desktop-macos needs macOS
-    ACT_CMD+=" --job publish-npm"
+    # Filter to a Linux-container job for faster testing.
+    # Desktop packaging for macOS/Windows still needs native runners.
+    ACT_CMD+=" --job create-release"
 
     if [[ "$VERBOSE" == true ]]; then
         ACT_CMD+=" --verbose"
