@@ -104,4 +104,39 @@ describe('pi-to-renderable', () => {
     };
     expect(piProjectedToRecords(projected)).toHaveLength(1);
   });
+
+  test('copies Pi usage onto info.usage and derives info.cost from usage.cost.total', () => {
+    const usage = {
+      input: 100, output: 50, cacheRead: 10, cacheWrite: 5, totalTokens: 165,
+      cost: { input: 0.001, output: 0.002, cacheRead: 0.0001, cacheWrite: 0.0002, total: 0.0033 },
+    };
+    const message: PiProjectedMessage = {
+      id: 'msg_usage',
+      role: 'assistant',
+      createdAt: 1,
+      streaming: false,
+      text: 'ok',
+      thinking: '',
+      usage,
+      parts: [{ id: 'p1', type: 'text', text: 'ok', streaming: false }],
+    };
+    const record = piMessageToRecord(message, 'ses_1');
+    expect(record.info.usage).toEqual(usage);
+    expect(record.info.cost).toBe(0.0033);
+  });
+
+  test('omits usage and cost when the projected message has no usage', () => {
+    const message: PiProjectedMessage = {
+      id: 'msg_no_usage',
+      role: 'assistant',
+      createdAt: 1,
+      streaming: false,
+      text: 'ok',
+      thinking: '',
+      parts: [{ id: 'p1', type: 'text', text: 'ok', streaming: false }],
+    };
+    const record = piMessageToRecord(message, 'ses_1');
+    expect(record.info.usage).toBeFalsy();
+    expect(record.info.cost).toBeFalsy();
+  });
 });

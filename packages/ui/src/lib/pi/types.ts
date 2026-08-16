@@ -112,6 +112,34 @@ export interface PiAssistantMessage extends PiMessageBase {
   error?: PiAssistantError;
   /** True while the assistant is still streaming this message. */
   streaming?: boolean;
+  /**
+   * Pi-native usage for the producing turn. Pi persists a `Usage` object on
+   * every assistant message; PiChamber sanitizes (numbers only, finite, ≥ 0)
+   * and projects it unchanged. Pi has no separate reasoning-token field —
+   * thinking is a content block, so any "reasoning" token tile stays `—`.
+   */
+  usage?: PiUsage;
+}
+
+/**
+ * PiChamber-owned `PiUsage` record. Numbers are coerced to finite, non-negative
+ * values at the daemon boundary; the public protocol never carries floating
+ * point, NaN, or unknown keys. Decimal costs are accepted but the public tile
+ * rounds to the nearest cent (or fourth decimal for sub-cent values).
+ */
+export interface PiUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  totalTokens: number;
+  cost: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    total: number;
+  };
 }
 
 export interface PiAssistantError {

@@ -80,6 +80,51 @@ const projectSessionList = (sessions) => {
   });
 };
 
+/**
+ * Public-protocol sanitizer for Pi `Usage`. The server already coerces each
+ * numeric field to a finite, non-negative value before the message leaves
+ * the daemon, but the public projection re-validates so a malformed payload
+ * (e.g. a stale cache from a different daemon version) cannot surface as
+ * `Infinity` or `NaN` in the reducer. The whole object is omitted if any
+ * field is missing or wrong type; unknown keys are never passed through.
+ */
+const projectUsage = (raw) => {
+  if (!raw || typeof raw !== 'object') return null;
+  const safeNonNegativeNumber = (value) => (typeof value === 'number' && Number.isFinite(value) && value >= 0) ? value : null;
+  const input = safeNonNegativeNumber(raw.input);
+  const output = safeNonNegativeNumber(raw.output);
+  const cacheRead = safeNonNegativeNumber(raw.cacheRead);
+  const cacheWrite = safeNonNegativeNumber(raw.cacheWrite);
+  const totalTokens = safeNonNegativeNumber(raw.totalTokens);
+  const rawCost = raw.cost && typeof raw.cost === 'object' ? raw.cost : null;
+  if (!rawCost) return null;
+  const costInput = safeNonNegativeNumber(rawCost.input);
+  const costOutput = safeNonNegativeNumber(rawCost.output);
+  const costCacheRead = safeNonNegativeNumber(rawCost.cacheRead);
+  const costCacheWrite = safeNonNegativeNumber(rawCost.cacheWrite);
+  const costTotal = safeNonNegativeNumber(rawCost.total);
+  if (
+    input === null || output === null || cacheRead === null || cacheWrite === null || totalTokens === null
+    || costInput === null || costOutput === null || costCacheRead === null || costCacheWrite === null || costTotal === null
+  ) {
+    return null;
+  }
+  return {
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    totalTokens,
+    cost: {
+      input: costInput,
+      output: costOutput,
+      cacheRead: costCacheRead,
+      cacheWrite: costCacheWrite,
+      total: costTotal,
+    },
+  };
+};
+
 const projectSessionDetail = (value) => {
   if (!value || typeof value !== 'object' || !Array.isArray(value.messages) || !Number.isSafeInteger(value.lastSequence)) throw protocolMismatch();
   const messages = value.messages.map((item) => {
@@ -101,6 +146,7 @@ const projectSessionDetail = (value) => {
             },
           }
         : {}),
+      ...(message.role === 'assistant' && message.usage && projectUsage(message.usage) ? { usage: projectUsage(message.usage) } : {}),
     };
     const parts = item.parts.map((part) => {
       if (!part || typeof part !== 'object' || typeof part.type !== 'string' || typeof part.id !== 'string' || !Number.isSafeInteger(part.index)) throw protocolMismatch();
@@ -305,6 +351,7 @@ const projectEventFrame = (frame) => {
               },
             }
           : {}),
+        ...(projectUsage(frame.payload.usage) ? { usage: projectUsage(frame.payload.usage) } : {}),
       },
     };
     case 'session.queue': return { ...common, payload: { steering: frame.payload.steering, followUp: frame.payload.followUp } };

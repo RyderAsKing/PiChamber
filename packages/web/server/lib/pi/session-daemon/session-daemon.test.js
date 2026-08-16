@@ -1154,4 +1154,90 @@ describe('Pi session daemon spike', () => {
     expect(session.isStreaming).toBe(false);
     await client.close();
   });
+
+  it('projects Pi usage in getSession messages and message_end events, omitting malformed payloads', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-usage-'));
+    const endpoint = join(root, 'daemon.sock');
+    const projectDir = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    await mkdir(projectDir, { recursive: true });
+    await mkdir(agentDir, { recursive: true });
+    const session = new FakeSession('pi-session-usage');
+    session.entries = [
+      {
+        type: 'message',
+        id: 'assistant-usage-good',
+        timestamp: '2026-01-01T00:00:01.000Z',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'ok' }],
+          provider: 'test',
+          model: 'model',
+          usage: {
+            input: 100, output: 50, cacheRead: 10, cacheWrite: 5, totalTokens: 165,
+            cost: { input: 0.001, output: 0.002, cacheRead: 0.0001, cacheWrite: 0.0002, total: 0.0033 },
+          },
+        },
+      },
+      {
+        type: 'message',
+        id: 'assistant-usage-malformed',
+        timestamp: '2026-01-01T00:00:02.000Z',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'partial' }],
+          provider: 'test',
+          model: 'model',
+          usage: { input: 'oops', output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },
+        },
+      },
+    ];
+
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: projectDir,
+      agentDir,
+      createRuntime: async () => ({ session, async dispose() {} }),
+      listSessions: async () => [],
+    });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    const detail = await client.request('sessions.create', { cwd: projectDir });
+    const messages = detail.result.messages;
+    const good = messages.find((entry) => entry.message.id === 'assistant-usage-good');
+    const bad = messages.find((entry) => entry.message.id === 'assistant-usage-malformed');
+    expect(good.message.usage).toEqual({
+      input: 100, output: 50, cacheRead: 10, cacheWrite: 5, totalTokens: 165,
+      cost: { input: 0.001, output: 0.002, cacheRead: 0.0001, cacheWrite: 0.0002, total: 0.0033 },
+    });
+    expect(bad.message.usage).toBeUndefined();
+
+    const [goodEnd, badEnd] = [
+      client.next((frame) => frame.event === 'assistant.message.end' && frame.payload?.usage?.totalTokens === 19),
+      client.next((frame) => frame.event === 'assistant.message.end' && frame.payload?.usage === undefined),
+    ];
+    session.emit({ type: 'message_end', message: {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'live' }],
+      usage: {
+        input: 7, output: 9, cacheRead: 1, cacheWrite: 2, totalTokens: 19,
+        cost: { input: 0.01, output: 0.02, cacheRead: 0.001, cacheWrite: 0.002, total: 0.033 },
+      },
+    } });
+    session.emit({ type: 'message_end', message: {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'interrupted' }],
+      usage: { input: NaN, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },
+    } });
+    const [goodFrame, badFrame] = await Promise.all([goodEnd, badEnd]);
+    expect(goodFrame.payload.usage).toEqual({
+      input: 7, output: 9, cacheRead: 1, cacheWrite: 2, totalTokens: 19,
+      cost: { input: 0.01, output: 0.02, cacheRead: 0.001, cacheWrite: 0.002, total: 0.033 },
+    });
+    expect(badFrame.payload.usage).toBeUndefined();
+    await client.close();
+  });
 });

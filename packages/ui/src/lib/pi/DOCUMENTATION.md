@@ -69,7 +69,15 @@ chunk in that block; reducers apply those chunks with `applyAssistantTextDelta`
 use event sequence for deduplication. Cadence folding uses the same merge so
 a frame of cumulative chunks cannot concatenate into stuttering markdown.
 `assistant.message.end` writes the canonical `text`/`thinking` onto the
-rendered parts; message-level fields alone are not what the chat paints. A snapshot is itself an event with `name: 'session.snapshot'`;
+rendered parts; message-level fields alone are not what the chat paints.
+When the producing turn carries Pi `Usage`, the same event also attaches the
+sanitized `usage` to the assistant message record so the context sidebar can
+read it directly. The `usage` shape is `{ input, output, cacheRead, cacheWrite, totalTokens, cost: { input, output, cacheRead, cacheWrite, total } }` —
+numbers only, finite, non-negative, never NaN or unknown keys. Pi has no
+separate reasoning-token field; thinking is a content block, so the
+sidebar's reasoning tile stays `—` when `usage` is present. The snapshot
+hydrate path and `assistant.message.start` event do not carry usage; the
+authoritative source is the message-end turn completion. A snapshot is itself an event with `name: 'session.snapshot'`;
 The snapshot reducer replaces the running state when the snapshot's
 `lastSequence` is strictly greater than the previously accepted snapshot.
 Reconnect still unions an in-flight session's existing messages onto that

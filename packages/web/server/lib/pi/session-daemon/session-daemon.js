@@ -556,6 +556,7 @@ export function createSessionDaemon({
       if (entry.message.role !== 'assistant' || !Array.isArray(entry.message.content)) return [];
       const text = redactAttachmentPaths(entry.message.content.filter((part) => part?.type === 'text').map((part) => part.text).join(''));
       const thinking = redactAttachmentPaths(entry.message.content.filter((part) => part?.type === 'thinking').map((part) => part.thinking).join(''));
+      const usage = projectUsage(entry.message.usage);
       const parts = entry.message.content.flatMap((part, index) => {
         if (part?.type === 'text') return [{ type: 'text', id: `${entry.id}:text:${index}`, index, text: redactAttachmentPaths(part.text) }];
         if (part?.type === 'thinking') return [{ type: 'thinking', id: `${entry.id}:thinking:${index}`, index, text: redactAttachmentPaths(part.thinking) }];
@@ -584,6 +585,7 @@ export function createSessionDaemon({
           ...(latestUserMessageId ? { parentId: latestUserMessageId } : {}),
           model: { providerId: entry.message.provider, modelId: entry.message.model },
           ...(entry.message.errorMessage ? { error: { code: 'ASSISTANT_ERROR', message: redactAttachmentPaths(entry.message.errorMessage) } } : {}),
+          ...(usage ? { usage } : {}),
         },
         parts,
       }];
@@ -1131,6 +1133,51 @@ export function createSessionDaemon({
     };
   };
 
+  /**
+   * Sanitize Pi's `Usage` object into the public PiChamber `PiUsage` shape.
+   * All numeric fields must be finite and non-negative; the object is
+   * omitted entirely if any field is missing or wrong type. Unknown keys are
+   * never passed through. Costs are normalized the same way as token counts
+   * — Pi treats decimal cents as float, so the renderer is responsible for
+   * rounding to a money locale.
+   */
+  const projectUsage = (raw) => {
+    if (!raw || typeof raw !== 'object') return null;
+    const safeNonNegativeNumber = (value) => (typeof value === 'number' && Number.isFinite(value) && value >= 0) ? value : null;
+    const input = safeNonNegativeNumber(raw.input);
+    const output = safeNonNegativeNumber(raw.output);
+    const cacheRead = safeNonNegativeNumber(raw.cacheRead);
+    const cacheWrite = safeNonNegativeNumber(raw.cacheWrite);
+    const totalTokens = safeNonNegativeNumber(raw.totalTokens);
+    const rawCost = raw.cost && typeof raw.cost === 'object' ? raw.cost : null;
+    if (!rawCost) return null;
+    const costInput = safeNonNegativeNumber(rawCost.input);
+    const costOutput = safeNonNegativeNumber(rawCost.output);
+    const costCacheRead = safeNonNegativeNumber(rawCost.cacheRead);
+    const costCacheWrite = safeNonNegativeNumber(rawCost.cacheWrite);
+    const costTotal = safeNonNegativeNumber(rawCost.total);
+    if (
+      input === null || output === null || cacheRead === null || cacheWrite === null || totalTokens === null
+      || costInput === null || costOutput === null || costCacheRead === null || costCacheWrite === null || costTotal === null
+    ) {
+      return null;
+    }
+    return {
+      input,
+      output,
+      cacheRead,
+      cacheWrite,
+      totalTokens,
+      cost: {
+        input: costInput,
+        output: costOutput,
+        cacheRead: costCacheRead,
+        cacheWrite: costCacheWrite,
+        total: costTotal,
+      },
+    };
+  };
+
   // Deltas can split `pi-clipboard-` and its UUID across arbitrary frames.
   // Hold a small suffix, then hold the complete sensitive token once its marker
   // appears. This prevents the browser reducer from reconstructing a path that
@@ -1359,12 +1406,14 @@ export function createSessionDaemon({
           const startedAt = messageStartedAt.get(messageId) ?? Date.now();
           messageStartedAt.delete(messageId);
           const durationMs = Math.max(100, Date.now() - startedAt);
+          const usage = projectUsage(event.message.usage);
           publish('assistant.message.end', {
             messageId,
             text: redactAttachmentPaths(content.filter((part) => part?.type === 'text').map((part) => part.text).join('')),
             thinking: redactAttachmentPaths(content.filter((part) => part?.type === 'thinking').map((part) => part.thinking).join('')),
             durationMs,
             ...(event.message.errorMessage ? { error: { code: 'ASSISTANT_ERROR', message: redactAttachmentPaths(event.message.errorMessage) } } : {}),
+            ...(usage ? { usage } : {}),
           }, sessionId, directory);
           streamingMessageIds.delete(sessionId);
           clearStreamingRedactionBuffers(sessionId);

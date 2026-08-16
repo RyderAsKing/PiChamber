@@ -39,6 +39,7 @@ import type {
   PiSessionLifecycleState,
   PiSessionId,
   PiThinkingLevel,
+  PiUsage,
   PiUserMessage,
 } from './types';
 
@@ -93,6 +94,8 @@ export interface PiReducerMessage {
   streaming: boolean;
   /** Set when the assistant message ended in an interrupted/error state. */
   error?: { code: string; message?: string };
+  /** Assistant-only: Pi usage for the producing turn. */
+  usage?: PiUsage;
 }
 
 export interface PiReducerSessionState {
@@ -456,6 +459,7 @@ const reduceMessageEnd = (
   }
   if (payload.thinkingLevel) message.thinkingLevel = payload.thinkingLevel;
   if (payload.error) message.error = payload.error;
+  if (payload.usage) message.usage = payload.usage;
   session.streamingMessages.delete(message.id);
   session.streamingMessages.delete(payload.messageId);
 };
@@ -804,6 +808,7 @@ export interface PiProjectedMessage {
   error?: { code: string; message?: string };
   model?: PiModelRef;
   thinkingLevel?: PiThinkingLevel;
+  usage?: PiUsage;
   parts: PiProjectedMessagePart[];
 }
 
@@ -872,6 +877,7 @@ export const projectSession = (session: PiReducerSessionState): PiProjectedSessi
         ...(message.error ? { error: message.error } : {}),
         ...(message.model ? { model: message.model } : {}),
         ...(message.thinkingLevel ? { thinkingLevel: message.thinkingLevel } : {}),
+        ...(message.usage ? { usage: message.usage } : {}),
         parts,
       };
     });
@@ -941,6 +947,7 @@ export const hydrateSessionFromDetail = (
       ...(message.role === 'assistant' && message.thinkingLevel
         ? { thinkingLevel: message.thinkingLevel }
         : {}),
+      ...(message.role === 'assistant' && message.usage ? { usage: message.usage } : {}),
     };
     session.messages.set(message.id, reducerMessage);
     const partOrder: string[] = [];
