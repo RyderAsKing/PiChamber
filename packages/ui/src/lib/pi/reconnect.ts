@@ -1,5 +1,5 @@
 /**
- * Pi reconnect owner.
+ * Pi directory-stream reconnect owner.
  *
  * The reconnect path owns the recovery sequence for a live session:
  *
@@ -7,8 +7,9 @@
  *      and we miss a heartbeat). We mark the session `interrupted` so the
  *      UI shows the warning instead of an idle spinner.
  *   2. We re-attach the live stream. If the runtime is `ready`, we ask
- *      the daemon for a fresh snapshot of the session and resume the
- *      reducer from there.
+ *      the daemon for a fresh snapshot of the selected session and resume the
+ *      directory-wide stream from there. The stream must stay directory-wide
+ *      so a later session switch keeps receiving events.
  *   3. If the daemon is `unavailable`, we do NOT fabricate an empty
  *      session — we surface the unavailable state until the daemon
  *      reports ready again.
@@ -183,7 +184,10 @@ export const reconnectPiSession = async (
     };
     const applied = applySnapshot(result.snapshotState, snapshotEvent.payload.snapshot);
     result.snapshotState = applied.state;
-    result.lastSequence = detail.lastSequence;
+    // Daemon sequences are global. Resume from the higher of the snapshot
+    // cursor and the client's already-applied max so a quieter session's
+    // getSession cannot rewind the directory stream into the retained log.
+    result.lastSequence = Math.max(options.lastKnownSequence ?? -1, detail.lastSequence);
   } catch (error) {
     const wrapped = toError(error);
     if (wrapped.code === 'INVALID_SESSION') {
@@ -198,9 +202,8 @@ export const reconnectPiSession = async (
     return result;
   }
 
-  // 3. Attach the stream with the snapshot's sequence as the resume
-  //    watermark. Events with a sequence <= lastSequence will be silently
-  //    dropped by the reducer, which is the correct behavior.
+  // 3. Attach the stream at the resume watermark. Events with a sequence
+  //    <= lastSequence are dropped by the reducer.
   result.phase = 'stream-attach';
   try {
     result.stream = dependencies.createStream(
@@ -212,7 +215,6 @@ export const reconnectPiSession = async (
       },
       {
         fromSequence: result.lastSequence,
-        sessionId: options.sessionId,
         ...(options.runtimeKey ? { runtimeKey: options.runtimeKey } : {}),
         signal: options.signal,
       },
