@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none"
      stroke="#000" stroke-linejoin="round" stroke-linecap="round">
-  <g stroke-width="2.3">
-    <path d="M16 2.5 L28.5 9.5 L28.5 23 L16 30 L3.5 23 L3.5 9.5 Z"/>
-    <path d="M3.5 9.5 L16 16.25 L28.5 9.5"/>
-    <path d="M16 16.25 L16 30"/>
+  <g transform="translate(1.5 1.5) scale(0.29)">
+    <path d="M50 3 91 27 50 51 9 27Z" fill="#000" fill-opacity=".08" stroke="none"/>
+    <path d="M9 27 50 51V97L9 73Z" fill="#000" fill-opacity=".12" stroke="none"/>
+    <path d="M50 51 91 27V73L50 97Z" fill="#000" fill-opacity=".18" stroke="none"/>
+    <path d="M50 3 91 27V73L50 97 9 73V27Z" stroke-width="2.5"/>
+    <path d="M28 31H72 M38 31V68 M62 31V55C62 64 67 68 75 68" stroke-width="6"/>
   </g>
-  <!-- thinner stroke for the diamond on the top face -->
-  <path stroke-width="1.5" d="M16 6.5 L21.5 9.4 L16 12.3 L10.5 9.4 Z"/>
 </svg>

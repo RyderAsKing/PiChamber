@@ -73,6 +73,7 @@
     "profile:browser": "node scripts/profile-browser.mjs",
     "icons:sprite": "node scripts/generate-file-type-sprite.mjs",
     "icons:generate": "bun run scripts/generate-icon-sprite.mjs",
+    "icons:brand": "bun scripts/generate-brand-icons.mjs",
     "version:bump": "node scripts/bump-version.mjs",
     "release:prepare": "bun run build && bun run type-check && bun run lint",
     "release:test": "./scripts/test-release-build.sh",
