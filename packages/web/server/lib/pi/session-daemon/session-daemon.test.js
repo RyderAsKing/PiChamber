@@ -603,7 +603,7 @@ describe('Pi session daemon spike', () => {
     await client.authenticate();
 
     await expect(client.request('projects.list')).resolves.toMatchObject({ result: { projects: [{ directory: root, selected: true }] } });
-    await expect(client.request('providers.list')).resolves.toMatchObject({ result: { providers: [{ id: 'test', authenticated: true, models: [{ id: 'model', supportsThinking: true, thinkingLevels: ['low'] }] }] } });
+    await expect(client.request('providers.list')).resolves.toMatchObject({ result: { providers: [{ id: 'test', authenticated: true, models: [{ id: 'model', supportsThinking: true, thinkingLevels: ['off', 'minimal', 'low', 'medium'] }] }] } });
     await expect(client.request('projects.select', { directory: root })).resolves.toMatchObject({ result: { directory: root } });
     await expect(client.request('sessions.create', { cwd: root, title: 'Created' })).resolves.toMatchObject({ result: { session: { id: 'pi-session-new' } } });
     await expect(client.request('sessions.open', { sessionId: 'pi-session-persisted' })).resolves.toMatchObject({ result: { session: { id: 'pi-session-persisted' } } });
@@ -660,8 +660,8 @@ describe('Pi session daemon spike', () => {
     await expect(client.request('sessions.setModel', { sessionId: 'pi-session-forked', model: { providerId: 'other', modelId: 'model' } })).resolves.toMatchObject({ result: {} });
     await expect(modelEvent).resolves.toMatchObject({ payload: { model: { providerId: 'other', modelId: 'model' } } });
     const thinkingEvent = client.next((frame) => frame.event === 'session.thinking');
-    await expect(client.request('sessions.setThinking', { sessionId: 'pi-session-forked', thinking: 'high' })).resolves.toMatchObject({ result: {} });
-    await expect(thinkingEvent).resolves.toMatchObject({ payload: { thinking: 'high' } });
+    await expect(client.request('sessions.setThinking', { sessionId: 'pi-session-forked', thinking: 'minimal' })).resolves.toMatchObject({ result: {} });
+    await expect(thinkingEvent).resolves.toMatchObject({ payload: { thinking: 'minimal' } });
     await expect(client.request('sessions.compact', { sessionId: 'pi-session-forked', thinking: 'medium' })).resolves.toMatchObject({ result: {} });
     expect(runtime.session.compacted).toBe(1);
     await expect(client.request('sessions.prompt', { sessionId: 'pi-session-forked', text: 'prompt' })).resolves.toMatchObject({ result: { accepted: true, messageId: 'fake-entry' } });
@@ -1257,6 +1257,50 @@ describe('Pi session daemon spike', () => {
       cost: { input: 0.01, output: 0.02, cacheRead: 0.001, cacheWrite: 0.002, total: 0.033 },
     });
     expect(badFrame.payload.usage).toBeUndefined();
+    await client.close();
+  });
+
+  it('projects the last assistant model and thinking onto an opened session', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-last-model-'));
+    const endpoint = testDaemonEndpoint(root);
+    const projectDir = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    await mkdir(projectDir, { recursive: true });
+    await mkdir(agentDir, { recursive: true });
+    const session = new FakeSession('pi-session-last-model');
+    session.model = { provider: 'openai', id: 'gpt-5' };
+    session.thinkingLevel = 'low';
+    session.entries = [
+      {
+        type: 'message',
+        id: 'assistant-last',
+        timestamp: '2026-01-01T00:00:02.000Z',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'ok' }],
+          provider: 'anthropic',
+          model: 'sonnet',
+          thinkingLevel: 'high',
+        },
+      },
+    ];
+
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: projectDir,
+      agentDir,
+      createRuntime: async () => ({ session, async dispose() {} }),
+      listSessions: async () => [],
+    });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    const detail = await client.request('sessions.create', { cwd: projectDir });
+    expect(detail.result.session.model).toEqual({ providerId: 'anthropic', modelId: 'sonnet' });
+    expect(detail.result.session.thinking).toBe('high');
+    expect(detail.result.messages[0].message.thinkingLevel).toBe('high');
     await client.close();
   });
 });

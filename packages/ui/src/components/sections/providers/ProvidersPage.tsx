@@ -11,10 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { piClient } from '@/lib/pi/client';
 import { PI_CUSTOM_PROVIDER_SELECTION, usePiProviderSelectionStore } from '@/lib/pi/provider-selection';
 import { providerToCustomFormState, type CustomProviderPersistPlan } from './custom-provider-form';
-import type { PiProviderLoginState, PiSettingsSnapshot } from '@/lib/pi/protocol';
+import type { PiProviderLoginState } from '@/lib/pi/protocol';
 import type { PiProvider } from '@/lib/pi/types';
-import { configuredProviders } from '@/lib/pi/configured-providers';
-import { isHiddenModelRef } from '@/lib/pi/hidden-models';
 import { cn } from '@/lib/utils';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -27,13 +25,11 @@ export const ProvidersPage: React.FC = () => {
   
   const selectedProviderId = usePiProviderSelectionStore((state) => state.selectedProviderId);
   const setSelectedProviderId = usePiProviderSelectionStore((state) => state.setSelectedProviderId);
-  const hiddenModels = useUIStore((state) => state.hiddenModels);
   const toggleHiddenModel = useUIStore((state) => state.toggleHiddenModel);
   const isHiddenModel = useUIStore((state) => state.isHiddenModel);
   const hideAllModels = useUIStore((state) => state.hideAllModels);
   const showAllModels = useUIStore((state) => state.showAllModels);
   const [providers, setProviders] = React.useState<readonly PiProvider[] | null>(null);
-  const [settings, setSettings] = React.useState<PiSettingsSnapshot | null>(null);
   const [apiKey, setApiKey] = React.useState('');
   const [promptValue, setPromptValue] = React.useState('');
   const [login, setLogin] = React.useState<PiProviderLoginState | null>(null);
@@ -43,12 +39,8 @@ export const ProvidersPage: React.FC = () => {
   const [failed, setFailed] = React.useState(false);
 
   const refresh = React.useCallback(async () => {
-    const [{ providers: result }, nextSettings] = await Promise.all([
-      piClient.listProviders(providerScope()),
-      piClient.getSettings(providerScope()),
-    ]);
+    const { providers: result } = await piClient.listProviders(providerScope());
     setProviders(result);
-    setSettings(nextSettings);
     setFailed(false);
     if (!selectedProviderId && result[0]) setSelectedProviderId(result[0].id);
     void useConfigStore.getState().loadProviders({ source: 'providersPage:refresh' });
@@ -91,41 +83,6 @@ export const ProvidersPage: React.FC = () => {
     });
     return () => { active = false; };
   }, [providerId]);
-  const allModels = providers?.flatMap((entry) => entry.models.map((model) => ({ providerId: entry.id, model }))) ?? [];
-  const configuredModels = configuredProviders(providers ?? []).flatMap((entry) =>
-    entry.models
-      .filter((model) => !isHiddenModelRef(hiddenModels, entry.id, model.id))
-      .map((model) => ({ providerId: entry.id, model })),
-  );
-  const modelsForSelect = (selected?: { providerId: string; modelId: string }) => {
-    if (!selected) return configuredModels;
-    const alreadyListed = configuredModels.some(
-      (entry) => entry.providerId === selected.providerId && entry.model.id === selected.modelId,
-    );
-    if (alreadyListed) return configuredModels;
-    const current = allModels.find(
-      (entry) => entry.providerId === selected.providerId && entry.model.id === selected.modelId,
-    );
-    return current ? [...configuredModels, current] : configuredModels;
-  };
-  const modelValue = (model?: { providerId: string; modelId: string }) => model ? `${model.providerId}/${model.modelId}` : '__pi_fallback__';
-  const modelFromValue = (value: string) => {
-    if (value === '__pi_fallback__') return null;
-    const separator = value.indexOf('/');
-    return separator > 0 ? { providerId: value.slice(0, separator), modelId: value.slice(separator + 1) } : null;
-  };
-  const updatePiChamberModel = async (field: 'defaultModel' | 'smallModel' | 'walkthroughModel', value: string) => {
-    try {
-      const result = await piClient.setPiChamberDefaults({ [field]: modelFromValue(value) }, providerScope());
-      setSettings((current) => current ? { ...current, pichamber: result.pichamber } : current);
-    } catch { setFailed(true); }
-  };
-  const changeDefaultThinking = async (value: string) => {
-    try {
-      const result = await piClient.setPiChamberDefaults({ defaultThinking: value === '__pi_fallback__' ? null : value as 'off' | 'low' | 'medium' | 'high' | 'xhigh' }, providerScope());
-      setSettings((current) => current ? { ...current, pichamber: result.pichamber } : current);
-    } catch { setFailed(true); }
-  };
 
   const saveCustomProvider = async (plan: CustomProviderPersistPlan) => {
     setBusy(true);
@@ -238,47 +195,6 @@ export const ProvidersPage: React.FC = () => {
       showSaveStatus={false}
     >
       {failed ? <p className="typography-meta text-[var(--status-error)]">{"Unavailable"}</p> : null}
-      <SettingsSection title={"Session Defaults"} divider={false}>
-        <SettingsFieldRow settingsItem="sessions.default-model" label={"Default Model"}>
-          <Select value={modelValue(settings?.pichamber.defaultModel)} onValueChange={(value) => void updatePiChamberModel('defaultModel', value)}>
-            <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__pi_fallback__">{"Default"}</SelectItem>
-              {modelsForSelect(settings?.pichamber.defaultModel).map(({ providerId, model }) => (
-                <SelectItem key={`${providerId}/${model.id}`} value={`${providerId}/${model.id}`}>{model.label || model.id}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </SettingsFieldRow>
-        <SettingsFieldRow settingsItem="sessions.small-model" label={"Small Model"} description={"A cheap model for quick utility tasks like short recaps and summaries."}>
-          <Select value={modelValue(settings?.pichamber.smallModel)} onValueChange={(value) => void updatePiChamberModel('smallModel', value)}>
-            <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__pi_fallback__">{"Use default small model"}</SelectItem>
-              {modelsForSelect(settings?.pichamber.smallModel).map(({ providerId, model }) => <SelectItem key={`${providerId}/${model.id}`} value={`${providerId}/${model.id}`}>{model.label || model.id}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </SettingsFieldRow>
-        <SettingsFieldRow settingsItem="sessions.walkthrough-model" label={"Changes Walkthrough Model"} description={"The AI review of your changes needs structured output and room for a whole diff, which a cheap small model often cannot give. Models the catalog reports as unable to produce structured output are hidden from this picker. Leave it unset and the small model is used."}>
-          <Select value={modelValue(settings?.pichamber.walkthroughModel)} onValueChange={(value) => void updatePiChamberModel('walkthroughModel', value)}>
-            <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__pi_fallback__">{"Small model"}</SelectItem>
-              {modelsForSelect(settings?.pichamber.walkthroughModel).map(({ providerId, model }) => <SelectItem key={`${providerId}/${model.id}`} value={`${providerId}/${model.id}`}>{model.label || model.id}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </SettingsFieldRow>
-        <SettingsFieldRow settingsItem="sessions.default-thinking" label={"Default Thinking"}>
-          <Select value={settings?.pichamber.defaultThinking ?? '__pi_fallback__'} onValueChange={(value) => void changeDefaultThinking(value)}>
-            <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__pi_fallback__">{"Default"}</SelectItem>
-              {['off', 'low', 'medium', 'high', 'xhigh'].map((level) => <SelectItem key={level} value={level}>{level}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </SettingsFieldRow>
-      </SettingsSection>
-
       <SettingsSection
         title={"Authentication"}
         divider={false}

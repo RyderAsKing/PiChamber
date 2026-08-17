@@ -35,6 +35,7 @@ export const opencodeClient = {
           providerID: model.providerId,
           reasoning: model.supportsThinking === true,
           ...(Number.isSafeInteger(model.contextWindow) ? { limit: { context: model.contextWindow } } : {}),
+          ...(Array.isArray(model.thinkingLevels) && model.thinkingLevels.length > 0 ? { thinkingLevels: model.thinkingLevels } : {}),
         }])),
       })) satisfies Provider[];
     return {

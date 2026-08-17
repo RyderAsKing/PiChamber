@@ -13,7 +13,8 @@ import { PiRequestError, piClient, type PiClientScope } from '@/lib/pi/client';
 import { reconnectPiSession } from '@/lib/pi/reconnect';
 import { PiStreamCadence } from '@/lib/pi/stream-cadence';
 import type { PiSessionEvent, PiSessionListItem } from '@/lib/pi/protocol';
-import type { PiSession, PiSessionId, PiSessionLifecycleState } from '@/lib/pi/types';
+import type { PiSession, PiSessionId, PiSessionLifecycleState, PiThinkingLevel } from '@/lib/pi/types';
+import { resolveCreateThinking } from '@/lib/pi/thinking';
 import { normalizePath } from '@/lib/pathNormalization';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { observeSessionActivityTiming, removeSessionActivityTiming } from '@/sync/session-activity-timing';
@@ -935,18 +936,25 @@ export class PiSessionStore {
     await this.hydrate(sessionId, this.runtimeGeneration);
   }
 
-  async create(title?: string, options?: { directory?: string; model?: { providerId: string; modelId: string }; thinking?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' }): Promise<string> {
+  async create(title?: string, options?: { directory?: string; model?: { providerId: string; modelId: string }; thinking?: PiThinkingLevel }): Promise<string> {
     const directory = options?.directory || this.directory(); const expected = this.runtimeGeneration;
     // PiChamber defaults are authoritative only when explicitly configured;
     // otherwise Pi's settings/model runtime performs its normal fallback.
     // A settings fetch failure aborts creation rather than silently creating a
     // session with an unknown default selection.
     const settings = await piClient.getSettings({ directory, runtimeKey: getRuntimeKey() });
+    const model = options?.model ?? settings.pichamber.defaultModel;
+    const thinking = resolveCreateThinking({
+      thinking: options?.thinking,
+      model,
+      defaultThinkingByModel: settings.pichamber.defaultThinkingByModel,
+      defaultThinking: settings.pichamber.defaultThinking,
+    });
     const detail = await piClient.createSession({
       cwd: directory,
       ...(title ? { title } : {}),
-      ...(options?.model ? { model: options.model } : (settings.pichamber.defaultModel ? { model: settings.pichamber.defaultModel } : {})),
-      ...(options?.thinking ? { thinking: options.thinking } : (settings.pichamber.defaultThinking ? { thinking: settings.pichamber.defaultThinking } : {})),
+      ...(model ? { model } : {}),
+      ...(thinking ? { thinking } : {}),
     }, { directory, runtimeKey: getRuntimeKey() });
     if (expected !== this.runtimeGeneration) return detail.session.id;
     this.state = { ...this.state, sessions: [{ session: detail.session, updatedAt: detail.session.updatedAt }, ...this.state.sessions], selectedSessionId: detail.session.id };
@@ -1104,7 +1112,7 @@ export class PiSessionStore {
   abort = (sessionId: string) => piClient.abortSession({ sessionId }, this.scope());
   compact = (sessionId: string) => piClient.compactSession({ sessionId }, this.scope());
   setModel = (sessionId: string, providerId: string, modelId: string) => piClient.setSessionModel({ sessionId, model: { providerId, modelId } }, this.scope());
-  setThinking = (sessionId: string, thinking: 'off' | 'low' | 'medium' | 'high' | 'xhigh') => piClient.setSessionThinking({ sessionId, thinking }, this.scope());
+  setThinking = (sessionId: string, thinking: PiThinkingLevel) => piClient.setSessionThinking({ sessionId, thinking }, this.scope());
   tree = (sessionId: string) => piClient.getSessionTree(sessionId, this.scope());
   providers = () => piClient.listProviders({ runtimeKey: getRuntimeKey() });
   upload = (input: { filename: string; mime: string; base64: string }) => piClient.createAttachment(input, this.scope());
@@ -1112,7 +1120,7 @@ export class PiSessionStore {
 
   private sessionFromDetail(detail: Awaited<ReturnType<typeof piClient.getSession>>) {
     return hydrateSessionFromDetail({
-      session: { id: detail.session.id, directory: detail.session.directory },
+      session: detail.session,
       lastSequence: detail.lastSequence,
       messages: detail.messages,
     }).session;

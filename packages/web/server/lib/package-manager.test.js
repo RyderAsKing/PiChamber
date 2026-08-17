@@ -13,6 +13,13 @@ const {
   getCurrentVersion,
 } = await import('./package-manager.js');
 
+function officialRegistryPackage(latest) {
+  return {
+    'dist-tags': { latest },
+    repository: { url: 'git+https://github.com/RyderAsKing/PiChamber.git' },
+  };
+}
+
 /** Helper: a fetch mock that routes by URL substring and records every call. */
 function createFetchMock() {
   const handlers = new Map();
@@ -69,7 +76,7 @@ describe('checkForUpdates (no hosted API by default)', () => {
       fetchMock
         .when('registry.npmjs.org', {
           ok: true,
-          json: async () => ({ 'dist-tags': { latest: '1.10.0' } }),
+          json: async () => officialRegistryPackage('1.10.0'),
         })
         .when('raw.githubusercontent.com', {
           ok: true,
@@ -89,7 +96,7 @@ describe('checkForUpdates (no hosted API by default)', () => {
     await withNoHostedApi(async () => {
       fetchMock.when('registry.npmjs.org', {
         ok: true,
-        json: async () => ({ 'dist-tags': { latest: '1.9.10' } }),
+        json: async () => officialRegistryPackage('1.9.10'),
       });
       const result = await checkForUpdates({ currentVersion: '1.9.10' });
       expect(result.available).toBe(false);
@@ -105,12 +112,28 @@ describe('checkForUpdates (no hosted API by default)', () => {
     });
   });
 
+  it('ignores npm latest when @pichamber/web is not the official PiChamber repository', async () => {
+    await withNoHostedApi(async () => {
+      fetchMock.when('registry.npmjs.org', {
+        ok: true,
+        json: async () => ({
+          'dist-tags': { latest: '1.0.0' },
+          repository: { url: 'git+https://github.com/openchamber/openchamber.git' },
+        }),
+      });
+      const result = await checkForUpdates({ currentVersion: '0.1.2' });
+      expect(result.available).toBe(false);
+      expect(result.version).toBeUndefined();
+      expect(result.error).toMatch(/Unable to determine versions/);
+    });
+  });
+
   it('does not call api.pichamber.dev when override is absent', async () => {
     await withNoHostedApi(async () => {
       fetchMock
         .when('registry.npmjs.org', {
           ok: true,
-          json: async () => ({ 'dist-tags': { latest: '1.10.0' } }),
+          json: async () => officialRegistryPackage('1.10.0'),
         })
         .when('raw.githubusercontent.com', {
           ok: true,
@@ -137,7 +160,7 @@ describe('checkForUpdates (no hosted API by default)', () => {
         })
         .when('registry.npmjs.org', {
           ok: true,
-          json: async () => ({ 'dist-tags': { latest: '1.11.0' } }),
+          json: async () => officialRegistryPackage('1.11.0'),
         });
 
       const result = await checkForUpdates({
@@ -175,7 +198,7 @@ describe('checkForUpdates (no hosted API by default)', () => {
         })
         .when('registry.npmjs.org', {
           ok: true,
-          json: async () => ({ 'dist-tags': { latest: '1.11.0' } }),
+          json: async () => officialRegistryPackage('1.11.0'),
         })
         .when('raw.githubusercontent.com', {
           ok: true,
@@ -206,7 +229,7 @@ describe('checkForUpdates (no hosted API by default)', () => {
       fetchMock
         .when('registry.npmjs.org', {
           ok: true,
-          json: async () => ({ 'dist-tags': { latest: '1.10.0' } }),
+          json: async () => officialRegistryPackage('1.10.0'),
         })
         .when('raw.githubusercontent.com', {
           ok: true,
@@ -224,7 +247,7 @@ describe('checkForUpdates (no hosted API by default)', () => {
       fetchMock
         .when('registry.npmjs.org', {
           ok: true,
-          json: async () => ({ 'dist-tags': { latest: '1.10.0' } }),
+          json: async () => officialRegistryPackage('1.10.0'),
         })
         .when('raw.githubusercontent.com', {
           ok: true,
@@ -256,7 +279,7 @@ describe('checkForUpdates (no hosted API by default)', () => {
       fetchMock
         .when('registry.npmjs.org', {
           ok: true,
-          json: async () => ({ 'dist-tags': { latest: '1.10.0' } }),
+          json: async () => officialRegistryPackage('1.10.0'),
         })
         .when('raw.githubusercontent.com', {
           ok: true,
@@ -296,7 +319,7 @@ describe('checkForUpdates (no hosted API by default)', () => {
         })
         .when('registry.npmjs.org', {
           ok: true,
-          json: async () => ({ 'dist-tags': { latest: '1.10.0' } }),
+          json: async () => officialRegistryPackage('1.10.0'),
         })
         .when('api.github.com/repos/RyderAsKing/PiChamber/releases/tags/v1.10.0', {
           ok: true,

@@ -7,7 +7,9 @@ import { createPiArchiveStore } from './archive-store.js';
 import { createPiAttachmentStore } from './attachment-store.js';
 import { checkForUpdates } from '../package-manager.js';
 import { listPiCustomThemes } from './custom-themes.js';
+import { adoptLegacyUiModelDefaults } from './legacy-ui-model-defaults.js';
 import { createPiSettingsStore } from './settings-store.js';
+import { isPiThinkingLevel } from './thinking-levels.js';
 import { createPiSessionFoldersStore } from './session-folders-store.js';
 import { createPiUiSettingsStore } from './ui-settings-store.js';
 
@@ -200,7 +202,7 @@ const projectProviders = (value) => {
             ...(typeof model.label === 'string' ? { label: model.label } : {}),
             ...(Number.isSafeInteger(model.contextWindow) ? { contextWindow: model.contextWindow } : {}),
             ...(model.supportsThinking === true ? { supportsThinking: true } : {}),
-            ...(Array.isArray(model.thinkingLevels) ? { thinkingLevels: model.thinkingLevels.filter((level) => ['off', 'low', 'medium', 'high', 'xhigh'].includes(level)) } : {}),
+            ...(Array.isArray(model.thinkingLevels) ? { thinkingLevels: model.thinkingLevels.filter((level) => isPiThinkingLevel(level)) } : {}),
           };
         }),
       };
@@ -659,7 +661,7 @@ export const registerPiRuntimeRoutes = (app, {
   app.get('/api/pi/settings', async (_req, res) => {
     try {
       const pi = projectPiSettings(await getDaemonRuntime(getPiSessionDaemonRuntime).request('settings.get'));
-      const pichamber = await settingsStore.read();
+      const pichamber = await adoptLegacyUiModelDefaults(settingsStore, uiSettingsStore);
       res.json({ ...pi, pichamber });
     } catch (error) {
       writeDaemonError(res, error);

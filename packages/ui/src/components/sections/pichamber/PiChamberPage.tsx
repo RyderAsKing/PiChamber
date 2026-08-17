@@ -193,7 +193,7 @@ const ChatSectionContent: React.FC = () => {
     );
 };
 
-// Sessions section: Default model, Session retention
+// Sessions section: default/small/walkthrough models, thinking, session retention
 const SessionsSectionContent: React.FC = () => {
     return (
         <>

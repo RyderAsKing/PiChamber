@@ -554,6 +554,54 @@ describe('PiSessionStore catalog', () => {
     }
   });
 
+  test('create applies per-model thinking from sidecar defaults', async () => {
+    let createdInput: { cwd?: string; title?: string; model?: unknown; thinking?: unknown } | undefined;
+    const stubs = stubDaemons({
+      listSessions: async () => ({ sessions: [listItem('seed', '/repo-a', { updatedAt: 1 })] }),
+      getSession: async (id) => ({
+        session: { id, directory: '/repo-a', createdAt: 0, updatedAt: 0 },
+        lastSequence: 0,
+        messages: [],
+      }),
+      getSettings: async () => ({
+        pi: { global: {}, project: { trusted: true } },
+        pichamber: {
+          version: 1,
+          defaultModel: { providerId: 'anthropic', modelId: 'opus' },
+          defaultThinkingByModel: { 'anthropic/opus': 'minimal' },
+          defaultThinking: 'high',
+        },
+      }),
+      createSession: async (input) => {
+        createdInput = input as { cwd?: string; title?: string; model?: unknown; thinking?: unknown };
+        return {
+          session: {
+            id: 'created-thinking',
+            directory: createdInput.cwd ?? '/repo-a',
+            title: createdInput.title ?? 'Untitled',
+            createdAt: 1,
+            updatedAt: 1,
+            parentId: null,
+          },
+          lastSequence: 0,
+          messages: [],
+        };
+      },
+    });
+
+    const store = new PiSessionStore();
+    try {
+      await store.start({ directory: '/repo-a' });
+      await tickMicrotasks();
+      await store.create('New chat');
+      expect(createdInput?.model).toEqual({ providerId: 'anthropic', modelId: 'opus' });
+      expect(createdInput?.thinking).toBe('minimal');
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
   test('LRU eviction flips the catalog\u2019s hydrated flag without dropping the row', async () => {
     // Build enough sessions to overflow the soft cap (16) so the eviction
     // pass actually has work to do.

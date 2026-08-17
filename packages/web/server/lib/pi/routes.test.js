@@ -131,14 +131,14 @@ describe('Pi runtime route', () => {
     const runtime = {
       request: async (command) => {
         expect(command).toBe('providers.list');
-        return { providers: [{ id: 'provider', label: 'Provider', authenticated: true, secret: 'never-public', models: [{ id: 'model', providerId: 'provider', label: 'Model', contextWindow: 100, supportsThinking: true, thinkingLevels: ['low', 'bad'] }] }] };
+        return { providers: [{ id: 'provider', label: 'Provider', authenticated: true, secret: 'never-public', models: [{ id: 'model', providerId: 'provider', label: 'Model', contextWindow: 100, supportsThinking: true, thinkingLevels: ['low', 'minimal', 'bad', 'max'] }] }] };
       },
     };
     const app = express();
     registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
     server = await listen(app);
     const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/providers`);
-    await expect(response.json()).resolves.toEqual({ providers: [{ id: 'provider', label: 'Provider', authenticated: true, models: [{ id: 'model', providerId: 'provider', label: 'Model', contextWindow: 100, supportsThinking: true, thinkingLevels: ['low'] }] }] });
+    await expect(response.json()).resolves.toEqual({ providers: [{ id: 'provider', label: 'Provider', authenticated: true, models: [{ id: 'model', providerId: 'provider', label: 'Model', contextWindow: 100, supportsThinking: true, thinkingLevels: ['low', 'minimal', 'max'] }] }] });
   });
 
   it('writes custom provider models through the daemon without projecting config credentials or headers', async () => {
@@ -228,7 +228,11 @@ describe('Pi runtime route', () => {
     };
     const app = express();
     app.use(express.json());
-    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, settingsStore });
+    registerPiRuntimeRoutes(app, {
+      getPiSessionDaemonRuntime: () => runtime,
+      settingsStore,
+      uiSettingsStore: { read: async () => ({}), write: async () => ({}) },
+    });
     server = await listen(app);
     const base = `http://127.0.0.1:${server.address().port}/api/pi/settings`;
     await expect((await fetch(base)).json()).resolves.toEqual({
@@ -239,6 +243,31 @@ describe('Pi runtime route', () => {
       pi: { global: { defaultThinking: 'high' }, project: { trusted: false } },
     });
     await expect((await fetch(`${base}/defaults`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ defaultThinking: 'low' }) })).json()).resolves.toEqual({ pichamber: { version: 1, defaultThinking: 'low' } });
+  });
+
+  it('adopts leftover UI model defaults into the sidecar on settings read', async () => {
+    const settingsStore = {
+      read: async () => ({ version: 1 }),
+      update: async (patch) => ({ version: 1, ...patch }),
+    };
+    const uiSettingsStore = {
+      read: async () => ({ defaultModel: 'openai/gpt-5', themeMode: 'dark' }),
+      write: async () => ({}),
+    };
+    const runtime = {
+      request: async (command) => {
+        if (command === 'settings.get') return { global: {}, project: { trusted: false } };
+        throw new Error(`Unexpected command ${command}`);
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, settingsStore, uiSettingsStore });
+    server = await listen(app);
+    await expect((await fetch(`http://127.0.0.1:${server.address().port}/api/pi/settings`)).json()).resolves.toEqual({
+      pi: { global: {}, project: { trusted: false } },
+      pichamber: { version: 1, defaultModel: { providerId: 'openai', modelId: 'gpt-5' } },
+    });
   });
 
   it('projects native resources without exposing daemon filesystem paths', async () => {
