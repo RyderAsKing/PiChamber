@@ -36,7 +36,7 @@
       "border": "#e2e2e8",
       "borderHover": "#cbcbda",
       "borderFocus": "#4f46e5",
-      "selection": "#4f46e514",
+      "selection": "#00000014",
       "selectionForeground": "#2d2d34",
       "focus": "#4f46e5",
       "focusRing": "#4f46e530",
