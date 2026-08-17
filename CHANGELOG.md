@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 - Desktop and web packaged icons now use the PiChamber hexagon-and-pi mark instead of the inherited OpenChamber cube.
+- Packaged Electron no longer blocks filesystem fetches from `pichamber-ui://app` (CORS now allows the workspace directory header), and the Pi session daemon is spawned as Node so Windows desktop no longer sticks on Loading with `/api/pi/*` 400s.
 
 ## [0.1.0] - 2026-08-17
 

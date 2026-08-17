@@ -48,6 +48,14 @@ const isValidFailureState = (state) => hasValidStateIdentity(state)
 
 const isPermanentStartupFailure = (code) => code === 'MALFORMED_SESSION_JSONL' || code === 'SESSION_JSONL_UNREADABLE';
 
+const buildSessionDaemonChildEnv = ({ env = {}, electronVersion } = {}) => {
+  const next = { ...env };
+  if (typeof electronVersion === 'string' && electronVersion.length > 0) {
+    next.ELECTRON_RUN_AS_NODE = '1';
+  }
+  return next;
+};
+
 const isPidAlive = (processLike, pid) => {
   try {
     processLike.kill(pid, 0);
@@ -308,7 +316,10 @@ export const createPiSessionDaemonSupervisor = ({
         detached: platform !== 'win32',
         stdio: 'ignore',
         windowsHide: true,
-        env,
+        env: buildSessionDaemonChildEnv({
+          env,
+          electronVersion: processLike.versions?.electron,
+        }),
       });
       child?.unref?.();
 
