@@ -49,8 +49,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                         type="button"
                         className={footerIconButtonClass}
                         onClick={props.onOpenMobileSheet}
-                        // Same guard as PermissionAutoAcceptButton: keep the tap
-                        // from dismissing the keyboard. On Android's
+                        // Keep the tap from dismissing the keyboard. On Android's
                         // resizes-content viewport the keyboard-close relayout
                         // moves this button mid-tap and the click never lands.
                         onMouseDown={(event) => event.preventDefault()}

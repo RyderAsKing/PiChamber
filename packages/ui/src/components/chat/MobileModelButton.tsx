@@ -21,7 +21,7 @@ export const MobileModelButton: React.FC<MobileModelButtonProps> = ({ onOpenMode
         <button
             type="button"
             onClick={onOpenModel}
-            // Same guard as PermissionAutoAcceptButton/MobileAgentButton: block
+            // Same guard as MobileAgentButton: block
             // the focus transfer so the tap doesn't dismiss the keyboard. With
             // interactive-widget=resizes-content (Android), the keyboard-close
             // relayout moves this button mid-tap and the click never lands.
