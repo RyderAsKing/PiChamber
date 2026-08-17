@@ -684,4 +684,21 @@ describe('Pi runtime route', () => {
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({ error: { code: 'DAEMON_START_TIMEOUT' } });
   });
+
+  it('treats a daemon lock failure as a service failure', async () => {
+    const runtime = {
+      request: async () => {
+        const error = new Error('lock');
+        error.code = 'DAEMON_LOCK_UNAVAILABLE';
+        throw error;
+      },
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/resources`);
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: { code: 'DAEMON_LOCK_UNAVAILABLE' } });
+  });
 });

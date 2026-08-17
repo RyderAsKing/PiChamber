@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { spawn as spawnChildProcess } from 'node:child_process';
-import { chmod, lstat, mkdir, open, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
@@ -65,6 +65,44 @@ const isPidAlive = (processLike, pid) => {
   }
 };
 
+const RETRYABLE_LOCK_CREATE_CODES = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY', 'EAGAIN']);
+const FRESH_LOCK_MS = 250;
+
+const chmodIfPossible = async (filePath, mode) => {
+  try {
+    await chmod(filePath, mode);
+  } catch {
+    // Windows and some filesystems reject POSIX mode bits; the lock/credential
+    // still exists and must remain usable.
+  }
+};
+
+const readLockClaim = async (lockFile) => {
+  try {
+    const claim = JSON.parse(await readFile(lockFile, 'utf8'));
+    if (Number.isInteger(claim?.pid) && claim.pid > 0) return { claim };
+    return { stale: true };
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { missing: true };
+    return { stale: true };
+  }
+};
+
+const shouldStealOperationLock = async (lockFile, processLike) => {
+  const result = await readLockClaim(lockFile);
+  if (result.missing) return false;
+  if (result.claim && isPidAlive(processLike, result.claim.pid)) return false;
+  if (result.stale) {
+    try {
+      const info = await stat(lockFile);
+      if (Date.now() - info.mtimeMs < FRESH_LOCK_MS) return false;
+    } catch (error) {
+      return error?.code === 'ENOENT' ? false : true;
+    }
+  }
+  return true;
+};
+
 const resolvePiSessionDaemonPaths = ({
   env = process.env,
   dataDir = resolvePiChamberDataDir({ env }),
@@ -122,29 +160,23 @@ export const createPiSessionDaemonSupervisor = ({
   const withOperationLock = async (operation) => {
     const deadline = Date.now() + startupTimeoutMs;
     await mkdir(paths.piDataDir, { recursive: true, mode: 0o700 });
-    await chmod(paths.piDataDir, 0o700);
+    await chmodIfPossible(paths.piDataDir, 0o700);
     while (true) {
-      let handle;
       try {
-        handle = await open(paths.lockFile, 'wx', 0o600);
+        await writeFile(
+          paths.lockFile,
+          JSON.stringify({ pid: processLike.pid, claimedAt: new Date().toISOString() }),
+          { flag: 'wx', mode: 0o600 },
+        );
+        await chmodIfPossible(paths.lockFile, 0o600);
       } catch (error) {
-        if (error?.code !== 'EEXIST') throw new PiSessionDaemonUnavailableError('DAEMON_LOCK_UNAVAILABLE');
-        try {
-          const claim = JSON.parse(await readFile(paths.lockFile, 'utf8'));
-          if (!isPidAlive(processLike, claim?.pid)) await rm(paths.lockFile, { force: true });
-        } catch (readError) {
-          if (readError?.code !== 'ENOENT') throw new PiSessionDaemonUnavailableError('DAEMON_LOCK_UNAVAILABLE');
+        if (!RETRYABLE_LOCK_CREATE_CODES.has(error?.code)) throw new PiSessionDaemonUnavailableError('DAEMON_LOCK_UNAVAILABLE');
+        if (await shouldStealOperationLock(paths.lockFile, processLike)) {
+          await rm(paths.lockFile, { force: true });
         }
         if (Date.now() >= deadline) throw new PiSessionDaemonUnavailableError('DAEMON_LOCK_TIMEOUT');
         await wait(RETRY_DELAY_MS);
         continue;
-      }
-
-      try {
-        await handle.writeFile(JSON.stringify({ pid: processLike.pid, claimedAt: new Date().toISOString() }));
-        await chmod(paths.lockFile, 0o600);
-      } finally {
-        await handle.close();
       }
       try {
         return await operation();
@@ -189,10 +221,10 @@ export const createPiSessionDaemonSupervisor = ({
 
   const ensureCredential = async () => {
     await mkdir(paths.piDataDir, { recursive: true, mode: 0o700 });
-    await chmod(paths.piDataDir, 0o700);
+    await chmodIfPossible(paths.piDataDir, 0o700);
     try {
       const credential = await readCredential();
-      await chmod(paths.credentialFile, 0o600);
+      await chmodIfPossible(paths.credentialFile, 0o600);
       return credential;
     } catch (error) {
       if (error.code !== 'DAEMON_CREDENTIAL_UNAVAILABLE') throw error;
@@ -201,7 +233,7 @@ export const createPiSessionDaemonSupervisor = ({
     const credential = randomBytes(32).toString('hex');
     try {
       await writeFile(paths.credentialFile, `${credential}\n`, { flag: 'wx', mode: 0o600 });
-      await chmod(paths.credentialFile, 0o600);
+      await chmodIfPossible(paths.credentialFile, 0o600);
       return credential;
     } catch (error) {
       if (error?.code !== 'EEXIST') throw new PiSessionDaemonUnavailableError('DAEMON_CREDENTIAL_UNAVAILABLE');
