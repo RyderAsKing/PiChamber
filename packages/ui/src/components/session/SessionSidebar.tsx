@@ -1418,7 +1418,10 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         prefetchSession={async (sessionId) => { await sync.syncSession(sessionId); }}
       />
       {!hideDirectoryControls ? (
-        <SidebarNav onNewSession={handleOpenNewSessionDraftFromHeader} />
+        <SidebarNav
+          onNewSession={handleOpenNewSessionDraftFromHeader}
+          showSidebarToggle={!mobileVariant}
+        />
       ) : null}
 
       <SidebarHeader
@@ -1446,7 +1449,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       {piConnection === 'error' || piConnection === 'unavailable' ? (
         <div
           role="alert"
-          className="mx-2 mb-2 rounded bg-[var(--status-error-background)] p-2 text-xs text-[var(--status-error-foreground)]"
+          className="mx-3 mb-2 rounded bg-[var(--status-error-background)] p-2 text-xs text-[var(--status-error-foreground)]"
         >
           {"Unable to reach server"}
         </div>
