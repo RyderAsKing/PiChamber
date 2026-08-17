@@ -218,12 +218,15 @@ const formatDate = (value?: string) => {
 
 interface ModelControlsProps {
     className?: string;
+    /** Keep model/variant names visible even when the control is in a narrow flex slot. */
+    keepLabels?: boolean;
     mobilePanel?: MobileControlsPanel;
     onMobilePanelChange?: (panel: MobileControlsPanel) => void;
 }
 
 export const ModelControls: React.FC<ModelControlsProps> = ({
     className,
+    keepLabels = false,
     mobilePanel,
     onMobilePanelChange,
 }) => {
@@ -370,9 +373,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
 
 
     const sizeVariant: 'mobile' | 'default' = isMobile ? 'mobile' : 'default';
-    const buttonHeight = sizeVariant === 'mobile' ? 'h-9' : 'h-8';
-    const controlIconSize = 'size-4';
-    const controlTextSize = isCompact ? 'typography-micro' : 'typography-meta';
+    const buttonHeight = sizeVariant === 'mobile' ? 'h-9' : 'h-7';
+    const controlIconSize = 'size-3.5';
+    const controlTextSize = 'typography-micro';
     const inlineGapClass = sizeVariant === 'mobile' ? 'gap-x-1' : 'gap-x-3';
 
     const currentProvider = getCurrentProvider();
@@ -1611,7 +1614,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                             <span className={cn(
                                                 'model-controls__model-label',
                                                 controlTextSize,
-                                                'font-medium whitespace-nowrap text-muted-foreground min-w-0'
+                                                'font-normal whitespace-nowrap text-muted-foreground min-w-0'
                                             )}>
                                                 {readinessLabel}
                                             </span>
@@ -1634,7 +1637,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                             className={cn(
                                                 'model-controls__model-label overflow-hidden',
                                                 controlTextSize,
-                                                'font-medium whitespace-nowrap text-foreground min-w-0',
+                                                'font-normal whitespace-nowrap text-foreground min-w-0',
                                                 'max-w-[260px]'
                                             )}
                                         >
@@ -1643,6 +1646,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                             </span>
                                         </span>
                                     )}
+                                    {isReady ? (
+                                        <Icon name="arrow-down-s" className="size-3.5 shrink-0 text-muted-foreground" />
+                                    ) : null}
                                 </button>
                             </DropdownMenuTrigger>
                         </TooltipTrigger>
@@ -1728,7 +1734,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                         {!isReady ? (
                             <>
                                 <Icon name="loader-4" className={cn(controlIconSize, 'animate-spin text-muted-foreground flex-shrink-0')} />
-                                <span className="typography-micro font-medium text-muted-foreground min-w-0">
+                                <span className="typography-micro font-normal text-muted-foreground min-w-0">
                                     {readinessLabel}
                                 </span>
                             </>
@@ -1745,7 +1751,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                 <span
                                     ref={modelLabelRef}
                                     className={cn(
-                                        'model-controls__model-label typography-micro font-medium overflow-hidden min-w-0',
+                                        'model-controls__model-label typography-micro font-normal overflow-hidden min-w-0',
                                         isMobile ? 'max-w-[120px]' : 'max-w-[220px]',
                                     )}
                                 >
@@ -1753,6 +1759,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                         {currentModelDisplayName}
                                     </span>
                                 </span>
+                                <Icon name="arrow-down-s" className="size-3.5 shrink-0 text-muted-foreground" />
                             </>
                         )}
                     </button>
@@ -1788,7 +1795,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                     <span className={cn(
                         'model-controls__variant-label',
                         controlTextSize,
-                        'font-medium truncate min-w-0',
+                        'font-normal truncate min-w-0',
                         isMobile && 'max-w-[60px]',
                         colorClass
                     )}>
@@ -1815,7 +1822,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                     className={cn(
                                         'model-controls__variant-label',
                                         controlTextSize,
-                                        'font-medium min-w-0 truncate',
+                                        'font-normal min-w-0 truncate',
                                         isDesktop ? 'max-w-[180px]' : undefined,
                                         colorClass,
                                     )}
@@ -1862,9 +1869,10 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
 
 
     const inlineClassName = cn(
-        '@container/model-controls flex items-center min-w-0',
+        !keepLabels && '@container/model-controls',
+        'flex items-center',
+        keepLabels ? 'w-max shrink-0' : 'min-w-0',
         // Only force full-width + truncation behaviors on true mobile layouts.
-        // VS Code also uses "compact" mode, but should keep its right-aligned inline sizing.
         isMobile && 'w-full',
         className,
     );
@@ -1874,7 +1882,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             <div className={inlineClassName}>
                 <div
                     className={cn(
-                        'flex items-center min-w-0 flex-1 justify-end',
+                        'flex items-center min-w-0 justify-start',
                         inlineGapClass,
                         isMobile && 'overflow-hidden'
                     )}
