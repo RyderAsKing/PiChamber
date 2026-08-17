@@ -19,7 +19,7 @@ export const piListItemToUiSession = (item: PiSessionListItem): Session => piSes
 
 export const mapPart = (part: PiProjectedMessagePart): Part => {
   if (part.type === 'thinking') {
-    return { id: part.id, type: 'reasoning', text: part.text };
+    return { id: part.id, type: 'reasoning', text: part.text, streaming: part.streaming };
   }
   if (part.type === 'attachment') {
     return {
@@ -57,7 +57,7 @@ export const piMessageToRecord = (message: PiProjectedMessage, sessionId: string
     const hasThinking = message.parts.some((p) => p.type === 'thinking');
     const hasText = message.parts.some((p) => p.type === 'text');
     if (!hasThinking && message.thinking) {
-      parts.push({ id: `${message.id}:thinking`, type: 'reasoning', text: message.thinking });
+      parts.push({ id: `${message.id}:thinking`, type: 'reasoning', text: message.thinking, streaming: false });
     }
     parts.push(...message.parts.map(mapPart));
     if (!hasText && message.text) {
@@ -65,7 +65,7 @@ export const piMessageToRecord = (message: PiProjectedMessage, sessionId: string
     }
   } else {
     if (message.thinking) {
-      parts.push({ id: `${message.id}:thinking`, type: 'reasoning', text: message.thinking });
+      parts.push({ id: `${message.id}:thinking`, type: 'reasoning', text: message.thinking, streaming: false });
     }
     if (message.text) {
       parts.push({ id: `${message.id}:text`, type: 'text', text: message.text });

@@ -156,3 +156,23 @@ export const getToolOutput = (
 export const getStreamingOutputAppend = (previous: string, next: string): string | undefined => {
     return next.startsWith(previous) ? next.slice(previous.length) : undefined;
 };
+
+/** DeepSeek chat tool cards keep 8–16 lines in the DOM. Live bash follows the same cap. */
+export const STREAM_OUTPUT_MAX_LINES = 16;
+
+export const lastOutputLines = (output: string, maxLines: number = STREAM_OUTPUT_MAX_LINES): string => {
+    if (maxLines <= 0 || output.length === 0) {
+        return output;
+    }
+    let lines = 1;
+    for (let index = output.length - 1; index >= 0; index -= 1) {
+        if (output.charCodeAt(index) !== 10) {
+            continue;
+        }
+        lines += 1;
+        if (lines > maxLines) {
+            return output.slice(index + 1);
+        }
+    }
+    return output;
+};

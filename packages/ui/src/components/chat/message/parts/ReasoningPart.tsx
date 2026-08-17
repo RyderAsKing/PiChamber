@@ -14,7 +14,12 @@ const TOOL_ROW_TEXT_CLASS = '!text-[length:var(--text-meta)] !leading-5 sm:!lead
 const TOOL_ROW_TITLE_CLASS = cn('typography-meta font-medium', TOOL_ROW_TEXT_CLASS);
 const TOOL_ROW_DESCRIPTION_CLASS = cn('typography-meta', TOOL_ROW_TEXT_CLASS);
 
-type PartWithText = Part & { text?: string; content?: string; time?: { start?: number; end?: number } };
+type PartWithText = Part & {
+    text?: string;
+    content?: string;
+    time?: { start?: number; end?: number };
+    streaming?: boolean;
+};
 
 type ReasoningVariant = 'thinking' | 'justification';
 
@@ -32,6 +37,8 @@ const cleanReasoningText = (text: string): string => {
 };
 
 const SUMMARY_MAX_CHARS = 80;
+const LIVE_REASONING_LINE_LIMIT = 40;
+const LIVE_REASONING_CHAR_LIMIT = 4000;
 const EXPANDED_CONTENT_UNMOUNT_DELAY_MS = 200;
 const EXPANDED_CONTENT_TRANSITION = { duration: 0.2, ease: 'easeOut' as const };
 
@@ -58,6 +65,15 @@ const stripMarkdown = (text: string): string =>
         // Remaining leading/trailing punctuation from stripped markers
         .trim();
 
+const truncateReasoningPreview = (text: string): string => {
+    if (text.length <= SUMMARY_MAX_CHARS) {
+        return text;
+    }
+    const cut = text.lastIndexOf(' ', SUMMARY_MAX_CHARS);
+    const end = cut > 0 ? cut : SUMMARY_MAX_CHARS;
+    return `${text.substring(0, end).trimEnd()}…`;
+};
+
 const getReasoningSummary = (text: string): string => {
     if (!text) {
         return '';
@@ -65,15 +81,39 @@ const getReasoningSummary = (text: string): string => {
 
     // Strip markdown, then collapse all whitespace runs into single spaces.
     const flat = stripMarkdown(text).replace(/\s+/g, ' ').trim();
+    return truncateReasoningPreview(flat);
+};
 
-    if (flat.length <= SUMMARY_MAX_CHARS) {
-        return flat;
+/** Header preview while thinking streams: only the latest line, not the whole blob. */
+const getLatestReasoningLine = (text: string): string => {
+    const visible = text.trimEnd();
+    if (!visible) {
+        return '';
     }
+    const newline = visible.lastIndexOf('\n');
+    const line = newline === -1 ? visible : visible.slice(newline + 1);
+    return truncateReasoningPreview(stripMarkdown(line).replace(/\s+/g, ' ').trim());
+};
 
-    // Cut at a word boundary before the limit, then append ellipsis.
-    const cut = flat.lastIndexOf(' ', SUMMARY_MAX_CHARS);
-    const end = cut > 0 ? cut : SUMMARY_MAX_CHARS;
-    return `${flat.substring(0, end).trimEnd()}…`;
+/** Expanded live thinking keeps a bounded DOM, not the full growing transcript. */
+const liveReasoningWindow = (text: string): string => {
+    let lines = 1;
+    let windowStart = 0;
+    for (let index = text.length - 1; index >= 0; index -= 1) {
+        if (text.charCodeAt(index) !== 10) {
+            continue;
+        }
+        lines += 1;
+        if (lines > LIVE_REASONING_LINE_LIMIT) {
+            windowStart = index + 1;
+            break;
+        }
+    }
+    const windowed = windowStart > 0 ? text.slice(windowStart) : text;
+    if (windowed.length <= LIVE_REASONING_CHAR_LIMIT) {
+        return windowed;
+    }
+    return windowed.slice(-LIVE_REASONING_CHAR_LIMIT);
 };
 
 type ReasoningTimelineBlockProps = {
@@ -85,8 +125,10 @@ type ReasoningTimelineBlockProps = {
     showDuration?: boolean;
     isStreaming?: boolean;
     actions?: React.ReactNode;
-    /** Override the initial expanded state. Defaults to `isStreaming`. */
+    /** Override the initial expanded state. Defaults to collapsed, or open while streaming. */
     defaultExpanded?: boolean;
+    /** When true (default), live thinking auto-opens then folds when the part settles. When false, stays a one-line header unless the user expands it. */
+    collapseByDefault?: boolean;
 };
 
 type ExpansionState = {
@@ -99,14 +141,12 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
     variant,
     onContentChange,
     blockId,
-    time,
     isStreaming = false,
     actions,
     defaultExpanded,
+    collapseByDefault = true,
 }) => {
-    
-    const hasEnded = typeof time?.end === 'number';
-    const canAutoExpand = isStreaming && !hasEnded;
+    const canAutoExpand = Boolean(collapseByDefault && isStreaming);
     const [expansion, setExpansion] = React.useState<ExpansionState>(() => {
         if (defaultExpanded === true) {
             return { expanded: true, source: 'user' };
@@ -116,7 +156,11 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
     const isExpanded = expansion.source === 'auto'
         ? canAutoExpand && expansion.expanded
         : expansion.expanded;
-    const [shouldRenderExpandedContent, setShouldRenderExpandedContent] = React.useState(defaultExpanded === true || canAutoExpand);
+    const [shouldRenderExpandedContent, setShouldRenderExpandedContent] = React.useState(
+        defaultExpanded === true || canAutoExpand,
+    );
+    const innerScrollRef = React.useRef<HTMLElement | null>(null);
+    const followingInnerRef = React.useRef(true);
     const contentId = React.useId();
     const contentRef = React.useRef<HTMLDivElement>(null);
     const contentAnimationRef = React.useRef<AnimationPlaybackControls | null>(null);
@@ -131,7 +175,10 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
     const isStreamingRef = React.useRef(isStreaming);
     isStreamingRef.current = isStreaming;
 
-    const summary = React.useMemo(() => getReasoningSummary(text), [text]);
+    const summary = React.useMemo(
+        () => (isStreaming ? getLatestReasoningLine(text) : getReasoningSummary(text)),
+        [isStreaming, text],
+    );
     const toggleAriaLabel = isExpanded
         ? "Collapse reasoning trace"
         : "Expand reasoning trace";
@@ -149,6 +196,17 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
         }
     }, [handleToggle]);
 
+    const handleInnerWheelCapture = React.useCallback((event: React.WheelEvent<HTMLElement>) => {
+        if (event.deltaY < 0) {
+            followingInnerRef.current = false;
+        }
+    }, []);
+
+    const handleInnerScroll = React.useCallback((event: React.UIEvent<HTMLElement>) => {
+        const element = event.currentTarget;
+        followingInnerRef.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 2;
+    }, []);
+
     React.useLayoutEffect(() => {
         setExpansion((prev) => {
             if (prev.source === 'user') {
@@ -161,15 +219,20 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
         });
     }, [canAutoExpand]);
 
-    React.useEffect(() => {
-        if (text.trim().length === 0) {
+    React.useLayoutEffect(() => {
+        if (!isStreaming || !isExpanded) {
+            followingInnerRef.current = true;
             return;
         }
-        onContentChange?.('structural');
-    }, [onContentChange, text]);
+        const element = innerScrollRef.current;
+        if (!element || !followingInnerRef.current) {
+            return;
+        }
+        element.scrollTop = element.scrollHeight;
+    }, [isExpanded, isStreaming, text]);
 
     React.useEffect(() => {
-        if (isExpanded || isStreaming) {
+        if (isExpanded) {
             setShouldRenderExpandedContent(true);
             return;
         }
@@ -190,7 +253,7 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
         return () => {
             window.clearTimeout(timer);
         };
-    }, [isExpanded, isStreaming, shouldRenderExpandedContent]);
+    }, [isExpanded, shouldRenderExpandedContent]);
 
     React.useLayoutEffect(() => {
         const element = contentRef.current;
@@ -296,13 +359,19 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
     const reasoningBody = (
         <>
             <div data-message-text-export-source="true">
-                <MarkdownRenderer
-                    content={text}
-                    messageId={blockId}
-                    isAnimated={false}
-                    isStreaming={isStreaming}
-                    variant="reasoning"
-                />
+                {isStreaming ? (
+                    <div className="markdown-content markdown-reasoning w-full min-w-0 whitespace-pre-wrap break-words">
+                        {liveReasoningWindow(text)}
+                    </div>
+                ) : (
+                    <MarkdownRenderer
+                        content={text}
+                        messageId={blockId}
+                        isAnimated={false}
+                        isStreaming={false}
+                        variant="reasoning"
+                    />
+                )}
             </div>
             {actions ? (
                 <div className="mt-2 mb-1 flex items-center justify-start gap-1.5" data-message-actions="true">
@@ -375,7 +444,7 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
                 </div>
 
                 <div className={cn('flex items-center gap-1 flex-1 min-w-0', TOOL_ROW_DESCRIPTION_CLASS)} style={{ color: 'var(--tools-description)' }}>
-                    {!isStreaming && !isExpanded && summary ? (
+                    {!isExpanded && summary ? (
                         <span
                             className={cn('min-w-0 truncate', TOOL_ROW_DESCRIPTION_CLASS)}
                             style={{ color: 'var(--tools-description)', opacity: 0.8 }}
@@ -413,28 +482,19 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
                             className="pointer-events-none absolute left-0 top-0 bottom-0 w-px"
                             style={{ backgroundColor: 'var(--tools-border)' }}
                         />
-                        {isStreaming ? (
-                            // While streaming, let the thinking grow inline — no
-                            // capped, independently-scrollable box. The chat's own
-                            // auto-follow then handles following / releasing, so the
-                            // box never captures the wheel or fights the user's
-                            // scroll. The max-height scroll box is applied only once
-                            // the thinking has finished (the branch below).
-                            <div className="p-0">
-                                {reasoningBody}
-                            </div>
-                        ) : (
-                            <ScrollableOverlay
-                                as="div"
-                                outerClassName="max-h-80"
-                                className="p-0"
-                                useScrollShadow
-                                scrollShadowSize={36}
-                                userIntentOnly
-                            >
-                                {reasoningBody}
-                            </ScrollableOverlay>
-                        )}
+                        <ScrollableOverlay
+                            ref={innerScrollRef}
+                            as="div"
+                            outerClassName="max-h-80 w-full min-w-0"
+                            className="p-0"
+                            useScrollShadow
+                            scrollShadowSize={36}
+                            userIntentOnly
+                            onWheelCapture={isStreaming ? handleInnerWheelCapture : undefined}
+                            onScroll={isStreaming ? handleInnerScroll : undefined}
+                        >
+                            {reasoningBody}
+                        </ScrollableOverlay>
                     </div>
                 </div>
             ) : null}
@@ -447,6 +507,7 @@ type ReasoningPartProps = {
     onContentChange?: (reason?: ContentChangeReason) => void;
     messageId: string;
     streamPhase?: StreamPhase;
+    collapseByDefault?: boolean;
 };
 
 const ReasoningPart = React.memo(({
@@ -454,13 +515,16 @@ const ReasoningPart = React.memo(({
     onContentChange,
     messageId,
     streamPhase,
+    collapseByDefault = true,
 }: ReasoningPartProps) => {
     const partWithText = part as PartWithText;
     const rawText = partWithText.text || partWithText.content || '';
     const textContent = React.useMemo(() => cleanReasoningText(rawText), [rawText]);
     const time = partWithText.time;
     const canBeStreaming = streamPhase === undefined || streamPhase !== 'completed';
-    const isStreaming = canBeStreaming && typeof time?.end !== 'number';
+    const isStreaming = canBeStreaming
+        && partWithText.streaming === true
+        && typeof time?.end !== 'number';
     const throttledText = useStreamingTextThrottle({
         text: textContent,
         isStreaming,
@@ -481,6 +545,7 @@ const ReasoningPart = React.memo(({
             blockId={part.id || `${messageId}-reasoning`}
             time={time}
             isStreaming={isStreaming}
+            collapseByDefault={collapseByDefault}
         />
     );
 });

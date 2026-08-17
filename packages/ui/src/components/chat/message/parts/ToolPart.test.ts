@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { getStreamingOutputAppend, getToolOutput, renderTerminalOutput } from './toolOutput';
+import { getStreamingOutputAppend, getToolOutput, lastOutputLines, renderTerminalOutput } from './toolOutput';
 import { readTaskTagSessionIdFromOutput } from './taskSessionIdParser';
 import { tryParseJsonOutput } from '../toolRenderers';
 import { getStreamingThrottleText } from '../../hooks/useStreamingTextThrottle';
@@ -115,6 +115,20 @@ describe('getStreamingOutputAppend', () => {
     test('requires replacement when output is rewritten or shortened', () => {
         expect(getStreamingOutputAppend('progress 10%', 'progress 20%')).toBe(undefined);
         expect(getStreamingOutputAppend('long output', 'short')).toBe(undefined);
+    });
+});
+
+describe('lastOutputLines', () => {
+    test('keeps the last 16 lines of a growing live log', () => {
+        const lines = Array.from({ length: 40 }, (_, index) => `line ${index + 1}`);
+        const windowed = lastOutputLines(lines.join('\n'), 16);
+        expect(windowed.startsWith('line 25')).toBe(true);
+        expect(windowed.endsWith('line 40')).toBe(true);
+        expect(windowed).not.toContain('line 24');
+    });
+
+    test('returns the original string when it fits the cap', () => {
+        expect(lastOutputLines('one\ntwo\nthree', 16)).toBe('one\ntwo\nthree');
     });
 });
 

@@ -62,7 +62,7 @@ import {
 } from './toolDiffUtils';
 import { isEmbeddedSessionChat } from '@/components/layout/contextPanelEmbeddedChat';
 import { useStreamingTextThrottle } from '../../hooks/useStreamingTextThrottle';
-import { getStreamingOutputAppend, getToolOutput } from './toolOutput';
+import { getStreamingOutputAppend, getToolOutput, lastOutputLines, STREAM_OUTPUT_MAX_LINES } from './toolOutput';
 import { toAbsoluteFilePath } from '@/lib/path-utils';
 import { getToolDescriptionFallback } from './toolRenderUtils';
 import { ApplyPatchFileButtons } from './ApplyPatchFileButtons';
@@ -630,13 +630,14 @@ const StreamingPlainTextOutput: React.FC<{ output: string }> = ({ output }) => {
             element.replaceChildren(textNode);
         }
 
-        const append = getStreamingOutputAppend(previousOutputRef.current, output);
+        const displayed = lastOutputLines(output, STREAM_OUTPUT_MAX_LINES);
+        const append = getStreamingOutputAppend(previousOutputRef.current, displayed);
         if (append === undefined) {
-            textNode.data = output;
+            textNode.data = displayed;
         } else if (append.length > 0) {
             textNode.appendData(append);
         }
-        previousOutputRef.current = output;
+        previousOutputRef.current = displayed;
     }, [output]);
 
     return (
@@ -1529,7 +1530,7 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
                 output,
                 {
                     className: part.tool === 'bash' ? 'p-1 rounded-none' : 'p-1',
-                    maxHeightClass: isStreamingBash ? 'h-[46vh]' : part.tool === 'bash' ? 'max-h-[46vh]' : undefined,
+                    maxHeightClass: isStreamingBash ? 'max-h-64' : part.tool === 'bash' ? 'max-h-[46vh]' : undefined,
                     followKey: isStreamingBash ? outputString : undefined,
                 }
             );

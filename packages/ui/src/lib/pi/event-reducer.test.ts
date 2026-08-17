@@ -109,6 +109,30 @@ describe("applyPiEvent", () => {
     expect(session?.messages.get("m1")?.text).toBe("Let me look at the tests")
   })
 
+  test("settles thinking as soon as text or a tool starts on the same message", () => {
+    let state = applyPiEvent(createReducerState(), assistantStart()).state
+    state = applyPiEvent(state, baseEvent("assistant.thinking.delta", 2, {
+      messageId: "m1", contentIndex: 0, delta: "plan the change",
+    })).state
+    expect(state.bySession.get("sess-1")?.parts.get("m1:thinking")?.streaming).toBe(true)
+
+    state = applyPiEvent(state, baseEvent("assistant.message.delta", 3, {
+      messageId: "m1", contentIndex: 1, delta: "Here is the answer.",
+    })).state
+    expect(state.bySession.get("sess-1")?.parts.get("m1:thinking")?.streaming).toBe(false)
+    expect(state.bySession.get("sess-1")?.parts.get("m1:text")?.streaming).toBe(true)
+
+    state = applyPiEvent(createReducerState(), assistantStart()).state
+    state = applyPiEvent(state, baseEvent("assistant.thinking.delta", 2, {
+      messageId: "m1", contentIndex: 0, delta: "need a command",
+    })).state
+    state = applyPiEvent(state, baseEvent("session.tool.start", 3, {
+      toolCallId: "t1", partId: "p-tool", messageId: "m1", name: "bash", state: "running",
+      input: { cmd: "ls" }, startedAt: 1_500,
+    })).state
+    expect(state.bySession.get("sess-1")?.parts.get("m1:thinking")?.streaming).toBe(false)
+  })
+
   test("tracks canonical tool start, update, and end", () => {
     let state = applyPiEvent(createReducerState(), assistantStart()).state
     state = applyPiEvent(state, baseEvent("session.tool.start", 2, {

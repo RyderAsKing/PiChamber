@@ -10,9 +10,12 @@
  *   `snapshot.lastSequence` and the reducer will discard anything it has
  *   already applied.
  * - Stream assembly: text and thinking deltas are merged per part with
- *   `applyAssistantTextDelta`. `assistant.message.end` writes canonical
- *   text/thinking onto those parts so the chat does not keep a corrupted
- *   live assembly after the daemon publishes the finished message.
+ *   `applyAssistantTextDelta`. A thinking part stops streaming as soon as
+ *   a later text or tool part on the same message starts, so the thinking
+ *   UI can collapse at handoff rather than waiting for `assistant.message.end`.
+ *   `assistant.message.end` writes canonical text/thinking onto those parts
+ *   so the chat does not keep a corrupted live assembly after the daemon
+ *   publishes the finished message.
  * - Lifecycle: the `session.lifecycle` event flips the running state.
  *   `session.interrupted` flips the streaming flag back off without
  *   marking the message completed; that is the visible "interrupted" UI
@@ -385,6 +388,24 @@ const resolveAssistantMessage = (
   return undefined;
 };
 
+const settleStreamingParts = (
+  session: PiReducerSessionState,
+  messageId: string,
+  match: (part: PiReducerMessagePart) => boolean,
+): void => {
+  const order = new Set(session.partOrder.get(messageId) ?? []);
+  if (order.size === 0) return;
+  for (const [id, part] of session.parts) {
+    if (!part.streaming || !match(part)) continue;
+    if (!order.has(part.id) && !order.has(id)) continue;
+    session.parts.set(id, { ...part, streaming: false });
+  }
+};
+
+const settleThinkingParts = (session: PiReducerSessionState, messageId: string): void => {
+  settleStreamingParts(session, messageId, (part) => part.type === 'thinking');
+};
+
 const reduceAssistantDelta = (
   session: PiReducerSessionState,
   payload: PiAssistantMessageDeltaPayload | PiAssistantThinkingDeltaPayload,
@@ -395,6 +416,9 @@ const reduceAssistantDelta = (
   message.streaming = true;
   session.streamingMessages.add(message.id);
   session.streamingMessages.add(payload.messageId);
+  if (type === 'text') {
+    settleThinkingParts(session, message.id);
+  }
   const partId = payload.partId ?? `${message.id}:${type}`;
   let existing = session.parts.get(partId);
   if (!existing) {
@@ -475,6 +499,7 @@ const reduceTool = (
   const rawMessageId = session.toolsByCallId.get(payload.toolCallId) ?? payload.messageId;
   const message = resolveAssistantMessage(session, rawMessageId);
   if (!message) return;
+  settleThinkingParts(session, message.id);
   if (phase !== 'end') {
     message.streaming = true;
     session.streamingMessages.add(message.id);

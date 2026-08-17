@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { ReasoningTimelineBlock } from './ReasoningPart';
+import ReasoningPart, { ReasoningTimelineBlock } from './ReasoningPart';
 
 // A reasoning text whose summary (first 120 chars) fits in the header but
 // whose expanded body content should only appear when the disclosure is open.
@@ -100,5 +100,128 @@ describe('ReasoningTimelineBlock', () => {
 
     expect(markup).toContain('Planning accessible icon labels with translations');
     expect(markup).not.toContain('&lt;!-- --&gt;');
+  });
+
+  test('auto-expands live thinking into a max-height plain-text pane', () => {
+    const markup = renderToStaticMarkup(
+      <ReasoningPart
+        part={{
+          id: 'reasoning-live',
+          type: 'reasoning',
+          text: LONG_REASONING,
+          streaming: true,
+        }}
+        messageId="message-thinking"
+        streamPhase="streaming"
+      />
+    );
+
+    expect(markup).toContain('aria-expanded="true"');
+    expect(markup).toContain('aria-label="Collapse reasoning trace"');
+    expect(markup).toContain('Thinking');
+    expect(markup).toContain('data-message-text-export-source');
+    expect(markup).toContain('max-h-80');
+    expect(markup).not.toContain('data-markdown-content');
+    expect(markup).toContain('First thought');
+  });
+
+  test('collapses thinking when the part is no longer streaming', () => {
+    const markup = renderToStaticMarkup(
+      <ReasoningPart
+        part={{
+          id: 'reasoning-finished',
+          type: 'reasoning',
+          text: LONG_REASONING,
+          streaming: false,
+        }}
+        messageId="message-still-streaming"
+        streamPhase="streaming"
+      />
+    );
+
+    expect(markup).toContain('aria-expanded="false"');
+    expect(markup).not.toContain('data-message-text-export-source');
+  });
+
+  test('keeps live thinking as a one-line header when collapseByDefault is off', () => {
+    const markup = renderToStaticMarkup(
+      <ReasoningPart
+        part={{
+          id: 'reasoning-live-collapsed',
+          type: 'reasoning',
+          text: LONG_REASONING,
+          streaming: true,
+        }}
+        messageId="message-thinking"
+        streamPhase="streaming"
+        collapseByDefault={false}
+      />
+    );
+
+    expect(markup).toContain('aria-expanded="false"');
+    expect(markup).toContain('aria-label="Expand reasoning trace"');
+    expect(markup).toContain('Thinking');
+    expect(markup).toContain('This second line goes into much deeper detail');
+    expect(markup).not.toContain('data-message-text-export-source');
+    expect(markup).not.toContain('max-h-80');
+  });
+
+  test('keeps settled thinking collapsed when collapseByDefault is off', () => {
+    const markup = renderToStaticMarkup(
+      <ReasoningPart
+        part={{
+          id: 'reasoning-finished-collapsed',
+          type: 'reasoning',
+          text: LONG_REASONING,
+          streaming: false,
+        }}
+        messageId="message-still-streaming"
+        streamPhase="streaming"
+        collapseByDefault={false}
+      />
+    );
+
+    expect(markup).toContain('aria-expanded="false"');
+    expect(markup).not.toContain('data-message-text-export-source');
+  });
+
+  test('does not auto-expand thinking without an authoritative live streaming flag', () => {
+    const markup = renderToStaticMarkup(
+      <ReasoningPart
+        part={{
+          id: 'reasoning-unmarked',
+          type: 'reasoning',
+          text: LONG_REASONING,
+        }}
+        messageId="message-still-streaming"
+        streamPhase="streaming"
+      />
+    );
+
+    expect(markup).toContain('aria-expanded="false"');
+    expect(markup).not.toContain('data-message-text-export-source');
+  });
+
+  test('expanded live thinking renders a bounded plain-text window', () => {
+    const manyLines = Array.from(
+      { length: 50 },
+      (_, index) => `Line ${index + 1} of thinking.`,
+    ).join('\n');
+    const markup = renderToStaticMarkup(
+      <ReasoningTimelineBlock
+        text={manyLines}
+        variant="thinking"
+        blockId="reasoning-live-expanded"
+        isStreaming
+        defaultExpanded
+      />
+    );
+
+    expect(markup).toContain('data-message-text-export-source');
+    expect(markup).not.toContain('data-markdown-content');
+    expect(markup).toContain('Line 50 of thinking.');
+    expect(markup).toContain('Line 11 of thinking.');
+    expect(markup).not.toContain('Line 10 of thinking.');
+    expect(markup).not.toContain('Line 1 of thinking.');
   });
 });

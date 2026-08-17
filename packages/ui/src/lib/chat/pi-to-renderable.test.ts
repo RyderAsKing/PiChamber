@@ -43,7 +43,7 @@ describe('pi-to-renderable', () => {
     expect(record.info.role).toBe('assistant');
     expect(record.info.parentID).toBe('user_1');
     expect(record.parts.filter((part) => part.type === 'reasoning')).toHaveLength(1);
-    expect(record.parts.some((part) => part.type === 'reasoning' && part.text === 'consider options')).toBe(true);
+    expect(record.parts.some((part) => part.type === 'reasoning' && part.text === 'consider options' && part.streaming === false)).toBe(true);
     expect(record.parts.some((part) => part.type === 'file' && part.filename === 'note.txt')).toBe(true);
     expect(record.parts.some((part) => part.type === 'tool' && part.tool === 'read')).toBe(true);
     const toolPart = record.parts.find((part) => part.type === 'tool');
@@ -69,7 +69,7 @@ describe('pi-to-renderable', () => {
     };
     const record = piMessageToRecord(message, 'ses_1');
     expect(record.parts).toHaveLength(2);
-    expect(record.parts[0]).toEqual({ id: 'msg_fallback:thinking', type: 'reasoning', text: 'fallback thinking' });
+    expect(record.parts[0]).toEqual({ id: 'msg_fallback:thinking', type: 'reasoning', text: 'fallback thinking', streaming: false });
     expect(record.parts[1]).toEqual({ id: 'msg_fallback:text', type: 'text', text: 'fallback text' });
   });
 
