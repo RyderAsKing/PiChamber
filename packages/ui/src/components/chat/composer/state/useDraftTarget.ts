@@ -1,6 +1,8 @@
 import React from 'react';
 
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
+import type { ProjectEntry } from '@/lib/api/types';
+import { resolveProjectForSessionDirectory } from '@/lib/projectResolution';
 import { formatDirectoryName } from '@/lib/utils';
 import { useGitBranches, useGitStore, useIsGitRepo } from '@/stores/useGitStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -30,16 +32,31 @@ export function useDraftTarget(enabled: boolean) {
     const activeProjectId = useProjectsStore((state) => state.activeProjectId);
     const setActiveProjectIdOnly = useProjectsStore((state) => state.setActiveProjectIdOnly);
     const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
+    const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
+    const currentSessionDirectory = useSessionUIStore((s) => s.currentSessionDirectory);
     const setNewSessionDraftTarget = useSessionUIStore((s) => s.setNewSessionDraftTarget);
+    const openNewSessionDraft = useSessionUIStore((s) => s.openNewSessionDraft);
+    const isDraftOpen = Boolean(newSessionDraft?.open);
     const fetchGitStatus = useGitStore((state) => state.fetchStatus);
     const { git: runtimeGit } = useRuntimeAPIs();
 
     const selectedDraftProject = React.useMemo(() => {
-        const explicit = newSessionDraft?.selectedProjectId
-            ? projects.find((project) => project.id === newSessionDraft.selectedProjectId) ?? null
-            : null;
-        if (explicit) {
-            return explicit;
+        if (isDraftOpen) {
+            const explicit = newSessionDraft?.selectedProjectId
+                ? projects.find((project) => project.id === newSessionDraft.selectedProjectId) ?? null
+                : null;
+            if (explicit) {
+                return explicit;
+            }
+        } else if (currentSessionId) {
+            const fromSession = resolveProjectForSessionDirectory(
+                projects as ProjectEntry[],
+                undefined,
+                currentSessionDirectory,
+            );
+            if (fromSession) {
+                return fromSession as DraftTargetProject;
+            }
         }
 
         const active = activeProjectId
@@ -50,13 +67,37 @@ export function useDraftTarget(enabled: boolean) {
         }
 
         return projects[0] ?? null;
-    }, [activeProjectId, newSessionDraft?.selectedProjectId, projects]);
+    }, [
+        activeProjectId,
+        currentSessionDirectory,
+        currentSessionId,
+        isDraftOpen,
+        newSessionDraft?.selectedProjectId,
+        projects,
+    ]);
 
     const selectedDraftProjectPath = React.useMemo(
         () => normalizePath(selectedDraftProject?.path ?? null),
         [selectedDraftProject?.path],
     );
     const draftProjectLabel = selectedDraftProject ? getProjectDisplayLabel(selectedDraftProject) : null;
+
+    React.useEffect(() => {
+        if (!enabled || !isDraftOpen || !activeProjectId) {
+            return;
+        }
+        if (newSessionDraft?.selectedProjectId === activeProjectId) {
+            return;
+        }
+        const project = projects.find((entry) => entry.id === activeProjectId);
+        if (!project) {
+            return;
+        }
+        setNewSessionDraftTarget({
+            projectId: project.id,
+            directoryOverride: project.path,
+        });
+    }, [activeProjectId, enabled, isDraftOpen, newSessionDraft?.selectedProjectId, projects, setNewSessionDraftTarget]);
 
     const selectedDraftProjectBranches = useGitBranches(selectedDraftProjectPath);
     const selectedDraftProjectBranchesFetchedAt = useGitStore(
@@ -124,10 +165,12 @@ export function useDraftTarget(enabled: boolean) {
         };
     }, [selectedDraftProject, selectedDraftProjectCurrentBranch]);
 
-    const selectedDraftDirectory = React.useMemo(
-        () => normalizePath(newSessionDraft?.directoryOverride ?? null) ?? selectedDraftProjectPath,
-        [newSessionDraft?.directoryOverride, selectedDraftProjectPath],
-    );
+    const selectedDraftDirectory = React.useMemo(() => {
+        if (isDraftOpen) {
+            return normalizePath(newSessionDraft?.directoryOverride ?? null) ?? selectedDraftProjectPath;
+        }
+        return normalizePath(currentSessionDirectory ?? null) ?? selectedDraftProjectPath;
+    }, [currentSessionDirectory, isDraftOpen, newSessionDraft?.directoryOverride, selectedDraftProjectPath]);
 
     const draftBranchItems = React.useMemo(() => {
         const baseItems: Array<{ value: string; label: string }> = [];
@@ -171,29 +214,48 @@ export function useDraftTarget(enabled: boolean) {
         return Boolean(projectRootBranchOption);
     }, [isDiscoveringDraftBranches, projectRootBranchOption, selectedDraftProjectIsGitRepo]);
 
+    const applyComposerTarget = React.useCallback((projectId: string, directory: string) => {
+        if (activeProjectId !== projectId) {
+            setActiveProjectIdOnly(projectId);
+        }
+        if (isDraftOpen) {
+            setNewSessionDraftTarget({
+                projectId,
+                directoryOverride: directory,
+            }, { force: true });
+            return;
+        }
+        openNewSessionDraft({
+            selectedProjectId: projectId,
+            directoryOverride: directory,
+        });
+    }, [activeProjectId, isDraftOpen, openNewSessionDraft, setActiveProjectIdOnly, setNewSessionDraftTarget]);
+
     const handleDraftProjectChange = React.useCallback((projectId: string) => {
         const project = projects.find((entry) => entry.id === projectId);
         if (!project) {
             return;
         }
-        if (activeProjectId !== projectId) {
-            setActiveProjectIdOnly(projectId);
+        const nextDirectory = normalizePath(project.path);
+        if (!nextDirectory) {
+            return;
         }
-        setNewSessionDraftTarget({
-            projectId,
-            directoryOverride: project.path,
-        }, { force: true });
-    }, [activeProjectId, projects, setActiveProjectIdOnly, setNewSessionDraftTarget]);
+        if (selectedDraftProject?.id === projectId && selectedDraftDirectory === nextDirectory) {
+            return;
+        }
+        applyComposerTarget(projectId, nextDirectory);
+    }, [applyComposerTarget, projects, selectedDraftDirectory, selectedDraftProject?.id]);
 
     const handleDraftDirectoryChange = React.useCallback((directory: string) => {
         if (!selectedDraftProject) {
             return;
         }
-        setNewSessionDraftTarget({
-            projectId: selectedDraftProject.id,
-            directoryOverride: directory,
-        }, { force: true });
-    }, [selectedDraftProject, setNewSessionDraftTarget]);
+        const nextDirectory = normalizePath(directory);
+        if (!nextDirectory || selectedDraftDirectory === nextDirectory) {
+            return;
+        }
+        applyComposerTarget(selectedDraftProject.id, nextDirectory);
+    }, [applyComposerTarget, selectedDraftDirectory, selectedDraftProject]);
 
     return {
         projects,

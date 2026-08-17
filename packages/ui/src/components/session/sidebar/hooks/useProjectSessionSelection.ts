@@ -88,6 +88,7 @@ export const useProjectSessionSelection = (args: Args): void => {
     }
 
     if (newSessionDraftOpen) {
+      previousActiveProjectRef.current = activeProjectId;
       return;
     }
 

@@ -782,16 +782,19 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
 
   setNewSessionDraftTarget: (target) => {
     let nextDirectory: string | null = null
+    let nextProjectId: string | null = null
     set((s) => {
       nextDirectory = normalizePath(target.directoryOverride ?? s.newSessionDraft.directoryOverride)
+      nextProjectId = target.projectId ?? target.selectedProjectId ?? s.newSessionDraft.selectedProjectId ?? null
       return {
         newSessionDraft: {
           ...s.newSessionDraft,
-          selectedProjectId: target.projectId ?? target.selectedProjectId ?? s.newSessionDraft.selectedProjectId,
+          selectedProjectId: nextProjectId,
           directoryOverride: target.directoryOverride ?? s.newSessionDraft.directoryOverride,
         },
       }
     })
+    persistDraftTarget({ projectId: nextProjectId, directory: nextDirectory })
     void activateConfigForDirectory(nextDirectory)
 
     if (nextDirectory && nextDirectory !== useDirectoryStore.getState().currentDirectory) {
