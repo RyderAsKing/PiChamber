@@ -17,7 +17,7 @@ import {
 
 const GITHUB_URL = 'https://github.com/RyderAsKing/PiChamber';
 const DISCORD_URL = 'https://github.com/RyderAsKing/PiChamber/discussions';
-const X_URL = 'https://github.com/RyderAsKing/PiChamber';
+const PI_URL = 'https://pi.dev/';
 
 const MIN_CHECKING_DURATION = 800; // ms
 
@@ -28,7 +28,7 @@ type AboutSettingsProps = {
 export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialogOpen = false }) => {
   const [updateDialogOpen, setUpdateDialogOpen] = React.useState(initialUpdateDialogOpen);
   const [showChecking, setShowChecking] = React.useState(false);
-  const [openChamberVersion, setPiChamberVersion] = React.useState<string | null>(null);
+  const [piChamberVersion, setPiChamberVersion] = React.useState<string | null>(null);
   const updateStore = useUpdateStore(useShallow((s) => ({
     info: s.info,
     checking: s.checking,
@@ -44,7 +44,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
   })));
   const { isMobile } = useDeviceInfo();
 
-  const currentVersion = openChamberVersion || updateStore.info?.currentVersion || 'unknown';
+  const currentVersion = piChamberVersion || updateStore.info?.currentVersion || 'unknown';
 
   React.useEffect(() => {
     let cancelled = false;
@@ -167,19 +167,15 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
             </a>
           </div>
 
-          <a
-            href={X_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 typography-ui-label text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <Icon name="github-fill" className="size-5" />
-            <span>RyderAsKing/PiChamber</span>
+          <a href={PI_URL} target="_blank" rel="noopener noreferrer" className="typography-ui-label text-muted-foreground transition-colors hover:text-foreground">
+            Pi Agent at pi.dev
           </a>
         </div>
 
+        <AboutDetails />
+
         <p className="text-center typography-ui text-muted-foreground/60">
-          {"Made with love for the community"}
+          {"Made with care for the community"}
         </p>
 
         <UpdateDialog
@@ -200,8 +196,9 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
 
   // Desktop layout
   return (
-    <SettingsSection divider={false}>
-      <div className="rounded-lg bg-[var(--surface-elevated)]/70 overflow-hidden flex flex-col">
+    <>
+      <SettingsSection divider={false}>
+        <div className="rounded-lg bg-[var(--surface-elevated)]/70 overflow-hidden flex flex-col">
         <div className="flex flex-col @xl:flex-row @xl:items-center justify-between gap-4 px-4 py-3 border-b border-border/40">
           <div className="flex min-w-0 flex-col">
             <span className={SETTINGS_FIELD_LABEL_CLASS}>{"Version"}</span>
@@ -263,29 +260,106 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
           </a>
 
             <a
-              href={X_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground typography-meta transition-colors"
-          >
-            <Icon name="github-fill" className="h-4 w-4" />
-              <span>RyderAsKing/PiChamber</span>
+              href={PI_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground typography-meta transition-colors"
+            >
+              <Icon name="information" className="h-4 w-4" />
+              <span>Pi Agent</span>
             </a>
+          </div>
         </div>
-      </div>
 
-      <UpdateDialog
-        open={updateDialogOpen}
-        onOpenChange={setUpdateDialogOpen}
-        info={updateStore.info}
-        downloading={updateStore.downloading}
-        downloaded={updateStore.downloaded}
-        progress={updateStore.progress}
-        error={updateStore.error}
-        onDownload={updateStore.downloadUpdate}
-        onRestart={updateStore.restartToUpdate}
-        runtimeType={updateStore.runtimeType}
-      />
-    </SettingsSection>
+        <UpdateDialog
+          open={updateDialogOpen}
+          onOpenChange={setUpdateDialogOpen}
+          info={updateStore.info}
+          downloading={updateStore.downloading}
+          downloaded={updateStore.downloaded}
+          progress={updateStore.progress}
+          error={updateStore.error}
+          onDownload={updateStore.downloadUpdate}
+          onRestart={updateStore.restartToUpdate}
+          runtimeType={updateStore.runtimeType}
+        />
+      </SettingsSection>
+      <AboutDetails />
+    </>
   );
 };
+
+const AboutDetails: React.FC = () => (
+  <>
+    <SettingsSection title="What is PiChamber" divider={false}>
+      <div className="max-w-2xl space-y-3 typography-ui text-muted-foreground">
+        <p>
+          PiChamber is an open-source workspace for running and supervising Pi Coding Agent
+          sessions from a desktop app or browser.
+        </p>
+        <p>
+          It keeps the Pi session daemon on your host while giving trusted devices a focused,
+          authenticated interface for creating sessions, following live work, and steering the
+          agent when needed.
+        </p>
+      </div>
+    </SettingsSection>
+
+    <SettingsSection title="Our goals">
+      <ul className="max-w-2xl list-disc space-y-2 pl-5 typography-ui text-muted-foreground">
+        <li>Make agent-assisted development practical from anywhere you work.</li>
+        <li>Keep users in control of sessions, tools, project context, and credentials.</li>
+        <li>Offer a calm, responsive interface for both focused coding and supervision.</li>
+        <li>Stay open, self-hostable, and respectful of the systems where Pi runs.</li>
+      </ul>
+    </SettingsSection>
+
+    <SettingsSection title="Built around Pi">
+      <div className="max-w-2xl space-y-3 typography-ui text-muted-foreground">
+        <p>
+          Pi is the coding agent and session engine underneath PiChamber. It is designed for
+          working with your tools and code directly, and PiChamber adds the multi-device workspace
+          around that experience.
+        </p>
+        <p>
+          Learn more about Pi Coding Agent at{' '}
+          <a href={PI_URL} target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-4 hover:text-primary">
+            pi.dev
+          </a>
+          .
+        </p>
+      </div>
+    </SettingsSection>
+
+    <SettingsSection title="Special thanks">
+      <div className="max-w-2xl space-y-3 typography-ui text-muted-foreground">
+        <p>
+          PiChamber is a community fork of{' '}
+          <a href="https://github.com/openchamber/openchamber" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-4 hover:text-primary">
+            OpenChamber
+          </a>
+          {' '}by Bohdan Triapitsyn. We are grateful for the foundation and the required MIT
+          attribution carried forward from that project.
+        </p>
+        <p>
+          Thank you to Pierre, the Pi community, Ghostty-web, and every contributor whose work,
+          feedback, and ideas help make this project possible.
+        </p>
+      </div>
+    </SettingsSection>
+
+    <SettingsSection title="Links and license">
+      <div className="flex flex-wrap gap-x-5 gap-y-2 typography-ui-label">
+        <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className="text-muted-foreground transition-colors hover:text-foreground">
+          PiChamber on GitHub
+        </a>
+        <a href={DISCORD_URL} target="_blank" rel="noopener noreferrer" className="text-muted-foreground transition-colors hover:text-foreground">
+          GitHub discussions
+        </a>
+        <a href="https://github.com/RyderAsKing/PiChamber/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="text-muted-foreground transition-colors hover:text-foreground">
+          MIT license
+        </a>
+      </div>
+    </SettingsSection>
+  </>
+);
