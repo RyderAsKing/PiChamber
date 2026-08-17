@@ -65,6 +65,7 @@ export const ProjectsSidebar: React.FC<{ onItemSelect?: () => void }> = ({ onIte
           <SettingsSidebarItem
             key={project.id}
             title={project.label || project.path}
+            metadata={project.label ? project.path : undefined}
             icon={icon}
             selected={selected}
             onSelect={() => {

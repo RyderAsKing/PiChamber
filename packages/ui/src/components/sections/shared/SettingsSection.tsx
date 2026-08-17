@@ -35,7 +35,7 @@ export const SETTINGS_NUMBER_UNIT_CLASS =
   'typography-meta shrink-0 text-muted-foreground tabular-nums';
 
 /** Vertical stack spacing for fields inside a column. */
-export const SETTINGS_FIELDS_STACK_CLASS = 'space-y-4';
+export const SETTINGS_FIELDS_STACK_CLASS = 'space-y-3.5';
 
 /** Compact checkbox / radio list stack. */
 export const SETTINGS_OPTION_STACK_CLASS = 'space-y-1.5';
@@ -114,8 +114,8 @@ export const SettingsSection: React.FC<SettingsSectionProps> = ({
     <section
       data-settings-item={settingsItem}
       className={cn(
-        'space-y-5',
-        divider ? 'border-t border-border/60 py-8' : 'pb-8',
+        'space-y-4',
+        divider ? 'border-t border-border/60 py-6' : 'pb-6',
         className,
       )}
     >

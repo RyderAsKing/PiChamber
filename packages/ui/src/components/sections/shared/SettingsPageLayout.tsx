@@ -53,7 +53,7 @@ export const SettingsPageLayout: React.FC<SettingsPageLayoutProps> = ({
     >
       <div
         className={cn(
-          'mx-auto max-w-[840px] space-y-0 px-6 py-6 @3xl:px-12 @3xl:py-8',
+          'mx-auto max-w-[840px] space-y-0 px-6 py-5 @3xl:px-10 @3xl:py-7',
           // The first visible section never needs the top divider, no matter
           // which platform-conditional sections above it rendered null.
           '[&>section:first-of-type]:border-t-0 [&>section:first-of-type]:pt-0',

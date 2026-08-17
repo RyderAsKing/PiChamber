@@ -47,9 +47,9 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ open, onOpenChan
             aria-describedby={descriptionId}
             className={cn(
               'relative pointer-events-auto',
-              'w-[90vw] max-w-[1200px] h-[85vh] max-h-[900px]',
-              'rounded-xl border shadow-none overflow-hidden origin-center',
-              'bg-background',
+              'w-[92vw] max-w-[1120px] h-[84vh] max-h-[900px]',
+              'rounded-2xl border border-border/80 shadow-2xl overflow-hidden origin-center',
+              'bg-sidebar',
               'transition-all duration-150 ease-out',
               'data-[starting-style]:opacity-0 data-[starting-style]:scale-[0.98]',
               'data-[ending-style]:opacity-0 data-[ending-style]:scale-[0.98]',

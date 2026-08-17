@@ -627,8 +627,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
 
     return (
       <div className="flex h-full flex-col overflow-hidden">
-        <div className="px-4 pt-3">
-          <div className="flex h-10 items-center gap-1.5 rounded-md border border-border bg-background/70 px-2 text-muted-foreground focus-within:ring-2 focus-within:ring-primary/40 sm:h-8">
+        <div className="px-3 pt-3">
+          <div className="flex h-10 items-center gap-1.5 rounded-md border border-border bg-transparent px-2 text-muted-foreground focus-within:ring-2 focus-within:ring-primary/40 sm:h-8">
             <Icon name="search" className="h-4 w-4 shrink-0" />
             <input
               value={settingsSearchQuery}
@@ -636,7 +636,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
               onKeyDown={handleSettingsSearchKeyDown}
               placeholder={"Search settings"}
               aria-label={"Search settings"}
-              className="typography-ui min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground/70"
+              className="typography-ui-label min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground/70"
             />
             {hasSearchQuery && (
               <button
@@ -653,7 +653,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
 
         {/* Scrollable nav items */}
         <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
-          <div className="flex flex-col gap-0.5 px-4 pt-4 pb-2">
+          <div className="flex flex-col gap-0.5 px-3 pt-3 pb-2">
             {hasSearchQuery ? (
               settingsSearchResults.length > 0 ? (() => {
                 let resultIndex = 0;
@@ -908,20 +908,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
             </div>
           )}
 
-      {onClose && (
-        <div className={cn('absolute right-0.5 z-50', isWindowed ? 'top-0.5' : 'top-1')}>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={"Close settings"}
-            title={`Close Settings (${shortcutKey}+,)`}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md p-0.5 text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            <Icon name="close" className="h-5 w-5" />
-          </button>
-        </div>
-      )}
         </>
+      )}
+
+      {!isMobile && (
+        <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/70 bg-sidebar px-4">
+          <div className="flex items-center gap-2 text-foreground">
+            <Icon name="settings-3" className="size-4 text-muted-foreground" />
+            <span className="typography-ui-label font-medium">{"Settings"}</span>
+          </div>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={"Close settings"}
+              title={`Close Settings (${shortcutKey}+,)`}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+            >
+              <Icon name="close" className="size-4" />
+            </button>
+          )}
+        </div>
       )}
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
