@@ -3,6 +3,26 @@ import { mkdir, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 
+/**
+ * Encode a resolved cwd the same way Pi's SessionManager names
+ * `~/.pi/agent/sessions/<encoded-cwd>`. Drive letters and both slash styles
+ * become hyphens so Windows `C:\Users\name\project` matches Pi CLI sessions.
+ */
+export const encodePiSessionCwd = (cwd) => `--${cwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--`;
+
+/**
+ * Convert Git Bash, MSYS, Cygwin, and WSL drive paths to a native Windows
+ * path. Mirrors Pi's `normalizeWindowsShellPath` so a folder picked as
+ * `/c/Users/name/project` still lands in the same session directory as Pi.
+ */
+export const normalizeWindowsShellPath = (filePath) => {
+  if (!filePath.startsWith('/') || filePath.startsWith('//') || filePath.includes('\\')) return filePath;
+  const match = filePath.match(/^\/(?:mnt\/|cygdrive\/)?([a-z])(?:\/(.*))?$/i);
+  if (!match) return filePath;
+  const suffix = match[2]?.replaceAll('/', '\\');
+  return `${match[1].toUpperCase()}:\\${suffix ?? ''}`;
+};
+
 class SessionJsonlError extends Error {
   constructor(code) {
     super('A Pi session JSONL file could not be read.');
@@ -46,10 +66,14 @@ export async function validatePiSessionJsonlFile(filePath) {
   if (!sawHeader) throw malformed();
 }
 
-export const getPiSessionDirectory = ({ cwd, agentDir }) => {
-  const resolvedCwd = resolve(cwd);
-  const safePath = `--${resolvedCwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--`;
-  return join(resolve(agentDir), 'sessions', safePath);
+export const getPiSessionDirectory = ({
+  cwd,
+  agentDir,
+  platform = process.platform,
+  resolvePath = resolve,
+} = {}) => {
+  const normalizedCwd = platform === 'win32' ? normalizeWindowsShellPath(cwd) : cwd;
+  return join(resolvePath(agentDir), 'sessions', encodePiSessionCwd(resolvePath(normalizedCwd)));
 };
 
 export async function validatePiSessionJsonlDirectory({ cwd, agentDir }) {

@@ -98,7 +98,9 @@ describe('Pi session daemon supervisor', () => {
 
     const credential = await readFile(supervisor.paths.credentialFile, 'utf8');
     expect(credential.trim()).toHaveLength(64);
-    expect((await stat(supervisor.paths.credentialFile)).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') {
+      expect((await stat(supervisor.paths.credentialFile)).mode & 0o777).toBe(0o600);
+    }
     expect(JSON.stringify(await supervisor.health())).not.toContain(credential.trim());
 
     await expect(supervisor.stop()).resolves.toEqual({ state: 'stopped' });
@@ -150,6 +152,18 @@ describe('Pi session daemon supervisor', () => {
 
     await expect(supervisor.start()).rejects.toMatchObject({ code: 'DAEMON_START_TIMEOUT' });
     expect(spawnEnv?.ELECTRON_RUN_AS_NODE).toBe('1');
+  });
+
+  it('uses a per-user Windows named pipe instead of a filesystem socket', () => {
+    const windowsSupervisor = createPiSessionDaemonSupervisor({
+      env: {
+        PICHAMBER_DATA_DIR: join(tmpdir(), 'pichamber-win-data'),
+        PICHAMBER_PI_AGENT_DIR: join(tmpdir(), 'pichamber-win-agent'),
+      },
+      cwd: join(tmpdir(), 'pichamber-win-project'),
+      platform: 'win32',
+    });
+    expect(windowsSupervisor.paths.endpoint).toMatch(/^\\\\\.\\pipe\\pichamber-pi-session-daemon-[0-9a-f]{16}$/);
   });
 
   it('recovers from a leftover empty daemon lock instead of failing as unavailable', async () => {

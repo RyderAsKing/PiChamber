@@ -4,7 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-- Windows Electron recovers from a leftover empty or unreadable Pi daemon lock instead of failing `/api/pi/*` with `DAEMON_LOCK_UNAVAILABLE` and staying on Loading.
+## [0.1.2] - 2026-08-17
+
+Desktop 0.1.2 is a Windows-focused reliability cut. Packaged Electron should get past Loading, show models, and talk to the Pi session daemon on native Windows.
+
+- First launch with no project selected marks the Pi session cluster `ready` with an empty folder focus instead of staying on Loading.
+- A leftover empty or unreadable Pi daemon lock is retried and stolen instead of failing `/api/pi/*` with `DAEMON_LOCK_UNAVAILABLE`.
+- Built-in providers that are not in `models.json` return `config: null` instead of HTTP 400, so Settings/Providers no longer fail on amazon-bedrock, openrouter, or opencode-go.
+- Model pickers (including Small Model) list every catalog provider that has models, including unauthenticated ones, so you can browse before login. The leftover `/api/small-model` call is gone.
+- Windows Pi session directories match the Pi SDK cwd encoding, including drive letters and Git Bash/MSYS/Cygwin/WSL `/c/...` paths, so PiChamber and the Pi CLI share the same JSONL sessions.
+- The private daemon listens and connects over a Windows named pipe with IPC `path` options. Sidecar `chmod` failures on Windows no longer prevent the daemon from recording ready/failure state.
+- Unpackaged `electron:dev` pins a real semver onto `app.setVersion` before `electron-updater` constructs, so host Electron version `0.0` no longer crashes the desktop shell.
 
 ## [0.1.1] - 2026-08-17
 

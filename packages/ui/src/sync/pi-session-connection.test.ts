@@ -846,7 +846,7 @@ describe('PiSessionStore hydrate/overlay reconciliation', () => {
     store.dispose();
   });
 
-  test('start without a daemon reports error instead of an empty ready list', async () => {
+  test('start without daemon projects connects without adopting a cwd', async () => {
     const stubs = stubDaemons({
       listProjects: async () => ({ projects: [] }),
     });
@@ -854,11 +854,28 @@ describe('PiSessionStore hydrate/overlay reconciliation', () => {
       const store = new PiSessionStore();
       await store.start();
       const state = store.getState();
-      expect(state.connection === 'error' || state.connection === 'unavailable' || state.connection === 'loading').toBe(true);
-      if (state.connection === 'error' || state.connection === 'unavailable') {
-        expect(state.sessions).toEqual([]);
-        expect(state.error).not.toBeNull();
-      }
+      expect(state.connection).toBe('ready');
+      expect(state.directory).toBeNull();
+      expect(state.sessions).toEqual([]);
+      expect(state.error).toBeNull();
+      store.dispose();
+    } finally {
+      stubs.restore();
+    }
+  });
+
+  test('start without a reachable daemon reports error instead of an empty ready list', async () => {
+    const stubs = stubDaemons({
+      listProjects: async () => ({ projects: [] }),
+      health: async () => ({ state: 'unavailable', protocolVersion: 1, error: { code: 'DAEMON_UNAVAILABLE' } }),
+    });
+    try {
+      const store = new PiSessionStore();
+      await store.start();
+      const state = store.getState();
+      expect(state.connection === 'error' || state.connection === 'unavailable').toBe(true);
+      expect(state.sessions).toEqual([]);
+      expect(state.error).not.toBeNull();
       store.dispose();
     } finally {
       stubs.restore();

@@ -35,7 +35,7 @@ export const PiSessionProvider = ({ children, directory }: { children: ReactNode
       return;
     }
     if (!targetDirectory) {
-      void store.focusProject(null, null);
+      void store.connectWithoutProject();
       return;
     }
     // Remembered session hint: warm folder switches can skip the chat

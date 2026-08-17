@@ -181,9 +181,9 @@ const ConfigStoreBootstrap: React.FC = () => {
   const providersCount = useConfigStore((state) => state.providers.length);
 
   React.useEffect(() => {
-    if (!pi.directory || pi.connection !== 'ready' || isInitialized) return;
+    if (isInitialized || pi.connection !== 'ready') return;
     void initializeApp();
-  }, [initializeApp, isInitialized, pi.connection, pi.directory]);
+  }, [initializeApp, isInitialized, pi.connection]);
 
   React.useEffect(() => {
     if (!pi.directory || pi.connection !== 'ready' || !isConnected) return;

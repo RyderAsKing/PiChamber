@@ -114,7 +114,9 @@ describe('Pi session lifecycle multi-directory integration test', () => {
       const dirA = join(tempRoot, 'project-a');
       const dirB = join(tempRoot, 'project-b');
       const agentDir = join(tempRoot, 'agent');
-      const endpoint = join(tempRoot, 'daemon.sock');
+      const endpoint = process.platform === 'win32'
+        ? `\\\\.\\pipe\\pichamber-integration-${process.pid}`
+        : join(tempRoot, 'daemon.sock');
 
       await Promise.all([
         mkdir(dirA, { recursive: true }),

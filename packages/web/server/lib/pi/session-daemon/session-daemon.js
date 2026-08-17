@@ -697,7 +697,15 @@ export function createSessionDaemon({
     if (typeof providerId !== 'string' || providerId.length === 0 || providerId.length > 256) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested provider is invalid.');
     }
-    return { config: await modelConfigStore.get(providerId) };
+    try {
+      const config = await modelConfigStore.get(providerId);
+      return { config: config ?? null };
+    } catch (error) {
+      if (error?.code === 'PI_MODEL_CONFIG_INVALID') {
+        throw new SessionDaemonProtocolError('PI_MODEL_CONFIG_INVALID', 'Pi models configuration is invalid.');
+      }
+      throw error;
+    }
   };
 
   const setProviderModels = async (payload) => {
@@ -1833,7 +1841,7 @@ export function createSessionDaemon({
         server = createServer(onConnection);
         await new Promise((resolve, reject) => {
           server.once('error', reject);
-          server.listen(endpoint, () => {
+          server.listen({ path: endpoint }, () => {
             server.off('error', reject);
             resolve();
           });

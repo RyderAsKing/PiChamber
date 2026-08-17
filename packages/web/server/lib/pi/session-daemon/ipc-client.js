@@ -24,7 +24,7 @@ export const requestSessionDaemon = ({ endpoint, credential, command, payload, t
   let settled = false;
   let timer;
 
-  const socket = createConnection(endpoint);
+  const socket = createConnection({ path: endpoint });
   const finish = (callback, value) => {
     if (settled) return;
     settled = true;
@@ -94,7 +94,7 @@ export const subscribeSessionDaemon = ({ endpoint, credential, sessionId, fromSe
   let buffer = '';
   let authenticated = false;
   let closed = false;
-  const socket = createConnection(endpoint);
+  const socket = createConnection({ path: endpoint });
   const timer = setTimeout(() => fail(new SessionDaemonClientError('DAEMON_UNAVAILABLE')), timeoutMs);
   const finish = () => {
     clearTimeout(timer);

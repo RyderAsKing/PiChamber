@@ -45,6 +45,7 @@ The Pi cluster belongs to the connected runtime, not the focused project:
 
 - One event stream, one `reducer.bySession`, one `hydratedSessionIds` set, and one runtime generation guard
 - `directory` is a focus pointer for the sidebar list, the new-session cwd, and the `selectProject` daemon focus — not a liveness boundary
+- With no PiChamber project selected, `connectWithoutProject()` probes `/api/pi/runtime` and sets `connection: 'ready'` with a null folder focus. It does not adopt the daemon cwd. Leaving `connection` at `'loading'` is reserved for an in-flight first attach, not for "no folder yet".
 - Folder focus (`focusProject(directory, preferredSessionId?)`) replaces the `sessions[]`, sets the `selectedSessionId`, hydrates the new id only when cold, and never disposes the stream, clears `hydratedSessionIds`, drops other folders' hydrated transcripts, or rewrites `connection: 'loading'` for the cluster
 - Folder focus sets `focusPending: true` while the list is in flight so the chat can keep its existing view (or its existing PiChamber logo loader) instead of clearing back to `ChatEmptyState`. `sessionsListStatus` distinguishes `'loading'` / `'ready'` / `'failed'` and discriminates authoritative empty success from list failure
 - Same-folder selection is a pointer change on the resident cluster (`select(id)`)

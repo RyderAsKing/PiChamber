@@ -433,9 +433,63 @@ export class PiSessionStore {
       }
       const projects = await piClient.listProjects({ runtimeKey: getRuntimeKey() });
       const directory = projects.projects.find((project) => project.selected)?.directory ?? projects.projects[0]?.directory;
-      if (!directory) throw new PiRequestError('DAEMON_UNAVAILABLE');
+      if (!directory) {
+        await this.connectWithoutProject();
+        return;
+      }
       await this.open(directory, options.sessionId);
     } catch (error) { this.reportError(error); }
+  }
+
+  /**
+   * Probe the daemon and mark the cluster connected without adopting a
+   * filesystem cwd as the visible project. Used on first launch / when the
+   * PiChamber project list is empty so chrome is not stuck on `loading`.
+   */
+  async connectWithoutProject(): Promise<void> {
+    if (
+      this.hasClusterAttached()
+      && this.state.connection !== 'error'
+      && this.state.connection !== 'unavailable'
+    ) {
+      await this.focusProject(null, null);
+      return;
+    }
+    const expected = ++this.runtimeGeneration;
+    this.focusGeneration = expected;
+    this.pendingFocus = null;
+    this.pendingPreferredSessionId = null;
+    this.state = {
+      ...this.state,
+      directory: null,
+      sessions: [],
+      selectedSessionId: null,
+      connection: 'loading',
+      sessionsListStatus: 'idle',
+      focusPending: false,
+      error: null,
+    };
+    this.emitChrome();
+    try {
+      const health = await piClient.health({ runtimeKey: getRuntimeKey() });
+      if (expected !== this.runtimeGeneration) return;
+      if (health.state !== 'ready') {
+        throw new PiRequestError(health.error?.code ?? 'DAEMON_UNAVAILABLE', health.error?.message);
+      }
+      this.state = {
+        ...this.state,
+        directory: null,
+        sessions: [],
+        selectedSessionId: null,
+        connection: 'ready',
+        sessionsListStatus: 'idle',
+        focusPending: false,
+        error: null,
+      };
+      this.emitChrome();
+    } catch (error) {
+      if (expected === this.runtimeGeneration) this.reportError(error);
+    }
   }
 
   /** Switch the sidebar/create flow's directory pointer and that folder's
