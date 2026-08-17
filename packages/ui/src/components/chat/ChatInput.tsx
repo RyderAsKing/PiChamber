@@ -63,8 +63,6 @@ import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
-import { usePermissionStore } from '@/stores/permissionStore';
-import { togglePermissionAutoAccept } from './permissionAutoAccept';
 import { extractGitChangedFiles } from './changedFiles';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { fetchResponseStyleInstruction } from '@/lib/responseStyle';
@@ -134,7 +132,7 @@ import { RevertedMessageDock } from './composer/ui/RevertedMessageDock';
 // Shiki stacks into the eager startup graph for a dialog opened on demand.
 const ToolOutputDialog = lazyWithChunkRecovery(() => import('./message/ToolOutputDialog'));
 
-const MAX_VISIBLE_COMPOSER_LINES = 8;
+const MAX_VISIBLE_COMPOSER_LINES = 5;
 /**
  * Mobile grows the composer with content instead of offering a fullscreen
  * gesture — the old swipe-up handle bought barely a line of extra height.
@@ -183,20 +181,6 @@ const buildSkillMentionInstruction = (skillNames: string[]): string | null => {
 
 const hasUserMessages = (sessionId: string, directory?: string) => {
     return getSyncMessages(sessionId, directory).some((message) => message.role === 'user');
-};
-
-const renderDraftTitle = (title: string, projectLabel: string | null): React.ReactNode => {
-    if (!projectLabel) return title;
-    const projectIndex = title.indexOf(projectLabel);
-    if (projectIndex === -1) return title;
-
-    return (
-        <>
-            {title.slice(0, projectIndex)}
-            <span className="font-medium">{projectLabel}</span>
-            {title.slice(projectIndex + projectLabel.length)}
-        </>
-    );
 };
 
 const MemoModelControls = React.memo(ModelControls);
@@ -296,11 +280,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     );
     const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
     const newSessionDraftOpen = Boolean(newSessionDraft?.open);
-    const draftPermissionAutoAcceptEnabled = useSessionUIStore((s) => (
-        s.newSessionDraft?.open ? s.newSessionDraft.permissionAutoAcceptEnabled === true : false
-    ));
     const setNewSessionDraftTarget = useSessionUIStore((s) => s.setNewSessionDraftTarget);
-    const setDraftPermissionAutoAcceptEnabled = useSessionUIStore((s) => s.setDraftPermissionAutoAcceptEnabled);
     const openNewSessionDraft = useSessionUIStore((s) => s.openNewSessionDraft);
     const abortPromptSessionId = useSessionUIStore((s) => s.abortPromptSessionId);
     const clearAbortPrompt = useSessionUIStore((s) => s.clearAbortPrompt);
@@ -333,6 +313,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const getVisibleAgents = useConfigStore((state) => state.getVisibleAgents);
     const agents = getVisibleAgents();
     const isMobile = useUIStore((state) => state.isMobile);
+    const chatSurfaceMode = useChatSurfaceMode();
+    const isMiniChatSurface = chatSurfaceMode === 'mini-chat';
     const hasHardwareKeyboard = useHardwareKeyboard();
     const { enabled: isTabletLayout } = useTabletLayout();
     const setImagePreviewOpen = useUIStore((state) => state.setImagePreviewOpen);
@@ -353,7 +335,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const fetchGitStatus = useGitStore((state) => state.fetchStatus);
     const clearGitDiffCache = useGitStore((state) => state.clearDiffCache);
     const [showAbortStatus, setShowAbortStatus] = React.useState(false);
-    const setSessionAutoAccept = usePermissionStore((state) => state.setSessionAutoAccept);
     const [isNarrowComposer, setIsNarrowComposer] = React.useState(false);
     const [attachmentPreview, setAttachmentPreview] = React.useState<ToolPopupContent>({
         open: false,
@@ -444,8 +425,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     // Mobile fullscreen composer (entered via the drag handle's swipe-up).
     const isMobileExpanded = isExpandedInput && isMobile;
     const isComposerExpanded = isDesktopExpanded || isMobileExpanded;
-    // Rounder composer on mobile (touch UI reads better with a softer corner).
-    const chatInputRadius = isMobile ? '1.5rem' : 'var(--radius-xl)';
+    const [composerVisualLines, setComposerVisualLines] = React.useState(1);
+    const isDesktopStackedComposer = Boolean(!isMobile && !isMiniChatSurface);
+    const isNewSessionStackedComposer = Boolean(newSessionDraftOpen && isDesktopStackedComposer && !isComposerExpanded);
+    const isInlineComposer = !isMobile && !isComposerExpanded && !isDesktopStackedComposer;
+    const chatInputRadius = isMobile || isDesktopStackedComposer
+        ? '1.5rem'
+        : '9999px';
     const useCompactChatPlaceholder = isMobile || isNarrowComposer;
 
     React.useEffect(() => {
@@ -1933,13 +1919,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
     const footerGapClass = 'gap-x-1.5 gap-y-0';
     const composerStatusExtrasEnabled = true;
-    const showDraftTargetSelectors = newSessionDraftOpen;
+    const showDraftTargetSelectors = (newSessionDraftOpen || Boolean(currentSessionId)) && !isMiniChatSurface;
 
     // Which project and directory a new session will target.
     const {
         projects: draftProjects,
         selectedDraftProject,
-        draftProjectLabel,
         selectedDraftDirectory,
         selectedDraftBranchLabel,
         selectedDraftBranchIsKnown,
@@ -1950,9 +1935,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         handleDraftDirectoryChange,
     } = useDraftTarget(showDraftTargetSelectors);
 
-    const chatSurfaceMode = useChatSurfaceMode();
-    const isMiniChatSurface = chatSurfaceMode === 'mini-chat';
-
+    const showComposerTargetRow = Boolean(
+        showDraftTargetSelectors && selectedDraftProject && (newSessionDraftOpen || shouldShowDraftBranchSelector),
+    );
     const hasPendingChanges = React.useMemo(() => {
         if (isMiniChatSurface) {
             return false;
@@ -1962,10 +1947,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         }
         return extractGitChangedFiles(currentGitStatus.files, currentGitStatus.diffStats, currentDirectory).length > 0;
     }, [currentDirectory, currentGitStatus, isGitRepo, isMiniChatSurface]);
+    const pendingChangesBar = composerStatusExtrasEnabled && hasPendingChanges
+        ? <PendingChangesBar align={showComposerTargetRow ? 'end' : 'start'} />
+        : null;
 
 
     React.useEffect(() => {
-        if (!showDraftTargetSelectors || !selectedDraftProject || !selectedDraftDirectory) {
+        if (!showDraftTargetSelectors || !newSessionDraftOpen || !selectedDraftProject || !selectedDraftDirectory) {
             return;
         }
         if (newSessionDraft?.preserveDirectoryOverride) {
@@ -2039,7 +2027,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         editorRef: composerRef,
     });
 
-    const footerPaddingClass = isMobile ? 'px-1.5 py-1.5' : 'px-2.5 py-1.5';
+    const footerPaddingClass = isMobile
+        ? 'px-1.5 py-1.5'
+        : isInlineComposer
+            ? 'px-1.5 py-1'
+            : 'px-3 py-2';
     const buttonSizeClass = isMobile ? 'h-8 w-8' : 'h-6 w-6';
     const sendIconSizeClass = isMobile ? 'h-4 w-4' : 'h-4 w-4';
     const stopIconSizeClass = isMobile ? 'h-6 w-6' : 'h-5 w-5';
@@ -2047,35 +2039,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
     const iconButtonBaseClass = 'flex cursor-pointer items-center justify-center text-foreground transition-none outline-none focus:outline-none flex-shrink-0 disabled:cursor-not-allowed';
     const footerIconButtonClass = cn(iconButtonBaseClass, buttonSizeClass);
-    const permissionScopeSessionId = currentSessionId ?? currentManagementSessionId;
-    const permissionAutoAcceptEnabled = usePermissionStore((state) => {
-        if (!permissionScopeSessionId) {
-            return draftPermissionAutoAcceptEnabled;
-        }
-        return state.isSessionAutoAccepting(permissionScopeSessionId);
-    });
-    const isPermissionAutoAcceptInteractive = Boolean(permissionScopeSessionId || newSessionDraftOpen);
-
-    const handlePermissionAutoAcceptToggle = React.useCallback(() => {
-        togglePermissionAutoAccept({
-            permissionScopeSessionId,
-            newSessionDraftOpen,
-            draftPermissionAutoAcceptEnabled,
-            permissionAutoAcceptEnabled,
-            setDraftPermissionAutoAcceptEnabled,
-            setSessionAutoAccept,
-            onOpenSessionFirst: () => toast.error("Open a session first"),
-            onToggleFailed: () => toast.error("Failed to toggle permission auto-accept"),
-        });
-    }, [
-        draftPermissionAutoAcceptEnabled,
-        newSessionDraftOpen,
-        permissionAutoAcceptEnabled,
-        permissionScopeSessionId,
-        setDraftPermissionAutoAcceptEnabled,
-        setSessionAutoAccept,
-    ]);
-
     React.useEffect(() => {
         const pendingAbortBanner = Boolean(abortPromptSessionId) && abortPromptSessionId === currentSessionId;
         if (!prevWasAbortedRef.current && pendingAbortBanner && !showAbortStatus) {
@@ -2115,18 +2078,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             )}
             style={isMobile && inputBarOffset > 0 ? { marginBottom: `${inputBarOffset}px` } : undefined}
         >
-            {newSessionDraftOpen && !isDesktopExpanded && !isMobile && !isMiniChatSurface ? (
-                <div className="chat-input-column mb-7 text-center">
-                    <h1 className="text-balance text-2xl font-normal tracking-tight text-foreground md:text-3xl">
-                        {renderDraftTitle(
-                            draftProjectLabel
-                                ? `What are we working on in ${draftProjectLabel}?`
-                                : "What are we working on?",
-                            draftProjectLabel,
-                        )}
-                    </h1>
-                </div>
-            ) : null}
             <div className={cn('chat-input-column relative overflow-visible', isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
                 <AttachedFilesList onShowPopup={handleShowAttachmentPreview} />
                 <QueuedMessageChips
@@ -2182,11 +2133,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     showAbortStatus={showAbortStatus}
                     showAssistantStatus={false}
                     showTodos={composerStatusExtrasEnabled}
-                    leftAccessory={!composerStatusExtrasEnabled || newSessionDraftOpen || !hasPendingChanges
+                    leftAccessory={showComposerTargetRow || newSessionDraftOpen || !pendingChangesBar
                         ? null
-                        : <PendingChangesBar />}
+                        : pendingChangesBar}
                 />
-                {!isMobile && showDraftTargetSelectors && selectedDraftProject ? (
+                {!isMobile && showDraftTargetSelectors && selectedDraftProject && (newSessionDraftOpen || shouldShowDraftBranchSelector) ? (
                     <DraftTargetSelectors
                         projects={draftProjects}
                         selectedProject={selectedDraftProject}
@@ -2196,16 +2147,20 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         projectRootBranchOption={projectRootBranchOption}
                         branchItems={draftBranchItems}
                         showBranchSelector={shouldShowDraftBranchSelector}
+                        showProjectSelector={newSessionDraftOpen}
+                        endAccessory={pendingChangesBar}
                         onProjectChange={handleDraftProjectChange}
                         onDirectoryChange={handleDraftDirectoryChange}
                         theme={currentTheme}
                     />
                 ) : null}
-                {isMobile && showDraftTargetSelectors && selectedDraftProject ? (
+                {isMobile && showDraftTargetSelectors && selectedDraftProject && (newSessionDraftOpen || shouldShowDraftBranchSelector) ? (
                     <MobileDraftTargetTriggers
                         selectedProject={selectedDraftProject}
                         selectedBranchLabel={selectedDraftBranchLabel}
                         showBranchSelector={shouldShowDraftBranchSelector}
+                        showProjectSelector={newSessionDraftOpen}
+                        endAccessory={pendingChangesBar}
                         theme={currentTheme}
                         onOpenPicker={setMobileDraftPicker}
                     />
@@ -2242,6 +2197,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     className={cn(
                         "flex flex-col relative overflow-visible",
                         isComposerExpanded && 'flex-1 min-h-0',
+                        isDesktopStackedComposer && !isComposerExpanded && 'min-h-[7rem]',
                         "border border-border/80",
                         "shadow-[0_4px_16px_-4px_rgb(0_0_0_/_0.12)]",
                         "focus-within:ring-1",
@@ -2298,14 +2254,46 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         onAgentSelect={handleAgentSelect}
                         onClose={closeAutocomplete}
                     />
-                    <div className={cn('relative flex flex-col', isComposerExpanded && 'flex-1 min-h-0')}>
+                    <ComposerFooter
+                        isMobile={isMobile}
+                        isInline={isInlineComposer}
+                        alignToolsEnd={composerVisualLines > 1}
+                        sessionId={currentSessionId}
+                        directory={currentSessionDirectoryForSync ?? currentDirectory}
+                        newSessionDraftOpen={newSessionDraftOpen}
+                        messageLength={message.length}
+                        leadingExtra={isDesktopStackedComposer ? (
+                            <MemoModelControls keepLabels className="w-max shrink-0" />
+                        ) : null}
+                        hideFocusMode={isNewSessionStackedComposer}
+                        radius={chatInputRadius}
+                        footerPaddingClass={footerPaddingClass}
+                        footerGapClass={footerGapClass}
+                        footerIconButtonClass={footerIconButtonClass}
+                        iconSizeClass={iconSizeClass}
+                        sendIconSizeClass={sendIconSizeClass}
+                        stopIconSizeClass={stopIconSizeClass}
+                        canSend={canSend}
+                        canAbort={canAbort}
+                        hasContent={Boolean(hasContent)}
+                        isExpandedInput={isExpandedInput}
+                        onOpenSettings={onOpenSettings}
+                        onPickLocalFiles={handlePickLocalFiles}
+                        onOpenIssuePicker={openIssuePicker}
+                        onOpenPrPicker={openPrPicker}
+                        onOpenAttachSheet={openMobileAttachSheet}
+                        onToggleExpandedInput={handleToggleExpandedInput}
+                        onPrimaryAction={handlePrimaryAction}
+                        onQueueMessage={handleQueueMessage}
+                        onAbort={handleAbort}
+                    >
                     <div className={cn("overflow-hidden", isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
                         {isMobile ? (
                             <div className="scrollbar-none relative z-10 flex items-center gap-x-2 overflow-x-auto px-3 pb-0.5 pt-1.5">
                                 <MemoMobileModelButton onOpenModel={() => handleOpenMobilePanel('model')} className="flex-shrink-0" />
                             </div>
                         ) : null}
-                        <div className="flex items-center gap-1 px-3 pt-1 flex-wrap relative z-10">
+                        <div className={cn('relative z-10 flex flex-wrap items-center gap-1', isInlineComposer ? 'px-0' : 'px-3 pt-1')}>
                             <AttachedFilesList onShowPopup={handleShowAttachmentPreview} />
                         </div>
                         <div
@@ -2332,12 +2320,17 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                     cursorPosRef.current = selection.start;
                                     updateAutocompleteOverlayPosition();
                                 }}
+                                onVisualLineCount={(count) => {
+                                    setComposerVisualLines((previous) => (previous === count ? previous : count));
+                                }}
                                 onFocus={mobileShell.onEditorFocus}
                                 onBlur={mobileShell.onEditorBlur}
                                 placeholder={currentSessionId || newSessionDraftOpen
                                     ? inputMode === 'shell'
                                         ? "Enter shell command..."
-                                        : (useCompactChatPlaceholder ? "Use @ / ! # for helpers" : "@ for files/agents; / for commands and skills; ! for shell; # for snippets")
+                                        : isNewSessionStackedComposer
+                                            ? "Plan, build, / for skills, @ for context"
+                                            : (useCompactChatPlaceholder ? "Use @ / ! # for helpers" : "@ for files/agents; / for commands and skills; ! for shell; # for snippets")
                                     : "Select or create a session to start chatting"}
                                 editable={Boolean(currentSessionId || newSessionDraftOpen)}
                                 autoCorrect={isMobile}
@@ -2348,68 +2341,44 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                 boundSelector={isMobile ? '[data-composer-bound]' : undefined}
                                 boundGapPx={MOBILE_COMPOSER_BOUND_GAP_PX}
                                 className={cn(
-                                    'min-h-[52px] px-3 relative z-10',
+                                    'relative z-10',
+                                    isInlineComposer
+                                        ? 'min-h-0 px-1.5 py-1.5'
+                                        : 'min-h-[52px] px-3',
                                     isComposerExpanded
                                         ? cn('h-full min-h-0', isMobile ? 'py-2.5' : 'py-4')
                                         : isMobile
                                             ? 'py-2.5'
-                                            : 'pt-4 pb-2',
+                                            : isInlineComposer
+                                                ? undefined
+                                                : 'pt-3 pb-2',
                                     inputMode === 'shell' ? 'font-mono' : 'typography-markdown md:typography-ui-label',
                                 )}
                             />
                         </div>
                     </div>
-                    <ComposerFooter
-                        isMobile={isMobile}
-                        sessionId={currentSessionId}
-                        directory={currentSessionDirectoryForSync ?? currentDirectory}
-                        newSessionDraftOpen={newSessionDraftOpen}
-                        messageLength={message.length}
-                        radius={chatInputRadius}
-                        footerPaddingClass={footerPaddingClass}
-                        footerGapClass={footerGapClass}
-                        footerIconButtonClass={footerIconButtonClass}
-                        iconSizeClass={iconSizeClass}
-                        sendIconSizeClass={sendIconSizeClass}
-                        stopIconSizeClass={stopIconSizeClass}
-                        canSend={canSend}
-                        canAbort={canAbort}
-                        hasContent={Boolean(hasContent)}
-                        isExpandedInput={isExpandedInput}
-                        permissionAutoAcceptEnabled={permissionAutoAcceptEnabled}
-                        isPermissionAutoAcceptInteractive={isPermissionAutoAcceptInteractive}
-                        onOpenSettings={onOpenSettings}
-                        onPickLocalFiles={handlePickLocalFiles}
-                        onOpenIssuePicker={openIssuePicker}
-                        onOpenPrPicker={openPrPicker}
-                        onOpenAttachSheet={openMobileAttachSheet}
-                        onToggleExpandedInput={handleToggleExpandedInput}
-                        onTogglePermissionAutoAccept={handlePermissionAutoAcceptToggle}
-                        onPrimaryAction={handlePrimaryAction}
-                        onQueueMessage={handleQueueMessage}
-                        onAbort={handleAbort}
-                    />
-                    </div>
+                    </ComposerFooter>
 
                 </div>
                 </>
                 )}
                 </div>
-                {/* Hidden host for the model/agent/variant bottom sheets. Kept
-                    outside the pill conditional so an open panel survives (and
-                    stays visible over) the collapsed composer. */}
-                {isMobile ? (
+                {isDesktopStackedComposer ? null : !isMobile ? (
+                    <div className="mt-1.5 flex w-full shrink-0 items-center pl-2">
+                        <MemoModelControls className="w-full min-w-0" />
+                    </div>
+                ) : (
                     <MemoModelControls
                         className="hidden"
                         mobilePanel={mobileControlsPanel}
                         onMobilePanelChange={setMobileControlsPanel}
                     />
-                ) : null}
+                )}
             </div>
             {newSessionDraftOpen && !isDesktopExpanded && !isMobile && !isMiniChatSurface ? (
                 <DraftPresetChips
                     onSubmit={(starter) => submitPresetPrompt(starter.submitText, starter.ref.type)}
-                    className="chat-input-column mt-4"
+                    className="chat-input-column mt-3"
                 />
             ) : null}
         </form>
@@ -2522,6 +2491,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 projectRootBranchOption={projectRootBranchOption}
                 branchItems={draftBranchItems}
                 showBranchSelector={shouldShowDraftBranchSelector}
+                showProjectSelector={newSessionDraftOpen}
                 onProjectChange={handleDraftProjectChange}
                 onDirectoryChange={handleDraftDirectoryChange}
                 theme={currentTheme}
