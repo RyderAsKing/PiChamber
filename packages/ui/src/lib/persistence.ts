@@ -536,8 +536,6 @@ const materializeAuthoritativeUiSettings = (settings: DesktopSettings): DesktopS
     weekStartPreference: defaults.weekStartPreference,
     desktopWindowControlsPosition: defaults.desktopWindowControlsPosition,
     desktopWindowControlsStyle: defaults.desktopWindowControlsStyle,
-    chatRenderMode: defaults.chatRenderMode,
-    activityRenderMode: defaults.activityRenderMode,
     mermaidRenderingMode: defaults.mermaidRenderingMode,
     userMessageRenderingMode: defaults.userMessageRenderingMode,
     collapsibleUserMessages: defaults.collapsibleUserMessages,
@@ -711,18 +709,6 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
         : null;
     if (nextStyle && nextStyle !== store.desktopWindowControlsStyle) {
       store.setDesktopWindowControlsStyle(nextStyle);
-    }
-  }
-  if (typeof settings.chatRenderMode === 'string'
-    && (settings.chatRenderMode === 'sorted' || settings.chatRenderMode === 'live')) {
-    if (settings.chatRenderMode !== store.chatRenderMode) {
-      store.setChatRenderMode(settings.chatRenderMode);
-    }
-  }
-  if (typeof settings.activityRenderMode === 'string'
-    && (settings.activityRenderMode === 'collapsed' || settings.activityRenderMode === 'summary')) {
-    if (settings.activityRenderMode !== store.activityRenderMode) {
-      store.setActivityRenderMode(settings.activityRenderMode);
     }
   }
   if (typeof settings.mermaidRenderingMode === 'string'
@@ -1277,17 +1263,9 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
       result.desktopWindowControlsStyle = candidate.desktopWindowControlsStyle;
     }
   }
-  if (typeof candidate.chatRenderMode === 'string'
-    && (candidate.chatRenderMode === 'sorted' || candidate.chatRenderMode === 'live')) {
-    result.chatRenderMode = candidate.chatRenderMode;
-  }
   if (typeof candidate.messageStreamTransport === 'string'
     && (candidate.messageStreamTransport === 'auto' || candidate.messageStreamTransport === 'ws' || candidate.messageStreamTransport === 'sse')) {
     result.messageStreamTransport = candidate.messageStreamTransport;
-  }
-  if (typeof candidate.activityRenderMode === 'string'
-    && (candidate.activityRenderMode === 'collapsed' || candidate.activityRenderMode === 'summary')) {
-    result.activityRenderMode = candidate.activityRenderMode;
   }
   if (typeof candidate.mermaidRenderingMode === 'string'
     && (candidate.mermaidRenderingMode === 'svg' || candidate.mermaidRenderingMode === 'ascii')) {

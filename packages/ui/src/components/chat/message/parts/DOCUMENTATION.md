@@ -61,7 +61,7 @@ Use this doc when you ask an agent to change tool/header/description behavior.
 - `ToolPart` defers expanded content after a user toggle, preventing large tool input/output payloads from mounting during the initial chat render.
 - The rich tool diff preview lives in `ToolPartDiffPreview.tsx` and is lazy-loaded from `ToolPart`. It is the only tool-card piece that imports the `@pierre/diffs` + Shiki rendering stack, keeping that stack out of the eager chat startup graph. While its chunk loads (first rendered diff only) the plain-text patch from `PlainDiffFallback.tsx` renders as the Suspense fallback, mirroring the preview's error fallback. `ToolPart` itself must not statically import `@pierre/diffs` runtime modules or `@/lib/shiki/appThemeRegistry`.
 - Running bash output falls back to `state.metadata.output` until canonical `state.output` arrives. Its fixed-height output viewport follows new output until the user scrolls up, then resumes following when the user returns to the bottom. Live output appends or replaces rewritten snapshots as plain text without worker highlighting; finalized output normalizes ANSI terminal controls with a bounded synthetic-cell budget, bypasses the throttle, and receives the normal one-time highlighted rendering.
-- Thinking/Justification duration is hidden in `sorted` mode (handled in `ReasoningPart.tsx` + `JustificationBlock.tsx`).
+- Thinking and justification blocks show duration when timing is available (`ReasoningPart.tsx` + `JustificationBlock.tsx`).
 
 ## "I want to change description for Perplexity" (example recipe)
 
@@ -79,7 +79,7 @@ Why: only navigation tools use the compact static path; all other tools need obs
 1. Update `toolRenderUtils.ts`:
    - add/remove a tool name from `STATIC_TOOL_NAMES` only when it has a reliable direct in-app navigation action
 2. Ensure `ToolPart.tsx` supports desired header + expanded output format for that tool.
-3. Validate both modes (`sorted` and `live`).
+3. Validate live streaming of assistant text and tools.
 
 ## Safe editing checklist
 

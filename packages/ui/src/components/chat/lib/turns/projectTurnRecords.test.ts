@@ -201,7 +201,7 @@ describe('projectTurnRecords', () => {
         expect(projection.turns[0]?.assistantMessageIds).toEqual(['a1', 'a2', 'a3']);
     });
 
-    test('treats compaction summary text as justification activity in sorted mode', () => {
+    test('keeps compaction summary text out of activity for live turn projection', () => {
         const user = createMessageEntry({ id: 'u1', role: 'user', createdAt: 1 });
         user.parts = [{ id: 'p1', type: 'text', text: 'prompt' } as Part];
         const compaction = createMessageEntry({ id: 'a1', role: 'assistant', parentID: 'u1', createdAt: 2 });
@@ -212,19 +212,15 @@ describe('projectTurnRecords', () => {
         (assistant.info as { finish?: string }).finish = 'stop';
         assistant.parts = [{ id: 'ap1', type: 'text', text: 'final answer' } as Part];
 
-        const projection = projectTurnRecords([user, compaction, assistant], {
-            showTextJustificationActivity: true,
-        });
+        const projection = projectTurnRecords([user, compaction, assistant]);
 
         const turn = projection.turns[0];
         expect(turn?.summaryText).toBe('final answer');
-        const compactionActivity = turn?.activityParts.find((activity) => activity.messageId === 'a1');
-        expect(compactionActivity?.kind).toBe('justification');
-        const finalActivity = turn?.activityParts.find((activity) => activity.messageId === 'a2');
-        expect(finalActivity).toBe(undefined);
+        expect(turn?.activityParts.find((activity) => activity.messageId === 'a1')).toBe(undefined);
+        expect(turn?.activityParts.find((activity) => activity.messageId === 'a2')).toBe(undefined);
     });
 
-    test('preserves model answer as turn summary and excludes it from activity in sorted mode when finish is undefined', () => {
+    test('preserves model answer as turn summary without folding assistant text into activity', () => {
         const user = createMessageEntry({ id: 'u1', role: 'user', createdAt: 1 });
         user.parts = [{ id: 'p1', type: 'text', text: 'run tool and answer' } as Part];
         const assistantWithTool = createMessageEntry({ id: 'a1', role: 'assistant', parentID: 'u1', createdAt: 2 });
@@ -235,13 +231,12 @@ describe('projectTurnRecords', () => {
         const finalAssistant = createMessageEntry({ id: 'a2', role: 'assistant', parentID: 'u1', createdAt: 3 });
         finalAssistant.parts = [{ id: 'ap1', type: 'text', text: 'actual answer of the model' } as Part];
 
-        const projection = projectTurnRecords([user, assistantWithTool, finalAssistant], {
-            showTextJustificationActivity: true,
-        });
+        const projection = projectTurnRecords([user, assistantWithTool, finalAssistant]);
 
         const turn = projection.turns[0];
         expect(turn?.summaryText).toBe('actual answer of the model');
-        const finalActivity = turn?.activityParts.find((activity) => activity.messageId === 'a2');
-        expect(finalActivity).toBe(undefined);
+        expect(turn?.activityParts.some((activity) => activity.kind === 'tool')).toBe(true);
+        expect(turn?.activityParts.find((activity) => activity.kind === 'justification')).toBe(undefined);
+        expect(turn?.activityParts.find((activity) => activity.messageId === 'a2')).toBe(undefined);
     });
 });

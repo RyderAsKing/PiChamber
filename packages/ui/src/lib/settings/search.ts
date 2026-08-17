@@ -166,12 +166,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['telemetry', 'analytics'],
   },
   {
-    id: 'chat.render-mode',
-    page: 'chat',
-    title: "Chat Render Mode",
-    keywords: ['messages', 'conversation', 'rendering'],
-  },
-  {
     id: 'chat.message-transport',
     page: 'general',
     title: "Message Stream Transport",

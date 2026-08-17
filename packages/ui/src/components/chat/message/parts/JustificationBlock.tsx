@@ -1,7 +1,6 @@
 import React from 'react';
 import type { Part } from '@/lib/chat/types';
 import type { ContentChangeReason } from '@/hooks/useChatAutoFollow';
-import { useUIStore } from '@/stores/useUIStore';
 import { ReasoningTimelineBlock } from './ReasoningPart';
 
 type PartWithText = Part & { text?: string; content?: string; time?: { start?: number; end?: number } };
@@ -32,7 +31,6 @@ const JustificationBlock: React.FC<JustificationBlockProps> = ({
     onContentChange,
     actions,
 }) => {
-    const chatRenderMode = useUIStore((state) => state.chatRenderMode);
     const partWithText = part as PartWithText;
     const rawText = partWithText.text || partWithText.content || '';
     const textContent = React.useMemo(() => cleanJustificationText(rawText), [rawText]);
@@ -50,7 +48,7 @@ const JustificationBlock: React.FC<JustificationBlockProps> = ({
             onContentChange={onContentChange}
             blockId={part.id || `${messageId}-justification`}
             time={time}
-            showDuration={chatRenderMode !== 'sorted'}
+            showDuration={true}
             actions={actions}
         />
     );
