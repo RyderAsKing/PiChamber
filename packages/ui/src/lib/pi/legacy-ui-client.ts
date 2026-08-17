@@ -3,6 +3,7 @@ import { getPiSessionStore } from '@/apps/pi-session-store';
 import { piClient } from '@/lib/pi/client';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
+import { configuredProviders } from '@/lib/pi/configured-providers';
 import type { Agent, OpencodeClient, Provider, Session } from '@/lib/chat/types';
 
 const directory = () => getPiSessionStore().getState().directory ?? useDirectoryStore.getState().currentDirectory ?? undefined;
@@ -23,10 +24,11 @@ export const opencodeClient = {
   clearConfigCache: () => {},
   getProvidersForConfig: async () => {
     const response = await piClient.listProviders({ runtimeKey: getRuntimeKey() });
-    const providers = response.providers
+    const providers = configuredProviders(response.providers)
       .map((provider) => ({
         id: provider.id,
         name: provider.label ?? provider.id,
+        authenticated: provider.authenticated === true,
         models: Object.fromEntries(provider.models.map((model) => [model.id, {
           id: model.id,
           name: model.label ?? model.id,

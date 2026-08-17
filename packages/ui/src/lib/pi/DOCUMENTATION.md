@@ -14,7 +14,8 @@ This directory owns the Pi-native runtime boundary. It defines:
 - The bootstrap owner (`bootstrap.ts`).
 - The reconnect owner (`reconnect.ts`).
 - The attachment helpers (`attachments.ts`).
-- The model / provider helpers (`model-provider.ts`).
+- The configured-provider helper for selection catalogs (`configured-providers.ts`).
+- Hidden-model selection filtering (`hidden-models.ts`).
 
 The module uses native `Response` parsing through `runtimeFetch` so callers
 can distinguish failure from a successful empty result. `MainLayout` is the
@@ -246,9 +247,11 @@ re-renders every subscriber on each accepted event.
 The restored web shell bootstraps provider/model config through
 `initializeApp()` in `SyncAppEffects`; `legacy-ui-client.getProvidersForConfig`
 must return `{ providers, default }` so the config store can leave the picker
-off the loading state. The picker includes every catalog provider that has
-models, including unauthenticated ones, so users can browse models before
-login. Composer chrome does not expose an OpenCode agent selector.
+off the loading state. Selection catalogs (composer, session defaults, small
+model, walkthrough model) include only authenticated providers that have
+models. Users can hide individual models from those catalogs in Providers
+settings; hidden models stay out of pickers. Providers settings still lists the
+full catalog so unconfigured providers can be logged in. Composer chrome does not expose an OpenCode agent selector.
 Chat, sidebar, and composer mutations go through `PiSessionStore` and `/api/pi/*`. Pi assistant projections preserve their owning user-message id end to end because the restored chat renderer groups assistant output into user turns by that identity. Tool parts preserve input, cumulative partial output, final output, error text, metadata, and start/end timestamps through the reducer and `pi-to-renderable`, satisfying the restored renderer's finalized-tool contract (a completed tool needs an end time and keeps its status verbatim, including `cancelled`).
 Settings chrome is the restored PiChamber hub limited to Pi-owned pages
 (Providers, Skills, Snippets, Behavior/`AGENTS.md`, Magic Prompts, appearance

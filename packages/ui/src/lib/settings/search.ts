@@ -552,6 +552,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     id: 'providers.models',
     page: 'providers',
     title: "Available Models",
+    description: "Hide models you do not want in the composer or session default pickers.",
     keywords: ['models', 'hide', 'show'],
   },
   {

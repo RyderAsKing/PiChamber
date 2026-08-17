@@ -13,7 +13,12 @@ import { PI_CUSTOM_PROVIDER_SELECTION, usePiProviderSelectionStore } from '@/lib
 import { providerToCustomFormState, type CustomProviderPersistPlan } from './custom-provider-form';
 import type { PiProviderLoginState, PiSettingsSnapshot } from '@/lib/pi/protocol';
 import type { PiProvider } from '@/lib/pi/types';
+import { configuredProviders } from '@/lib/pi/configured-providers';
+import { isHiddenModelRef } from '@/lib/pi/hidden-models';
+import { cn } from '@/lib/utils';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import { useConfigStore } from '@/stores/useConfigStore';
+import { useUIStore } from '@/stores/useUIStore';
 
 const providerScope = () => ({ runtimeKey: getRuntimeKey() });
 
@@ -22,6 +27,11 @@ export const ProvidersPage: React.FC = () => {
   
   const selectedProviderId = usePiProviderSelectionStore((state) => state.selectedProviderId);
   const setSelectedProviderId = usePiProviderSelectionStore((state) => state.setSelectedProviderId);
+  const hiddenModels = useUIStore((state) => state.hiddenModels);
+  const toggleHiddenModel = useUIStore((state) => state.toggleHiddenModel);
+  const isHiddenModel = useUIStore((state) => state.isHiddenModel);
+  const hideAllModels = useUIStore((state) => state.hideAllModels);
+  const showAllModels = useUIStore((state) => state.showAllModels);
   const [providers, setProviders] = React.useState<readonly PiProvider[] | null>(null);
   const [settings, setSettings] = React.useState<PiSettingsSnapshot | null>(null);
   const [apiKey, setApiKey] = React.useState('');
@@ -41,6 +51,7 @@ export const ProvidersPage: React.FC = () => {
     setSettings(nextSettings);
     setFailed(false);
     if (!selectedProviderId && result[0]) setSelectedProviderId(result[0].id);
+    void useConfigStore.getState().loadProviders({ source: 'providersPage:refresh' });
   }, [selectedProviderId, setSelectedProviderId]);
 
   React.useEffect(() => {
@@ -81,6 +92,22 @@ export const ProvidersPage: React.FC = () => {
     return () => { active = false; };
   }, [providerId]);
   const allModels = providers?.flatMap((entry) => entry.models.map((model) => ({ providerId: entry.id, model }))) ?? [];
+  const configuredModels = configuredProviders(providers ?? []).flatMap((entry) =>
+    entry.models
+      .filter((model) => !isHiddenModelRef(hiddenModels, entry.id, model.id))
+      .map((model) => ({ providerId: entry.id, model })),
+  );
+  const modelsForSelect = (selected?: { providerId: string; modelId: string }) => {
+    if (!selected) return configuredModels;
+    const alreadyListed = configuredModels.some(
+      (entry) => entry.providerId === selected.providerId && entry.model.id === selected.modelId,
+    );
+    if (alreadyListed) return configuredModels;
+    const current = allModels.find(
+      (entry) => entry.providerId === selected.providerId && entry.model.id === selected.modelId,
+    );
+    return current ? [...configuredModels, current] : configuredModels;
+  };
   const modelValue = (model?: { providerId: string; modelId: string }) => model ? `${model.providerId}/${model.modelId}` : '__pi_fallback__';
   const modelFromValue = (value: string) => {
     if (value === '__pi_fallback__') return null;
@@ -131,6 +158,7 @@ export const ProvidersPage: React.FC = () => {
       setApiKey('');
       setPromptValue('');
       setLogin(result.login);
+      if (result.login.state === 'complete') await refresh();
     } catch {
       setLogin({ id: '', providerId: provider.id, state: 'failed', error: { code: 'PROVIDER_AUTH_REQUIRED' } });
     } finally {
@@ -145,6 +173,7 @@ export const ProvidersPage: React.FC = () => {
       const result = await piClient.respondProviderLogin(login.providerId, login.id, promptValue, providerScope());
       setPromptValue('');
       setLogin(result.login);
+      if (result.login.state === 'complete') await refresh();
     } catch {
       setLogin((current) => current ? { ...current, state: 'failed', error: { code: 'PROVIDER_AUTH_REQUIRED' } } : current);
     } finally {
@@ -215,7 +244,7 @@ export const ProvidersPage: React.FC = () => {
             <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="__pi_fallback__">{"Default"}</SelectItem>
-              {allModels.map(({ providerId, model }) => (
+              {modelsForSelect(settings?.pichamber.defaultModel).map(({ providerId, model }) => (
                 <SelectItem key={`${providerId}/${model.id}`} value={`${providerId}/${model.id}`}>{model.label || model.id}</SelectItem>
               ))}
             </SelectContent>
@@ -226,7 +255,7 @@ export const ProvidersPage: React.FC = () => {
             <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="__pi_fallback__">{"Use default small model"}</SelectItem>
-              {allModels.map(({ providerId, model }) => <SelectItem key={`${providerId}/${model.id}`} value={`${providerId}/${model.id}`}>{model.label || model.id}</SelectItem>)}
+              {modelsForSelect(settings?.pichamber.smallModel).map(({ providerId, model }) => <SelectItem key={`${providerId}/${model.id}`} value={`${providerId}/${model.id}`}>{model.label || model.id}</SelectItem>)}
             </SelectContent>
           </Select>
         </SettingsFieldRow>
@@ -235,7 +264,7 @@ export const ProvidersPage: React.FC = () => {
             <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="__pi_fallback__">{"Small model"}</SelectItem>
-              {allModels.map(({ providerId, model }) => <SelectItem key={`${providerId}/${model.id}`} value={`${providerId}/${model.id}`}>{model.label || model.id}</SelectItem>)}
+              {modelsForSelect(settings?.pichamber.walkthroughModel).map(({ providerId, model }) => <SelectItem key={`${providerId}/${model.id}`} value={`${providerId}/${model.id}`}>{model.label || model.id}</SelectItem>)}
             </SelectContent>
           </Select>
         </SettingsFieldRow>
@@ -295,16 +324,56 @@ export const ProvidersPage: React.FC = () => {
       <SettingsSection
         title={"Available Models"}
         settingsItem="providers.models"
-        headerAction={providerConfig ? <Button variant="ghost" size="xs" onClick={() => setCustomEditing(true)}>{"Update provider"}</Button> : null}
+        info={isConnected ? "Hidden models stay out of the composer and session default pickers." : undefined}
+        headerAction={(
+          <div className="flex items-center gap-1">
+            {isConnected ? (
+              <>
+                <Button variant="ghost" size="xs" onClick={() => showAllModels(provider.id)}>
+                  {"Show all"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => hideAllModels(provider.id, provider.models.map((model) => model.id))}
+                >
+                  {"Hide all"}
+                </Button>
+              </>
+            ) : null}
+            {providerConfig ? (
+              <Button variant="ghost" size="xs" onClick={() => setCustomEditing(true)}>
+                {"Update provider"}
+              </Button>
+            ) : null}
+          </div>
+        )}
       >
         <div className="divide-y divide-[var(--surface-subtle)]">
-          {provider.models.map((model) => (
-            <div key={model.id} className="flex min-w-0 items-center gap-2 py-2">
-              <span className="min-w-0 flex-1 truncate typography-ui-label">{model.label || model.id}</span>
-              {model.supportsThinking ? <Icon name="brain-ai-3" className="size-4 shrink-0 text-muted-foreground" aria-label={"Reasoning"} /> : null}
-              {typeof model.contextWindow === 'number' ? <span className="shrink-0 typography-micro text-muted-foreground">{model.contextWindow}</span> : null}
-            </div>
-          ))}
+          {provider.models.map((model) => {
+            const hidden = isHiddenModel(provider.id, model.id);
+            return (
+              <div
+                key={model.id}
+                className={cn('flex min-w-0 items-center gap-2 py-2', hidden && 'opacity-60')}
+              >
+                <span className="min-w-0 flex-1 truncate typography-ui-label">{model.label || model.id}</span>
+                {model.supportsThinking ? <Icon name="brain-ai-3" className="size-4 shrink-0 text-muted-foreground" aria-label={"Reasoning"} /> : null}
+                {typeof model.contextWindow === 'number' ? <span className="shrink-0 typography-micro text-muted-foreground">{model.contextWindow}</span> : null}
+                {isConnected ? (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => toggleHiddenModel(provider.id, model.id)}
+                    aria-label={hidden ? "Show model in pickers" : "Hide model from pickers"}
+                    title={hidden ? "Show model in pickers" : "Hide model from pickers"}
+                  >
+                    <Icon name={hidden ? 'eye' : 'eye-off'} className="size-4" />
+                  </Button>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       </SettingsSection>
     </SettingsPageLayout>

@@ -16,6 +16,7 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { parseModelIdentifier } from '@/lib/modelIdentifier';
+import { visibleModelOptions } from '@/lib/pi/hidden-models';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 
 const getDisplayModel = (
@@ -39,6 +40,7 @@ export const DefaultsSettings: React.FC = () => {
   const setShowDeletionDialog = useUIStore((state) => state.setShowDeletionDialog);
   const providers = useConfigStore((state) => state.providers);
   const modelsMetadata = useConfigStore((state) => state.modelsMetadata);
+  const hiddenModels = useUIStore((state) => state.hiddenModels);
 
   const [defaultModel, setDefaultModel] = React.useState<string | undefined>();
   const [defaultVariant, setDefaultVariant] = React.useState<string | undefined>();
@@ -262,19 +264,23 @@ export const DefaultsSettings: React.FC = () => {
     return null;
   }
 
-  const modelOptions = providers.flatMap((p) =>
-    (p.models ?? []).map((m: { id?: string; name?: string }) => {
-      const modelId = String(m?.id ?? '');
-      const providerId = String(p.id ?? '');
-      const modelName = String(m?.name ?? modelId);
-      const providerName = String(p.name ?? providerId);
-      return {
-        value: `${providerId}/${modelId}`,
-        label: `${providerName} - ${modelName}`,
-        providerId,
-        modelId,
-      };
-    })
+  const modelOptions = visibleModelOptions(
+    providers.flatMap((p) =>
+      (p.models ?? []).map((m: { id?: string; name?: string }) => {
+        const modelId = String(m?.id ?? '');
+        const providerId = String(p.id ?? '');
+        const modelName = String(m?.name ?? modelId);
+        const providerName = String(p.name ?? providerId);
+        return {
+          value: `${providerId}/${modelId}`,
+          label: `${providerName} - ${modelName}`,
+          providerId,
+          modelId,
+        };
+      })
+    ),
+    hiddenModels,
+    [parsedModel, parsedSmallModel, parsedWalkthroughModel].filter((item) => item.providerId && item.modelId),
   );
 
   return (
