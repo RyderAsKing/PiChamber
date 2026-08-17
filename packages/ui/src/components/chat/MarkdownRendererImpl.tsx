@@ -19,6 +19,7 @@ import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import { ensureOutsideFileGrantForDesktop } from '@/lib/outsideFileGrants';
 import { getDirectoryForFilePath, isFilePathWithinDirectory, toAbsoluteFilePath } from '@/lib/path-utils';
 import { renderMarkdownBlocks, renderMarkdownSync } from './markdown/markdownCore';
+import { isPreformattedLiveMarkdown } from './markdown/markdownStreamBlocks';
 import { ensureMarkdownShikiTheme } from './markdown/markdownTheme';
 import { getMarkdownSyntaxVars } from './markdown/markdownSyntaxVars';
 import {
@@ -742,8 +743,8 @@ const useMermaidInlineInteractions = ({
 // ---------------------------------------------------------------------------
 
 // Mermaid layout is expensive; `decorate` would otherwise re-render every
-// diagram on every paced-stream step (~40/sec). Memoize by theme+mode+source
-// so a stable diagram is laid out once and served from cache thereafter.
+// diagram on every streaming morph. Memoize by theme+mode+source so a
+// stable diagram is laid out once and served from cache thereafter.
 const MERMAID_RENDER_CACHE = new Map<string, MermaidRender>();
 const MERMAID_RENDER_CACHE_MAX = 100;
 
@@ -820,6 +821,50 @@ const useDecorateContext = (
   }, [currentTheme, labels, mermaidControls, codeBlockLineWrap, deferCodeLineNumberSync, toggleCodeBlockLineWrap, onPreviewLoopback]);
 };
 
+const resetMarkdownBlockLayout = (el: HTMLElement): void => {
+  el.style.display = 'contents';
+  el.style.width = '';
+  el.style.minWidth = '';
+  el.style.maxWidth = '';
+};
+
+const applyLiveMarkdownTail = (el: HTMLElement, raw: string): void => {
+  // Stay `display:contents` so the live host is a normal markdown child.
+  // A paragraph host (not pre-wrap) matches CommonMark `breaks: false`:
+  // single newlines collapse and wrap at the chat column, instead of
+  // painting a narrow poem-shaped column until HTML mounts.
+  resetMarkdownBlockLayout(el);
+  const preformatted = isPreformattedLiveMarkdown(raw);
+  let host = el.querySelector<HTMLElement>(':scope > [data-md-live]');
+  const hostIsPreformatted = host?.hasAttribute('data-md-live-pre') === true;
+  if (!host || hostIsPreformatted !== preformatted) {
+    el.replaceChildren();
+    host = document.createElement(preformatted ? 'div' : 'p');
+    host.setAttribute('data-md-live', '');
+    if (preformatted) {
+      host.setAttribute('data-md-live-pre', '');
+    }
+    host.className = preformatted
+      ? 'w-full min-w-0 whitespace-pre-wrap break-words'
+      : 'w-full min-w-0 break-words';
+    host.appendChild(document.createTextNode(''));
+    el.appendChild(host);
+  }
+  const textNode = host.firstChild;
+  if (!(textNode instanceof globalThis.Text)) {
+    host.replaceChildren(document.createTextNode(raw));
+    return;
+  }
+  if (raw.startsWith(textNode.data)) {
+    const append = raw.slice(textNode.data.length);
+    if (append.length > 0) {
+      textNode.appendData(append);
+    }
+    return;
+  }
+  textNode.data = raw;
+};
+
 // Runs the async render pipeline into the container and keeps a stable
 // delegated interaction listener attached.
 const useMorphdomMarkdown = ({
@@ -872,6 +917,11 @@ const useMorphdomMarkdown = ({
       // `display:contents` keeps margin-collapsing/spacing identical to a flat
       // HTML body — the wrapper exists only for per-block reconciliation.
       block.style.display = 'contents';
+      if (streaming) {
+        applyLiveMarkdownTail(block, text);
+        target.appendChild(block);
+        return;
+      }
       block.innerHTML = renderMarkdownSync(text);
       // Decorate synchronously too: wrap code blocks in their framed card,
       // mark inline code, build table controls, etc. The async pass re-decorates
@@ -884,7 +934,7 @@ const useMorphdomMarkdown = ({
         refreshMermaidViewers();
       }
     }
-  }, [containerRef, text, ctx, refreshMermaidViewers]);
+  }, [containerRef, text, streaming, ctx, refreshMermaidViewers]);
 
   React.useEffect(() => () => {
     mermaidViewerRef.current?.cleanup();
@@ -912,6 +962,12 @@ const useMorphdomMarkdown = ({
           el.style.display = 'contents';
           target.appendChild(el);
         }
+        if (block.mode === 'live') {
+          applyLiveMarkdownTail(el, block.raw);
+          el.setAttribute('data-md-id', block.id);
+          return;
+        }
+        resetMarkdownBlockLayout(el);
         if (el.getAttribute('data-md-id') === block.id) return;
 
         const temp = document.createElement('div');
@@ -923,15 +979,7 @@ const useMorphdomMarkdown = ({
           childrenOnly: true,
           onBeforeElUpdated: (fromEl, toEl) => {
             if (fromEl.isEqualNode(toEl)) return false;
-            if (streaming && fromEl.nodeType === 1 && fromEl.textContent !== toEl.textContent) {
-              (fromEl as HTMLElement).classList.add('stream-text-fade');
-            }
             return true;
-          },
-          onNodeAdded: (node) => {
-            if (streaming && node.nodeType === 1) {
-              (node as HTMLElement).classList.add('stream-text-reveal');
-            }
           },
         });
         el.setAttribute('data-md-id', block.id);
@@ -989,6 +1037,7 @@ const useMorphdomMarkdown = ({
 
 const markdownContentClassName = (variant: MarkdownVariant, isStreaming?: boolean): string =>
   cn(
+    'w-full min-w-0',
     variant === 'tool'
       ? 'markdown-content markdown-tool'
       : variant === 'reasoning'

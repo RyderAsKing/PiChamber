@@ -1009,43 +1009,23 @@ html:not(.dark) .chat-scroll {
   margin-bottom: 0;
 }
 
-/* Streaming text reveal animation */
-.markdown-content.markdown-streaming {
-  position: relative;
+/* Streaming markdown is a parse/morph hot path. Do not attach per-chunk
+   animations here: restarting filter/transform on the last block every
+   token forces style recalc while the user is trying to scroll. */
+
+/* Live tail is a growing text node inside a paragraph (or a pre-wrap host
+   for fences/lists/quotes). Paragraphs use normal wrapping so streamed prose
+   fills the chat column immediately. */
+.markdown-content [data-md-live] {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
-.markdown-content.markdown-streaming > [data-md-block]:last-child > * {
-  animation: stream-text-reveal 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.stream-text-reveal {
-  animation: stream-text-reveal 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.stream-text-fade {
-  animation: stream-text-fade 0.22s ease-out both;
-}
-
-@keyframes stream-text-reveal {
-  0% {
-    opacity: 0.25;
-    transform: translateY(2px);
-    filter: blur(0.5px);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-    filter: blur(0);
-  }
-}
-
-@keyframes stream-text-fade {
-  0% {
-    opacity: 0.5;
-  }
-  100% {
-    opacity: 1;
-  }
+.markdown-content [data-md-live]:not([data-md-live-pre]) {
+  white-space: normal;
 }
 
 /* Tool cards (code size) and reasoning (meta size, dimmed) are intentionally

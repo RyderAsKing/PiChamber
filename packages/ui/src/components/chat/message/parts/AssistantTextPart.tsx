@@ -77,7 +77,7 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
     if (generatedResult) {
         return (
             <div
-                className="group/assistant-text relative my-1 break-words"
+                className="group/assistant-text relative my-1 w-full min-w-0 break-words"
                 key={part.id || `${messageId}-text`}
             >
                 <GeneratedJsonResultCard result={generatedResult} />
@@ -87,7 +87,7 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
 
     return (
         <div
-            className="group/assistant-text relative my-1 break-words"
+            className="group/assistant-text relative my-1 w-full min-w-0 break-words"
             key={part.id || `${messageId}-text`}
         >
             <MarkdownRenderer

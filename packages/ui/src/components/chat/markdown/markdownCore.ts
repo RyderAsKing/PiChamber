@@ -1,107 +1,18 @@
 import { marked, type Tokens } from 'marked';
-import remend from 'remend';
 import katex from 'katex';
 import DOMPurify from 'dompurify';
 import { buildAgentMentionUrl, parseAgentHref, parseSkillHref } from '@/lib/messages/inlineMessageLinks';
 import { highlightCodeInWorker } from './markdown-worker';
 import { escapeRawMarkdownHtml, MARKDOWN_FORBIDDEN_TAGS } from './markdownSecurity';
+import {
+  releaseStreamParser,
+  streamMarkdownBlocks,
+  streamParserFor,
+  type MarkdownBlock,
+} from './markdownStreamBlocks';
 
 const escapeAttr = (value: string): string =>
   value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-// ---------------------------------------------------------------------------
-// Streaming block segmentation (port of OpenCode's markdown-stream)
-// ---------------------------------------------------------------------------
-
-type MarkdownBlock = {
-  raw: string;
-  src: string;
-  mode: 'full' | 'live';
-  // When false, skip syntax highlighting for this block. Set for the actively
-  // streaming open code fence so we don't re-tokenize a growing block ~40x/sec
-  // (O(n^2)); it highlights once the fence closes and becomes a stable block.
-  highlight: boolean;
-};
-
-const hasReferenceDefinitions = (text: string): boolean =>
-  /^\[[^\]]+\]:\s+\S+/m.test(text) || /^\[\^[^\]]+\]:\s+/m.test(text);
-
-// Returns true when `raw` opens a fenced code block whose closing fence has not
-// arrived yet — meaning the block is still streaming and must be rendered as
-// raw text, not parsed.
-const hasOpenFence = (raw: string): boolean => {
-  const match = raw.match(/^[ \t]{0,3}(`{3,}|~{3,})/);
-  if (!match) return false;
-  const mark = match[1];
-  if (!mark) return false;
-  const char = mark[0];
-  const size = mark.length;
-  const last = raw.trimEnd().split('\n').at(-1)?.trim() ?? '';
-  return !new RegExp(`^[\\t ]{0,3}${char}{${size},}[\\t ]*$`).test(last);
-};
-
-const heal = (text: string): string => {
-  try {
-    return remend(text, { linkMode: 'text-only' });
-  } catch {
-    return text;
-  }
-};
-
-/**
- * Split markdown into render blocks. When not streaming, returns a single
- * `full` block. While streaming, heals incomplete syntax and isolates an
- * unclosed trailing code fence into its own `live` block so a partial fence
- * does not corrupt the parse of stable content above it.
- */
-const streamBlocks = (text: string, live: boolean): MarkdownBlock[] => {
-  if (!live) return [{ raw: text, src: text, mode: 'full', highlight: true }];
-  // Reference-style links/footnotes span multiple tokens (definition elsewhere);
-  // keep them as a single block so per-block parsing doesn't break the refs.
-  if (hasReferenceDefinitions(text)) {
-    return [{ raw: text, src: heal(text), mode: 'live', highlight: true }];
-  }
-
-  let tokens: Tokens.Generic[];
-  try {
-    tokens = marked.lexer(text) as Tokens.Generic[];
-  } catch {
-    return [{ raw: text, src: heal(text), mode: 'live', highlight: true }];
-  }
-
-  let tail = -1;
-  for (let i = tokens.length - 1; i >= 0; i -= 1) {
-    if (tokens[i]?.type !== 'space') {
-      tail = i;
-      break;
-    }
-  }
-  if (tail < 0) return [{ raw: text, src: heal(text), mode: 'live', highlight: true }];
-
-  // Split into per-token blocks. Stable leading blocks become `full` (complete,
-  // cache-stable, not re-healed); only the trailing block is `live` and gets
-  // re-parsed as content streams in. This keeps per-step work proportional to
-  // the last block rather than the whole message.
-  const blocks: MarkdownBlock[] = [];
-  for (let i = 0; i < tokens.length; i += 1) {
-    const token = tokens[i];
-    if (!token || token.type === 'space') continue;
-    const raw = token.raw ?? '';
-    const isLast = i === tail;
-    const openFence = token.type === 'code' && hasOpenFence(raw);
-    blocks.push({
-      raw,
-      src: openFence ? raw : heal(raw),
-      mode: isLast ? 'live' : 'full',
-      highlight: !openFence,
-    });
-  }
-
-  if (blocks.length === 0) {
-    return [{ raw: text, src: heal(text), mode: 'live', highlight: true }];
-  }
-  return blocks;
-};
 
 // ---------------------------------------------------------------------------
 // marked parser (HTML string output) with safe external links
@@ -341,7 +252,10 @@ const touch = (key: string, entry: { hash: string; html: string }): void => {
 
 const parseBlock = async (block: MarkdownBlock): Promise<string> => {
   const parsed = await Promise.resolve(parser.parse(block.src));
-  const withMath = renderMathExpressions(parsed);
+  // DeepSeek leaves KaTeX and Shiki off until the message settles. Cheap
+  // stream blocks (`highlight: false`) skip both; the finalize pass re-parses
+  // as `full` with highlighting.
+  const withMath = block.highlight ? renderMathExpressions(parsed) : parsed;
   const highlighted = block.highlight ? await highlightCodeBlocks(withMath) : withMath;
   return sanitize(highlighted);
 };
@@ -368,6 +282,8 @@ export type RenderedBlock = {
   // block) to re-morph; unchanged leading blocks are skipped entirely.
   id: string;
   html: string;
+  mode: MarkdownBlock['mode'];
+  raw: string;
 };
 
 /**
@@ -375,28 +291,48 @@ export type RenderedBlock = {
  * splits into blocks, caches per-block, heals incomplete syntax. Returning
  * blocks (instead of one joined string) lets the renderer re-morph only the
  * block that changed, keeping per-step streaming cost ~O(last block).
+ * While streaming, the splitter freezes settled leading blocks and re-lexes
+ * only the source tail so parse work tracks the growing frontier, not the
+ * whole reply. The live tail is not converted to HTML; Shiki and KaTeX wait
+ * until the settle pass. Live prose is a paragraph-shaped text node so it
+ * wraps at the chat column; unfinished fences, lists, and quotes keep pre-wrap.
  */
 export const renderMarkdownBlocks = async (
   text: string,
   streaming: boolean,
   cacheKey: string,
 ): Promise<RenderedBlock[]> => {
-  if (!text) return [];
+  if (!text) {
+    if (cacheKey) releaseStreamParser(cacheKey);
+    return [];
+  }
 
-  const blocks = streamBlocks(text, streaming);
+  let blocks: MarkdownBlock[];
+  if (streaming) {
+    blocks = streamParserFor(cacheKey).update(text);
+  } else {
+    releaseStreamParser(cacheKey);
+    blocks = streamMarkdownBlocks(text, false);
+  }
   return Promise.all(
     blocks.map(async (block, index) => {
+      // Live tail stays a growing text node. Parsing it to HTML every chunk is
+      // quadratic in the last paragraph and is the stream hitch DeepSeek avoids
+      // by keeping the unstable tail as plain React text.
+      if (block.mode === 'live') {
+        return { id: `live:${index}`, html: '', mode: 'live' as const, raw: block.raw };
+      }
       const contentHash = hash(block.raw);
       const id = `${contentHash}:${block.mode}:${block.highlight ? 1 : 0}`;
       const key = `${cacheKey}:${index}:${block.mode}`;
       const cached = htmlCache.get(key);
       if (cached && cached.hash === contentHash) {
         touch(key, cached);
-        return { id, html: cached.html };
+        return { id, html: cached.html, mode: block.mode, raw: block.raw };
       }
       const html = await parseBlock(block);
       touch(key, { hash: contentHash, html });
-      return { id, html };
+      return { id, html, mode: block.mode, raw: block.raw };
     }),
   );
 };
