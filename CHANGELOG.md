@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Windows Electron recovers from a leftover empty or unreadable Pi daemon lock instead of failing `/api/pi/*` with `DAEMON_LOCK_UNAVAILABLE` and staying on Loading.
+
 ## [0.1.1] - 2026-08-17
 
 - Desktop and web packaged icons now use the PiChamber hexagon-and-pi mark instead of the inherited OpenChamber cube.

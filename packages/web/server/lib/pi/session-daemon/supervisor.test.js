@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtemp, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -151,4 +151,48 @@ describe('Pi session daemon supervisor', () => {
     await expect(supervisor.start()).rejects.toMatchObject({ code: 'DAEMON_START_TIMEOUT' });
     expect(spawnEnv?.ELECTRON_RUN_AS_NODE).toBe('1');
   });
+
+  it('recovers from a leftover empty daemon lock instead of failing as unavailable', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-supervisor-empty-lock-'));
+    const cwd = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    const dataDir = join(root, 'data');
+    await Promise.all([mkdir(cwd), mkdir(agentDir), mkdir(join(dataDir, 'pi'), { recursive: true })]);
+    const lockFile = join(dataDir, 'pi', 'session-daemon.lock');
+    await writeFile(lockFile, '');
+    const past = new Date(Date.now() - 1_000);
+    await utimes(lockFile, past, past);
+    const env = {
+      ...process.env,
+      PI_OFFLINE: '1',
+      PICHAMBER_DATA_DIR: dataDir,
+      PICHAMBER_PI_AGENT_DIR: agentDir,
+      XDG_RUNTIME_DIR: join(root, 'runtime'),
+    };
+
+    supervisor = createPiSessionDaemonSupervisor({ env, cwd });
+    await expect(supervisor.start()).resolves.toMatchObject({ state: 'ready', reused: false });
+  }, 20_000);
+
+  it('recovers from a malformed daemon lock instead of failing as unavailable', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-supervisor-bad-lock-'));
+    const cwd = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    const dataDir = join(root, 'data');
+    await Promise.all([mkdir(cwd), mkdir(agentDir), mkdir(join(dataDir, 'pi'), { recursive: true })]);
+    const lockFile = join(dataDir, 'pi', 'session-daemon.lock');
+    await writeFile(lockFile, '{');
+    const past = new Date(Date.now() - 1_000);
+    await utimes(lockFile, past, past);
+    const env = {
+      ...process.env,
+      PI_OFFLINE: '1',
+      PICHAMBER_DATA_DIR: dataDir,
+      PICHAMBER_PI_AGENT_DIR: agentDir,
+      XDG_RUNTIME_DIR: join(root, 'runtime'),
+    };
+
+    supervisor = createPiSessionDaemonSupervisor({ env, cwd });
+    await expect(supervisor.start()).resolves.toMatchObject({ state: 'ready', reused: false });
+  }, 20_000);
 });
