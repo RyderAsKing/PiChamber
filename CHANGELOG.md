@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Desktop and web packaged icons now use the PiChamber hexagon-and-pi mark instead of the inherited OpenChamber cube.
+
 ## [0.1.0] - 2026-08-17
 
 First public **PiChamber** release. This cut ships **Electron desktop** only (macOS, Windows, Linux AppImage). The npm CLI package and native mobile apps are not published yet.
