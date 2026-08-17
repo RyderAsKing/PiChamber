@@ -246,9 +246,9 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                 // Full-bleed band: pull past the list container's padding so
                 // the section band spans the entire sidebar width (ref: edge-
                 // to-edge section headers, not rounded pills).
-                <div
+                    <div
                   className={cn(
-                    '-ml-2.5 -mr-2 text-left group/project select-none',
+                    'text-left group/project select-none',
                     stickyZoneHeaders && 'sticky top-0 z-20 bg-sidebar',
                   )}
                   data-sidebar-sticky-header={stickyZoneHeaders ? 'true' : undefined}
@@ -262,7 +262,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
               }
             >
             <div
-              className="relative flex items-center gap-1 py-1 pl-4 pr-3.5"
+              className="relative flex items-center gap-1 py-1 px-3"
               {...attributes}
             >
               <Tooltip>

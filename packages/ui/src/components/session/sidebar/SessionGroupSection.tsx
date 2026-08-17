@@ -1040,13 +1040,13 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
       {totalSessions === 0 && allFoldersForGroup.length === 0 ? (
         group.isArchivedBucket
           ? (
-            <div className="py-1 text-left typography-ui-label text-muted-foreground">
+            <div className="py-1 px-3 text-left typography-ui-label text-muted-foreground">
               {"No archived sessions yet."}
             </div>
           )
           : bootstrapLoading
             ? (
-              <div className="py-1 text-left typography-ui-label text-muted-foreground">
+              <div className="py-1 px-3 text-left typography-ui-label text-muted-foreground">
                 <span className="inline-flex items-center gap-1.5">
                   <Icon name="loader-4" className="size-4 animate-spin" />
                   {"Loading sessions…"}
@@ -1055,7 +1055,7 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
             )
             : bootstrapFailureNotice
               ? (
-                <div className="py-1 text-left typography-ui-label text-muted-foreground">
+                <div className="py-1 px-3 text-left typography-ui-label text-muted-foreground">
                   {bootstrapFailureNotice}
                 </div>
               )
@@ -1074,7 +1074,7 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
               )
       ) : null}
       {totalSessions > 0 && bootstrapFailureNotice ? (
-        <div className="py-1 pl-[26px] text-left typography-micro text-status-error">
+        <div className="py-1 px-3 text-left typography-micro text-status-error">
           {bootstrapFailureNotice}
         </div>
       ) : null}
@@ -1110,7 +1110,7 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
   return (
     <div className="oc-group">
       <div
-        className={cn('group/gh relative flex items-start justify-between gap-1 py-1 min-w-0 rounded-md', 'cursor-pointer')}
+        className={cn('group/gh relative flex items-start justify-between gap-1 py-1 px-3 min-w-0 rounded-md', 'cursor-pointer')}
         onClick={() => onToggleCollapsedGroup(groupKey)}
         role="button"
         tabIndex={0}
@@ -1128,9 +1128,7 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
         <div
           ref={dragHandleProps?.setActivatorNodeRef}
           className={cn(
-            // pl-1.5 lines the branch icon up with the project-zone header
-            // icon (container pl-2.5 + 6px = band pl-4 past its -ml-2.5).
-            'min-w-0 flex flex-1 items-start gap-1 overflow-hidden pl-1.5 transition-[padding]',
+            'min-w-0 flex flex-1 items-start gap-1 overflow-hidden transition-[padding]',
             groupHeaderRightPadding,
           )}
           {...(dragHandleProps?.listeners ?? {})}

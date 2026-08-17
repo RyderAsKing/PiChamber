@@ -162,7 +162,7 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
       <div
         ref={droppableRef}
         className={cn(
-          'group/folder relative flex items-center justify-between gap-2 px-2.5 py-1.5 min-w-0 rounded-lg transition-colors',
+          'group/folder relative flex items-center justify-between gap-2 px-3 py-1.5 min-w-0 rounded-lg transition-colors',
           'cursor-pointer hover:bg-interactive-hover',
           isDropTarget && 'bg-primary/10 ring-1 ring-inset ring-primary/30',
         )}
@@ -352,7 +352,7 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
               </React.Fragment>
             ))
           ) : !subFolderItems ? (
-            <div className="py-1 pl-1.5 text-left typography-micro text-muted-foreground/70">
+            <div className="py-1 px-3 text-left typography-micro text-muted-foreground/70">
               {"Empty folder"}
             </div>
           ) : null}
