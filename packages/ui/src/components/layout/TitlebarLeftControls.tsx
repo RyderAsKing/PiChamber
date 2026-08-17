@@ -3,8 +3,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/useUIStore';
-import { useProjectActionsContext } from '@/hooks/useProjectActionsContext';
-import { ProjectActionsButton } from '@/components/layout/ProjectActionsButton';
 import { WindowsWindowControls } from '@/components/desktop/WindowsWindowControls';
 import { formatShortcutForDisplay, getEffectiveShortcutCombo } from '@/lib/shortcuts';
 import { invokeDesktop } from '@/lib/desktop';
@@ -14,25 +12,31 @@ const ICON_BUTTON_CLASS =
   'app-region-no-drag inline-flex h-8 w-8 items-center justify-center gap-2 rounded-md typography-ui-label font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary hover:bg-interactive-hover transition-colors';
 
 /**
- * Persistent top-left titlebar controls (sidebar toggle + project actions).
+ * Persistent top-left titlebar controls (window chrome + collapsed-sidebar toggle).
  *
  * Rendered exactly once as an absolutely-positioned overlay above both the
- * sidebar and the header, so the buttons never migrate / re-mount between the
- * two while the sidebar animates open or closed — the panels slide *underneath*
- * a fixed control cluster instead. Its height tracks `--oc-header-height` and
- * its left padding clears the OS window controls via `--oc-titlebar-left-inset`.
+ * sidebar and the header, so window chrome never remounts while the sidebar
+ * animates. When the sidebar is closed, the sessions toggle lives here so it
+ * remains reachable; when the sidebar is open, that toggle sits next to
+ * New session instead. Its height tracks `--oc-header-height` and its left
+ * padding clears the OS window controls via `--oc-titlebar-left-inset`.
  * The cluster's measured width is published as `--oc-titlebar-controls-width`
  * so the header can reserve matching space when the sidebar is collapsed.
  */
 export const TitlebarLeftControls: React.FC = () => {
-  
+  const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
   const toggleSidebar = useUIStore((state) => state.toggleSidebar);
   const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
-  const projectActionsContext = useProjectActionsContext();
+  const overlayRef = React.useRef<HTMLDivElement | null>(null);
   const clusterRef = React.useRef<HTMLDivElement | null>(null);
 
   const toggleShortcut = formatShortcutForDisplay(getEffectiveShortcutCombo('toggle_sidebar', shortcutOverrides));
   const { usesFramelessChrome, side: windowControlsSide } = useDesktopWindowControlsLayout();
+
+  const showToggle = !isSidebarOpen;
+  const showWindowControls = usesFramelessChrome && windowControlsSide === 'left';
+  const showAppMenu = usesFramelessChrome;
+  const showOverlay = showToggle || showWindowControls || showAppMenu;
 
   const handleOpenWindowsAppMenu = React.useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -48,29 +52,52 @@ export const TitlebarLeftControls: React.FC = () => {
     if (typeof document === 'undefined') {
       return;
     }
-    const node = clusterRef.current;
-    if (!node) {
+
+    const publishWidth = (width: number) => {
+      document.documentElement.style.setProperty('--oc-titlebar-controls-width', `${Math.round(width)}px`);
+    };
+    const publishOverlayWidth = (width: number) => {
+      document.documentElement.style.setProperty('--oc-titlebar-overlay-width', `${Math.round(width)}px`);
+    };
+
+    if (!showOverlay) {
+      publishWidth(0);
+      publishOverlayWidth(0);
       return;
     }
 
-    const publishWidth = () => {
+    const cluster = clusterRef.current;
+    const overlay = overlayRef.current;
+    if (!cluster || !overlay) {
+      publishWidth(0);
+      publishOverlayWidth(0);
+      return;
+    }
+
+    const publishNodeWidth = () => {
       // Prefer scrollWidth so negative child margins / overflow cannot under-report
       // the space the overlay actually occupies over the header.
-      const width = Math.max(node.getBoundingClientRect().width, node.scrollWidth);
-      document.documentElement.style.setProperty('--oc-titlebar-controls-width', `${Math.round(width)}px`);
+      const width = Math.max(cluster.getBoundingClientRect().width, cluster.scrollWidth);
+      publishWidth(width);
+      publishOverlayWidth(overlay.getBoundingClientRect().width);
     };
 
-    publishWidth();
+    publishNodeWidth();
 
     if (typeof ResizeObserver === 'undefined') {
       return;
     }
-    const observer = new ResizeObserver(publishWidth);
-    observer.observe(node);
+    const observer = new ResizeObserver(publishNodeWidth);
+    observer.observe(cluster);
+    observer.observe(overlay);
     return () => {
       observer.disconnect();
     };
-  }, []);
+  }, [showOverlay, showToggle, showWindowControls, showAppMenu]);
+
+  if (!showOverlay) {
+    return null;
+  }
 
   return (
     // The overlay is a CSS no-drag zone so its buttons stay clickable. The
@@ -78,6 +105,7 @@ export const TitlebarLeftControls: React.FC = () => {
     // and remain drag regions everywhere else, so window dragging still works
     // in the empty parts of the strip.
     <div
+      ref={overlayRef}
       className="app-region-no-drag absolute left-0 top-0 z-30 flex select-none items-center pr-2"
       style={{
         height: 'var(--oc-header-height, 3rem)',
@@ -85,11 +113,11 @@ export const TitlebarLeftControls: React.FC = () => {
       }}
     >
       <div ref={clusterRef} className="flex items-center gap-2">
-        {usesFramelessChrome && windowControlsSide === 'left' ? (
+        {showWindowControls ? (
           <WindowsWindowControls visible position="left" />
         ) : null}
 
-        {usesFramelessChrome ? (
+        {showAppMenu ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -107,27 +135,22 @@ export const TitlebarLeftControls: React.FC = () => {
           </Tooltip>
         ) : null}
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={toggleSidebar}
-              aria-label={"Open sessions"}
-              className={cn(ICON_BUTTON_CLASS, 'shrink-0')}
-            >
-              <Icon name="layout-left" className="h-[18px] w-[18px]" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>{`Open sessions (${toggleShortcut})`}</p>
-          </TooltipContent>
-        </Tooltip>
-
-        {projectActionsContext ? (
-          <ProjectActionsButton
-            projectRef={projectActionsContext.projectRef}
-            directory={projectActionsContext.directory}
-          />
+        {showToggle ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                aria-label={"Open sessions"}
+                className={cn(ICON_BUTTON_CLASS, 'shrink-0')}
+              >
+                <Icon name="layout-left" className="h-[18px] w-[18px]" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{`Open sessions (${toggleShortcut})`}</p>
+            </TooltipContent>
+          </Tooltip>
         ) : null}
       </div>
     </div>

@@ -2,7 +2,6 @@ import React, { useRef, useEffect } from 'react';
 import { animate, motion, useMotionValue } from 'motion/react';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
-import { SidebarTopBar } from './SidebarTopBar';
 import { TitlebarLeftControls } from './TitlebarLeftControls';
 import { ProjectContextPanel } from './RightSidebarTabs';
 import { ContextPanel } from './ContextPanel';
@@ -389,8 +388,8 @@ export const MainLayout: React.FC = () => {
                 </DrawerProvider>
             ) : (
                 <>
-                    {/* Persistent top-left controls (toggle + project actions) that
-                        stay put while the sidebar/header animate beneath them. */}
+                    {/* Persistent top-left window chrome; the collapsed-sidebar
+                        toggle also lives here so it stays reachable. */}
                     <TitlebarLeftControls />
                     {/* Desktop: full-height Sidebar beside [Header above (chat | RightSidebar)] */}
                     <div className="flex flex-1 overflow-hidden" data-page-scroll-lock="true">
@@ -398,7 +397,6 @@ export const MainLayout: React.FC = () => {
                             isOpen={isSidebarOpen}
                             isMobile={isMobile}
                             className="border-border"
-                            topBar={<SidebarTopBar />}
                         >
                             <SessionSidebar isVisible={isSidebarOpen} />
                         </Sidebar>

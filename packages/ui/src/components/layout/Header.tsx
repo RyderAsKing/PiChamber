@@ -1496,9 +1496,9 @@ export const Header: React.FC<HeaderProps> = ({
         className="app-region-no-drag shrink-0 self-stretch transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
         style={{ width: headerControlsSpacerWidth }}
       />
-      {/* Sidebar toggle + project actions live in the persistent
+      {/* Window chrome and the collapsed-sidebar toggle live in the persistent
           TitlebarLeftControls overlay; the spacers above reserve its footprint
-          while the sidebar is closed. */}
+          while the sidebar is closed. Project actions live in the header. */}
       <div className="flex min-w-0 flex-1 items-center">
         {activeSurfaceHeader ? (
           <div className="mr-3 flex min-w-0 flex-col items-start px-1 py-0.5 -my-0.5 text-left">
@@ -1636,6 +1636,13 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex-1" />
 
         <div className="flex shrink-0 items-center gap-1">
+          {projectActionsContext ? (
+            <ProjectActionsButton
+              projectRef={projectActionsContext.projectRef}
+              directory={projectActionsContext.directory}
+              className="mr-1"
+            />
+          ) : null}
           {showDesktopHeaderContextUsage && stableDesktopContextUsage ? (
             <ContextUsageDisplay
               totalTokens={stableDesktopContextUsage.totalTokens}
