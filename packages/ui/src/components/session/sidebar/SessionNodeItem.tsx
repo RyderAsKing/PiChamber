@@ -35,7 +35,7 @@ import { formatProjectLabel, formatSessionCompactDateLabel, formatSessionDateLab
 import { renderHighlightedText } from './highlightedText';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
-import { useGitBranchLabel, useIsGitRepo, useGitStatus } from '@/stores/useGitStore';
+import { useGitBranchLabel, useIsGitRepo } from '@/stores/useGitStore';
 import { getGitHubPrStatusKey, usePrVisualSummary } from '@/stores/useGitHubPrStatusStore';
 import { useSessionUnseenCount } from '@/sync/notification-store';
 import { useHasSessionActivityDuration } from '@/sync/session-activity-timing';
@@ -299,13 +299,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   } = props;
 
   const isElectron = React.useMemo(() => canUseElectronDesktopIPC(), []);
-  const revealOnHoverClass = 'group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto';
-  const hideOnHoverClass = 'group-hover:opacity-0 group-focus-within:opacity-0';
   const showQuickArchiveAction = !archivedBucket && !mobileVariant;
-  const revealPaddingClass = showQuickArchiveAction
-    ? 'group-hover:pr-7 group-focus-within:pr-7'
-    : 'group-hover:pr-3 group-focus-within:pr-3';
-  const alwaysActionPaddingClass = showQuickArchiveAction ? 'pr-13' : 'pr-7';
   const suppressNextSelectRef = React.useRef(false);
   const [isTouchPressed, setIsTouchPressed] = React.useState(false);
   const editingIdRef = React.useRef(editingId);
@@ -328,10 +322,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
 
   const liveBranch = useGitBranchLabel(sessionDirectory);
   const isGitRepoStatus = useIsGitRepo(sessionDirectory);
-  const activeGitStatus = useGitStatus(isActive ? sessionDirectory : null);
-  const activeChangedFilesCount = activeGitStatus
-    ? (activeGitStatus.files?.length ?? 0)
-    : 0;
 
   // Tooltip context: recent rows receive project/branch via secondaryMeta;
   // project rows resolve them from the row's own props/node instead.
@@ -350,12 +340,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     ?? (liveBranch && liveBranch !== 'HEAD' ? liveBranch : null);
   const tooltipBranchLabel = resolvedBranchLabel;
   const isGitRepo = isGitRepoStatus === true || Boolean(resolvedBranchLabel || (node as any).worktree);
-  const showInlineBranchMarker = Boolean(tooltipBranchLabel);
-
-  const sessionSummary = resolvedSession.summary;
-  const summaryAdditions = typeof sessionSummary?.additions === 'number' ? sessionSummary.additions : 0;
-  const summaryDeletions = typeof sessionSummary?.deletions === 'number' ? sessionSummary.deletions : 0;
-  const hasSummaryDiffs = summaryAdditions > 0 || summaryDeletions > 0;
   const subtaskCount = node.children.length;
   const agentName = (resolvedSession as Session & { agent?: string }).agent;
 
@@ -1065,7 +1049,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                 onClick={handleRowBackgroundClick}
                 style={depth > 0 ? { marginLeft: `${depth * 14}px` } : undefined}
                 className={cn(
-                  'group relative my-0.5 flex cursor-pointer items-center rounded-xl px-2.5 py-2 transition-colors',
+                  'group relative my-0.5 flex cursor-pointer items-center rounded-xl px-3 py-2 transition-colors',
                   depth > 0
                     ? 'bg-secondary/30 hover:bg-interactive-hover'
                     : 'hover:bg-interactive-hover',
@@ -1093,132 +1077,88 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                       handleSessionDoubleClick(session.id, sessionTitle);
                     }}
                     className={cn(
-	                      'flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5 overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 text-foreground select-none transition-[padding]',
+	                      'flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5 overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 text-foreground select-none',
 	                      isTouchPressed && 'bg-interactive-hover/70',
-                      alwaysShowActions
-                        ? alwaysActionPaddingClass
-                        : revealPaddingClass,
                     )}
                   >
-                    {/* Top Row: Title + Timestamp / Live Thinking Loader */}
+                    {/* Top Row: Title */}
                     <div className="flex w-full items-center min-w-0 flex-1 gap-1.5 overflow-hidden">
-                      <div className={cn('block min-w-0 flex-1 truncate typography-ui-label font-normal', isActive ? 'text-primary' : needsAttention ? 'text-foreground' : 'text-foreground/90')}>
+                      <div className={cn('block min-w-0 flex-1 truncate typography-ui-label font-normal', needsAttention ? 'text-foreground' : 'text-foreground/90')}>
                         {renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}
-                      </div>
-
-                      {/* Status / Loader / Timestamp */}
-                      <div className="ml-1 flex items-center gap-1 shrink-0">
-                        {isStreaming ? (
-                          <AgentThinkingLoader
-                            variant="inline"
-                            text={null}
-                            animationType="spinner"
-                            speedMs={80}
-                            className="text-primary text-xs shrink-0"
-                          />
-                        ) : showUnreadCompleteDot ? (
-                          <SessionUnreadDot label={"Session complete"} />
-                        ) : (
-                          <span className="text-[11px] text-muted-foreground/75 whitespace-nowrap" title={sessionUpdatedLabel}>
-                            {sessionCompactUpdatedLabel}
-                          </span>
-                        )}
-                        {isPinnedSession ? (
-                          <Icon name="star-fill" className="h-3 w-3 text-primary shrink-0" />
-                        ) : null}
                       </div>
                     </div>
 
-                    {/* Bottom Row: Space / Branch / Git / PR / Diff / Duration Meta Tags */}
-                    {((secondaryMeta?.showFolderLabel && tooltipProjectLabel) || tooltipBranchLabel || isGitRepo || prSummary || hasSummaryDiffs || (isActive && activeChangedFilesCount > 0) || subtaskCount > 0 || (agentName && agentName !== 'default') || showActivityDuration || pendingPermissionCount > 0 || pendingQuestionCount > 0) ? (
-                      <div className="flex w-full items-center gap-1 overflow-hidden pt-0.5">
+                    {/* Bottom Row: folder / branch / git / PR / duration */}
+                    {((secondaryMeta?.showFolderLabel && tooltipProjectLabel) || tooltipBranchLabel || isGitRepo || prSummary || subtaskCount > 0 || (agentName && agentName !== 'default') || showActivityDuration || pendingPermissionCount > 0 || pendingQuestionCount > 0) ? (
+                      <div className="flex w-full min-w-0 items-center gap-2 overflow-hidden pt-0.5 typography-ui-label font-normal text-muted-foreground">
                         {secondaryMeta?.showFolderLabel && tooltipProjectLabel ? (
-                          <span className="text-[10.5px] text-muted-foreground/75 font-normal shrink-0 max-w-[110px] truncate" title={`Folder: ${tooltipProjectLabel}`}>
+                          <span className="min-w-0 max-w-[110px] shrink-0 truncate" title={`Folder: ${tooltipProjectLabel}`}>
                             {tooltipProjectLabel}
                           </span>
                         ) : null}
 
                         {tooltipBranchLabel ? (
-                          <span className="inline-flex items-center gap-1 rounded bg-secondary/60 px-1.5 py-0.2 text-[10px] text-muted-foreground font-normal shrink-0 max-w-[100px] truncate" title={`Branch: ${tooltipBranchLabel}`}>
+                          <span className="inline-flex min-w-0 max-w-[160px] shrink-0 items-center gap-1" title={`Branch: ${tooltipBranchLabel}`}>
                             <Icon
                               name="git-branch"
-                              className={cn('h-2.5 w-2.5 shrink-0', !prIconColor && 'text-muted-foreground/60')}
+                              className={cn('size-3.5 shrink-0', !prIconColor && 'text-muted-foreground')}
                               style={prIconColor ? { color: prIconColor } : undefined}
                             />
                             <span className="truncate">{tooltipBranchLabel}</span>
                           </span>
                         ) : isGitRepo ? (
-                          <span className="inline-flex items-center gap-1 rounded bg-secondary/60 px-1.5 py-0.2 text-[10px] text-muted-foreground font-normal shrink-0" title="Git repository">
-                            <Icon name="git-repository" className="h-2.5 w-2.5 shrink-0 text-muted-foreground/60" />
+                          <span className="inline-flex shrink-0 items-center gap-1" title="Git repository">
+                            <Icon name="git-repository" className="size-3.5 shrink-0 text-muted-foreground" />
                             <span>git</span>
                           </span>
                         ) : null}
 
                         {prSummary ? (
                           <span
-                            className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.2 text-[10px] font-normal shrink-0"
-                            style={{
-                              backgroundColor: prIconColor ? `color-mix(in srgb, ${prIconColor} 15%, transparent)` : 'var(--secondary)',
-                              color: prIconColor ?? 'var(--muted-foreground)',
-                            }}
+                            className="inline-flex shrink-0 items-center gap-1"
+                            style={prIconColor ? { color: prIconColor } : undefined}
                             title={prStatusLabel ? `PR #${prSummary.number}: ${prStatusLabel}` : `PR #${prSummary.number}`}
                           >
-                            <Icon name="git-pull-request" className="h-2.5 w-2.5 shrink-0" />
-                            <span className="leading-none">#{prSummary.number}</span>
-                          </span>
-                        ) : null}
-
-                        {hasSummaryDiffs ? (
-                          <span className="inline-flex items-center gap-0.5 rounded bg-secondary/50 px-1.5 py-0.2 text-[10px] text-muted-foreground font-normal shrink-0" title={`Diff: +${summaryAdditions} -${summaryDeletions}`}>
-                            {summaryAdditions > 0 ? (
-                              <span className="text-[var(--status-success)] leading-none">+{summaryAdditions}</span>
-                            ) : null}
-                            {summaryDeletions > 0 ? (
-                              <span className="text-destructive leading-none">-{summaryDeletions}</span>
-                            ) : null}
-                          </span>
-                        ) : (isActive && activeChangedFilesCount > 0) ? (
-                          <span className="inline-flex items-center gap-0.5 rounded bg-secondary/50 px-1.5 py-0.2 text-[10px] text-muted-foreground font-normal shrink-0" title={`${activeChangedFilesCount} modified ${activeChangedFilesCount === 1 ? 'file' : 'files'}`}>
-                            <Icon name="file-edit" className="h-2.5 w-2.5 shrink-0 text-muted-foreground/70" />
-                            <span className="leading-none">{activeChangedFilesCount}</span>
+                            <Icon name="git-pull-request" className="size-3.5 shrink-0" />
+                            <span>#{prSummary.number}</span>
                           </span>
                         ) : null}
 
                         {subtaskCount > 0 ? (
-                          <span className="inline-flex items-center gap-0.5 rounded bg-secondary/50 px-1.5 py-0.2 text-[10px] text-muted-foreground font-normal shrink-0" title={`${subtaskCount} ${subtaskCount === 1 ? 'subtask' : 'subtasks'}`}>
-                            <Icon name="node-tree" className="h-2.5 w-2.5 shrink-0" />
-                            <span className="leading-none">{subtaskCount}</span>
+                          <span className="inline-flex shrink-0 items-center gap-1" title={`${subtaskCount} ${subtaskCount === 1 ? 'subtask' : 'subtasks'}`}>
+                            <Icon name="node-tree" className="size-3.5 shrink-0" />
+                            <span>{subtaskCount}</span>
                           </span>
                         ) : null}
 
                         {agentName && agentName !== 'default' ? (
-                          <span className="inline-flex items-center gap-0.5 rounded bg-secondary/60 px-1.5 py-0.2 text-[10px] text-muted-foreground font-normal shrink-0 max-w-[80px] truncate" title={`Agent: ${agentName}`}>
-                            <span className="truncate">{agentName}</span>
+                          <span className="min-w-0 max-w-[80px] shrink-0 truncate" title={`Agent: ${agentName}`}>
+                            {agentName}
                           </span>
                         ) : null}
 
                         {showActivityDuration ? (
-                          <SessionActivityDuration sessionId={session.id} running={isStreaming} className="text-[10px] text-muted-foreground/70" />
+                          <SessionActivityDuration sessionId={session.id} running={isStreaming} className="text-muted-foreground/70" />
                         ) : null}
 
                         {pendingPermissionCount > 0 ? (
-                          <span className="inline-flex items-center gap-0.5 rounded bg-destructive/10 px-1 py-0.2 text-[10px] text-destructive shrink-0" title={"Permission required"} aria-label={"Permission required"}>
-                            <Icon name="shield" className="h-2.5 w-2.5" />
-                            <span className="leading-none">{pendingPermissionCount}</span>
+                          <span className="inline-flex items-center gap-0.5 text-destructive shrink-0" title={"Permission required"} aria-label={"Permission required"}>
+                            <Icon name="shield" className="size-3.5" />
+                            <span>{pendingPermissionCount}</span>
                           </span>
                         ) : null}
 
                         {pendingQuestionCount > 0 ? (
-                          <span className="inline-flex items-center gap-0.5 rounded bg-status-info/10 px-1 py-0.2 text-[10px] text-status-info shrink-0" title={pendingQuestionLabel} aria-label={pendingQuestionLabel}>
-                            <Icon name="question" className="h-2.5 w-2.5" />
-                            <span className="leading-none">{pendingQuestionCount}</span>
+                          <span className="inline-flex items-center gap-0.5 text-status-info shrink-0" title={pendingQuestionLabel} aria-label={pendingQuestionLabel}>
+                            <Icon name="question" className="size-3.5" />
+                            <span>{pendingQuestionCount}</span>
                           </span>
                         ) : null}
                       </div>
                     ) : null}
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="right" sideOffset={8} className="max-w-xs text-left">
+                <TooltipContent side="right" sideOffset={56} className="max-w-xs text-left">
                   <div className="flex min-w-44 flex-col gap-1.5 text-left text-xs">
                     <div className="flex items-center justify-between gap-3">
                       <span className="min-w-0 truncate font-normal text-foreground">{sessionTitle}</span>
@@ -1263,21 +1203,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                         </span>
                       </div>
                     ) : null}
-                    {hasSummaryDiffs ? (
-                      <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-                        <Icon name="file-code" className="h-3 w-3 flex-shrink-0" />
-                        <span className="min-w-0 truncate text-[11px]">
-                          Changes: <span className="text-[var(--status-success)]">+{summaryAdditions}</span> <span className="text-destructive">-{summaryDeletions}</span>
-                        </span>
-                      </div>
-                    ) : (isActive && activeChangedFilesCount > 0) ? (
-                      <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-                        <Icon name="file-edit" className="h-3 w-3 flex-shrink-0" />
-                        <span className="min-w-0 truncate text-[11px]">
-                          {activeChangedFilesCount} modified {activeChangedFilesCount === 1 ? 'file' : 'files'}
-                        </span>
-                      </div>
-                    ) : null}
                     {subtaskCount > 0 ? (
                       <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
                         <Icon name="node-tree" className="h-3 w-3 flex-shrink-0" />
@@ -1298,31 +1223,63 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
             )}
           </div>
 
+          {isPinnedSession ? (
+            <Icon name="star-fill" className="h-3 w-3 text-primary shrink-0" />
+          ) : null}
+
+          <div className="relative ml-1 flex h-6 min-w-6 shrink-0 items-center justify-end">
+            <div
+              className={cn(
+                'flex items-center justify-end',
+                showQuickArchiveAction && (alwaysShowActions || isContextMenuOpen)
+                  ? 'opacity-0'
+                  : showQuickArchiveAction
+                    ? 'group-hover:opacity-0 group-focus-within:opacity-0'
+                    : null,
+              )}
+            >
+              {isStreaming ? (
+                <AgentThinkingLoader
+                  variant="inline"
+                  text={null}
+                  animationType="spinner"
+                  speedMs={80}
+                  className="text-primary text-xs shrink-0"
+                />
+              ) : showUnreadCompleteDot ? (
+                <SessionUnreadDot label={"Session complete"} />
+              ) : (
+                <span className="text-[11px] text-muted-foreground/75 whitespace-nowrap" title={sessionUpdatedLabel}>
+                  {sessionCompactUpdatedLabel}
+                </span>
+              )}
+            </div>
+            {showQuickArchiveAction ? (
+              <div
+                className={cn(
+                  'absolute inset-0 flex items-center justify-end',
+                  alwaysShowActions || isContextMenuOpen
+                    ? 'opacity-100'
+                    : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100',
+                )}
+              >
+                <QuickSessionAction
+                  archiveLabel={"Archive"}
+                  deleteLabel={"Delete"}
+                  buttonSizeClass="h-6 w-6"
+                  iconSizeClass="h-3.5 w-3.5"
+                  onPointerDown={handleQuickArchivePointerDown}
+                  onMouseDown={handleQuickArchiveMouseDown}
+                  onArchive={handleQuickArchiveClick}
+                  onDelete={handleQuickDeleteClick}
+                />
+              </div>
+            ) : null}
+          </div>
+
           {streamingIndicator && !mobileVariant ? (
             <div className="absolute right-0 top-1/2 -translate-y-1/2 z-10">
               {streamingIndicator}
-            </div>
-          ) : null}
-
-          {showQuickArchiveAction ? (
-            <div className={cn(
-              'absolute right-2 top-1/2 z-10 flex -translate-y-1/2 items-center transition-opacity',
-              isContextMenuOpen
-                ? 'opacity-100'
-                : alwaysShowActions
-                  ? 'opacity-100'
-                  : cn('opacity-0', revealOnHoverClass),
-            )}>
-              <QuickSessionAction
-                archiveLabel={"Archive"}
-                deleteLabel={"Delete"}
-                buttonSizeClass="h-6 w-6"
-                iconSizeClass="h-3.5 w-3.5"
-                onPointerDown={handleQuickArchivePointerDown}
-                onMouseDown={handleQuickArchiveMouseDown}
-                onArchive={handleQuickArchiveClick}
-                onDelete={handleQuickDeleteClick}
-              />
             </div>
           ) : null}
           </ContextMenu.Trigger>
