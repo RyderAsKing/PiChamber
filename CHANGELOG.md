@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-08-18
+
+This release makes everyday PiChamber use feel calmer and more predictable: the
+composer takes up less space, model choices are easier to understand, and
+returning to an older chat keeps using the model that chat was built with.
+
+- The composer now uses a cleaner stacked layout with the model and thinking
+  controls kept together, while removing the unused desktop focus-mode control.
+- Thinking is now presented as a larger, discrete slider with clear minimum and
+  maximum labels. The available levels follow the selected Pi model.
+- New-session thinking defaults can be saved per model, so different providers
+  can keep their own preferred level.
+- Reopening an existing chat restores its most recently used model and thinking
+  level instead of inheriting whichever model was selected most recently
+  elsewhere. You can still change either choice manually.
+- Model pickers now use the configured-provider catalog and can hide models
+  that should not appear in everyday selection lists.
+- Project settings use the shared model picker, with a more consistent layout
+  for choosing a project's default model.
+- Session and project navigation is quieter and more compact, with cleaner
+  sidebar spacing, simpler session rows, and a unified Git/Changes rail.
+- Live conversations stream more smoothly, with less duplicate text while
+  responses arrive and better preservation of the active chat during switches.
+- Incomplete project actions no longer trigger premature validation errors while
+  they are still being filled in.
+
 ## [0.1.2] - 2026-08-17
 
 Desktop 0.1.2 is a Windows-focused reliability cut. Packaged Electron should get past Loading, show models, and talk to the Pi session daemon on native Windows.
