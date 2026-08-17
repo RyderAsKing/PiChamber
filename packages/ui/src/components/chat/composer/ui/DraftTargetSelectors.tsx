@@ -12,7 +12,6 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { PROJECT_ICON_MAP, ProjectIconImage } from '@/lib/projectMeta';
 import type { Theme } from '@/types/theme';
 import { getProjectDisplayLabel, type DraftTargetProject } from '../state/useDraftTarget';
 
@@ -39,28 +38,11 @@ export interface DraftTargetProps {
     theme: Theme;
 }
 
-/** A project's icon (custom image, configured icon, or a folder) plus its name. */
-export function ProjectLabel({ project, theme }: { project: DraftTargetProject; theme: Theme }) {
-    const projectIconName = project.icon ? PROJECT_ICON_MAP[project.icon] : null;
-    const fallbackIcon = projectIconName ? (
-        <Icon name={projectIconName} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-    ) : (
-        <Icon name="folder" className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-    );
-
+/** A project's icon plus its name. */
+export function ProjectLabel({ project }: { project: DraftTargetProject; theme: Theme }) {
     return (
         <span className="inline-flex min-w-0 items-center gap-1.5">
-            {project.iconImage ? (
-                <ProjectIconImage
-                    project={{ id: project.id, iconImage: project.iconImage }}
-                    options={{
-                        themeVariant: theme.metadata.variant,
-                        iconColor: theme.colors.surface.foreground,
-                    }}
-                    className="h-3.5 w-3.5 shrink-0 object-contain"
-                    fallback={fallbackIcon}
-                />
-            ) : fallbackIcon}
+            <Icon name="folder" className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate text-muted-foreground">{getProjectDisplayLabel(project)}</span>
         </span>
     );

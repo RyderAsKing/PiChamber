@@ -100,15 +100,7 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
               }
             >
               <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                {project.iconImage ? (
-                  <img
-                    src={`/api/projects/${project.id}/icon?t=${project.iconImage.updatedAt}`}
-                    alt=""
-                    className={cn(sidebarRowIconClassName, 'rounded object-cover')}
-                  />
-                ) : (
-                  <Icon name="folder" className={cn(sidebarRowIconClassName, 'text-muted-foreground')} />
-                )}
+                <Icon name="folder" className={cn(sidebarRowIconClassName, 'text-muted-foreground')} />
 
                 <span className={sidebarRowLabelClassName}>{label}</span>
               </div>

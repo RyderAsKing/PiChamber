@@ -386,10 +386,6 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
           <ProjectHeaderIdentity
             id={leadingProject.id}
             projectLabel={leadingProjectLabel}
-            projectIcon={leadingProject.icon}
-            projectColor={leadingProject.color}
-            projectIconImage={leadingProject.iconImage}
-            projectIconBackground={leadingProject.iconBackground}
           />
         </div>
       ) : null}

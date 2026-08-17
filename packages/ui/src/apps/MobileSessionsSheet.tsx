@@ -38,9 +38,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollShadow } from '@/components/ui/ScrollShadow';
 import { toast } from '@/components/ui';
-import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { getProjectLabel, normalizePath } from './mobilePaths';
-import { PROJECT_COLOR_MAP, PROJECT_ICON_MAP, ProjectIconImage } from '@/lib/projectMeta';
 import { cn } from '@/lib/utils';
 import { useAllLiveSessions, useGlobalSessionStatus } from '@/sync/sync-context';
 import { useMobileSessionExpansionStore } from '@/stores/useMobileSessionExpansionStore';
@@ -146,21 +144,10 @@ const sessionMatchesQuery = (session: Session, projectLabel: string, query: stri
 };
 
 const MobileProjectIcon: React.FC<{
-  project: Pick<ProjectMeta, 'id' | 'icon' | 'color' | 'iconImage' | 'iconBackground'>;
   size?: 'sm' | 'md';
-}> = ({ project, size = 'md' }) => {
-  const { currentTheme } = useThemeSystem();
-
-  const ProjectIcon = project.icon ? PROJECT_ICON_MAP[project.icon] : null;
-  const iconColor = project.color ? PROJECT_COLOR_MAP[project.color] ?? null : null;
-
+}> = ({ size = 'md' }) => {
   const containerClasses = size === 'sm' ? 'size-6 rounded-md' : 'size-8 rounded-lg';
   const innerClasses = size === 'sm' ? 'size-3.5' : 'size-4';
-  const fallbackIcon = ProjectIcon ? (
-    <Icon name={ProjectIcon} className={innerClasses} style={iconColor ? { color: iconColor } : undefined} />
-  ) : (
-    <RiFolder6Line className={innerClasses} style={iconColor ? { color: iconColor } : undefined} />
-  );
 
   return (
     <span
@@ -168,19 +155,8 @@ const MobileProjectIcon: React.FC<{
         'flex shrink-0 items-center justify-center overflow-hidden bg-[var(--surface-muted)] text-muted-foreground',
         containerClasses,
       )}
-      style={project.iconBackground ? { backgroundColor: project.iconBackground } : undefined}
     >
-      {project.iconImage ? (
-        <ProjectIconImage
-          project={{ id: project.id, iconImage: project.iconImage ?? null }}
-          options={{
-            themeVariant: currentTheme.metadata.variant,
-            iconColor: currentTheme.colors.surface.foreground,
-          }}
-          className="size-full object-contain"
-          fallback={fallbackIcon}
-        />
-      ) : fallbackIcon}
+      <RiFolder6Line className={innerClasses} />
     </span>
   );
 };
@@ -557,7 +533,7 @@ const SortableProjectRow: React.FC<{
           <RiDragMove2Line className="size-4" />
         </button>
         <div className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-xl px-1 text-left">
-          <MobileProjectIcon project={project} />
+          <MobileProjectIcon />
           <span className="block min-w-0 flex-1 truncate typography-ui-label text-foreground">{project.label}</span>
           <span className="shrink-0 typography-micro text-muted-foreground tabular-nums">{totalSessions}</span>
         </div>
@@ -1054,7 +1030,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
                         onClick={() => handleSelectProject(project)}
                         style={{ touchAction: 'manipulation' }}
                       >
-                        <MobileProjectIcon project={project} />
+                        <MobileProjectIcon />
                         <span className="block min-w-0 flex-1 truncate typography-ui-label text-foreground">
                           {project.label}
                         </span>
@@ -1169,7 +1145,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
                         }
                         style={{ touchAction: 'manipulation' }}
                       >
-                        <MobileProjectIcon project={node.project} />
+                        <MobileProjectIcon />
                         <span className="block min-w-0 flex-1 truncate typography-ui-label font-semibold text-foreground">
                           {node.project.label}
                         </span>
@@ -1263,10 +1239,6 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
               id: p.id,
               label: p.label || p.path.split(/[\\/]/).pop() || p.path,
               path: p.path,
-              icon: p.icon ?? null,
-              color: p.color ?? null,
-              iconImage: p.iconImage ?? null,
-              iconBackground: p.iconBackground ?? null,
               isGitRepo: false,
             };
           })()}
