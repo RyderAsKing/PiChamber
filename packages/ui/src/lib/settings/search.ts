@@ -449,20 +449,14 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'projects.name',
     page: 'projects',
-    title: "Project Name",
-    keywords: ['label', 'display name', 'project metadata'],
+    title: "Name",
+    keywords: ['label', 'display name', 'project metadata', 'project name'],
   },
   {
-    id: 'projects.accent-color',
+    id: 'projects.default-model',
     page: 'projects',
-    title: "Accent Color",
-    keywords: ['color', 'appearance', 'project metadata'],
-  },
-  {
-    id: 'projects.icon',
-    page: 'projects',
-    title: "Project Icon",
-    keywords: ['icon', 'favicon', 'upload', 'project metadata'],
+    title: "Default model",
+    keywords: ['model', 'provider', 'new chat', 'session default', 'project metadata'],
   },
   {
     id: 'projects.worktree',

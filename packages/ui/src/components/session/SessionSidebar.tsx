@@ -544,9 +544,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
   const handleSaveProjectEdit = React.useCallback((data: {
     label: string;
-    icon: string | null;
-    color: string | null;
-    iconBackground: string | null;
     defaultModel: string | null;
   }) => {
     if (!editingProjectDialogId) {
@@ -554,9 +551,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     }
     updateProjectMeta(editingProjectDialogId, {
       label: data.label,
-      icon: data.icon,
-      color: data.color,
-      iconBackground: data.iconBackground,
       defaultModel: data.defaultModel ?? null,
     });
   }, [editingProjectDialogId, updateProjectMeta]);

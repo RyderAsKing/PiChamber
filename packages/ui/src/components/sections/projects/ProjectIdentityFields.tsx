@@ -1,14 +1,12 @@
 import React from 'react';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Icon } from '@/components/icon/Icon';
-import { PROJECT_COLORS, PROJECT_ICONS, PROJECT_COLOR_MAP as COLOR_MAP, ProjectIconImage } from '@/lib/projectMeta';
-import { useThemeSystem } from '@/contexts/useThemeSystem';
-import { cn } from '@/lib/utils';
 import {
-  PROJECT_SETTINGS_CONTROL_WIDTH,
-  ProjectSettingsSubsection,
-} from '@/components/sections/projects/ProjectSettingsSubsection';
+  SETTINGS_FIELDS_STACK_CLASS,
+  SettingsStackedField,
+} from '@/components/sections/shared/SettingsSection';
+import { SettingsModelPicker } from '@/components/sections/shared/SettingsModelPicker';
+import { ProjectSettingsSubsection } from '@/components/sections/projects/ProjectSettingsSubsection';
+import { useConfigStore } from '@/stores/useConfigStore';
 import type { useProjectIdentityForm } from './useProjectIdentityForm';
 
 type ProjectIdentityFormState = ReturnType<typeof useProjectIdentityForm>;
@@ -17,278 +15,67 @@ type ProjectIdentityFieldsProps = {
   form: ProjectIdentityFormState;
 };
 
+const FULL_WIDTH_CONTROL = 'w-full max-w-none';
+
 export const ProjectIdentityFields: React.FC<ProjectIdentityFieldsProps> = ({ form }) => {
-  
-  const { currentTheme } = useThemeSystem();
   const {
     name,
     setName,
-    icon,
-    setIcon,
-    color,
-    setColor,
-    iconBackground,
-    setIconBackground,
-    defaultModel,
+    parsedDefaultModel,
     handleDefaultModelChange,
-    isUploadingIcon,
-    isRemovingCustomIcon,
-    isDiscoveringIcon,
-    pendingRemoveImageIcon,
-    setPendingRemoveImageIcon,
-    pendingUploadIconPreviewUrl,
-    setPreviewImageFailed,
-    hasPendingUploadImageIcon,
-    hasCustomIcon,
-    effectiveHasImageIcon,
-    hasRemovableImageIcon,
-    showImagePreview,
-    fileInputRef,
-    handleUploadIcon,
-    handleRemoveImageIcon,
-    handleDiscoverIcon,
-    currentIconImage,
     project,
   } = form;
+  const loadProviders = useConfigStore((state) => state.loadProviders);
+
+  React.useEffect(() => {
+    void loadProviders({ source: 'projectSettings' });
+  }, [loadProviders]);
 
   if (!project) {
     return null;
   }
 
-  const currentColorVar = color ? (COLOR_MAP[color] ?? null) : null;
-
   return (
-    <>
-      <ProjectSettingsSubsection
-        title={"Project Name"}
-        settingsItem="projects.name"
-        divider={false}
-      >
-        <Input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder={"Project name"}
-          className={cn('h-8 rounded-md px-3', PROJECT_SETTINGS_CONTROL_WIDTH)}
-        />
-      </ProjectSettingsSubsection>
+    <ProjectSettingsSubsection
+      title={"Project"}
+      divider={false}
+    >
+      <div className={SETTINGS_FIELDS_STACK_CLASS}>
+        <SettingsStackedField
+          label={"Name"}
+          settingsItem="projects.name"
+          controlClassName={FULL_WIDTH_CONTROL}
+        >
+          <Input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder={"Project name"}
+            aria-label={"Project name"}
+            className="h-8 w-full rounded-md px-3"
+          />
+        </SettingsStackedField>
 
-      <ProjectSettingsSubsection
-        title={"Default model for new chats"}
-        info={"Used when starting a new chat in this project. Falls back to global defaults when unset."}
-        settingsItem="projects.default-model"
-      >
-        <Input
-          value={defaultModel ?? ''}
-          onChange={(event) => {
-            const val = event.target.value.trim();
-            const slash = val.indexOf('/');
-            if (slash !== -1) {
-              handleDefaultModelChange(val.slice(0, slash), val.slice(slash + 1));
-            } else {
-              handleDefaultModelChange(val, '');
-            }
-          }}
-          placeholder="provider/model"
-          className={cn('h-8 rounded-md px-3', PROJECT_SETTINGS_CONTROL_WIDTH)}
-        />
-      </ProjectSettingsSubsection>
-
-      <ProjectSettingsSubsection
-        title={"Accent Color"}
-        settingsItem="projects.accent-color"
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setColor(null)}
-            className={cn(
-              'h-7 w-7 rounded-md border transition-colors flex items-center justify-center',
-              color === null
-                ? 'border-2 border-foreground bg-[var(--primary-base)]/10'
-                : 'border-border/40 hover:border-border hover:bg-[var(--surface-muted)]',
-            )}
-            title={"None"}
-          >
-            <Icon name="close" className="h-4 w-4 text-muted-foreground" />
-          </button>
-          {PROJECT_COLORS.map((entry) => (
-            <button
-              key={entry.key}
-              type="button"
-              onClick={() => setColor(entry.key)}
-              className={cn(
-                'h-7 w-7 rounded-md border transition-colors',
-                color === entry.key
-                  ? 'border-2 border-foreground ring-1 ring-[var(--primary-base)]/40'
-                  : 'border-transparent hover:border-border/70',
-              )}
-              style={{ backgroundColor: entry.cssVar }}
-              title={entry.label}
-            />
-          ))}
-        </div>
-      </ProjectSettingsSubsection>
-
-      <ProjectSettingsSubsection
-        title={"Project Icon"}
-        settingsItem="projects.icon"
-        contentClassName="space-y-3"
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/png,image/jpeg,image/svg+xml,.png,.jpg,.jpeg,.svg"
-          className="hidden"
-          onChange={(event) => {
-            const file = event.target.files?.[0] ?? null;
-            void handleUploadIcon(file);
-            event.currentTarget.value = '';
-          }}
-        />
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setIcon(null)}
-            className={cn(
-              'h-7 w-7 rounded-md border transition-colors flex items-center justify-center',
-              icon === null
-                ? 'border-2 border-foreground bg-[var(--primary-base)]/10'
-                : 'border-border/40 hover:border-border hover:bg-[var(--surface-muted)]',
-            )}
-            title={"None"}
-          >
-            <Icon name="close" className="h-4 w-4 text-muted-foreground" />
-          </button>
-          {PROJECT_ICONS.map((entry) => {
-            const iconName = entry.Icon;
-            return (
-              <button
-                key={entry.key}
-                type="button"
-                onClick={() => setIcon(entry.key)}
-                className={cn(
-                  'h-7 w-7 rounded-md border transition-colors flex items-center justify-center',
-                  icon === entry.key
-                    ? 'border-2 border-foreground bg-[var(--primary-base)]/10'
-                    : 'border-transparent hover:border-border hover:bg-[var(--surface-muted)]',
-                )}
-                title={entry.label}
-              >
-                <Icon
-                  name={iconName}
-                  className="w-4 h-4"
-                  style={currentColorVar && icon === entry.key ? { color: currentColorVar } : undefined}
-                />
-              </button>
-            );
-          })}
-        </div>
-        {effectiveHasImageIcon && showImagePreview && (
-          <div className="flex items-center gap-2">
-            <span className="typography-meta text-muted-foreground">{"Preview"}</span>
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/60 bg-[var(--surface-elevated)] p-1">
-              <span
-                className="inline-flex h-4 w-4 items-center justify-center overflow-hidden rounded-[2px]"
-                style={iconBackground ? { backgroundColor: iconBackground } : undefined}
-              >
-                {hasPendingUploadImageIcon && pendingUploadIconPreviewUrl ? (
-                  <img
-                    src={pendingUploadIconPreviewUrl}
-                    alt=""
-                    className="h-full w-full object-contain"
-                    draggable={false}
-                    onError={() => setPreviewImageFailed(true)}
-                  />
-                ) : (
-                  <ProjectIconImage
-                    project={{ ...project, iconImage: currentIconImage ?? project.iconImage }}
-                    options={{
-                      themeVariant: currentTheme.metadata.variant,
-                      iconColor: currentTheme.colors.surface.foreground,
-                    }}
-                    className="h-full w-full object-contain"
-                    onError={() => setPreviewImageFailed(true)}
-                  />
-                )}
-              </span>
-            </span>
-          </div>
-        )}
-        {effectiveHasImageIcon && (
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="color"
-              value={iconBackground ?? '#000000'}
-              onChange={(event) => setIconBackground(event.target.value)}
-              className="h-7 w-9 cursor-pointer rounded border border-border bg-transparent p-1"
-              aria-label={"Project icon background color"}
-            />
-            <Input
-              value={iconBackground ?? ''}
-              onChange={(event) => setIconBackground(event.target.value)}
-              placeholder="#000000"
-              className="h-7 w-[8rem]"
-            />
-            <Button
-              type="button"
-              size="xs"
-              variant="outline"
-              onClick={() => setIconBackground(null)}
-              className="h-7 w-7 p-0"
-              aria-label={"Clear icon background"}
-              title={"Clear background"}
-              disabled={!iconBackground}
-            >
-              <Icon name="close" className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        )}
-        <div className="flex flex-wrap items-center gap-2">
-          {!hasCustomIcon && (
-            <>
-              <Button
-                size="xs"
-                className="h-6 !font-normal"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isUploadingIcon}
-              >
-                {isUploadingIcon ? "Uploading..." : "Upload Icon"}
-              </Button>
-              <Button
-                size="xs"
-                className="h-6 !font-normal"
-                variant="outline"
-                onClick={() => void handleDiscoverIcon()}
-                disabled={isDiscoveringIcon}
-              >
-                {isDiscoveringIcon ? "Discovering..." : "Discover Favicon"}
-              </Button>
-            </>
-          )}
-          {hasRemovableImageIcon && (
-            <Button
-              size="xs"
-              className="!font-normal"
-              variant="outline"
-              onClick={() => void handleRemoveImageIcon()}
-              disabled={isRemovingCustomIcon}
-            >
-              {isRemovingCustomIcon ? "Removing..." : "Remove Project Icon"}
-            </Button>
-          )}
-          {pendingRemoveImageIcon && (
-            <Button
-              size="xs"
-              className="!font-normal"
-              variant="outline"
-              onClick={() => setPendingRemoveImageIcon(false)}
-              disabled={isRemovingCustomIcon}
-            >
-              {"Undo Remove"}
-            </Button>
-          )}
-        </div>
-      </ProjectSettingsSubsection>
-    </>
+        <SettingsStackedField
+          label={"Default model"}
+          info={"Used when starting a new chat in this project. Unset keeps the global session default."}
+          settingsItem="projects.default-model"
+          controlClassName={FULL_WIDTH_CONTROL}
+        >
+          <SettingsModelPicker
+            value={parsedDefaultModel}
+            noneLabel={"Use global default"}
+            ariaLabel={"Default model for new chats"}
+            className={FULL_WIDTH_CONTROL}
+            onChange={(model) => {
+              if (!model) {
+                handleDefaultModelChange('', '');
+                return;
+              }
+              handleDefaultModelChange(model.providerId, model.modelId);
+            }}
+          />
+        </SettingsStackedField>
+      </div>
+    </ProjectSettingsSubsection>
   );
 };
