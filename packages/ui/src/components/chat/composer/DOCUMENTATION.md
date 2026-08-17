@@ -16,7 +16,7 @@ belongs to one of them.
 | `state/` | Composer state with a lifecycle: drafts, mobile shell, history, popup placement, draft targeting |
 | `submit/` | Turning what the user has into what gets sent |
 | `attachments/` | Files: paths, drop payloads |
-| `ui/` | Presentation |
+| `ui/` | Presentation. Desktop (except mini-chat) uses a stacked card with `1.5rem` corners: editor on top, in-card toolbar with attachments + model picker (name kept visible) + send. New-session drafts show folder and branch pickers above plus starter chips below. An existing session shows only the branch picker, with git workspace status on the right of that row (`justify-between`); if there is no branch picker, git status stays on the row above the composer. Changing branch on a session opens a new-session draft in that target instead of rewriting the current session directory. Mini-chat keeps a one-line pill with the model picker under the composer. Folder icons in the picker use the sidebar muted grey. |
 | `text.ts` | How inserted text meets the text already there |
 
 ## The prompt language
@@ -101,6 +101,11 @@ and the send path reading the same grammar.
 - `state/useDraftTarget.ts` — the draft can target a directory that does not
   exist yet (a worktree being created). It must survive not appearing in the
   branch list, or the selector snaps back to the project root mid-creation.
+  While the draft is open, the sidebar's active project is authoritative: a
+  folder/project change retargets the draft pickers instead of leaving the
+  previous `selectedProjectId` stuck. On an existing session only the branch
+  picker is shown; it reflects that session's directory, and choosing a
+  different branch opens a new draft there rather than mutating the live session.
 
 ## Mobile
 
