@@ -32,9 +32,6 @@ export const ProjectsPage: React.FC = () => {
     if (!selectedProject) return;
     updateProjectMeta(selectedProject.id, {
       label: data.label,
-      icon: data.icon,
-      color: data.color,
-      iconBackground: data.iconBackground,
       defaultModel: data.defaultModel ?? null,
     });
   }, [selectedProject, updateProjectMeta]);

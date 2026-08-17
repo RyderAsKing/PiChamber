@@ -11,8 +11,6 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } 
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
-import { PROJECT_COLOR_MAP, PROJECT_ICON_MAP, ProjectIconImage } from '@/lib/projectMeta';
-import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { sidebarRowIconClassName, sidebarRowLabelClassName } from './utils';
 
@@ -24,10 +22,6 @@ export type SortableDragHandleProps = {
 type ProjectIdentityProps = {
   id: string;
   projectLabel: string;
-  projectIcon?: string;
-  projectColor?: string;
-  projectIconImage?: { mime: string; updatedAt: number; source: 'custom' | 'auto' };
-  projectIconBackground?: string;
 };
 
 type ProjectHeaderIdentityProps = ProjectIdentityProps & {
@@ -36,18 +30,10 @@ type ProjectHeaderIdentityProps = ProjectIdentityProps & {
 };
 
 export const ProjectHeaderIdentity: React.FC<ProjectHeaderIdentityProps> = ({
-  id,
   projectLabel,
-  projectIcon,
-  projectColor,
-  projectIconImage,
-  projectIconBackground,
   isCollapsed,
   alwaysShowActions = false,
 }) => {
-  const { currentTheme } = useThemeSystem();
-  const projectIconName = projectIcon ? PROJECT_ICON_MAP[projectIcon] : null;
-  const iconColor = projectColor ? (PROJECT_COLOR_MAP[projectColor] ?? null) : null;
   const hasCollapseControl = isCollapsed !== undefined;
   const iconVisibilityClassName = hasCollapseControl
     ? (alwaysShowActions ? 'hidden' : 'group-hover/project:hidden group-focus-within/project:hidden')
@@ -65,35 +51,7 @@ export const ProjectHeaderIdentity: React.FC<ProjectHeaderIdentityProps> = ({
             <Icon name={isCollapsed ? 'arrow-right-s' : 'arrow-down-s'} className={sidebarRowIconClassName} />
           </span>
         ) : null}
-        {projectIconImage ? (
-          <span
-            className={cn(
-              'items-center justify-center overflow-hidden rounded-[3px]',
-              sidebarRowIconClassName,
-              hasCollapseControl && alwaysShowActions ? 'hidden' : 'inline-flex',
-              iconVisibilityClassName,
-            )}
-            style={projectIconBackground ? { backgroundColor: projectIconBackground } : undefined}
-          >
-            <ProjectIconImage
-              project={{ id, iconImage: projectIconImage }}
-              options={{
-                themeVariant: currentTheme.metadata.variant,
-                iconColor: currentTheme.colors.surface.foreground,
-              }}
-              className="h-full w-full object-contain"
-              fallback={projectIconName ? (
-                <Icon name={projectIconName} className={sidebarRowIconClassName} style={iconColor ? { color: iconColor } : undefined} />
-              ) : (
-                <Icon name="folder" className={cn(sidebarRowIconClassName, 'text-muted-foreground/80')} style={iconColor ? { color: iconColor } : undefined} />
-              )}
-            />
-          </span>
-        ) : projectIconName ? (
-          <Icon name={projectIconName} className={cn(sidebarRowIconClassName, iconVisibilityClassName)} style={iconColor ? { color: iconColor } : undefined} />
-        ) : (
-          <Icon name="folder" className={cn(sidebarRowIconClassName, 'text-muted-foreground/80', iconVisibilityClassName)} style={iconColor ? { color: iconColor } : undefined} />
-        )}
+        <Icon name="folder" className={cn(sidebarRowIconClassName, 'text-muted-foreground/80', iconVisibilityClassName)} />
       </span>
       <span className={cn(sidebarRowLabelClassName, 'text-foreground')}>{projectLabel}</span>
     </>
@@ -128,10 +86,6 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
   disabled = false,
   projectLabel,
   projectDescription,
-  projectIcon,
-  projectColor,
-  projectIconImage,
-  projectIconBackground,
   isCollapsed,
   isRepo,
   isDesktopShell,
@@ -246,9 +200,9 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                 // Full-bleed band: pull past the list container's padding so
                 // the section band spans the entire sidebar width (ref: edge-
                 // to-edge section headers, not rounded pills).
-                <div
+                    <div
                   className={cn(
-                    '-ml-2.5 -mr-2 text-left group/project select-none',
+                    'text-left group/project select-none',
                     stickyZoneHeaders && 'sticky top-0 z-20 bg-sidebar',
                   )}
                   data-sidebar-sticky-header={stickyZoneHeaders ? 'true' : undefined}
@@ -262,7 +216,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
               }
             >
             <div
-              className="relative flex items-center gap-1 py-1 pl-4 pr-3.5"
+              className="relative flex items-center gap-1 py-1 px-3"
               {...attributes}
             >
               <Tooltip>
@@ -282,10 +236,6 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                     <ProjectHeaderIdentity
                       id={id}
                       projectLabel={projectLabel}
-                      projectIcon={projectIcon}
-                      projectColor={projectColor}
-                      projectIconImage={projectIconImage}
-                      projectIconBackground={projectIconBackground}
                       isCollapsed={isCollapsed}
                       alwaysShowActions={alwaysShowActions}
                     />

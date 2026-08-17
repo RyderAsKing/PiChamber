@@ -335,14 +335,21 @@ export interface PiProviderSetModelsInput extends PiProviderModelsConfig {
 // Pi settings
 // ---------------------------------------------------------------------------
 
-export type PiConfigThinkingLevel = PiThinkingLevel | 'minimal' | 'max';
+export type PiConfigThinkingLevel = PiThinkingLevel;
 
 export interface PiSettingsSnapshot {
   pi: {
     global: { defaultProvider?: string; defaultModel?: string; defaultThinking?: PiConfigThinkingLevel; defaultProjectTrust?: 'ask' | 'always' | 'never' };
     project: { trusted: boolean; denied?: boolean; requiresTrust?: boolean; defaultProvider?: string; defaultModel?: string; defaultThinking?: PiConfigThinkingLevel };
   };
-  pichamber: { version: 1; defaultModel?: PiModelRef; defaultThinking?: PiThinkingLevel; smallModel?: PiModelRef; walkthroughModel?: PiModelRef };
+  pichamber: {
+    version: 1;
+    defaultModel?: PiModelRef;
+    defaultThinking?: PiThinkingLevel;
+    defaultThinkingByModel?: Record<string, PiThinkingLevel>;
+    smallModel?: PiModelRef;
+    walkthroughModel?: PiModelRef;
+  };
 }
 
 export interface PiSettingsUpdateInput {
@@ -355,6 +362,8 @@ export interface PiSettingsUpdateInput {
 export interface PiChamberDefaultsUpdateInput {
   defaultModel?: PiModelRef | null;
   defaultThinking?: PiThinkingLevel | null;
+  /** Per-model thinking. `null` clears the map; a per-key `null` deletes that model. */
+  defaultThinkingByModel?: Record<string, PiThinkingLevel | null> | null;
   smallModel?: PiModelRef | null;
   walkthroughModel?: PiModelRef | null;
 }

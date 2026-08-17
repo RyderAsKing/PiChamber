@@ -15,7 +15,7 @@ import {
 import { ChangedFilesList } from './ChangedFilesList';
 import { changedFilesPopoverClassName, changedFilesPopoverStyle } from './changedFilesPopover';
 
-export const PendingChangesBar: React.FC = React.memo(() => {
+export const PendingChangesBar: React.FC<{ align?: 'start' | 'end' }> = React.memo(({ align = 'start' }) => {
     
     const [isExpanded, setIsExpanded] = React.useState(false);
     const popoverRef = React.useRef<HTMLDivElement>(null);
@@ -104,7 +104,7 @@ export const PendingChangesBar: React.FC = React.memo(() => {
                 onClick={() => setIsExpanded((value) => !value)}
                 aria-expanded={isExpanded}
             >
-                <Icon name="file-edit" className="h-3.5 w-3.5 flex-shrink-0 text-[var(--status-warning)]" />
+                <Icon name="git-branch" className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
                 <span className="min-w-0 typography-ui-label text-foreground flex-shrink-0">{labelHead}</span>
                 <span className="status-row__changed-label min-w-0 typography-ui-label text-foreground truncate">
                     {"changed in workspace"}
@@ -127,7 +127,8 @@ export const PendingChangesBar: React.FC = React.memo(() => {
                     }}
                     className={cn(
                         changedFilesPopoverClassName,
-                        "absolute left-0 bottom-full mb-1 z-50",
+                        "absolute bottom-full mb-1 z-50",
+                        align === 'end' ? 'right-0' : 'left-0',
                         "animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-2",
                         "duration-150"
                     )}

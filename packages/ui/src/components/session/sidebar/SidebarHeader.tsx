@@ -61,14 +61,10 @@ export function SidebarHeader(props: Props): React.ReactNode {
   }
 
   return (
-    <div className="select-none flex-shrink-0 px-2.5 py-1">
+    <div className="select-none flex-shrink-0 px-3 py-1">
       <div className="flex h-auto min-h-8 flex-col gap-1">
         <div className="flex h-8 items-center justify-between gap-2">
-          {/* Quiet toolbar under the New-session CTA: project/surface entry
-              points at left, list controls at right. ml-[3px] compensates the
-              icon inset inside the 24px buttons so the first glyph lines up
-              with the New-session icon above (16px from the sidebar edge). */}
-          <div className="ml-[3px] flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             <Tooltip>
               <TooltipTrigger asChild>
                 <button

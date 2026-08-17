@@ -12,7 +12,6 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { PROJECT_COLOR_MAP, PROJECT_ICON_MAP, ProjectIconImage } from '@/lib/projectMeta';
 import type { Theme } from '@/types/theme';
 import { getProjectDisplayLabel, type DraftTargetProject } from '../state/useDraftTarget';
 
@@ -32,41 +31,25 @@ export interface DraftTargetProps {
     worktreeBranchOptions?: readonly BranchOption[];
     branchItems: readonly BranchOption[];
     showBranchSelector: boolean;
+    showProjectSelector?: boolean;
+    endAccessory?: React.ReactNode;
     onProjectChange: (projectId: string) => void;
     onDirectoryChange: (directory: string) => void;
     theme: Theme;
 }
 
-const getProjectIconColor = (projectColor?: string | null): string | undefined =>
-    projectColor ? PROJECT_COLOR_MAP[projectColor] ?? undefined : undefined;
-
-/** A project's icon (custom image, configured icon, or a folder) plus its name. */
-export function ProjectLabel({ project, theme }: { project: DraftTargetProject; theme: Theme }) {
-    const projectIconName = project.icon ? PROJECT_ICON_MAP[project.icon] : null;
-    const iconColor = getProjectIconColor(project.color);
-    const fallbackIcon = projectIconName ? (
-        <Icon name={projectIconName} className="h-3.5 w-3.5 shrink-0" style={iconColor ? { color: iconColor } : undefined} />
-    ) : (
-        <Icon name="folder" className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80" style={iconColor ? { color: iconColor } : undefined} />
-    );
-
+/** A project's icon plus its name. */
+export function ProjectLabel({ project }: { project: DraftTargetProject; theme: Theme }) {
     return (
         <span className="inline-flex min-w-0 items-center gap-1.5">
-            {project.iconImage ? (
-                <ProjectIconImage
-                    project={{ id: project.id, iconImage: project.iconImage }}
-                    options={{
-                        themeVariant: theme.metadata.variant,
-                        iconColor: theme.colors.surface.foreground,
-                    }}
-                    className="h-3.5 w-3.5 shrink-0 object-contain"
-                    fallback={fallbackIcon}
-                />
-            ) : fallbackIcon}
-            <span className="truncate">{getProjectDisplayLabel(project)}</span>
+            <Icon name="folder" className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate text-muted-foreground">{getProjectDisplayLabel(project)}</span>
         </span>
     );
 }
+
+const draftSelectTriggerClassName =
+    'h-7 min-w-0 w-fit max-w-[48vw] gap-1 border-transparent bg-transparent px-1.5 text-muted-foreground typography-micro font-normal hover:bg-transparent hover:text-foreground data-[popup-open]:bg-transparent [&_svg]:size-3.5 [&_svg]:opacity-70 sm:max-w-[20rem]';
 
 /** Desktop inline selects for the project and (when git) its branch. */
 export function DraftTargetSelectors(props: DraftTargetProps) {
@@ -79,20 +62,24 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
         selectedBranchIsKnown,
         projectRootBranchOption,
         showBranchSelector,
+        showProjectSelector = true,
+        endAccessory,
         onProjectChange,
         onDirectoryChange,
         theme,
     } = props;
 
     return (
-        <div className="flex min-w-0 items-center gap-1 pl-1">
+        <div className="mb-3 flex min-w-0 w-full items-center justify-between gap-2 pl-2 pr-1">
+            <div className="flex min-w-0 items-center gap-1">
+            {showProjectSelector ? (
             <Select
                 value={selectedProject.id}
                 onValueChange={onProjectChange}
             >
                 <SelectTrigger
                     size="sm"
-                    className="h-7 min-w-0 w-fit max-w-[48vw] sm:max-w-[20rem] border-transparent bg-transparent px-1.5 hover:bg-transparent data-[popup-open]:bg-transparent"
+                    className={draftSelectTriggerClassName}
                 >
                     <SelectValue>
                         <ProjectLabel project={selectedProject} theme={theme} />
@@ -106,6 +93,7 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
                     ))}
                 </SelectContent>
             </Select>
+            ) : null}
 
             {showBranchSelector ? (
                 <Select
@@ -114,7 +102,7 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
                 >
                     <SelectTrigger
                         size="sm"
-                        className="h-7 min-w-0 w-fit max-w-[48vw] sm:max-w-[20rem] border-transparent bg-transparent px-1.5 hover:bg-transparent data-[popup-open]:bg-transparent"
+                        className={draftSelectTriggerClassName}
                     >
                         <SelectValue>
                             {selectedBranchLabel ?? "Branch"}
@@ -137,20 +125,28 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
                     </SelectContent>
                 </Select>
             ) : null}
+            </div>
+            {endAccessory ? (
+                <div className="min-w-0 shrink-0">
+                    {endAccessory}
+                </div>
+            ) : null}
         </div>
     );
 }
 
 /** Mobile: buttons that open the bottom sheets below. */
 export function MobileDraftTargetTriggers(
-    props: Pick<DraftTargetProps, 'selectedProject' | 'selectedBranchLabel' | 'showBranchSelector' | 'theme'>
+    props: Pick<DraftTargetProps, 'selectedProject' | 'selectedBranchLabel' | 'showBranchSelector' | 'showProjectSelector' | 'endAccessory' | 'theme'>
         & { onOpenPicker: (picker: 'project' | 'branch') => void },
 ) {
     
-    const { selectedProject, selectedBranchLabel, showBranchSelector, theme, onOpenPicker } = props;
+    const { selectedProject, selectedBranchLabel, showBranchSelector, showProjectSelector = true, endAccessory, theme, onOpenPicker } = props;
 
     return (
-        <div className="mb-1.5 flex min-w-0 items-center gap-x-2 px-0.5">
+        <div className="mb-1.5 flex min-w-0 w-full items-center justify-between gap-2 pl-2 pr-1">
+            <div className="flex min-w-0 items-center gap-x-2">
+            {showProjectSelector ? (
             <button
                 type="button"
                 className="inline-flex h-7 min-w-0 max-w-[42vw] flex-shrink cursor-pointer items-center gap-1 rounded-lg px-1.5 typography-micro font-medium text-foreground/80 hover:bg-[var(--interactive-hover)]"
@@ -159,6 +155,7 @@ export function MobileDraftTargetTriggers(
                 {<ProjectLabel project={selectedProject} theme={theme} />}
                 <Icon name="arrow-down-s" className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
             </button>
+            ) : null}
             {showBranchSelector ? (
                 <button
                     type="button"
@@ -169,6 +166,12 @@ export function MobileDraftTargetTriggers(
                     <span className="truncate">{selectedBranchLabel ?? "Branch"}</span>
                     <Icon name="arrow-down-s" className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
                 </button>
+            ) : null}
+            </div>
+            {endAccessory ? (
+                <div className="min-w-0 shrink-0">
+                    {endAccessory}
+                </div>
             ) : null}
         </div>
     );
@@ -194,6 +197,8 @@ export function MobileDraftTargetSheets(
         theme,
         openPicker,
         onOpenPickerChange,
+        showProjectSelector = true,
+        showBranchSelector,
     } = props;
 
     const [projectSearch, setProjectSearch] = React.useState('');
@@ -216,7 +221,7 @@ export function MobileDraftTargetSheets(
     return (
         <>
             <MobileOverlayPanel
-                open={openPicker === 'project'}
+                open={showProjectSelector && openPicker === 'project'}
                 onClose={() => onOpenPickerChange(null)}
                 title={"Project"}
             >
@@ -259,7 +264,7 @@ export function MobileDraftTargetSheets(
             </MobileOverlayPanel>
 
             <MobileOverlayPanel
-                open={openPicker === 'branch'}
+                open={showBranchSelector && openPicker === 'branch'}
                 onClose={() => onOpenPickerChange(null)}
                 title={"Branch"}
             >

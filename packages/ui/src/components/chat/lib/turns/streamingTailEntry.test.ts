@@ -66,7 +66,7 @@ describe('buildLiveStreamingEntry', () => {
         const next = buildLiveStreamingEntry(entry, {
             activeStreamingMessageId: 'assistant_other',
             liveParts: [textPart('part_live', 'live')],
-            showTextJustificationActivity: true,
+            showTextJustificationActivity: false,
             showTurnChangedFiles: false,
         });
 
@@ -81,7 +81,7 @@ describe('buildLiveStreamingEntry', () => {
         const next = buildLiveStreamingEntry(entry, {
             activeStreamingMessageId: 'assistant_1',
             liveParts,
-            showTextJustificationActivity: true,
+            showTextJustificationActivity: false,
             showTurnChangedFiles: false,
         });
 
@@ -123,7 +123,7 @@ describe('buildLiveStreamingEntry', () => {
         const next = buildLiveStreamingEntry(entry, {
             activeStreamingMessageId: 'assistant_1',
             liveParts: [synthetic, visible],
-            showTextJustificationActivity: true,
+            showTextJustificationActivity: false,
             showTurnChangedFiles: false,
         });
 

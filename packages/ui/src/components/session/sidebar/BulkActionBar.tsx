@@ -47,7 +47,7 @@ export const BulkActionBar: React.FC<Props> = ({
   const destructiveIconButtonClass = 'inline-flex h-7 w-7 items-center justify-center rounded-md text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50';
 
   return (
-    <div className="flex shrink-0 items-center gap-1 border-t border-border px-2.5 py-1.5">
+    <div className="flex shrink-0 items-center gap-1 border-t border-border px-3 py-1.5">
       <span className="typography-ui-label text-muted-foreground whitespace-nowrap">
         {`${selectedCount} selected`}
       </span>

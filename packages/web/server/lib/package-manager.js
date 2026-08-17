@@ -12,6 +12,7 @@ const __dirname = path.dirname(__filename);
 const PACKAGE_NAME = '@pichamber/web';
 const PACKAGE_PATH_SEGMENTS = PACKAGE_NAME.split('/');
 const NPM_REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}`;
+const OFFICIAL_GITHUB_REPO = 'ryderasking/pichamber';
 const CHANGELOG_URL = 'https://raw.githubusercontent.com/RyderAsKing/PiChamber/main/CHANGELOG.md';
 const GITHUB_RELEASES_URL = 'https://github.com/RyderAsKing/PiChamber/releases';
 const GITHUB_RELEASES_API_URL = 'https://api.github.com/repos/RyderAsKing/PiChamber/releases';
@@ -23,7 +24,8 @@ function getSpawnSyncBaseOptions() {
 // The hosted update API is intentionally opt-in. When PICHAMBER_UPDATE_API_URL
 // is absent or blank the web/CLI surface MUST NOT contact a hosted API and
 // MUST NOT substitute a placeholder host; the npm-registry fallback in
-// `checkForUpdates` is authoritative in that case.
+// `checkForUpdates` is authoritative only when the published package
+// repository is RyderAsKing/PiChamber.
 function getConfiguredUpdateCheckUrl() {
   const override = typeof process.env.PICHAMBER_UPDATE_API_URL === 'string'
     ? process.env.PICHAMBER_UPDATE_API_URL.trim()
@@ -673,8 +675,27 @@ export function getCurrentVersion() {
   }
 }
 
+function getNpmRepositoryUrl(data) {
+  const repository = data?.repository;
+  if (typeof repository === 'string') return repository;
+  if (repository && typeof repository.url === 'string') return repository.url;
+  return '';
+}
+
+function isOfficialPiChamberRegistryPackage(data) {
+  const raw = getNpmRepositoryUrl(data).trim().toLowerCase();
+  if (!raw) return false;
+  const normalized = raw.replace(/\.git$/i, '');
+  const escapedRepo = OFFICIAL_GITHUB_REPO.replace('/', '\\/');
+  return (
+    new RegExp(`(?:^|/)github\\.com[:/]${escapedRepo}(?:/|$)`, 'i').test(normalized)
+    || new RegExp(`git@github\\.com:${escapedRepo}$`, 'i').test(normalized)
+  );
+}
+
 /**
- * Fetch latest version from npm registry
+ * Fetch latest version from npm only when `@pichamber/web` is this project's package.
+ * The scoped name is currently occupied by an unrelated 1.0.0; dist-tag alone is not enough.
  */
 async function getLatestVersion() {
   try {
@@ -688,8 +709,12 @@ async function getLatestVersion() {
     }
 
     const data = await response.json();
-    return data['dist-tags']?.latest || null;
-  } catch (error) {
+    if (!isOfficialPiChamberRegistryPackage(data)) {
+      return null;
+    }
+    const latest = data['dist-tags']?.latest;
+    return typeof latest === 'string' && latest.length > 0 ? latest : null;
+  } catch {
     return null;
   }
 }

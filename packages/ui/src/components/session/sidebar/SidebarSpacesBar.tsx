@@ -51,15 +51,15 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
   const isAllSelected = selectedProjectId === null;
 
   return (
-    <div className={cn('select-none px-2 pt-1 pb-2 border-b border-border/40 space-y-0.5', className)}>
+    <div className={cn('select-none px-3 pt-1 pb-2 border-b border-border/40 space-y-0.5', className)}>
       {/* 'All Folders' item */}
       <button
         type="button"
         onClick={() => onSelectProject(null)}
         className={cn(
-          'group relative flex w-full items-center justify-between rounded-xl px-2.5 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+          'group relative flex w-full items-center justify-between rounded-xl px-3 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
           isAllSelected
-            ? 'bg-interactive-selection text-interactive-selection-foreground'
+            ? 'bg-interactive-selection text-foreground'
             : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
         )}
         aria-pressed={isAllSelected}
@@ -90,9 +90,9 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
                     onSelectProject(isSelected ? null : project.id);
                   }}
                   className={cn(
-                    'relative flex w-full items-center justify-between rounded-xl px-2.5 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+                    'relative flex w-full items-center justify-between rounded-xl px-3 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
                     isSelected
-                      ? 'bg-interactive-selection text-interactive-selection-foreground'
+                      ? 'bg-interactive-selection text-foreground'
                       : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
                   )}
                   aria-pressed={isSelected}
@@ -100,15 +100,7 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
               }
             >
               <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                {project.iconImage ? (
-                  <img
-                    src={`/api/projects/${project.id}/icon?t=${project.iconImage.updatedAt}`}
-                    alt=""
-                    className={cn(sidebarRowIconClassName, 'rounded object-cover')}
-                  />
-                ) : (
-                  <Icon name="folder" className={cn(sidebarRowIconClassName, 'text-muted-foreground')} />
-                )}
+                <Icon name="folder" className={cn(sidebarRowIconClassName, 'text-muted-foreground')} />
 
                 <span className={sidebarRowLabelClassName}>{label}</span>
               </div>
@@ -149,7 +141,7 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
       <button
         type="button"
         onClick={onOpenDirectoryDialog}
-        className="flex w-full items-center gap-1.5 rounded-xl px-2.5 py-2 typography-ui-label text-muted-foreground hover:bg-interactive-hover hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+        className="flex w-full items-center gap-1.5 rounded-xl px-3 py-2 typography-ui-label text-muted-foreground hover:bg-interactive-hover hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
       >
         <Icon name="add" className={sidebarRowIconClassName} />
         <span className={sidebarRowLabelClassName}>{"Add folder"}</span>

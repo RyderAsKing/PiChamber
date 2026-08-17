@@ -96,6 +96,8 @@ export interface ComposerEditorProps {
     fillContainer?: boolean;
     /** Lines of text shown before the editor starts scrolling. */
     maxLines?: number;
+    /** Visual wrapped-line count, including wrapping (not only hard newlines). */
+    onVisualLineCount?: (count: number) => void;
     /**
      * Selector of the ancestor the composer must never outgrow. The cap is
      * measured — the ancestor's height minus the chrome around the editor,
@@ -290,11 +292,12 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
                                     fromPaste,
                                     insertedText,
                                 });
-                                return;
+                            } else if (update.selectionSet) {
+                                handlers.onSelectionChange?.(selection);
                             }
 
-                            if (update.selectionSet) {
-                                handlers.onSelectionChange?.(selection);
+                            if (update.docChanged || update.heightChanged || update.geometryChanged) {
+                                handlers.onVisualLineCount?.(readVisualLineCount(update.view));
                             }
                         }),
                         EditorView.domEventHandlers({
@@ -454,6 +457,7 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
             };
 
             applyLimit();
+            handlersRef.current.onVisualLineCount?.(readVisualLineCount(view));
             if (typeof ResizeObserver === 'undefined') return;
             const observer = new ResizeObserver(applyLimit);
             observer.observe(host);
@@ -571,6 +575,14 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
         );
     },
 );
+
+function readVisualLineCount(view: EditorView): number {
+    const lineHeight = view.defaultLineHeight;
+    if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
+        return 1;
+    }
+    return Math.max(1, Math.round(view.contentHeight / lineHeight));
+}
 
 function readSelection(state: EditorState): ComposerSelection {
     const range = state.selection.main;

@@ -29,7 +29,7 @@ export function SidebarFooter({
   }
 
   return (
-    <div className="flex shrink-0 items-center justify-start gap-1 px-2.5 py-2">
+    <div className="flex shrink-0 items-center justify-start gap-1 px-3 py-2">
       {showRuntimeButtons ? (
         <>
           <Tooltip>

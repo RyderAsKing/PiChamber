@@ -1,13 +1,12 @@
 import type { Agent } from '@/lib/chat/types';
 import { getProviderModelDisplayName, type DisplayProvider } from '@/lib/modelDisplay';
+import { thinkingLevelLabel } from '@/lib/pi/thinking';
 
 export type MobileControlsPanel = 'model' | 'agent' | 'variant' | null;
 
 export const isPrimaryMode = (mode?: unknown) => mode === 'primary' || mode === 'all' || mode === undefined || mode === null;
 
 export const getCyclablePrimaryAgents = (agents: Agent[]) => agents.filter((agent) => isPrimaryMode(agent.mode));
-
-const capitalizeLabel = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
 export const getModelDisplayName = (
     provider: DisplayProvider,
@@ -19,11 +18,11 @@ export const getModelDisplayName = (
 
 export const formatEffortLabel = (variant?: string) => {
     if (!variant || variant.trim().length === 0) {
-        return 'Default';
+        return thinkingLevelLabel(undefined);
     }
     const trimmed = variant.trim();
     if (/^\d+(\.\d+)?$/.test(trimmed)) {
         return trimmed;
     }
-    return capitalizeLabel(trimmed);
+    return thinkingLevelLabel(trimmed);
 };

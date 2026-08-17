@@ -13,6 +13,7 @@ const listProviders = mock(async () => ({
           label: 'Model One',
           contextWindow: 128000,
           supportsThinking: true,
+          thinkingLevels: ['off', 'low', 'medium', 'high'],
         },
       ],
     },
@@ -48,14 +49,13 @@ mock.module('@/stores/useDirectoryStore', () => ({
 const { opencodeClient } = await import('./legacy-ui-client');
 
 describe('opencodeClient.getProvidersForConfig', () => {
-  test('projects Pi providers into the config-store provider list shape', async () => {
+  test('projects authenticated Pi providers into the config-store selection catalog', async () => {
     const result = await opencodeClient.getProvidersForConfig();
-    expect(result.providers).toHaveLength(2);
-    expect(result.providers[0]?.id).toBe('p1');
     expect(result.providers).toEqual([
       {
         id: 'p1',
         name: 'Provider One',
+        authenticated: true,
         models: {
           m1: {
             id: 'm1',
@@ -63,18 +63,7 @@ describe('opencodeClient.getProvidersForConfig', () => {
             providerID: 'p1',
             reasoning: true,
             limit: { context: 128000 },
-          },
-        },
-      },
-      {
-        id: 'p2',
-        name: 'Provider Two',
-        models: {
-          m2: {
-            id: 'm2',
-            name: 'Model Two',
-            providerID: 'p2',
-            reasoning: false,
+            thinkingLevels: ['off', 'low', 'medium', 'high'],
           },
         },
       },

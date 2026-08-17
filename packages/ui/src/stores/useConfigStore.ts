@@ -17,6 +17,7 @@ import { useProjectsStore } from "@/stores/useProjectsStore";
 import { resolveProjectForSessionDirectory } from "@/lib/projectResolution";
 import { streamDebugEnabled } from "@/stores/utils/streamDebug";
 import { parseModelIdentifier } from "@/lib/modelIdentifier";
+import { configurableThinkingLevels, cycleThinkingLevel, parsePiThinkingLevel } from "@/lib/pi/thinking";
 import { runtimeFetch } from "@/lib/runtime-fetch";
 import { markStartupTrace, measureStartupTrace } from "@/lib/startupTrace";
 import { normalizePath } from "@/lib/pathNormalization";
@@ -38,12 +39,62 @@ const PROVIDER_CONFIG_REFRESH_CONCURRENCY = 4;
 interface PiChamberDefaults {
     defaultModel?: string;
     defaultVariant?: string;
+    defaultThinking?: string;
+    defaultThinkingByModel?: Record<string, string>;
     autoCreateWorktree?: boolean;
     gitmojiEnabled?: boolean;
     defaultFileViewerPreview?: boolean;
     zenModel?: string;
     messageStreamTransport?: 'auto' | 'ws' | 'sse';
 }
+
+const parseSidecarThinkingByModel = (value: unknown): Record<string, string> | undefined => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const result: Record<string, string> = {};
+    for (const [key, level] of Object.entries(value)) {
+        if (!parseModelIdentifier(key)) continue;
+        const parsed = parsePiThinkingLevel(level);
+        if (!parsed) continue;
+        result[key] = parsed;
+    }
+    return result;
+};
+
+const loadSidecarDefaults = async (): Promise<{
+    ok: false;
+} | {
+    ok: true;
+    defaultModel?: string;
+    defaultThinking?: string;
+    defaultThinkingByModel?: Record<string, string>;
+}> => {
+    try {
+        const response = await runtimeFetch('/api/pi/settings', {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+        });
+        if (!response.ok) {
+            return { ok: false };
+        }
+        const data = await response.json();
+        const pichamber = data?.pichamber;
+        const model = pichamber?.defaultModel;
+        let defaultModel: string | undefined;
+        if (model && typeof model.providerId === 'string' && typeof model.modelId === 'string') {
+            const providerId = model.providerId.trim();
+            const modelId = model.modelId.trim();
+            if (providerId && modelId) defaultModel = `${providerId}/${modelId}`;
+        }
+        return {
+            ok: true,
+            defaultModel,
+            defaultThinking: parsePiThinkingLevel(pichamber?.defaultThinking) ?? undefined,
+            defaultThinkingByModel: parseSidecarThinkingByModel(pichamber?.defaultThinkingByModel),
+        };
+    } catch {
+        return { ok: false };
+    }
+};
 
 const fetchPiChamberDefaults = async (): Promise<PiChamberDefaults> => {
     markStartupTrace('config.defaults:start');
@@ -58,6 +109,19 @@ const fetchPiChamberDefaults = async (): Promise<PiChamberDefaults> => {
         return result;
     };
     try {
+        const sidecarDefaults = await loadSidecarDefaults();
+        const withSidecarModel = (source: string, result: PiChamberDefaults): PiChamberDefaults => {
+            if (!sidecarDefaults.ok) {
+                return finish(source, result);
+            }
+            return finish(source, {
+                ...result,
+                defaultModel: sidecarDefaults.defaultModel,
+                defaultThinking: sidecarDefaults.defaultThinking,
+                defaultThinkingByModel: sidecarDefaults.defaultThinkingByModel,
+            });
+        };
+
         // 1. Runtime settings API (desktop/embedded surfaces)
         const runtimeSettings = getRegisteredRuntimeAPIs()?.settings;
         if (runtimeSettings) {
@@ -75,7 +139,7 @@ const fetchPiChamberDefaults = async (): Promise<PiChamberDefaults> => {
                             ? data.messageStreamTransport
                             : undefined;
 
-                    return finish('runtime-settings', {
+                    return withSidecarModel('runtime-settings', {
                         defaultModel: defaultModel.length > 0 ? defaultModel : undefined,
                         defaultVariant: defaultVariant.length > 0 ? defaultVariant : undefined,
                         autoCreateWorktree: typeof data?.autoCreateWorktree === 'boolean' ? data.autoCreateWorktree : undefined,
@@ -96,7 +160,7 @@ const fetchPiChamberDefaults = async (): Promise<PiChamberDefaults> => {
             headers: { Accept: 'application/json' },
         });
         if (!response.ok) {
-            return finish('settings-route-not-ok', {});
+            return withSidecarModel('settings-route-not-ok', {});
         }
         const data = await response.json();
         const defaultModel = typeof data?.defaultModel === 'string' ? data.defaultModel.trim() : '';
@@ -109,7 +173,7 @@ const fetchPiChamberDefaults = async (): Promise<PiChamberDefaults> => {
                 ? data.messageStreamTransport
                 : undefined;
 
-        return finish('settings-route', {
+        return withSidecarModel('settings-route', {
             defaultModel: defaultModel.length > 0 ? defaultModel : undefined,
             defaultVariant: defaultVariant.length > 0 ? defaultVariant : undefined,
             autoCreateWorktree: typeof data?.autoCreateWorktree === 'boolean' ? data.autoCreateWorktree : undefined,
@@ -959,6 +1023,8 @@ interface ConfigStore {
     // PiChamber settings-based defaults (take precedence over agent preferences)
     settingsDefaultModel: string | undefined; // format: "provider/model"
     settingsDefaultVariant: string | undefined;
+    settingsDefaultThinking: string | undefined;
+    settingsDefaultThinkingByModel: Record<string, string>;
     // OpenCode server's own `default_agent` config field (name of a primary agent), used as a
     // fallback when our own settingsDefaultAgent is unset. Sourced from sync config.
     opencodeDefaultAgent: string | undefined;
@@ -988,6 +1054,8 @@ interface ConfigStore {
     setSelectedProvider: (providerId: string) => void;
     setSettingsDefaultModel: (model: string | undefined) => void;
     setSettingsDefaultVariant: (variant: string | undefined) => void;
+    setSettingsDefaultThinking: (thinking: string | undefined) => void;
+    setSettingsDefaultThinkingByModel: (map: Record<string, string>) => void;
     setSettingsDefaultAgent: (agent: string | undefined) => void;
     setSettingsAutoCreateWorktree: (enabled: boolean) => void;
     setSettingsGitmojiEnabled: (enabled: boolean) => void;
@@ -1046,6 +1114,8 @@ export const useConfigStore = create<ConfigStore>()(
                 modelsMetadata: new Map<string, ModelMetadata>(),
                 settingsDefaultModel: undefined,
                 settingsDefaultVariant: undefined,
+                settingsDefaultThinking: undefined,
+                settingsDefaultThinkingByModel: {},
                 opencodeDefaultAgent: undefined,
                 opencodeDefaultModel: undefined,
                 settingsAutoCreateWorktree: false,
@@ -1519,34 +1589,11 @@ export const useConfigStore = create<ConfigStore>()(
                     });
                 },
 
-                getCurrentModelVariants: () => {
-                    const model = get().getCurrentModel();
-                    const variants = (model as { variants?: Record<string, unknown> } | undefined)?.variants;
-                    if (!variants) {
-                        return [];
-                    }
-                    return Object.keys(variants);
-                },
+                getCurrentModelVariants: () => configurableThinkingLevels(get().getCurrentModel()),
 
                 cycleCurrentVariant: () => {
-                    const variantKeys = get().getCurrentModelVariants();
-                    if (variantKeys.length === 0) {
-                        return;
-                    }
-
-                    const current = get().currentVariant;
-                    if (!current) {
-                        get().setCurrentVariant(variantKeys[0]);
-                        return;
-                    }
-
-                    const index = variantKeys.indexOf(current);
-                    if (index === -1 || index === variantKeys.length - 1) {
-                        get().setCurrentVariant(undefined);
-                        return;
-                    }
-
-                    get().setCurrentVariant(variantKeys[index + 1]);
+                    const next = cycleThinkingLevel(get().getCurrentModelVariants(), get().currentVariant, 1);
+                    get().setCurrentVariant(next);
                 },
  
                 setSelectedProvider: (providerId: string) => {
@@ -1738,6 +1785,8 @@ export const useConfigStore = create<ConfigStore>()(
                                 const nextState: Partial<ConfigStore> = {
                                     settingsDefaultModel: openChamberDefaults.defaultModel,
                                     settingsDefaultVariant: openChamberDefaults.defaultVariant,
+                                    settingsDefaultThinking: openChamberDefaults.defaultThinking,
+                                    settingsDefaultThinkingByModel: openChamberDefaults.defaultThinkingByModel ?? {},
                                     settingsAutoCreateWorktree: openChamberDefaults.autoCreateWorktree ?? false,
                                     settingsGitmojiEnabled: openChamberDefaults.gitmojiEnabled ?? false,
                                     settingsDefaultFileViewerPreview: openChamberDefaults.defaultFileViewerPreview ?? false,
@@ -2447,6 +2496,14 @@ export const useConfigStore = create<ConfigStore>()(
                  setSettingsDefaultVariant: (variant: string | undefined) => {
                      set({ settingsDefaultVariant: variant });
                  },
+
+                 setSettingsDefaultThinking: (thinking: string | undefined) => {
+                     set({ settingsDefaultThinking: thinking });
+                 },
+
+                 setSettingsDefaultThinkingByModel: (map: Record<string, string>) => {
+                     set({ settingsDefaultThinkingByModel: map });
+                 },
  
                 setSettingsAutoCreateWorktree: (enabled: boolean) => {
                     set({ settingsAutoCreateWorktree: enabled });
@@ -2787,6 +2844,8 @@ export const useConfigStore = create<ConfigStore>()(
                     defaultProviders: state.defaultProviders,
                     settingsDefaultModel: state.settingsDefaultModel,
                     settingsDefaultVariant: state.settingsDefaultVariant,
+                    settingsDefaultThinking: state.settingsDefaultThinking,
+                    settingsDefaultThinkingByModel: state.settingsDefaultThinkingByModel,
                     settingsAutoCreateWorktree: state.settingsAutoCreateWorktree,
                     settingsGitmojiEnabled: state.settingsGitmojiEnabled,
                     settingsDefaultFileViewerPreview: state.settingsDefaultFileViewerPreview,

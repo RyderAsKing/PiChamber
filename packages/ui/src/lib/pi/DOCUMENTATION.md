@@ -14,7 +14,10 @@ This directory owns the Pi-native runtime boundary. It defines:
 - The bootstrap owner (`bootstrap.ts`).
 - The reconnect owner (`reconnect.ts`).
 - The attachment helpers (`attachments.ts`).
-- The model / provider helpers (`model-provider.ts`).
+- The configured-provider helper for selection catalogs (`configured-providers.ts`).
+- Hidden-model selection filtering (`hidden-models.ts`).
+- Session default helpers (`session-defaults.ts`) and Pi thinking-level rules (`thinking.ts`).
+- Composer thinking apply/rollback (`apply-composer-thinking.ts`).
 
 The module uses native `Response` parsing through `runtimeFetch` so callers
 can distinguish failure from a successful empty result. `MainLayout` is the
@@ -80,7 +83,10 @@ hydrate path and `assistant.message.start` event do not carry usage; the
 authoritative source is the message-end turn completion. A snapshot is itself an event with `name: 'session.snapshot'`;
 The snapshot reducer replaces the running state when the snapshot's
 `lastSequence` is strictly greater than the previously accepted snapshot.
-Reconnect still unions an in-flight session's existing messages onto that
+Hydration copies `session.model` / `session.thinking` from `getSession` and
+prefers the latest assistant turn so reopening an older chat keeps that
+session's last used model and thinking instead of the globally last-selected
+composer values. Reconnect still unions an in-flight session's existing messages onto that
 snapshot so a mid-send reconnect cannot blank the open transcript.
 
 ## Runtime-switch and failure handling
@@ -246,9 +252,13 @@ re-renders every subscriber on each accepted event.
 The restored web shell bootstraps provider/model config through
 `initializeApp()` in `SyncAppEffects`; `legacy-ui-client.getProvidersForConfig`
 must return `{ providers, default }` so the config store can leave the picker
-off the loading state. The picker includes every catalog provider that has
-models, including unauthenticated ones, so users can browse models before
-login. Composer chrome does not expose an OpenCode agent selector.
+off the loading state. Selection catalogs (composer, session defaults, small
+model, walkthrough model) include only authenticated providers that have
+models. Users can hide individual models from those catalogs in Providers
+settings; hidden models stay out of pickers. Session default, small-model, and
+walkthrough-model pickers live on the Sessions page and use the same picker as
+the composer. Providers settings still lists the
+full catalog so unconfigured providers can be logged in. Composer chrome does not expose an OpenCode agent selector.
 Chat, sidebar, and composer mutations go through `PiSessionStore` and `/api/pi/*`. Pi assistant projections preserve their owning user-message id end to end because the restored chat renderer groups assistant output into user turns by that identity. Tool parts preserve input, cumulative partial output, final output, error text, metadata, and start/end timestamps through the reducer and `pi-to-renderable`, satisfying the restored renderer's finalized-tool contract (a completed tool needs an end time and keeps its status verbatim, including `cancelled`).
 Settings chrome is the restored PiChamber hub limited to Pi-owned pages
 (Providers, Skills, Snippets, Behavior/`AGENTS.md`, Magic Prompts, appearance
@@ -262,10 +272,26 @@ The mounted Providers surface submits API keys once through the authenticated
 adapter or renders Pi's opaque browser/device/manual-code login state; stored
 credentials never return to the browser. Custom OpenAI-compatible providers
 are written through the same adapter to Pi `models.json`; configuration
-responses omit credentials and headers, which are write-only. PiChamber
-new-session model/thinking plus small-model and walkthrough-model defaults
-live in its own sidecar. Only the explicit new-session overrides are passed to
-the daemon, so Pi's normal settings fallback remains authoritative otherwise.
+responses omit credentials and headers, which are write-only. PiChamber new-session model, per-model thinking, small-model, and walkthrough-model
+defaults live in its own sidecar and are edited on the Sessions settings page
+with the shared model picker. Default thinking is stored per `provider/model`
+and applied on session create and composer model changes, clamped to that
+model's Pi `thinkingLevels`. A leftover global `defaultThinking` is only a
+clamp fallback when no default model is set. Providers settings owns
+authentication and the catalog, not those defaults. `providers.list` projects
+Pi `getSupportedThinkingLevels` (`off` through `max`, with `xhigh`/`max`
+opt-in and `null` map entries hidden). Only the explicit new-session
+overrides are passed to the daemon, so Pi's normal settings fallback remains
+authoritative otherwise. Composer thinking next to the model name is driven
+from catalog `thinkingLevels` (hidden when the model only offers `off`).
+Choosing a level updates the composer override immediately and calls
+`sessions.setThinking` for an open session; a failed write rolls back the
+override instead of looking like success. Unset/Default does not invent a
+level. Opening an existing session restores the composer to that session's
+last used model and thinking (latest assistant turn, then live
+`session.model` / `session.thinking`) instead of the globally last-selected
+model. The user can still change them manually; existing session thinking
+then stays until the user changes model or thinking.
 Composer attachments are uploaded before prompt dispatch and the returned opaque identifiers are forwarded with that captured send. Attachment uploads return opaque identifiers; their temporary paths cross only
 the private daemon IPC and are redacted from public transcript/event output.
 The browser never receives a path, endpoint, credential, or daemon identity.

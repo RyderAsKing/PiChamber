@@ -18,6 +18,7 @@ import type { Session, Part, Message, TextPart } from "@/lib/chat/types"
 import type { AttachedFile, SessionContextUsage } from "@/stores/types/sessionTypes"
 import { opencodeClient } from "@/lib/pi/legacy-ui-client"
 import { getPiSessionStore } from "@/apps/pi-session-store"
+import { isPiThinkingLevel } from "@/lib/pi/thinking"
 import { runtimeFetch } from "@/lib/runtime-fetch"
 import { useConfigStore } from "@/stores/useConfigStore"
 import { useProjectsStore } from "@/stores/useProjectsStore"
@@ -115,7 +116,7 @@ export async function routeMessage(params: {
   }
   if (
     params.sessionId
-    && (params.variant === 'off' || params.variant === 'low' || params.variant === 'medium' || params.variant === 'high' || params.variant === 'xhigh')
+    && isPiThinkingLevel(params.variant)
   ) {
     const currentSession = sessionStore.getState().sessions.find((s) => s.session.id === params.sessionId)?.session
     const currentThinking = currentSession?.thinking
@@ -441,7 +442,7 @@ export async function materializeOpenDraftSession(selection: {
     draft.parentID ?? null,
     {
       model: selection.providerID && selection.modelID ? { providerId: selection.providerID, modelId: selection.modelID } : undefined,
-      thinking: (selection.variant === 'off' || selection.variant === 'low' || selection.variant === 'medium' || selection.variant === 'high' || selection.variant === 'xhigh') ? selection.variant : undefined,
+      thinking: isPiThinkingLevel(selection.variant) ? selection.variant : undefined,
     } as any
   )
   if (!created?.id) throw new Error("Failed to create session")
@@ -782,16 +783,19 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
 
   setNewSessionDraftTarget: (target) => {
     let nextDirectory: string | null = null
+    let nextProjectId: string | null = null
     set((s) => {
       nextDirectory = normalizePath(target.directoryOverride ?? s.newSessionDraft.directoryOverride)
+      nextProjectId = target.projectId ?? target.selectedProjectId ?? s.newSessionDraft.selectedProjectId ?? null
       return {
         newSessionDraft: {
           ...s.newSessionDraft,
-          selectedProjectId: target.projectId ?? target.selectedProjectId ?? s.newSessionDraft.selectedProjectId,
+          selectedProjectId: nextProjectId,
           directoryOverride: target.directoryOverride ?? s.newSessionDraft.directoryOverride,
         },
       }
     })
+    persistDraftTarget({ projectId: nextProjectId, directory: nextDirectory })
     void activateConfigForDirectory(nextDirectory)
 
     if (nextDirectory && nextDirectory !== useDirectoryStore.getState().currentDirectory) {

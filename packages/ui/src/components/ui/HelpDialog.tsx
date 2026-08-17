@@ -85,7 +85,7 @@ export const HelpDialog: React.FC = () => {
         },
         {
           id: 'cycle_thinking_variant',
-          descriptionKey: "Cycle Thinking Variant (global shortcut)",
+          descriptionKey: "Cycle thinking (global shortcut)",
           icon: "brain-ai-3",
           keys: '',
         },

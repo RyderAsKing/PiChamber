@@ -14,21 +14,14 @@ export const useProjectIdentityAutoSave = (
   const {
     hasChanges,
     name,
-    icon,
-    color,
-    iconBackground,
     defaultModel,
-    pendingRemoveImageIcon,
-    pendingUploadIconFile,
-    isUploadingIcon,
-    isRemovingCustomIcon,
     prepareSaveData,
   } = form;
 
   const isSavingRef = React.useRef(false);
 
   React.useEffect(() => {
-    if (!hasChanges || !name.trim() || isUploadingIcon || isRemovingCustomIcon || isSavingRef.current) {
+    if (!hasChanges || !name.trim() || isSavingRef.current) {
       return;
     }
 
@@ -39,7 +32,7 @@ export const useProjectIdentityAutoSave = (
       isSavingRef.current = true;
       void (async () => {
         try {
-          const data = await prepareSaveData({ silent: true });
+          const data = await prepareSaveData();
           if (data) {
             try {
               await onSave(data);
@@ -57,17 +50,10 @@ export const useProjectIdentityAutoSave = (
       window.clearTimeout(timer);
     };
   }, [
-    color,
     defaultModel,
     hasChanges,
-    icon,
-    iconBackground,
-    isRemovingCustomIcon,
-    isUploadingIcon,
     name,
     onSave,
-    pendingRemoveImageIcon,
-    pendingUploadIconFile,
     prepareSaveData,
   ]);
 };

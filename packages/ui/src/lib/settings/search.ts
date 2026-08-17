@@ -166,12 +166,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['telemetry', 'analytics'],
   },
   {
-    id: 'chat.render-mode',
-    page: 'chat',
-    title: "Chat Render Mode",
-    keywords: ['messages', 'conversation', 'rendering'],
-  },
-  {
     id: 'chat.message-transport',
     page: 'general',
     title: "Message Stream Transport",
@@ -298,13 +292,20 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     id: 'sessions.default-model',
     page: 'sessions',
     title: "Default Model",
-    keywords: ['model', 'provider', 'new sessions'],
+    keywords: ['model', 'provider', 'new sessions', 'picker'],
   },
   {
     id: 'sessions.default-thinking',
     page: 'sessions',
     title: "Default Thinking",
-    keywords: ['thinking', 'reasoning', 'variant'],
+    keywords: ['thinking', 'reasoning', 'variant', 'new sessions', 'per model'],
+  },
+  {
+    id: 'sessions.thinking-defaults',
+    page: 'sessions',
+    title: "Thinking defaults",
+    description: "Per-model thinking for new sessions and composer model changes.",
+    keywords: ['thinking', 'reasoning', 'per model', 'default thinking'],
   },
   {
     id: 'sessions.deletion-dialog',
@@ -317,14 +318,14 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'sessions',
     title: "Small Model",
     description: "A cheap model for quick utility tasks like short recaps and summaries.",
-    keywords: ['small model', 'utility', 'summary', 'recap', 'cheap', 'override'],
+    keywords: ['small model', 'utility', 'summary', 'recap', 'cheap', 'override', 'picker'],
   },
   {
     id: 'sessions.walkthrough-model',
     page: 'sessions',
     title: "Changes Walkthrough Model",
     description: "The AI review of your changes needs structured output and room for a whole diff, which a cheap small model often cannot give. Models the catalog reports as unable to produce structured output are hidden from this picker. Leave it unset and the small model is used.",
-    keywords: ['walkthrough', 'diff', 'review', 'changes', 'structured output', 'model', 'override'],
+    keywords: ['walkthrough', 'diff', 'review', 'changes', 'structured output', 'model', 'override', 'picker'],
   },
   {
     id: 'sessions.auto-cleanup',
@@ -455,20 +456,14 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'projects.name',
     page: 'projects',
-    title: "Project Name",
-    keywords: ['label', 'display name', 'project metadata'],
+    title: "Name",
+    keywords: ['label', 'display name', 'project metadata', 'project name'],
   },
   {
-    id: 'projects.accent-color',
+    id: 'projects.default-model',
     page: 'projects',
-    title: "Accent Color",
-    keywords: ['color', 'appearance', 'project metadata'],
-  },
-  {
-    id: 'projects.icon',
-    page: 'projects',
-    title: "Project Icon",
-    keywords: ['icon', 'favicon', 'upload', 'project metadata'],
+    title: "Default model",
+    keywords: ['model', 'provider', 'new chat', 'session default', 'project metadata'],
   },
   {
     id: 'projects.worktree',
@@ -552,6 +547,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     id: 'providers.models',
     page: 'providers',
     title: "Available Models",
+    description: "Hide models you do not want in the composer or session default pickers.",
     keywords: ['models', 'hide', 'show'],
   },
   {

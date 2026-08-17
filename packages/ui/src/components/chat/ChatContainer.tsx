@@ -691,9 +691,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     const chatSurfaceMode = useChatSurfaceMode();
     const draftOpen = Boolean(newSessionDraft?.open);
     const initError = useGlobalSyncStore((s) => s.error);
-    // Despite the historical name, this now covers mobile too: the mobile
-    // composer enters the same fullscreen-input mode via its drag handle.
-    const isDesktopExpandedInput = isExpandedInput;
+    // Despite the historical name, this now covers mobile fullscreen composer
+    // (drag-handle swipe-up). Desktop focus mode is gone.
+    const isDesktopExpandedInput = isMobile && isExpandedInput;
     const useCompactDraftLayout = isMobile || chatSurfaceMode === 'mini-chat';
 
     const messageListRef = React.useRef<MessageListHandle | null>(null);

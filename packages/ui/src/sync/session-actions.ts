@@ -1,6 +1,7 @@
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import type { Session } from '@/lib/chat/types';
 import { piSessionToUiSession } from '@/lib/chat/pi-to-renderable';
+import type { PiThinkingLevel } from '@/lib/pi/types';
 
 export type ArchiveSessionsOptions = Record<string, unknown>;
 export type DeleteSessionOptions = Record<string, unknown>;
@@ -13,7 +14,7 @@ export async function createSession(
   title?: string,
   directoryOverride?: string | null,
   _parentID?: string | null,
-  creationOptions?: { model?: { providerId: string; modelId: string }; thinking?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' }
+  creationOptions?: { model?: { providerId: string; modelId: string }; thinking?: PiThinkingLevel }
 ): Promise<Session | null> {
   void _parentID;
   const newId = await store().create(title, {

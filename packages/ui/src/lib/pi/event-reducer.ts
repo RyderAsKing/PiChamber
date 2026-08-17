@@ -32,6 +32,7 @@ import type {
   PiToolUpdatePayload,
 } from './protocol';
 import { applyAssistantTextDelta } from './text-delta';
+import { resolveExistingSessionComposerSelection } from './thinking';
 import type {
   PiAssistantMessage,
   PiAttachment,
@@ -900,7 +901,12 @@ export const projectSession = (session: PiReducerSessionState): PiProjectedSessi
  */
 export const hydrateSessionFromDetail = (
   detail: {
-    session: { id: string; directory: string };
+    session: {
+      id: string;
+      directory: string;
+      model?: PiModelRef;
+      thinking?: PiThinkingLevel;
+    };
     lastSequence: number;
     messages: Array<{
       message: PiUserMessage | PiAssistantMessage;
@@ -984,6 +990,14 @@ export const hydrateSessionFromDetail = (
     }
     session.partOrder.set(message.id, partOrder);
   }
+
+  const resolved = resolveExistingSessionComposerSelection({
+    model: detail.session.model,
+    thinking: detail.session.thinking,
+    messages: session.messages.values(),
+  });
+  if (resolved.model) session.model = resolved.model;
+  if (resolved.thinking) session.thinking = resolved.thinking;
 
   state.lastSequence.set(detail.session.id, detail.lastSequence);
   return { state, session };

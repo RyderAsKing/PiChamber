@@ -4,9 +4,6 @@ import type { ModelMetadata } from '@/types';
 import {
     DropdownMenu,
     DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
@@ -30,23 +27,36 @@ import { useSync } from '@/sync/use-sync';
 import { useUIStore } from '@/stores/useUIStore';
 import { useModelLists } from '@/hooks/useModelLists';
 import { useIsTextTruncated } from '@/hooks/useIsTextTruncated';
+import { toast } from '@/components/ui';
 import { formatEffortLabel, type MobileControlsPanel } from './mobileControlsUtils';
+import { ThinkingLevelControl, ThinkingLevelPicker } from './ThinkingLevelControl';
 import { useOpenCodeReadiness } from '@/hooks/useOpenCodeReadiness';
 import { markStartupTrace } from '@/lib/startupTrace';
-import {
-    findLatestUserModelChoice,
-    shouldPreserveManualModelOverride,
-} from '@/lib/messages/userModelChoice';
+import { findLatestUserModelChoice } from '@/lib/messages/userModelChoice';
 import { getSyncParts } from '@/sync/sync-refs';
+import { usePiSessionSnapshot } from '@/sync/pi-session-context';
+import { applyComposerThinking } from '@/lib/pi/apply-composer-thinking';
+import {
+    catalogThinkingLevels,
+    configurableThinkingLevels,
+    cycleThinkingLevel,
+    isPiThinkingLevel,
+    modelHasConfigurableThinking,
+    parsePiThinkingLevel,
+    resolveComposerThinkingForModel,
+    thinkingLevelLabel,
+} from '@/lib/pi/thinking';
+import type { PiThinkingLevel } from '@/lib/pi/types';
 
 type IconComponent = IconName;
 
 type ProviderModel = Record<string, unknown> & { id?: string; name?: string };
 
-type MobileVariantTarget = { providerId: string; modelId: string };
-
 const buildModelRefKey = (providerID: string, modelID: string) => `${providerID}:${modelID}`;
-const MAX_INLINE_MOBILE_VARIANT_OPTIONS = 6;
+
+const notifyThinkingApplyFailed = () => {
+    toast.error("Couldn't update thinking");
+};
 
 
 interface CapabilityDefinition {
@@ -218,12 +228,15 @@ const formatDate = (value?: string) => {
 
 interface ModelControlsProps {
     className?: string;
+    /** Keep model/variant names visible even when the control is in a narrow flex slot. */
+    keepLabels?: boolean;
     mobilePanel?: MobileControlsPanel;
     onMobilePanelChange?: (panel: MobileControlsPanel) => void;
 }
 
 export const ModelControls: React.FC<ModelControlsProps> = ({
     className,
+    keepLabels = false,
     mobilePanel,
     onMobilePanelChange,
 }) => {
@@ -233,7 +246,8 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const currentProviderId = useConfigStore((state) => state.currentProviderId);
     const currentModelId = useConfigStore((state) => state.currentModelId);
     const currentVariant = useConfigStore((state) => state.currentVariant);
-    const settingsDefaultVariant = useConfigStore((state) => state.settingsDefaultVariant);
+    const settingsDefaultThinking = useConfigStore((state) => state.settingsDefaultThinking);
+    const settingsDefaultThinkingByModel = useConfigStore((state) => state.settingsDefaultThinkingByModel);
     const currentAgentName = useConfigStore((state) => state.currentAgentName);
     const setAgent = useConfigStore((state) => state.setAgent);
     const setProvider = useConfigStore((state) => state.setProvider);
@@ -292,7 +306,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const [mobileTooltipOpen, setMobileTooltipOpen] = React.useState<'model' | 'agent' | null>(null);
     const [mobileModelQuery, setMobileModelQuery] = React.useState('');
     const [expandedMobileModelKey, setExpandedMobileModelKey] = React.useState<string | null>(null);
-    const [mobileVariantTarget, setMobileVariantTarget] = React.useState<MobileVariantTarget | null>(null);
     const manualVariantSelectionRef = React.useRef(false);
     const closeMobilePanel = React.useCallback(() => setActiveMobilePanel(null), [setActiveMobilePanel]);
     const closeMobileTooltip = React.useCallback(() => setMobileTooltipOpen(null), []);
@@ -335,9 +348,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         if (activeMobilePanel === null) {
             setExpandedMobileModelKey(null);
         }
-        if (activeMobilePanel !== 'variant') {
-            setMobileVariantTarget(null);
-        }
     }, [activeMobilePanel]);
 
     React.useEffect(() => {
@@ -370,9 +380,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
 
 
     const sizeVariant: 'mobile' | 'default' = isMobile ? 'mobile' : 'default';
-    const buttonHeight = sizeVariant === 'mobile' ? 'h-9' : 'h-8';
-    const controlIconSize = 'size-4';
-    const controlTextSize = isCompact ? 'typography-micro' : 'typography-meta';
+    const buttonHeight = sizeVariant === 'mobile' ? 'h-9' : 'h-7';
+    const controlIconSize = 'size-3.5';
+    const controlTextSize = 'typography-micro';
     const inlineGapClass = sizeVariant === 'mobile' ? 'gap-x-1' : 'gap-x-3';
 
     const currentProvider = getCurrentProvider();
@@ -462,7 +472,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
 
     // Compute from current model each render to avoid stale variants
     // in draft/session transitions.
-    const availableVariants = getCurrentModelVariants();
+    const availableVariants = getCurrentModelVariants().filter(isPiThinkingLevel);
     const hasVariants = availableVariants.length > 0;
 
     const costRows = [
@@ -477,12 +487,28 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         { label: 'Output', value: formatTokens(currentMetadata?.limit?.output) },
     ];
 
-    const latestLoadedUserChoiceRestoreRef = React.useRef<string | null>(null);
+    const existingSessionRestoreRef = React.useRef<string | null>(null);
 
     const currentSessionDirectory = currentSessionId ? getDirectoryForSession(currentSessionId) : undefined;
     const hasRenderableCurrentSessionSnapshot = useSessionRenderable(
         currentSessionId ?? '',
         currentSessionDirectory ?? undefined,
+    );
+    const existingSessionSelection = usePiSessionSnapshot(
+        (state) => {
+            if (!currentSessionId) return null;
+            const session = state.reducer.bySession.get(currentSessionId);
+            if (!session) return null;
+            return { model: session.model, thinking: session.thinking };
+        },
+        (previous, next) => {
+            if (previous === next) return true;
+            if (!previous || !next) return false;
+            return previous.model?.providerId === next.model?.providerId
+                && previous.model?.modelId === next.model?.modelId
+                && previous.thinking === next.thinking;
+        },
+        currentSessionId ? `session:${currentSessionId}` : '*',
     );
     const currentSessionMessagesFromSync = useSessionMessages(currentSessionId ?? '', currentSessionDirectory ?? undefined);
     // Skip synthetic subagent-completion nudges — restoring from them resets a
@@ -520,21 +546,75 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             setProvider(providerId);
             setModel(modelId);
 
+            const nextThinking = resolveComposerThinkingForModel({
+                providerId,
+                modelId,
+                thinkingLevels: modelExists.thinkingLevels,
+                reasoning: modelExists.reasoning,
+                supportsThinking: modelExists.supportsThinking,
+                defaultThinkingByModel: settingsDefaultThinkingByModel,
+                defaultThinking: settingsDefaultThinking,
+                previousThinking: currentVariant,
+            });
+            setCurrentVariant(nextThinking);
+
             if (currentSessionId) {
                 saveSessionModelSelection(currentSessionId, providerId, modelId);
             }
 
             return 'applied';
         },
-        [providers, currentProviderId, currentModelId, setProvider, setModel, currentSessionId, saveSessionModelSelection],
+        [providers, currentProviderId, currentModelId, currentVariant, setProvider, setModel, setCurrentVariant, currentSessionId, saveSessionModelSelection, settingsDefaultThinking, settingsDefaultThinkingByModel],
     );
 
     const getModelVariantOptions = React.useCallback((providerId: string, modelId: string) => {
         const provider = providers.find((entry) => entry.id === providerId);
-        const model = provider?.models.find((entry) => entry.id === modelId) as { variants?: Record<string, unknown> } | undefined;
-        const variants = model?.variants;
-        return variants ? Object.keys(variants) : [];
+        const model = (Array.isArray(provider?.models) ? provider.models : []).find((entry) => entry.id === modelId);
+        return configurableThinkingLevels(model);
     }, [providers]);
+
+    const applyLockedSessionComposerSelection = React.useCallback(
+        (providerId: string, modelId: string, thinking: PiThinkingLevel | undefined): ModelApplyResult => {
+            if (!providerId || !modelId) {
+                return 'model-missing';
+            }
+
+            const provider = providers.find((entry) => entry.id === providerId);
+            if (!provider) {
+                return 'provider-missing';
+            }
+
+            const providerModels = Array.isArray(provider.models) ? provider.models : [];
+            if (!providerModels.some((model: ProviderModel) => model.id === modelId)) {
+                return 'model-missing';
+            }
+
+            if (currentProviderId !== providerId) {
+                setProvider(providerId);
+            }
+            if (currentProviderId !== providerId || currentModelId !== modelId) {
+                setModel(modelId);
+            }
+            if (currentSessionId) {
+                saveSessionModelSelection(currentSessionId, providerId, modelId);
+            }
+
+            const levels = getModelVariantOptions(providerId, modelId);
+            setCurrentVariant(thinking && levels.includes(thinking) ? thinking : undefined);
+            return 'applied';
+        },
+        [
+            currentModelId,
+            currentProviderId,
+            currentSessionId,
+            getModelVariantOptions,
+            providers,
+            saveSessionModelSelection,
+            setCurrentVariant,
+            setModel,
+            setProvider,
+        ],
+    );
 
     const resolveModelVariantSelection = React.useCallback((providerId: string, modelId: string) => {
         const variantOptions = getModelVariantOptions(providerId, modelId);
@@ -542,12 +622,22 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             return undefined;
         }
 
-        if (currentProviderId === providerId && currentModelId === modelId && currentVariant && variantOptions.includes(currentVariant)) {
+        if (currentProviderId === providerId && currentModelId === modelId && isPiThinkingLevel(currentVariant) && variantOptions.includes(currentVariant)) {
             return currentVariant;
         }
 
-        if (!currentSessionId && settingsDefaultVariant && variantOptions.includes(settingsDefaultVariant)) {
-            return settingsDefaultVariant;
+        if (!currentSessionId) {
+            const provider = providers.find((entry) => entry.id === providerId);
+            const model = (Array.isArray(provider?.models) ? provider.models : []).find((entry) => entry.id === modelId);
+            return resolveComposerThinkingForModel({
+                providerId,
+                modelId,
+                thinkingLevels: model?.thinkingLevels,
+                reasoning: model?.reasoning,
+                supportsThinking: model?.supportsThinking,
+                defaultThinkingByModel: settingsDefaultThinkingByModel,
+                defaultThinking: settingsDefaultThinking,
+            });
         }
 
         return undefined;
@@ -557,24 +647,28 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         currentSessionId,
         currentVariant,
         getModelVariantOptions,
-        settingsDefaultVariant,
+        providers,
+        settingsDefaultThinking,
+        settingsDefaultThinkingByModel,
     ]);
 
     const commitVariantSelectionForModel = React.useCallback((providerId: string, modelId: string, variant: string | undefined) => {
         const variantOptions = getModelVariantOptions(providerId, modelId);
         if (variantOptions.length === 0) {
             manualVariantSelectionRef.current = false;
-            setCurrentVariant(undefined);
+            void applyComposerThinking(undefined).catch(notifyThinkingApplyFailed);
             return;
         }
 
+        const next = isPiThinkingLevel(variant) && variantOptions.includes(variant)
+            ? variant
+            : undefined;
         manualVariantSelectionRef.current = true;
-        setCurrentVariant(variant);
+        void applyComposerThinking(next).catch(notifyThinkingApplyFailed);
         addRecentEffort(providerId, modelId, variant);
     }, [
         addRecentEffort,
         getModelVariantOptions,
-        setCurrentVariant,
     ]);
 
     const applyModelSelectionWithVariant = React.useCallback((providerId: string, modelId: string, variant: string | undefined) => {
@@ -590,106 +684,11 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
 
     React.useEffect(() => {
         if (!currentSessionId) {
-            latestLoadedUserChoiceRestoreRef.current = null;
-            return;
-        }
-
-        if (!contextHydrated || providers.length === 0 || !hasRenderableCurrentSessionSnapshot || !latestLoadedUserChoice?.providerID || !latestLoadedUserChoice.modelID) {
-            return;
-        }
-
-        const restoreKey = [
-            currentSessionId,
-            latestLoadedUserChoice.id,
-            latestLoadedUserChoice.agent ?? '',
-            latestLoadedUserChoice.providerID,
-            latestLoadedUserChoice.modelID,
-            latestLoadedUserChoice.variant ?? '',
-        ].join('|');
-
-        if (latestLoadedUserChoiceRestoreRef.current === restoreKey) {
-            return;
-        }
-
-        // Manual session override wins over historical / synthetic message metadata.
-        const savedSessionModel = getSessionModelSelection(currentSessionId);
-        if (shouldPreserveManualModelOverride({
-            selectionSource: useConfigStore.getState().selectionSource,
-            savedSessionModel,
-            candidate: latestLoadedUserChoice,
-        })) {
-            if (savedSessionModel) {
-                applyModelSelectionWithVariant(
-                    savedSessionModel.providerId,
-                    savedSessionModel.modelId,
-                    resolveModelVariantSelection(savedSessionModel.providerId, savedSessionModel.modelId),
-                );
-            }
-            latestLoadedUserChoiceRestoreRef.current = restoreKey;
-            return;
-        }
-
-        if (latestLoadedUserChoice.agent && currentAgentName !== latestLoadedUserChoice.agent) {
-            setAgent(latestLoadedUserChoice.agent);
-        }
-
-        const historicalVariant = latestLoadedUserChoice.variant
-            && getModelVariantOptions(latestLoadedUserChoice.providerID, latestLoadedUserChoice.modelID).includes(latestLoadedUserChoice.variant)
-            ? latestLoadedUserChoice.variant
-            : undefined;
-        const applyResult = applyModelSelectionWithVariant(
-            latestLoadedUserChoice.providerID,
-            latestLoadedUserChoice.modelID,
-            historicalVariant,
-        );
-        if (applyResult !== 'applied') {
-            return;
-        }
-
-        saveSessionModelSelection(currentSessionId, latestLoadedUserChoice.providerID, latestLoadedUserChoice.modelID);
-        latestLoadedUserChoiceRestoreRef.current = restoreKey;
-
-    }, [
-        currentSessionId,
-        currentAgentName,
-        contextHydrated,
-        providers,
-        hasRenderableCurrentSessionSnapshot,
-        latestLoadedUserChoice,
-        setAgent,
-        applyModelSelectionWithVariant,
-        getModelVariantOptions,
-        getSessionModelSelection,
-        resolveModelVariantSelection,
-        saveSessionModelSelection,
-    ]);
-
-    React.useEffect(() => {
-        if (!currentSessionId) {
-            latestLoadedUserChoiceRestoreRef.current = null;
+            existingSessionRestoreRef.current = null;
             return;
         }
 
         if (!contextHydrated || providers.length === 0) {
-            return;
-        }
-
-        const applySavedSelections = (): 'resolved' | 'waiting' | 'continue' => {
-            const savedSessionModel = getSessionModelSelection(currentSessionId);
-            if (savedSessionModel) {
-                const result = tryApplyModelSelection(savedSessionModel.providerId, savedSessionModel.modelId);
-                if (result === 'applied') {
-                    return 'resolved';
-                }
-                if (result === 'provider-missing') {
-                    return 'waiting';
-                }
-            }
-            return 'continue';
-        };
-
-        const savedOutcome = applySavedSelections();
-        if (savedOutcome === 'resolved' || savedOutcome === 'waiting') {
             return;
         }
 
@@ -698,17 +697,88 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             return;
         }
 
-        if (latestLoadedUserChoice) {
+        if (existingSessionRestoreRef.current === currentSessionId) {
             return;
         }
+
+        const lockThinking = (thinking: PiThinkingLevel | undefined) => {
+            if (thinking && currentProviderId && currentModelId) {
+                const levels = getModelVariantOptions(currentProviderId, currentModelId);
+                setCurrentVariant(levels.includes(thinking) ? thinking : undefined);
+                return;
+            }
+            setCurrentVariant(undefined);
+        };
+
+        const sessionModel = existingSessionSelection?.model;
+        if (sessionModel) {
+            const result = applyLockedSessionComposerSelection(
+                sessionModel.providerId,
+                sessionModel.modelId,
+                existingSessionSelection?.thinking,
+            );
+            if (result === 'provider-missing') {
+                return;
+            }
+            existingSessionRestoreRef.current = currentSessionId;
+            return;
+        }
+
+        if (existingSessionSelection?.thinking) {
+            lockThinking(existingSessionSelection.thinking);
+            existingSessionRestoreRef.current = currentSessionId;
+            return;
+        }
+
+        if (latestLoadedUserChoice?.providerID && latestLoadedUserChoice.modelID) {
+            if (latestLoadedUserChoice.agent && currentAgentName !== latestLoadedUserChoice.agent) {
+                setAgent(latestLoadedUserChoice.agent);
+            }
+            const historicalVariant = latestLoadedUserChoice.variant
+                && isPiThinkingLevel(latestLoadedUserChoice.variant)
+                && getModelVariantOptions(latestLoadedUserChoice.providerID, latestLoadedUserChoice.modelID).includes(latestLoadedUserChoice.variant)
+                ? latestLoadedUserChoice.variant
+                : undefined;
+            const result = applyLockedSessionComposerSelection(
+                latestLoadedUserChoice.providerID,
+                latestLoadedUserChoice.modelID,
+                historicalVariant,
+            );
+            if (result === 'provider-missing') {
+                return;
+            }
+            existingSessionRestoreRef.current = currentSessionId;
+            return;
+        }
+
+        const savedSessionModel = getSessionModelSelection(currentSessionId);
+        if (savedSessionModel) {
+            const result = applyLockedSessionComposerSelection(
+                savedSessionModel.providerId,
+                savedSessionModel.modelId,
+                existingSessionSelection?.thinking,
+            );
+            if (result === 'provider-missing') {
+                return;
+            }
+        }
+
+        existingSessionRestoreRef.current = currentSessionId;
     }, [
+        applyLockedSessionComposerSelection,
+        contextHydrated,
+        currentAgentName,
+        currentModelId,
+        currentProviderId,
         currentSessionId,
+        existingSessionSelection,
+        getModelVariantOptions,
+        getSessionModelSelection,
         hasRenderableCurrentSessionSnapshot,
         latestLoadedUserChoice,
-        getSessionModelSelection,
-        tryApplyModelSelection,
-        contextHydrated,
-        providers,
+        providers.length,
+        setAgent,
+        setCurrentVariant,
         sync,
     ]);
 
@@ -725,51 +795,68 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             return;
         }
 
-        if (availableVariants.length === 0) {
-            manualVariantSelectionRef.current = false;
-            setCurrentVariant(undefined);
-            return;
-        }
-
-        if (currentVariant && !availableVariants.includes(currentVariant)) {
-            setCurrentVariant(undefined);
-            return;
-        }
-
-        // Draft state (no session yet): seed from settings default, but don't override
-        // user selection while drafting.
-        if (!currentSessionId) {
-            if (!currentVariant && !manualVariantSelectionRef.current) {
-                const desired = settingsDefaultVariant && availableVariants.includes(settingsDefaultVariant)
-                    ? settingsDefaultVariant
-                    : undefined;
-                setCurrentVariant(desired);
+        const provider = providers.find((entry) => entry.id === currentProviderId);
+        const model = (Array.isArray(provider?.models) ? provider.models : []).find((entry) => entry.id === currentModelId);
+        const levels = catalogThinkingLevels(model);
+        if (!modelHasConfigurableThinking(levels)) {
+            if (currentVariant && isPiThinkingLevel(currentVariant)) {
+                setCurrentVariant(undefined);
             }
             return;
         }
 
-        const resolvedSaved = settingsDefaultVariant && availableVariants.includes(settingsDefaultVariant)
-            ? settingsDefaultVariant
-            : undefined;
+        if (!currentSessionId && !currentVariant && !manualVariantSelectionRef.current) {
+            const desired = resolveComposerThinkingForModel({
+                providerId: currentProviderId,
+                modelId: currentModelId,
+                thinkingLevels: model?.thinkingLevels,
+                reasoning: model?.reasoning,
+                supportsThinking: model?.supportsThinking,
+                defaultThinkingByModel: settingsDefaultThinkingByModel,
+                defaultThinking: settingsDefaultThinking,
+            });
+            if (desired) setCurrentVariant(desired);
+            return;
+        }
 
-        setCurrentVariant(resolvedSaved);
-        manualVariantSelectionRef.current = false;
+        if (currentVariant && isPiThinkingLevel(currentVariant) && !levels.includes(currentVariant)) {
+            setCurrentVariant(resolveComposerThinkingForModel({
+                providerId: currentProviderId,
+                modelId: currentModelId,
+                thinkingLevels: model?.thinkingLevels,
+                reasoning: model?.reasoning,
+                supportsThinking: model?.supportsThinking,
+                defaultThinkingByModel: settingsDefaultThinkingByModel,
+                defaultThinking: settingsDefaultThinking,
+                previousThinking: currentVariant,
+            }));
+            return;
+        }
+
+        if (currentSessionId && !currentVariant && !manualVariantSelectionRef.current) {
+            const sessionThinking = parsePiThinkingLevel(existingSessionSelection?.thinking);
+            if (sessionThinking && levels.includes(sessionThinking)) {
+                setCurrentVariant(sessionThinking);
+            }
+        }
     }, [
-        availableVariants,
         contextHydrated,
         currentSessionId,
         currentProviderId,
         currentModelId,
         currentVariant,
+        existingSessionSelection,
+        providers,
         setCurrentVariant,
-        settingsDefaultVariant,
+        settingsDefaultThinking,
+        settingsDefaultThinkingByModel,
     ]);
 
     React.useEffect(() => {
         manualVariantSelectionRef.current = false;
     }, [currentProviderId, currentModelId]);
 
-    const handleVariantSelect = React.useCallback((variant: string | undefined) => {
+    const handleVariantSelect = React.useCallback((variant: PiThinkingLevel | undefined) => {
         if (currentProviderId && currentModelId) {
             commitVariantSelectionForModel(currentProviderId, currentModelId, variant);
         }
@@ -1012,11 +1099,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             requestAnimationFrame(focusChatInput);
         };
 
-        const openMobileVariantOverflow = (providerId: string, modelId: string) => {
-            setMobileVariantTarget({ providerId, modelId });
-            setActiveMobilePanel('variant');
-        };
-
         const renderMobileModelRow = ({
             model,
             providerId,
@@ -1036,8 +1118,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             const resolvedVariant = resolveModelVariantSelection(providerId, modelId);
             const variantLabel = hasVariants ? formatEffortLabel(resolvedVariant) : null;
             const isExpanded = expandedMobileModelKey === rowKey;
-            const inlineVariantOptions = [undefined, ...variantOptions].slice(0, MAX_INLINE_MOBILE_VARIANT_OPTIONS);
-            const hasVariantOverflow = inlineVariantOptions.length < variantOptions.length + 1;
             const capabilityIcons = getCapabilityIcons(metadata).map((icon) => ({
                 ...icon,
                 label: localizeMetaLabel(icon.label),
@@ -1146,38 +1226,12 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                         </div>
                     </div>
                     {isExpanded && hasVariants ? (
-                        <div className="border-t border-border/30 p-2">
-                            <div className="flex flex-wrap gap-2">
-                                {inlineVariantOptions.map((variantOption) => {
-                                    const isVariantSelected = variantOption === resolvedVariant || (!variantOption && !resolvedVariant);
-                                    return (
-                                        <button
-                                            key={`${rowKey}-variant-${variantOption ?? 'default'}`}
-                                            type="button"
-                                            onClick={() => handleMobileModelApply(providerId, modelId, variantOption)}
-                                            className={cn(
-                                                'inline-flex items-center rounded-full border px-2.5 py-1 typography-meta font-medium',
-                                                isVariantSelected
-                                                    ? 'border-primary/30 bg-primary/10 text-foreground'
-                                                    : 'border-border/40 text-muted-foreground hover:bg-interactive-hover/50'
-                                            )}
-                                            aria-pressed={isVariantSelected}
-                                        >
-                                            {formatEffortLabel(variantOption)}
-                                        </button>
-                                    );
-                                })}
-                                {hasVariantOverflow ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => openMobileVariantOverflow(providerId, modelId)}
-                                        className="inline-flex items-center rounded-full border border-border/40 px-2.5 py-1 typography-meta font-medium text-muted-foreground hover:bg-interactive-hover/50"
-                                        aria-label={"More thinking modes"}
-                                    >
-                                        {"Show more"}
-                                    </button>
-                                ) : null}
-                            </div>
+                        <div className="border-t border-border/30 px-1 py-1">
+                            <ThinkingLevelPicker
+                                levels={variantOptions}
+                                value={parsePiThinkingLevel(resolvedVariant) ?? undefined}
+                                onChange={(next) => handleMobileModelApply(providerId, modelId, next)}
+                            />
                         </div>
                     ) : null}
                 </div>
@@ -1325,23 +1379,15 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
 
     const renderMobileVariantPanel = () => {
         if (!isCompact) return null;
+        if (!currentProviderId || !currentModelId) return null;
 
-        const targetProviderId = mobileVariantTarget?.providerId ?? currentProviderId;
-        const targetModelId = mobileVariantTarget?.modelId ?? currentModelId;
-        if (!targetProviderId || !targetModelId) return null;
-
-        const targetVariants = getModelVariantOptions(targetProviderId, targetModelId);
+        const targetVariants = getModelVariantOptions(currentProviderId, currentModelId);
         if (targetVariants.length === 0) return null;
 
-        const selectedVariant = resolveModelVariantSelection(targetProviderId, targetModelId);
-        const isDefault = !selectedVariant;
+        const selectedVariant = resolveModelVariantSelection(currentProviderId, currentModelId);
 
-        const handleBack = () => {
-            setActiveMobilePanel('model');
-        };
-
-        const handleSelect = (variant: string | undefined) => {
-            const result = applyModelSelectionWithVariant(targetProviderId, targetModelId, variant);
+        const handleSelect = (variant: PiThinkingLevel | undefined) => {
+            const result = applyModelSelectionWithVariant(currentProviderId, currentModelId, variant);
             if (result !== 'applied') {
                 return;
             }
@@ -1355,56 +1401,12 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                 open={activeMobilePanel === 'variant'}
                 onClose={closeMobilePanel}
                 title={"Thinking"}
-                renderHeader={mobileVariantTarget ? ((closeButton) => (
-                    <div className="flex items-center justify-between px-3 py-2 border-b border-border/40">
-                        <button
-                            type="button"
-                            onClick={handleBack}
-                            className="flex items-center gap-1 rounded-lg px-1.5 py-1 typography-meta text-muted-foreground hover:bg-interactive-hover"
-                        >
-                            <Icon name="arrow-go-back" className="size-4" />
-                            <span>{"Back"}</span>
-                        </button>
-                        <h2 className="typography-ui-label font-semibold text-foreground">{"Thinking"}</h2>
-                        {closeButton}
-                    </div>
-                )) : undefined}
             >
-                <div className="flex flex-col gap-1.5">
-                    <button
-                        type="button"
-                        className={cn(
-                            'flex w-full items-center justify-between gap-2 rounded-xl border px-2 py-1.5 text-left',
-                            'focus:outline-none focus-visible:ring-1 focus-visible:ring-primary',
-                            isDefault ? 'border-primary/30 bg-primary/10' : 'border-border/40'
-                        )}
-                        onClick={() => handleSelect(undefined)}
-                    >
-                        <span className="typography-meta font-medium text-foreground">{"Default"}</span>
-                        {isDefault && <Icon name="check" className="size-4 text-primary flex-shrink-0" />}
-                    </button>
-
-                    {targetVariants.map((variant) => {
-                        const selected = selectedVariant === variant;
-                        const label = formatEffortLabel(variant);
-
-                        return (
-                            <button
-                                key={variant}
-                                type="button"
-                                className={cn(
-                                    'flex w-full items-center justify-between gap-2 rounded-xl border px-2 py-1.5 text-left',
-                                    'focus:outline-none focus-visible:ring-1 focus-visible:ring-primary',
-                                    selected ? 'border-primary/30 bg-primary/10' : 'border-border/40'
-                                )}
-                                onClick={() => handleSelect(variant)}
-                            >
-                                <span className="typography-meta font-medium text-foreground">{label}</span>
-                                {selected && <Icon name="check" className="size-4 text-primary flex-shrink-0" />}
-                            </button>
-                        );
-                    })}
-                </div>
+                <ThinkingLevelPicker
+                    levels={targetVariants}
+                    value={parsePiThinkingLevel(selectedVariant) ?? undefined}
+                    onChange={handleSelect}
+                />
             </MobileOverlayPanel>
         );
     };
@@ -1500,9 +1502,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return false;
 
             const { providerID, modelID } = selectedItem;
-            const canonicalProvider = useConfigStore.getState().providers.find((provider) => provider.id === providerID);
-            const canonicalModel = canonicalProvider?.models.find((model) => model.id === modelID) as { variants?: Record<string, unknown> } | undefined;
-            const variantKeys = canonicalModel?.variants ? Object.keys(canonicalModel.variants) : getModelVariantOptions(providerID, modelID);
+            const variantKeys = getModelVariantOptions(providerID, modelID);
             if (variantKeys.length === 0) return false;
 
             e.preventDefault();
@@ -1512,13 +1512,11 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             const hasPendingVariant = pendingThinkingVariants.has(mapKey);
             const currentPending = pendingThinkingVariants.get(mapKey);
             const activeModelVariant = hasPendingVariant ? currentPending : (currentProviderId === providerID && currentModelId === modelID ? currentVariant : undefined);
-
-            const variantsWithDefault: Array<string | undefined> = [undefined, ...variantKeys];
-            const currentVariantIndex = variantsWithDefault.indexOf(activeModelVariant);
-            const safeCurrentIndex = currentVariantIndex >= 0 ? currentVariantIndex : 0;
-            const direction = e.key === 'ArrowRight' ? 1 : -1;
-            const nextVariantIndex = (safeCurrentIndex + direction + variantsWithDefault.length) % variantsWithDefault.length;
-            const nextVariant = variantsWithDefault[nextVariantIndex];
+            const nextVariant = cycleThinkingLevel(
+                variantKeys,
+                isPiThinkingLevel(activeModelVariant) ? activeModelVariant : undefined,
+                e.key === 'ArrowRight' ? 1 : -1,
+            );
 
             setPendingThinkingVariants((prev) => {
                 const next = new Map(prev);
@@ -1581,9 +1579,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             const hasPendingVariant = pendingThinkingVariants.has(mapKey);
             const pendingVariant = pendingThinkingVariants.get(mapKey);
             const effectiveVariant = hasPendingVariant ? pendingVariant : (isSelected ? currentVariant : undefined);
-            const displayLabel = effectiveVariant
-                ? effectiveVariant.charAt(0).toUpperCase() + effectiveVariant.slice(1)
-                : 'Default';
+            const displayLabel = thinkingLevelLabel(
+                isPiThinkingLevel(effectiveVariant) ? effectiveVariant : undefined,
+            );
 
             return (
                 <span className={cn('typography-micro whitespace-nowrap', wasAdjusted ? 'text-foreground' : 'text-muted-foreground')}>
@@ -1611,7 +1609,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                             <span className={cn(
                                                 'model-controls__model-label',
                                                 controlTextSize,
-                                                'font-medium whitespace-nowrap text-muted-foreground min-w-0'
+                                                'font-normal whitespace-nowrap text-muted-foreground min-w-0'
                                             )}>
                                                 {readinessLabel}
                                             </span>
@@ -1634,7 +1632,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                             className={cn(
                                                 'model-controls__model-label overflow-hidden',
                                                 controlTextSize,
-                                                'font-medium whitespace-nowrap text-foreground min-w-0',
+                                                'font-normal whitespace-nowrap text-foreground min-w-0',
                                                 'max-w-[260px]'
                                             )}
                                         >
@@ -1643,6 +1641,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                             </span>
                                         </span>
                                     )}
+                                    {isReady ? (
+                                        <Icon name="arrow-down-s" className="size-3.5 shrink-0 text-muted-foreground" />
+                                    ) : null}
                                 </button>
                             </DropdownMenuTrigger>
                         </TooltipTrigger>
@@ -1728,7 +1729,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                         {!isReady ? (
                             <>
                                 <Icon name="loader-4" className={cn(controlIconSize, 'animate-spin text-muted-foreground flex-shrink-0')} />
-                                <span className="typography-micro font-medium text-muted-foreground min-w-0">
+                                <span className="typography-micro font-normal text-muted-foreground min-w-0">
                                     {readinessLabel}
                                 </span>
                             </>
@@ -1745,7 +1746,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                 <span
                                     ref={modelLabelRef}
                                     className={cn(
-                                        'model-controls__model-label typography-micro font-medium overflow-hidden min-w-0',
+                                        'model-controls__model-label typography-micro font-normal overflow-hidden min-w-0',
                                         isMobile ? 'max-w-[120px]' : 'max-w-[220px]',
                                     )}
                                 >
@@ -1753,6 +1754,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                         {currentModelDisplayName}
                                     </span>
                                 </span>
+                                <Icon name="arrow-down-s" className="size-3.5 shrink-0 text-muted-foreground" />
                             </>
                         )}
                     </button>
@@ -1769,102 +1771,29 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             return null;
         }
 
-        const displayVariant = currentVariant ?? "Default";
-        const isDefault = !currentVariant;
-        const colorClass = isDefault ? 'text-muted-foreground' : 'text-[color:var(--status-info)]';
-
-        if (isCompact) {
-            return (
-                <button
-                    type="button"
-                    onClick={() => setActiveMobilePanel('variant')}
-                    className={cn(
-                        'model-controls__variant-trigger flex items-center gap-1.5 transition-opacity min-w-0 focus:outline-none',
-                        buttonHeight,
-                        'cursor-pointer hover:bg-transparent hover:opacity-70',
-                    )}
-                >
-                    <Icon name="brain-ai-3" className={cn(controlIconSize, 'flex-shrink-0', colorClass)} />
-                    <span className={cn(
-                        'model-controls__variant-label',
-                        controlTextSize,
-                        'font-medium truncate min-w-0',
-                        isMobile && 'max-w-[60px]',
-                        colorClass
-                    )}>
-                        {displayVariant}
-                    </span>
-                </button>
-            );
-        }
-
         return (
-            <Tooltip delayDuration={600}>
-                <DropdownMenu>
-                    <TooltipTrigger asChild>
-                        <DropdownMenuTrigger asChild>
-                            <button
-                                type="button"
-                                className={cn(
-                                    'model-controls__variant-trigger flex items-center gap-1.5 transition-colors cursor-pointer hover:bg-transparent hover:opacity-70 min-w-0',
-                                    buttonHeight,
-                                )}
-                            >
-                                <Icon name="brain-ai-3" className={cn(controlIconSize, 'flex-shrink-0', colorClass)} />
-                                <span
-                                    className={cn(
-                                        'model-controls__variant-label',
-                                        controlTextSize,
-                                        'font-medium min-w-0 truncate',
-                                        isDesktop ? 'max-w-[180px]' : undefined,
-                                        colorClass,
-                                    )}
-                                >
-                                    {displayVariant}
-                                </span>
-                            </button>
-                        </DropdownMenuTrigger>
-                    </TooltipTrigger>
-                    <DropdownMenuContent align="end" alignOffset={-40} className="w-[min(180px,calc(100vw-2rem))]">
-                        <DropdownMenuLabel className="typography-ui-header font-semibold text-foreground">{"Thinking"}</DropdownMenuLabel>
-                        <DropdownMenuItem className="typography-meta" onSelect={() => handleVariantSelect(undefined)}>
-                            <div className="flex items-center justify-between gap-2 w-full min-w-0">
-                                <span className="typography-meta font-medium text-foreground truncate min-w-0">{"Default"}</span>
-                                {isDefault && <Icon name="check" className="size-4 text-primary flex-shrink-0" />}
-                            </div>
-                        </DropdownMenuItem>
-                        {availableVariants.length > 0 && <DropdownMenuSeparator />}
-                        {availableVariants.map((variant) => {
-                            const selected = currentVariant === variant;
-                            const label = variant.charAt(0).toUpperCase() + variant.slice(1);
-                            return (
-                                <DropdownMenuItem
-                                    key={variant}
-                                    className="typography-meta"
-                                    onSelect={() => handleVariantSelect(variant)}
-                                >
-                                    <div className="flex items-center justify-between gap-2 w-full min-w-0">
-                                        <span className="typography-meta font-medium text-foreground truncate min-w-0">{label}</span>
-                                        {selected && <Icon name="check" className="size-4 text-primary flex-shrink-0" />}
-                                    </div>
-                                </DropdownMenuItem>
-                            );
-                        })}
-                    </DropdownMenuContent>
-                </DropdownMenu>
-                <TooltipContent side="top">
-                    <p className="typography-meta">Thinking: {displayVariant}</p>
-                </TooltipContent>
-            </Tooltip>
+            <ThinkingLevelControl
+                levels={availableVariants}
+                value={parsePiThinkingLevel(currentVariant) ?? undefined}
+                onChange={handleVariantSelect}
+                compact={isCompact}
+                onCompactOpen={() => setActiveMobilePanel('variant')}
+                buttonHeight={buttonHeight}
+                iconSize={controlIconSize}
+                textSize={controlTextSize}
+                isMobile={isMobile}
+                isDesktop={isDesktop}
+            />
         );
     };
 
 
 
     const inlineClassName = cn(
-        '@container/model-controls flex items-center min-w-0',
+        !keepLabels && '@container/model-controls',
+        'flex items-center',
+        keepLabels ? 'w-max shrink-0' : 'min-w-0',
         // Only force full-width + truncation behaviors on true mobile layouts.
-        // VS Code also uses "compact" mode, but should keep its right-aligned inline sizing.
         isMobile && 'w-full',
         className,
     );
@@ -1874,13 +1803,13 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             <div className={inlineClassName}>
                 <div
                     className={cn(
-                        'flex items-center min-w-0 flex-1 justify-end',
+                        'flex items-center min-w-0 justify-start',
                         inlineGapClass,
                         isMobile && 'overflow-hidden'
                     )}
                 >
-                    {renderVariantSelector()}
                     {renderModelSelector()}
+                    {renderVariantSelector()}
                 </div>
             </div>
 

@@ -16,8 +16,6 @@ export type PendingDiffScope = 'working' | 'staged' | 'turn';
 export type ContextPanelMode = 'diff' | 'file' | 'context' | 'chat' | 'preview' | 'browser' | 'git' | 'notes' | 'terminal';
 type MermaidRenderingMode = 'svg' | 'ascii';
 type UserMessageRenderingMode = 'markdown' | 'plain';
-type ChatRenderMode = 'sorted' | 'live';
-type ActivityRenderMode = 'collapsed' | 'summary';
 type SessionRetentionAction = 'archive' | 'delete';
 export type TimeFormatPreference = 'auto' | '12h' | '24h';
 type WeekStartPreference = 'auto' | 'sunday' | 'monday';
@@ -636,8 +634,6 @@ interface UIStore {
   eventStreamHint: string | null;
   showReasoningTraces: boolean;
   collapsibleThinkingBlocks: boolean;
-  chatRenderMode: ChatRenderMode;
-  activityRenderMode: ActivityRenderMode;
   showDeletionDialog: boolean;
   autoDeleteEnabled: boolean;
   /** Global file-editor autosave. Default true for backward compatibility. */
@@ -786,8 +782,6 @@ interface UIStore {
   setEventStreamStatus: (status: EventStreamStatus, hint?: string | null) => void;
   setShowReasoningTraces: (value: boolean) => void;
   setCollapsibleThinkingBlocks: (value: boolean) => void;
-  setChatRenderMode: (value: ChatRenderMode) => void;
-  setActivityRenderMode: (value: ActivityRenderMode) => void;
   setShowDeletionDialog: (value: boolean) => void;
   setAutoDeleteEnabled: (value: boolean) => void;
   setAutoSaveEnabled: (value: boolean) => void;
@@ -926,8 +920,6 @@ export const useUIStore = create<UIStore>()(
         eventStreamHint: null,
         showReasoningTraces: true,
         collapsibleThinkingBlocks: true,
-        chatRenderMode: 'live',
-        activityRenderMode: 'summary',
         showDeletionDialog: true,
         autoDeleteEnabled: false,
         autoSaveEnabled: true,
@@ -1582,14 +1574,6 @@ export const useUIStore = create<UIStore>()(
 
         setCollapsibleThinkingBlocks: (value) => {
           set({ collapsibleThinkingBlocks: value });
-        },
-
-        setChatRenderMode: (value) => {
-          set({ chatRenderMode: value });
-        },
-
-        setActivityRenderMode: (value) => {
-          set({ activityRenderMode: value });
         },
 
         setShowDeletionDialog: (value) => {
@@ -2317,8 +2301,6 @@ export const useUIStore = create<UIStore>()(
           // Note: isSettingsDialogOpen intentionally NOT persisted
           showReasoningTraces: state.showReasoningTraces,
           collapsibleThinkingBlocks: state.collapsibleThinkingBlocks,
-          chatRenderMode: state.chatRenderMode,
-          activityRenderMode: state.activityRenderMode,
           showDeletionDialog: state.showDeletionDialog,
           autoDeleteEnabled: state.autoDeleteEnabled,
           autoSaveEnabled: state.autoSaveEnabled,

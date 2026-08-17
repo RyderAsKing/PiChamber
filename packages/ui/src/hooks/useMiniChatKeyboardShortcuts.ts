@@ -1,5 +1,7 @@
 import React from 'react';
 import { focusChatInput } from '@/components/chat/composer/editor/dom';
+import { toast } from '@/components/ui';
+import { cycleComposerThinking } from '@/lib/pi/apply-composer-thinking';
 import { canUseElectronDesktopIPC, invokeDesktop } from '@/lib/desktop';
 import { eventMatchesShortcut, getEffectiveShortcutCombo } from '@/lib/shortcuts';
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -62,17 +64,18 @@ export const useMiniChatKeyboardShortcuts = () => {
         }
 
         event.preventDefault();
-        configState.cycleCurrentVariant();
+        void cycleComposerThinking(1).then((nextVariant) => {
+          const sessionId = useSessionUIStore.getState().currentSessionId;
+          const agentName = useConfigStore.getState().currentAgentName;
+          const providerId = useConfigStore.getState().currentProviderId;
+          const modelId = useConfigStore.getState().currentModelId;
 
-        const nextVariant = useConfigStore.getState().currentVariant;
-        const sessionId = useSessionUIStore.getState().currentSessionId;
-        const agentName = useConfigStore.getState().currentAgentName;
-        const providerId = useConfigStore.getState().currentProviderId;
-        const modelId = useConfigStore.getState().currentModelId;
-
-        if (sessionId && agentName && providerId && modelId) {
-          useSelectionStore.getState().saveAgentModelVariantForSession(sessionId, agentName, providerId, modelId, nextVariant);
-        }
+          if (sessionId && agentName && providerId && modelId) {
+            useSelectionStore.getState().saveAgentModelVariantForSession(sessionId, agentName, providerId, modelId, nextVariant);
+          }
+        }).catch(() => {
+          toast.error("Couldn't update thinking");
+        });
         return;
       }
 

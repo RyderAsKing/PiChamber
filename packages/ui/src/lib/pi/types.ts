@@ -40,9 +40,10 @@ export interface PiSession {
   createdAt: number;
   updatedAt: number;
   /**
-   * The model the session is currently using. After the user changes model or
-   * thinking inside the session, this becomes the authoritative choice and
-   * PiChamber does not reset it.
+   * The last model/thinking used inside this session. Hydration prefers the
+   * latest assistant turn so reopening an older chat does not inherit the
+   * globally last-selected model. After the user changes model or thinking
+   * here, that choice stays until they change it again.
    */
   model?: PiModelRef;
   thinking?: PiThinkingLevel;
@@ -66,7 +67,7 @@ export interface PiModelRef {
 }
 
 /** Pi thinking levels; PiChamber does not introduce a new vocabulary. */
-export type PiThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh';
+export type PiThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /** Common message envelope. Use a discriminant in UI code that switches on role. */
 export type PiMessage = PiUserMessage | PiAssistantMessage;
