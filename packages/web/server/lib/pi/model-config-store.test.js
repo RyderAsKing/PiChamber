@@ -27,6 +27,8 @@ describe('Pi models configuration store', () => {
     expect((await stat(file)).mode & 0o777).toBe(0o600);
     expect(JSON.stringify(await store.get('custom-provider'))).not.toContain('CUSTOM_API_KEY');
     expect(JSON.stringify(await store.get('custom-provider'))).not.toContain('X-Client');
+    await expect(store.get('amazon-bedrock')).resolves.toBeNull();
+    await expect(store.get('builtin')).resolves.toBeNull();
   });
 
   it('keeps malformed Pi models configuration explicit and rejects unsafe updates', async () => {

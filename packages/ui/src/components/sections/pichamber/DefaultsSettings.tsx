@@ -44,7 +44,6 @@ export const DefaultsSettings: React.FC = () => {
   const [defaultVariant, setDefaultVariant] = React.useState<string | undefined>();
   const [smallModelUseDefault, setSmallModelUseDefault] = React.useState(true);
   const [smallModelOverride, setSmallModelOverride] = React.useState<string | undefined>();
-  const [smallModelProviders, setSmallModelProviders] = React.useState<string[] | undefined>();
   const [walkthroughModelOverride, setWalkthroughModelOverride] = React.useState<string | undefined>();
   const [isLoading, setIsLoading] = React.useState(true);
 
@@ -235,26 +234,6 @@ export const DefaultsSettings: React.FC = () => {
     [walkthroughModelOverride]
   );
 
-  React.useEffect(() => {
-    if (smallModelProviders !== undefined) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const response = await runtimeFetch('/api/small-model', { method: 'GET', headers: { Accept: 'application/json' } });
-        if (!response.ok) return;
-        const payload = await response.json().catch(() => null) as { authenticatedProviders?: unknown } | null;
-        if (!cancelled && Array.isArray(payload?.authenticatedProviders)) {
-          setSmallModelProviders(payload.authenticatedProviders.filter((id): id is string => typeof id === 'string'));
-        }
-      } catch {
-        // leave undefined
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [smallModelProviders]);
-
   const availableVariants = React.useMemo(() => {
     if (!parsedModel.providerId || !parsedModel.modelId) return [];
     const provider = providers.find((p) => p.id === parsedModel.providerId);
@@ -420,7 +399,6 @@ export const DefaultsSettings: React.FC = () => {
                   <SelectContent>
                     <SelectItem value="__none__">{"Default"}</SelectItem>
                     {modelOptions
-                      .filter((opt) => !smallModelProviders || smallModelProviders.includes(opt.providerId))
                       .map((opt) => (
                         <SelectItem key={opt.value} value={opt.value}>
                           {opt.label}
@@ -464,7 +442,7 @@ export const DefaultsSettings: React.FC = () => {
                   <SelectContent>
                     <SelectItem value="__none__">{"Small model"}</SelectItem>
                     {modelOptions
-                      .filter((opt) => (!smallModelProviders || smallModelProviders.includes(opt.providerId)) && isStructuredOutputCapable(opt.providerId, opt.modelId))
+                      .filter((opt) => isStructuredOutputCapable(opt.providerId, opt.modelId))
                       .map((opt) => (
                         <SelectItem key={opt.value} value={opt.value}>
                           {opt.label}

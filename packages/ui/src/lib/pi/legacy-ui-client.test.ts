@@ -50,7 +50,7 @@ const { opencodeClient } = await import('./legacy-ui-client');
 describe('opencodeClient.getProvidersForConfig', () => {
   test('projects Pi providers into the config-store provider list shape', async () => {
     const result = await opencodeClient.getProvidersForConfig();
-    expect(result.providers).toHaveLength(1);
+    expect(result.providers).toHaveLength(2);
     expect(result.providers[0]?.id).toBe('p1');
     expect(result.providers).toEqual([
       {
@@ -63,6 +63,18 @@ describe('opencodeClient.getProvidersForConfig', () => {
             providerID: 'p1',
             reasoning: true,
             limit: { context: 128000 },
+          },
+        },
+      },
+      {
+        id: 'p2',
+        name: 'Provider Two',
+        models: {
+          m2: {
+            id: 'm2',
+            name: 'Model Two',
+            providerID: 'p2',
+            reasoning: false,
           },
         },
       },

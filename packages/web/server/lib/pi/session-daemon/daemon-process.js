@@ -20,12 +20,21 @@ const exitWithFailure = (code) => {
   process.exitCode = code;
 };
 
+const chmodIfPossible = async (filePath, mode) => {
+  try {
+    await chmod(filePath, mode);
+  } catch {
+    // Windows and some filesystems reject POSIX mode bits; the sidecar must
+    // still become the ready/failure record.
+  }
+};
+
 const writeState = async (state) => {
   const temporaryPath = `${stateFile}.${process.pid}.tmp`;
   await writeFile(temporaryPath, JSON.stringify(state), { mode: 0o600 });
-  await chmod(temporaryPath, 0o600);
+  await chmodIfPossible(temporaryPath, 0o600);
   await rename(temporaryPath, stateFile);
-  await chmod(stateFile, 0o600);
+  await chmodIfPossible(stateFile, 0o600);
 };
 
 const writeReadyState = () => writeState({

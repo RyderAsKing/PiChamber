@@ -75,7 +75,8 @@ export const ProvidersPage: React.FC = () => {
     void piClient.getProviderConfig(providerId, providerScope()).then((result) => {
       if (active) setProviderConfig(result.config);
     }).catch(() => {
-      if (active) setFailed(true);
+      // Built-in providers have no models.json row; treat that as "not custom".
+      if (active) setProviderConfig(null);
     });
     return () => { active = false; };
   }, [providerId]);
@@ -193,7 +194,10 @@ export const ProvidersPage: React.FC = () => {
   }
 
   if (!provider) {
-    return <div className="flex h-full items-center justify-center text-muted-foreground">{"Loading..."}</div>;
+    if (providers === null) {
+      return <div className="flex h-full items-center justify-center text-muted-foreground">{"Loading..."}</div>;
+    }
+    return <div className="flex h-full items-center justify-center text-muted-foreground">{"No providers"}</div>;
   }
 
   const isConnected = provider.authenticated || login?.state === 'complete';

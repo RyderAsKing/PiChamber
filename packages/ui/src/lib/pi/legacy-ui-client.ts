@@ -24,7 +24,6 @@ export const opencodeClient = {
   getProvidersForConfig: async () => {
     const response = await piClient.listProviders({ runtimeKey: getRuntimeKey() });
     const providers = response.providers
-      .filter((provider) => provider.authenticated)
       .map((provider) => ({
         id: provider.id,
         name: provider.label ?? provider.id,

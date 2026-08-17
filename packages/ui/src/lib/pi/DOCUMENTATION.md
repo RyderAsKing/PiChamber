@@ -229,8 +229,10 @@ session even when the cluster preserves resident transcripts during a folder
 switch.
 
 The global session store separately retains authoritative per-directory snapshots for every added project; switching the active Pi runtime directory must not erase unrelated project sessions. The mounted provider follows the
-persisted PiChamber project store; with no project selected it clears session state
-instead of adopting the daemon process cwd or the filesystem home as a visible project. `App.tsx`, `MobileApp.tsx`, and `ElectronMiniChatApp.tsx`
+persisted PiChamber project store; with no project selected it connects the
+runtime cluster without adopting the daemon process cwd or the filesystem home
+as a visible project, so chrome is `ready` with an empty folder focus instead
+of remaining on `loading`. `App.tsx`, `MobileApp.tsx`, and `ElectronMiniChatApp.tsx`
 mount `PiSessionProvider` around `MainLayout` / the mobile shell / mini-chat.
 
 `usePiSessionSnapshot` caches by store snapshot identity and does not re-run a
@@ -244,9 +246,9 @@ re-renders every subscriber on each accepted event.
 The restored web shell bootstraps provider/model config through
 `initializeApp()` in `SyncAppEffects`; `legacy-ui-client.getProvidersForConfig`
 must return `{ providers, default }` so the config store can leave the picker
-off the loading state. The picker only includes authenticated providers;
-unconfigured catalog entries stay on the Providers settings page. Composer
-chrome does not expose an OpenCode agent selector.
+off the loading state. The picker includes every catalog provider that has
+models, including unauthenticated ones, so users can browse models before
+login. Composer chrome does not expose an OpenCode agent selector.
 Chat, sidebar, and composer mutations go through `PiSessionStore` and `/api/pi/*`. Pi assistant projections preserve their owning user-message id end to end because the restored chat renderer groups assistant output into user turns by that identity. Tool parts preserve input, cumulative partial output, final output, error text, metadata, and start/end timestamps through the reducer and `pi-to-renderable`, satisfying the restored renderer's finalized-tool contract (a completed tool needs an end time and keeps its status verbatim, including `cancelled`).
 Settings chrome is the restored PiChamber hub limited to Pi-owned pages
 (Providers, Skills, Snippets, Behavior/`AGENTS.md`, Magic Prompts, appearance

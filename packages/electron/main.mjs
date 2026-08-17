@@ -14,6 +14,7 @@ import { ElectronSshManager } from './ssh-manager.mjs';
 import { createTrayController } from './tray.mjs';
 import { resolveStartupUrlProbePlan, shouldIgnoreLoopbackConnectionLimit } from './startup-url-selection.mjs';
 import { sanitizeRuntimeRequestHeaders } from './runtime-request-headers.mjs';
+import { resolveElectronUpdaterVersion } from './app-version.mjs';
 import { assertUpdaterCapability } from './updater-capability.mjs';
 import { checkForDesktopUpdate } from './updater-check.mjs';
 import { resolveUpdaterChannel } from './updater-channel.mjs';
@@ -208,7 +209,10 @@ const readAppMetadata = () => {
 };
 
 const APP_METADATA = readAppMetadata();
-const APP_VERSION = APP_METADATA.version;
+const APP_VERSION = resolveElectronUpdaterVersion(APP_METADATA.version);
+if (typeof app.setVersion === 'function') {
+  app.setVersion(APP_VERSION);
+}
 
 const DEFAULT_DESKTOP_PORT = 57123;
 const LOOPBACK_BIND_HOST = '127.0.0.1';

@@ -4,7 +4,7 @@ Electron is PiChamber's native desktop shell for macOS, Windows, and Linux.
 
 ## Runtime
 
-`main.mjs` starts `@pichamber/web/server/index.js` in the Electron main process. It never starts a server sidecar or manages an external coding-agent binary. Development loads the HMR UI; packaged builds load staged assets from `pichamber-ui://` while the in-process loopback server remains the authenticated API backend.
+`main.mjs` starts `@pichamber/web/server/index.js` in the Electron main process. It never starts a server sidecar or manages an external coding-agent binary. Development loads the HMR UI; packaged builds load staged assets from `pichamber-ui://` while the in-process loopback server remains the authenticated API backend. Unpackaged `electron ./main.mjs` reports host Electron version `0.0`; main pins `package.json` (or `0.0.0-dev`) onto `app.setVersion` before constructing `electron-updater`.
 
 The preload bridge exposes only desktop-owned capabilities. Main-process handlers enforce every privileged action; remote pages do not receive local filesystem, shell, token, or host privileges.
 
@@ -24,6 +24,8 @@ bun run electron:build
 ```
 
 Packaging builds web assets, bundles the Electron main process, rebuilds native modules, and runs electron-builder. It stages only the web UI and native desktop resources; Pi sessions are served by the in-process PiChamber server.
+
+Windows desktop uses the same Pi SDK as the [Pi CLI](https://pi.dev/docs/latest): sessions live under `%USERPROFILE%\.pi\agent`, private IPC is a named pipe, and the bash tool needs Git for Windows (or another `bash.exe` on PATH), matching [Pi's SDK](https://pi.dev/docs/latest/sdk).
 
 Desktop PNG/ICO/ICNS brand assets are generated from the PiChamber SVG mark with `bun run icons:brand`. The macOS 26 `Assets.car` catalog still requires `bun run --cwd packages/electron generate:macos-icon` on a Mac with Xcode.
 

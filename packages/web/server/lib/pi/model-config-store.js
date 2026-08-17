@@ -140,6 +140,7 @@ export const createPiModelConfigStore = ({ file }) => {
   const get = async (providerId) => {
     if (typeof providerId !== 'string' || !PROVIDER_ID.test(providerId)) throw invalidModelConfig();
     const config = await readConfig();
+    if (!Object.hasOwn(config.providers, providerId)) return null;
     return publicProvider(providerId, config.providers[providerId]);
   };
 

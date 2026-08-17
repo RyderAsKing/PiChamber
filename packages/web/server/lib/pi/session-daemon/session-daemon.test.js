@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
-import { createSessionDaemon } from './session-daemon.js';
+import { createSessionDaemon, isLocalSessionDaemonEndpoint } from './session-daemon.js';
 
 const credential = 'a-private-daemon-credential';
 
@@ -119,8 +120,15 @@ class FakeRuntime {
   }
 }
 
+function testDaemonEndpoint(root) {
+  if (process.platform === 'win32') {
+    return `\\\\.\\pipe\\pichamber-test-${createHash('sha1').update(root).digest('hex').slice(0, 16)}`;
+  }
+  return join(root, 'daemon.sock');
+}
+
 function connectClient(endpoint) {
-  const socket = createConnection(endpoint);
+  const socket = createConnection({ path: endpoint });
   const decoder = new StringDecoder('utf8');
   let buffer = '';
   const messages = [];
@@ -206,7 +214,7 @@ describe('Pi session daemon spike', () => {
 
   it('uses the selected cwd and agent directory, restricts its Unix socket, and retains event sequencing across a client reconnect', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     const projectDir = join(root, 'project');
     const agentDir = join(root, 'agent');
     await mkdir(projectDir, { recursive: true });
@@ -230,7 +238,9 @@ describe('Pi session daemon spike', () => {
     await daemon.start();
 
     expect(runtimeCalls).toEqual([]);
-    expect((await stat(endpoint)).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') {
+      expect((await stat(endpoint)).mode & 0o777).toBe(0o600);
+    }
 
     const firstClient = connectClient(endpoint);
     const firstSnapshot = await firstClient.authenticate();
@@ -281,7 +291,7 @@ describe('Pi session daemon spike', () => {
 
   it('replays a contiguous reconnect gap and sends a snapshot when the cursor predates retained events', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     const session = new FakeSession();
     daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
     await daemon.start();
@@ -306,7 +316,7 @@ describe('Pi session daemon spike', () => {
 
   it('lists only validated cwd-scoped sessions without exposing Pi JSONL paths', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     const listed = [];
     daemon = createSessionDaemon({
       endpoint,
@@ -382,7 +392,7 @@ describe('Pi session daemon spike', () => {
   it('does not include in-memory sessions from another directory when listing a newly selected project directory', async () => {
     const rootA = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-a-'));
     const rootB = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-b-'));
-    const endpoint = join(rootA, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(rootA);
     const activeSessionA = new FakeSession('pi-session-a');
     daemon = createSessionDaemon({
       endpoint,
@@ -423,7 +433,7 @@ describe('Pi session daemon spike', () => {
 
   it('renames active and persisted sessions without exposing their JSONL paths', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     const persistedSessionFile = join(root, 'persisted.jsonl');
     await writeFile(persistedSessionFile, `{"type":"session","id":"pi-session-persisted","cwd":"${root}"}\n`);
     const activeSession = new FakeSession('pi-session-active');
@@ -457,7 +467,7 @@ describe('Pi session daemon spike', () => {
 
   it('creates and selects a persisted Pi session with supported creation metadata', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     const runtime = new FakeRuntime({ cwd: root, session: new FakeSession('pi-session-old') });
     daemon = createSessionDaemon({
       endpoint,
@@ -492,7 +502,7 @@ describe('Pi session daemon spike', () => {
 
   it('disposes an idle runtime without deleting its Pi JSONL and restores it on demand', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     const sessionFile = join(root, 'session.jsonl');
     await writeFile(sessionFile, `{"type":"session","id":"pi-session-1","cwd":"${root}"}\n`);
     const firstRuntime = new FakeRuntime({
@@ -536,7 +546,7 @@ describe('Pi session daemon spike', () => {
 
   it('rebinds daemon events to the replacement Pi session identity', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     const firstSession = new FakeSession('pi-session-1');
     const runtime = new FakeRuntime({ cwd: root, session: firstSession });
     daemon = createSessionDaemon({
@@ -570,7 +580,7 @@ describe('Pi session daemon spike', () => {
 
   it('handles every session command with path-selected identities and preserves busy-session configuration on rejection', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     const persistedSessionFile = join(root, 'persisted.jsonl');
     await writeFile(persistedSessionFile, `{"type":"session","id":"pi-session-persisted","cwd":"${root}"}\n`);
     const runtime = new FakeRuntime({ cwd: root, session: new FakeSession('pi-session-1') });
@@ -676,7 +686,7 @@ describe('Pi session daemon spike', () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-settings-'));
     const cwd = join(root, 'project');
     const agentDir = join(root, 'agent');
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     await Promise.all([mkdir(cwd), mkdir(agentDir)]);
     daemon = createSessionDaemon({
       endpoint, credential, cwd, agentDir,
@@ -701,7 +711,7 @@ describe('Pi session daemon spike', () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-resources-'));
     const cwd = join(root, 'project');
     const agentDir = join(root, 'agent');
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     await Promise.all([mkdir(cwd), mkdir(agentDir)]);
     const loader = {
       getSkills: () => ({ skills: [{ name: 'review', description: 'Review changes', filePath: join(agentDir, 'skills', 'review', 'SKILL.md'), sourceInfo: { scope: 'user', origin: 'top-level' } }] }),
@@ -727,7 +737,7 @@ describe('Pi session daemon spike', () => {
 
   it('updates Pi models.json through an idle daemon and projects only credential-blind configuration', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     const updates = [];
     const modelConfigStore = {
       get: async (providerId) => providerId === 'custom' ? null : null,
@@ -759,7 +769,7 @@ describe('Pi session daemon spike', () => {
 
   it('runs persisted API-key and interactive OAuth logins without exposing credential values in daemon responses', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     const session = new FakeSession();
     daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
     await daemon.start();
@@ -784,7 +794,7 @@ describe('Pi session daemon spike', () => {
 
   it('maps all core session event families to sequenced public-safe daemon frames', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     const session = new FakeSession('pi-session-1');
     daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
     await daemon.start();
@@ -852,7 +862,7 @@ describe('Pi session daemon spike', () => {
 
   it('preserves assistant messageId for tool executions occurring after message_end', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     const session = new FakeSession('pi-session-tool-seq');
     daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
     await daemon.start();
@@ -893,7 +903,7 @@ describe('Pi session daemon spike', () => {
     })).toThrow('endpoint must be local');
 
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     daemon = createSessionDaemon({
       endpoint,
       credential,
@@ -909,9 +919,18 @@ describe('Pi session daemon spike', () => {
     await expect(client.authenticate('incorrect-credential')).rejects.toThrow('Daemon connection closed');
   });
 
+  it('accepts Windows named pipes and rejects TCP or filesystem paths on win32', () => {
+    expect(isLocalSessionDaemonEndpoint('\\\\.\\pipe\\pichamber-pi-session-daemon-0123456789abcdef', 'win32')).toBe(true);
+    expect(isLocalSessionDaemonEndpoint('\\\\.\\pipe\\pichamber-pi-session-daemon-0123456789abcdef\\extra', 'win32')).toBe(false);
+    expect(isLocalSessionDaemonEndpoint('http://127.0.0.1:3000', 'win32')).toBe(false);
+    expect(isLocalSessionDaemonEndpoint('/tmp/pi-session-daemon.sock', 'win32')).toBe(false);
+    expect(isLocalSessionDaemonEndpoint('\\\\.\\pipe\\pichamber-pi-session-daemon-0123456789abcdef', 'linux')).toBe(false);
+  });
+
   it('does not unlink an existing endpoint when startup fails', async () => {
+    if (process.platform === 'win32') return;
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     await writeFile(endpoint, 'not a daemon socket');
     daemon = createSessionDaemon({
       endpoint,
@@ -931,7 +950,7 @@ describe('Pi session daemon spike', () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-sdk-'));
     const cwd = join(root, 'project');
     const agentDir = join(root, 'agent');
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     await mkdir(cwd, { recursive: true });
     await mkdir(agentDir, { recursive: true });
     const previousOffline = process.env.PI_OFFLINE;
@@ -960,7 +979,7 @@ describe('Pi session daemon spike', () => {
 
   it('supports multiple sessions running concurrently without stopping earlier sessions on switch', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-multi-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     const file1 = join(root, 'session-1.jsonl');
     const file2 = join(root, 'session-2.jsonl');
     await writeFile(file1, `{"type":"session","id":"session-1","cwd":"${root}"}\n`);
@@ -1022,7 +1041,7 @@ describe('Pi session daemon spike', () => {
 
   it('acknowledges a prompt without waiting for the agent turn to finish', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-prompt-ack-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     const sessionFile = join(root, 'session-1.jsonl');
     await writeFile(sessionFile, `{"type":"session","id":"session-1","cwd":"${root}"}\n`);
     const session = new FakeSession('session-1', sessionFile);
@@ -1060,7 +1079,7 @@ describe('Pi session daemon spike', () => {
 
   it('starts a new turn when follow-up arrives after the stream has already ended', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-followup-idle-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     const sessionFile = join(root, 'session-1.jsonl');
     await writeFile(sessionFile, `{"type":"session","id":"session-1","cwd":"${root}"}\n`);
     const session = new FakeSession('session-1', sessionFile);
@@ -1090,7 +1109,7 @@ describe('Pi session daemon spike', () => {
 
   it('ignores a stale send rejection after a newer prompt', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-stale-send-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     const sessionFile = join(root, 'session-1.jsonl');
     await writeFile(sessionFile, `{"type":"session","id":"session-1","cwd":"${root}"}\n`);
     const session = new FakeSession('session-1', sessionFile);
@@ -1126,7 +1145,7 @@ describe('Pi session daemon spike', () => {
 
   it('aborts a stuck stream after the owned send promise rejects', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-abort-stuck-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     const sessionFile = join(root, 'session-1.jsonl');
     await writeFile(sessionFile, `{"type":"session","id":"session-1","cwd":"${root}"}\n`);
     const session = new FakeSession('session-1', sessionFile);
@@ -1157,7 +1176,7 @@ describe('Pi session daemon spike', () => {
 
   it('projects Pi usage in getSession messages and message_end events, omitting malformed payloads', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-usage-'));
-    const endpoint = join(root, 'daemon.sock');
+    const endpoint = testDaemonEndpoint(root);
     const projectDir = join(root, 'project');
     const agentDir = join(root, 'agent');
     await mkdir(projectDir, { recursive: true });
