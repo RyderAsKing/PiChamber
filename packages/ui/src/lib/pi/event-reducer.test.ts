@@ -619,4 +619,36 @@ describe("Pi usage", () => {
     const message = projected.messages.find((m) => m.id === "m-usage")
     expect(message?.usage).toEqual(sampleUsage)
   })
+
+  test("hydrateSessionFromDetail locks model and thinking to the last assistant turn", () => {
+    const { session } = hydrateSessionFromDetail({
+      session: {
+        id: "sess-1",
+        directory: "/work",
+        model: { providerId: "openai", modelId: "gpt-5" },
+        thinking: "low",
+      },
+      lastSequence: 8,
+      messages: [
+        {
+          message: {
+            id: "u1", sessionId: "sess-1", directory: "/work", role: "user",
+            text: "hi", createdAt: 1,
+          },
+          parts: [],
+        },
+        {
+          message: {
+            id: "a1", sessionId: "sess-1", directory: "/work", role: "assistant",
+            text: "ok", thinking: "", createdAt: 2,
+            model: { providerId: "anthropic", modelId: "sonnet" },
+            thinkingLevel: "high",
+          },
+          parts: [],
+        },
+      ],
+    })
+    expect(session.model).toEqual({ providerId: "anthropic", modelId: "sonnet" })
+    expect(session.thinking).toBe("high")
+  })
 })

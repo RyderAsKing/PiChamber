@@ -137,7 +137,7 @@ export const reconnectPiSession = async (
       ...(options.runtimeKey ? { runtimeKey: options.runtimeKey } : {}),
     }));
     const hydrated = hydrateSessionFromDetail({
-      session: { id: detail.session.id, directory: detail.session.directory },
+      session: detail.session,
       lastSequence: detail.lastSequence,
       messages: detail.messages.map((entry) => ({
         message: entry.message,
@@ -181,6 +181,8 @@ export const reconnectPiSession = async (
           isStreaming: false,
           queue: { steering: 0, followUp: 0 },
           lifecycle: 'idle',
+          ...(detail.session.model ? { model: detail.session.model } : {}),
+          ...(detail.session.thinking ? { thinking: detail.session.thinking } : {}),
         },
       },
     };

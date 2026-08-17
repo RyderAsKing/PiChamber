@@ -190,7 +190,7 @@ export const bootstrapPiDirectory = async (
         ...(options.runtimeKey ? { runtimeKey: options.runtimeKey } : {}),
       }));
       const { state } = hydrateSessionFromDetail({
-        session: { id: detail.session.id, directory: detail.session.directory },
+        session: detail.session,
         lastSequence: detail.lastSequence,
         messages: detail.messages.map((entry) => ({
           message: entry.message,
