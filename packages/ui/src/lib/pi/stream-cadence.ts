@@ -1,7 +1,11 @@
 import type { PiSessionEvent } from './protocol';
 import { applyAssistantTextDelta } from './text-delta';
 
-const STREAM_FRAME_EVENT_NAMES = new Set(['assistant.message.delta', 'assistant.thinking.delta']);
+const STREAM_FRAME_EVENT_NAMES = new Set([
+  'assistant.message.delta',
+  'assistant.thinking.delta',
+  'session.tool.update',
+]);
 
 export const isStreamFrameEvent = (event: PiSessionEvent): boolean => STREAM_FRAME_EVENT_NAMES.has(event.name);
 
@@ -50,9 +54,10 @@ export const foldConsecutiveStreamDeltas = (events: readonly PiSessionEvent[]): 
 };
 
 /**
- * DeepSeek-style cadence: token deltas flush once per animation frame.
- * Boundary events (start/end/lifecycle) flush any pending deltas first, then
- * publish immediately so ordering and terminal events stay intact.
+ * DeepSeek-style cadence: token deltas and live tool output flush once per
+ * animation frame. Boundary events (start/end/lifecycle) flush any pending
+ * stream frames first, then publish immediately so ordering and terminal
+ * events stay intact.
  */
 export class PiStreamCadence {
   private buffer: PiSessionEvent[] = [];

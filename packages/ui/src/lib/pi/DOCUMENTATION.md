@@ -7,7 +7,7 @@ This directory owns the Pi-native runtime boundary. It defines:
 - The Pi session / message / part data shapes (`types.ts`).
 - The public `/api/pi/` IPC envelope (`protocol.ts`).
 - The browser-side transport for `/api/pi/events` (`transport.ts`), using authenticated SSE by default and one active connection per stream generation. Explicit WebSocket mode remains only for runtimes that provide a matching upgrade endpoint; SSE comment heartbeats count as liveness.
-- Stream cadence (`stream-cadence.ts`): adjacent same-part token deltas fold, then flush on `requestAnimationFrame`; boundary events flush pending deltas first.
+- Stream cadence (`stream-cadence.ts`): adjacent same-part token deltas fold, then flush on `requestAnimationFrame` together with live `session.tool.update` frames; boundary events flush pending stream frames first.
 - The service facade that wraps every `/api/pi/*` call (`client.ts`).
 - The snapshot reducer helpers (`snapshot.ts`).
 - The event reducer helpers (`event-reducer.ts`).
@@ -73,6 +73,9 @@ use event sequence for deduplication. Cadence folding uses the same merge so
 a frame of cumulative chunks cannot concatenate into stuttering markdown.
 `assistant.message.end` writes the canonical `text`/`thinking` onto the
 rendered parts; message-level fields alone are not what the chat paints.
+Thinking parts also clear `streaming` as soon as a later text or tool part
+on the same message starts, so the thinking block can collapse at handoff
+instead of waiting for message-end.
 When the producing turn carries Pi `Usage`, the same event also attaches the
 sanitized `usage` to the assistant message record so the context sidebar can
 read it directly. The `usage` shape is `{ input, output, cacheRead, cacheWrite, totalTokens, cost: { input, output, cacheRead, cacheWrite, total } }` —

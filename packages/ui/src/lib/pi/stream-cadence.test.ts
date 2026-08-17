@@ -18,6 +18,23 @@ const delta = (
   payload: { messageId: 'm1', contentIndex, delta: text },
 });
 
+const toolUpdate = (sequence: number): PiSessionEvent => ({
+  protocolVersion: 1,
+  kind: 'event',
+  name: 'session.tool.update',
+  sequence,
+  sessionId: 'sess-1',
+  directory: '/work',
+  payload: {
+    toolCallId: 't1',
+    partId: 'p-tool',
+    messageId: 'm1',
+    name: 'bash',
+    state: 'running',
+    output: `chunk-${sequence}`,
+  },
+});
+
 const ended = (sequence: number): PiSessionEvent => ({
   protocolVersion: 1,
   kind: 'event',
@@ -123,5 +140,34 @@ describe('PiStreamCadence', () => {
     expect(frames[0]?.[0]?.name === 'assistant.message.delta' && frames[0][0].payload.delta).toBe('a');
 
     globalThis.requestAnimationFrame = previousRaf;
+  });
+
+  test('holds live tool updates until the scheduled frame', () => {
+    const frames: Array<readonly PiSessionEvent[]> = [];
+    const pending: FrameRequestCallback[] = [];
+    const previousRaf = globalThis.requestAnimationFrame;
+    const previousCancel = globalThis.cancelAnimationFrame;
+    globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      pending.push(callback);
+      return pending.length;
+    }) as typeof requestAnimationFrame;
+    globalThis.cancelAnimationFrame = ((id: number) => {
+      pending[id - 1] = () => undefined;
+    }) as typeof cancelAnimationFrame;
+
+    const cadence = new PiStreamCadence((events) => frames.push(events));
+    cadence.push(toolUpdate(1));
+    cadence.push(toolUpdate(2));
+    expect(frames).toEqual([]);
+    pending[0]?.(0);
+    expect(frames).toHaveLength(1);
+    expect(frames[0]?.map((event) => event.name)).toEqual([
+      'session.tool.update',
+      'session.tool.update',
+    ]);
+
+    cadence.dispose();
+    globalThis.requestAnimationFrame = previousRaf;
+    globalThis.cancelAnimationFrame = previousCancel;
   });
 });

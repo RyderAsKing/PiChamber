@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { getPiSessionStore, type PiSessionStoreState } from '@/apps/pi-session-store';
 import { piProjectedToRecords, mapPart } from '@/lib/chat/pi-to-renderable';
 import type { Message, Part, PermissionRequest, QuestionRequest, Session, SessionStatus } from '@/lib/chat/types';
@@ -13,6 +13,7 @@ import {
   uiSessionListEqual,
   type LiveSessionLifecycle,
 } from './pi-session-catalog';
+import { shouldReuseSuspendedRecords } from './suspend-live-tail-records';
 import { INITIAL_STATE, type State } from './types';
 
 const IDLE: SessionStatus = { type: 'idle' };
@@ -187,7 +188,7 @@ export function useSessionParts(
     }
     const fallback: Part[] = [];
     if (message.thinking) {
-      fallback.push({ id: `${message.id}:thinking`, type: 'reasoning', text: message.thinking });
+      fallback.push({ id: `${message.id}:thinking`, type: 'reasoning', text: message.thinking, streaming: false });
     }
     if (message.text) {
       fallback.push({ id: `${message.id}:text`, type: 'text', text: message.text });
@@ -335,31 +336,64 @@ export function useUserMessageHistory(sessionID: string): string[] {
 export function useSessionMessageRecords(
   sessionID: string,
   _directory?: string,
-  _options?: {
+  options?: {
     enabled?: boolean;
     suspendPartUpdates?: boolean;
     suspendPartUpdatesForMessageId?: string | null;
   },
 ) {
+  const suspendPartUpdates = options?.suspendPartUpdates === true;
+  const suspendMessageId = options?.suspendPartUpdatesForMessageId ?? null;
   // Subscribe to one session's reducer entry; other sessions' stream
   // events keep the same reference so React skips recomputation.
+  // While the live tail is suspended, token/tool-part updates on that
+  // message keep the previous session snapshot so ChatContainer does not
+  // rebuild the transcript tree on every frame.
   const session = usePiSessionSnapshot(
     (state) => (sessionID ? state.reducer.bySession.get(sessionID) ?? null : null),
-    undefined,
+    (previous, next) => {
+      if (Object.is(previous, next)) return true;
+      if (!suspendPartUpdates || !suspendMessageId || !previous || !next) return false;
+      return shouldReuseSuspendedRecords(previous, next, suspendMessageId);
+    },
     sessionID ? sessionTopic(sessionID) : '*',
   );
-  return useMemo(() => (
-    session ? piProjectedToRecords(projectSession(session)) : EMPTY_MESSAGE_RECORDS
-  ), [session]);
+  const previousRef = useRef<{
+    sessionId: string;
+    session: PiReducerSessionState;
+    records: ReturnType<typeof piProjectedToRecords>;
+  } | null>(null);
+
+  return useMemo(() => {
+    if (!session) {
+      previousRef.current = null;
+      return EMPTY_MESSAGE_RECORDS;
+    }
+
+    const previous = previousRef.current;
+    if (
+      suspendPartUpdates
+      && suspendMessageId
+      && previous
+      && previous.sessionId === sessionID
+      && shouldReuseSuspendedRecords(previous.session, session, suspendMessageId)
+    ) {
+      previousRef.current = { sessionId: sessionID, session, records: previous.records };
+      return previous.records;
+    }
+
+    const records = piProjectedToRecords(projectSession(session));
+    previousRef.current = { sessionId: sessionID, session, records };
+    return records;
+  }, [session, sessionID, suspendMessageId, suspendPartUpdates]);
 }
 
 export function useSessionMessageCount(sessionID: string, _directory?: string): number {
-  const session = usePiSessionSnapshot(
-    (state) => (sessionID ? state.reducer.bySession.get(sessionID) : undefined),
+  return usePiSessionSnapshot(
+    (state) => (sessionID ? state.reducer.bySession.get(sessionID)?.messages.size ?? 0 : 0),
     undefined,
     sessionID ? sessionTopic(sessionID) : '*',
   );
-  return session ? session.messages.size : 0;
 }
 
 export function useEnsureSessionMessages(sessionID: string, _directory?: string, enabled = true) {
