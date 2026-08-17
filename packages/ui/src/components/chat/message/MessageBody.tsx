@@ -1119,6 +1119,7 @@ const AssistantMessageBody = React.memo(({
     const [isForkDialogOpen, setIsForkDialogOpen] = React.useState(false);
     const [isForkSubmitting, setIsForkSubmitting] = React.useState(false);
     const collapsibleThinkingBlocks = useUIStore((state) => state.collapsibleThinkingBlocks);
+    const collapseThinkingByDefault = useUIStore((state) => state.collapseThinkingByDefault);
     const showSplitAssistantMessageActions = useUIStore((state) => state.showSplitAssistantMessageActions);
     const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
     const isLastAssistantInTurn = turnGroupingContext?.isLastAssistantInTurn ?? false;
@@ -1471,6 +1472,7 @@ const AssistantMessageBody = React.memo(({
                                 messageId={messageId}
                                 streamPhase={effectiveStreamPhase}
                                 onContentChange={onContentChange}
+                                collapseByDefault={collapseThinkingByDefault}
                             />
                         );
                     }
@@ -1544,6 +1546,7 @@ const AssistantMessageBody = React.memo(({
         alwaysShowMessageActions,
         animatedToolIdsLookup,
         collapsibleThinkingBlocks,
+        collapseThinkingByDefault,
         expandedTools,
         isMobile,
         lastRenderableTextPartIndex,

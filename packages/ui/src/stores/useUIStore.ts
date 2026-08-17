@@ -634,6 +634,7 @@ interface UIStore {
   eventStreamHint: string | null;
   showReasoningTraces: boolean;
   collapsibleThinkingBlocks: boolean;
+  collapseThinkingByDefault: boolean;
   showDeletionDialog: boolean;
   autoDeleteEnabled: boolean;
   /** Global file-editor autosave. Default true for backward compatibility. */
@@ -782,6 +783,7 @@ interface UIStore {
   setEventStreamStatus: (status: EventStreamStatus, hint?: string | null) => void;
   setShowReasoningTraces: (value: boolean) => void;
   setCollapsibleThinkingBlocks: (value: boolean) => void;
+  setCollapseThinkingByDefault: (value: boolean) => void;
   setShowDeletionDialog: (value: boolean) => void;
   setAutoDeleteEnabled: (value: boolean) => void;
   setAutoSaveEnabled: (value: boolean) => void;
@@ -920,6 +922,7 @@ export const useUIStore = create<UIStore>()(
         eventStreamHint: null,
         showReasoningTraces: true,
         collapsibleThinkingBlocks: true,
+        collapseThinkingByDefault: true,
         showDeletionDialog: true,
         autoDeleteEnabled: false,
         autoSaveEnabled: true,
@@ -1574,6 +1577,10 @@ export const useUIStore = create<UIStore>()(
 
         setCollapsibleThinkingBlocks: (value) => {
           set({ collapsibleThinkingBlocks: value });
+        },
+
+        setCollapseThinkingByDefault: (value) => {
+          set({ collapseThinkingByDefault: value });
         },
 
         setShowDeletionDialog: (value) => {
@@ -2301,6 +2308,7 @@ export const useUIStore = create<UIStore>()(
           // Note: isSettingsDialogOpen intentionally NOT persisted
           showReasoningTraces: state.showReasoningTraces,
           collapsibleThinkingBlocks: state.collapsibleThinkingBlocks,
+          collapseThinkingByDefault: state.collapseThinkingByDefault,
           showDeletionDialog: state.showDeletionDialog,
           autoDeleteEnabled: state.autoDeleteEnabled,
           autoSaveEnabled: state.autoSaveEnabled,

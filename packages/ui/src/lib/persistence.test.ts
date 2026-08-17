@@ -388,6 +388,30 @@ describe('updateDesktopSettings', () => {
     expect(useMessageQueueStore.getState().followUpBehavior).toBe('queue');
   });
 
+  test('applies and resets collapseThinkingByDefault from authoritative snapshots', async () => {
+    getWindow();
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://thinking-collapse-a.example', runtimeKey: 'thinking-collapse-a' });
+    registerSettingsApi(async () => ({}), async () => ({
+      settings: {
+        collapseThinkingByDefault: false,
+        draftStartersScheduleTaskAdded: true,
+      },
+      source: 'web',
+    }));
+    await syncDesktopSettings();
+
+    expect(useUIStore.getState().collapseThinkingByDefault).toBe(false);
+
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://thinking-collapse-b.example', runtimeKey: 'thinking-collapse-b' });
+    registerSettingsApi(async () => ({}), async () => ({
+      settings: { draftStartersScheduleTaskAdded: true },
+      source: 'web',
+    }));
+    await syncDesktopSettings();
+
+    expect(useUIStore.getState().collapseThinkingByDefault).toBe(true);
+  });
+
   test('drops removed session assistance settings from authoritative snapshots', async () => {
     getWindow();
     switchRuntimeEndpoint({ apiBaseUrl: 'https://removed-settings.example', runtimeKey: 'removed-settings' });
@@ -508,6 +532,26 @@ describe('updateDesktopSettings', () => {
     } finally {
       stop();
     }
+  });
+
+  test('autosaves reasoning preference changes to shared settings', async () => {
+    getWindow();
+    useUIStore.getState().setShowReasoningTraces(false);
+    useUIStore.getState().setCollapsibleThinkingBlocks(true);
+    useUIStore.getState().setCollapseThinkingByDefault(true);
+    const saveCalls: Array<Partial<SettingsPayload>> = [];
+    registerSettingsSave(async (changes) => {
+      saveCalls.push(changes);
+      return changes as SettingsPayload;
+    });
+    startAppearanceAutoSave();
+
+    useUIStore.getState().setShowReasoningTraces(true);
+    useUIStore.getState().setCollapseThinkingByDefault(false);
+    await delay(500);
+
+    expect(saveCalls.some((changes) => changes.showReasoningTraces === true)).toBe(true);
+    expect(saveCalls.some((changes) => changes.collapseThinkingByDefault === false)).toBe(true);
   });
 
   test('autosaves terminal shell changes to shared settings', async () => {

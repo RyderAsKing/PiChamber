@@ -8,6 +8,7 @@ import type { TerminalShell } from '@/lib/api/types';
 type AppearanceSlice = {
   showReasoningTraces: boolean;
   collapsibleThinkingBlocks: boolean;
+  collapseThinkingByDefault: boolean;
   showDeletionDialog: boolean;
   nativeNotificationsEnabled: boolean;
   notificationMode: 'always' | 'hidden-only';
@@ -56,6 +57,7 @@ export const startAppearanceAutoSave = (): void => {
   let previous: AppearanceSlice = {
     showReasoningTraces: useUIStore.getState().showReasoningTraces,
     collapsibleThinkingBlocks: useUIStore.getState().collapsibleThinkingBlocks,
+    collapseThinkingByDefault: useUIStore.getState().collapseThinkingByDefault,
     showDeletionDialog: useUIStore.getState().showDeletionDialog,
     nativeNotificationsEnabled: useUIStore.getState().nativeNotificationsEnabled,
     notificationMode: useUIStore.getState().notificationMode,
@@ -91,6 +93,7 @@ export const startAppearanceAutoSave = (): void => {
     const current: AppearanceSlice = {
       showReasoningTraces: state.showReasoningTraces,
       collapsibleThinkingBlocks: state.collapsibleThinkingBlocks,
+      collapseThinkingByDefault: state.collapseThinkingByDefault,
       showDeletionDialog: state.showDeletionDialog,
       nativeNotificationsEnabled: state.nativeNotificationsEnabled,
       notificationMode: state.notificationMode,
@@ -128,6 +131,9 @@ export const startAppearanceAutoSave = (): void => {
     }
     if (current.collapsibleThinkingBlocks !== previous.collapsibleThinkingBlocks) {
       diff.collapsibleThinkingBlocks = current.collapsibleThinkingBlocks;
+    }
+    if (current.collapseThinkingByDefault !== previous.collapseThinkingByDefault) {
+      diff.collapseThinkingByDefault = current.collapseThinkingByDefault;
     }
     if (current.showDeletionDialog !== previous.showDeletionDialog) {
       diff.showDeletionDialog = current.showDeletionDialog;

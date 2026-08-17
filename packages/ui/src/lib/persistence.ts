@@ -508,6 +508,7 @@ const materializeAuthoritativeUiSettings = (settings: DesktopSettings): DesktopS
     openInAppId: DEFAULT_OPEN_IN_APP_ID,
     showReasoningTraces: defaults.showReasoningTraces,
     collapsibleThinkingBlocks: defaults.collapsibleThinkingBlocks,
+    collapseThinkingByDefault: defaults.collapseThinkingByDefault,
     autoDeleteEnabled: defaults.autoDeleteEnabled,
     autoSaveEnabled: defaults.autoSaveEnabled,
     autoDeleteAfterDays: defaults.autoDeleteAfterDays,
@@ -588,6 +589,9 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
   }
   if (typeof settings.collapsibleThinkingBlocks === 'boolean' && settings.collapsibleThinkingBlocks !== store.collapsibleThinkingBlocks) {
     store.setCollapsibleThinkingBlocks(settings.collapsibleThinkingBlocks);
+  }
+  if (typeof settings.collapseThinkingByDefault === 'boolean' && settings.collapseThinkingByDefault !== store.collapseThinkingByDefault) {
+    store.setCollapseThinkingByDefault(settings.collapseThinkingByDefault);
   }
   if (typeof settings.autoDeleteEnabled === 'boolean' && settings.autoDeleteEnabled !== store.autoDeleteEnabled) {
     store.setAutoDeleteEnabled(settings.autoDeleteEnabled);
@@ -959,6 +963,9 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
   }
   if (typeof candidate.collapsibleThinkingBlocks === 'boolean') {
     result.collapsibleThinkingBlocks = candidate.collapsibleThinkingBlocks;
+  }
+  if (typeof candidate.collapseThinkingByDefault === 'boolean') {
+    result.collapseThinkingByDefault = candidate.collapseThinkingByDefault;
   }
   if (typeof candidate.autoDeleteEnabled === 'boolean') {
     result.autoDeleteEnabled = candidate.autoDeleteEnabled;

@@ -800,12 +800,14 @@ const InlineReasoningBlock = React.memo(({ activity, onContentChange, streamPhas
     onContentChange?: (reason?: ContentChangeReason) => void;
     streamPhase: StreamPhase;
 }) => {
+    const collapseByDefault = useUIStore((state) => state.collapseThinkingByDefault);
     return (
         <ReasoningPart
             part={activity.part}
             messageId={activity.messageId}
             streamPhase={streamPhase}
             onContentChange={onContentChange}
+            collapseByDefault={collapseByDefault}
         />
     );
 });

@@ -276,6 +276,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const setShowReasoningTraces = useUIStore(state => state.setShowReasoningTraces);
     const collapsibleThinkingBlocks = useUIStore(state => state.collapsibleThinkingBlocks);
     const setCollapsibleThinkingBlocks = useUIStore(state => state.setCollapsibleThinkingBlocks);
+    const collapseThinkingByDefault = useUIStore(state => state.collapseThinkingByDefault);
+    const setCollapseThinkingByDefault = useUIStore(state => state.setCollapseThinkingByDefault);
 
     const mermaidRenderingMode = useUIStore(state => state.mermaidRenderingMode);
     const setMermaidRenderingMode = useUIStore(state => state.setMermaidRenderingMode);
@@ -427,6 +429,21 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
         setCollapsibleUserMessages(enabled);
         void updateDesktopSettings({ collapsibleUserMessages: enabled });
     }, [setCollapsibleUserMessages]);
+
+    const handleShowReasoningTracesChange = React.useCallback((enabled: boolean) => {
+        setShowReasoningTraces(enabled);
+        void updateDesktopSettings({ showReasoningTraces: enabled });
+    }, [setShowReasoningTraces]);
+
+    const handleCollapsibleThinkingBlocksChange = React.useCallback((enabled: boolean) => {
+        setCollapsibleThinkingBlocks(enabled);
+        void updateDesktopSettings({ collapsibleThinkingBlocks: enabled });
+    }, [setCollapsibleThinkingBlocks]);
+
+    const handleCollapseThinkingByDefaultChange = React.useCallback((enabled: boolean) => {
+        setCollapseThinkingByDefault(enabled);
+        void updateDesktopSettings({ collapseThinkingByDefault: enabled });
+    }, [setCollapseThinkingByDefault]);
 
     const handleWideChatLayoutChange = React.useCallback((enabled: boolean) => {
         setWideChatLayoutEnabled(enabled);
@@ -1564,7 +1581,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     >
                                         <SettingsCheckboxRow
                                             checked={showReasoningTraces}
-                                            onChange={setShowReasoningTraces}
+                                            onChange={handleShowReasoningTracesChange}
                                             label={"Show Reasoning Traces"}
                                             ariaLabel={"Show reasoning traces"}
                                             settingsItem="chat.reasoning-traces"
@@ -1572,9 +1589,20 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                         {showReasoningTraces && (
                                             <SettingsCheckboxRow
                                                 checked={collapsibleThinkingBlocks}
-                                                onChange={setCollapsibleThinkingBlocks}
+                                                onChange={handleCollapsibleThinkingBlocksChange}
                                                 label={"Enable Collapsible Reasoning Blocks"}
                                                 ariaLabel={"Enable collapsible reasoning blocks"}
+                                                settingsItem="chat.collapsible-reasoning"
+                                            />
+                                        )}
+                                        {showReasoningTraces && collapsibleThinkingBlocks && (
+                                            <SettingsCheckboxRow
+                                                checked={collapseThinkingByDefault}
+                                                onChange={handleCollapseThinkingByDefaultChange}
+                                                label={"Collapsed by Default"}
+                                                ariaLabel={"Collapse reasoning blocks by default"}
+                                                info={"Thinking still opens while it streams, then folds when that block finishes. Turn this off to keep a one-line trace unless you expand it."}
+                                                settingsItem="chat.collapsed-reasoning-default"
                                             />
                                         )}
                                     </SettingsSection>

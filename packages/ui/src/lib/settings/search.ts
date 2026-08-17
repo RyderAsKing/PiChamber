@@ -178,6 +178,19 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['thinking', 'reasoning'],
   },
   {
+    id: 'chat.collapsible-reasoning',
+    page: 'chat',
+    title: "Enable Collapsible Reasoning Blocks",
+    keywords: ['thinking', 'reasoning', 'collapse', 'expand'],
+  },
+  {
+    id: 'chat.collapsed-reasoning-default',
+    page: 'chat',
+    title: "Collapsed by Default",
+    description: "Open thinking while it streams, then fold it. Turn off to keep a one-line trace unless you expand it.",
+    keywords: ['thinking', 'reasoning', 'collapse', 'default'],
+  },
+  {
     id: 'chat.reasoning',
     page: 'chat',
     title: "Reasoning",

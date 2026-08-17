@@ -3,11 +3,13 @@ import { useUIStore } from '@/stores/useUIStore';
 export interface AppearancePreferences {
   showReasoningTraces?: boolean;
   collapsibleThinkingBlocks?: boolean;
+  collapseThinkingByDefault?: boolean;
 }
 
 type RawAppearancePayload = {
   showReasoningTraces?: unknown;
   collapsibleThinkingBlocks?: unknown;
+  collapseThinkingByDefault?: unknown;
 };
 
 const sanitizePreferences = (payload?: RawAppearancePayload | null): AppearancePreferences | null => {
@@ -25,6 +27,10 @@ const sanitizePreferences = (payload?: RawAppearancePayload | null): AppearanceP
     result.collapsibleThinkingBlocks = payload.collapsibleThinkingBlocks;
   }
 
+  if (typeof payload.collapseThinkingByDefault === 'boolean') {
+    result.collapseThinkingByDefault = payload.collapseThinkingByDefault;
+  }
+
   return Object.keys(result).length > 0 ? result : null;
 };
 
@@ -37,6 +43,7 @@ const extractRawAppearance = (data: unknown): RawAppearancePayload | null => {
   const payload: RawAppearancePayload = {
     showReasoningTraces: candidate.showReasoningTraces,
     collapsibleThinkingBlocks: candidate.collapsibleThinkingBlocks,
+    collapseThinkingByDefault: candidate.collapseThinkingByDefault,
   };
 
   return payload;
@@ -51,6 +58,10 @@ export const applyAppearancePreferences = (preferences: AppearancePreferences): 
 
   if (typeof preferences.collapsibleThinkingBlocks === 'boolean') {
     store.setCollapsibleThinkingBlocks(preferences.collapsibleThinkingBlocks);
+  }
+
+  if (typeof preferences.collapseThinkingByDefault === 'boolean') {
+    store.setCollapseThinkingByDefault(preferences.collapseThinkingByDefault);
   }
 };
 

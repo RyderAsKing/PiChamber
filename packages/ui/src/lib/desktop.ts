@@ -59,6 +59,7 @@ export type DesktopSettings = {
   pinnedDirectories?: string[];
   showReasoningTraces?: boolean;
   collapsibleThinkingBlocks?: boolean;
+  collapseThinkingByDefault?: boolean;
   showDeletionDialog?: boolean;
   nativeNotificationsEnabled?: boolean;
   notificationMode?: 'always' | 'hidden-only';
