@@ -107,4 +107,48 @@ describe('Pi session daemon supervisor', () => {
       error: { code: 'DAEMON_UNAVAILABLE' },
     });
   }, 20_000);
+
+  it('spawns the daemon as Node when the parent process is Electron', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-supervisor-electron-'));
+    const cwd = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    await Promise.all([mkdir(cwd), mkdir(agentDir)]);
+    const env = {
+      ...process.env,
+      PI_OFFLINE: '1',
+      PICHAMBER_DATA_DIR: join(root, 'data'),
+      PICHAMBER_PI_AGENT_DIR: agentDir,
+      XDG_RUNTIME_DIR: join(root, 'runtime'),
+    };
+    let spawnEnv;
+    supervisor = createPiSessionDaemonSupervisor({
+      env,
+      cwd,
+      processLike: {
+        versions: { electron: '41.2.1' },
+        execPath: process.execPath,
+        pid: process.pid,
+        kill() {
+          const error = new Error('ESRCH');
+          error.code = 'ESRCH';
+          throw error;
+        },
+      },
+      spawn: (_command, _args, options) => {
+        spawnEnv = options.env;
+        return { pid: 1, unref() {} };
+      },
+      wait: async () => {},
+      startupTimeoutMs: 50,
+      daemonReadyTimeoutMs: 50,
+      request: async () => {
+        const error = new Error('refused');
+        error.code = 'DAEMON_CONNECTION_REFUSED';
+        throw error;
+      },
+    });
+
+    await expect(supervisor.start()).rejects.toMatchObject({ code: 'DAEMON_START_TIMEOUT' });
+    expect(spawnEnv?.ELECTRON_RUN_AS_NODE).toBe('1');
+  });
 });

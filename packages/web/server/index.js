@@ -18,6 +18,7 @@ import {
   isNetworkExposedBindHost,
   isUnsafeUnauthenticatedLanAllowed,
 } from './lib/security/bind-host.js';
+import { applyUiCorsHeaders } from './lib/server/cors.js';
 import { parseServeCliOptions } from './lib/server/cli-options.js';
 import { runCliEntryIfMain } from './lib/server/cli-entry-runtime.js';
 import {
@@ -111,15 +112,7 @@ export async function startWebUiServer(options = {}) {
   app.use((_req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); next(); });
   app.get('/robots.txt', (_req, res) => res.type('text/plain').send('User-agent: *\nDisallow: /\n'));
   app.use((req, res, next) => {
-    const origin = typeof req.headers.origin === 'string' ? req.headers.origin : '';
-    if (origin === 'pichamber-ui://app' || origin === 'capacitor://localhost' || /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept,X-Requested-With,Cache-Control');
-      res.setHeader('Vary', 'Origin');
-      if (req.method === 'OPTIONS') return res.status(204).end();
-    }
+    if (applyUiCorsHeaders(req, res)) return res.status(204).end();
     next();
   });
   app.use(compression({ filter: (req, res) => req.path === '/api/pi/events' || req.headers.accept?.includes('text/event-stream') ? false : compression.filter(req, res) }));

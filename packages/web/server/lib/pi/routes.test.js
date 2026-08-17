@@ -667,4 +667,21 @@ describe('Pi runtime route', () => {
     expect(malformed.status).toBe(503);
     await expect(malformed.json()).resolves.toEqual({ error: { code: 'DAEMON_PROTOCOL_MISMATCH' } });
   });
+
+  it('treats a daemon that never becomes ready as a service failure, not a bad request', async () => {
+    const runtime = {
+      request: async () => {
+        const error = new Error('timeout');
+        error.code = 'DAEMON_START_TIMEOUT';
+        throw error;
+      },
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/providers`);
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: { code: 'DAEMON_START_TIMEOUT' } });
+  });
 });
