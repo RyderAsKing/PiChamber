@@ -2,9 +2,10 @@
  * The composer's chrome around the editor.
  *
  * Desktop (except mini-chat) uses a stacked card: editor on top, attachments
- * and model picker on the left of the footer, send on the right. Mini-chat
- * keeps a one-line pill with the model picker under the composer. Mobile keeps
- * a stacked footer so the send control stays reachable with one thumb.
+ * and model picker (with thinking after the model name) on the left of the
+ * footer, send on the right. Mini-chat keeps a one-line pill with the model
+ * picker under the composer. Mobile keeps a stacked footer so the send control
+ * stays reachable with one thumb.
  */
 
 import React from 'react';
@@ -12,7 +13,6 @@ import React from 'react';
 import { cn } from '@/lib/utils';
 import { ComposerActionButtons } from './ComposerActionButtons';
 import { ComposerAttachmentControls } from './ComposerAttachmentControls';
-import { FocusModeButton } from './FocusModeButton';
 
 export interface ComposerFooterProps {
     isMobile: boolean;
@@ -24,7 +24,6 @@ export interface ComposerFooterProps {
     messageLength: number;
     children?: React.ReactNode;
     leadingExtra?: React.ReactNode;
-    hideFocusMode?: boolean;
 
     radius: string;
     footerPaddingClass: string;
@@ -37,14 +36,12 @@ export interface ComposerFooterProps {
     canSend: boolean;
     canAbort: boolean;
     hasContent: boolean;
-    isExpandedInput: boolean;
 
     onOpenSettings?: () => void;
     onPickLocalFiles: () => void;
     onOpenIssuePicker: () => void;
     onOpenPrPicker: () => void;
     onOpenAttachSheet: () => void;
-    onToggleExpandedInput: () => void;
     onPrimaryAction: () => void;
     onQueueMessage: () => void;
     onAbort: () => void;
@@ -59,7 +56,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
         newSessionDraftOpen,
         children,
         leadingExtra,
-        hideFocusMode,
         footerPaddingClass,
         footerGapClass,
         footerIconButtonClass,
@@ -69,13 +65,11 @@ export function ComposerFooter(props: ComposerFooterProps) {
         canSend,
         canAbort,
         hasContent,
-        isExpandedInput,
         onOpenSettings,
         onPickLocalFiles,
         onOpenIssuePicker,
         onOpenPrPicker,
         onOpenAttachSheet,
-        onToggleExpandedInput,
         onPrimaryAction,
         onQueueMessage,
         onAbort,
@@ -90,15 +84,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
             openPrPicker={onOpenPrPicker}
             onOpenSettings={onOpenSettings}
             onOpenMobileSheet={isMobile ? onOpenAttachSheet : undefined}
-        />
-    );
-
-    const focusMode = isMobile || hideFocusMode ? null : (
-        <FocusModeButton
-            footerIconButtonClass={footerIconButtonClass}
-            iconSizeClass={iconSizeClass}
-            isExpandedInput={isExpandedInput}
-            onToggle={onToggleExpandedInput}
         />
     );
 
@@ -153,7 +138,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
             >
                 <div className={cn('flex min-w-0 items-center', footerGapClass, toolAlign)}>
                     {attachments}
-                    {focusMode}
                 </div>
                 <div className="min-w-0">{children}</div>
                 <div className={cn('flex min-w-0 items-center justify-end', footerGapClass, toolAlign)}>
@@ -181,7 +165,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             {leadingExtra}
                         </div>
                     ) : null}
-                    {focusMode}
                 </div>
                 <div className={cn('flex flex-shrink-0 items-center', footerGapClass)}>
                     {actions}

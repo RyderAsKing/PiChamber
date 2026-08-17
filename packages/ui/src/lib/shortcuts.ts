@@ -283,8 +283,8 @@ const SHORTCUT_ACTIONS: ReadonlyArray<ShortcutAction> = [
   {
     id: 'cycle_thinking_variant',
     defaultCombo: 'mod+shift+t',
-    label: 'Cycle thinking variant',
-    description: 'Cycle thinking variant while in chat',
+    label: 'Cycle thinking',
+    description: 'Cycle thinking while in chat',
   },
   {
     id: 'cycle_favorite_model_forward',
@@ -298,13 +298,6 @@ const SHORTCUT_ACTIONS: ReadonlyArray<ShortcutAction> = [
     defaultCombo: 'ctrl+[',
     label: 'Cycle favorite model backward',
     description: 'Cycle backward through starred models without opening the picker',
-    customizable: true,
-  },
-  {
-    id: 'expand_input',
-    defaultCombo: 'mod+shift+e',
-    label: 'Expand input',
-    description: 'Toggle focus mode for the chat input',
     customizable: true,
   },
   {

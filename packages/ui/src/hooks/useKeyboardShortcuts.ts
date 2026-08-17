@@ -23,7 +23,8 @@ import { readEmbeddedThemeSearchParams } from '@/contexts/theme-embedded-bootstr
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
-import { focusChatInput } from '@/components/chat/composer/editor/dom';
+import { toast } from '@/components/ui';
+import { cycleComposerThinking } from '@/lib/pi/apply-composer-thinking';
 import { addSelectionToChat } from '@/lib/addSelectionToChat';
 import { hasOpenDropdown } from './keyboard-shortcut-dom';
 
@@ -64,7 +65,6 @@ export const useKeyboardShortcuts = () => {
   const setTimelineDialogOpen = useUIStore((s) => s.setTimelineDialogOpen);
   const togglePromptNavigatorPanel = useUIStore((s) => s.togglePromptNavigatorPanel);
   const setPromptNavigatorPanelOpen = useUIStore((s) => s.setPromptNavigatorPanelOpen);
-  const toggleExpandedInput = useUIStore((s) => s.toggleExpandedInput);
   const shortcutOverrides = useUIStore((s) => s.shortcutOverrides);
   const currentDirectory = useDirectoryStore((s) => s.currentDirectory);
   const activeProject = useProjectsStore((s) => s.getActiveProject());
@@ -482,7 +482,7 @@ export const useKeyboardShortcuts = () => {
         return;
       }
 
-      // Cmd/Ctrl+Shift+T: Cycle thinking variant (same gating as Shift+M)
+      // Cmd/Ctrl+Shift+T: Cycle thinking (same gating as Shift+M)
       if (eventMatchesShortcut(e, combo('cycle_thinking_variant'))) {
         const {
           isSettingsDialogOpen,
@@ -510,17 +510,18 @@ export const useKeyboardShortcuts = () => {
         }
 
         e.preventDefault();
-        configState.cycleCurrentVariant();
+        void cycleComposerThinking(1).then((nextVariant) => {
+          const sessionId = useSessionUIStore.getState().currentSessionId;
+          const agentName = useConfigStore.getState().currentAgentName;
+          const providerId = useConfigStore.getState().currentProviderId;
+          const modelId = useConfigStore.getState().currentModelId;
 
-        const nextVariant = useConfigStore.getState().currentVariant;
-        const sessionId = useSessionUIStore.getState().currentSessionId;
-        const agentName = useConfigStore.getState().currentAgentName;
-        const providerId = useConfigStore.getState().currentProviderId;
-        const modelId = useConfigStore.getState().currentModelId;
-
-        if (sessionId && agentName && providerId && modelId) {
-          useSelectionStore.getState().saveAgentModelVariantForSession(sessionId, agentName, providerId, modelId, nextVariant);
-        }
+          if (sessionId && agentName && providerId && modelId) {
+            useSelectionStore.getState().saveAgentModelVariantForSession(sessionId, agentName, providerId, modelId, nextVariant);
+          }
+        }).catch(() => {
+          toast.error("Couldn't update thinking");
+        });
 
         return;
       }
@@ -564,15 +565,6 @@ export const useKeyboardShortcuts = () => {
         setProvider(next.providerID);
         setModel(next.modelID);
         addRecentModel(next.providerID, next.modelID);
-        return;
-      }
-
-      if (eventMatchesShortcut(e, combo('expand_input'))) {
-        if (isMobile) {
-          return;
-        }
-        e.preventDefault();
-        toggleExpandedInput();
         return;
       }
     };
@@ -621,7 +613,6 @@ export const useKeyboardShortcuts = () => {
     setTimelineDialogOpen,
     togglePromptNavigatorPanel,
     setPromptNavigatorPanelOpen,
-    toggleExpandedInput,
     setThemeMode,
     sessionPhase,
     armAbortPrompt,
