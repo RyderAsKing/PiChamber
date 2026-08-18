@@ -25,6 +25,7 @@ import {
     getShellBridgeAssistantDetails,
     type ShellBridgeDetails,
 } from './lib/shellBridge';
+import { isMeasurableScrollElement } from './lib/scroll/readyScrollElement';
 
 const MESSAGE_LIST_VIRTUALIZE_THRESHOLD = 5;
 const EMPTY_STATIC_ENTRY_MESSAGES: ChatMessageEntry[] = [];
@@ -44,6 +45,10 @@ const sameKeys = (a: readonly string[] | undefined, b: readonly string[] | undef
 // preservation, and native iOS touch/momentum deferral for scroll
 // adjustments — the failure modes that historically forced virtua off on
 // mobile and required manual prepend compensation on desktop.
+// Enable the virtualizer only after the forwarded ScrollShadow node has a
+// non-zero clientHeight. A 0×0 first rect leaves getVirtualItems() empty
+// while the estimated spacer still occupies the history height, so older
+// turns vanish and only the non-virtualized live tail remains visible.
 type TanstackVirtualizerInstance = ReactVirtualizer<HTMLDivElement, HTMLDivElement>;
 type HistoryEngine = 'none' | 'tanstack';
 
@@ -898,10 +903,52 @@ const StaticHistoryList = React.memo(({ entries, engine, contentRef, scrollRef, 
     // measure in → less visible drift. The ref keeps estimateSize's identity
     // stable so updating the average never triggers a global remeasure.
     const estimatedEntrySizeRef = React.useRef(TANSTACK_ESTIMATED_ENTRY_SIZE);
+    const [scrollElement, setScrollElement] = React.useState<HTMLDivElement | null>(null);
+    React.useLayoutEffect(() => {
+        if (!isTanstack) {
+            setScrollElement((previous) => (previous === null ? previous : null));
+            return;
+        }
+
+        let observer: ResizeObserver | undefined;
+        let frame = 0;
+        const adopt = (): boolean => {
+            const next = scrollRef?.current ?? null;
+            if (!isMeasurableScrollElement(next)) return false;
+            setScrollElement((previous) => (previous === next ? previous : next));
+            return true;
+        };
+
+        if (adopt()) return;
+
+        const target = scrollRef?.current;
+        if (target) {
+            observer = new ResizeObserver(() => {
+                if (adopt()) observer?.disconnect();
+            });
+            observer.observe(target);
+        } else if (typeof window !== 'undefined') {
+            frame = window.requestAnimationFrame(() => {
+                if (adopt()) return;
+                const late = scrollRef?.current;
+                if (!late) return;
+                observer = new ResizeObserver(() => {
+                    if (adopt()) observer?.disconnect();
+                });
+                observer.observe(late);
+            });
+        }
+
+        return () => {
+            if (frame) window.cancelAnimationFrame(frame);
+            observer?.disconnect();
+        };
+    }, [isTanstack, scrollRef, virtualizerKey]);
+    const virtualizerReady = isTanstack && isMeasurableScrollElement(scrollElement);
     const tanstackVirtualizer = useTanstackVirtualizer<HTMLDivElement, HTMLDivElement>({
         count: renderEntries.length,
-        enabled: isTanstack,
-        getScrollElement: () => scrollRef?.current ?? null,
+        enabled: virtualizerReady,
+        getScrollElement: () => scrollElement,
         estimateSize: () => estimatedEntrySizeRef.current,
         overscan: resolveTanstackOverscan(),
         scrollToFn: (offset, options, instance) => {
@@ -946,7 +993,7 @@ const StaticHistoryList = React.memo(({ entries, engine, contentRef, scrollRef, 
     });
 
     React.useEffect(() => {
-        if (!isTanstack) return;
+        if (!virtualizerReady) return;
         registerTanstackVirtualizer?.(tanstackVirtualizer);
         return () => {
             writeTanstackTimelineCache(
@@ -956,7 +1003,7 @@ const StaticHistoryList = React.memo(({ entries, engine, contentRef, scrollRef, 
             );
             registerTanstackVirtualizer?.(null);
         };
-    }, [isTanstack, registerTanstackVirtualizer, tanstackVirtualizer, virtualizerKey]);
+    }, [virtualizerReady, registerTanstackVirtualizer, tanstackVirtualizer, virtualizerKey]);
 
     const renderEntry = React.useCallback((entry: RenderEntry) => {
         return (
@@ -976,7 +1023,10 @@ const StaticHistoryList = React.memo(({ entries, engine, contentRef, scrollRef, 
         );
     }, [getAnimationHandlers, onMessageContentChange, onUserAnimationConsumed, scrollToBottom, shouldAnimateUserMessage, stickyUserHeader]);
 
-    if (engine === 'none') {
+    if (engine === 'none' || (engine === 'tanstack' && !virtualizerReady)) {
+        // At most one pre-paint frame while the forwarded scroller is still
+        // 0×0. Rendering the plain rows keeps history visible and gives the
+        // scroller a real height so TanStack never attaches to an empty rect.
         return (
             <div ref={contentRef} className="relative w-full">
                 {renderEntries.map((entry) => (
