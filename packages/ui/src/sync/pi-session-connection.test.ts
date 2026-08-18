@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { PI_TRANSCRIPT_EVICTION_SOFT_CAP, PiSessionStore } from '@/apps/pi-session-store';
 import { PiRequestError, piClient } from '@/lib/pi/client';
 import type { PiReducerMessage, PiReducerSessionState } from '@/lib/pi/event-reducer';
+import { createReducerPartMap } from '@/lib/pi/event-reducer';
 import type { PiSessionEvent } from '@/lib/pi/protocol';
 import type { PiSessionId } from '@/lib/pi/types';
 import { useNotificationStore } from '@/sync/notification-store';
@@ -32,7 +33,7 @@ const reducerSession = (
   lifecycle: 'idle',
   messages: new Map(),
   partOrder: new Map(),
-  parts: new Map(),
+  parts: createReducerPartMap(),
   toolsByCallId: new Map(),
   streamingMessages: new Set(),
   queue: { steering: 0, followUp: 0 },
@@ -185,7 +186,7 @@ describe('PiSessionStore runtime-scoped sessions', () => {
       lastSequence: 9,
       messages: new Map(),
       partOrder: new Map(),
-      parts: new Map(),
+      parts: createReducerPartMap(),
       toolsByCallId: new Map(),
       streamingMessages: new Set(),
       queue: { steering: 0, followUp: 0 },
@@ -604,7 +605,7 @@ describe('PiSessionStore hydrate/overlay reconciliation', () => {
       lastSequence: 10,
       messages: new Map([['u1', user], ['a1', liveAssistant]]),
       partOrder: new Map([['a1', ['p1']]]),
-      parts: new Map([['p1', { id: 'p1', index: 0, type: 'text', text: 'hello', streaming: true }]]),
+      parts: createReducerPartMap([['p1', { id: 'p1', index: 0, type: 'text', text: 'hello', streaming: true }]]),
       streamingMessages: new Set(['a1']),
     });
     const fetched = reducerSession({

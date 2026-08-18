@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import { PiSessionStore } from '@/apps/pi-session-store';
 import type { PiReducerMessage, PiReducerSessionState } from '@/lib/pi/event-reducer';
+import { createReducerPartMap } from '@/lib/pi/event-reducer';
 import type { PiSessionEvent } from '@/lib/pi/protocol';
 import { useNotificationStore } from '@/sync/notification-store';
 import { resetSessionOrdering } from '@/sync/session-ordering';
@@ -19,7 +20,7 @@ const reducerSession = (
   lifecycle: 'idle',
   messages: new Map(),
   partOrder: new Map(),
-  parts: new Map(),
+  parts: createReducerPartMap(),
   toolsByCallId: new Map(),
   streamingMessages: new Set(),
   queue: { steering: 0, followUp: 0 },

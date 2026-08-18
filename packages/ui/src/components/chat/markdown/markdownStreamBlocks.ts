@@ -204,3 +204,21 @@ export const streamParserFor = (cacheKey: string): IncrementalMarkdownStream => 
 export const releaseStreamParser = (cacheKey: string): void => {
   streamParserCache.delete(cacheKey);
 };
+
+/** True when only the live tail raw changed; frozen leading blocks are identical. */
+export const isLiveMarkdownTailAppend = (
+  previous: readonly { mode: MarkdownBlock['mode']; raw: string }[] | null | undefined,
+  next: readonly MarkdownBlock[],
+): boolean => {
+  if (!previous || previous.length === 0 || previous.length !== next.length) return false;
+  const last = next[next.length - 1];
+  if (last?.mode !== 'live' || previous[previous.length - 1]?.mode !== 'live') return false;
+  for (let index = 0; index < next.length - 1; index += 1) {
+    const prevBlock = previous[index];
+    const nextBlock = next[index];
+    if (!prevBlock || !nextBlock) return false;
+    if (prevBlock.mode !== 'full' || nextBlock.mode !== 'full') return false;
+    if (prevBlock.raw !== nextBlock.raw) return false;
+  }
+  return true;
+};

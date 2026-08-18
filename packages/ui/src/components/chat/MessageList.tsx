@@ -3,10 +3,10 @@ import type { Part } from '@/lib/chat/types';
 import { elementScroll, useVirtualizer as useTanstackVirtualizer, type ReactVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 
 import ChatMessage from './ChatMessage';
-import { areOptionalRenderRelevantMessagesEqual, areRelevantTurnGroupingContextsEqual, areRenderRelevantMessagesEqual } from './message/renderCompare';
+import { areOptionalNeighborMessagesEqual, areRelevantTurnGroupingContextsEqual, areRenderRelevantMessagesEqual } from './message/renderCompare';
 import TurnItem from './components/TurnItem';
-import FoldedTurnRow from './components/FoldedTurnRow';
-import { FOLDED_TURN_ESTIMATED_SIZE, shouldFoldHistoryTurn } from './lib/turns/foldHistoryTurns';
+import FoldedHistoryGate from './components/FoldedHistoryGate';
+import { HISTORY_GATE_ESTIMATED_SIZE, nextRevealedOlderCount, revealedCountForTurn, shouldFoldHistoryTurn } from './lib/turns/foldHistoryTurns';
 import type { AnimationHandlers, ContentChangeReason } from '@/hooks/useChatAutoFollow';
 import type { ChatMessageEntry, TurnRecord, TurnGroupingContext } from './lib/turns/types';
 import { useTurnRecords } from './hooks/useTurnRecords';
@@ -101,22 +101,21 @@ const isPrependAboveCommit = (previous: RenderEntry[], next: RenderEntry[]): boo
 };
 
 const tanstackTimelineCache = new Map<string, { keys: readonly string[]; items: VirtualItem[] }>();
-const EXPANDED_FOLDED_TURNS_CACHE_MAX = 32;
-const expandedFoldedTurnsCache = new Map<string, Set<string>>();
+const REVEALED_OLDER_TURNS_CACHE_MAX = 32;
+const revealedOlderTurnsCache = new Map<string, number>();
 
-const readExpandedFoldedTurns = (sessionKey: string): Set<string> => {
-    const cached = expandedFoldedTurnsCache.get(sessionKey);
-    return cached ? new Set(cached) : new Set();
+const readRevealedOlderTurns = (sessionKey: string): number => {
+    return revealedOlderTurnsCache.get(sessionKey) ?? 0;
 };
 
-const writeExpandedFoldedTurns = (sessionKey: string, value: Set<string>): void => {
-    if (expandedFoldedTurnsCache.size >= EXPANDED_FOLDED_TURNS_CACHE_MAX && !expandedFoldedTurnsCache.has(sessionKey)) {
-        const oldest = expandedFoldedTurnsCache.keys().next().value;
+const writeRevealedOlderTurns = (sessionKey: string, value: number): void => {
+    if (revealedOlderTurnsCache.size >= REVEALED_OLDER_TURNS_CACHE_MAX && !revealedOlderTurnsCache.has(sessionKey)) {
+        const oldest = revealedOlderTurnsCache.keys().next().value;
         if (typeof oldest === 'string') {
-            expandedFoldedTurnsCache.delete(oldest);
+            revealedOlderTurnsCache.delete(oldest);
         }
     }
-    expandedFoldedTurnsCache.set(sessionKey, new Set(value));
+    revealedOlderTurnsCache.set(sessionKey, value);
 };
 
 const readTanstackTimelineCache = (sessionKey: string, keys: readonly string[]): VirtualItem[] | undefined => {
@@ -408,7 +407,7 @@ type RenderEntry =
         previousMessage?: ChatMessageEntry;
         nextMessage?: ChatMessageEntry;
     }
-    | { kind: 'folded'; key: string; turn: TurnRecord; isLastTurn: boolean }
+    | { kind: 'history-gate'; key: string; turns: TurnRecord[] }
     | { kind: 'turn'; key: string; turn: TurnRecord; isLastTurn: boolean; nextEntryFirstMessage?: ChatMessageEntry };
 
 interface MessageRowProps {
@@ -461,8 +460,8 @@ const MessageRow = React.memo<MessageRowProps>(({
     const nextTurn = next.turnGroupingContext;
 
     return areRenderRelevantMessagesEqual(prev.message, next.message)
-        && areOptionalRenderRelevantMessagesEqual(prev.previousMessage, next.previousMessage)
-        && areOptionalRenderRelevantMessagesEqual(prev.nextMessage, next.nextMessage)
+        && areOptionalNeighborMessagesEqual(prev.previousMessage, next.previousMessage)
+        && areOptionalNeighborMessagesEqual(prev.nextMessage, next.nextMessage)
         && prev.animateUserOnMount === next.animateUserOnMount
         && prev.onUserAnimationConsumed === next.onUserAnimationConsumed
         && prev.onContentChange === next.onContentChange
@@ -747,7 +746,8 @@ interface MessageListEntryProps {
     onUserAnimationConsumed: (messageId: string) => void;
     activeStreamingMessageId?: string | null;
     activeStreamingPhase?: StreamPhase | null;
-    onExpandFoldedTurn?: (turnId: string) => void;
+    onLoadOlderHistory?: (foldedCount: number) => void;
+    onLoadAllHistory?: (foldedCount: number) => void;
 }
 
 const turnContainsMessageId = (turn: TurnRecord, messageId: string | null | undefined): boolean => {
@@ -773,7 +773,8 @@ const MessageListEntry = React.memo(({
     onUserAnimationConsumed,
     activeStreamingMessageId,
     activeStreamingPhase,
-    onExpandFoldedTurn,
+    onLoadOlderHistory,
+    onLoadAllHistory,
 }: MessageListEntryProps) => {
     streamPerfCount('ui.message_list_entry.render');
     if (entry.kind === 'ungrouped') {
@@ -793,11 +794,12 @@ const MessageListEntry = React.memo(({
         );
     }
 
-    if (entry.kind === 'folded') {
+    if (entry.kind === 'history-gate') {
         return (
-            <FoldedTurnRow
-                turn={entry.turn}
-                onExpand={onExpandFoldedTurn ?? (() => undefined)}
+            <FoldedHistoryGate
+                foldedCount={entry.turns.length}
+                onLoadOlder={() => onLoadOlderHistory?.(entry.turns.length)}
+                onLoadAll={() => onLoadAllHistory?.(entry.turns.length)}
             />
         );
     }
@@ -836,10 +838,11 @@ type StaticHistoryListProps = {
     stickyUserHeader: boolean;
     shouldAnimateUserMessage: (message: ChatMessageEntry) => boolean;
     onUserAnimationConsumed: (messageId: string) => void;
-    onExpandFoldedTurn: (turnId: string) => void;
+    onLoadOlderHistory: (foldedCount: number) => void;
+    onLoadAllHistory: (foldedCount: number) => void;
 };
 
-const StaticHistoryList = React.memo(({ entries, engine, contentRef, scrollRef, registerTanstackVirtualizer, virtualizerKey, onMessageContentChange, getAnimationHandlers, scrollToBottom, stickyUserHeader, shouldAnimateUserMessage, onUserAnimationConsumed, onExpandFoldedTurn, }: StaticHistoryListProps) => {
+const StaticHistoryList = React.memo(({ entries, engine, contentRef, scrollRef, registerTanstackVirtualizer, virtualizerKey, onMessageContentChange, getAnimationHandlers, scrollToBottom, stickyUserHeader, shouldAnimateUserMessage, onUserAnimationConsumed, onLoadOlderHistory, onLoadAllHistory, }: StaticHistoryListProps) => {
     const isTanstack = engine === 'tanstack';
 
     // --- Quiet-window prepend (mobile) --------------------------------------
@@ -982,8 +985,8 @@ const StaticHistoryList = React.memo(({ entries, engine, contentRef, scrollRef, 
         enabled: virtualizerReady,
         getScrollElement: () => scrollElement,
         estimateSize: (index) => (
-            entriesRef.current[index]?.kind === 'folded'
-                ? FOLDED_TURN_ESTIMATED_SIZE
+            entriesRef.current[index]?.kind === 'history-gate'
+                ? HISTORY_GATE_ESTIMATED_SIZE
                 : estimatedEntrySizeRef.current
         ),
         overscan: resolveTanstackOverscan(),
@@ -1055,10 +1058,11 @@ const StaticHistoryList = React.memo(({ entries, engine, contentRef, scrollRef, 
                 onUserAnimationConsumed={onUserAnimationConsumed}
                 activeStreamingMessageId={null}
                 activeStreamingPhase={null}
-                onExpandFoldedTurn={onExpandFoldedTurn}
+                onLoadOlderHistory={onLoadOlderHistory}
+                onLoadAllHistory={onLoadAllHistory}
                 />
         );
-    }, [getAnimationHandlers, onExpandFoldedTurn, onMessageContentChange, onUserAnimationConsumed, scrollToBottom, shouldAnimateUserMessage, stickyUserHeader]);
+    }, [getAnimationHandlers, onLoadAllHistory, onLoadOlderHistory, onMessageContentChange, onUserAnimationConsumed, scrollToBottom, shouldAnimateUserMessage, stickyUserHeader]);
 
     if (engine === 'none' || (engine === 'tanstack' && !virtualizerReady)) {
         // At most one pre-paint frame while the forwarded scroller is still
@@ -1189,20 +1193,32 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     streamPerfCount('ui.message_list.render');
     const stickyUserHeader = useUIStore(state => state.stickyUserHeader);
     const showTurnChangedFiles = useUIStore((state) => state.showTurnChangedFiles);
-    const [expandedFoldedTurns, setExpandedFoldedTurns] = React.useState<Set<string>>(
-        () => readExpandedFoldedTurns(sessionKey),
+    const [revealedOlderCount, setRevealedOlderCount] = React.useState<number>(
+        () => readRevealedOlderTurns(sessionKey),
     );
-    const expandFoldedTurn = React.useCallback((turnId: string) => {
-        setExpandedFoldedTurns((current) => {
-            if (current.has(turnId)) return current;
-            const next = new Set(current);
-            next.add(turnId);
-            writeExpandedFoldedTurns(sessionKey, next);
+    const pendingExpandedTurnScrollRef = React.useRef<string | null>(null);
+    const setRevealedOlderTurns = React.useCallback((value: number | ((current: number) => number)) => {
+        setRevealedOlderCount((current) => {
+            const next = typeof value === 'function' ? value(current) : value;
+            writeRevealedOlderTurns(sessionKey, next);
             return next;
         });
     }, [sessionKey]);
+    const loadOlderHistory = React.useCallback((foldedCount: number) => {
+        setRevealedOlderTurns((current) => nextRevealedOlderCount(current, foldedCount));
+    }, [setRevealedOlderTurns]);
+    const loadAllHistory = React.useCallback((foldedCount: number) => {
+        setRevealedOlderTurns((current) => current + foldedCount);
+    }, [setRevealedOlderTurns]);
+    const revealFoldedTurn = React.useCallback((turnId: string, foldedTurns: readonly TurnRecord[], historyTurnCount: number) => {
+        const ordinal = foldedTurns.findIndex((turn) => turn.turnId === turnId);
+        if (ordinal < 0) return;
+        pendingExpandedTurnScrollRef.current = turnId;
+        setRevealedOlderTurns((current) => Math.max(current, revealedCountForTurn(ordinal, historyTurnCount)));
+    }, [setRevealedOlderTurns]);
     React.useLayoutEffect(() => {
-        setExpandedFoldedTurns(readExpandedFoldedTurns(sessionKey));
+        setRevealedOlderCount(readRevealedOlderTurns(sessionKey));
+        pendingExpandedTurnScrollRef.current = null;
     }, [sessionKey]);
     const userAnimationRef = React.useRef<{
         sessionKey: string | undefined;
@@ -1386,7 +1402,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
             const nextEntryFirstMessage = index < staticRenderEntries.length - 1
                 ? (() => {
                     const nextEntry = staticRenderEntries[index + 1];
-                    return nextEntry && (nextEntry.kind === 'turn' || nextEntry.kind === 'folded')
+                    return nextEntry && nextEntry.kind === 'turn'
                         ? nextEntry.turn.userMessage
                         : nextEntry?.kind === 'ungrouped' ? nextEntry.message : undefined;
                 })()
@@ -1398,23 +1414,37 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         });
         let historyTurnCount = 0;
         for (const entry of withNextMessage) {
-            if (entry.kind === 'turn' || entry.kind === 'folded') historyTurnCount += 1;
+            if (entry.kind === 'turn') historyTurnCount += 1;
         }
         let turnOrdinal = -1;
-        return withNextMessage.map((entry) => {
-            if (entry.kind !== 'turn' && entry.kind !== 'folded') return entry;
-            turnOrdinal += 1;
-            if (!shouldFoldHistoryTurn(turnOrdinal, historyTurnCount, entry.turn.turnId, expandedFoldedTurns)) {
-                return entry.kind === 'turn' ? entry : { ...entry, kind: 'turn' as const };
+        const foldedTurns: TurnRecord[] = [];
+        const visible: RenderEntry[] = [];
+        for (const entry of withNextMessage) {
+            if (entry.kind !== 'turn') {
+                visible.push(entry);
+                continue;
             }
-            return {
-                kind: 'folded' as const,
-                key: entry.key,
-                turn: entry.turn,
-                isLastTurn: entry.isLastTurn,
-            };
-        });
-    }, [expandedFoldedTurns, staticRenderEntries, trailingEntryFirstMessage]);
+            turnOrdinal += 1;
+            if (shouldFoldHistoryTurn(turnOrdinal, historyTurnCount, revealedOlderCount)) {
+                foldedTurns.push(entry.turn);
+                continue;
+            }
+            visible.push(entry);
+        }
+        if (foldedTurns.length === 0) return visible;
+        return [
+            { kind: 'history-gate' as const, key: 'history-gate', turns: foldedTurns },
+            ...visible,
+        ];
+    }, [revealedOlderCount, staticRenderEntries, trailingEntryFirstMessage]);
+    React.useLayoutEffect(() => {
+        const turnId = pendingExpandedTurnScrollRef.current;
+        if (!turnId) return;
+        pendingExpandedTurnScrollRef.current = null;
+        const container = resolveScrollContainer();
+        const turnElement = container?.querySelector<HTMLElement>(`[data-turn-id="${turnId}"]`);
+        turnElement?.scrollIntoView({ block: 'start' });
+    }, [historyEntries, resolveScrollContainer]);
     // Mobile always starts with the same virtualized engine it will use after
     // pagination. Switching a short list from normal DOM to TanStack during a
     // prepend remounts the history subtree, and the newly enabled end-anchored
@@ -1496,6 +1526,15 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
                 indexMap.set(entry.message.info.id, index);
                 return;
             }
+            if (entry.kind === 'history-gate') {
+                entry.turns.forEach((turn) => {
+                    indexMap.set(turn.userMessage.info.id, index);
+                    turn.assistantMessages.forEach((message) => {
+                        indexMap.set(message.info.id, index);
+                    });
+                });
+                return;
+            }
             indexMap.set(entry.turn.userMessage.info.id, index);
             entry.turn.assistantMessages.forEach((message) => {
                 indexMap.set(message.info.id, index);
@@ -1508,8 +1547,13 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     const turnIndexMap = React.useMemo(() => {
         const indexMap = new Map<string, number>();
         allEntries.forEach((entry, index) => {
-            if (entry.kind === 'turn' || entry.kind === 'folded') {
+            if (entry.kind === 'turn') {
                 indexMap.set(entry.turn.turnId, index);
+            }
+            if (entry.kind === 'history-gate') {
+                entry.turns.forEach((turn) => {
+                    indexMap.set(turn.turnId, index);
+                });
             }
         });
         return indexMap;
@@ -1570,7 +1614,13 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
 
         const handle: MessageListHandle = {
             scrollToTurnId: (turnId: string, options?: { behavior?: ScrollBehavior }) => {
-                expandFoldedTurn(turnId);
+                const gate = historyEntries.find((entry) => entry.kind === 'history-gate');
+                if (gate?.kind === 'history-gate') {
+                    const visibleTurns = historyEntries.reduce((count, entry) => (
+                        entry.kind === 'turn' ? count + 1 : count
+                    ), 0);
+                    revealFoldedTurn(turnId, gate.turns, gate.turns.length + visibleTurns);
+                }
                 const behavior = options?.behavior ?? 'auto';
                 const index = turnIndexMap.get(turnId);
                 if (index === undefined) {
@@ -1602,8 +1652,17 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
                     return false;
                 }
                 const entry = allEntries[index];
-                if (entry && (entry.kind === 'folded' || entry.kind === 'turn')) {
-                    expandFoldedTurn(entry.turn.turnId);
+                if (entry?.kind === 'history-gate') {
+                    const match = entry.turns.find((turn) => (
+                        turn.userMessage.info.id === messageId
+                        || turn.assistantMessages.some((message) => message.info.id === messageId)
+                    ));
+                    if (match) {
+                        const visibleTurns = historyEntries.reduce((count, historyEntry) => (
+                            historyEntry.kind === 'turn' ? count + 1 : count
+                        ), 0);
+                        revealFoldedTurn(match.turnId, entry.turns, entry.turns.length + visibleTurns);
+                    }
                 }
 
                 return scrollMessageElementIntoView(messageId, behavior)
@@ -1751,7 +1810,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         return () => {
             objectRef.current = null;
         };
-    }, [allEntries, expandFoldedTurn, findMessageElement, historyEntries.length, messageIndexMap, resolveScrollContainer, scrollHistoryIndexIntoView, scrollMessageElementIntoView, shouldVirtualizeHistory, trailingStreamingEntry, turnIndexMap, ref]);
+    }, [allEntries, findMessageElement, historyEntries, messageIndexMap, resolveScrollContainer, revealFoldedTurn, scrollHistoryIndexIntoView, scrollMessageElementIntoView, shouldVirtualizeHistory, trailingStreamingEntry, turnIndexMap, ref]);
 
     const disableFadeIn = false;
 
@@ -1778,7 +1837,8 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
                                 stickyUserHeader={stickyUserHeader}
                                 shouldAnimateUserMessage={shouldAnimateUserMessage}
                                 onUserAnimationConsumed={onUserAnimationConsumed}
-                                onExpandFoldedTurn={expandFoldedTurn}
+                                onLoadOlderHistory={loadOlderHistory}
+                                onLoadAllHistory={loadAllHistory}
                                                 />
                         </FadeInDisabledProvider>
                         {trailingStreamingEntry ? (

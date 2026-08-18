@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { marked, type Tokens } from 'marked';
 
-import { IncrementalMarkdownStream, hasOpenFence, isPreformattedLiveMarkdown, streamMarkdownBlocks } from './markdownStreamBlocks';
+import { IncrementalMarkdownStream, hasOpenFence, isLiveMarkdownTailAppend, isPreformattedLiveMarkdown, streamMarkdownBlocks } from './markdownStreamBlocks';
 
 const STREAM_DOC = [
   '# Title',
@@ -88,5 +88,21 @@ describe('IncrementalMarkdownStream', () => {
     expect(isPreformattedLiveMarkdown('```ts\nconst x = 1\n```\n')).toBe(true);
     expect(isPreformattedLiveMarkdown('- one\n- two\n')).toBe(true);
     expect(isPreformattedLiveMarkdown('The first cool night arrives,\nand I take stock:\n')).toBe(false);
+  });
+});
+
+describe('isLiveMarkdownTailAppend', () => {
+  test('accepts an append that only grows the live tail', () => {
+    const live = new IncrementalMarkdownStream();
+    const previous = live.update('Hello world.\n\nSecond paragraph.');
+    const next = live.update('Hello world.\n\nSecond paragraph continues.');
+    expect(isLiveMarkdownTailAppend(previous, next)).toBe(true);
+  });
+
+  test('rejects a freeze that adds a new leading block', () => {
+    const live = new IncrementalMarkdownStream();
+    const previous = live.update('Hello world.');
+    const next = live.update('Hello world.\n\nSecond paragraph.\n\nThird paragraph.');
+    expect(isLiveMarkdownTailAppend(previous, next)).toBe(false);
   });
 });

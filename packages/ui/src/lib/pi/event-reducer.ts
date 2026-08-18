@@ -26,6 +26,7 @@
  * store implementation. The store wrapper lives in `packages/ui/src/sync/`.
  */
 
+import { CowMap } from './cow-map';
 import type {
   PiAssistantMessageDeltaPayload,
   PiAssistantThinkingDeltaPayload,
@@ -102,6 +103,13 @@ export interface PiReducerMessage {
   usage?: PiUsage;
 }
 
+export type PiReducerPartMap = CowMap<PiReducerMessagePart>;
+export type PiReducerMutationKind = 'part' | 'structure';
+
+export const createReducerPartMap = (
+  entries?: Iterable<readonly [string, PiReducerMessagePart]>,
+): PiReducerPartMap => (entries ? CowMap.from(entries) : CowMap.empty());
+
 export interface PiReducerSessionState {
   sessionId: PiSessionId;
   directory: string;
@@ -116,13 +124,19 @@ export interface PiReducerSessionState {
   messages: Map<string, PiReducerMessage>;
   /** Part order per message id. */
   partOrder: Map<string, string[]>;
-  parts: Map<string, PiReducerMessagePart>;
+  parts: PiReducerPartMap;
   /** Pending tool calls (toolCallId → messageId) so an end event can find its parent. */
   toolsByCallId: Map<string, string>;
   /** Assistant messages whose `streaming` flag is still true. */
   streamingMessages: Set<string>;
   /** Queue depths at the time of the last `session.queue` event. */
   queue: { steering: number; followUp: number };
+  /**
+   * Last message a part-level or structural write touched. Live-tail freeze
+   * uses this instead of walking every historical part on each token.
+   */
+  lastMutatedMessageId?: string;
+  lastMutationKind?: PiReducerMutationKind;
 }
 
 export interface PiReducerState {
@@ -140,6 +154,22 @@ export const createReducerState = (): PiReducerState => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
+const emptySessionParts = (): PiReducerPartMap => createReducerPartMap();
+
+const markMutation = (
+  session: PiReducerSessionState,
+  messageId: string | undefined,
+  kind: PiReducerMutationKind,
+): void => {
+  if (!messageId) return;
+  session.lastMutatedMessageId = messageId;
+  session.lastMutationKind = kind;
+};
+
+const forkPartsForWrite = (session: PiReducerSessionState): void => {
+  session.parts = session.parts.fork();
+};
+
 const getOrCreateSession = (
   state: PiReducerState,
   sessionId: PiSessionId,
@@ -154,7 +184,7 @@ const getOrCreateSession = (
     lifecycle: 'idle',
     messages: new Map(),
     partOrder: new Map(),
-    parts: new Map(),
+    parts: emptySessionParts(),
     toolsByCallId: new Map(),
     streamingMessages: new Set(),
     queue: { steering: 0, followUp: 0 },
@@ -615,7 +645,7 @@ const reduceInterrupted = (session: PiReducerSessionState, streaming: boolean): 
 const reduceError = (session: PiReducerSessionState, code: string, message?: string): void => {
   session.lifecycle = 'error';
   const now = Date.now();
-  session.parts = new Map(session.parts);
+  session.parts = session.parts.fork();
   session.partOrder = new Map(session.partOrder);
   for (const messageId of session.streamingMessages) {
     const entry = session.messages.get(messageId);
@@ -688,7 +718,7 @@ export const applyPiEvent = (
         lifecycle: 'idle',
         messages: new Map(),
         partOrder: new Map(),
-        parts: new Map(),
+        parts: emptySessionParts(),
         toolsByCallId: new Map(),
         streamingMessages: new Set(),
         queue: { steering: 0, followUp: 0 },
@@ -711,51 +741,42 @@ export const applyPiEvent = (
       session.streamingMessages = new Set(session.streamingMessages);
       reduceMessageStart(session, event.directory, event.payload);
       if (event.payload.role === 'assistant') session.streamingMessages.add(event.payload.messageId);
+      markMutation(session, event.payload.messageId, 'structure');
       break;
     case 'assistant.message.delta':
-      session.parts = new Map(session.parts);
-      if (event.payload.partId) {
-        const part = session.parts.get(event.payload.partId);
-        if (part) session.parts.set(event.payload.partId, { ...part });
-      }
+      forkPartsForWrite(session);
       reduceAssistantDelta(session, event.payload, 'text');
+      markMutation(session, event.payload.messageId, 'part');
       break;
     case 'assistant.message.end':
       session.messages = new Map(session.messages);
-      session.parts = new Map(session.parts);
+      forkPartsForWrite(session);
       session.partOrder = new Map(session.partOrder);
       session.streamingMessages = new Set(session.streamingMessages);
       reduceMessageEnd(session, event.payload);
+      markMutation(session, event.payload.messageId, 'structure');
       break;
     case 'assistant.thinking.delta':
-      session.parts = new Map(session.parts);
-      if (event.payload.partId) {
-        const part = session.parts.get(event.payload.partId);
-        if (part) session.parts.set(event.payload.partId, { ...part });
-      }
+      forkPartsForWrite(session);
       reduceAssistantDelta(session, event.payload, 'thinking');
+      markMutation(session, event.payload.messageId, 'part');
       break;
     case 'session.tool.start':
-      session.parts = new Map(session.parts);
+      forkPartsForWrite(session);
       session.partOrder = new Map(session.partOrder);
       session.toolsByCallId = new Map(session.toolsByCallId);
       reduceTool(session, 'start', event.payload);
+      markMutation(session, event.payload.messageId, 'part');
       break;
     case 'session.tool.update':
-      session.parts = new Map(session.parts);
-      if (session.parts.has(event.payload.partId)) {
-        const part = session.parts.get(event.payload.partId);
-        if (part) session.parts.set(event.payload.partId, { ...part });
-      }
+      forkPartsForWrite(session);
       reduceTool(session, 'update', event.payload);
+      markMutation(session, event.payload.messageId, 'part');
       break;
     case 'session.tool.end':
-      session.parts = new Map(session.parts);
-      if (session.parts.has(event.payload.partId)) {
-        const part = session.parts.get(event.payload.partId);
-        if (part) session.parts.set(event.payload.partId, { ...part });
-      }
+      forkPartsForWrite(session);
       reduceTool(session, 'end', event.payload);
+      markMutation(session, event.payload.messageId, 'part');
       break;
     case 'session.queue':
       session.queue = {

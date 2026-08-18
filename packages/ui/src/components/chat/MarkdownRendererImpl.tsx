@@ -18,8 +18,8 @@ import { isDesktopLocalOriginActive, isDesktopShell } from '@/lib/desktop';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import { ensureOutsideFileGrantForDesktop } from '@/lib/outsideFileGrants';
 import { getDirectoryForFilePath, isFilePathWithinDirectory, toAbsoluteFilePath } from '@/lib/path-utils';
-import { renderMarkdownBlocks, renderMarkdownSync } from './markdown/markdownCore';
-import { isPreformattedLiveMarkdown } from './markdown/markdownStreamBlocks';
+import { renderMarkdownBlocks, renderMarkdownSync, type RenderedBlock } from './markdown/markdownCore';
+import { isLiveMarkdownTailAppend, isPreformattedLiveMarkdown, streamParserFor } from './markdown/markdownStreamBlocks';
 import { ensureMarkdownShikiTheme } from './markdown/markdownTheme';
 import { getMarkdownSyntaxVars } from './markdown/markdownSyntaxVars';
 import {
@@ -887,6 +887,12 @@ const useMorphdomMarkdown = ({
   }, []);
 
   const mermaidViewerRef = React.useRef<ReturnType<typeof createMermaidViewerRegistry> | null>(null);
+  const previousBlocksRef = React.useRef<RenderedBlock[] | null>(null);
+  const previousCacheKeyRef = React.useRef(cacheKey);
+  if (previousCacheKeyRef.current !== cacheKey) {
+    previousCacheKeyRef.current = cacheKey;
+    previousBlocksRef.current = null;
+  }
   const refreshMermaidViewers = React.useCallback(() => {
     const container = containerRef.current;
     if (!container) {
@@ -947,6 +953,24 @@ const useMorphdomMarkdown = ({
     const target = container.querySelector<HTMLElement>('[data-markdown-content]') ?? container;
     let active = true;
 
+    if (streaming && previousBlocksRef.current) {
+      const streamBlocks = streamParserFor(cacheKey).update(text);
+      if (isLiveMarkdownTailAppend(previousBlocksRef.current, streamBlocks)) {
+        const lastBlock = streamBlocks[streamBlocks.length - 1];
+        const liveEl = target.querySelectorAll<HTMLElement>(':scope > [data-md-block]')[streamBlocks.length - 1];
+        if (lastBlock && liveEl) {
+          applyLiveMarkdownTail(liveEl, lastBlock.raw);
+          liveEl.setAttribute('data-md-id', `live:${streamBlocks.length - 1}`);
+          previousBlocksRef.current = previousBlocksRef.current.map((block, index) => (
+            index === streamBlocks.length - 1
+              ? { ...block, raw: lastBlock.raw, id: `live:${index}`, mode: 'live' as const }
+              : block
+          ));
+          return;
+        }
+      }
+    }
+
     void renderMarkdownBlocks(text, streaming, cacheKey).then((blocks) => {
       if (!active) return;
       const existing = Array.from(target.querySelectorAll<HTMLElement>(':scope > [data-md-block]'));
@@ -1002,6 +1026,7 @@ const useMorphdomMarkdown = ({
         refreshMermaidViewers();
       }
 
+      previousBlocksRef.current = blocks;
     });
 
     return () => {

@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import { createSnapshotSelectorCache, stringArrayEqual } from './select-snapshot';
 import { isPiSessionLive, piLiveSessionIdsKey, piLiveStatusSignature } from './pi-session-live';
 import type { PiReducerSessionState } from '@/lib/pi/event-reducer';
+import { createReducerPartMap } from '@/lib/pi/event-reducer';
 
 const session = (overrides: Partial<PiReducerSessionState> & Pick<PiReducerSessionState, 'sessionId'>): PiReducerSessionState => ({
   directory: '/work',
@@ -10,7 +11,7 @@ const session = (overrides: Partial<PiReducerSessionState> & Pick<PiReducerSessi
   lifecycle: 'idle',
   messages: new Map(),
   partOrder: new Map(),
-  parts: new Map(),
+  parts: createReducerPartMap(),
   toolsByCallId: new Map(),
   streamingMessages: new Set(),
   queue: { steering: 0, followUp: 0 },

@@ -30,7 +30,7 @@ import type { TurnGroupingContext } from './lib/turns/types';
 import { copyMarkdownToClipboard, copyTextToClipboard } from '@/lib/clipboard';
 import { FadeInOnReveal } from './message/FadeInOnReveal';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
-import { areOptionalRenderRelevantMessagesEqual, areRenderRelevantMessagesEqual, areRelevantTurnGroupingContextsEqual } from './message/renderCompare';
+import { areOptionalNeighborMessagesEqual, areRenderRelevantMessagesEqual, areRelevantTurnGroupingContextsEqual } from './message/renderCompare';
 import { toast } from 'sonner';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { getContextObligatoryMessages } from '@/lib/contextObligatoryMessages';
@@ -1152,11 +1152,11 @@ export default React.memo(ChatMessage, (prev, next) => {
         { info: prev.message.info, parts: prev.message.parts },
         { info: next.message.info, parts: next.message.parts }
     )
-        && areOptionalRenderRelevantMessagesEqual(
+        && areOptionalNeighborMessagesEqual(
             prev.previousMessage ? { info: prev.previousMessage.info, parts: prev.previousMessage.parts } : undefined,
             next.previousMessage ? { info: next.previousMessage.info, parts: next.previousMessage.parts } : undefined
         )
-        && areOptionalRenderRelevantMessagesEqual(
+        && areOptionalNeighborMessagesEqual(
             prev.nextMessage ? { info: prev.nextMessage.info, parts: prev.nextMessage.parts } : undefined,
             next.nextMessage ? { info: next.nextMessage.info, parts: next.nextMessage.parts } : undefined
         )
