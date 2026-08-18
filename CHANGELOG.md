@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-08-18
+
+This release keeps long chats cheaper to keep on screen, and makes adding a
+folder a single, obvious action.
+
+- Long sessions stay smoother by reusing settled transcript records, showing
+  compact rows for older turns, and stubbing large tool bodies until you
+  expand them. Scrolling to a folded message restores the full turn.
+- Settings → General → Diagnostics can turn on a this-browser-only Performance
+  overlay for frame time, long tasks, and existing render counters. It stays
+  off by default and does not sync to other devices.
+- Adding a folder is driven by the path field: Browse picks a location without
+  adding it, and **Add folder** is the only primary action. Clone lives in the
+  directory list header. Already-added folders stay openable so a nested folder
+  can still be added. On Windows, Browse uses the modern folder picker.
+
 ## [0.1.4] - 2026-08-18
 
 This release keeps long chats readable while they stream, and restores session
