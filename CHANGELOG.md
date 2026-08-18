@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-08-18
+
+This release keeps long chats readable while they stream, and restores session
+history that could vanish after a few turns.
+
+- Older session history no longer disappears after sending a message once a
+  chat is long enough to virtualize. The transcript stays on screen, and
+  switching sessions still uses the existing cache.
+- Streaming replies stay smoother: token updates are batched per frame,
+  settled markdown is left alone, and live prose wraps at the full chat
+  width instead of a narrow strip.
+- Thinking traces collapse when the answer or a tool starts, stay cheap
+  while they stream, and can be collapsed by default. Those reasoning
+  preferences now persist across reloads.
+- Settings layout and project spacing are tighter, and About PiChamber is
+  available from the app.
+
 ## [0.1.3] - 2026-08-18
 
 This release makes everyday PiChamber use feel calmer and more predictable: the
