@@ -1,7 +1,6 @@
-const ALLOWED_UI_CORS_ORIGINS = new Set([
-  'pichamber-ui://app',
-  'capacitor://localhost',
-]);
+import { PACKAGED_CLIENT_ORIGINS } from '../security/packaged-client-origins.js';
+
+const ALLOWED_UI_CORS_ORIGINS = PACKAGED_CLIENT_ORIGINS;
 
 const LOOPBACK_HTTP_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/;
 

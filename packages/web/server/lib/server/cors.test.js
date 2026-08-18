@@ -6,6 +6,8 @@ describe('packaged UI CORS', () => {
   it('allows the Electron custom-scheme origin and loopback HMR origins', () => {
     expect(isAllowedUiCorsOrigin('pichamber-ui://app')).toBe(true);
     expect(isAllowedUiCorsOrigin('capacitor://localhost')).toBe(true);
+    expect(isAllowedUiCorsOrigin('https://localhost')).toBe(true);
+    expect(isAllowedUiCorsOrigin('http://localhost')).toBe(true);
     expect(isAllowedUiCorsOrigin('http://127.0.0.1:57123')).toBe(true);
     expect(isAllowedUiCorsOrigin('https://example.test')).toBe(false);
   });

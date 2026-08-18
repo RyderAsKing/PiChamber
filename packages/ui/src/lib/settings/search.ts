@@ -422,8 +422,8 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     id: 'sessions.desktop-lan-access',
     page: 'general',
     title: "Let other devices on your local network open this app",
-    description: "Restarts the app so phones, tablets, and other computers on your Wi-Fi can open it.",
-    keywords: ['desktop', 'lan', 'network', 'phone', 'tablet'],
+    description: "Restarts the app so phones, tablets, and other computers on your Wi-Fi can open it. On Windows, allow PiChamber through the firewall if a phone still cannot connect.",
+    keywords: ['desktop', 'lan', 'network', 'phone', 'tablet', 'wifi', 'firewall'],
     isAvailable: (ctx) => ctx.isDesktopLocalOrigin,
   },
   {

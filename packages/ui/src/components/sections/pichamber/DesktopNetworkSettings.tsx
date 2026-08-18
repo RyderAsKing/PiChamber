@@ -447,7 +447,7 @@ export const DesktopNetworkSettings: React.FC = () => {
             onChange={setDraftValue}
             disabled={isLoading || isSaving}
             label={"Let other devices on your local network open this app"}
-            info={"Restarts the app so phones, tablets, and other computers on your Wi-Fi can open it."}
+            info={"Restarts the app so phones, tablets, and other computers on your Wi-Fi can open it. On Windows, allow PiChamber through the firewall if a phone still cannot connect."}
             description={(
               <>
                 <span className="block text-[var(--status-warning)]/85">

@@ -68,9 +68,9 @@ Required local tools:
 - If Android builds fail with `Unable to locate a Java Runtime` or `source release: 21`, install/use JDK 21 and set `JAVA_HOME` accordingly.
 - If Android SDK packages are missing, install `platform-tools`, `platforms;android-35`, and `build-tools;35.0.0`, then accept SDK licenses.
 - If CocoaPods cannot find Capacitor pods after reinstalling dependencies, run `bun install` from the workspace root, then rerun `bun run sync`.
-- If connecting to a remote PiChamber server fails from the app while `/health` works in curl, check that the server build includes the packaged-client CORS allowlist for `capacitor://localhost` and local dev origins.
+- If connecting to a remote PiChamber server fails from the app while `/health` works in curl, check that the server build includes the packaged-client CORS allowlist (`capacitor://localhost` and Android's `https://localhost`) and that CapacitorHttp is enabled. Desktop LAN access also requires a UI password, a bind on `0.0.0.0`, and (on Windows) a firewall allow rule.
 - If `serve-sim` preview says the stream is not producing frames, check the raw MJPEG stream before assuming the simulator stopped. In prior testing the raw stream worked while the browser preview UI stayed stale.
 
 ## Generated Assets
 
-The native projects currently use Capacitor-generated launcher and splash assets. Replace them before release branding work.
+Launcher, splash, and notification icons are generated from the PiChamber SVG mark with `bun run icons:brand` (same command that writes desktop/web brand PNGs). Do not restore Capacitor's default OpenCode/Android Studio placeholders.
