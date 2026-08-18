@@ -857,3 +857,64 @@ describe('/api/fs/home', () => {
     });
   });
 });
+
+describe('/api/fs/pick-directory', () => {
+  const registerPick = ({ pickDirectory, fsPromises }) => {
+    const { app, getRoute } = createRouteRegistry();
+    registerFsRoutes(app, {
+      os: { homedir: () => '/home/user' },
+      path: path.posix,
+      fsPromises: {
+        realpath: async (targetPath) => targetPath,
+        stat: async () => ({ isDirectory: () => true }),
+        ...fsPromises,
+      },
+      spawn: vi.fn(),
+      crypto: { randomUUID: () => 'job-0' },
+      normalizeDirectoryPath: (p) => p,
+      resolveProjectDirectory: async () => ({ directory: '/repo' }),
+      buildAugmentedPath: () => '/usr/bin',
+      resolveGitBinaryForSpawn: () => 'git',
+      pichamberUserConfigRoot: '/home/user/.config',
+      pickDirectory,
+    });
+    return getRoute('POST', '/api/fs/pick-directory');
+  };
+
+  const callPick = async (handler, body) => {
+    const res = createMockResponse();
+    await handler({ body }, res);
+    return res;
+  };
+
+  it('returns the resolved directory path', async () => {
+    const handler = registerPick({
+      pickDirectory: vi.fn(async () => ({ status: 'ok', path: '/home/user/src' })),
+      fsPromises: {
+        stat: vi.fn(async () => ({ isDirectory: () => true })),
+      },
+    });
+    const res = await callPick(handler, { path: '/home/user' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ path: '/home/user/src' });
+  });
+
+  it('returns cancelled without treating it as an empty success path', async () => {
+    const handler = registerPick({
+      pickDirectory: vi.fn(async () => ({ status: 'cancelled' })),
+    });
+    const res = await callPick(handler, { path: '/home/user' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ cancelled: true });
+  });
+
+  it('returns 501 when no host picker is available', async () => {
+    const handler = registerPick({
+      pickDirectory: vi.fn(async () => ({ status: 'unavailable' })),
+    });
+    const res = await callPick(handler, {});
+    expect(res.statusCode).toBe(501);
+    expect(res.body).toEqual({ error: 'Folder picker is not available on this host.' });
+  });
+});
+

@@ -3,6 +3,7 @@ import nodeFsPromises from 'node:fs/promises';
 import nodePath from 'node:path';
 import { resolvePiChamberDataDir } from '../pichamber-data-dir.js';
 import { createFsSearchRuntime } from './search.js';
+import { pickHostDirectory } from './pick-directory.js';
 
 const EXEC_JOB_TTL_MS = 30 * 60 * 1000;
 const OUTSIDE_FILE_GRANT_TTL_MS = 10 * 60 * 1000;
@@ -401,6 +402,7 @@ export const registerFsRoutes = (app, dependencies) => {
     buildAugmentedPath,
     resolveGitBinaryForSpawn,
     pichamberUserConfigRoot,
+    pickDirectory = pickHostDirectory,
   } = dependencies;
   const realpathCache = createRealpathCache({
     realpath: fsPromises.realpath.bind(fsPromises),
@@ -1217,6 +1219,42 @@ export const registerFsRoutes = (app, dependencies) => {
       }
       console.error('Failed to reveal path:', error);
       return res.status(500).json({ error: (error && error.message) || 'Failed to reveal path' });
+    }
+  });
+
+  app.post('/api/fs/pick-directory', async (req, res) => {
+    const requestedPath = typeof req.body?.path === 'string' ? req.body.path.trim() : '';
+    try {
+      const picked = await pickDirectory({
+        platform,
+        spawn,
+        defaultPath: requestedPath,
+      });
+      if (picked?.status === 'cancelled') {
+        return res.json({ cancelled: true });
+      }
+      if (picked?.status === 'unavailable') {
+        return res.status(501).json({ error: 'Folder picker is not available on this host.' });
+      }
+      if (picked?.status !== 'ok' || typeof picked.path !== 'string' || !picked.path.trim()) {
+        return res.status(500).json({ error: picked?.error || 'Failed to pick directory' });
+      }
+      const resolved = path.resolve(picked.path.trim());
+      const stats = await fsPromises.stat(resolved);
+      if (!stats.isDirectory()) {
+        return res.status(400).json({ error: 'Selected path is not a directory' });
+      }
+      return res.json({ path: resolved });
+    } catch (error) {
+      const err = error;
+      if (err && typeof err === 'object' && err.code === 'ENOENT') {
+        return res.status(404).json({ error: 'Path not found' });
+      }
+      if (isOsPermissionError(err)) {
+        return sendOsPermissionDenied(res, 'Access to path denied');
+      }
+      console.error('Failed to pick directory:', error);
+      return res.status(500).json({ error: (error && error.message) || 'Failed to pick directory' });
     }
   });
 
