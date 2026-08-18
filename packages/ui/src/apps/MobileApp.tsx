@@ -7,7 +7,9 @@ import { Button } from '@/components/ui/button';
 import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
 import { ChatView } from '@/components/views/ChatView';
 import { SettingsView } from '@/components/views/SettingsView';
+import { ArchiveView } from '@/components/views/ArchiveView';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
+import { SessionDialogs } from '@/components/session/SessionDialogs';
 import { RuntimeAPIProvider } from '@/contexts/RuntimeAPIProvider';
 import { registerRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -60,21 +62,6 @@ import {
   useIpadSidebarResize,
 } from './ipadSidebarResize';
 
-const MOBILE_SETTINGS_PAGES = [
-  'general',
-  'appearance',
-  'chat',
-  'notifications',
-  'sessions',
-  'git',
-  'magic-prompts',
-  'behavior',
-  'providers',
-  'snippets',
-  'skills.installed',
-  'about',
-] as const;
-
 type MobileAppProps = {
   apis: RuntimeAPIs;
 };
@@ -102,10 +89,15 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   // When set, the Changes surface opens directly into the per-file diff for this path.
   const [pendingChangesDiff, setPendingChangesDiff] = React.useState<{ path: string; staged: boolean } | null>(null);
   const setSettingsPage = useUIStore((state) => state.setSettingsPage);
+  const isArchivePageOpen = useUIStore((state) => state.isArchivePageOpen);
+  const setArchivePageOpen = useUIStore((state) => state.setArchivePageOpen);
   const wideChatLayoutEnabled = useUIStore((state) => state.wideChatLayoutEnabled);
   const updateAvailable = useUpdateStore((state) => state.available);
   const updateRuntimeType = useUpdateStore((state) => state.runtimeType);
   const showCapacitorOnlyFeatures = React.useMemo(() => isCapacitorMobileApp(), []);
+  const showUpdateItem = !showCapacitorOnlyFeatures
+    && updateAvailable
+    && (updateRuntimeType === 'desktop' || updateRuntimeType === 'web');
 
   // NOTE: pendingChangesDiff is intentionally NOT cleared on close — it keys
   // the persistent Changes pane in the workspace drawer, and clearing it would
@@ -222,8 +214,11 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       },
       openFiles: () => openFilesSurface(),
       openSettings: () => openSettingsSurface('nav'),
+      openInstances: showCapacitorOnlyFeatures ? () => openSurface('instances') : undefined,
+      instanceLabel: showCapacitorOnlyFeatures ? getAutoConnectTargetLabel() : null,
+      openUpdate: showUpdateItem ? () => openSurface('update') : undefined,
     }),
-    [openChangesSurface, openFilesSurface, openSettingsSurface],
+    [openChangesSurface, openFilesSurface, openSettingsSurface, openSurface, showCapacitorOnlyFeatures, showUpdateItem],
   );
 
   // Expose the shell's panel-opening actions to the deep-link layer so pichamber:// URLs
@@ -271,6 +266,10 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   // (opened from the drawer footer / workspace tabs), so they close before the
   // drawers underneath.
   const handleNativeBack = React.useCallback(() => {
+    if (isArchivePageOpen) {
+      setArchivePageOpen(false);
+      return true;
+    }
     if (activeSurface) {
       closeSurface();
       return true;
@@ -284,37 +283,18 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       return true;
     }
     return false;
-  }, [activeSurface, closeSurface, closeWorkspace, sessionsSheetOpen, workspaceOpen]);
+  }, [activeSurface, closeSurface, closeWorkspace, isArchivePageOpen, sessionsSheetOpen, setArchivePageOpen, workspaceOpen]);
 
   useNativeAndroidBackButton(handleNativeBack);
-
-  // Server updates are actionable from a browser (hosted mobile) but not from
-  // the Capacitor shell — the native app updates through the store, and the
-  // server it CONNECTS to is updated elsewhere.
-  const showUpdateItem = !showCapacitorOnlyFeatures
-    && updateAvailable
-    && (updateRuntimeType === 'desktop' || updateRuntimeType === 'web');
 
   // Tablets pack the app-level pages (settings, instances, a plan) into a
   // centered dialog instead of covering the whole screen.
   const surfaceVariant = isTabletLayout ? 'dialog' as const : 'fullscreen' as const;
 
-  // App-level footer of the sessions list — the same on a phone drawer and a
-  // tablet sidebar: connected instance, pending web update, settings.
-  const sessionsFooter = React.useMemo(
-    () => ({
-      instanceLabel: showCapacitorOnlyFeatures ? getAutoConnectTargetLabel() : null,
-      onOpenInstances: showCapacitorOnlyFeatures ? () => openSurface('instances') : undefined,
-      onOpenSettings: () => openSettingsSurface('nav'),
-      onOpenUpdate: showUpdateItem ? () => openSurface('update') : undefined,
-    }),
-    [openSettingsSurface, openSurface, showCapacitorOnlyFeatures, showUpdateItem],
-  );
-
   return (
     <DedicatedMobileAppProvider actions={mobileActions}>
       <div
-        className="oc-mobile-app-shell main-content-safe-area flex h-[100dvh] flex-row bg-background text-foreground"
+        className="oc-mobile-app-shell main-content-safe-area relative flex h-[100dvh] flex-row bg-background text-foreground"
         data-page-scroll-lock="true"
       >
         {/* iPad: persistent full-height sessions sidebar; the chat column and
@@ -363,7 +343,6 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
                   onOpenChange={(value) => {
                     if (!value && !roomyForPanels) setSidebarOpen(false);
                   }}
-                  footer={sessionsFooter}
                 />
               </ErrorBoundary>
             </div>
@@ -402,7 +381,6 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           <MobileSessionsSheet
             open={sessionsSheetOpen}
             onOpenChange={setSessionsSheetOpen}
-            footer={sessionsFooter}
           />
         ) : null}
 
@@ -503,11 +481,6 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
                 forceMobile
                 isWindowed
                 initialMobileStage={settingsInitialMobileStage}
-                // About exists for server updates — meaningful in a browser
-                // (hosted mobile), not in the Capacitor shell (store updates).
-                visiblePageSlugs={MOBILE_SETTINGS_PAGES.filter(
-                  (page) => !(showCapacitorOnlyFeatures && page === 'about'),
-                )}
                 onClose={closeSurface}
               />
             </ErrorBoundary>
@@ -530,6 +503,10 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             </ErrorBoundary>
           </MobileFullscreenSurface>
         ) : null}
+
+        <ErrorBoundary>
+          <ArchiveView />
+        </ErrorBoundary>
       </div>
     </DedicatedMobileAppProvider>
   );
@@ -1062,6 +1039,7 @@ export function MobileApp({ apis }: MobileAppProps) {
                   switchRuntimeEndpoint({ apiBaseUrl: '', clientToken: null, runtimeKey: 'mobile-disconnected' });
                   setConnectionEpoch((value) => value + 1);
                 }} />
+                <SessionDialogs />
                 <Toaster position="top-center" offset="calc(var(--oc-safe-area-top, 0px) + 16px)" />
                 <PerfHudHost />
                 {isInitialized ? <ConfigUpdateOverlay /> : null}

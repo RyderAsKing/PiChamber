@@ -13,6 +13,7 @@ import {
 type Props = {
   onNewSession: () => void;
   showSidebarToggle: boolean;
+  touchFriendly?: boolean;
 };
 
 export function SidebarNav(props: Props): React.ReactNode {
@@ -33,7 +34,10 @@ export function SidebarNav(props: Props): React.ReactNode {
         <button
           type="button"
           onClick={props.onNewSession}
-          className="group flex min-w-0 flex-1 items-center gap-1.5 pl-[3px] text-left text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+          className={cn(
+            'group flex min-w-0 flex-1 items-center gap-1.5 pl-[3px] text-left text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+            props.touchFriendly && 'min-h-11',
+          )}
         >
           <Icon name="chat-new" className={cn(sidebarRowIconClassName, 'text-current')} />
           <span className={sidebarRowLabelClassName}>{"New session"}</span>

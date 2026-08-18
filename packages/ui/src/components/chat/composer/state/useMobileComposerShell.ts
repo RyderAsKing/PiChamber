@@ -1,10 +1,10 @@
 /**
  * The mobile composer's pill ↔ full-composer state machine.
  *
- * With the keyboard closed the composer collapses into a narrow pill; any
- * interaction expands it back. The swap is deliberately instant and
- * synchronized with the keyboard choreography, so the chat compensates
- * keyboard and composer height in a single motion rather than a staircase.
+ * Dedicated mobile keeps the full composer up (`alwaysExpanded`). The pill
+ * remains for hosted surfaces that opt out. Holders, overlay restore, and
+ * keyboard corrections still apply while expanded so overlay sheets do not
+ * fight the editor.
  *
  * Most of the code here is not the state machine itself but the corrections
  * that keep it from fighting the platform: mobile browsers dismiss the

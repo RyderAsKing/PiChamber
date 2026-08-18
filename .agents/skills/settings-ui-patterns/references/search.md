@@ -7,7 +7,7 @@ Settings search uses an explicit registry; it does not scrape JSX.
 - Add/update items in `packages/ui/src/lib/settings/search.ts`.
 - Add a matching `data-settings-item="..."` anchor to the rendered setting — shared primitives take it via their `settingsItem` prop.
 - Use descriptive, direct labels and descriptions in `search.ts`.
-- For a new top-level page, add metadata in `packages/ui/src/lib/settings/metadata.ts` and searchable content unless the page is purely navigational; also extend `pageOrder`/nav icon in `SettingsView.tsx` and `MOBILE_SETTINGS_PAGES` in `MobileApp.tsx` when the page applies to mobile.
+- For a new top-level page, add metadata in `packages/ui/src/lib/settings/metadata.ts` and searchable content unless the page is purely navigational; also extend `pageOrder`/nav icon in `SettingsView.tsx`.
 - When a control moves between pages (e.g. into General), update the registry item's `page` — item `id`s stay stable even if they carry the old page prefix.
 
 ## Registry Rules

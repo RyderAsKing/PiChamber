@@ -15,6 +15,11 @@ type DeleteSessionConfirmSetter = React.Dispatch<React.SetStateAction<{
   archivedBucket: boolean;
 } | null>>;
 
+type SessionSelectOptions = {
+  /** Load the session without notifying mobile hosts to close the sessions drawer. */
+  keepPanelOpen?: boolean;
+};
+
 type DeleteSessionSource = {
   archivedBucket?: boolean;
   hardDelete?: boolean;
@@ -64,7 +69,7 @@ export const useSessionActions = (args: Args) => {
   }, []);
 
   const handleSessionSelect = React.useCallback(
-    (sessionId: string, sessionDirectory?: string | null) => {
+    (sessionId: string, sessionDirectory?: string | null, options?: SessionSelectOptions) => {
       streamPerfMark('navigation.session_select');
       // Selecting a session always leaves any full-page surface, even when
       // the session is already the current one (no store transition fires).
@@ -76,6 +81,7 @@ export const useSessionActions = (args: Args) => {
         args.setSessionSearchQuery('');
         args.setIsSessionSearchOpen(false);
       };
+      const notifyHost = options?.keepPanelOpen !== true;
 
       if (args.mobileVariant) {
         args.setActiveMainTab('chat');
@@ -83,7 +89,7 @@ export const useSessionActions = (args: Args) => {
       }
 
       if (sessionId === useSessionUIStore.getState().currentSessionId) {
-        if (args.allowReselect) {
+        if (args.allowReselect && notifyHost) {
           args.onSessionSelected?.(sessionId);
         }
         resetSessionSearch();
@@ -91,7 +97,9 @@ export const useSessionActions = (args: Args) => {
       }
       streamPerfMark('navigation.session_state_set');
       args.setCurrentSession(sessionId, sessionDirectory ?? null);
-      args.onSessionSelected?.(sessionId);
+      if (notifyHost) {
+        args.onSessionSelected?.(sessionId);
+      }
       resetSessionSearch();
     },
     [args],

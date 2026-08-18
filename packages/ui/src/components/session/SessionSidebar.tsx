@@ -82,6 +82,7 @@ import {
 import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
 import { useNotificationStore } from '@/sync/notification-store';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
+import { useMobileAppActions } from '@/apps/mobileAppContext';
 import { getGitHubPrStatusKey, useGitHubPrStatusStore } from '@/stores/useGitHubPrStatusStore';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { streamPerfCount, streamPerfMark } from '@/stores/utils/streamDebug';
@@ -127,6 +128,7 @@ interface SessionSidebarProps {
   isVisible?: boolean;
   mobileVariant?: boolean;
   onSessionSelected?: (sessionId: string) => void;
+  onNavigateAway?: () => void;
   allowReselect?: boolean;
   hideDirectoryControls?: boolean;
   showOnlyMainWorkspace?: boolean;
@@ -224,6 +226,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   isVisible = true,
   mobileVariant = false,
   onSessionSelected,
+  onNavigateAway,
   allowReselect = false,
   hideDirectoryControls = false,
   showOnlyMainWorkspace = false,
@@ -416,7 +419,8 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     // draft was already open (no store transition fires in that case).
     useUIStore.getState().closeMainSurfaces();
     openNewSessionDraft(options);
-  }, [openNewSessionDraft]);
+    onNavigateAway?.();
+  }, [onNavigateAway, openNewSessionDraft]);
   const updateStore = useUpdateStore(useShallow((s) => ({
     checkForUpdates: s.checkForUpdates,
     available: s.available,
@@ -531,11 +535,12 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const emptyState = React.useMemo(() => (
     <SidebarSessionLikeButton
       icon="chat-new"
+      mobileVariant={mobileVariant}
       onClick={() => openNewSessionDraftFromTree()}
     >
       {"New session"}
     </SidebarSessionLikeButton>
-  ), [openNewSessionDraftFromTree]);
+  ), [mobileVariant, openNewSessionDraftFromTree]);
 
   const editingProject = React.useMemo(
     () => projects.find((project) => project.id === editingProjectDialogId) ?? null,
@@ -576,12 +581,18 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     });
   }, [ updateStore]);
 
+  const mobileAppActions = useMobileAppActions();
   const handleOpenSettings = React.useCallback(() => {
     if (mobileVariant) {
       setSessionSwitcherOpen(false);
     }
+    onNavigateAway?.();
+    if (mobileAppActions?.openSettings) {
+      mobileAppActions.openSettings();
+      return;
+    }
     setSettingsDialogOpen(true);
-  }, [mobileVariant, setSessionSwitcherOpen, setSettingsDialogOpen]);
+  }, [mobileAppActions, mobileVariant, onNavigateAway, setSessionSwitcherOpen, setSettingsDialogOpen]);
 
   const showSidebarUpdateButton =
     updateStore.available &&
@@ -1129,9 +1140,9 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const desktopHeaderActionButtonClass =
     'inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md leading-none text-foreground hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed';
   const mobileHeaderActionButtonClass =
-    'inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md leading-none text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed';
+    'flex size-9 shrink-0 items-center justify-center rounded-full leading-none text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed';
   const headerActionButtonClass = mobileVariant ? mobileHeaderActionButtonClass : desktopHeaderActionButtonClass;
-  const headerActionIconClass = 'h-4.5 w-4.5';
+  const headerActionIconClass = mobileVariant ? 'size-4' : 'h-4.5 w-4.5';
   const stuckProjectHeaders = useStickyProjectHeaders({
     enabled: isVisible && stickyZoneHeaders,
     isDesktopShellRuntime,
@@ -1369,7 +1380,8 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       setSessionSwitcherOpen(false);
     }
     openNewSessionDraft();
-  }, [mobileVariant, openNewSessionDraft, setActiveMainTab, setSessionSwitcherOpen]);
+    onNavigateAway?.();
+  }, [mobileVariant, onNavigateAway, openNewSessionDraft, setActiveMainTab, setSessionSwitcherOpen]);
 
   return (
     // One shared tooltip provider for the whole sidebar: session tooltips open
@@ -1411,10 +1423,10 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         sortedSessions={orderedSessions}
         prefetchSession={async (sessionId) => { await sync.syncSession(sessionId); }}
       />
-      {!hideDirectoryControls ? (
+      {!hideDirectoryControls && !mobileVariant ? (
         <SidebarNav
           onNewSession={handleOpenNewSessionDraftFromHeader}
-          showSidebarToggle={!mobileVariant}
+          showSidebarToggle
         />
       ) : null}
 
@@ -1425,6 +1437,10 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
           if (mobileVariant) setSessionSwitcherOpen(false);
           setArchivePageOpen(true);
         }}
+        onOpenSettings={mobileVariant ? handleOpenSettings : undefined}
+        onOpenInstances={mobileVariant ? mobileAppActions?.openInstances : undefined}
+        instanceLabel={mobileVariant ? mobileAppActions?.instanceLabel : undefined}
+        onOpenUpdate={mobileVariant ? mobileAppActions?.openUpdate : undefined}
         headerActionIconClass={headerActionIconClass}
         headerActionButtonClass={headerActionButtonClass}
         isSessionSearchOpen={isSessionSearchOpen}
@@ -1438,6 +1454,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         expandAllProjects={expandAllProjects}
         selectionModeEnabled={selectionModeEnabled}
         onToggleSelectionMode={handleToggleSelectionMode}
+        mobileVariant={mobileVariant}
       />
 
       {piConnection === 'error' || piConnection === 'unavailable' ? (
@@ -1467,10 +1484,11 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
           hasActiveSessionByProject={hasActiveSessionByProject}
           hasUnseenByProject={hasUnseenByProject}
           homeDirectory={homeDirectory}
+          mobileVariant={mobileVariant}
         />
       ) : null}
 
-      {isVisible ? <SidebarProjectsList
+      {(isVisible || mobileVariant) ? <SidebarProjectsList
         sectionsForRender={filteredSectionsForSidebarRender}
         projectSections={projectSections}
         activeProjectId={activeProjectId}
@@ -1525,6 +1543,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         />
       ) : null}
 
+      {!mobileVariant ? (
       <SidebarFooter
         onOpenSettings={handleOpenSettings}
         onOpenShortcuts={toggleHelpDialog}
@@ -1536,6 +1555,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         showRuntimeButtons
         showUpdateButton={showSidebarUpdateButton}
       />
+      ) : null}
 
       <UpdateDialog
         open={updateDialogOpen}

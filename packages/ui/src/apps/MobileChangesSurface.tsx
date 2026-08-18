@@ -444,26 +444,12 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
   }, [handleRevertFile, handleViewChangeDiff, moveChangePaths, stagedChangeEntries, unstagedChangeEntries]);
 
   const renderListState = (state: React.ReactNode) => (
-    <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 px-3 text-foreground">
-        {onClose ? (
-          <button
-            type="button"
-            className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={"Close"}
-            onClick={onClose}
-            style={{ touchAction: 'manipulation' }}
-          >
-            <Icon name="close" className="size-5" />
-          </button>
-        ) : null}
-        <div className="min-w-0 flex-1 px-1">
-          <h2 className="typography-ui-label text-foreground">{"Changes"}</h2>
-          <p className="truncate typography-micro text-muted-foreground">
-            {status?.current || currentDirectory || ''}
-          </p>
-        </div>
-      </header>
+    <div className="flex h-full flex-col overflow-hidden bg-transparent text-foreground">
+      <div className="flex shrink-0 items-center gap-2 px-3 py-2">
+        <p className="min-w-0 flex-1 truncate typography-ui-label text-muted-foreground">
+          {status?.current || currentDirectory || ''}
+        </p>
+      </div>
       <div className="min-h-0 flex-1">{state}</div>
     </div>
   );
@@ -494,25 +480,22 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 px-3 text-foreground">
+    <div className="flex h-full flex-col overflow-hidden bg-transparent text-foreground">
+      <div className="flex shrink-0 items-center gap-2 px-3 py-2">
         {onClose ? (
           <button
             type="button"
-            className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             aria-label={"Close"}
             onClick={onClose}
             style={{ touchAction: 'manipulation' }}
           >
-            <Icon name="close" className="size-5" />
+            <Icon name="close" className="size-4" />
           </button>
         ) : null}
-        <div className="min-w-0 flex-1 px-1">
-          <h2 className="typography-ui-label text-foreground">{"Changes"}</h2>
-          <p className="truncate typography-micro text-muted-foreground">
-            {status?.current || currentDirectory}
-          </p>
-        </div>
+        <p className="min-w-0 flex-1 truncate typography-ui-label text-muted-foreground">
+          {status?.current || currentDirectory}
+        </p>
         <SyncActions
           syncAction={syncAction}
           remotes={effectiveRemotes}
@@ -524,11 +507,11 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
           trackingRemoteName={status?.tracking?.split('/')[0]}
           hasUncommittedChanges={changeEntries.length > 0}
         />
-      </header>
+      </div>
       {changeEntries.length > 0 ? (
         <div className="flex min-h-0 flex-1 flex-col">
           {/* File list scrolls inside ChangesPanel; the commit footer stays pinned. */}
-          <div className="min-h-0 flex-1 overflow-hidden px-4 pt-4">
+          <div className="min-h-0 flex-1 overflow-hidden px-3 pt-2">
             <ChangesPanel
               groups={changeGroups}
               diffStats={status?.diffStats}
@@ -539,7 +522,7 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
               onVisiblePathsChange={setVisibleChangePaths}
             />
           </div>
-          <div className="shrink-0 border-t border-border/70 px-4 pb-4 pt-3">
+          <div className="shrink-0 border-t border-border/40 px-3 pb-3 pt-3">
             <CommitSection
               stagedCount={stagedChangeEntries.length}
               commitMessage={commitMessage}
@@ -592,18 +575,18 @@ const MobileDiffDetail: React.FC<{
   const language = React.useMemo(() => getLanguageFromExtension(path) || 'text', [path]);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-3 border-b border-border/70 px-3 text-foreground">
+    <div className="flex h-full flex-col overflow-hidden bg-transparent text-foreground">
+      <header className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-1 px-2 text-foreground">
         <button
           type="button"
-          className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           aria-label={"Back"}
           onClick={onBack}
         >
-          <Icon name="arrow-left" className="size-5" />
+          <Icon name="arrow-left" className="size-4" />
         </button>
         <div className="min-w-0 flex-1 px-2">
-          <h2 className="truncate typography-ui-header text-foreground">{path}</h2>
+          <h2 className="truncate typography-ui-label text-foreground">{path}</h2>
         </div>
       </header>
       <div className="min-h-0 flex-1 overflow-hidden">

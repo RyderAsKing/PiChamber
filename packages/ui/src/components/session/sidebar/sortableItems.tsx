@@ -12,7 +12,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
-import { sidebarRowIconClassName, sidebarRowLabelClassName } from './utils';
+import { sidebarRowIconClass, sidebarRowLabelClass } from './utils';
 
 export type SortableDragHandleProps = {
   listeners: ReturnType<typeof useSortable>['listeners'];
@@ -27,33 +27,37 @@ type ProjectIdentityProps = {
 type ProjectHeaderIdentityProps = ProjectIdentityProps & {
   isCollapsed?: boolean;
   alwaysShowActions?: boolean;
+  mobileVariant?: boolean;
 };
 
 export const ProjectHeaderIdentity: React.FC<ProjectHeaderIdentityProps> = ({
   projectLabel,
   isCollapsed,
   alwaysShowActions = false,
+  mobileVariant = false,
 }) => {
   const hasCollapseControl = isCollapsed !== undefined;
   const iconVisibilityClassName = hasCollapseControl
     ? (alwaysShowActions ? 'hidden' : 'group-hover/project:hidden group-focus-within/project:hidden')
     : undefined;
+  const iconClassName = sidebarRowIconClass(mobileVariant);
+  const labelClassName = sidebarRowLabelClass(mobileVariant);
 
   return (
     <>
-      <span className={cn('inline-flex shrink-0 items-center justify-center', sidebarRowIconClassName)}>
+      <span className={cn('inline-flex shrink-0 items-center justify-center', iconClassName)}>
         {hasCollapseControl ? (
           <span className={cn(
             'items-center justify-center text-muted-foreground',
-            sidebarRowIconClassName,
+            iconClassName,
             alwaysShowActions ? 'inline-flex' : 'hidden group-hover/project:inline-flex group-focus-within/project:inline-flex',
           )}>
-            <Icon name={isCollapsed ? 'arrow-right-s' : 'arrow-down-s'} className={sidebarRowIconClassName} />
+            <Icon name={isCollapsed ? 'arrow-right-s' : 'arrow-down-s'} className={iconClassName} />
           </span>
         ) : null}
-        <Icon name="folder" className={cn(sidebarRowIconClassName, 'text-muted-foreground/80', iconVisibilityClassName)} />
+        <Icon name="folder" className={cn(iconClassName, 'text-muted-foreground/80', iconVisibilityClassName)} />
       </span>
-      <span className={cn(sidebarRowLabelClassName, 'text-foreground')}>{projectLabel}</span>
+      <span className={cn(labelClassName, 'text-foreground')}>{projectLabel}</span>
     </>
   );
 };
@@ -90,6 +94,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
   isRepo,
   isDesktopShell,
   hideDirectoryControls,
+  mobileVariant,
   alwaysShowActions,
   onToggle,
   onNewSession,
@@ -238,6 +243,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                       projectLabel={projectLabel}
                       isCollapsed={isCollapsed}
                       alwaysShowActions={alwaysShowActions}
+                      mobileVariant={mobileVariant}
                     />
                     {statusIndicator ? (
                       <span className="ml-1 inline-flex flex-shrink-0 items-center">{statusIndicator}</span>

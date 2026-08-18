@@ -4,8 +4,9 @@
  * Desktop (except mini-chat) uses a stacked card: editor on top, attachments
  * and model picker (with thinking after the model name) on the left of the
  * footer, send on the right. Mini-chat keeps a one-line pill with the model
- * picker under the composer. Mobile keeps a stacked footer so the send control
- * stays reachable with one thumb.
+ * picker under the composer. Dedicated mobile keeps a stacked footer so the
+ * send control stays reachable with one thumb, with model and variant pickers
+ * in that footer and no + attach control.
  */
 
 import React from 'react';
@@ -84,6 +85,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
             openPrPicker={onOpenPrPicker}
             onOpenSettings={onOpenSettings}
             onOpenMobileSheet={isMobile ? onOpenAttachSheet : undefined}
+            hideAddButton={isMobile}
         />
     );
 
@@ -113,10 +115,15 @@ export function ComposerFooter(props: ComposerFooterProps) {
                     data-chat-input-footer="true"
                 >
                     <div className="flex w-full items-center justify-between gap-x-1.5">
-                        <div className="composer-mobile-actions flex items-center gap-x-2 pl-1">
+                        <div className="composer-mobile-actions flex min-w-0 items-center gap-x-2 overflow-x-auto pl-1">
                             {attachments}
+                            {leadingExtra ? (
+                                <div className="w-max shrink-0">
+                                    {leadingExtra}
+                                </div>
+                            ) : null}
                         </div>
-                        <div className="flex min-w-0 items-center justify-end gap-x-1">
+                        <div className="flex min-w-0 shrink-0 items-center justify-end gap-x-1">
                             {actions}
                         </div>
                     </div>

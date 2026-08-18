@@ -162,5 +162,15 @@ export const sidebarGutterX = '0.75rem';
 /** Chrome shared by session rows and session-shaped actions (show more). */
 export const sidebarRowIconClassName = 'size-4 shrink-0';
 export const sidebarRowLabelClassName = 'min-w-0 truncate typography-ui-label font-normal';
+export const sidebarRowIconClassNameMobile = sidebarRowIconClassName;
+export const sidebarRowLabelClassNameMobile = sidebarRowLabelClassName;
 export const sidebarSessionRowClassName =
   'group relative my-0.5 flex w-full cursor-pointer items-center gap-1.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50';
+export const sidebarSessionRowClassNameMobile = sidebarSessionRowClassName;
+
+export const sidebarRowIconClass = (mobile: boolean): string => (
+  mobile ? sidebarRowIconClassNameMobile : sidebarRowIconClassName
+);
+export const sidebarRowLabelClass = (mobile: boolean): string => (
+  mobile ? sidebarRowLabelClassNameMobile : sidebarRowLabelClassName
+);
