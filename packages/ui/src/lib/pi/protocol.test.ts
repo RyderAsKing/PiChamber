@@ -9,6 +9,7 @@ describe("protocol constants", () => {
   test("event kinds cover every canonical name", () => {
     expect(PI_EVENT_KINDS).toContain("session.snapshot")
     expect(PI_EVENT_KINDS).toContain("session.lifecycle")
+    expect(PI_EVENT_KINDS).toContain("session.updated")
     expect(PI_EVENT_KINDS).toContain("assistant.message.start")
     expect(PI_EVENT_KINDS).toContain("assistant.message.delta")
     expect(PI_EVENT_KINDS).toContain("assistant.message.end")
@@ -37,6 +38,18 @@ describe("isPiEvent", () => {
       payload: { state: "busy" },
     }
     expect(isPiEvent(event)).toBe(true)
+  })
+
+  test("accepts session.updated title envelopes", () => {
+    expect(isPiEvent({
+      protocolVersion: 1,
+      kind: "event",
+      name: "session.updated",
+      sequence: 1,
+      sessionId: "s1",
+      directory: "/work",
+      payload: { title: "Named from another device" },
+    })).toBe(true)
   })
 
   test("rejects unrelated objects", () => {

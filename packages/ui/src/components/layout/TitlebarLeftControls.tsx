@@ -22,6 +22,9 @@ const ICON_BUTTON_CLASS =
  * padding clears the OS window controls via `--oc-titlebar-left-inset`.
  * The cluster's measured width is published as `--oc-titlebar-controls-width`
  * so the header can reserve matching space when the sidebar is collapsed.
+ * The sidebar strip carves a matching no-drag region under this overlay so
+ * Electron window-drag does not swallow the PiChamber menu while the sidebar
+ * is open.
  */
 export const TitlebarLeftControls: React.FC = () => {
   const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
@@ -102,7 +105,7 @@ export const TitlebarLeftControls: React.FC = () => {
     // in the empty parts of the strip.
     <div
       ref={overlayRef}
-      className="app-region-no-drag absolute left-0 top-0 z-30 flex select-none items-center pr-2"
+      className="app-region-no-drag absolute left-0 top-0 z-40 flex select-none items-center pr-2"
       style={{
         height: 'var(--oc-header-height, 3rem)',
         paddingLeft: 'var(--oc-titlebar-left-inset, 0.75rem)',

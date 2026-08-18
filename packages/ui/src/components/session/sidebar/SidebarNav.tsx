@@ -24,12 +24,23 @@ export function SidebarNav(props: Props): React.ReactNode {
   return (
     <div
       className="app-region-drag select-none flex h-[var(--oc-header-height,3rem)] shrink-0 items-center pr-3"
-      style={{
-        // Match SidebarHeader's px-3 gutter so New session lines up with the
-        // icon toolbar. Grow left only to clear OS overlay / traffic lights.
-        paddingLeft: `max(${sidebarGutterX}, var(--oc-titlebar-left-inset, ${sidebarGutterX}), var(--oc-titlebar-overlay-width, 0px))`,
-      }}
     >
+      {/* Traffic-lights / window-controls inset stays a window drag area. */}
+      <div
+        aria-hidden
+        className="shrink-0 self-stretch"
+        style={{ width: `var(--oc-titlebar-left-inset, ${sidebarGutterX})` }}
+      />
+      {/* Electron drag regions ignore z-index of overlays. Carve no-drag under
+          the TitlebarLeftControls menu so it stays clickable while the sidebar
+          is open. Width is overlay minus the inset already reserved above. */}
+      <div
+        aria-hidden
+        className="app-region-no-drag shrink-0 self-stretch"
+        style={{
+          width: `max(0px, calc(var(--oc-titlebar-overlay-width, 0px) - var(--oc-titlebar-left-inset, ${sidebarGutterX})))`,
+        }}
+      />
       <div className="app-region-no-drag flex min-w-0 flex-1 items-center gap-1.5">
         <button
           type="button"

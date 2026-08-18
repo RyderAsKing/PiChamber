@@ -343,6 +343,12 @@ const projectEventFrame = (frame) => {
       } } };
     }
     case 'session.lifecycle': return { ...common, payload: { state: frame.payload.state } };
+    case 'session.updated': {
+      if (typeof frame.payload.title !== 'string') return null;
+      const title = frame.payload.title.trim();
+      if (title.length === 0 || title.length > 256) return null;
+      return { ...common, payload: { title } };
+    }
     case 'assistant.message.start': return { ...common, payload: { messageId: frame.payload.messageId, role: frame.payload.role, startedAt: frame.payload.startedAt, ...(typeof frame.payload.parentId === 'string' ? { parentId: frame.payload.parentId } : {}), ...(typeof frame.payload.text === 'string' ? { text: frame.payload.text } : {}), ...(frame.payload.model ? { model: frame.payload.model } : {}) } };
     case 'assistant.message.delta':
     case 'assistant.thinking.delta': return { ...common, payload: { messageId: frame.payload.messageId, contentIndex: frame.payload.contentIndex, delta: frame.payload.delta, ...(typeof frame.payload.partId === 'string' ? { partId: frame.payload.partId } : {}) } };

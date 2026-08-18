@@ -415,6 +415,7 @@ export interface PiAttachmentCreateResponse {
 export type PiEventName =
   | 'session.snapshot'
   | 'session.lifecycle'
+  | 'session.updated'
   | 'assistant.message.start'
   | 'assistant.message.delta'
   | 'assistant.message.end'
@@ -454,6 +455,14 @@ export type PiSessionLifecycleEvent = PiEventEnvelope<
     attempt?: number;
     next?: number;
     message?: string;
+  }
+>;
+
+/** Catalog metadata from another client: create, first-prompt title, or rename. */
+export type PiSessionUpdatedEvent = PiEventEnvelope<
+  'session.updated',
+  {
+    title: string;
   }
 >;
 
@@ -608,6 +617,7 @@ export type PiSessionInterruptedEvent = PiEventEnvelope<
 export type PiSessionEvent =
   | PiSessionSnapshotEvent
   | PiSessionLifecycleEvent
+  | PiSessionUpdatedEvent
   | PiAssistantMessageStartEvent
   | PiAssistantMessageDeltaEvent
   | PiAssistantMessageEndEvent
@@ -630,6 +640,7 @@ export type PiSessionEvent =
 export const PI_EVENT_KINDS = [
   'session.snapshot',
   'session.lifecycle',
+  'session.updated',
   'assistant.message.start',
   'assistant.message.delta',
   'assistant.message.end',

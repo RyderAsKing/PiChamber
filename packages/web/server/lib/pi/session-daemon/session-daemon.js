@@ -409,7 +409,7 @@ export function createSessionDaemon({
         throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi returned an invalid active session.');
       }
       manager.appendSessionInfo(title);
-      publish('session.updated', { title }, sessionId, targetDir);
+      publish('session.updated', { title: redactAttachmentPaths(title) }, sessionId, targetDir);
       return;
     }
 
@@ -421,7 +421,7 @@ export function createSessionDaemon({
     }
     await validatePiSessionJsonlFile(target.path);
     renamePersistedSession({ sessionFile: target.path, title, cwd: targetDir });
-    publish('session.updated', { title }, sessionId, targetDir);
+    publish('session.updated', { title: redactAttachmentPaths(title) }, sessionId, targetDir);
   };
 
   const findPersistedSession = async (sessionId, requestedDirectory) => {
@@ -664,7 +664,14 @@ export function createSessionDaemon({
     runtime = newRuntime;
     activeDirectory = targetCwd;
     rememberRuntimeSession();
-    return projectActiveSession(newRuntime, targetCwd);
+    const created = projectActiveSession(newRuntime, targetCwd);
+    const createdTitle = created.session.title
+      || (typeof payload.title === 'string' ? payload.title.trim() : '')
+      || newRuntime.session?.sessionManager?.getSessionName?.();
+    if (createdTitle) {
+      publish('session.updated', { title: redactAttachmentPaths(createdTitle) }, created.session.id, targetCwd);
+    }
+    return created;
   };
 
   const listProviders = async (requestedDirectory) => {
@@ -1320,7 +1327,7 @@ export function createSessionDaemon({
       const derived = deriveSessionTitle(payload.text);
       if (derived && typeof manager?.appendSessionInfo === 'function') {
         manager.appendSessionInfo(derived);
-        publish('session.updated', { title: derived }, payload.sessionId, activeRuntime.cwd);
+        publish('session.updated', { title: redactAttachmentPaths(derived) }, payload.sessionId, activeRuntime.cwd);
       }
     }
 

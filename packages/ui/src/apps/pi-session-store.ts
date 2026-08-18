@@ -17,6 +17,7 @@ import { PiStreamCadence } from '@/lib/pi/stream-cadence';
 import type { PiSessionEvent, PiSessionListItem } from '@/lib/pi/protocol';
 import type { PiSession, PiSessionId, PiSessionLifecycleState, PiThinkingLevel } from '@/lib/pi/types';
 import { resolveCreateThinking } from '@/lib/pi/thinking';
+import { deriveSessionTitle } from '@/lib/chat/deriveSessionTitle';
 import { normalizePath } from '@/lib/pathNormalization';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { observeSessionActivityTiming, removeSessionActivityTiming } from '@/sync/session-activity-timing';
@@ -1565,9 +1566,9 @@ export class PiSessionStore {
     if (!applied) return;
     this.state = { ...this.state, reducer: working };
     // Mirror accepted events into the catalog. Lifecycle transitions flip
-    // a row's `lifecycle`; other events are reference-stable updates
-    // (`applyLifecycleChange` is a no-op when the value matches). Do not
-    // bump `updatedAt` here — last-prompt recency is owned by `prompt()`.
+    // a row's `lifecycle`; `session.updated` and the first remote user
+    // message fill title. Last-prompt recency is owned by `prompt()` locally
+    // and by user-message starts from other devices.
     const nextCatalog = this.applyCatalogFromEvents(events, working);
     const catalogChanged = nextCatalog !== this.state.catalog;
     if (catalogChanged) {
@@ -1583,9 +1584,10 @@ export class PiSessionStore {
 
   /**
    * Apply accepted events to the catalog row mirror. Lifecycle / snapshot
-   * events flip the catalog row's `lifecycle` field; everything else is a
-   * structural no-op (helpers short-circuit on unchanged values). Walks
-   * the events in order and chains helpers so a single batch of N events
+   * events flip the catalog row's `lifecycle` field; `session.updated` writes
+   * title; a remote user-message start stamps last-prompt recency and fills
+   * an empty title. Helpers short-circuit on unchanged values. Walks the
+   * events in order and chains helpers so a single batch of N events
    * produces at most N narrow row updates.
    *
    * When an event arrives for a session that has not yet been listed by
@@ -1595,6 +1597,11 @@ export class PiSessionStore {
    * directory's listing finally lands — `applyDirectoryListToCatalog`
    * preserves a non-idle lifecycle on that path so a stub never gets
    * downgraded to idle by a slow list.
+   *
+   * `session.updated` writes the title without changing last-prompt recency
+   * (rename / explicit create). A user-message start from another device
+   * both stamps recency and fills an empty stub title from the prompt text
+   * so the sidebar does not stay on "Untitled Session" until a later list.
    */
   private applyCatalogFromEvents(
     events: readonly PiSessionEvent[],
@@ -1610,6 +1617,32 @@ export class PiSessionStore {
       }
       if (reducerLifecycle !== undefined) {
         catalog = applyLifecycleChange(catalog, event.sessionId, catalogLifecycleFromReducer(reducerLifecycle));
+      }
+      if (event.name === 'session.updated') {
+        const title = typeof event.payload.title === 'string' ? event.payload.title.trim() : '';
+        if (title) {
+          if (!catalog.byId.has(event.sessionId)) {
+            catalog = upsertStubRecord(catalog, event.sessionId, event.directory, stubLifecycle ?? 'idle');
+          }
+          const existing = catalog.byId.get(event.sessionId);
+          catalog = applyTitleChange(
+            catalog,
+            event.sessionId,
+            title,
+            existing?.updatedAt ?? Date.now(),
+          );
+        }
+      }
+      if (event.name === 'assistant.message.start' && event.payload.role === 'user') {
+        catalog = touchRecordUpdatedAt(catalog, event.sessionId, Date.now(), {
+          directory: event.directory,
+          lifecycle: 'busy',
+        });
+        const existing = catalog.byId.get(event.sessionId);
+        const derived = deriveSessionTitle(event.payload.text ?? '');
+        if (derived && existing && existing.title.trim().length === 0) {
+          catalog = applyTitleChange(catalog, event.sessionId, derived, existing.updatedAt);
+        }
       }
     }
     return catalog;

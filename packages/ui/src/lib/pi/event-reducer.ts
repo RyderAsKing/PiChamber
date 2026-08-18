@@ -794,6 +794,9 @@ export const applyPiEvent = (
       // Compaction does not change the reducer state directly; consumers
       // observe the event name through their own subscription.
       break;
+    case 'session.updated':
+      // Title/metadata lives in the live catalog, not the transcript reducer.
+      break;
     case 'session.error':
       session.messages = new Map(session.messages);
       session.streamingMessages = new Set(session.streamingMessages);

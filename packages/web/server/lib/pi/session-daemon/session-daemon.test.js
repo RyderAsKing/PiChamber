@@ -45,6 +45,7 @@ class FakeSession {
       getLeafId: () => 'fake-entry',
       getTree: () => [{ entry: { id: 'fake-entry', parentId: undefined, timestamp: '2026-01-01T00:00:00.000Z' }, children: [] }],
       appendSessionInfo: (name) => this.names.push(name),
+      getSessionName: () => this.names[this.names.length - 1],
     };
   }
 
@@ -462,6 +463,29 @@ describe('Pi session daemon spike', () => {
     await expect(client.request('sessions.rename', { sessionId: 'pi-session-new', title: '  Active title  ' })).resolves.toMatchObject({ result: {} });
     await expect(client.request('sessions.rename', { sessionId: 'pi-session-persisted', title: 'Persisted title' })).resolves.toMatchObject({ result: {} });
     expect(renamed).toEqual([{ sessionFile: persistedSessionFile, title: 'Persisted title' }]);
+    await client.close();
+  });
+
+  it('publishes session.updated when a session is first prompted', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
+    const endpoint = testDaemonEndpoint(root);
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => new FakeRuntime({ cwd: root, session: new FakeSession('pi-session-old') }),
+    });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
+    const promptedUpdated = client.next((frame) => frame.event === 'session.updated' && frame.payload?.title === 'Inspect this report');
+    await client.request('sessions.prompt', { sessionId: 'pi-session-new', text: 'Inspect this report\n\nDetails' });
+    await expect(promptedUpdated).resolves.toMatchObject({
+      event: 'session.updated',
+      payload: { sessionId: 'pi-session-new', title: 'Inspect this report' },
+    });
     await client.close();
   });
 

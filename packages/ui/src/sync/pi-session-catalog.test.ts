@@ -76,6 +76,26 @@ const lifecycleEvent = (sessionId: string, directory: string, state: 'idle' | 'b
   payload: { state },
 });
 
+const sessionUpdatedEvent = (sessionId: string, directory: string, title: string, sequence = 1): PiSessionEvent => ({
+  protocolVersion: 1,
+  kind: 'event',
+  name: 'session.updated',
+  sequence,
+  sessionId,
+  directory,
+  payload: { title },
+});
+
+const userMessageStartEvent = (sessionId: string, directory: string, text: string, sequence = 1): PiSessionEvent => ({
+  protocolVersion: 1,
+  kind: 'event',
+  name: 'assistant.message.start',
+  sequence,
+  sessionId,
+  directory,
+  payload: { messageId: `user-${sessionId}-${sequence}`, role: 'user', text, startedAt: sequence },
+});
+
 interface StubOptions {
   selectProject?: (dir: string) => Promise<{ directory: string }>;
   listSessions?: (scope: { directory?: string }) => Promise<{ sessions: ReturnType<typeof listItem>[] }>;
@@ -761,6 +781,55 @@ describe('PiSessionStore catalog', () => {
       const after = store.getState().catalog.byId.get('pre-list');
       expect(after?.lifecycle).toBe('busy');
       stubs.restore();
+    } finally {
+      store.dispose();
+    }
+  });
+
+  test('session.updated from another device fills a stub title without waiting for a list', async () => {
+    const store = new PiSessionStore();
+    try {
+      const internal = store as unknown as { commitEvents: (events: PiSessionEvent[]) => void };
+      internal.commitEvents([sessionUpdatedEvent('remote-1', '/repo-a', 'Fix the parser', 1)]);
+      await tickMicrotasks();
+      const row = store.getState().catalog.byId.get('remote-1');
+      expect(row?.title).toBe('Fix the parser');
+      expect(row?.directory).toBe('/repo-a');
+      expect(store.getState().catalog.byDirectory.get('/repo-a')).toContain('remote-1');
+    } finally {
+      store.dispose();
+    }
+  });
+
+  test('a remote user prompt fills an empty stub title from the message text', async () => {
+    const store = new PiSessionStore();
+    try {
+      const internal = store as unknown as { commitEvents: (events: PiSessionEvent[]) => void };
+      internal.commitEvents([
+        lifecycleEvent('remote-2', '/repo-a', 'busy', 1),
+        userMessageStartEvent('remote-2', '/repo-a', 'Inspect this report\n\nDetails below', 2),
+      ]);
+      await tickMicrotasks();
+      const row = store.getState().catalog.byId.get('remote-2');
+      expect(row?.title).toBe('Inspect this report');
+      expect(row?.lifecycle).toBe('busy');
+    } finally {
+      store.dispose();
+    }
+  });
+
+  test('a remote user prompt does not overwrite an existing session title', async () => {
+    const store = new PiSessionStore();
+    try {
+      const internal = store as unknown as { commitEvents: (events: PiSessionEvent[]) => void };
+      internal.commitEvents([sessionUpdatedEvent('remote-3', '/repo-a', 'Named session', 1)]);
+      await tickMicrotasks();
+      internal.commitEvents([
+        userMessageStartEvent('remote-3', '/repo-a', 'A follow-up that should not rename', 2),
+      ]);
+      await tickMicrotasks();
+      expect(store.getState().catalog.byId.get('remote-3')?.title).toBe('Named session');
+      expect(store.getState().catalog.byId.get('remote-3')?.lifecycle).toBe('busy');
     } finally {
       store.dispose();
     }

@@ -217,6 +217,17 @@ describe("applyPiEvent", () => {
     expect(state.bySession.get("sess-1")?.lifecycle).toBe("interrupted")
   })
 
+  test("session.updated advances sequence without changing transcript state", () => {
+    const started = applyPiEvent(createReducerState(), assistantStart())
+    const updated = applyPiEvent(started.state, baseEvent("session.updated", 2, {
+      title: "Fix the parser",
+    }))
+    expect(updated.didApply).toBe(true)
+    expect(updated.state.lastSequence.get("sess-1")).toBe(2)
+    expect(updated.state.bySession.get("sess-1")?.messages.get("m1"))
+      .toBe(started.state.bySession.get("sess-1")?.messages.get("m1"))
+  })
+
   test("session.error marks active assistant output and lifecycle", () => {
     let state = applyPiEvent(createReducerState(), assistantStart()).state
     state = applyPiEvent(state, baseEvent("session.error", 2, {

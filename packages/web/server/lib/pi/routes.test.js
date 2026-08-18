@@ -563,6 +563,38 @@ describe('Pi runtime route', () => {
     expect(text).not.toContain('/private/socket');
   });
 
+  it('projects session.updated titles onto the public event stream', async () => {
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      subscribe: async ({ onEvent }) => {
+        onEvent({
+          protocolVersion: 1,
+          kind: 'event',
+          event: 'session.updated',
+          sequence: 8,
+          payload: { sessionId: 'pi-session-5', directory: '/workspace', title: '  Fix the parser  ', endpoint: '/private/socket' },
+        });
+        return () => {};
+      },
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-5&fromSequence=7`);
+    const reader = response.body.getReader();
+    const first = await reader.read();
+    let text = new TextDecoder().decode(first.value);
+    while (!text.includes('"session.updated"')) {
+      const next = await reader.read();
+      if (next.done) break;
+      text += new TextDecoder().decode(next.value);
+    }
+    await reader.cancel();
+    expect(text).toContain('"name":"session.updated"');
+    expect(text).toContain('"title":"Fix the parser"');
+    expect(text).not.toContain('/private/socket');
+  });
+
   it('projects Pi usage through the public session and event envelopes', async () => {
     const sampleUsage = {
       input: 120, output: 80, cacheRead: 30, cacheWrite: 5, totalTokens: 235,

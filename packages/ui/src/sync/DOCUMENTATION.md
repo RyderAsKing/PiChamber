@@ -102,7 +102,7 @@ catalog.listStatusByDirectory:   Map<directory, 'idle'|'loading'|'ready'|'failed
 
 - A successful `listSessions` for directory `D` replaces `byDirectory[D]`; other directories are untouched. Rows for ids that left `D` are removed from `byId` only when no other directory in the catalog still owns the record (a session that has moved A → B must keep its B row when A is re-listed without it).
 - A failed `listSessions` for `D` keeps the prior rows for `D` and flips `listStatusByDirectory[D]` to `'failed'`. Failure is not empty success.
-- Pi events update rows in place: `session.lifecycle` flips `lifecycle`. Token deltas and lifecycle/snapshot boundaries do **not** bump `updatedAt`. Last-prompt recency is written only by `PiSessionStore.prompt()` via `touchRecordUpdatedAt`.
+- Pi events update rows in place: `session.lifecycle` flips `lifecycle`. `session.updated` writes `title` without bumping last-prompt recency. A user-message start from another device stamps recency and fills an empty stub title from the prompt text so a remote first send is not stuck as "Untitled Session". Token deltas and lifecycle/snapshot boundaries do **not** bump `updatedAt`. Last-prompt recency is written by `PiSessionStore.prompt()` on this client and by remote user-message starts via `touchRecordUpdatedAt`.
 - An event arriving for a session that has not been listed yet (`byId` has no row) inserts a `upsertStubRecord` so the sidebar can render the session as busy. `applyDirectoryListToCatalog` preserves a non-idle existing lifecycle on listed ids, so a stub is never downgraded to idle by a slow list.
 
 ### Single fill path
