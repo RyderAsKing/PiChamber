@@ -4,8 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-- Server install is package-manager only. The curl `scripts/install.sh` wrapper is gone; docs recommend `bun add -g @pi-chamber/web`, with npm, pnpm, and yarn examples.
-- `pichamber update` upgrades only the global install that owns the running CLI, and restarts a Linux user systemd unit instead of spawning a second server on the same port.
+## [0.2.0] - 2026-08-19
+
+This release makes the server install path honest: you install and upgrade
+`@pi-chamber/web` through the package manager that owns it. It also fixes
+session titles, sidebar motion, and a few desktop and tablet layout bugs.
+
+- Server install is package-manager only. The curl `scripts/install.sh`
+  wrapper is gone. Docs recommend `bun add -g @pi-chamber/web`, with npm,
+  pnpm, and yarn examples.
+- `pichamber update` upgrades only the global install that owns the running
+  CLI, and restarts a Linux user systemd unit instead of spawning a second
+  server on the same port. Startup help documents `--lan`, `--port`, and
+  `--ui-password`.
+- Remote sessions keep the title Pi already stored, instead of falling back
+  to a generated label after reconnect or catalog refresh.
+- The Electron window menu stays usable while the sessions sidebar is open.
+- Closing the sessions panel now shrinks in lockstep with the header, so the
+  title no longer slides the wrong way first.
+- Tablets use desktop chrome instead of the phone sheet layout. The composer
+  stays pinned in the chat footer.
 
 ## [0.1.9] - 2026-08-19
 
