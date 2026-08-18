@@ -15,4 +15,8 @@ Use a store only for state shared across distant component trees or for a cache 
 
 Caches and async work must be scoped to the active runtime. A failed authoritative request must preserve existing state and remain distinguishable from a successful empty result.
 
+`useProjectsStore.resetForRuntimeSwitch()` clears project paths until the new
+runtime's authenticated settings snapshot arrives; persisted paths from another
+host are not a valid bootstrap source.
+
 When changing store shape, keep persisted state intentionally compatible or discard obsolete fields safely. Do not use persisted history to infer live Pi activity.

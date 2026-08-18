@@ -289,6 +289,30 @@ describe('updateDesktopSettings', () => {
     }
   });
 
+  test('does not repeat settings requests through the fallback route after auth rejection', async () => {
+    const previousFetch = globalThis.fetch;
+    const fallbackRequests: string[] = [];
+    try {
+      globalThis.fetch = (async (input, init) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.includes('/api/pi/ui-settings')) fallbackRequests.push(`${init?.method ?? 'GET'} ${url}`);
+        return new Response(null, { status: 401 });
+      }) as typeof fetch;
+      switchRuntimeEndpoint({ apiBaseUrl: 'https://auth-required.example', runtimeKey: 'auth-required' });
+      registerSettingsApi(
+        async () => { throw new Error('UI authentication required'); },
+        async () => { throw new Error('UI authentication required'); },
+      );
+
+      await syncDesktopSettings();
+      await updateDesktopSettings({ terminalShell: 'zsh' });
+
+      expect(fallbackRequests).toEqual([]);
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
   test('rejects stale loads by generation across an A to B to A switch', async () => {
     const originalLoad = deferred<{ settings: SettingsPayload; source: 'web' }>();
     switchRuntimeEndpoint({ apiBaseUrl: 'https://load-a.example', runtimeKey: 'load-a' });

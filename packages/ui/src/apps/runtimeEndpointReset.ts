@@ -11,12 +11,13 @@ import { useGitHubPrStatusStore } from '@/stores/useGitHubPrStatusStore';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { useFilesViewTabsStore } from '@/stores/useFilesViewTabsStore';
 import { useTerminalStore } from '@/stores/useTerminalStore';
+import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { resetStreamingState } from '@/sync/streaming';
 import { useGlobalSessionStatusStore } from '@/sync/global-session-status';
 import { resetSessionOrdering } from '@/sync/session-ordering';
 import { resetSessionActivityTiming } from '@/sync/session-activity-timing';
-import { syncDesktopSettings } from '@/lib/persistence';
+import { updateBrowserURL } from '@/lib/router';
 
 // Same-device transport switch (LAN⇄relay for one paired device): rebind the SDK
 // to the new transport WITHOUT tearing down connection/session state or remounting
@@ -36,6 +37,10 @@ export const resetAppForRuntimeEndpointChange = (detail: RuntimeEndpointChangedD
   useUIStore.getState().prepareForRuntimeSwitch(detail.previousRuntimeKey);
   disposeTerminalInputTransport();
   useTerminalStore.getState().clearAll();
+  // The previous runtime's cwd is not meaningful on the new host (for
+  // example, a Windows path must never be sent to a WSL daemon). Clear it
+  // before the new runtime's settings/project snapshot is applied.
+  useDirectoryStore.getState().resetForRuntimeSwitch();
   useConfigStore.setState({
     providers: [],
     agents: [],
@@ -61,6 +66,13 @@ export const resetAppForRuntimeEndpointChange = (detail: RuntimeEndpointChangedD
   useFilesViewTabsStore.getState().resetForRuntimeSwitch(detail.runtimeKey);
   useSessionUIStore.getState().restoreForRuntimeSwitch(detail.runtimeKey);
   useUIStore.getState().restoreForRuntimeSwitch(detail.runtimeKey);
+  const uiState = useUIStore.getState();
+  updateBrowserURL({
+    sessionId: useSessionUIStore.getState().currentSessionId,
+    tab: uiState.activeMainTab,
+    isSettingsOpen: uiState.isSettingsDialogOpen,
+    settingsPath: uiState.settingsPage,
+    diffFile: uiState.pendingDiffFile,
+  }, { replace: true, force: true });
   resetStreamingState();
-  queueMicrotask(() => void syncDesktopSettings());
 };

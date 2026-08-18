@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-08-19
+
+This release improves runtime switching and makes the native mobile client
+usable on direct LAN connections.
+
+- Runtime switches now reset host-specific paths, projects, sessions, routes,
+  and caches before the authenticated target runtime boots, preventing
+  Windows-to-WSL path leakage and stale session requests.
+- First session attachment reuses its health and session-list results, while
+  background catalog work waits until the focused chat is ready.
+- Native Capacitor clients use authenticated `EventSource` for direct LAN Pi
+  event streams instead of the buffered HTTP adapter.
+- Mobile Instances can export a bounded, redacted diagnostics log for stream,
+  connection, health, and send failures.
+- Mobile sidebar project rows are tighter, and the global mobile overflow rule
+  no longer turns clipped UI elements into nested scroll containers.
+
 ## [0.1.8] - 2026-08-18
 
 This release publishes the PiChamber server/CLI to npm as `@pi-chamber/web`.

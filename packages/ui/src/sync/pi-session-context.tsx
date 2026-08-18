@@ -43,7 +43,10 @@ export const PiSessionProvider = ({ children, directory }: { children: ReactNode
     // that directory. The hint is internal — explicit route / caller
     // hints still win.
     const remembered = store.lastSelectedSessionForDirectory(targetDirectory);
-    void store.start({ directory: targetDirectory, ...(remembered ? { sessionId: remembered } : {}) });
+    void store.start({
+      directory: targetDirectory,
+      ...(remembered ? { sessionId: remembered, sessionDirectoryKnown: true } : {}),
+    });
   }, [store, targetDirectory]);
   return <PiSessionContext.Provider value={store}>{children}</PiSessionContext.Provider>;
 };

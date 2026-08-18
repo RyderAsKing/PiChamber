@@ -47,6 +47,7 @@ export const PiSessionCatalogFeeder: React.FC = () => {
   useEffect(() => {
     let cancelled = false;
     let lastSignature = '';
+    const store = getPiSessionStore();
 
     const refresh = () => {
       if (cancelled) return;
@@ -58,18 +59,46 @@ export const PiSessionCatalogFeeder: React.FC = () => {
       // worktree discovery that yields the same paths, must not trigger
       // a fresh `listSessions` round-trip.
       if (signature === lastSignature) return;
+
+      const state = store.getState();
+      // The focused directory is already listed by the attach/focus path.
+      // Wait for that path to settle before starting background catalog work;
+      // otherwise every known project competes with the selected chat for the
+      // browser connection pool during a runtime switch.
+      if (
+        state.connection !== 'ready'
+        || state.sessionsListStatus === 'loading'
+        || (
+          state.selectedSessionId
+          && state.focusPending
+          && state.sessionsListStatus !== 'failed'
+        )
+      ) {
+        return;
+      }
+
+      const pendingDirectories = directories.filter((directory) => (
+        store.getState().catalog.listStatusByDirectory.get(directory) !== 'ready'
+      ));
+      if (pendingDirectories.length === 0) {
+        lastSignature = signature;
+        return;
+      }
+
       lastSignature = signature;
-      void getPiSessionStore().refreshAllDirectoryCatalogs(directories);
+      void store.refreshAllDirectoryCatalogs(pendingDirectories);
     };
 
     refresh();
     const unsubscribeProjects = useProjectsStore.subscribe(refresh);
     const unsubscribeUI = useSessionUIStore.subscribe(refresh);
+    const unsubscribePi = store.subscribe(refresh, 'chrome');
 
     return () => {
       cancelled = true;
       unsubscribeProjects();
       unsubscribeUI();
+      unsubscribePi();
     };
   }, []);
 

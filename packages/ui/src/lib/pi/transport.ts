@@ -8,10 +8,13 @@
  */
 
 import { openRuntimeWebSocket } from '@/lib/relay/runtime-socket';
+import { isRelayModeActive } from '@/lib/relay/runtime-tunnel';
 import { refreshRuntimeUrlAuthToken } from '@/lib/runtime-auth';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { getRuntimeUrlResolver } from '@/lib/runtime-url';
+import { isCapacitorApp } from '@/lib/platform';
+import { recordMobileDiagnostic } from '@/lib/mobile-error-log';
 import { isPiEvent, PI_PUBLIC_PROTOCOL_VERSION, type PiSessionEvent } from './protocol';
 
 const DEFAULT_HEARTBEAT_TIMEOUT_MS = 30_000;
@@ -51,6 +54,20 @@ const resolveStreamUrl = (
 
 const resolveHealthPath = (): string => '/api/pi/runtime';
 
+/**
+ * CapacitorHttp patches `fetch` on native mobile. That is correct for ordinary
+ * API calls, especially plain-http LAN servers, but its response is buffered
+ * rather than exposed as a long-lived ReadableStream. Using it for SSE makes a
+ * live event stream appear to work briefly and then stall. Native direct
+ * connections use EventSource instead; relay connections must stay on
+ * runtimeFetch because the relay is not addressable by the browser.
+ */
+const shouldUseCapacitorEventSource = (): boolean => (
+  isCapacitorApp()
+  && !isRelayModeActive()
+  && typeof EventSource !== 'undefined'
+);
+
 export interface PiStreamHandlers {
   onEvent: (event: PiSessionEvent) => void;
   onReconnect?: () => void;
@@ -88,6 +105,7 @@ export const fetchPiRuntimeHealth = async (
   try {
     response = await runtimeFetch(resolveHealthPath(), signal ? { signal } : {});
   } catch (error) {
+    recordMobileDiagnostic('runtime-health', { code: error instanceof DOMException && error.name === 'AbortError' ? 'timeout' : 'unreachable' });
     return {
       state: 'unavailable',
       protocolVersion: PI_PUBLIC_PROTOCOL_VERSION,
@@ -106,6 +124,7 @@ export const fetchPiRuntimeHealth = async (
   }
 
   if (!response.ok) {
+    recordMobileDiagnostic('runtime-health', { status: response.status, code: response.status === 401 || response.status === 403 ? 'auth' : 'http-error' });
     return {
       state: 'unavailable',
       protocolVersion: PI_PUBLIC_PROTOCOL_VERSION,
@@ -151,6 +170,47 @@ const createSseConnection = (
   onEvent: (event: PiSessionEvent) => void,
   onDisconnect: (reason: string) => void,
 ): ConnectionCleanup => {
+  if (shouldUseCapacitorEventSource()) {
+    const source = new EventSource(getRuntimeUrlResolver().sse('/api/pi/events', query));
+    let closed = false;
+    const abort = () => {
+      if (closed) return;
+      closed = true;
+      source.close();
+      signal.removeEventListener('abort', abort);
+    };
+    const dispatchData = (data: string) => {
+      try {
+        const parsed: unknown = JSON.parse(data);
+        if (isPiEvent(parsed)) onEvent(parsed);
+      } catch {
+        debug('pi-transport:bad-capacitor-sse-frame');
+        recordMobileDiagnostic('stream-frame', { code: 'bad-sse-frame' });
+      }
+    };
+
+    source.onopen = () => {
+      if (closed) return;
+      onReady();
+    };
+    source.onmessage = (event) => {
+      if (closed) return;
+      onActivity();
+      if (typeof event.data === 'string' && event.data.trim()) {
+        dispatchData(event.data);
+      }
+    };
+    source.onerror = () => {
+      if (closed) return;
+      abort();
+      recordMobileDiagnostic('stream-disconnect', { code: 'sse-error' });
+      onDisconnect('sse-error');
+    };
+    if (signal.aborted) abort();
+    else signal.addEventListener('abort', abort, { once: true });
+    return abort;
+  }
+
   const controller = new AbortController();
   const abort = () => controller.abort();
   if (signal.aborted) controller.abort();
@@ -163,6 +223,10 @@ const createSseConnection = (
   })
     .then(async (response) => {
       if (!response.ok || !response.body) {
+        recordMobileDiagnostic('stream-connect', {
+          status: response.status,
+          code: response.body ? 'http-error' : 'missing-stream-body',
+        });
         onDisconnect(`sse-status-${response.status}`);
         return;
       }
@@ -208,6 +272,7 @@ const createSseConnection = (
     .catch((error: unknown) => {
       if (controller.signal.aborted) return;
       const message = error instanceof Error ? error.message.slice(0, 80) : 'fetch-failed';
+      recordMobileDiagnostic('stream-connect', { code: 'fetch-failed', detail: message });
       onDisconnect(`sse-error:${message}`);
     })
     .finally(() => signal.removeEventListener('abort', abort));
@@ -321,6 +386,10 @@ export const createPiEventStream = (
 
   const resetHeartbeat = (connectionId: number) => {
     if (heartbeatTimer) clearTimeout(heartbeatTimer);
+    if (shouldUseCapacitorEventSource()) {
+      heartbeatTimer = null;
+      return;
+    }
     heartbeatTimer = setTimeout(() => {
       if (connectionId === generation) handleDisconnect('heartbeat-timeout', connectionId);
     }, options.heartbeatTimeoutMs ?? DEFAULT_HEARTBEAT_TIMEOUT_MS);
@@ -330,6 +399,7 @@ export const createPiEventStream = (
     if (disposed || signal.aborted || connectionId !== generation) return;
     attempt = 0;
     healthyConnection = true;
+    recordMobileDiagnostic('stream-ready', { code: mode });
     resetHeartbeat(connectionId);
     handlers.onReconnect?.();
   };
@@ -347,6 +417,7 @@ export const createPiEventStream = (
 
   const scheduleReconnect = (reason: string) => {
     if (disposed || signal.aborted || reconnectTimer) return;
+    recordMobileDiagnostic('stream-reconnect', { code: reason });
     handlers.onDisconnect?.(reason);
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
@@ -402,6 +473,7 @@ export const createPiEventStream = (
           void connect();
           return;
         }
+        recordMobileDiagnostic('stream-auth', { code: 'url-token-unavailable' });
         handleDisconnect('ws-auth-token-unavailable', connectionId);
         return;
       }
@@ -411,6 +483,20 @@ export const createPiEventStream = (
     if (!isCurrentRuntime()) {
       handleDisconnect('runtime-change', connectionId);
       return;
+    }
+    if (mode === 'sse' && shouldUseCapacitorEventSource()) {
+      try {
+        // EventSource cannot carry the bearer header used by runtimeFetch.
+        // Mint the short-lived URL token before constructing the native
+        // browser stream.
+        await refreshRuntimeUrlAuthToken();
+      } catch {
+        if (connectionId !== generation || disposed || signal.aborted) return;
+        recordMobileDiagnostic('stream-auth', { code: 'url-token-unavailable' });
+        handleDisconnect('sse-auth-token-unavailable', connectionId);
+        return;
+      }
+      if (connectionId !== generation || disposed || signal.aborted || !isCurrentRuntime()) return;
     }
     const url = resolveStreamUrl(mode, {
       fromSequence: lastSequence,

@@ -18,4 +18,19 @@ describe("useProjectsStore settings synchronization", () => {
     expect(useProjectsStore.getState().activeProjectId).toBe(null)
     expect(useProjectsStore.getState().manualProjectOrder).toEqual([])
   })
+
+  test("does not restore paths from the previous runtime during a switch", () => {
+    const project = { id: "windows-project", path: "C:/Users/ryder/project", label: "Old host" } as ProjectEntry
+    useProjectsStore.setState({
+      projects: [project],
+      activeProjectId: project.id,
+      manualProjectOrder: [project.id],
+    })
+
+    useProjectsStore.getState().resetForRuntimeSwitch()
+
+    expect(useProjectsStore.getState().projects).toEqual([])
+    expect(useProjectsStore.getState().activeProjectId).toBe(null)
+    expect(useProjectsStore.getState().manualProjectOrder).toEqual([])
+  })
 })

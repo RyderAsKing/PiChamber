@@ -619,12 +619,12 @@ export const useProjectsStore = create<ProjectsStore>()(
     },
 
     resetForRuntimeSwitch: () => {
-      const projects = readPersistedProjects();
-      const activeProjectId = readPersistedActiveProjectId();
-      const nextActiveProjectId = projects.some((project) => project.id === activeProjectId)
-        ? activeProjectId
-        : projects[0]?.id ?? null;
-      set({ projects, activeProjectId: nextActiveProjectId, manualProjectOrder: [] });
+      // Project paths are runtime-owned. Do not rehydrate the previous
+      // runtime's cache here: a Windows path can be syntactically valid in
+      // storage while being unusable by a Linux/WSL daemon. The authenticated
+      // settings snapshot for the new runtime is the authority and will
+      // repopulate this store.
+      set({ projects: [], activeProjectId: null, manualProjectOrder: [] });
     },
 
     synchronizeFromSettings: (settings: DesktopSettings) => {

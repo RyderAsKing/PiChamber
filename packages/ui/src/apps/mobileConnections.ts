@@ -24,6 +24,7 @@ import { adoptRelayTunnel, isRelayModeActive } from '@/lib/relay/runtime-tunnel'
 import { createRelayTunnelClient } from '@/lib/relay/tunnel-client';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeApiBaseUrl, getRuntimeKey, switchRuntimeEndpoint } from '@/lib/runtime-switch';
+import { recordMobileDiagnostic } from '@/lib/mobile-error-log';
 
 const MOBILE_CONNECTIONS_STORAGE_KEY = 'pichamber.mobile.connections.v1';
 const MOBILE_SECURE_STORAGE_PREFIX = 'pichamber.mobile.';
@@ -302,6 +303,15 @@ const logDetail = (detail: Record<string, unknown>): string => {
 
 const logConnect = (step: string, detail: Record<string, unknown> = {}): void => {
   console.info('[mobile-connect]', step, logDetail(detail));
+  recordMobileDiagnostic('connect', {
+    code: step,
+    status: typeof detail.status === 'number' ? detail.status : undefined,
+    detail: typeof detail.reason === 'string'
+      ? detail.reason
+      : typeof detail.result === 'string'
+        ? detail.result
+        : undefined,
+  });
 };
 
 const logStorage = (step: string, detail: Record<string, unknown> = {}): void => {

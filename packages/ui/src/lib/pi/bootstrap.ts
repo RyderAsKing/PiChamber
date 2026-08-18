@@ -32,7 +32,7 @@ import {
   type PiReducerState,
 } from './event-reducer';
 import type { PiSessionId } from './types';
-import type { PiSessionEvent } from './protocol';
+import type { PiSessionEvent, PiSessionListItem } from './protocol';
 
 export type PiBootstrapPhase =
   | 'idle'
@@ -97,6 +97,10 @@ export interface PiBootstrapOptions {
   signal?: AbortSignal;
   /** Runtime identity captured by the caller. */
   runtimeKey?: string;
+  /** Reuse a health result already obtained by the first-attach caller. */
+  initialHealth?: Extract<PiBootstrapHealth, { state: 'ready' }>;
+  /** Reuse a session list already obtained by the first-attach caller. */
+  initialSessions?: readonly PiSessionListItem[];
   /** Optional retry helper; defaults to no retry. The caller can pass the
    *  shared `retry()` from `@/sync/retry` to share its budget. */
   retry?: <T>(task: () => Promise<T>) => Promise<T>;
@@ -138,7 +142,7 @@ export const bootstrapPiDirectory = async (
 
   // 1. Probe runtime health.
   result.phase = 'runtime-probe';
-  const health = await task(() => dependencies.fetchHealth(options.signal, options.runtimeKey));
+  const health = options.initialHealth ?? await task(() => dependencies.fetchHealth(options.signal, options.runtimeKey));
   if (health.state === 'ready') {
     result.health = {
       state: 'ready',
@@ -165,19 +169,26 @@ export const bootstrapPiDirectory = async (
   // 2. List sessions. A failed list is recorded but does NOT abort:
   //    the UI can still hydrate a directly selected session id.
   result.phase = 'session-list';
-  try {
-    const list = await task(() => piClient.listSessions({
-      ...options.scope,
-      directory: options.directory,
-      ...(options.runtimeKey ? { runtimeKey: options.runtimeKey } : {}),
-    }));
-    for (const item of list.sessions) {
+  const seedSessionList = (sessions: readonly PiSessionListItem[]): void => {
+    for (const item of sessions) {
       // Seed the reducer with bare session records so the UI can render
       // titles while waiting for hydration.
       result.lastSequence.set(item.session.id, -1);
     }
-  } catch (error) {
-    result.errors.push({ phase: 'session-list', error: toError(error) });
+  };
+  if (options.initialSessions) {
+    seedSessionList(options.initialSessions);
+  } else {
+    try {
+      const list = await task(() => piClient.listSessions({
+        ...options.scope,
+        directory: options.directory,
+        ...(options.runtimeKey ? { runtimeKey: options.runtimeKey } : {}),
+      }));
+      seedSessionList(list.sessions);
+    } catch (error) {
+      result.errors.push({ phase: 'session-list', error: toError(error) });
+    }
   }
 
   // 3. Hydrate the selected session.

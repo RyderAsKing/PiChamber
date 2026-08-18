@@ -120,8 +120,10 @@ const SortableFolderRow: React.FC<{
               onTouchMove={clearLongPress}
               onTouchEnd={clearLongPress}
               onTouchCancel={clearLongPress}
+              style={{ touchAction: 'manipulation' }}
               className={cn(
                 'relative flex w-full items-center justify-between rounded-xl px-3 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+                mobileVariant && 'py-1.5',
                 isSelected
                   ? 'bg-interactive-selection text-foreground'
                   : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',

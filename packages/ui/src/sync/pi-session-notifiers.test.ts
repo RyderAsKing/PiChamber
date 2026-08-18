@@ -406,9 +406,9 @@ describe('PiSessionStore topic-isolated notifiers', () => {
 
     (store as unknown as { resetForRuntime: () => void }).resetForRuntime();
 
-    // The broadcast emit fires all buckets once; the subsequent
-    // `start()` call (which `resetForRuntime` triggers) emits chrome
-    // which in turn wakes the broadcast subscriber a second time.
+    // The reset emits the empty state to all topic buckets. The app root owns
+    // the subsequent authenticated start, so reset itself must not bootstrap
+    // against a directory that may still belong to the previous runtime.
     expect(broadcast.count).toBeGreaterThanOrEqual(1);
     expect(chrome.count).toBeGreaterThanOrEqual(1);
     expect(catalog.count).toBeGreaterThanOrEqual(1);

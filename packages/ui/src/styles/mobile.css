@@ -106,13 +106,6 @@
     -webkit-touch-callout: default;
   }
 
-  /* Fix mobile scroll containers */
-  :root.mobile-pointer:not(.desktop-runtime) .overflow-hidden {
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
-    -webkit-overflow-scrolling: touch;
-  }
-
   :root.mobile-pointer:not(.desktop-runtime) [data-page-scroll-lock="true"] {
     overflow: hidden !important;
     overscroll-behavior: none;

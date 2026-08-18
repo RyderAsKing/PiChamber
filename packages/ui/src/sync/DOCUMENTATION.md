@@ -111,7 +111,8 @@ catalog.listStatusByDirectory:   Map<directory, 'idle'|'loading'|'ready'|'failed
 
 1. Computes the sorted directory-set signature.
 2. Skips the refresh when the signature has not changed (project-list reorders and worktree discovery that yields the same paths must not re-list).
-3. Otherwise calls `PiSessionStore.refreshAllDirectoryCatalogs(directories)`.
+3. Waits until the focused directory is connected and its list/hydration demand has settled, so background directories cannot occupy the interactive request path during a runtime or folder switch.
+4. Otherwise calls `PiSessionStore.refreshAllDirectoryCatalogs` only for directories whose catalog status is not already `'ready'`.
 
 `refreshDirectoryCatalog` is the single fill primitive. It captures a per-directory generation, bumps it on every call, and ignores stale completions (a slow RPC returning after a newer refresh has begun, or after a runtime switch, commits nothing). The at-most-2-in-flight scheduler is owned by `pi-session-catalog.ts` (`mapDirectoriesWithRefreshSlot` uses `mapWithConcurrency(2)`; the older nested `withDirectoryRefreshSlot` is exported only for direct callers and must not be re-nested — two limiters can deadlock).
 

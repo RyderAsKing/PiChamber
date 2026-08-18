@@ -69,6 +69,7 @@ Required local tools:
 - If Android SDK packages are missing, install `platform-tools`, `platforms;android-35`, and `build-tools;35.0.0`, then accept SDK licenses.
 - If CocoaPods cannot find Capacitor pods after reinstalling dependencies, run `bun install` from the workspace root, then rerun `bun run sync`.
 - If connecting to a remote PiChamber server fails from the app while `/health` works in curl, check that the server build includes the packaged-client CORS allowlist (`capacitor://localhost` and Android's `https://localhost`) and that CapacitorHttp is enabled. Desktop LAN access also requires a UI password, a bind on `0.0.0.0`, and (on Windows) a firewall allow rule.
+- If chat sends or live output stalls only in the native app, verify the app build includes the direct-LAN `EventSource` transport for `/api/pi/events`; CapacitorHttp is intentionally used for ordinary API requests but buffers long-lived SSE responses. From Instances, `Export diagnostics` shares a bounded, redacted client log.
 - If `serve-sim` preview says the stream is not producing frames, check the raw MJPEG stream before assuming the simulator stopped. In prior testing the raw stream worked while the browser preview UI stayed stale.
 
 ## Generated Assets

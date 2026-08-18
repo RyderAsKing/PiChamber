@@ -9,7 +9,8 @@ import {
   type PiReducerSessionState,
   type PiReducerState,
 } from '@/lib/pi/event-reducer';
-import { bootstrapPiDirectory } from '@/lib/pi/bootstrap';
+import { bootstrapPiDirectory, type PiBootstrapHealth } from '@/lib/pi/bootstrap';
+import { recordMobileDiagnosticError } from '@/lib/mobile-error-log';
 import { PiRequestError, piClient, type PiClientScope } from '@/lib/pi/client';
 import { reconnectPiSession } from '@/lib/pi/reconnect';
 import { PiStreamCadence } from '@/lib/pi/stream-cadence';
@@ -225,7 +226,13 @@ export class PiSessionStore {
    *  their transcript was dropped. Dedupes overlapping prompt/event hydrates. */
   private restoringTranscriptById = new Set<PiSessionId>();
   private readonly cadence = new PiStreamCadence((events) => this.commitEvents(events));
-  private unsubscribeRuntime = subscribeRuntimeEndpointChanged(() => this.resetForRuntime());
+  private unsubscribeRuntime = subscribeRuntimeEndpointChanged((detail) => {
+    if (detail.runtimeKey === detail.previousRuntimeKey) {
+      this.reconnectAfterTransportSwitch();
+      return;
+    }
+    this.resetForRuntime();
+  });
 
   /** Runtime generation. Stale after `clear()`/`dispose()`/`resetForRuntime()`/reconnect. */
   getRuntimeGeneration = (): number => this.runtimeGeneration;
@@ -400,7 +407,12 @@ export class PiSessionStore {
     await mapDirectoriesWithRefreshSlot(ordered, (directory) => this.refreshDirectoryCatalog(directory));
   }
 
-  async start(options: { directory?: string | null; sessionId?: PiSessionId | null } = {}): Promise<void> {
+  async start(options: {
+    directory?: string | null;
+    sessionId?: PiSessionId | null;
+    /** The caller already knows the session belongs to `directory`. */
+    sessionDirectoryKnown?: boolean;
+  } = {}): Promise<void> {
     // Once the cluster is attached on this runtime (or has reached
     // `connection: 'ready'` even before the stream handle is assigned),
     // any further folder change is a focus change — it must NEVER
@@ -418,7 +430,7 @@ export class PiSessionStore {
     }
     try {
       const requestedDirectory = typeof options.directory === 'string' && options.directory.trim() ? options.directory : null;
-      if (options.sessionId) {
+      if (options.sessionId && !options.sessionDirectoryKnown) {
         try {
           const detail = await piClient.getSession(options.sessionId, { directory: requestedDirectory ?? undefined, runtimeKey: getRuntimeKey() });
           if (detail?.session?.directory) {
@@ -810,6 +822,11 @@ export class PiSessionStore {
       const health = await piClient.health(scope);
       if (expected !== this.runtimeGeneration) return;
       if (health.state !== 'ready') throw new PiRequestError(health.error?.code ?? 'DAEMON_UNAVAILABLE', health.error?.message);
+      const initialHealth: Extract<PiBootstrapHealth, { state: 'ready' }> = {
+        state: 'ready',
+        protocolVersion: health.protocolVersion,
+        capabilities: [...health.capabilities],
+      };
       const result = await piClient.listSessions(scope);
       if (expected !== this.runtimeGeneration) return;
       const desiredSessionId = this.pendingPreferredSessionId ?? preferredSessionId;
@@ -852,7 +869,12 @@ export class PiSessionStore {
       const openTopics: string[] = [TOPIC_CHROME];
       if (catalogChanged) openTopics.push(TOPIC_CATALOG);
       this.emit(openTopics);
-      if (selectedSessionId) await this.hydrate(selectedSessionId, expected);
+      if (selectedSessionId) {
+        await this.hydrate(selectedSessionId, expected, undefined, {
+          initialHealth,
+          initialSessions: result.sessions,
+        });
+      }
     } catch (error) { if (expected === this.runtimeGeneration) this.reportError(error); }
   }
 
@@ -1094,6 +1116,7 @@ export class PiSessionStore {
       if (delivery === 'followUp') return await piClient.sendFollowUp(input, this.scope());
       return await piClient.sendPrompt(input, this.scope());
     } catch (error) {
+      recordMobileDiagnosticError('prompt-send', error);
       if (this.promptGenerationById.get(sessionId) === generation) {
         this.pendingPromptById.delete(sessionId);
         const current = this.state.reducer.bySession.get(sessionId);
@@ -1273,7 +1296,11 @@ export class PiSessionStore {
     sessionId: string,
     expected: number,
     known?: Awaited<ReturnType<typeof piClient.getSession>>,
-    options?: { force?: boolean },
+    options?: {
+      force?: boolean;
+      initialHealth?: Extract<PiBootstrapHealth, { state: 'ready' }>;
+      initialSessions?: readonly PiSessionListItem[];
+    },
   ) {
     if (expected !== this.runtimeGeneration) return;
     const sessionDir = this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory;
@@ -1313,6 +1340,8 @@ export class PiSessionStore {
         directory,
         selectedSessionId: sessionId,
         runtimeKey,
+        ...(options?.initialHealth ? { initialHealth: options.initialHealth } : {}),
+        ...(options?.initialSessions ? { initialSessions: options.initialSessions } : {}),
         onEvent,
         onStreamDisconnect: () => void this.reconnect(this.state.selectedSessionId ?? sessionId, expected, runtimeKey),
       });
@@ -1689,8 +1718,12 @@ export class PiSessionStore {
     return max >= 0 ? max : undefined;
   }
   private scope(customDirectory?: string): PiClientScope { return { directory: customDirectory || this.directory(), runtimeKey: getRuntimeKey() }; }
+  private reconnectAfterTransportSwitch(): void {
+    const sessionId = this.state.selectedSessionId;
+    if (!this.stream || !sessionId || !this.state.directory) return;
+    void this.reconnect(sessionId, this.runtimeGeneration, getRuntimeKey());
+  }
   private resetForRuntime() {
-    const directory = this.state.directory;
     this.runtimeGeneration += 1;
     this.focusGeneration += 1;
     this.pendingFocus = null;
@@ -1712,7 +1745,6 @@ export class PiSessionStore {
     // Broadcast so every subscriber sees the runtime switch before the
     // cluster rebuilds; listener sets stay intact for the new runtime.
     this.emitBroadcast();
-    if (directory) void this.start({ directory });
   }
   /**
    * Notify listeners registered on any of the supplied topics, plus the

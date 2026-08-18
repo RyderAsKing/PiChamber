@@ -128,6 +128,47 @@ describe("bootstrapPiDirectory", () => {
     expect(result.errors).toHaveLength(0)
   })
 
+  test("reuses first-attach health and session-list results", async () => {
+    mockCreatePiEventStream.mockReturnValueOnce({
+      dispose: () => undefined,
+      reconnect: () => undefined,
+      eventsUrl: "ws://test/events",
+    } as never)
+    installFetchMock((call) => {
+      const url = new URL(call.url, "http://localhost")
+      if (url.pathname === "/api/pi/sessions/s1" && call.init?.method === "GET") {
+        return jsonResponse({
+          session: { id: "s1", directory: "/work" },
+          messages: [],
+          lastSequence: 4,
+        })
+      }
+      return jsonResponse({ error: { code: "UNEXPECTED_REQUEST" } }, { status: 500 })
+    })
+
+    const { bootstrapPiDirectory } = await import("./bootstrap")
+    const result = await bootstrapPiDirectory({
+      directory: "/work",
+      selectedSessionId: "s1",
+      initialHealth: {
+        state: "ready",
+        protocolVersion: 1,
+        capabilities: ["sessions.list"],
+      },
+      initialSessions: [{
+        session: { id: "s1", directory: "/work", createdAt: 0, updatedAt: 1_000 },
+        updatedAt: 1_000,
+      }],
+      onEvent: () => undefined,
+    }, dependencies)
+
+    expect(mockFetchPiRuntimeHealth.mock.calls).toEqual([])
+    expect(calls.filter(({ url }) => new URL(url, "http://localhost").pathname === "/api/pi/sessions")).toHaveLength(0)
+    expect(calls.filter(({ url }) => new URL(url, "http://localhost").pathname === "/api/pi/sessions/s1")).toHaveLength(1)
+    expect(result.lastSequence.get("s1")).toBe(4)
+    expect(result.errors).toHaveLength(0)
+  })
+
   test("records session-list failures without aborting bootstrap", async () => {
     mockFetchPiRuntimeHealth.mockResolvedValueOnce({
       state: "ready",

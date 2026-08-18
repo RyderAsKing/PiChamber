@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { piClient } from '@/lib/pi/client';
 import { getFilesystemHome } from '@/lib/fsApi';
-import { getDesktopHomeDirectory } from '@/lib/desktop';
+import { getDesktopHomeDirectory, isDesktopLocalOriginActive, isDesktopShell } from '@/lib/desktop';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { useFileSearchStore } from '@/stores/useFileSearchStore';
@@ -24,6 +24,7 @@ interface DirectoryStore {
   goForward: () => void;
   goToParent: () => void;
   goHome: () => Promise<void>;
+  resetForRuntimeSwitch: () => void;
   synchronizeHomeDirectory: (path: string) => void;
 }
 
@@ -121,9 +122,11 @@ const getHomeDirectory = () => {
     if (cachedHomeDirectory) return cachedHomeDirectory;
 
     const desktopHome =
-      (typeof window.__PICHAMBER_HOME__ === 'string' && window.__PICHAMBER_HOME__.length > 0
+      isDesktopLocalOriginActive()
+      && typeof window.__PICHAMBER_HOME__ === 'string'
+      && window.__PICHAMBER_HOME__.length > 0
         ? window.__PICHAMBER_HOME__
-        : null);
+        : null;
 
     if (desktopHome && desktopHome.length > 0) {
       cachedHomeDirectory = desktopHome;
@@ -131,14 +134,16 @@ const getHomeDirectory = () => {
       return desktopHome;
     }
 
-    const storedHome = getStoredHomeDirectory();
+    const storedHome = isDesktopLocalOriginActive() ? getStoredHomeDirectory() : null;
     if (storedHome) {
       cachedHomeDirectory = storedHome;
       return storedHome;
     }
   }
 
-  const processHome = getProcessHomeDirectory();
+  const processHome = (!isDesktopShell() || isDesktopLocalOriginActive())
+    ? getProcessHomeDirectory()
+    : null;
   if (processHome) {
     return processHome;
   }
@@ -179,8 +184,9 @@ const persistResolvedHome = (resolved: string) => {
   return resolved;
 };
 
-const initializeHomeDirectory = async () => {
+const initializeHomeDirectory = async (generation = homeResolveGeneration) => {
   const acceptCandidate = (candidate?: string | null) => {
+    if (generation !== homeResolveGeneration) return null;
     const normalized = normalizeHomeCandidate(candidate);
     return normalized ? persistResolvedHome(normalized) : null;
   };
@@ -195,14 +201,20 @@ const initializeHomeDirectory = async () => {
     console.warn('Failed to obtain filesystem home directory:', filesystemError);
   }
 
-  try {
-    const desktopHome = await getDesktopHomeDirectory();
-    const resolved = acceptCandidate(desktopHome);
-    if (resolved) {
-      return resolved;
+  // Electron's native home belongs to the local desktop server. It must not
+  // be used as a fallback after switching to a remote/WSL runtime, otherwise
+  // an unauthenticated or unavailable `/api/fs/home` request turns into a
+  // Windows path being sent to a Linux daemon.
+  if (isDesktopLocalOriginActive()) {
+    try {
+      const desktopHome = await getDesktopHomeDirectory();
+      const resolved = acceptCandidate(desktopHome);
+      if (resolved) {
+        return resolved;
+      }
+    } catch (desktopError) {
+      console.warn('Failed to obtain desktop-integrated home directory:', desktopError);
     }
-  } catch (desktopError) {
-    console.warn('Failed to obtain desktop-integrated home directory:', desktopError);
   }
 
   const fallback = getHomeDirectory();
@@ -345,6 +357,24 @@ export const useDirectoryStore = create<DirectoryStore>()(
         get().setDirectory(homeDir);
       },
 
+      resetForRuntimeSwitch: () => {
+        cachedHomeDirectory = null;
+        homeResolveGeneration += 1;
+        safeStorage.removeItem('lastDirectory');
+        safeStorage.removeItem('homeDirectory');
+        invalidateFileSearchCache();
+        piClient.setDirectory('');
+        set({
+          currentDirectory: '',
+          directoryHistory: [],
+          historyIndex: -1,
+          homeDirectory: '',
+          hasPersistedDirectory: false,
+          isHomeReady: false,
+          isSwitchingDirectory: false,
+        });
+      },
+
       synchronizeHomeDirectory: (homePath: string) => {
         const state = get();
         const resolvedHome = homePath;
@@ -415,7 +445,9 @@ export const useDirectoryStore = create<DirectoryStore>()(
 );
 
 if (typeof window !== 'undefined') {
-  initializeHomeDirectory().then((home) => {
+  const initialGeneration = homeResolveGeneration;
+  initializeHomeDirectory(initialGeneration).then((home) => {
+    if (initialGeneration !== homeResolveGeneration) return;
     useDirectoryStore.getState().synchronizeHomeDirectory(home);
   });
 

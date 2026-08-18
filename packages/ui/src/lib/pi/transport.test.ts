@@ -8,6 +8,7 @@ const refreshRuntimeUrlAuthToken: any = mock()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const openRuntimeWebSocket: any = mock()
 let runtimeKey = "runtime-a"
+let capacitor = false
 const streamUrls: Array<{ transport: "ws" | "sse"; query: Record<string, string> }> = []
 
 mock.module("@/lib/runtime-fetch", () => ({ runtimeFetch }))
@@ -26,6 +27,8 @@ mock.module("@/lib/runtime-url", () => ({
   }),
 }))
 mock.module("@/lib/relay/runtime-socket", () => ({ openRuntimeWebSocket }))
+mock.module("@/lib/relay/runtime-tunnel", () => ({ isRelayModeActive: () => false }))
+mock.module("@/lib/platform", () => ({ isCapacitorApp: () => capacitor }))
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 const event = (sequence: number) => ({
@@ -41,6 +44,7 @@ const event = (sequence: number) => ({
 describe("createPiEventStream", () => {
   beforeEach(() => {
     runtimeKey = "runtime-a"
+    capacitor = false
     streamUrls.length = 0
     runtimeFetch.mockReset()
     refreshRuntimeUrlAuthToken.mockReset()
@@ -89,5 +93,54 @@ describe("createPiEventStream", () => {
     await flush()
     expect(streamUrls.some((entry) => entry.transport === "ws" && entry.query.sessionId === "session-1" && entry.query.fromSequence === "6")).toBe(true)
     handle.dispose()
+  })
+
+  test("uses EventSource on direct Capacitor runtimes instead of buffered fetch", async () => {
+    const originalEventSource = (globalThis as { EventSource?: unknown }).EventSource
+    const received: number[] = []
+    const sources: Array<{
+      url: string
+      onopen?: () => void
+      onmessage?: (event: { data?: string }) => void
+      onerror?: () => void
+      close: () => void
+    }> = []
+    class FakeEventSource {
+      url: string
+      onopen?: () => void
+      onmessage?: (event: { data?: string }) => void
+      onerror?: () => void
+      constructor(url: string) {
+        this.url = url
+        sources.push(this)
+      }
+      close() {}
+    }
+    Object.defineProperty(globalThis, "EventSource", { configurable: true, value: FakeEventSource })
+    capacitor = true
+    refreshRuntimeUrlAuthToken.mockResolvedValue(undefined)
+
+    try {
+      const { createPiEventStream } = await import("./transport")
+      const handle = createPiEventStream({
+        onEvent: (frame) => received.push(frame.sequence),
+      }, { sessionId: "session-1", fromSequence: 7 })
+
+      await flush()
+      expect(refreshRuntimeUrlAuthToken.mock.calls.length).toBe(1)
+      expect(runtimeFetch.mock.calls.length).toBe(0)
+      expect(sources).toHaveLength(1)
+      expect(sources[0]?.url).toBe("http://runtime/api/pi/events")
+      sources[0]?.onopen?.()
+      sources[0]?.onmessage?.({ data: JSON.stringify(event(8)) })
+      expect(received).toEqual([8])
+      handle.dispose()
+    } finally {
+      capacitor = false
+      Object.defineProperty(globalThis, "EventSource", {
+        configurable: true,
+        value: originalEventSource,
+      })
+    }
   })
 })

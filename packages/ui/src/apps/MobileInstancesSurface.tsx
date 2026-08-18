@@ -4,6 +4,7 @@ import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
 import { isRelayModeActive } from '@/lib/relay/runtime-tunnel';
 import { cn } from '@/lib/utils';
+import { exportMobileErrorLog, type MobileErrorLogExportResult } from '@/lib/mobile-error-log';
 
 import { connectionDisplayUrl, isActiveRuntimeConnection, useMobileConnection } from './mobileConnections';
 import { isQrScanSupported, scanConnectionQr } from './mobileQrScan';
@@ -28,6 +29,8 @@ export const MobileInstancesSurface: React.FC<{
   const [password, setPassword] = React.useState('');
   const [isScanning, setIsScanning] = React.useState(false);
   const [isCompletingScan, setIsCompletingScan] = React.useState(false);
+  const [isExportingDiagnostics, setIsExportingDiagnostics] = React.useState(false);
+  const [diagnosticsMessage, setDiagnosticsMessage] = React.useState<string | null>(null);
   const scanAbortRef = React.useRef<AbortController | null>(null);
   const qrScanSupported = React.useMemo(() => isQrScanSupported(), []);
   // The manual add/edit form is hidden until asked for — the sheet leads with
@@ -121,6 +124,26 @@ export const MobileInstancesSurface: React.FC<{
     setPassword('');
     cancelPassword();
   }, [cancelPassword]);
+
+  const handleExportDiagnostics = React.useCallback(async () => {
+    if (isExportingDiagnostics) return;
+    setDiagnosticsMessage(null);
+    setIsExportingDiagnostics(true);
+    try {
+      const result: MobileErrorLogExportResult = await exportMobileErrorLog();
+      setDiagnosticsMessage(
+        result === 'copied'
+          ? 'Diagnostics copied to the clipboard.'
+          : result === 'downloaded'
+            ? 'Diagnostics downloaded.'
+            : 'Diagnostics ready to share.',
+      );
+    } catch {
+      setDiagnosticsMessage('Diagnostics export was cancelled or unavailable.');
+    } finally {
+      setIsExportingDiagnostics(false);
+    }
+  }, [isExportingDiagnostics]);
 
   // Two-step delete (mirrors the session sheet): the trash icon arms the row, a
   // second tap on the destructive button confirms, the X disarms. No hover relied on.
@@ -289,6 +312,23 @@ export const MobileInstancesSurface: React.FC<{
               {"No saved connections yet."}
             </p>
           )}
+
+          <div className="space-y-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              className="h-12 w-full"
+              onClick={() => void handleExportDiagnostics()}
+              disabled={isExportingDiagnostics}
+            >
+              <Icon name="download" className="size-[18px]" />
+              {isExportingDiagnostics ? "Preparing diagnostics…" : "Export diagnostics"}
+            </Button>
+            {diagnosticsMessage ? (
+              <p className="px-1 text-center typography-small text-muted-foreground">{diagnosticsMessage}</p>
+            ) : null}
+          </div>
 
           {/* Add actions: QR pairing is the primary path; the manual form stays
               hidden until asked for (or until a row's edit button opens it). */}

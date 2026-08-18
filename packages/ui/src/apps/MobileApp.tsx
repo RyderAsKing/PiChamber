@@ -24,6 +24,8 @@ import type { RuntimeAPIs } from '@/lib/api/types';
 import { readTabletLayout, useOrientation, useTabletLayout } from '@/lib/device';
 import { useHardwareKeyboard } from '@/lib/hardwareKeyboard';
 import { getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged, switchRuntimeEndpoint } from '@/lib/runtime-switch';
+import { syncDesktopSettings } from '@/lib/persistence';
+import { startMobileErrorLogCapture } from '@/lib/mobile-error-log';
 import { refreshGlobalSessions, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { clearLastActiveSession, readLastActiveSession } from '@/sync/last-session-cache';
 import { cn } from '@/lib/utils';
@@ -629,6 +631,8 @@ export function MobileApp({ apis }: MobileAppProps) {
   useNativeMobileChrome();
   useNativeMobileLifecycle(handleNativeResume);
 
+  React.useEffect(() => startMobileErrorLogCapture(), []);
+
   // Network-change re-probe. The resume hook only fires on background→foreground,
   // but on Android switching Wi-Fi (quick-settings tile) does NOT background the
   // app — no visibility/appState event ever fires, so the app would sit on a dead
@@ -685,6 +689,13 @@ export function MobileApp({ apis }: MobileAppProps) {
       setConnectionEpoch((epoch) => epoch + 1);
     });
   }, []);
+
+  React.useEffect(() => {
+    // Runtime settings must be reloaded after the new endpoint is
+    // authenticated. If the switch requires login, this component unmounts
+    // while the auth gate is pending and avoids an avoidable 401 burst.
+    void syncDesktopSettings();
+  }, [runtimeEndpointEpoch]);
 
   // On cold launch, silently reconnect to the most-recent saved instance so a
   // returning user — and notification deep-links — land in the app instead of the

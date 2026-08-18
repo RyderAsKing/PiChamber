@@ -498,6 +498,22 @@ const getPersistApi = (): PersistApi | undefined => {
 
 const getRuntimeSettingsAPI = () => getRegisteredRuntimeAPIs()?.settings ?? null;
 
+const isUiAuthenticationError = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const candidate = error as {
+    status?: unknown;
+    response?: { status?: unknown };
+    message?: unknown;
+  };
+  if (candidate.status === 401 || candidate.response?.status === 401) {
+    return true;
+  }
+  return typeof candidate.message === 'string'
+    && /(?:ui )?authentication required|unauthorized|\b401\b/i.test(candidate.message);
+};
+
 const materializeAuthoritativeUiSettings = (settings: DesktopSettings): DesktopSettings => {
   const defaults = useUIStore.getInitialState();
 
@@ -1500,6 +1516,9 @@ const fetchWebSettings = async (context = captureSettingsRuntimeContext()): Prom
           return settings;
         } catch (error) {
           if (!isSettingsRuntimeContextCurrent(context)) return null;
+          // The auth gate is handling this runtime. Do not immediately repeat
+          // the same unauthorized request through the legacy route fallback.
+          if (isUiAuthenticationError(error)) return null;
           console.warn('Failed to load shared settings from runtime settings API:', error);
         }
       }
@@ -1666,6 +1685,12 @@ async function _flushSettingsUpdate(): Promise<void> {
         return;
       } catch (error) {
         if (!isSettingsRuntimeContextCurrent(context)) return;
+        // Avoid a duplicate PUT through the fallback route while the runtime
+        // auth gate is waiting for credentials.
+        if (isUiAuthenticationError(error)) {
+          dispatchSettingsSaveState('error');
+          return;
+        }
         console.warn('Failed to update settings via runtime settings API:', error);
       }
     }

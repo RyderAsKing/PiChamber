@@ -6,7 +6,7 @@ This directory owns the Pi-native runtime boundary. It defines:
 
 - The Pi session / message / part data shapes (`types.ts`).
 - The public `/api/pi/` IPC envelope (`protocol.ts`).
-- The browser-side transport for `/api/pi/events` (`transport.ts`), using authenticated SSE by default and one active connection per stream generation. Explicit WebSocket mode remains only for runtimes that provide a matching upgrade endpoint; SSE comment heartbeats count as liveness.
+- The browser-side transport for `/api/pi/events` (`transport.ts`), using authenticated SSE by default and one active connection per stream generation. Explicit WebSocket mode remains only for runtimes that provide a matching upgrade endpoint; fetch-based SSE comment heartbeats count as liveness.
 - Stream cadence (`stream-cadence.ts`): adjacent same-part token deltas fold, then flush on `requestAnimationFrame` together with live `session.tool.update` frames; boundary events flush pending stream frames first.
 - The service facade that wraps every `/api/pi/*` call (`client.ts`).
 - The snapshot reducer helpers (`snapshot.ts`).
@@ -24,6 +24,11 @@ can distinguish failure from a successful empty result. `MainLayout` is the
 mounted owner for web, desktop, mini-chat, and mobile chrome. Session truth
 lives in `PiSessionStore` via `PiSessionProvider`; chat leaves consume
 `pi-to-renderable` adapters rather than OpenCode SDK types.
+
+Capacitor's native HTTP fetch adapter buffers long responses, so direct native
+mobile clients use URL-authenticated `EventSource` for `/api/pi/events`.
+Relay-backed mobile clients continue through `runtimeFetch` and the encrypted
+tunnel, where browser `EventSource` cannot address the virtual endpoint.
 
 ## Public types vs. private runtime
 
@@ -213,9 +218,10 @@ without changing `selectedSessionId` or the directory focus. Chat surfaces
 that mount a child session inside a tool part use it instead of `select`,
 so background hydrations don't steal the visible chat.
 
-`open(directory, sessionId)` is the first-attach entry: it probes health,
-selects the daemon project, lists and hydrates the selected session, and
-attaches the runtime-wide stream. After attach, `open` /
+`open(directory, sessionId)` is the first-attach entry: it selects the daemon
+project, probes health, lists and hydrates the selected session, and attaches
+the runtime-wide stream. The health and list results from that first attach
+are passed into hydration rather than probed/listed a second time. After attach, `open` /
 `start` /
 `legacy-ui-client.setDirectory` / `setActiveSession` route to
 `focusProject(directory)` when the cluster is attached, then call
