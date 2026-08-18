@@ -180,7 +180,7 @@ export function useSessionParts(
               streaming: part.streaming,
               ...(part.tool ? { tool: part.tool } : {}),
               ...(part.attachment ? { attachment: part.attachment } : {}),
-            }),
+            }, { full: true }),
           );
         }
       }
@@ -361,6 +361,7 @@ export function useSessionMessageRecords(
   const previousRef = useRef<{
     sessionId: string;
     session: PiReducerSessionState;
+    projection: ReturnType<typeof projectSession>;
     records: ReturnType<typeof piProjectedToRecords>;
   } | null>(null);
 
@@ -378,14 +379,51 @@ export function useSessionMessageRecords(
       && previous.sessionId === sessionID
       && shouldReuseSuspendedRecords(previous.session, session, suspendMessageId)
     ) {
-      previousRef.current = { sessionId: sessionID, session, records: previous.records };
+      previousRef.current = {
+        sessionId: sessionID,
+        session,
+        projection: previous.projection,
+        records: previous.records,
+      };
       return previous.records;
     }
 
-    const records = piProjectedToRecords(projectSession(session));
-    previousRef.current = { sessionId: sessionID, session, records };
+    const projection = projectSession(
+      session,
+      previous && previous.sessionId === sessionID
+        ? { session: previous.session, projection: previous.projection }
+        : null,
+    );
+    const records = piProjectedToRecords(projection);
+    previousRef.current = { sessionId: sessionID, session, projection, records };
     return records;
   }, [session, sessionID, suspendMessageId, suspendPartUpdates]);
+}
+
+export function useSessionReducerPart(
+  sessionId: string | null | undefined,
+  partId: string | null | undefined,
+  enabled: boolean,
+): Part | null {
+  const part = usePiSessionSnapshot(
+    (state) => {
+      if (!enabled || !sessionId || !partId) return null;
+      return state.reducer.bySession.get(sessionId)?.parts.get(partId) ?? null;
+    },
+    undefined,
+    enabled && sessionId ? sessionTopic(sessionId) : TOPIC_CHROME,
+  );
+  return useMemo(() => {
+    if (!enabled || !part) return null;
+    return mapPart({
+      id: part.id,
+      type: part.type,
+      text: part.text,
+      streaming: part.streaming,
+      ...(part.tool ? { tool: part.tool } : {}),
+      ...(part.attachment ? { attachment: part.attachment } : {}),
+    }, { full: true });
+  }, [enabled, part]);
 }
 
 export function useSessionMessageCount(sessionID: string, _directory?: string): number {

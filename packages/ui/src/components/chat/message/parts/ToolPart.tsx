@@ -11,7 +11,7 @@ import { toolDisplayStyles } from '@/lib/typography';
 import { WorkerHighlightedCode } from '@/components/code/WorkerHighlightedCode';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useSessionMessageRecords, useEnsureSessionMessages } from '@/sync/sync-context';
+import { useSessionMessageRecords, useEnsureSessionMessages, useSessionReducerPart } from '@/sync/sync-context';
 import { useUIStore } from '@/stores/useUIStore';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { ScrollShadow } from '@/components/ui/ScrollShadow';
@@ -1670,7 +1670,15 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
     onShowPopup,
     animateTailText = true,
 }) => {
-    const state = part.state;
+    const sessionId = useSessionUIStore((store) => store.currentSessionId);
+    const deferredBody = (part.state as { deferredBody?: unknown } | undefined)?.deferredBody === true;
+    const hydratedPart = useSessionReducerPart(sessionId, part.id, isExpanded && deferredBody);
+    const resolvedPart = (
+      isExpanded
+      && hydratedPart
+      && hydratedPart.type === 'tool'
+    ) ? hydratedPart as ToolPartType : part;
+    const state = resolvedPart.state;
     const stateWithData = state as ToolStateWithMetadata;
     const metadata = stateWithData.metadata;
     const input = stateWithData.input;
@@ -2233,7 +2241,7 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
                             />
                             {state ? (
                                 <ToolExpandedContent
-                                    part={part}
+                                    part={resolvedPart}
                                     state={state}
                                     currentDirectory={currentDirectory}
                                     isExpanded={isExpanded}

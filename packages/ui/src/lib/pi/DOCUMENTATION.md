@@ -10,7 +10,7 @@ This directory owns the Pi-native runtime boundary. It defines:
 - Stream cadence (`stream-cadence.ts`): adjacent same-part token deltas fold, then flush on `requestAnimationFrame` together with live `session.tool.update` frames; boundary events flush pending stream frames first.
 - The service facade that wraps every `/api/pi/*` call (`client.ts`).
 - The snapshot reducer helpers (`snapshot.ts`).
-- The event reducer helpers (`event-reducer.ts`).
+- The event reducer helpers (`event-reducer.ts`). `projectSession` is incremental: pass the previous session and projection so unchanged historical messages and parts keep their object identity, and a no-op live-tail remap returns the previous projection object. Ordered message lists are cached on the reducer `messages` Map; projected parts are cached on reducer part identity.
 - The bootstrap owner (`bootstrap.ts`).
 - The reconnect owner (`reconnect.ts`).
 - The attachment helpers (`attachments.ts`).
@@ -262,7 +262,7 @@ settings; hidden models stay out of pickers. Session default, small-model, and
 walkthrough-model pickers live on the Sessions page and use the same picker as
 the composer. Providers settings still lists the
 full catalog so unconfigured providers can be logged in. Composer chrome does not expose an OpenCode agent selector.
-Chat, sidebar, and composer mutations go through `PiSessionStore` and `/api/pi/*`. Pi assistant projections preserve their owning user-message id end to end because the restored chat renderer groups assistant output into user turns by that identity. Tool parts preserve input, cumulative partial output, final output, error text, metadata, and start/end timestamps through the reducer and `pi-to-renderable`, satisfying the restored renderer's finalized-tool contract (a completed tool needs an end time and keeps its status verbatim, including `cancelled`).
+Chat, sidebar, and composer mutations go through `PiSessionStore` and `/api/pi/*`. Pi assistant projections preserve their owning user-message id end to end because the restored chat renderer groups assistant output into user turns by that identity. Tool parts preserve input, cumulative partial output, final output, error text, metadata, and start/end timestamps through the reducer. `pi-to-renderable` keeps that contract for live and expanded tools; settled historical tools whose output or patch exceeds a character budget become preview stubs (`state.deferredBody`) so transcript records do not retain full bodies. Expanding a tool hydrates the canonical part through `useSessionReducerPart`. A completed tool needs an end time and keeps its status verbatim, including `cancelled`.
 Settings chrome is the restored PiChamber hub limited to Pi-owned pages
 (Providers, Skills, Snippets, Behavior/`AGENTS.md`, Magic Prompts, appearance
 and other PiChamber pages). A failed daemon probe must show an error banner,

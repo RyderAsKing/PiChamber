@@ -3,6 +3,88 @@ import type { PiProjectedMessage, PiProjectedMessagePart, PiProjectedSession } f
 import type { PiSession } from '@/lib/pi/types';
 import type { PiSessionListItem } from '@/lib/pi/protocol';
 
+export const SETTLED_TOOL_RECORD_BUDGET_CHARS = 2048;
+
+const recordsByProjectedMessage = new WeakMap<PiProjectedMessage, SessionMessageRecord>();
+
+const isRunningToolState = (state: string | undefined): boolean => (
+  state === 'running' || state === 'pending'
+);
+
+const measureUnknown = (value: unknown): number => {
+  if (value == null) return 0;
+  if (typeof value === 'string') return value.length;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value).length;
+  try {
+    return JSON.stringify(value)?.length ?? 0;
+  } catch {
+    return SETTLED_TOOL_RECORD_BUDGET_CHARS + 1;
+  }
+};
+
+const stubSettledToolMetadata = (
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined => {
+  if (!metadata) return metadata;
+  const heavy = metadata.patch ?? metadata.diff ?? (metadata.filediff as { patch?: unknown; diff?: unknown } | undefined)?.patch
+    ?? (metadata.filediff as { patch?: unknown; diff?: unknown } | undefined)?.diff;
+  if (measureUnknown(heavy) <= SETTLED_TOOL_RECORD_BUDGET_CHARS) return metadata;
+  const next = { ...metadata };
+  delete next.patch;
+  delete next.diff;
+  if (next.filediff && typeof next.filediff === 'object') {
+    const rest = { ...(next.filediff as Record<string, unknown>) };
+    delete rest.patch;
+    delete rest.diff;
+    next.filediff = rest;
+  }
+  next.deferredBody = true;
+  return next;
+};
+
+export const mapPart = (
+  part: PiProjectedMessagePart,
+  options?: { full?: boolean },
+): Part => {
+  if (part.type === 'thinking') {
+    return { id: part.id, type: 'reasoning', text: part.text, streaming: part.streaming };
+  }
+  if (part.type === 'attachment') {
+    return {
+      id: part.id,
+      type: 'file',
+      filename: part.attachment?.name,
+      mime: part.attachment?.mime,
+    };
+  }
+  if (part.type === 'tool') {
+    const running = isRunningToolState(part.tool?.state);
+    const keepFull = options?.full === true || running;
+    const outputOverBudget = !keepFull && measureUnknown(part.tool?.output) > SETTLED_TOOL_RECORD_BUDGET_CHARS;
+    const metadata = keepFull ? part.tool?.metadata : stubSettledToolMetadata(part.tool?.metadata);
+    const deferredBody = Boolean(!keepFull && (outputOverBudget || metadata?.deferredBody));
+    return {
+      id: part.id,
+      type: 'tool',
+      tool: part.tool?.name,
+      callID: part.tool?.toolCallId,
+      state: {
+        status: part.tool?.state === 'running' || part.tool?.state === 'pending' ? 'running'
+          : part.tool?.state === 'error' ? 'error'
+            : part.tool?.state === 'cancelled' ? 'cancelled'
+              : 'completed',
+        input: part.tool?.input,
+        ...(outputOverBudget ? {} : { output: part.tool?.output }),
+        error: part.tool?.error,
+        time: { start: part.tool?.startedAt, end: part.tool?.endedAt },
+        metadata,
+        ...(deferredBody ? { deferredBody: true } : {}),
+      },
+    };
+  }
+  return { id: part.id, type: 'text', text: part.text };
+};
+
 export const piSessionToUiSession = (session: PiSession): Session => ({
   id: session.id,
   directory: session.directory,
@@ -17,40 +99,6 @@ export const piSessionToUiSession = (session: PiSession): Session => ({
 
 export const piListItemToUiSession = (item: PiSessionListItem): Session => piSessionToUiSession(item.session);
 
-export const mapPart = (part: PiProjectedMessagePart): Part => {
-  if (part.type === 'thinking') {
-    return { id: part.id, type: 'reasoning', text: part.text, streaming: part.streaming };
-  }
-  if (part.type === 'attachment') {
-    return {
-      id: part.id,
-      type: 'file',
-      filename: part.attachment?.name,
-      mime: part.attachment?.mime,
-    };
-  }
-  if (part.type === 'tool') {
-    return {
-      id: part.id,
-      type: 'tool',
-      tool: part.tool?.name,
-      callID: part.tool?.toolCallId,
-      state: {
-        status: part.tool?.state === 'running' || part.tool?.state === 'pending' ? 'running'
-          : part.tool?.state === 'error' ? 'error'
-            : part.tool?.state === 'cancelled' ? 'cancelled'
-              : 'completed',
-        input: part.tool?.input,
-        output: part.tool?.output,
-        error: part.tool?.error,
-        time: { start: part.tool?.startedAt, end: part.tool?.endedAt },
-        metadata: part.tool?.metadata,
-      },
-    };
-  }
-  return { id: part.id, type: 'text', text: part.text };
-};
-
 export const piMessageToRecord = (message: PiProjectedMessage, sessionId: string): SessionMessageRecord => {
   const parts: Part[] = [];
   if (message.parts.length > 0) {
@@ -59,7 +107,7 @@ export const piMessageToRecord = (message: PiProjectedMessage, sessionId: string
     if (!hasThinking && message.thinking) {
       parts.push({ id: `${message.id}:thinking`, type: 'reasoning', text: message.thinking, streaming: false });
     }
-    parts.push(...message.parts.map(mapPart));
+    parts.push(...message.parts.map((part) => mapPart(part)));
     if (!hasText && message.text) {
       parts.push({ id: `${message.id}:text`, type: 'text', text: message.text });
     }
@@ -109,5 +157,11 @@ export const piMessageToRecord = (message: PiProjectedMessage, sessionId: string
 
 export const piProjectedToRecords = (session: PiProjectedSession | null): SessionMessageRecord[] => {
   if (!session) return [];
-  return session.messages.map((message) => piMessageToRecord(message, session.sessionId));
+  return session.messages.map((message) => {
+    const cached = recordsByProjectedMessage.get(message);
+    if (cached && cached.info.sessionID === session.sessionId) return cached;
+    const record = piMessageToRecord(message, session.sessionId);
+    recordsByProjectedMessage.set(message, record);
+    return record;
+  });
 };

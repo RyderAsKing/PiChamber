@@ -533,6 +533,77 @@ describe("projectSession", () => {
     })
     expect(projectSession(session).messages.map((message) => message.id)).toEqual(["u1", "a-error"])
   })
+
+  test("reuses historical projected messages when only the live tail changes", () => {
+    const history = Array.from({ length: 200 }, (_, index) => {
+      const turn = Math.floor(index / 2)
+      const isUser = index % 2 === 0
+      const id = isUser ? `u${turn}` : `a${turn}`
+      return {
+        message: {
+          id,
+          sessionId: "sess-1",
+          directory: "/work",
+          role: isUser ? "user" as const : "assistant" as const,
+          ...(isUser ? {} : { parentId: `u${turn}` }),
+          text: isUser ? `prompt ${turn}` : `reply ${turn}`,
+          thinking: "",
+          createdAt: index + 1,
+          ...(isUser ? {} : { durationMs: 10 }),
+        },
+        parts: isUser
+          ? []
+          : [{ id: `${id}:text:0`, index: 0, type: "text" as const, text: `reply ${turn}` }],
+      }
+    })
+    const { state: hydrated } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 200,
+      messages: history,
+    })
+    let state = applyPiEvent(hydrated, baseEvent("assistant.message.start", 201, {
+      messageId: "live",
+      role: "assistant",
+      parentId: "u99",
+      startedAt: 10_000,
+    })).state
+    const beforeSession = state.bySession.get("sess-1") as PiReducerSessionState
+    const before = projectSession(beforeSession)
+
+    state = applyPiEvent(state, baseEvent("assistant.message.delta", 202, {
+      messageId: "live",
+      contentIndex: 0,
+      delta: "streaming",
+    })).state
+    const afterSession = state.bySession.get("sess-1") as PiReducerSessionState
+    const after = projectSession(afterSession, { session: beforeSession, projection: before })
+
+    expect(after.messages).toHaveLength(201)
+    let remapped = 0
+    for (let index = 0; index < 200; index += 1) {
+      if (after.messages[index] !== before.messages[index]) remapped += 1
+    }
+    expect(remapped).toBe(0)
+    expect(after.messages[200]).not.toBe(before.messages[200])
+    expect(after.messages[200]?.parts[0]?.text).toBe("streaming")
+  })
+
+  test("returns the previous projection object when nothing visible changed", () => {
+    const { session } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 2,
+      messages: [{
+        message: {
+          id: "u1", sessionId: "sess-1", directory: "/work", role: "user",
+          text: "hello", createdAt: 1,
+        },
+        parts: [],
+      }],
+    })
+    const first = projectSession(session)
+    const second = projectSession(session, { session, projection: first })
+    expect(second).toBe(first)
+  })
 })
 
 describe("applyPiEvent reference stability", () => {

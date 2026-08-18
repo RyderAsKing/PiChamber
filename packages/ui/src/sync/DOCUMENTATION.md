@@ -277,7 +277,9 @@ Pi streaming `contentIndex` identifies a content block, not an individual delta.
 
 Streaming assistant text is cadence-batched once per animation frame before reaching the markdown renderer. The renderer freezes settled leading markdown blocks and re-lexes only the source tail. While the message is still streaming, Shiki and KaTeX stay off for every block, and the unstable live tail is a growing text node in a full-width paragraph (normal wrapping, matching CommonMark `breaks: false`) rather than marked/morphdom HTML. Unfinished code fences, lists, and quotes keep pre-wrap. Highlighting and math land on the settle pass. Live thinking auto-expands into a max-height plain-text pane that scrolls internally, then collapses as soon as that thinking part settles (the next text or tool part starts). **Collapsed by Default** off keeps a one-line header during stream and after unless the user expands it. It does not add a second character-pacing timer, which would multiply parse/morph work while catching up on large streamed chunks.
 
-`useSessionMessageRecords` honors `suspendPartUpdates` / `suspendPartUpdatesForMessageId`: live-tail text, thinking, and tool-part changes on that message reuse the previously published records array. The streaming tail overlays live parts from `useSessionParts`. New messages and historical part edits bust the freeze. Structural Task session identity changes on a non-suspended (historical) message also bust it so a parent can link a newly created subagent immediately.
+`useSessionMessageRecords` honors `suspendPartUpdates` / `suspendPartUpdatesForMessageId`: live-tail text, thinking, and tool-part changes on that message reuse the previously published records array. The streaming tail overlays live parts from `useSessionParts`. New messages and historical part edits bust the freeze. Structural Task session identity changes on a non-suspended (historical) message also bust it so a parent can link a newly created subagent immediately. Record publication itself is incremental: `projectSession` plus `piProjectedToRecords` reuse unchanged historical projected messages and record objects, so a token or tool update on the live tail must not remap earlier turns.
+
+`useSessionReducerPart` hydrates one reducer part with `mapPart(..., { full: true })` when an expanded tool's render record omitted its body. While expanded it selects that part leaf on `session:{id}` so an unrelated token cannot rebuild the expanded payload. While collapsed it stays off the session topic.
 
 The event pipeline delivers each ordered per-directory flush as one reducer batch. Events retain their individual global indexes, notifications, cleanup, routing, materialization, and debug side effects, while their directory mutations accumulate in order and publish one store transaction per touched directory. Each top-level state slice is cloned lazily at most once in that batch; no-op events do not change references.
 
@@ -484,7 +486,7 @@ Same applies to `useStreamingStore` — select `.get(key)` not the Map itself.
 
 Hook migration rules:
 
-- Chat transcript hooks (`useSessionMessageRecords`, `useSessionParts` narrow, `useSessionMessageCount`, `useUserMessageHistory`) subscribe on `session:{id}`.
+- Chat transcript hooks (`useSessionMessageRecords`, `useSessionParts` narrow, `useSessionMessageCount`, `useUserMessageHistory`, `useSessionReducerPart`) subscribe on `session:{id}`.
 - Sidebar / list hooks (`useCatalogUiSessions`, `useSession`, `useSessionStatus`, `useAllSessionStatuses`, sidebar `hasBusySession` / `catalogLiveKey` / `catalogReady`) subscribe on `catalog`.
 - Loader / chrome hooks (`useSessionMessageLoadState`, `useSessionRenderable`, `useSyncDirectory`, sidebar `connection`, `piDirectoryChildStore.subscribe`) subscribe on `chrome`.
 - `useSessions` is two subscriptions: `directory` on `chrome`, list on `catalog` (via `useCatalogUiSessions`).
