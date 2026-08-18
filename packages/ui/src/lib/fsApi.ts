@@ -79,3 +79,48 @@ export async function searchFiles(
   const data = (await response.json()) as { files?: ProjectFileSearchHit[] };
   return Array.isArray(data.files) ? data.files : [];
 }
+
+export type DirectoryPickResult =
+  | { status: 'picked'; path: string }
+  | { status: 'cancelled' }
+  | { status: 'unavailable'; error: string }
+  | { status: 'failed'; error: string };
+
+export async function pickLocalDirectory(defaultPath = ''): Promise<DirectoryPickResult> {
+  try {
+    const response = await runtimeFetch('/api/fs/pick-directory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ path: defaultPath || undefined }),
+    });
+    const data = (await response.json().catch(() => null)) as {
+      path?: unknown;
+      cancelled?: unknown;
+      error?: unknown;
+    } | null;
+    if (data?.cancelled === true) {
+      return { status: 'cancelled' };
+    }
+    if (response.status === 501) {
+      return {
+        status: 'unavailable',
+        error: typeof data?.error === 'string' ? data.error : 'Folder picker is not available.',
+      };
+    }
+    if (!response.ok) {
+      return {
+        status: 'failed',
+        error: typeof data?.error === 'string' ? data.error : 'Failed to select directory.',
+      };
+    }
+    if (typeof data?.path === 'string' && data.path.trim()) {
+      return { status: 'picked', path: data.path.trim() };
+    }
+    return { status: 'failed', error: 'Failed to select directory.' };
+  } catch (error) {
+    return {
+      status: 'failed',
+      error: error instanceof Error ? error.message : 'Failed to select directory.',
+    };
+  }
+}
