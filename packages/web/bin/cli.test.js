@@ -610,10 +610,10 @@ describe('cli entry detection', () => {
 
 describe('isPiChamberCmdline (and legacy isOpenchamberCmdline alias)', () => {
   it('accepts PiChamber package entrypoints (Unix + Windows paths)', () => {
-    expect(isPiChamberCmdline('node /usr/local/lib/node_modules/@pichamber/web/bin/cli.js serve')).toBe(true);
-    expect(isPiChamberCmdline('node /usr/local/lib/node_modules/@pichamber/web/server/index.js --port 9090')).toBe(true);
+    expect(isPiChamberCmdline('node /usr/local/lib/node_modules/@pi-chamber/web/bin/cli.js serve')).toBe(true);
+    expect(isPiChamberCmdline('node /usr/local/lib/node_modules/@pi-chamber/web/server/index.js --port 9090')).toBe(true);
     // Quoted Windows path with spaces in the install location.
-    expect(isPiChamberCmdline('"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\@pichamber\\web\\server\\index.js" --port 9090')).toBe(true);
+    expect(isPiChamberCmdline('"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\@pi-chamber\\web\\server\\index.js" --port 9090')).toBe(true);
     // Direct executable invocation on unix / windows must occupy argv[0].
     expect(isPiChamberCmdline('/usr/local/bin/pichamber serve --port 3000')).toBe(true);
     expect(isPiChamberCmdline('C:\\Users\\u\\AppData\\Roaming\\npm\\pichamber.cmd serve')).toBe(true);
@@ -646,7 +646,7 @@ describe('isPiChamberCmdline (and legacy isOpenchamberCmdline alias)', () => {
   });
 
   it('keeps the legacy alias compatible with current PiChamber callers', () => {
-    expect(isOpenchamberCmdline('node /usr/local/lib/node_modules/@pichamber/web/bin/cli.js serve')).toBe(true);
+    expect(isOpenchamberCmdline('node /usr/local/lib/node_modules/@pi-chamber/web/bin/cli.js serve')).toBe(true);
     expect(isOpenchamberCmdline('node /home/herjarsa/npm-global/bin/agentmemory')).toBe(false);
   });
 });

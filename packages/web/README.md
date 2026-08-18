@@ -1,4 +1,4 @@
-# @pichamber/web
+# @pi-chamber/web
 
 PiChamber's web server and browser UI for the Pi coding-agent runtime.
 

@@ -132,7 +132,7 @@ function readProcessCmdline(pid) {
 // Identity recognition proceeds as follows:
 //   1. Accept a direct `pichamber` executable in argv[0].
 //   2. Accept a Node/Bun process only when its first script argument is a
-//      published `@pichamber/web` or source-checkout PiChamber entrypoint.
+//      published `@pi-chamber/web` or source-checkout PiChamber entrypoint.
 //
 // A product-name token in a later argument is not enough: a stale pid file
 // must never authorize stopping `/bin/sh -c "echo pichamber"` or
@@ -163,7 +163,7 @@ function isNodeOrBunExecutableToken(token) {
 
 function isPiChamberEntrypointToken(token) {
   const normalized = normalizeCommandToken(token);
-  return /(?:^|\/)@pichamber\/web\/(?:bin\/cli\.js|server\/index\.js)$/i.test(normalized)
+  return /(?:^|\/)@pi-chamber\/web\/(?:bin\/cli\.js|server\/index\.js)$/i.test(normalized)
     || /(?:^|\/)PiChamber\/packages\/web\/(?:bin\/cli\.js|server\/index\.js)$/i.test(normalized);
 }
 

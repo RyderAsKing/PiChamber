@@ -112,7 +112,7 @@ describe('checkForUpdates (no hosted API by default)', () => {
     });
   });
 
-  it('ignores npm latest when @pichamber/web is not the official PiChamber repository', async () => {
+  it('ignores npm latest when pichamber is not the official PiChamber repository', async () => {
     await withNoHostedApi(async () => {
       fetchMock.when('registry.npmjs.org', {
         ok: true,
@@ -348,10 +348,10 @@ describe('checkForUpdates (no hosted API by default)', () => {
 });
 
 describe('package-manager ownership detection', () => {
-  it('detects PiChamber-claimed paths only and rejects legacy pichamber package output', () => {
-    const containsPackage = (stdout) => stdout.includes('@pichamber/web');
-    expect(containsPackage('/home/u/.npm-global/lib/node_modules/@pichamber/web')).toBe(true);
-    expect(containsPackage('pichamber@1.0.0')).toBe(false);
+  it('detects PiChamber-claimed paths for the @pi-chamber/web package', () => {
+    const containsPackage = (stdout) => stdout.includes('@pi-chamber/web');
+    expect(containsPackage('/home/u/.npm-global/lib/node_modules/@pi-chamber/web')).toBe(true);
+    expect(containsPackage('@pi-chamber/web@0.1.7')).toBe(true);
   });
 });
 

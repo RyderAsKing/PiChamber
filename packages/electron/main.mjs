@@ -31,8 +31,8 @@ import {
   setLinuxAutostartEnabled,
 } from './linux-autostart.mjs';
 import { unsupportedAppSpecificOpenError, validateLocalPath } from './path-open-utils.mjs';
-import { mintOutsideFileGrant } from '@pichamber/web/server/lib/fs/routes.js';
-import { resolvePiChamberDataDir, resolvePiChamberDataPath } from '@pichamber/web/server/lib/pichamber-data-dir.js';
+import { mintOutsideFileGrant } from '@pi-chamber/web/server/lib/fs/routes.js';
+import { resolvePiChamberDataDir, resolvePiChamberDataPath } from '@pi-chamber/web/server/lib/pichamber-data-dir.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -1340,8 +1340,8 @@ const loadShellEnv = () => {
 };
 
 // Merge the user's login-shell env (PATH, etc.) into this process before we
-import { pathLooksUserConfigured, mergePathValues } from '@pichamber/web/server/lib/server/path-utils.js';
-import { clearAppImageArgv0FromProcessEnv } from '@pichamber/web/server/lib/inherited-env.js';
+import { pathLooksUserConfigured, mergePathValues } from '@pi-chamber/web/server/lib/server/path-utils.js';
+import { clearAppImageArgv0FromProcessEnv } from '@pi-chamber/web/server/lib/inherited-env.js';
 
 // import/start the server in-process. The server and its subprocesses inherit
 // process.env directly — there is no sidecar
@@ -1438,7 +1438,7 @@ const spawnLocalServer = async () => {
   process.env.NO_PROXY = process.env.NO_PROXY || 'localhost,127.0.0.1';
   process.env.no_proxy = process.env.no_proxy || 'localhost,127.0.0.1';
 
-  const { startWebUiServer } = await import('@pichamber/web/server/index.js');
+  const { startWebUiServer } = await import('@pi-chamber/web/server/index.js');
 
   const handle = await startWebUiServer({
     port: chosenPort,
