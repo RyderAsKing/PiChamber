@@ -621,10 +621,15 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         }
 
         const lastMessage = sessionMessages[sessionMessages.length - 1]?.info as Message | undefined;
+        const lastFinish = typeof (lastMessage as { finish?: string } | undefined)?.finish === 'string'
+            ? (lastMessage as { finish?: string }).finish
+            : undefined;
         return Boolean(
             lastMessage
             && lastMessage.role === 'assistant'
-            && typeof (lastMessage as { time?: { completed?: number } }).time?.completed !== 'number',
+            && typeof (lastMessage as { time?: { completed?: number } }).time?.completed !== 'number'
+            && lastFinish !== 'stop'
+            && lastFinish !== 'error',
         );
     }, [currentSessionId, sessionMessages, sessionPermissions.length, sessionQuestions.length, sessionStatusForCurrent.type]);
     const activeRetryStatus = React.useMemo(() => {

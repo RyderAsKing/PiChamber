@@ -1282,10 +1282,8 @@ const AssistantMessageBody = React.memo(({
         expanded: denseToolsExpanded,
     });
     const shouldShowTurnFooter = isLastAssistantInTurn
-        && hasTextContent
-        && !isTurnWorking
-        && streamPhase === 'completed'
-        && (hasStopFinish || Boolean(errorMessage));
+        && (hasTextContent || Boolean(errorMessage))
+        && !isTurnWorking;
     const shouldShowStandaloneMessageActions = showSplitAssistantMessageActions && shouldShowMessageActions && !shouldShowTurnFooter;
 
     const messageActionButtons = React.useMemo(() => (
@@ -1491,7 +1489,7 @@ const AssistantMessageBody = React.memo(({
     ]);
 
     const turnDurationText = React.useMemo(() => {
-        if (!isLastAssistantInTurn || !hasStopFinish) return undefined;
+        if (!isLastAssistantInTurn || isTurnWorking) return undefined;
         // Priority 1: Assistant message explicit durationMs (measured from first token to stream completion)
         if (typeof durationMs === 'number' && durationMs > 0) {
             return formatTurnDuration(durationMs);
@@ -1506,7 +1504,7 @@ const AssistantMessageBody = React.memo(({
             return formatTurnDuration(messageCompletedAt - userCreatedAt);
         }
         return undefined;
-    }, [isLastAssistantInTurn, hasStopFinish, durationMs, messageCompletedAt, messageCreatedAt, turnGroupingContext?.userMessageCreatedAt]);
+    }, [isLastAssistantInTurn, isTurnWorking, durationMs, messageCompletedAt, messageCreatedAt, turnGroupingContext?.userMessageCreatedAt]);
 
     const footerTimestamp = React.useMemo(() => {
         const timestamp = typeof messageCompletedAt === 'number' && messageCompletedAt > 0

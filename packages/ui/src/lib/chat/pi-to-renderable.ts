@@ -136,7 +136,12 @@ export const piMessageToRecord = (message: PiProjectedMessage, sessionId: string
     },
     ...(message.durationMs !== undefined ? { durationMs: message.durationMs } : {}),
     ...(message.error ? { error: { name: message.error.code, message: message.error.message } } : {}),
-    ...(message.model ? { model: { providerID: message.model.providerId, modelID: message.model.modelId } } : {}),
+    ...(message.model ? {
+      model: { providerID: message.model.providerId, modelID: message.model.modelId },
+      providerID: message.model.providerId,
+      modelID: message.model.modelId,
+    } : {}),
+    ...(message.thinkingLevel ? { variant: message.thinkingLevel } : {}),
     ...(message.role === 'assistant' && message.usage
       ? {
           usage: {

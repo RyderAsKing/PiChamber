@@ -131,6 +131,27 @@ describe('pi-to-renderable', () => {
     expect(record.info.cost).toBe(0.0033);
   });
 
+  test('copies Pi model ids onto both nested model and top-level info for the chat footer', () => {
+    const message: PiProjectedMessage = {
+      id: 'msg_model',
+      role: 'assistant',
+      createdAt: 10,
+      streaming: false,
+      text: 'hello',
+      thinking: '',
+      model: { providerId: 'anthropic', modelId: 'claude-sonnet-4-5' },
+      thinkingLevel: 'low',
+      parts: [{ id: 'p1', type: 'text', text: 'hello', streaming: false }],
+    };
+    const record = piMessageToRecord(message, 'ses_1');
+    expect(record.info.model).toEqual({ providerID: 'anthropic', modelID: 'claude-sonnet-4-5' });
+    expect(record.info.providerID).toBe('anthropic');
+    expect(record.info.modelID).toBe('claude-sonnet-4-5');
+    expect(record.info.variant).toBe('low');
+    expect(record.info.finish).toBe('stop');
+    expect(record.info.time?.completed).toBe(10);
+  });
+
   test('omits usage and cost when the projected message has no usage', () => {
     const message: PiProjectedMessage = {
       id: 'msg_no_usage',

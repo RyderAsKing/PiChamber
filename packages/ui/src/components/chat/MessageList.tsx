@@ -11,6 +11,7 @@ import type { AnimationHandlers, ContentChangeReason } from '@/hooks/useChatAuto
 import type { ChatMessageEntry, TurnRecord, TurnGroupingContext } from './lib/turns/types';
 import { useTurnRecords } from './hooks/useTurnRecords';
 import { applyRetryOverlay } from './lib/turns/applyRetryOverlay';
+import { isTurnAssistantWorking, resolveTurnStreamingAssistantId } from './lib/turns/assistantWorkingState';
 import { buildLiveStreamingEntry, type StreamingTailEntry } from './lib/turns/streamingTailEntry';
 import { getNormalizedMessageForDisplay, hasCompactionPart } from './lib/messageDisplayNormalization';
 import { useUIStore } from '@/stores/useUIStore';
@@ -195,19 +196,6 @@ const normalizeCompactionSummaryMessage = (
             clientRole: 'assistant',
         } as unknown as typeof message.info),
     };
-};
-
-const isAssistantMessageCompleted = (message: ChatMessageEntry): boolean => {
-    const info = message.info as { time?: { completed?: unknown }; status?: unknown };
-    const completed = info.time?.completed;
-    const status = info.status;
-    if (typeof completed !== 'number' || completed <= 0) {
-        return false;
-    }
-    if (typeof status === 'string') {
-        return status === 'completed';
-    }
-    return true;
 };
 
 const isUserSubtaskMessage = (message: ChatMessageEntry | undefined): boolean => {
@@ -485,6 +473,7 @@ interface TurnBlockProps {
     turn: TurnRecord;
     isLastTurn: boolean;
     nextEntryFirstMessage?: ChatMessageEntry;
+    /** Catalog busy is still passed through, but last-turn `isWorking` follows the live stream id. */
     sessionIsWorking: boolean;
     onMessageContentChange: (reason?: ContentChangeReason) => void;
     getAnimationHandlers: (messageId: string) => AnimationHandlers;
@@ -500,7 +489,6 @@ const TurnBlock = React.memo(({
     turn,
     isLastTurn,
     nextEntryFirstMessage,
-    sessionIsWorking,
     onMessageContentChange,
     getAnimationHandlers,
     scrollToBottom,
@@ -524,24 +512,13 @@ const TurnBlock = React.memo(({
         return { ordered, lookup };
     }, [turn.assistantMessages, turn.userMessage]);
 
-    const streamingAssistantMessageId = React.useMemo(() => {
-        if (activeStreamingMessageId && turn.assistantMessages.some((assistant) => assistant.info.id === activeStreamingMessageId)) {
-            return activeStreamingMessageId;
-        }
-
-        for (let index = turn.assistantMessages.length - 1; index >= 0; index -= 1) {
-            const assistant = turn.assistantMessages[index];
-            if (!isAssistantMessageCompleted(assistant)) {
-                return assistant.info.id;
-            }
-        }
-
-        if (isLastTurn && sessionIsWorking && turn.assistantMessages.length > 0) {
-            return turn.assistantMessages[turn.assistantMessages.length - 1].info.id;
-        }
-
-        return null;
-    }, [activeStreamingMessageId, isLastTurn, sessionIsWorking, turn.assistantMessages]);
+    const streamingAssistantMessageId = React.useMemo(
+        () => resolveTurnStreamingAssistantId({
+            activeStreamingMessageId,
+            assistantMessages: turn.assistantMessages,
+        }),
+        [activeStreamingMessageId, turn.assistantMessages],
+    );
 
     const visibleAssistantMessages = turn.assistantMessages;
 
@@ -622,7 +599,10 @@ const TurnBlock = React.memo(({
                     isFirstAssistantInTurn: isFirstAssistant,
                     isLastAssistantInTurn: isLastAssistant,
                     isLatestTurn: isLastTurn,
-                    isWorking: isLastTurn && sessionIsWorking && message.info.id === streamingAssistantMessageId,
+                    isWorking: isTurnAssistantWorking({
+                        messageId: message.info.id,
+                        activeStreamingMessageId,
+                    }),
                     hasTools: turn.hasTools,
                     hasReasoning: turn.hasReasoning,
                     ...(shouldAttachFullTurnContext ? {
@@ -664,7 +644,6 @@ const TurnBlock = React.memo(({
             messageOrder.ordered,
             onMessageContentChange,
             scrollToBottom,
-            sessionIsWorking,
             turn.headerMessageId,
             turn.hasReasoning,
             turn.hasTools,
@@ -672,6 +651,7 @@ const TurnBlock = React.memo(({
             turn.userMessage,
             turnGroupingContextBase,
             streamingAssistantMessageId,
+            activeStreamingMessageId,
             activeStreamingPhase,
             visibleAssistantMessages,
             visibleAssistantIds,

@@ -111,6 +111,28 @@ const getMessageInfoProp = (info: unknown, key: string): unknown => {
     return undefined;
 };
 
+const readNonEmptyString = (value: unknown): string | undefined => {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+};
+
+/** Pi stores provider/model on `info.model`; older records used top-level ids. */
+const getMessageModelRef = (info: unknown): { providerId?: string; modelId?: string } => {
+    const nested = getMessageInfoProp(info, 'model');
+    const nestedRecord = typeof nested === 'object' && nested !== null
+        ? nested as Record<string, unknown>
+        : null;
+    return {
+        providerId: readNonEmptyString(getMessageInfoProp(info, 'providerID'))
+            ?? readNonEmptyString(nestedRecord?.providerID)
+            ?? readNonEmptyString(nestedRecord?.providerId),
+        modelId: readNonEmptyString(getMessageInfoProp(info, 'modelID'))
+            ?? readNonEmptyString(nestedRecord?.modelID)
+            ?? readNonEmptyString(nestedRecord?.modelId),
+    };
+};
+
 interface ChatMessageProps {
     message: {
         info: Message;
@@ -226,15 +248,14 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
 
         const mode = getMessageInfoProp(previousMessage.info, 'mode');
         const agent = getMessageInfoProp(previousMessage.info, 'agent');
-        const providerID = getMessageInfoProp(previousMessage.info, 'providerID');
-        const modelID = getMessageInfoProp(previousMessage.info, 'modelID');
+        const previousModel = getMessageModelRef(previousMessage.info);
         const variant = getMessageInfoProp(previousMessage.info, 'variant');
         const resolvedAgent =
             typeof mode === 'string' && mode.trim().length > 0
                 ? mode
                 : (typeof agent === 'string' && agent.trim().length > 0 ? agent : undefined);
-        const resolvedProvider = typeof providerID === 'string' && providerID.trim().length > 0 ? providerID : undefined;
-        const resolvedModel = typeof modelID === 'string' && modelID.trim().length > 0 ? modelID : undefined;
+        const resolvedProvider = previousModel.providerId;
+        const resolvedModel = previousModel.modelId;
         const resolvedVariant = typeof variant === 'string' && variant.trim().length > 0 ? variant : undefined;
 
         if (!resolvedAgent && !resolvedProvider && !resolvedModel && !resolvedVariant) {
@@ -277,8 +298,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         return savedSessionAgentSelection ?? undefined;
     }, [isUser, message.info, previousUserMetadata, sessionId, currentContextAgent, savedSessionAgentSelection]);
 
-    const messageProviderID = !isUser ? getMessageInfoProp(message.info, 'providerID') : null;
-    const messageModelID = !isUser ? getMessageInfoProp(message.info, 'modelID') : null;
+    const messageModel = !isUser ? getMessageModelRef(message.info) : { providerId: undefined, modelId: undefined };
+    const messageProviderID = messageModel.providerId ?? null;
+    const messageModelID = messageModel.modelId ?? null;
 
     const contextModelSelection = React.useMemo(() => {
         if (isUser || !sessionId) return null;
@@ -603,9 +625,17 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         });
     }, []);
 
-    const headerVariantRaw = !isUser ? (turnGroupingContext?.userMessageVariant ?? previousUserMetadata?.variant) : undefined;
+    const headerVariantRaw = !isUser
+        ? (
+            readNonEmptyString(getMessageInfoProp(message.info, 'variant'))
+            ?? turnGroupingContext?.userMessageVariant
+            ?? previousUserMetadata?.variant
+        )
+        : undefined;
 
-    const headerVariant = !isUser && modelHasVariants ? (headerVariantRaw ?? 'Default') : undefined;
+    const headerVariant = !isUser
+        ? (modelHasVariants ? (headerVariantRaw ?? 'Default') : headerVariantRaw)
+        : undefined;
 
     // Summary body removed — flat rendering means text is always inline.
 
