@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { PiProjectedMessage, PiProjectedSession } from '@/lib/pi/event-reducer';
-import { piMessageToRecord, piProjectedToRecords, piSessionToUiSession } from './pi-to-renderable';
+import {
+  mapPart,
+  piMessageToRecord,
+  piProjectedToRecords,
+  piSessionToUiSession,
+  SETTLED_TOOL_RECORD_BUDGET_CHARS,
+} from './pi-to-renderable';
 import type { PiSession } from '@/lib/pi/types';
 
 const session: PiSession = {
@@ -138,5 +144,99 @@ describe('pi-to-renderable', () => {
     const record = piMessageToRecord(message, 'ses_1');
     expect(record.info.usage).toBeFalsy();
     expect(record.info.cost).toBeFalsy();
+  });
+
+  test('stubs oversized settled tool output and keeps running tools full', () => {
+    const oversized = 'x'.repeat(SETTLED_TOOL_RECORD_BUDGET_CHARS + 1);
+    const settled: PiProjectedMessage = {
+      id: 'msg_stub',
+      role: 'assistant',
+      createdAt: 1,
+      streaming: false,
+      text: '',
+      thinking: '',
+      parts: [{
+        id: 'tool_stub',
+        type: 'tool',
+        text: '',
+        streaming: false,
+        tool: {
+          name: 'bash',
+          toolCallId: 'c-stub',
+          state: 'completed',
+          output: oversized,
+          input: { command: 'ls' },
+          metadata: { patch: oversized },
+          startedAt: 1,
+          endedAt: 2,
+        },
+      }],
+    };
+    const stubbed = piMessageToRecord(settled, 'ses_1').parts[0] as {
+      state?: { output?: unknown; deferredBody?: unknown; metadata?: Record<string, unknown> };
+    };
+    expect(stubbed.state?.output).toBe(undefined);
+    expect(stubbed.state?.deferredBody).toBe(true);
+    expect(stubbed.state?.metadata?.patch).toBe(undefined);
+    expect(stubbed.state?.metadata?.deferredBody).toBe(true);
+
+    const running: PiProjectedMessage = {
+      id: 'msg_running',
+      role: 'assistant',
+      createdAt: 1,
+      streaming: true,
+      text: '',
+      thinking: '',
+      parts: [{
+        id: 'tool_running',
+        type: 'tool',
+        text: '',
+        streaming: true,
+        tool: {
+          name: 'bash',
+          toolCallId: 'c-run',
+          state: 'running',
+          output: oversized,
+          input: { command: 'ls' },
+          metadata: { patch: oversized },
+          startedAt: 1,
+        },
+      }],
+    };
+    const live = piMessageToRecord(running, 'ses_1').parts[0] as {
+      state?: { output?: unknown; deferredBody?: unknown; metadata?: { patch?: unknown } };
+    };
+    expect(live.state?.output).toBe(oversized);
+    expect(live.state?.deferredBody).toBe(undefined);
+    expect(live.state?.metadata?.patch).toBe(oversized);
+
+    const hydrated = mapPart(settled.parts[0], { full: true }) as {
+      state?: { output?: unknown; deferredBody?: unknown; metadata?: { patch?: unknown } };
+    };
+    expect(hydrated.state?.output).toBe(oversized);
+    expect(hydrated.state?.deferredBody).toBe(undefined);
+    expect(hydrated.state?.metadata?.patch).toBe(oversized);
+  });
+
+  test('reuses message records while the projected message identity is stable', () => {
+    const projected: PiProjectedSession = {
+      sessionId: 'ses_1',
+      directory: '/repo',
+      lifecycle: 'idle',
+      queue: { steering: 0, followUp: 0 },
+      messages: [{
+        id: 'u1',
+        role: 'user',
+        createdAt: 1,
+        streaming: false,
+        text: 'hi',
+        thinking: '',
+        parts: [{ id: 't', type: 'text', text: 'hi', streaming: false }],
+      }],
+    };
+    const first = piProjectedToRecords(projected);
+    const second = piProjectedToRecords(projected);
+    expect(second).toHaveLength(1);
+    expect(second[0]).toBe(first[0]);
   });
 });

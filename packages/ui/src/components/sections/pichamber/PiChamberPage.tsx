@@ -92,7 +92,7 @@ export const PiChamberPage: React.FC<PiChamberPageProps> = ({ section }) => {
     }[section];
 
     const pageDescription = {
-        general: "App startup, security, connection, and privacy.",
+        general: "App startup, security, connection, privacy, and diagnostics.",
         visual: "Customize how PiChamber looks and feels.",
         chat: "Configure how messages and tools are displayed.",
         sessions: "Set defaults and retention for sessions.",
@@ -120,7 +120,7 @@ const ShortcutsSectionContent: React.FC = () => {
 };
 
 // General section: app-level settings — startup/tray/network, access password,
-// passkeys, OpenCode CLI binary, message stream transport, privacy.
+// passkeys, OpenCode CLI binary, message stream transport, privacy, diagnostics.
 const GeneralSectionContent: React.FC = () => {
     const runtimeEndpointEpoch = useRuntimeEndpointEpoch();
     void runtimeEndpointEpoch;
@@ -141,6 +141,7 @@ const GeneralSectionContent: React.FC = () => {
                 'terminalLoginShell',
                 'messageTransport',
                 'reportUsage',
+                'perfHud',
             ]} />
         </>
     );

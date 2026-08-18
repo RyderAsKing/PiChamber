@@ -141,6 +141,11 @@ of these failure modes once produced a confident, wrong "everything is fast":
 Preserve this property when extending these scripts. A metric reading zero must
 be a measurement, never a disabled instrument.
 
+The in-app Performance overlay is a separate interactive HUD
+(`packages/ui/src/lib/perf/DOCUMENTATION.md`). Leave it off during these
+captures. It adds a frame sampler and DOM updates that are not part of the
+workload under test.
+
 ## Methodology Rules
 
 - **Never report an "after" without a "before" on the identical scenario and

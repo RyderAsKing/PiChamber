@@ -1,3 +1,5 @@
+import { isPerfHudEnabled } from "@/lib/perf/perfFlags"
+
 const STORAGE_KEY = "pichamber_session_load_perf"
 const MAX_EVENTS = 1_000
 const ALLOWED_OPERATIONS = new Set([
@@ -64,11 +66,24 @@ declare global {
 }
 
 const isSessionLoadPerformanceEnabled = (): boolean => {
+  if (isPerfHudEnabled()) return true
   if (typeof window === "undefined") return false
   try {
     return window.localStorage.getItem(STORAGE_KEY) === "1"
   } catch {
     return false
+  }
+}
+
+export function getSessionLoadPerformanceEventCount(): number {
+  if (typeof window === "undefined") return 0
+  return window.__pichamberSessionLoadPerformance?.events.length ?? 0
+}
+
+export function resetSessionLoadPerformanceEvents(): void {
+  if (typeof window === "undefined") return
+  if (window.__pichamberSessionLoadPerformance) {
+    window.__pichamberSessionLoadPerformance.events = []
   }
 }
 

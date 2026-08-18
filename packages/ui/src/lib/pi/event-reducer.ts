@@ -169,7 +169,20 @@ const isSyntheticUserMessageId = (messageId: string, sessionId: string): boolean
 
 const USER_MESSAGE_RECONCILE_WINDOW_MS = 250;
 
+type OrderedMessagesCache = {
+  size: number;
+  list: PiReducerMessage[];
+};
+
+const orderedMessagesByMap = new WeakMap<Map<string, PiReducerMessage>, OrderedMessagesCache>();
+const projectedPartsByReducerPart = new WeakMap<PiReducerMessagePart, PiProjectedMessagePart>();
+
 const uniqueSessionMessages = (session: PiReducerSessionState): PiReducerMessage[] => {
+  // Membership changes clone `session.messages` first, so this WeakMap
+  // misses. Part-only live-tail updates keep the same Map and reuse the list.
+  const cached = orderedMessagesByMap.get(session.messages);
+  if (cached && cached.size === session.messages.size) return cached.list;
+
   const seen = new Set<string>();
   const messages: PiReducerMessage[] = [];
   for (const message of session.messages.values()) {
@@ -177,7 +190,14 @@ const uniqueSessionMessages = (session: PiReducerSessionState): PiReducerMessage
     seen.add(message.id);
     messages.push(message);
   }
-  messages.sort((left, right) => left.createdAt - right.createdAt);
+  for (let index = 1; index < messages.length; index += 1) {
+    const previous = messages[index - 1];
+    const current = messages[index];
+    if (!previous || !current || current.createdAt >= previous.createdAt) continue;
+    messages.sort((left, right) => left.createdAt - right.createdAt);
+    break;
+  }
+  orderedMessagesByMap.set(session.messages, { size: session.messages.size, list: messages });
   return messages;
 };
 
@@ -848,19 +868,32 @@ export interface PiProjectedSession {
   messages: PiProjectedMessage[];
 }
 
-/**
- * Build an immutable projection of a session. The returned object is a
- * new reference every time, so React selectors can rely on referential
- * equality. The projection does not include sequence bookkeeping so the
- * UI cannot accidentally leak it.
- */
-export const projectSession = (session: PiReducerSessionState): PiProjectedSession => {
-  const sourceMessages = uniqueSessionMessages(session);
+export interface ProjectSessionPrevious {
+  session: PiReducerSessionState;
+  projection: PiProjectedSession;
+}
+
+const projectReducerPart = (part: PiReducerMessagePart): PiProjectedMessagePart => {
+  const cached = projectedPartsByReducerPart.get(part);
+  if (cached) return cached;
+  const projected: PiProjectedMessagePart = {
+    id: part.id,
+    type: part.type,
+    text: part.text,
+    streaming: part.streaming,
+    ...(part.tool ? { tool: part.tool } : {}),
+    ...(part.attachment ? { attachment: part.attachment } : {}),
+  };
+  projectedPartsByReducerPart.set(part, projected);
+  return projected;
+};
+
+const recoveredErrorIdsFor = (session: PiReducerSessionState, sourceMessages: PiReducerMessage[]): Set<string> => {
   const recoveredParents = new Set<string>();
   const recoveredErrorIds = new Set<string>();
   for (let index = sourceMessages.length - 1; index >= 0; index -= 1) {
     const message = sourceMessages[index];
-    if (message.role !== 'assistant') continue;
+    if (!message || message.role !== 'assistant') continue;
     const parentId = resolveParentId(session, message.parentId);
     if (!parentId) continue;
     const hasVisibleContent = Boolean(
@@ -874,39 +907,99 @@ export const projectSession = (session: PiReducerSessionState): PiProjectedSessi
     }
     if (!message.error) recoveredParents.add(parentId);
   }
+  return recoveredErrorIds;
+};
 
-  const messages = sourceMessages
-    .filter((message) => !recoveredErrorIds.has(message.id))
-    .map<PiProjectedMessage>((message) => {
-      const order = session.partOrder.get(message.id) ?? [];
-      const parts: PiProjectedMessagePart[] = order
-        .map((partId) => session.parts.get(partId))
-        .filter((part): part is PiReducerMessagePart => Boolean(part))
-        .map<PiProjectedMessagePart>((part) => ({
-          id: part.id,
-          type: part.type,
-          text: part.text,
-          streaming: part.streaming,
-          ...(part.tool ? { tool: part.tool } : {}),
-          ...(part.attachment ? { attachment: part.attachment } : {}),
-        }));
-      const parentId = resolveParentId(session, message.parentId);
-      return {
-        id: message.id,
-        role: message.role,
-        ...(parentId ? { parentId } : {}),
-        text: message.text,
-        thinking: message.thinking,
-        streaming: message.streaming,
-        createdAt: message.createdAt,
-        ...(message.durationMs !== undefined ? { durationMs: message.durationMs } : {}),
-        ...(message.error ? { error: message.error } : {}),
-        ...(message.model ? { model: message.model } : {}),
-        ...(message.thinkingLevel ? { thinkingLevel: message.thinkingLevel } : {}),
-        ...(message.usage ? { usage: message.usage } : {}),
-        parts,
-      };
-    });
+const canReuseProjectedMessage = (
+  session: PiReducerSessionState,
+  message: PiReducerMessage,
+  previous: PiProjectedMessage,
+  parts: PiProjectedMessagePart[],
+): boolean => (
+  previous.id === message.id
+  && previous.role === message.role
+  && previous.parentId === resolveParentId(session, message.parentId)
+  && previous.text === message.text
+  && previous.thinking === message.thinking
+  && previous.streaming === message.streaming
+  && previous.createdAt === message.createdAt
+  && previous.durationMs === message.durationMs
+  && previous.error === message.error
+  && previous.model === message.model
+  && previous.thinkingLevel === message.thinkingLevel
+  && previous.usage === message.usage
+  && previous.parts.length === parts.length
+  && previous.parts.every((part, index) => part === parts[index])
+);
+
+const projectReducerMessage = (
+  session: PiReducerSessionState,
+  message: PiReducerMessage,
+  previousProjected?: PiProjectedMessage,
+): PiProjectedMessage => {
+  const order = session.partOrder.get(message.id) ?? [];
+  const parts: PiProjectedMessagePart[] = [];
+  for (const partId of order) {
+    const part = session.parts.get(partId);
+    if (part) parts.push(projectReducerPart(part));
+  }
+  if (previousProjected && canReuseProjectedMessage(session, message, previousProjected, parts)) {
+    return previousProjected;
+  }
+  const parentId = resolveParentId(session, message.parentId);
+  return {
+    id: message.id,
+    role: message.role,
+    ...(parentId ? { parentId } : {}),
+    text: message.text,
+    thinking: message.thinking,
+    streaming: message.streaming,
+    createdAt: message.createdAt,
+    ...(message.durationMs !== undefined ? { durationMs: message.durationMs } : {}),
+    ...(message.error ? { error: message.error } : {}),
+    ...(message.model ? { model: message.model } : {}),
+    ...(message.thinkingLevel ? { thinkingLevel: message.thinkingLevel } : {}),
+    ...(message.usage ? { usage: message.usage } : {}),
+    parts,
+  };
+};
+
+/**
+ * Build an immutable projection of a session. Pass the previous projection
+ * so unchanged historical messages and parts keep their object identity.
+ * The projection does not include sequence bookkeeping so the UI cannot
+ * accidentally leak it.
+ */
+export const projectSession = (
+  session: PiReducerSessionState,
+  previous?: ProjectSessionPrevious | null,
+): PiProjectedSession => {
+  const sourceMessages = uniqueSessionMessages(session);
+  const recoveredErrorIds = recoveredErrorIdsFor(session, sourceMessages);
+  const previousById = previous
+    ? new Map(previous.projection.messages.map((message) => [message.id, message]))
+    : null;
+
+  const messages: PiProjectedMessage[] = [];
+  for (const message of sourceMessages) {
+    if (recoveredErrorIds.has(message.id)) continue;
+    messages.push(projectReducerMessage(session, message, previousById?.get(message.id)));
+  }
+
+  if (
+    previous
+    && previous.projection.sessionId === session.sessionId
+    && previous.projection.directory === session.directory
+    && previous.projection.lifecycle === session.lifecycle
+    && previous.projection.model === session.model
+    && previous.projection.thinking === session.thinking
+    && previous.projection.queue.steering === session.queue.steering
+    && previous.projection.queue.followUp === session.queue.followUp
+    && previous.projection.messages.length === messages.length
+    && previous.projection.messages.every((message, index) => message === messages[index])
+  ) {
+    return previous.projection;
+  }
 
   return {
     sessionId: session.sessionId,

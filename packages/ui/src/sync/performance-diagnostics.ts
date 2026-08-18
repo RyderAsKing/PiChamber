@@ -1,3 +1,5 @@
+import { isPerfHudEnabled } from "@/lib/perf/perfFlags"
+
 const STORAGE_KEY = "pichamber_sync_perf"
 
 declare global {
@@ -86,31 +88,49 @@ const readInitialEnabled = (): boolean => {
   }
 }
 
-let activeCounters: SyncPerformanceCounters | null = readInitialEnabled() ? createCounters() : null
+const legacyEnabled = readInitialEnabled()
+let forcedEnabled = false
+let activeCounters: SyncPerformanceCounters | null = (legacyEnabled || isPerfHudEnabled())
+  ? createCounters()
+  : null
+
+const isSyncPerfWanted = (): boolean => forcedEnabled || isPerfHudEnabled() || legacyEnabled
+
+const ensureCounters = (): SyncPerformanceCounters | null => {
+  if (!isSyncPerfWanted()) return null
+  if (!activeCounters) activeCounters = createCounters()
+  return activeCounters
+}
 
 export function setSyncPerformanceDiagnosticsEnabled(enabled: boolean): void {
-  activeCounters = enabled ? createCounters() : null
+  forcedEnabled = enabled
+  if (enabled) {
+    activeCounters = createCounters()
+    return
+  }
+  if (!isSyncPerfWanted()) activeCounters = null
 }
 
 export function resetSyncPerformanceDiagnostics(): void {
-  if (activeCounters) activeCounters = createCounters()
+  if (ensureCounters()) activeCounters = createCounters()
 }
 
 export function getSyncPerformanceDiagnostics(): SyncPerformanceCounters | null {
-  return activeCounters ? { ...activeCounters } : null
+  const counters = ensureCounters()
+  return counters ? { ...counters } : null
 }
 
 export function countSyncPerformance(
   counter: keyof SyncPerformanceCounters,
   amount = 1,
 ): void {
-  const counters = activeCounters
+  const counters = ensureCounters()
   if (!counters) return
   counters[counter] += amount
 }
 
 export function countSyncPersistenceSerialization(serialized: string): void {
-  const counters = activeCounters
+  const counters = ensureCounters()
   if (!counters) return
   counters.persistenceSerializations += 1
   counters.persistenceUtf8Bytes += new TextEncoder().encode(serialized).byteLength
