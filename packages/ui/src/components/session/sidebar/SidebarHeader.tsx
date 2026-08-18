@@ -16,6 +16,10 @@ type Props = {
   hideDirectoryControls: boolean;
   handleOpenDirectoryDialog: () => void;
   onOpenArchive: () => void;
+  onOpenSettings?: () => void;
+        onOpenInstances?: () => void;
+        instanceLabel?: string | null;
+        onOpenUpdate?: () => void;
   headerActionIconClass: string;
   headerActionButtonClass: string;
   isSessionSearchOpen: boolean;
@@ -29,6 +33,8 @@ type Props = {
   expandAllProjects: () => void;
   selectionModeEnabled: boolean;
   onToggleSelectionMode: () => void;
+  /** Dedicated mobile: occupy the same header band as the chat and workspace drawers. */
+  mobileVariant?: boolean;
 };
 
 export function SidebarHeader(props: Props): React.ReactNode {
@@ -36,6 +42,10 @@ export function SidebarHeader(props: Props): React.ReactNode {
     hideDirectoryControls,
     handleOpenDirectoryDialog,
     onOpenArchive,
+    onOpenSettings,
+    onOpenInstances,
+    instanceLabel,
+    onOpenUpdate,
     headerActionIconClass,
     headerActionButtonClass,
     isSessionSearchOpen,
@@ -49,6 +59,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
     expandAllProjects,
     selectionModeEnabled,
     onToggleSelectionMode,
+    mobileVariant = false,
   } = props;
 
   const projectSortOrder = useSessionDisplayStore((state) => state.projectSortOrder);
@@ -60,17 +71,78 @@ export function SidebarHeader(props: Props): React.ReactNode {
     return null;
   }
 
+  const actionClassName = cn(
+    headerActionButtonClass,
+    'text-muted-foreground hover:text-foreground',
+    !mobileVariant && 'hover:bg-transparent',
+  );
+
   return (
-    <div className="select-none flex-shrink-0 px-3 py-1">
-      <div className="flex h-auto min-h-8 flex-col gap-1">
-        <div className="flex h-8 items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
+    <div className={cn('select-none flex-shrink-0', mobileVariant ? 'px-2' : 'px-3 py-1')}>
+      <div className={cn('flex flex-col', mobileVariant ? 'gap-0' : 'h-auto min-h-8 gap-1')}>
+        <div
+          className={cn(
+            'flex items-center justify-between',
+            mobileVariant ? 'h-[var(--oc-header-height,56px)] gap-1' : 'min-h-8 gap-2',
+          )}
+        >
+          <div className={cn('flex min-w-0 items-center', mobileVariant ? 'gap-0.5 overflow-x-auto' : 'gap-1.5')}>
+            {onOpenSettings ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={onOpenSettings}
+                    className={actionClassName}
+                    aria-label={"Settings"}
+                  >
+                    <Icon name="settings-3" className={headerActionIconClass} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={4}><p>{"Settings"}</p></TooltipContent>
+              </Tooltip>
+            ) : null}
+
+            {onOpenInstances ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={onOpenInstances}
+                    className={actionClassName}
+                    aria-label={instanceLabel ? `Instances: ${instanceLabel}` : "Instances"}
+                  >
+                    <Icon name="server" className={headerActionIconClass} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={4}>
+                  <p>{instanceLabel || "Instances"}</p>
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
+
+            {onOpenUpdate ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={onOpenUpdate}
+                    className={actionClassName}
+                    aria-label={"Update"}
+                  >
+                    <Icon name="download" className={headerActionIconClass} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={4}><p>{"Update"}</p></TooltipContent>
+              </Tooltip>
+            ) : null}
+
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
                   onClick={handleOpenDirectoryDialog}
-                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
+                  className={actionClassName}
                   aria-label={"Add project"}
                 >
                   <Icon name="folder-add" className={headerActionIconClass} />
@@ -79,14 +151,12 @@ export function SidebarHeader(props: Props): React.ReactNode {
               <TooltipContent side="bottom" sideOffset={4}><p>{"Add project"}</p></TooltipContent>
             </Tooltip>
 
-
-
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
                   onClick={onOpenArchive}
-                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
+                  className={actionClassName}
                   aria-label={"Archive"}
                 >
                   <Icon name="archive" className={headerActionIconClass} />
@@ -96,13 +166,13 @@ export function SidebarHeader(props: Props): React.ReactNode {
             </Tooltip>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className={cn('flex shrink-0 items-center', mobileVariant ? 'gap-0.5' : 'gap-1.5')}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
                   onClick={() => setIsSessionSearchOpen((prev) => !prev)}
-                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
+                  className={actionClassName}
                   aria-label={"Search sessions"}
                   aria-expanded={isSessionSearchOpen}
                 >
@@ -117,7 +187,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                 <button
                   type="button"
                   onClick={onToggleSelectionMode}
-                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent', selectionModeEnabled && 'bg-interactive-hover text-primary')}
+                  className={cn(actionClassName, selectionModeEnabled && 'bg-interactive-hover text-primary')}
                   aria-label={selectionModeEnabled
                     ? "Exit selection"
                     : "Select sessions"}
@@ -139,7 +209,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
-                      className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
+                      className={actionClassName}
                       aria-label={"Display mode"}
                     >
                       <Icon name="equalizer-2" className={headerActionIconClass} />
@@ -189,7 +259,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
         </div>
 
         {isSessionSearchOpen ? (
-          <div className="pb-1">
+          <div className={cn(mobileVariant ? 'pb-2' : 'pb-1')}>
             <div className="mb-1 flex items-center justify-between px-0.5 typography-micro text-muted-foreground/80">
               {hasSessionSearchQuery ? (
                 <span>{searchMatchCount === 1

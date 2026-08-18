@@ -1083,7 +1083,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                   >
                     {/* Top Row: Title */}
                     <div className="flex w-full items-center min-w-0 flex-1 gap-1.5 overflow-hidden">
-                      <div className={cn('block min-w-0 flex-1 truncate typography-ui-label font-normal', needsAttention ? 'text-foreground' : 'text-foreground/90')}>
+                      <div className={cn('block min-w-0 flex-1 truncate font-normal typography-ui-label', needsAttention ? 'text-foreground' : 'text-foreground/90')}>
                         {renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}
                       </div>
                     </div>

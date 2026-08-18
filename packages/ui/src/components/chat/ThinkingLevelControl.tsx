@@ -198,6 +198,7 @@ export function ThinkingLevelControl({
   value,
   onChange,
   compact,
+  keepLabel = false,
   onCompactOpen,
   buttonHeight,
   iconSize,
@@ -209,6 +210,7 @@ export function ThinkingLevelControl({
   value: PiThinkingLevel | undefined;
   onChange: (next: PiThinkingLevel | undefined) => void;
   compact?: boolean;
+  keepLabel?: boolean;
   onCompactOpen?: () => void;
   buttonHeight: string;
   iconSize: string;
@@ -242,7 +244,8 @@ export function ThinkingLevelControl({
           'model-controls__variant-label',
           textSize,
           'font-normal',
-          compact && isMobile && 'max-w-[60px]',
+          keepLabel ? 'min-w-max whitespace-nowrap' : null,
+          compact && isMobile && !keepLabel && 'max-w-[60px]',
           !compact && isDesktop && 'max-w-[180px]',
           colorClass,
         )}

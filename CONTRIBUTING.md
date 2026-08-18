@@ -106,16 +106,16 @@ The final AppImage verifier checks desktop identity and the architecture of Elec
 
 ## Desktop releases
 
-PiChamber's public GitHub Release path is **Electron desktop** (macOS, Windows, Linux AppImage). npm (`@pichamber/web`) and mobile artifacts are opt-in workflow inputs and stay off unless a later release explicitly enables them.
+PiChamber's public GitHub Release path is **Electron desktop** (macOS, Windows, Linux AppImage) plus a signed **Android APK/AAB** on version tags. npm (`@pichamber/web`) stays opt-in. iOS TestFlight stays opt-in via the Mobile Release workflow.
 
 To cut a version:
 
 1. Bump workspace versions: `bun run version:bump 0.1.0` (does not bump `packages/mobile`).
 2. Move notes from `CHANGELOG.md` `[Unreleased]` into a `## [0.1.0] - YYYY-MM-DD` section. The release workflow fails if that heading is missing.
 3. Merge the bump to `main`.
-4. Push tag `v0.1.0`, or run the **Release** workflow with `version=0.1.0`. Tag pushes skip npm and mobile.
+4. Push tag `v0.1.0`, or run the **Release** workflow with `version=0.1.0`. Tag pushes skip npm and skip iOS; they do build and upload the Android APK.
 
-The draft GitHub Release is published after macOS, Windows, and Linux desktop jobs succeed.
+The draft GitHub Release is published after macOS, Windows, and Linux desktop jobs succeed. The Android APK job runs in parallel and uploads onto the same tag.
 
 macOS signing uses `APPLE_CERTIFICATE` (base64-encoded Developer ID `.p12`) and `APPLE_CERTIFICATE_PASSWORD`. If those secrets are missing or not a readable PKCS#12, CI builds **unsigned** macOS artifacts and skips notarization instead of failing. Gatekeeper will warn until a valid Developer ID is stored:
 

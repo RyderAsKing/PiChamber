@@ -43,7 +43,6 @@ import { parseAgentMentions } from '@/lib/messages/agentMentions';
 import { StatusRow } from './StatusRow';
 import { PendingChangesBar } from './PendingChangesBar';
 import { useChatSurfaceMode } from './useChatSurfaceMode';
-import { MobileModelButton } from './MobileModelButton';
 import { useCurrentSessionActivity } from '@/hooks/useSessionActivity';
 import { toast } from '@/components/ui';
 import { useTabletLayout } from '@/lib/device';
@@ -184,7 +183,6 @@ const hasUserMessages = (sessionId: string, directory?: string) => {
 };
 
 const MemoModelControls = React.memo(ModelControls);
-const MemoMobileModelButton = React.memo(MobileModelButton);
 const MemoStatusRow = React.memo(StatusRow);
 
 interface ChatInputProps {
@@ -683,18 +681,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     // Session activity for queue availability and controls
     const { phase: sessionPhase } = useCurrentSessionActivity();
 
-
-    const handleOpenMobilePanel = React.useCallback((panel: MobileControlsPanel) => {
-        if (!isMobile) {
-            return;
-        }
-        // Set the panel state BEFORE blurring: the collapse watcher and the
-        // overlay-host observer must already see the overlay as open when the
-        // keyboard-close lands, otherwise the composer folds into the pill
-        // under the sheet.
-        setMobileControlsPanel(panel);
-        composerRef.current?.blur();
-    }, [isMobile]);
 
     // Consume pending input text (e.g., from revert action)
     React.useEffect(() => {
@@ -1966,10 +1952,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         editorRef: composerRef,
         formRef: composerFormRef,
         setExpandedInput,
-        // The pill exists to buy screen back from the soft keyboard. A tablet
-        // has the room regardless, and with a hardware keyboard there is no
-        // soft keyboard to buy it back from — keep the real composer up.
-        alwaysExpanded: hasHardwareKeyboard || isTabletLayout,
+        // Dedicated mobile keeps the full composer up so model / variant
+        // controls stay reachable. Tablets and hardware keyboards already
+        // skip the pill for the same reason.
+        alwaysExpanded: isMobile || hasHardwareKeyboard || isTabletLayout,
         holders: {
             controlsPanelOpen: Boolean(mobileControlsPanel),
             attachMenuOpen: mobileAttachMenuOpen,
@@ -1991,10 +1977,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
 
     const openMobileAttachSheet = React.useCallback(() => {
-        // Same order as handleOpenMobilePanel: mark the sheet open BEFORE the
-        // blur so the collapse watcher sees an overlay when the keyboard-close
-        // lands. The trigger button blocks the tap's own focus transfer, so
-        // the keyboard must be dismissed explicitly here.
+        // Mark the sheet open BEFORE the blur so the collapse watcher sees an
+        // overlay when the keyboard-close lands. The trigger button blocks the
+        // tap's own focus transfer, so the keyboard must be dismissed here.
         setMobileAttachMenuOpen(true);
         composerRef.current?.blur();
     }, []);
@@ -2251,8 +2236,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         directory={currentSessionDirectoryForSync ?? currentDirectory}
                         newSessionDraftOpen={newSessionDraftOpen}
                         messageLength={message.length}
-                        leadingExtra={isDesktopStackedComposer ? (
-                            <MemoModelControls keepLabels className="w-max shrink-0" />
+                        leadingExtra={isDesktopStackedComposer || isMobile ? (
+                            <MemoModelControls
+                                keepLabels
+                                className="w-max shrink-0"
+                                mobilePanel={isMobile ? mobileControlsPanel : undefined}
+                                onMobilePanelChange={isMobile ? setMobileControlsPanel : undefined}
+                            />
                         ) : null}
                         radius={chatInputRadius}
                         footerPaddingClass={footerPaddingClass}
@@ -2274,11 +2264,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         onAbort={handleAbort}
                     >
                     <div className={cn("overflow-hidden", isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
-                        {isMobile ? (
-                            <div className="scrollbar-none relative z-10 flex items-center gap-x-2 overflow-x-auto px-3 pb-0.5 pt-1.5">
-                                <MemoMobileModelButton onOpenModel={() => handleOpenMobilePanel('model')} className="flex-shrink-0" />
-                            </div>
-                        ) : null}
                         <div className={cn('relative z-10 flex flex-wrap items-center gap-1', isInlineComposer ? 'px-0' : 'px-3 pt-1')}>
                             <AttachedFilesList onShowPopup={handleShowAttachmentPreview} />
                         </div>
@@ -2349,16 +2334,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 </>
                 )}
                 </div>
-                {isDesktopStackedComposer ? null : !isMobile ? (
+                {isDesktopStackedComposer || isMobile ? null : (
                     <div className="mt-1.5 flex w-full shrink-0 items-center pl-2">
                         <MemoModelControls className="w-full min-w-0" />
                     </div>
-                ) : (
-                    <MemoModelControls
-                        className="hidden"
-                        mobilePanel={mobileControlsPanel}
-                        onMobilePanelChange={setMobileControlsPanel}
-                    />
                 )}
             </div>
             {newSessionDraftOpen && !isDesktopExpanded && !isMobile && !isMiniChatSurface ? (

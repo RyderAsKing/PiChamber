@@ -548,7 +548,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const showMobileLayoutSetting = isMobile && isWebRuntime() && !isDesktopShell();
     const hasAppearanceSettings = (shouldShow('theme') || showWindowControlsPositionSetting || showMobileLayoutSetting || shouldShow('pwaInstallName') || shouldShow('pwaOrientation') || shouldShow('timeFormat') || shouldShow('weekStart'));
     const hasLayoutSettings = shouldShow('fontSize') || shouldShow('terminalFontSize') || shouldShow('editorFontSize') || shouldShow('spacing') || (shouldShow('inputBarOffset') && isMobile);
-    const hasNavigationSettings = (shouldShow('terminalQuickKeys') && !isMobile) || ((shouldShow('terminalShell') || shouldShow('terminalLoginShell'))) || shouldShow('fileEditorKeymap') || shouldShow('autoSaveEnabled') || shouldShow('expandedEditorToolbar');
+    const hasNavigationSettings = shouldShow('terminalQuickKeys') || ((shouldShow('terminalShell') || shouldShow('terminalLoginShell'))) || shouldShow('fileEditorKeymap') || shouldShow('autoSaveEnabled') || shouldShow('expandedEditorToolbar');
     const hasBehaviorSettings = shouldShow('mermaidRendering')
         || shouldShow('userMessageRendering')
         || shouldShow('messageTransport')
@@ -567,7 +567,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
         || shouldShow('persistDraft')
         || shouldShow('showToolFileIcons')
         || shouldShow('expandedTools')
-        || (!isMobile && shouldShow('inputSpellcheck'));
+        || shouldShow('inputSpellcheck');
     const showTransportSection = shouldShow('messageTransport');
     const showBehaviorMessageOptions = shouldShow('userMessageRendering')
         || shouldShow('mermaidRendering')
@@ -585,7 +585,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
         || shouldShow('persistDraft')
         || shouldShow('showToolFileIcons')
         || shouldShow('showTurnChangedFiles')
-        || (!isMobile && shouldShow('inputSpellcheck'))
+        || shouldShow('inputSpellcheck')
         || shouldShow('reasoning')
         || shouldShow('expandedTools');
     // First behavior section under the page header should not draw a top border on Chat-only;
@@ -1118,9 +1118,9 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                 {/* --- Density & type --- */}
                 {hasLayoutSettings && (
                     <SettingsSection title={"Density & type"} contentClassName={SETTINGS_FIELDS_STACK_CLASS}>
-                        {(shouldShow('fontSize') && !isMobile) || shouldShow('terminalFontSize') ? (
+                        {shouldShow('fontSize') || shouldShow('terminalFontSize') ? (
                             <SettingsTwoColumn>
-                                {shouldShow('fontSize') && !isMobile && (
+                                {shouldShow('fontSize') && (
                                     <SettingsStackedField
                                         label={"Interface Font"}
                                         settingsItem="appearance.interface-font-size"
@@ -1184,11 +1184,12 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                             </SettingsTwoColumn>
                         ) : null}
 
-                        {(shouldShow('fontSize') && !isMobile) || shouldShow('terminalFontSize') || shouldShow('editorFontSize') ? (
+                        {shouldShow('fontSize') || shouldShow('terminalFontSize') || shouldShow('editorFontSize') ? (
                             <SettingsTwoColumn>
-                                {shouldShow('fontSize') && !isMobile && (
+                                {shouldShow('fontSize') && (
                                     <SettingsStackedField
                                         label={"Interface Font Size"}
+                                        settingsItem="appearance.interface-font-size"
                                         controlClassName="w-full"
                                     >
                                         <div className={SETTINGS_NUMBER_STEPPER_ROW_CLASS}>
@@ -1383,7 +1384,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     settingsItem="appearance.expanded-editor-toolbar"
                                 />
                             )}
-                            {shouldShow('terminalQuickKeys') && !isMobile && (
+                            {shouldShow('terminalQuickKeys') && (
                                 <SettingsCheckboxRow
                                     checked={showTerminalQuickKeysOnDesktop}
                                     onChange={setShowTerminalQuickKeysOnDesktop}
@@ -1726,7 +1727,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                 </SettingsSection>
                                 )}
 
-                                {(shouldShow('persistDraft') || (!isMobile && shouldShow('inputSpellcheck'))) && (
+                                {(shouldShow('persistDraft') || shouldShow('inputSpellcheck')) && (
                                 <SettingsSection
                                     title={"Composer"}
                                     settingsItem="chat.composer"
@@ -1742,7 +1743,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                     />
                                 )}
 
-                                {!isMobile && shouldShow('inputSpellcheck') && (
+                                {shouldShow('inputSpellcheck') && (
                                     <SettingsCheckboxRow
                                         checked={inputSpellcheckEnabled}
                                         onChange={handleInputSpellcheckChange}

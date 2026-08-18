@@ -10,6 +10,7 @@ import {
   RiSearchLine,
 } from '@remixicon/react';
 
+import { Icon } from '@/components/icon/Icon';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { Input } from '@/components/ui/input';
 import { ScrollShadow } from '@/components/ui/ScrollShadow';
@@ -20,6 +21,18 @@ import type { FileListEntry, FileSearchResult } from '@/lib/api/types';
 import { useFilesViewTabsStore } from '@/stores/useFilesViewTabsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { cn } from '@/lib/utils';
+import {
+  sidebarRowIconClass,
+  sidebarRowLabelClass,
+  sidebarSessionRowClassNameMobile,
+} from '@/components/session/sidebar/utils';
+import {
+  canNavigateToParent,
+  getNameFromPath,
+  getParentDirectory,
+  normalizeMobileFilesPath,
+  resolveChildPath,
+} from './mobileFilesPaths';
 
 // The full desktop file editor, loaded on demand — it's a heavy chunk and only
 // needed once a file is actually opened.
@@ -31,25 +44,9 @@ type MobileFilesRoute =
   | { type: 'browser'; directory: string }
   | { type: 'file'; path: string; returnDirectory: string };
 
-const normalizePath = (value?: string | null): string => (value || '').replace(/\\/g, '/').replace(/\/+$/g, '');
-
-const getNameFromPath = (path: string): string => {
-  const normalized = normalizePath(path);
-  if (!normalized || normalized === '/') return normalized || '/';
-  return normalized.split('/').filter(Boolean).at(-1) ?? normalized;
-};
-
-const getParentDirectory = (path: string): string | null => {
-  const normalized = normalizePath(path);
-  if (!normalized || normalized === '/') return null;
-  const index = normalized.lastIndexOf('/');
-  if (index <= 0) return normalized.startsWith('/') ? '/' : null;
-  return normalized.slice(0, index);
-};
-
 const getRelativePath = (path: string, root: string): string => {
-  const normalizedPath = normalizePath(path);
-  const normalizedRoot = normalizePath(root);
+  const normalizedPath = normalizeMobileFilesPath(path);
+  const normalizedRoot = normalizeMobileFilesPath(root);
   if (!normalizedRoot || normalizedPath === normalizedRoot) return getNameFromPath(normalizedPath);
   if (normalizedPath.startsWith(`${normalizedRoot}/`)) return normalizedPath.slice(normalizedRoot.length + 1);
   return normalizedPath;
@@ -75,7 +72,7 @@ type MobileFilesSurfaceProps = {
 export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose }) => {
   const { files } = useRuntimeAPIs();
   const setSelectedPath = useFilesViewTabsStore((state) => state.setSelectedPath);
-  const root = normalizePath(useEffectiveDirectory() ?? null);
+  const root = normalizeMobileFilesPath(useEffectiveDirectory() ?? null);
   const [route, setRoute] = React.useState<MobileFilesRoute>(() => ({ type: 'browser', directory: root }));
   const [entries, setEntries] = React.useState<FileListEntry[]>([]);
   const [isLoadingDirectory, setIsLoadingDirectory] = React.useState(false);
@@ -108,6 +105,14 @@ export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose 
         if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
         return a.name.localeCompare(b.name);
       }));
+      const canonicalDirectory = normalizeMobileFilesPath(result.directory);
+      if (canonicalDirectory && canonicalDirectory !== normalizeMobileFilesPath(directory)) {
+        setRoute((current) => (
+          current.type === 'browser' && current.directory !== canonicalDirectory
+            ? { type: 'browser', directory: canonicalDirectory }
+            : current
+        ));
+      }
     } catch (error) {
       if (directoryLoadRequestIdRef.current !== requestId) return;
       setEntries([]);
@@ -172,7 +177,7 @@ export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose 
   const pendingFileFocusPath = useUIStore((state) => state.pendingFileFocusPath);
   const pendingFileNavigation = useUIStore((state) => state.pendingFileNavigation);
   React.useEffect(() => {
-    const target = normalizePath(pendingFileNavigation?.path ?? pendingFileFocusPath ?? '');
+    const target = normalizeMobileFilesPath(pendingFileNavigation?.path ?? pendingFileFocusPath ?? '');
     if (!target || !root) return;
     if (target !== root && !target.startsWith(`${root}/`)) return;
     setSelectedPath(root, target);
@@ -189,19 +194,19 @@ export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose 
     // preview, open-file tabs) — FilesView is already mobile-aware (keyboard
     // nudge, touch menus); this host only adds the back row.
     return (
-      <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
-        <header className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 border-b border-border/70 px-3 text-foreground">
+      <div className="flex h-full flex-col overflow-hidden bg-transparent text-foreground">
+        <header className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-1 px-2 text-foreground">
           <button
             type="button"
-            className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             aria-label={"Back"}
             onClick={() => setRoute({ type: 'browser', directory: route.returnDirectory })}
             style={{ touchAction: 'manipulation' }}
           >
-            <RiArrowLeftLine className="size-5" />
+            <RiArrowLeftLine className="size-4" />
           </button>
           <div className="min-w-0 flex-1">
-            <h2 className="truncate typography-ui-header text-foreground">{getNameFromPath(route.path)}</h2>
+            <h2 className="truncate typography-ui-label text-foreground">{getNameFromPath(route.path)}</h2>
           </div>
         </header>
         <div className="min-h-0 flex-1 overflow-hidden">
@@ -217,38 +222,33 @@ export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose 
 
   const directoryLabel = route.directory === root ? "Project files" : getNameFromPath(route.directory);
   const visibleSearchResults = query.trim() ? searchResults : [];
-
-  // Cap parent navigation at the project root: only allow stepping up while
-  // the parent stays inside (or equal to) the root.
-  const rawParent = getParentDirectory(route.directory);
-  const parentWithinRoot =
-    route.directory !== root && rawParent !== null && (rawParent === root || rawParent.startsWith(`${root}/`));
-  const canGoBack = parentWithinRoot && !query.trim();
-  const parentDirectory = parentWithinRoot ? rawParent : null;
+  const parentDirectory = canNavigateToParent(route.directory, root) ? getParentDirectory(route.directory) : null;
+  const canGoBack = Boolean(parentDirectory) && !query.trim();
+  const parentLabel = parentDirectory === root ? "Project files" : getNameFromPath(parentDirectory ?? '');
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 px-3 text-foreground">
+    <div className="flex h-full flex-col overflow-hidden bg-transparent text-foreground">
+      <header className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-1 px-2 text-foreground">
         {onClose ? (
           <button
             type="button"
-            className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             aria-label={"Close"}
             onClick={onClose}
             style={{ touchAction: 'manipulation' }}
           >
-            <RiCloseLine className="size-5" />
+            <RiCloseLine className="size-4" />
           </button>
         ) : null}
         {canGoBack && parentDirectory ? (
           <button
             type="button"
-            className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             aria-label={`Back to ${getNameFromPath(parentDirectory)}`}
             onClick={() => openDirectory(parentDirectory)}
             style={{ touchAction: 'manipulation' }}
           >
-            <RiArrowLeftLine className="size-5" />
+            <RiArrowLeftLine className="size-4" />
           </button>
         ) : null}
         <div className="min-w-0 flex-1 px-1">
@@ -256,15 +256,15 @@ export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose 
         </div>
         <button
           type="button"
-          className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           aria-label={"Refresh files"}
           onClick={() => void loadDirectory(route.directory)}
           style={{ touchAction: 'manipulation' }}
         >
-          <RiRefreshLine className={cn('size-5', isLoadingDirectory && 'animate-spin')} />
+          <RiRefreshLine className={cn('size-4', isLoadingDirectory && 'animate-spin')} />
         </button>
       </header>
-      <div className="shrink-0 px-4 pb-2 pt-1">
+      <div className="shrink-0 px-3 pb-2 pt-1">
         <div className="relative">
           <RiSearchLine className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -276,15 +276,27 @@ export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose 
         </div>
       </div>
 
-      <ScrollShadow className="min-h-0 flex-1 overflow-y-auto px-4 pb-3">
+      <ScrollShadow className="min-h-0 w-full flex-1 overflow-y-auto pb-3">
         {directoryError ? (
           <MobileFilesState message={directoryError} />
         ) : query.trim() ? (
           <MobileSearchResults results={visibleSearchResults} isSearching={isSearching} onOpenFile={openFile} />
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-border/70 bg-[var(--surface-elevated)]">
+          <div className="flex w-full min-w-0 flex-col">
+            {canGoBack && parentDirectory ? (
+              <button
+                type="button"
+                className={sidebarSessionRowClassNameMobile}
+                aria-label={`Up one level to ${parentLabel}`}
+                onClick={() => openDirectory(parentDirectory)}
+                style={{ touchAction: 'manipulation' }}
+              >
+                <Icon name="arrow-left" className={cn(sidebarRowIconClass(true), 'text-muted-foreground')} />
+                <span className={cn(sidebarRowLabelClass(true), 'flex-1 text-muted-foreground')}>{"Up one level"}</span>
+              </button>
+            ) : null}
             {entries.length === 0 && !isLoadingDirectory ? (
-              <div className="px-4 py-8 text-center typography-body text-muted-foreground">{"This directory is empty."}</div>
+              <div className="px-3 py-8 text-center typography-ui-label text-muted-foreground">{"This directory is empty."}</div>
             ) : null}
             {entries.map((entry) => (
               <MobileFileRow
@@ -293,7 +305,11 @@ export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose 
                 path={entry.path}
                 directory={entry.isDirectory}
                 meta={entry.isDirectory ? undefined : formatFileSize(entry.size)}
-                onClick={() => entry.isDirectory ? openDirectory(entry.path) : openFile(entry.path)}
+                onClick={() => (
+                  entry.isDirectory
+                    ? openDirectory(resolveChildPath(entry.path, route.directory || root))
+                    : openFile(resolveChildPath(entry.path, route.directory || root))
+                )}
               />
             ))}
           </div>
@@ -312,16 +328,16 @@ const MobileFileRow: React.FC<{
 }> = ({ name, path, directory, meta, onClick }) => (
   <button
     type="button"
-    className="flex min-h-14 w-full items-center gap-3 border-b border-border/70 px-3 py-2.5 text-left transition-colors last:border-b-0 hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+    className={sidebarSessionRowClassNameMobile}
     onClick={onClick}
     style={{ touchAction: 'manipulation' }}
   >
     {directory ? (
-      <RiFolder3Fill className="size-5 shrink-0 text-primary/80" />
+      <RiFolder3Fill className={cn(sidebarRowIconClass(true), 'text-primary/80')} />
     ) : (
-      <FileTypeIcon filePath={path} className="size-5 shrink-0" />
+      <FileTypeIcon filePath={path} className={sidebarRowIconClass(true)} />
     )}
-    <span className="block min-w-0 flex-1 truncate typography-ui-label text-foreground">{name}</span>
+    <span className={cn(sidebarRowLabelClass(true), 'flex-1 text-foreground')}>{name}</span>
     {meta ? <span className="shrink-0 typography-micro text-muted-foreground">{meta}</span> : null}
     {directory ? <RiArrowRightSLine className="size-4 shrink-0 text-muted-foreground/60" /> : null}
   </button>
@@ -332,11 +348,11 @@ const MobileSearchResults: React.FC<{
   isSearching: boolean;
   onOpenFile: (path: string) => void;
 }> = ({ results, isSearching, onOpenFile }) => {
-  const root = normalizePath(useEffectiveDirectory() ?? null);
+  const root = normalizeMobileFilesPath(useEffectiveDirectory() ?? null);
   if (isSearching) return <MobileFilesState loading message={"Loading..."} />;
   if (results.length === 0) return <MobileFilesState message={"No files found."} />;
   return (
-    <div className="overflow-hidden rounded-2xl border border-border/70 bg-[var(--surface-elevated)]">
+    <div className="flex w-full min-w-0 flex-col">
       {results.map((result) => (
         <MobileFileRow
           key={result.path}

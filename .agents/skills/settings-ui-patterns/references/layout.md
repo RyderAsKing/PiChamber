@@ -44,7 +44,7 @@ Placement rules:
 
 - **General** hosts app-level settings that don't belong to a feature page: startup/tray/window, network access + UI password, passkeys, OpenCode CLI binary, terminal shell/navigation, message stream transport, privacy.
 - Feature pages (Appearance, Chat, Sessions…) keep only settings about that feature. If a setting reads awkwardly on its page, move it to General rather than inventing a new page.
-- New pages need metadata, `pageOrder`, nav icon, `settings.page.<slug>.title/description` in every locale, and mobile whitelist (`MOBILE_SETTINGS_PAGES` in `MobileApp.tsx`) when relevant.
+- New pages need metadata, `pageOrder`, nav icon, `settings.page.<slug>.title/description` in every locale.
 
 ## Responsiveness: Container Queries
 

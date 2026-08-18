@@ -4,7 +4,6 @@ import { createPortal } from 'react-dom';
 import { Icon } from '@/components/icon/Icon';
 import { ProjectContextPanel } from '@/components/layout/RightSidebarTabs';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
-import { SortableTabsStrip, type SortableTabsStripItem } from '@/components/ui/sortable-tabs-strip';
 import { TerminalView } from '@/components/views/TerminalView';
 import { cn } from '@/lib/utils';
 import { MobileChangesSurface } from './MobileChangesSurface';
@@ -12,25 +11,35 @@ import { MobileFilesSurface } from './MobileFilesSurface';
 
 const DRAWER_ROOT_ID = 'mobile-surface-root';
 const ENTER_DELAY_MS = 16;
-// Slightly long, decelerating slide — matches the sessions drawer so both
-// sides feel like the same piece of chrome.
 const ENTER_DURATION_MS = 320;
 const DRAWER_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
 export type MobileWorkspaceTab = 'changes' | 'files' | 'terminal' | 'notes';
 
+const WORKSPACE_TABS: Array<{
+  id: MobileWorkspaceTab;
+  label: string;
+  icon: 'git-branch' | 'file-text' | 'terminal' | 'sticky-note';
+}> = [
+  { id: 'changes', label: 'Changes', icon: 'git-branch' },
+  { id: 'files', label: 'Files', icon: 'file-text' },
+  { id: 'terminal', label: 'Terminal', icon: 'terminal' },
+  { id: 'notes', label: 'Notes', icon: 'sticky-note' },
+];
+
 /** The workspace surfaces as tabs (Changes / Files / Terminal / Notes).
 
     Two hosts, same content and same state:
-     - `drawer` (default) covers the app and slides in from the right edge —
-       the phone, and a tablet in portrait where a side panel would leave no
-       usable chat column;
+     - `drawer` (default) covers 80% from the right with a dark scrim — matching
+       the sessions drawer — on the phone, and a tablet in portrait where a side
+       panel would leave no usable chat column;
      - `panel` renders inline so the caller can size it as a real sidebar
        beside the chat (tablet, landscape). The caller owns the width and the
        open/close animation there; this component only fills it.
 
-    Closes via the header X, Escape (unless the terminal tab owns the keys), or
-    the Android back button (handled by MobileShell). */
+    The phone drawer closes via the remaining 20% scrim, Escape (unless the
+    terminal tab owns the keys), or the Android back button (handled by
+    MobileShell). */
 export const MobileWorkspaceDrawer: React.FC<{
   open: boolean;
   onClose: () => void;
@@ -43,7 +52,6 @@ export const MobileWorkspaceDrawer: React.FC<{
   
   const rootRef = React.useRef<HTMLElement | null>(null);
   const [entered, setEntered] = React.useState(false);
-  // Kept visible through the exit slide; flipped to hidden once it finishes.
   const [visible, setVisible] = React.useState(open);
   const onCloseRef = React.useRef(onClose);
   React.useEffect(() => {
@@ -53,8 +61,11 @@ export const MobileWorkspaceDrawer: React.FC<{
   React.useEffect(() => {
     tabRef.current = tab;
   }, [tab]);
+  const prefersReducedMotion = React.useMemo(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }, []);
 
-  // Tabs the user has actually opened — their panes stay mounted afterwards.
   const [visitedTabs, setVisitedTabs] = React.useState<ReadonlySet<MobileWorkspaceTab>>(() => new Set());
   React.useEffect(() => {
     if (!open) return;
@@ -79,22 +90,19 @@ export const MobileWorkspaceDrawer: React.FC<{
   React.useEffect(() => {
     if (open) {
       setVisible(true);
-      const id = window.setTimeout(() => setEntered(true), ENTER_DELAY_MS);
+      const id = window.setTimeout(() => setEntered(true), prefersReducedMotion ? 0 : ENTER_DELAY_MS);
       return () => window.clearTimeout(id);
     }
     setEntered(false);
     const id = window.setTimeout(() => setVisible(false), ENTER_DURATION_MS + 40);
     return () => window.clearTimeout(id);
-  }, [open]);
+  }, [open, prefersReducedMotion]);
 
   React.useEffect(() => {
     if (!open) return;
-    // Only the full-cover drawer owns the page scroll; the inline panel sits
-    // inside the shell and must leave the chat beside it scrollable.
     const previousOverflow = document.body.style.overflow;
     if (variant === 'drawer') document.body.style.overflow = 'hidden';
     const handleKeyDown = (event: KeyboardEvent) => {
-      // The terminal owns Escape (it goes to the PTY) — don't hijack it.
       if (event.key === 'Escape' && tabRef.current !== 'terminal') onCloseRef.current();
     };
     document.addEventListener('keydown', handleKeyDown);
@@ -106,51 +114,43 @@ export const MobileWorkspaceDrawer: React.FC<{
 
   if (variant === 'drawer' && !rootRef.current) return null;
 
-  const tabItems: SortableTabsStripItem[] = [
-    { id: 'changes', label: "Changes", icon: <Icon name="git-branch" className="h-3.5 w-3.5" /> },
-    { id: 'files', label: "Files", icon: <Icon name="file-text" className="h-3.5 w-3.5" /> },
-    { id: 'terminal', label: "Terminal", icon: <Icon name="terminal" className="h-3.5 w-3.5" /> },
-    { id: 'notes', label: "Project notes", icon: <Icon name="sticky-note" className="h-3.5 w-3.5" /> },
-  ];
+  const duration = prefersReducedMotion ? 0 : ENTER_DURATION_MS;
+
+  const tabs = (
+    <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto" role="tablist" aria-label="Workspace">
+      {WORKSPACE_TABS.map((item) => {
+        const isActive = tab === item.id;
+        return (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            onClick={() => onTabChange(item.id)}
+            className={cn(
+              'flex min-w-0 flex-1 items-center justify-center gap-1 rounded-lg px-1.5 py-2 typography-ui-label transition-colors',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+              isActive
+                ? 'bg-interactive-selection text-foreground'
+                : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
+            )}
+          >
+            <Icon name={item.icon} className="size-4 shrink-0" />
+            <span className="truncate">{item.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 
   const body = (
     <>
-      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 px-3">
-        <div className="flex h-9 min-w-0 flex-1 items-center">
-          {/* Mounted only while shown; nonCompositedIndicator keeps the active
-              pill off its own compositing layer — creating one inside the
-              drawer's slide flickers in WKWebView. */}
-          {visible ? (
-            <SortableTabsStrip
-              items={tabItems}
-              activeId={tab}
-              onSelect={(id) => onTabChange(id as MobileWorkspaceTab)}
-              layoutMode="fit"
-              variant="active-pill"
-              nonCompositedIndicator
-              inactiveTabsIconOnly
-              className="h-full"
-            />
-          ) : null}
-        </div>
-        <button
-          type="button"
-          className="-mr-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          aria-label={"Close"}
-          onClick={onClose}
-          style={{ touchAction: 'manipulation' }}
-        >
-          <Icon name="close" className="size-5" />
-        </button>
+      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center px-2">
+        {tabs}
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        {/* Panes stay MOUNTED once visited (hidden when inactive/closed), so
-            reopening the drawer lands exactly where the user left off — an
-            open diff, an edited file, an attached terminal. */}
         {visitedTabs.has('changes') ? (
           <div
-            // A newly requested per-file diff remounts the pane so
-            // initialDiffPath applies; plain reopens keep the state.
             key={pendingChangesDiff ? `changes:${pendingChangesDiff.path}:${pendingChangesDiff.staged}` : 'changes'}
             className={cn('h-full', tab !== 'changes' && 'hidden')}
           >
@@ -188,32 +188,43 @@ export const MobileWorkspaceDrawer: React.FC<{
   );
 
   if (variant === 'panel') {
-    // The caller animates the width; the content itself is plain flow so it
-    // never gets its own compositing layer (iOS clips those to the safe-area
-    // viewport, which is exactly what the drawer's settled `transform: none`
-    // avoids on the other host).
-    return <div className="flex h-full min-h-0 flex-col bg-background text-foreground">{body}</div>;
+    return <div className="flex h-full min-h-0 flex-col bg-sidebar">{body}</div>;
   }
 
   return createPortal(
-    <section
-      role="dialog"
-      aria-modal="true"
-      aria-label={"Open workspace panel"}
+    <div
+      className="fixed inset-0 z-50"
       aria-hidden={!open}
-      className="oc-keyboard-inset-surface fixed inset-0 z-50 flex flex-col bg-background text-foreground"
       style={{
-        paddingTop: 'var(--oc-safe-area-top, 0px)',
-        // Settled state drops the transform entirely so the drawer isn't kept
-        // on a compositing layer (iOS clips those to the safe-area viewport).
-        transform: entered ? 'none' : 'translateX(100%)',
-        transition: `transform ${ENTER_DURATION_MS}ms ${DRAWER_EASING}`,
-        visibility: visible ? 'visible' : 'hidden',
         pointerEvents: open ? 'auto' : 'none',
+        visibility: visible ? 'visible' : 'hidden',
       }}
     >
-      {body}
-    </section>,
+      <button
+        type="button"
+        className="absolute inset-0 cursor-default bg-black/70"
+        aria-label="Close workspace panel"
+        onClick={onClose}
+        tabIndex={open ? 0 : -1}
+        style={{
+          opacity: entered ? 1 : 0,
+          transition: duration ? `opacity ${duration}ms ${DRAWER_EASING}` : 'none',
+        }}
+      />
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={"Open workspace panel"}
+        className="oc-keyboard-inset-surface absolute inset-y-0 right-0 z-10 flex h-full w-[80%] max-w-[80%] flex-col bg-sidebar"
+        style={{
+          paddingTop: 'var(--oc-safe-area-top, 0px)',
+          transform: entered ? 'none' : 'translateX(100%)',
+          transition: duration ? `transform ${duration}ms ${DRAWER_EASING}` : 'none',
+        }}
+      >
+        {body}
+      </section>
+    </div>,
     rootRef.current as HTMLElement,
   );
 };

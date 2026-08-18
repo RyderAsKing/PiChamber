@@ -224,7 +224,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
 
   if (props.sharedSessionsOnly) {
     return (
-      <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant ? '' : '')}>
+      <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant && 'pb-20')}>
         <div className="space-y-1 px-3">
         {props.topContent}
         {!props.hasSharedSessions ? (props.hasSessionSearchQuery ? props.searchEmptyState : props.emptyState) : null}
@@ -234,11 +234,11 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
   }
 
   if (props.projectSections.length === 0) {
-    return <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant ? '' : '')}><div className="space-y-1 px-3">{props.topContent}{props.emptyState}</div></ScrollableOverlay>;
+    return <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant && 'pb-20')}><div className="space-y-1 px-3">{props.topContent}{props.emptyState}</div></ScrollableOverlay>;
   }
 
   if (props.sectionsForRender.length === 0) {
-    return <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant ? '' : '')}><div className="space-y-1 px-3">{props.searchEmptyState}</div></ScrollableOverlay>;
+    return <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant && 'pb-20')}><div className="space-y-1 px-3">{props.searchEmptyState}</div></ScrollableOverlay>;
   }
 
   return (
@@ -259,7 +259,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
       hideTopScrollShadow={!enableStickyFade}
       scrollShadowSize={96}
       outerClassName="flex-1 min-h-0"
-      className={cn('oc-sidebar-scroller oc-sticky-fade-scroller pt-2 pb-1 [overflow-anchor:none]', props.mobileVariant ? '' : '')}
+      className={cn('oc-sidebar-scroller oc-sticky-fade-scroller pt-2 pb-1 [overflow-anchor:none]', props.mobileVariant && 'pb-20')}
       style={enableStickyFade ? { '--scroll-shadow-top-size': '0px' } as React.CSSProperties : undefined}
       onScroll={enableStickyFade ? (event) => syncTopFade(event.currentTarget) : undefined}
     >
@@ -386,6 +386,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
           <ProjectHeaderIdentity
             id={leadingProject.id}
             projectLabel={leadingProjectLabel}
+            mobileVariant={props.mobileVariant}
           />
         </div>
       ) : null}

@@ -1746,8 +1746,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                 <span
                                     ref={modelLabelRef}
                                     className={cn(
-                                        'model-controls__model-label typography-micro font-normal overflow-hidden min-w-0',
-                                        isMobile ? 'max-w-[120px]' : 'max-w-[220px]',
+                                        'model-controls__model-label typography-micro font-normal overflow-hidden',
+                                        keepLabels ? 'whitespace-nowrap' : 'min-w-0',
+                                        !keepLabels && (isMobile ? 'max-w-[120px]' : 'max-w-[220px]'),
                                     )}
                                 >
                                     <span className={cn('marquee-text', isModelLabelTruncated && 'marquee-text--active')}>
@@ -1777,6 +1778,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                 value={parsePiThinkingLevel(currentVariant) ?? undefined}
                 onChange={handleVariantSelect}
                 compact={isCompact}
+                keepLabel={keepLabels}
                 onCompactOpen={() => setActiveMobilePanel('variant')}
                 buttonHeight={buttonHeight}
                 iconSize={controlIconSize}
@@ -1794,7 +1796,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         'flex items-center',
         keepLabels ? 'w-max shrink-0' : 'min-w-0',
         // Only force full-width + truncation behaviors on true mobile layouts.
-        isMobile && 'w-full',
+        isMobile && !keepLabels && 'w-full',
         className,
     );
 
@@ -1803,9 +1805,10 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             <div className={inlineClassName}>
                 <div
                     className={cn(
-                        'flex items-center min-w-0 justify-start',
+                        'flex items-center justify-start',
                         inlineGapClass,
-                        isMobile && 'overflow-hidden'
+                        keepLabels ? 'w-max shrink-0' : 'min-w-0',
+                        isMobile && !keepLabels && 'overflow-hidden'
                     )}
                 >
                     {renderModelSelector()}

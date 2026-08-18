@@ -1,10 +1,8 @@
 /**
  * Attachment and settings controls in the composer footer.
  *
- * Rendered twice on mobile — once in the collapsed pill, once in the expanded
- * footer — so it stays a memoized component with an explicit comparator: a
- * re-render of the whole composer must not tear down the dropdown while it is
- * open.
+ * Memoized with an explicit comparator so a re-render of the whole composer
+ * does not tear down the dropdown while it is open.
  */
 
 import React from 'react';
@@ -28,6 +26,8 @@ type ComposerAttachmentControlsProps = {
     onMenuOpenChange?: (open: boolean) => void;
     /** Mobile: open the attachment bottom sheet instead of the dropdown menu. */
     onOpenMobileSheet?: () => void;
+    /** Hide the + attach control (mobile keeps model/variant in this row instead). */
+    hideAddButton?: boolean;
 };
 
 export const ComposerAttachmentControls = React.memo(function ComposerAttachmentControls(props: ComposerAttachmentControlsProps) {
@@ -39,10 +39,16 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
         openIssuePicker,
         openPrPicker,
         onOpenSettings,
+        hideAddButton = false,
     } = props;
+
+    if (hideAddButton && !onOpenSettings) {
+        return null;
+    }
 
     return (
         <div className="flex items-center gap-x-1.5">
+            {hideAddButton ? null : (
             <div className="relative inline-flex">
                 {props.onOpenMobileSheet ? (
                     <button
@@ -104,6 +110,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                     </DropdownMenu>
                 )}
             </div>
+            )}
 
             {onOpenSettings ? (
                 <button
@@ -124,4 +131,5 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
     && prev.onOpenSettings === next.onOpenSettings
     && prev.onMenuOpenChange === next.onMenuOpenChange
     && prev.onOpenMobileSheet === next.onOpenMobileSheet
+    && prev.hideAddButton === next.hideAddButton
 ));

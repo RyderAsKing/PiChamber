@@ -21,9 +21,9 @@ on:
         default: false
         type: boolean
       publish_mobile:
-        description: 'Also build and upload mobile artifacts (off for desktop-only releases)'
+        description: 'Also build and upload mobile artifacts (Android APK is always built on version tags)'
         required: false
-        default: false
+        default: true
         type: boolean
 
 env:
@@ -491,13 +491,15 @@ jobs:
 
   mobile-release:
     needs: create-release
-    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_mobile == 'true' && github.event.inputs.dry_run != 'true' }}
+    if: ${{ github.event.inputs.dry_run != 'true' && (github.event_name == 'push' || github.event.inputs.publish_mobile == 'true') }}
     uses: ./.github/workflows/mobile-release.yml
     with:
       version_name: ${{ needs.create-release.outputs.version }}
       build_number: ${{ github.run_number }}
       release_tag: v${{ needs.create-release.outputs.version }}
       upload_github_release: true
+      build_android: true
+      build_ios: false
     secrets: inherit
 
   finalize-release:

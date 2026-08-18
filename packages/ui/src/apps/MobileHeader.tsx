@@ -132,7 +132,7 @@ export const MobileHeader: React.FC<{
             }}
             style={{ touchAction: 'manipulation' }}
           >
-            <Icon name="pencil-ruler-2" className="size-5" />
+            <Icon name="layout-right" className="size-5" />
           </button>
         </div>
       </header>

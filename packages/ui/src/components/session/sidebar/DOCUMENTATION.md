@@ -3,7 +3,7 @@
 ## Architecture & Layout
 
 - `SessionSidebar.tsx` orchestrates sidebar components and lifecycle; core state and rendering logic lives in focused hooks and components.
-- Layout (web/desktop): the session list starts at the top of the sidebar. Chrome and session cards share a `0.75rem` (`px-3`) gutter; the session scroller is full-width so its overlay scrollbar sits on the sidebar edge. `SidebarNav` uses that same gutter so New session lines up with the icon toolbar, and only grows left to clear OS window chrome. It shares the header height and vertical centering of the content-area session title.
+- Layout (web/desktop): the session list starts at the top of the sidebar. Chrome and session cards share a `0.75rem` (`px-3`) gutter; the session scroller is full-width so its overlay scrollbar sits on the sidebar edge. `SidebarNav` uses that same gutter so New session lines up with the icon toolbar, and only grows left to clear OS window chrome. It shares the header height and vertical centering of the content-area session title. On dedicated mobile, New session is a circular opaque FAB on the empty 28% scrim beside the 72% sessions drawer, not inside the sidebar and not as `SidebarNav`.
 - **Project zones & session lists**: Project zones display sessions in a unified recency and lifecycle order with per-row branch markers. Folders render after loose sessions.
 - When sticky zone headers are enabled, project headers are sticky "zone" bands (`SortableProjectItem`); on a vibrant desktop the scrolling content fades behind an unmasked, non-interactive copy of the stuck icon/title without painting a background. The transparent fade zone blocks interaction with obscured rows. Collapsed projects show an aggregated busy/unseen indicator (`ProjectAggregateStatusIndicator`), derived from the live status index and notification store scoped to the project's directories.
 - **Activity indicator**: While a session is running (`busy`/`retry`), the row shows a spinner and elapsed turn time. When a background session finishes a turn, the relative timestamp is replaced by a foreground unread dot until that session is opened. Aggregate indicators for collapsed folders and projects show a spinner while any child is running, or the unread dot when a finished turn is still unseen.
@@ -22,9 +22,9 @@
 
 ### Components
 
-- `SidebarHeader.tsx`: Top header UI for add-project, session search, selection mode, project sort, and the display menu (collapse/expand all).
-- `SidebarNav.tsx`: Text-style New session control (no row chrome or hover background; label brightens on hover) plus hide-sessions control above the tree; hidden in VS Code. Project auto-discover lives in the main content header, not here.
-- `SidebarFooter.tsx`: Static footer with icon-only settings, shortcuts, and about actions.
+- `SidebarHeader.tsx`: Top header UI for add-project, session search, selection mode, project sort, and the display menu (collapse/expand all). On dedicated mobile the toolbar occupies `var(--oc-header-height, 56px)` with `px-2` / `size-9` round icon buttons (`size-4` icons) so the chrome matches the chat header height without oversized sidebar type. Add folder / Add project still go through `sessionEvents.requestDirectoryDialog()`; dedicated mobile mounts `SessionDialogs` so the explorer overlay actually opens.
+- `SidebarNav.tsx`: Text-style New session control (no row chrome or hover background; label brightens on hover) plus hide-sessions control above the tree; hidden in VS Code and on the dedicated mobile sidebar, which uses a new-session FAB on the drawer scrim instead.
+- `SidebarFooter.tsx`: Static footer with icon-only settings, shortcuts, and about actions. Hidden on mobile; those actions live in the mobile sidebar header.
 - `SidebarProjectsList.tsx`: Main scrollable renderer for project zones and their flat/archived groups plus empty/search states; owns project drag-to-reorder.
 - `SessionGroupSection.tsx`: Renders one flat (or archived) group: sessions first, then flat folder entries with path labels, session-shaped show-more/new-session rows, and explicit loading/error/retry state for empty groups.
 - `SessionNodeItem.tsx`: Renders one session row/tree node with a single-line layout, inline branch label, indicators, menu actions, and nested children. Pending-question counts stay per-session while expanded and roll up hidden descendants from their owning directory stores while collapsed.
@@ -36,12 +36,12 @@
 
 ### Hooks
 
-- `hooks/useSessionActions.ts`: Centralizes session row actions (select/open, rename, share/unshare, archive/delete, confirmations).
+- `hooks/useProjectSessionSelection.ts`: Resolves active/current project-session selection logic and session-directory context. While a new-session draft is open it does not steal the view onto an existing session; the draft target follows the sidebar's active project instead. Switching a project/folder still loads that folder's remembered or first session in the background, but dedicated mobile keeps the sessions drawer open so the user can pick a different session. Opening Settings from the mobile sidebar closes the drawer.
+- `hooks/useSessionActions.ts`: Centralizes session row actions (select/open, rename, share/unshare, archive/delete, confirmations). Explicit session picks still close the mobile sessions drawer; project-folder auto-selects pass `keepPanelOpen`.
 - `hooks/useSessionSearchEffects.ts`: Handles search open/close UX and input focus behavior.
 - `hooks/useSessionPrefetch.ts`: Publishes directory-aware nearby/active session prefetch demand to the shared message loader.
 - `hooks/useSessionGrouping.ts`: Builds grouped session structures and search text/filter helpers.
 - `hooks/useSessionSidebarSections.ts`: Composes final per-project sections and group search metadata for rendering.
-- `hooks/useProjectSessionSelection.ts`: Resolves active/current project-session selection logic and session-directory context. While a new-session draft is open it does not steal the view onto an existing session; the draft target follows the sidebar's active project instead.
 - `hooks/useArchivedAutoFolders.ts`: Maintains archived auto-folder structure and assignment behavior.
 - `hooks/useSidebarPersistence.ts`: Persists sidebar UI state (expanded/collapsed/pinned/project sort/active session) to storage + desktop settings.
 - `hooks/useProjectRepoStatus.ts`: Tracks per-project git-repo state and root branch metadata.

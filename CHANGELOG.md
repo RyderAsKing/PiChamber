@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-08-18
+
+This release updates the dedicated mobile UI and enables Android APK builds
+on version-tag releases.
+
+- Dedicated mobile gets a sessions drawer, workspace drawer, full stacked
+  composer, and folder-style project list with working Add folder.
+- Tapping a project folder keeps the sessions drawer open while that folder's
+  session loads, so another session can still be chosen. Tapping Settings
+  closes the drawer.
+- Files browsing uses full-width rows and an Up one level control. Sidebar
+  type and icons are denser.
+- Tagged GitHub releases now build and upload a signed Android APK (and AAB)
+  instead of skipping mobile artifacts by default.
+
 ## [0.1.5] - 2026-08-18
 
 This release keeps long chats cheaper to keep on screen, and makes adding a

@@ -8,6 +8,12 @@ export type MobileAppActions = {
   openFiles: () => void;
   /** Open the Settings surface as a modal. */
   openSettings: () => void;
+  /** Capacitor-only: open the saved-instances manager. */
+  openInstances?: () => void;
+  /** Capacitor-only: label of the connected instance. */
+  instanceLabel?: string | null;
+  /** Hosted mobile: open the pending server-update surface. */
+  openUpdate?: () => void;
 };
 
 const DedicatedMobileAppContext = React.createContext<MobileAppActions | null>(null);

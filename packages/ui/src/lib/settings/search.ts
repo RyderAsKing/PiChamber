@@ -95,7 +95,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'appearance',
     title: "Interface Font Size",
     keywords: ['font', 'text size', 'ui scale'],
-    isAvailable: (ctx) => !ctx.isMobile,
   },
   {
     id: 'appearance.terminal-font-size',
@@ -156,7 +155,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     title: "Terminal Quick Keys",
     description: "Show Esc, Ctrl, Arrows in terminal view",
     keywords: ['terminal', 'keyboard', 'esc', 'ctrl', 'arrows'],
-    isAvailable: (ctx) => !ctx.isMobile,
   },
   {
     id: 'appearance.usage-reports',
@@ -306,7 +304,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'chat',
     title: "Enable Spellcheck in Text Inputs",
     keywords: ['spelling', 'input'],
-    isAvailable: (ctx) => !ctx.isMobile,
   },
   {
     id: 'sessions.default-model',

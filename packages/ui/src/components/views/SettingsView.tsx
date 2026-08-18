@@ -205,9 +205,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
     return SETTINGS_PAGE_METADATA
       .filter((page) => page.slug !== 'home')
       .filter((page) => !allowedPages || allowedPages.has(page.slug))
-      .filter((page) => isPageAvailable(page, runtimeCtx))
-      .filter((page) => !(isMobile && page.slug === 'shortcuts'));
-  }, [runtimeCtx, isMobile, visiblePageSlugs]);
+      .filter((page) => isPageAvailable(page, runtimeCtx));
+  }, [runtimeCtx, visiblePageSlugs]);
 
   const sortedFilteredPages = React.useMemo(() => {
     const rank = new Map<SettingsPageSlug, number>(pageOrder.map((s, i) => [s, i]));
