@@ -106,7 +106,17 @@ The final AppImage verifier checks desktop identity and the architecture of Elec
 
 ## Desktop releases
 
-PiChamber's public GitHub Release path is **Electron desktop** (macOS, Windows, Linux AppImage) plus a signed **Android APK/AAB** on version tags. npm (`@pi-chamber/web`) stays opt-in via the **Release** workflow (`publish_npm`). Store a granular npm **Automation** token as the `NPM_TOKEN` Actions secret; it must be allowed to publish the `pi-chamber` org. iOS TestFlight stays opt-in via the Mobile Release workflow.
+PiChamber's public GitHub Release path is **Electron desktop** (macOS, Windows, Linux AppImage) plus a signed **Android APK/AAB** on version tags. npm (`@pi-chamber/web`) stays opt-in via the **Release** workflow (`publish_npm`) or the **Publish npm** workflow.
+
+The `NPM_TOKEN` secret must be a granular token with:
+
+- **Read and write** on the `@pi-chamber` scope
+- **Bypass two-factor authentication** enabled (CI cannot enter an authenticator code; without this, `npm publish` fails with `EOTP`)
+- No IP allowlist (GitHub-hosted runners do not use a fixed IP)
+
+Org-level token permission only manages teams; it does not grant publish. After the first successful publish, add a GitHub Actions trusted publisher on `@pi-chamber/web` (workflow filename `release.yml` or `publish-npm.yml`) so later publishes can use OIDC.
+
+iOS TestFlight stays opt-in via the Mobile Release workflow.
 
 To cut a version:
 

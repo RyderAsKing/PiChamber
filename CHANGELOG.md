@@ -10,7 +10,7 @@ This release publishes the PiChamber server/CLI to npm as `@pi-chamber/web`.
 
 - Install with `npm install -g @pi-chamber/web` or the existing curl installer. The command is still `pichamber`.
 - `pichamber update` and desktop SSH-managed installs use that package. npm `latest` is trusted only when the registry repository is RyderAsKing/PiChamber.
-- Desktop installers stay on GitHub Releases. npm publish is opt-in on the Release workflow (`publish_npm` plus the `NPM_TOKEN` secret).
+- Desktop installers stay on GitHub Releases. npm publish is opt-in on the Release workflow (`publish_npm` plus the `NPM_TOKEN` secret). The token must have **Bypass two-factor authentication** or CI fails with `EOTP`.
 
 ## [0.1.7] - 2026-08-18
 

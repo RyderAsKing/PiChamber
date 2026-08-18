@@ -95,6 +95,9 @@ jobs:
     needs: create-release
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_npm == 'true' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -106,6 +109,9 @@ jobs:
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Install npm with OIDC publish support
+        run: npm install -g npm@11
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -129,9 +135,14 @@ jobs:
       - name: Publish to npm
         if: ${{ github.event.inputs.dry_run != 'true' }}
         working-directory: packages/web
-        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if npm publish --access public; then
+            exit 0
+          fi
+          echo '::error::npm publish failed. EOTP means NPM_TOKEN still requires 2FA. Recreate a granular token with Bypass two-factor authentication enabled, Read and write on the @pi-chamber scope, update the NPM_TOKEN secret, then re-run Publish npm (or this Release job). After the first successful publish, add a GitHub Actions trusted publisher on @pi-chamber/web for workflow file release.yml so later publishes can use OIDC.'
+          exit 1
 
   build-desktop-electron-macos:
     needs: create-release

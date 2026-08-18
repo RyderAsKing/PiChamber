@@ -1,0 +1,54 @@
+name: Publish npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Pack the tarball but skip npm publish'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish-npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Setup bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install npm with OIDC publish support
+        run: npm install -g npm@11
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build packages
+        run: bun run build
+
+      - name: Create npm tarball
+        working-directory: packages/web
+        run: npm pack
+
+      - name: Publish to npm
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        working-directory: packages/web
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if npm publish --access public; then
+            exit 0
+          fi
+          echo '::error::npm publish failed. EOTP means NPM_TOKEN still requires 2FA. Recreate a granular token with Bypass two-factor authentication enabled, Read and write on the @pi-chamber scope, update the NPM_TOKEN secret, then re-run this workflow. After the first successful publish, add a GitHub Actions trusted publisher on @pi-chamber/web for workflow file publish-npm.yml (and release.yml if you publish from Release).'
+          exit 1
