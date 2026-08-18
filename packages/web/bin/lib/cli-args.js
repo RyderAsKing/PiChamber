@@ -522,7 +522,8 @@ EXAMPLES:
   pichamber serve --foreground # Start in foreground (for systemd Type=simple)
   pichamber connect-url --port 3000 --qr
   pichamber connect-url --server https://pichamber.example.com
-  pichamber startup enable     # Start PiChamber at user login
+  pichamber startup enable --lan --port 3002 --ui-password
+                               # Login service on LAN at 0.0.0.0:3002
   pichamber tunnel help        # Show tunnel lifecycle help
   pichamber logs               # Follow logs for latest running instance
 `);
@@ -535,25 +536,51 @@ function showStartupHelp() {
 USAGE:
   pichamber startup <SUBCOMMAND> [OPTIONS]
 
+DESCRIPTION:
+  Installs a user-login service that runs pichamber serve --foreground.
+  Flags passed to startup enable are stored in that service. Re-run enable
+  to replace the stored command.
+
 SUBCOMMANDS:
   status      Show startup integration status
   enable      Install and start native user startup integration
   disable     Stop and remove native user startup integration
 
-OPTIONS:
-  -p, --port              Web server port used by startup service
-  --host                  Bind address used by startup service
-  --ui-password           Protect browser UI with single password
-  --api-only              Start API routes only, without serving browser UI assets
-  --no-env-snapshot       Do not save current environment for startup service
-  --json                  Output machine-readable JSON
+ENABLE FLAGS:
+  These become the serve command the login service runs.
+
+  -p, --port <port>       Listen port (default: ${DEFAULT_PORT})
+  --host <address>        Bind address (default: 127.0.0.1, this machine only)
+  --hostname <address>    Alias for --host
+  --lan                   Same as --host 0.0.0.0 — reachable on your LAN/Wi-Fi
+  --ui-password [secret]  Required with --lan (omit the value to generate one)
+  --api-only              API routes only, no browser UI
+  --no-env-snapshot       Do not copy the current shell environment
+  --json                  Machine-readable JSON
   -q, --quiet             Suppress non-essential output
+
+LAN ACCESS:
+  Other devices on the same network need --lan and a UI password:
+
+    pichamber startup enable --lan --port 3002 --ui-password
+
+  Then open http://<this-computer-lan-ip>:3002 on those devices.
 
 EXAMPLES:
   pichamber startup enable
-  pichamber startup enable --port 3000
-  pichamber startup enable --port 3000 --api-only --host 0.0.0.0
-  pichamber startup status --json
+      This machine only, port ${DEFAULT_PORT}
+
+  pichamber startup enable --port 8080
+      This machine only, port 8080
+
+  pichamber startup enable --lan --port 3002 --ui-password
+      LAN/Wi-Fi on port 3002 (password generated if omitted)
+
+  pichamber startup enable --host 0.0.0.0 --port 3002 --ui-password secret
+      Same as --lan, with an explicit password
+
+  pichamber startup status
+  pichamber startup disable
 `);
 }
 

@@ -5,7 +5,7 @@ import { spawnSync } from 'child_process';
 import { DEFAULT_PORT } from './cli-args.js';
 import { EXIT_CODE, TunnelCliError } from './cli-errors.js';
 import { getDataDir } from './cli-paths.js';
-import { hasUiPasswordConfigured } from './cli-network.js';
+import { assertAuthenticatedNetworkExposure, hasUiPasswordConfigured, resolveServeUiPassword } from './cli-network.js';
 
 const STARTUP_SERVICE_ID = 'dev.pichamber.web';
 
@@ -161,11 +161,24 @@ function resolveCliEntrypoint() {
   const entry = typeof process.argv[1] === 'string' && process.argv[1].trim().length > 0
     ? process.argv[1]
     : path.join(__dirname, 'cli.js');
-  try {
-    return fs.realpathSync(entry);
-  } catch {
-    return path.resolve(entry);
+  // Keep the invoked path, not realpath(). pnpm/npm shims point at a stable
+  // node_modules entry; resolving through the store pins a versioned folder
+  // that breaks after `pichamber update`.
+  return path.resolve(entry);
+}
+
+function isUserStartupServiceActive() {
+  if (process.platform !== 'linux') return false;
+  const result = runStartupCommand('systemctl', ['--user', 'is-active', 'pichamber.service'], { allowFailure: true });
+  return (result.stdout || '').trim() === 'active';
+}
+
+function restartUserStartupService() {
+  if (process.platform !== 'linux') {
+    throw new Error('Startup service restart is only supported on Linux systemd user units.');
   }
+  runStartupCommand('systemctl', ['--user', 'daemon-reload']);
+  runStartupCommand('systemctl', ['--user', 'restart', 'pichamber.service']);
 }
 
 function buildStartupArgs(options = {}) {
@@ -177,6 +190,22 @@ function buildStartupArgs(options = {}) {
     args.push('--api-only');
   }
   return args;
+}
+
+function formatStartupServeCommand(options = {}) {
+  const parts = ['pichamber', 'serve', '--foreground', '--port', String(options.port || DEFAULT_PORT)];
+  if (options.lan === true && (typeof options.host !== 'string' || options.host === '0.0.0.0')) {
+    parts.push('--lan');
+  } else if (typeof options.host === 'string' && options.host.length > 0) {
+    parts.push('--host', options.host);
+  }
+  if (options.apiOnly === true) {
+    parts.push('--api-only');
+  }
+  if (options.explicitUiPassword === true || hasUiPasswordConfigured(options.uiPassword)) {
+    parts.push('--ui-password');
+  }
+  return parts.join(' ');
 }
 
 function writeMacosStartupWrapper(options = {}) {
@@ -299,28 +328,43 @@ function enableStartupService(options = {}) {
     throw new TunnelCliError(`Startup integration is not supported on ${paths.platform}.`, EXIT_CODE.USAGE_ERROR);
   }
 
+  const resolvedUiPassword = resolveServeUiPassword(options);
+  const serveOptions = {
+    ...options,
+    ...(resolvedUiPassword.password ? { uiPassword: resolvedUiPassword.password } : {}),
+  };
+  assertAuthenticatedNetworkExposure({
+    host: serveOptions.host,
+    uiPassword: serveOptions.uiPassword,
+  });
+  const finish = (status) => (
+    resolvedUiPassword.generated === true
+      ? { ...status, generatedUiPassword: resolvedUiPassword.password }
+      : status
+  );
+
   if (paths.platform === 'macos') {
     removeStartupEnvFile();
     fs.mkdirSync(path.dirname(paths.servicePath), { recursive: true, mode: 0o700 });
     fs.mkdirSync(path.join(os.homedir(), 'Library', 'Logs', 'PiChamber'), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(paths.servicePath, buildMacosLaunchAgent(options), { mode: 0o600 });
+    fs.writeFileSync(paths.servicePath, buildMacosLaunchAgent(serveOptions), { mode: 0o600 });
     runStartupCommand('/bin/launchctl', ['bootout', `gui/${process.getuid()}`, paths.servicePath], { allowFailure: true });
     runStartupCommand('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, paths.servicePath]);
     runStartupCommand('/bin/launchctl', ['kickstart', '-k', `gui/${process.getuid()}/${STARTUP_SERVICE_ID}`], { allowFailure: true });
-    return getStartupStatus();
+    return finish(getStartupStatus());
   }
 
   if (paths.platform === 'linux') {
-    writeStartupEnvFile(options, { quoteValue: systemdEnvFileQuote });
+    writeStartupEnvFile(serveOptions, { quoteValue: systemdEnvFileQuote });
     fs.mkdirSync(path.dirname(paths.servicePath), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(paths.servicePath, buildSystemdUserService(options), { mode: 0o600 });
+    fs.writeFileSync(paths.servicePath, buildSystemdUserService(serveOptions), { mode: 0o600 });
     runStartupCommand('systemctl', ['--user', 'daemon-reload']);
     runStartupCommand('systemctl', ['--user', 'enable', '--now', 'pichamber.service']);
-    return getStartupStatus();
+    return finish(getStartupStatus());
   }
 
-  const envFilePath = writeStartupEnvFile(options);
-  const startupArgs = buildStartupArgs(options).map(powershellQuote).join(', ');
+  const envFilePath = writeStartupEnvFile(serveOptions);
+  const startupArgs = buildStartupArgs(serveOptions).map(powershellQuote).join(', ');
   const powerShellCommand = [
     `$envFile=${powershellQuote(envFilePath)}`,
     `if (Test-Path $envFile) { Get-Content $envFile | ForEach-Object { if ($_ -match '^([^=]+)=(.*)$') { $v=$matches[2]; if ($v.StartsWith("'") -and $v.EndsWith("'")) { $v=$v.Substring(1,$v.Length-2).Replace("'\\''","'") }; [Environment]::SetEnvironmentVariable($matches[1], $v, 'Process') } } }`,
@@ -336,7 +380,7 @@ function enableStartupService(options = {}) {
     '/TR', taskArgs,
   ]);
   runStartupCommand('schtasks.exe', ['/Run', '/TN', STARTUP_SERVICE_ID], { allowFailure: true });
-  return getStartupStatus();
+  return finish(getStartupStatus());
 }
 
 function disableStartupService() {
@@ -368,4 +412,7 @@ export {
   getStartupStatus,
   enableStartupService,
   disableStartupService,
+  isUserStartupServiceActive,
+  restartUserStartupService,
+  formatStartupServeCommand,
 };

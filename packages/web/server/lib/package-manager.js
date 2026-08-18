@@ -17,6 +17,13 @@ const CHANGELOG_URL = 'https://raw.githubusercontent.com/RyderAsKing/PiChamber/m
 const GITHUB_RELEASES_URL = 'https://github.com/RyderAsKing/PiChamber/releases';
 const GITHUB_RELEASES_API_URL = 'https://api.github.com/repos/RyderAsKing/PiChamber/releases';
 let cachedDetectedPm = null;
+const TRUSTED_UPDATE_REASONS = new Set([
+  'forced-env',
+  'install-path-owner',
+  'global-root-owner',
+  'cached',
+]);
+const UPDATE_PACKAGE_MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun']);
 
 function getSpawnSyncBaseOptions() {
   return process.platform === 'win32' ? { windowsHide: true } : {};
@@ -373,6 +380,21 @@ function packageManagerOwnsCurrentInstall(pm) {
   return false;
 }
 
+function detectionResult(packageManager, reason) {
+  return {
+    packageManager,
+    reason,
+    packagePath: getCurrentPackagePath(),
+    packageManagerCommand: resolvePackageManagerCommand(packageManager),
+    globalNodeModulesRoot: getGlobalNodeModulesRoots(packageManager)[0] || null,
+  };
+}
+
+function cacheTrustedDetection(packageManager, reason) {
+  cachedDetectedPm = packageManager;
+  return detectionResult(packageManager, reason);
+}
+
 export function detectPackageManagerDetails() {
   // In desktop (Electron) runtime, package-manager detection is worthless —
   // the app ships as a .app bundle, not installed via npm/pnpm/yarn/bun, and
@@ -401,44 +423,23 @@ export function detectPackageManagerDetails() {
   }
 
   const forcedPm = process.env.PICHAMBER_PACKAGE_MANAGER?.trim();
-  if (forcedPm && ['npm', 'pnpm', 'yarn', 'bun'].includes(forcedPm)) {
+  if (forcedPm && UPDATE_PACKAGE_MANAGERS.has(forcedPm)) {
     const forcedPmCommand = resolvePackageManagerCommand(forcedPm);
     if (isCommandAvailable(forcedPmCommand)) {
-      cachedDetectedPm = forcedPm;
-      return {
-        packageManager: cachedDetectedPm,
-        reason: 'forced-env',
-        packagePath: getCurrentPackagePath(),
-        packageManagerCommand: forcedPmCommand,
-        globalNodeModulesRoot: getGlobalNodeModulesRoots(cachedDetectedPm)[0] || null,
-      };
+      return cacheTrustedDetection(forcedPm, 'forced-env');
     }
   }
 
   // First prefer the package manager that demonstrably owns the current install.
   const installPathPm = detectPackageManagerFromCurrentInstallPath();
   if (installPathPm && packageManagerOwnsCurrentInstall(installPathPm)) {
-    cachedDetectedPm = installPathPm;
-    return {
-      packageManager: cachedDetectedPm,
-      reason: 'install-path-owner',
-      packagePath: getCurrentPackagePath(),
-      packageManagerCommand: resolvePackageManagerCommand(cachedDetectedPm),
-      globalNodeModulesRoot: getGlobalNodeModulesRoots(cachedDetectedPm)[0] || null,
-    };
+    return cacheTrustedDetection(installPathPm, 'install-path-owner');
   }
 
   const ownershipCandidates = ['pnpm', 'yarn', 'bun', 'npm'];
   for (const candidate of ownershipCandidates) {
     if (packageManagerOwnsCurrentInstall(candidate)) {
-      cachedDetectedPm = candidate;
-      return {
-        packageManager: cachedDetectedPm,
-        reason: 'global-root-owner',
-        packagePath: getCurrentPackagePath(),
-        packageManagerCommand: resolvePackageManagerCommand(cachedDetectedPm),
-        globalNodeModulesRoot: getGlobalNodeModulesRoots(cachedDetectedPm)[0] || null,
-      };
+      return cacheTrustedDetection(candidate, 'global-root-owner');
     }
   }
 
@@ -471,29 +472,14 @@ export function detectPackageManagerDetails() {
 
   // Validate the hint against package visibility, but only after ownership checks failed.
   if (hintedPm && isCommandAvailable(resolvePackageManagerCommand(hintedPm)) && isPackageInstalledWith(hintedPm)) {
-    cachedDetectedPm = hintedPm;
-    return {
-      packageManager: cachedDetectedPm,
-      reason: 'hinted-visible-install',
-      packagePath: getCurrentPackagePath(),
-      packageManagerCommand: resolvePackageManagerCommand(cachedDetectedPm),
-      globalNodeModulesRoot: getGlobalNodeModulesRoots(cachedDetectedPm)[0] || null,
-    };
+    return detectionResult(hintedPm, 'hinted-visible-install');
   }
 
   const runtimePm = detectPackageManagerFromRuntimePath(process.execPath);
   if (runtimePm && isCommandAvailable(resolvePackageManagerCommand(runtimePm)) && isPackageInstalledWith(runtimePm)) {
-    cachedDetectedPm = runtimePm;
-    return {
-      packageManager: cachedDetectedPm,
-      reason: 'runtime-visible-install',
-      packagePath: getCurrentPackagePath(),
-      packageManagerCommand: resolvePackageManagerCommand(cachedDetectedPm),
-      globalNodeModulesRoot: getGlobalNodeModulesRoots(cachedDetectedPm)[0] || null,
-    };
+    return detectionResult(runtimePm, 'runtime-visible-install');
   }
 
-  // Last resort: pick a PM that can at least see the package.
   const pmChecks = [
     { name: 'pnpm', check: () => isCommandAvailable(resolvePackageManagerCommand('pnpm')) },
     { name: 'yarn', check: () => isCommandAvailable(resolvePackageManagerCommand('yarn')) },
@@ -502,33 +488,27 @@ export function detectPackageManagerDetails() {
   ];
 
   for (const { name, check } of pmChecks) {
-    if (check()) {
-      // Verify this PM actually has the package installed globally
-      if (isPackageInstalledWith(name)) {
-        cachedDetectedPm = name;
-        return {
-          packageManager: cachedDetectedPm,
-          reason: 'last-resort-visible-install',
-          packagePath: getCurrentPackagePath(),
-          packageManagerCommand: resolvePackageManagerCommand(cachedDetectedPm),
-          globalNodeModulesRoot: getGlobalNodeModulesRoots(cachedDetectedPm)[0] || null,
-        };
-      }
+    if (check() && isPackageInstalledWith(name)) {
+      return detectionResult(name, 'last-resort-visible-install');
     }
   }
 
-  cachedDetectedPm = 'npm';
-  return {
-    packageManager: cachedDetectedPm,
-    reason: 'default-fallback',
-    packagePath: getCurrentPackagePath(),
-    packageManagerCommand: resolvePackageManagerCommand(cachedDetectedPm),
-    globalNodeModulesRoot: getGlobalNodeModulesRoots(cachedDetectedPm)[0] || null,
-  };
+  return detectionResult('npm', 'default-fallback');
 }
 
 export function detectPackageManager() {
   return detectPackageManagerDetails().packageManager;
+}
+
+export function resolveTrustedUpdatePackageManager(details = detectPackageManagerDetails()) {
+  if (
+    details
+    && TRUSTED_UPDATE_REASONS.has(details.reason)
+    && UPDATE_PACKAGE_MANAGERS.has(details.packageManager)
+  ) {
+    return details.packageManager;
+  }
+  return null;
 }
 
 function detectPackageManagerFromInstallPath(pkgPath) {
@@ -547,9 +527,8 @@ function detectPackageManagerFromRuntimePath(runtimePath) {
   if (normalized.includes('/.bun/bin/bun') || normalized.endsWith('/bun') || normalized.endsWith('/bun.exe')) {
     return 'bun';
   }
-  if (normalized.includes('/pnpm/')) return 'pnpm';
-  if (normalized.includes('/yarn/')) return 'yarn';
-  if (normalized.includes('/node') || normalized.endsWith('/node.exe')) return 'npm';
+  // `node` is the runtime for npm, pnpm, and yarn global bins. It is not an
+  // install owner.
   return null;
 }
 

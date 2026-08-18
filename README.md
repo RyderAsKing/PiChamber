@@ -35,11 +35,21 @@ Linux AppImages require FUSE (`libfuse.so.2`). Without FUSE, run with `APPIMAGE_
 
 ### Server — Web and PWA
 
-Requires Node.js 22+.
+Requires Node.js 22+ or Bun. Install `@pi-chamber/web` with a package manager.
+
+**Bun (recommended):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/RyderAsKing/PiChamber/main/scripts/install.sh | bash
+bun add -g @pi-chamber/web
 pichamber serve --ui-password be-creative-here
+```
+
+Other package managers:
+
+```bash
+npm install -g @pi-chamber/web
+pnpm add -g @pi-chamber/web
+yarn global add @pi-chamber/web
 ```
 
 Common operations:
@@ -53,7 +63,34 @@ pichamber stop
 pichamber update
 ```
 
+`pichamber update` upgrades the same global install that owns the `pichamber` you ran. Stick to one package manager so PATH and a systemd unit do not point at different copies.
+
 PiChamber binds to localhost by default. Use `--lan` only on a trusted network and protect browser access with `--ui-password`.
+
+### Run without installing
+
+For a one-off try, execute the published package from the registry cache. This does not put `pichamber` on PATH.
+
+```bash
+bunx @pi-chamber/web serve
+npx @pi-chamber/web serve
+pnpm dlx @pi-chamber/web serve
+```
+
+Use a global install for daily use, `pichamber update`, and `pichamber startup enable`.
+
+### Run from source
+
+```bash
+git clone https://github.com/RyderAsKing/PiChamber.git
+cd PiChamber
+bun install
+bun run dev          # web HMR
+bun run start:web    # packaged web server
+bun run electron:dev # desktop shell
+```
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for ports, build flags, and other scripts.
 
 ## Guides
 

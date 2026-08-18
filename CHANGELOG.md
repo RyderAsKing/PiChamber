@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Server install is package-manager only. The curl `scripts/install.sh` wrapper is gone; docs recommend `bun add -g @pi-chamber/web`, with npm, pnpm, and yarn examples.
+- `pichamber update` upgrades only the global install that owns the running CLI, and restarts a Linux user systemd unit instead of spawning a second server on the same port.
+
 ## [0.1.9] - 2026-08-19
 
 This release improves runtime switching and makes the native mobile client

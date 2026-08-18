@@ -11,6 +11,7 @@ const {
   detectPackageManager,
   executeUpdate,
   getCurrentVersion,
+  resolveTrustedUpdatePackageManager,
 } = await import('./package-manager.js');
 
 function officialRegistryPackage(latest) {
@@ -366,5 +367,31 @@ describe('CLI update exports', () => {
   it('exports package-manager helpers used by the update command', () => {
     expect(typeof detectPackageManager).toBe('function');
     expect(typeof executeUpdate).toBe('function');
+    expect(typeof resolveTrustedUpdatePackageManager).toBe('function');
+  });
+});
+
+describe('resolveTrustedUpdatePackageManager', () => {
+  it('accepts only installs that this process can prove it owns', () => {
+    expect(resolveTrustedUpdatePackageManager({
+      packageManager: 'pnpm',
+      reason: 'install-path-owner',
+    })).toBe('pnpm');
+    expect(resolveTrustedUpdatePackageManager({
+      packageManager: 'bun',
+      reason: 'forced-env',
+    })).toBe('bun');
+    expect(resolveTrustedUpdatePackageManager({
+      packageManager: 'npm',
+      reason: 'default-fallback',
+    })).toBeNull();
+    expect(resolveTrustedUpdatePackageManager({
+      packageManager: 'npm',
+      reason: 'runtime-visible-install',
+    })).toBeNull();
+    expect(resolveTrustedUpdatePackageManager({
+      packageManager: 'pnpm',
+      reason: 'last-resort-visible-install',
+    })).toBeNull();
   });
 });

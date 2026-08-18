@@ -289,6 +289,17 @@ describe('cli args', () => {
     expect(parsed.options.port).toBe(3002);
   });
 
+  it('parses startup lan bind and port flags', () => {
+    const parsed = parseArgs(['startup', 'enable', '--lan', '--port', '3002', '--ui-password', 'secret']);
+
+    expect(parsed.command).toBe('startup');
+    expect(parsed.startupAction).toBe('enable');
+    expect(parsed.options.lan).toBe(true);
+    expect(parsed.options.host).toBe('0.0.0.0');
+    expect(parsed.options.port).toBe(3002);
+    expect(parsed.options.uiPassword).toBe('secret');
+  });
+
   it('parses tunnel auto-start server options', () => {
     const parsed = parseArgs(['tunnel', 'start', '--port', '3002', '--api-only', '--lan', '--ui-password', 'secret']);
 
@@ -318,6 +329,43 @@ describe('cli args', () => {
 
     expect(parsed.options.hostname).toBe('app.example.com');
     expect(parsed.options.host).toBeUndefined();
+  });
+});
+
+describe('startup enable command helper', () => {
+  it('formats stored serve flags for a local port', async () => {
+    const { formatStartupServeCommand } = await import('./lib/cli-startup.js');
+    expect(formatStartupServeCommand({ port: 8080 })).toBe('pichamber serve --foreground --port 8080');
+  });
+
+  it('formats lan, port, and password flags without echoing the secret', async () => {
+    const { formatStartupServeCommand } = await import('./lib/cli-startup.js');
+    expect(formatStartupServeCommand({
+      lan: true,
+      host: '0.0.0.0',
+      port: 3002,
+      uiPassword: 'secret',
+    })).toBe('pichamber serve --foreground --port 3002 --lan --ui-password');
+  });
+
+  it('documents lan, port, and ui-password in startup help', async () => {
+    const { showStartupHelp } = await import('./lib/cli-args.js');
+    const lines = [];
+    const original = console.log;
+    console.log = (message) => {
+      lines.push(String(message));
+    };
+    try {
+      showStartupHelp();
+    } finally {
+      console.log = original;
+    }
+
+    const text = lines.join('\n');
+    expect(text).toContain('--lan');
+    expect(text).toContain('--port <port>');
+    expect(text).toContain('--ui-password');
+    expect(text).toContain('pichamber startup enable --lan --port 3002 --ui-password');
   });
 });
 

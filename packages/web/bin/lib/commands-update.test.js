@@ -21,22 +21,32 @@ async function withTempPiChamberDataDir(fn) {
   }
 }
 
+function createTestUpdateCommand(overrides = {}) {
+  const executeUpdate = overrides.executeUpdate || vi.fn(() => ({ success: true, exitCode: 0 }));
+  const serveCommand = overrides.serveCommand || vi.fn();
+  const restartUserStartupService = overrides.restartUserStartupService || vi.fn();
+  const updateCommand = createUpdateCommand({
+    packageManagerPath: '/fake/package-manager.js',
+    serveCommand,
+    isInsideSystemdService: overrides.isInsideSystemdService || (() => false),
+    isUserStartupServiceActive: overrides.isUserStartupServiceActive || (() => false),
+    restartUserStartupService,
+    importFromFilePath: vi.fn(async () => ({
+      checkForUpdates: overrides.checkForUpdates || vi.fn(async () => ({ available: true, version: '9.9.9' })),
+      resolveTrustedUpdatePackageManager: overrides.resolveTrustedUpdatePackageManager || vi.fn(() => 'npm'),
+      executeUpdate,
+      getCurrentVersion: vi.fn(() => '1.0.0'),
+    })),
+  });
+  return { updateCommand, executeUpdate, serveCommand, restartUserStartupService };
+}
+
 describe('update command', () => {
   it('uses the package-manager helpers on the update-available path', async () => {
     await withTempPiChamberDataDir(async () => {
       const originalWrite = process.stdout.write;
       process.stdout.write = vi.fn(() => true);
-      const executeUpdate = vi.fn(() => ({ success: true, exitCode: 0 }));
-      const updateCommand = createUpdateCommand({
-        packageManagerPath: '/fake/package-manager.js',
-        serveCommand: vi.fn(),
-        importFromFilePath: vi.fn(async () => ({
-          checkForUpdates: vi.fn(async () => ({ available: true, version: '9.9.9' })),
-          detectPackageManager: vi.fn(() => 'npm'),
-          executeUpdate,
-          getCurrentVersion: vi.fn(() => '1.0.0'),
-        })),
-      });
+      const { updateCommand, executeUpdate } = createTestUpdateCommand();
 
       try {
         await updateCommand({ json: true });
@@ -50,48 +60,53 @@ describe('update command', () => {
 
   it('handles failed update execution safely without touching instances', async () => {
     await withTempPiChamberDataDir(async () => {
-      const executeUpdate = vi.fn(() => ({ success: false, exitCode: 1 }));
-      const updateCommand = createUpdateCommand({
-        packageManagerPath: '/fake/package-manager.js',
-        serveCommand: vi.fn(),
-        importFromFilePath: vi.fn(async () => ({
-          checkForUpdates: vi.fn(async () => ({ available: true, version: '9.9.9' })),
-          detectPackageManager: vi.fn(() => 'npm'),
-          executeUpdate,
-          getCurrentVersion: vi.fn(() => '1.0.0'),
-        })),
+      const { updateCommand, executeUpdate, serveCommand, restartUserStartupService } = createTestUpdateCommand({
+        executeUpdate: vi.fn(() => ({ success: false, exitCode: 1 })),
       });
 
       await expect(updateCommand({ quiet: true })).rejects.toThrow('Update failed with exit code 1');
       expect(executeUpdate).toHaveBeenCalledWith('npm', { silent: true });
+      expect(serveCommand).not.toHaveBeenCalled();
+      expect(restartUserStartupService).not.toHaveBeenCalled();
     });
   });
 
   it('skips in-app update when running inside a systemd service unit', async () => {
     await withTempPiChamberDataDir(async () => {
-      const prevInvocationId = process.env.INVOCATION_ID;
-      process.env.INVOCATION_ID = 'test-invocation-123';
-      try {
-        const executeUpdate = vi.fn();
-        const updateCommand = createUpdateCommand({
-          packageManagerPath: '/fake/package-manager.js',
-          serveCommand: vi.fn(),
-          importFromFilePath: vi.fn(async () => ({
-            checkForUpdates: vi.fn(async () => ({ available: true, version: '9.9.9' })),
-            detectPackageManager: vi.fn(() => 'npm'),
-            executeUpdate,
-            getCurrentVersion: vi.fn(() => '1.0.0'),
-          })),
-        });
+      const { updateCommand, executeUpdate } = createTestUpdateCommand({
+        isInsideSystemdService: () => true,
+      });
 
-        await expect(updateCommand({ quiet: true })).rejects.toThrow('systemd deployments must be updated through package management');
-        expect(executeUpdate).not.toHaveBeenCalled();
+      await expect(updateCommand({ quiet: true })).rejects.toThrow('pichamber update cannot replace this process while it is running as a systemd service');
+      expect(executeUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  it('refuses to guess a package manager when the running copy is not a global install', async () => {
+    await withTempPiChamberDataDir(async () => {
+      const { updateCommand, executeUpdate } = createTestUpdateCommand({
+        resolveTrustedUpdatePackageManager: vi.fn(() => null),
+      });
+
+      await expect(updateCommand({ quiet: true })).rejects.toThrow('This PiChamber copy is not a global package-manager install.');
+      expect(executeUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  it('restarts a systemd user unit instead of spawning a new server', async () => {
+    await withTempPiChamberDataDir(async () => {
+      const originalWrite = process.stdout.write;
+      process.stdout.write = vi.fn(() => true);
+      const { updateCommand, serveCommand, restartUserStartupService } = createTestUpdateCommand({
+        isUserStartupServiceActive: () => true,
+      });
+
+      try {
+        await updateCommand({ json: true });
+        expect(restartUserStartupService).toHaveBeenCalledTimes(1);
+        expect(serveCommand).not.toHaveBeenCalled();
       } finally {
-        if (typeof prevInvocationId === 'string') {
-          process.env.INVOCATION_ID = prevInvocationId;
-        } else {
-          delete process.env.INVOCATION_ID;
-        }
+        process.stdout.write = originalWrite;
       }
     });
   });

@@ -7,6 +7,10 @@ import {
   stopInstanceProcess,
 } from './cli-process.js';
 import {
+  isUserStartupServiceActive as defaultIsUserStartupServiceActive,
+  restartUserStartupService as defaultRestartUserStartupService,
+} from './cli-startup.js';
+import {
   intro as clackIntro,
   outro as clackOutro,
   isJsonMode,
@@ -17,7 +21,23 @@ import {
   logStatus,
 } from '../cli-output.js';
 
-function createUpdateCommand({ importFromFilePath, packageManagerPath, serveCommand }) {
+const UNOWNED_INSTALL_MESSAGE = [
+  'This PiChamber copy is not a global package-manager install.',
+  'Install one copy, then update that same copy:',
+  '  bun add -g @pi-chamber/web',
+  '  npm install -g @pi-chamber/web',
+  '  pnpm add -g @pi-chamber/web',
+  '  yarn global add @pi-chamber/web',
+].join('\n');
+
+function createUpdateCommand({
+  importFromFilePath,
+  packageManagerPath,
+  serveCommand,
+  isInsideSystemdService = () => Boolean(process.env.INVOCATION_ID) || Boolean(process.env.PICHAMBER_SYSTEMD_UNIT),
+  isUserStartupServiceActive = defaultIsUserStartupServiceActive,
+  restartUserStartupService = defaultRestartUserStartupService,
+}) {
   return async function updateCommand(options = {}) {
     const showOutput = shouldRenderHumanOutput(options);
     const updateSpin = createSpinner(options);
@@ -25,7 +45,7 @@ function createUpdateCommand({ importFromFilePath, packageManagerPath, serveComm
     const {
       checkForUpdates,
       executeUpdate,
-      detectPackageManager,
+      resolveTrustedUpdatePackageManager,
       getCurrentVersion,
     } = await importFromFilePath(packageManagerPath);
 
@@ -94,9 +114,8 @@ function createUpdateCommand({ importFromFilePath, packageManagerPath, serveComm
       throw new Error(msg);
     }
 
-    const isSystemdService = Boolean(process.env.INVOCATION_ID) || Boolean(process.env.PICHAMBER_SYSTEMD_UNIT);
-    if (isSystemdService) {
-      const msg = 'systemd deployments must be updated through package management and service restart (e.g. systemctl --user restart pichamber.service).';
+    if (isInsideSystemdService()) {
+      const msg = 'pichamber update cannot replace this process while it is running as a systemd service. Run it from a terminal instead.';
       updateSpin?.error('systemd service deployment detected');
       if (isJsonMode(options)) {
         printJson({
@@ -113,12 +132,29 @@ function createUpdateCommand({ importFromFilePath, packageManagerPath, serveComm
       throw new Error(msg);
     }
 
+    const pm = resolveTrustedUpdatePackageManager();
+    if (!pm) {
+      updateSpin?.error('No global package-manager install');
+      if (isJsonMode(options)) {
+        printJson({
+          currentVersion,
+          latestVersion: updateInfo.version || 'latest',
+          updated: false,
+          error: UNOWNED_INSTALL_MESSAGE,
+        });
+        return;
+      }
+      if (showOutput) {
+        clackOutro('update skipped');
+      }
+      throw new Error(UNOWNED_INSTALL_MESSAGE);
+    }
+
     if (showOutput && !updateSpin) {
-      logStatus('info', `updating ${updateInfo.currentVersion || currentVersion} -> ${updateInfo.version || 'latest'}`);
+      logStatus('info', `updating ${updateInfo.currentVersion || currentVersion} -> ${updateInfo.version || 'latest'} with ${pm}`);
     }
     updateSpin?.message(`Updating to ${updateInfo.version || 'latest'}...`);
 
-    const pm = detectPackageManager();
     const result = executeUpdate(pm, { silent: isJsonMode(options) || isQuietMode(options) });
     if (!result.success) {
       updateSpin?.error('Update failed');
@@ -128,34 +164,54 @@ function createUpdateCommand({ importFromFilePath, packageManagerPath, serveComm
       throw new Error(`Update failed with exit code ${result.exitCode}`);
     }
 
-    const runningInstances = await discoverRunningInstances();
-    if (runningInstances.length > 0) {
-      updateSpin?.message(`Stopping ${runningInstances.length} running instance(s)...`);
-      for (const instance of runningInstances) {
-        try {
-          const requested = await requestServerShutdown(instance.port, instance.host);
-          await stopInstanceProcess(instance.pid, {
-            shutdownWaitMs: requested ? 5000 : 0,
-            gracefulTimeoutMs: 2500,
-            forceTimeoutMs: 3000,
-          });
-          removePidFile(instance.pidFilePath);
-        } catch {
-        }
-      }
+    let restartedCount = 0;
+    let startupServiceRestarted = false;
 
-      updateSpin?.message(`Restarting ${runningInstances.length} instance(s)...`);
-      for (const instance of runningInstances) {
-        const storedOptions = readInstanceOptions(instance.instanceFilePath) || { port: instance.port };
-        await serveCommand({
-          port: storedOptions.port || instance.port,
-          host: storedOptions.host,
-          explicitPort: true,
-          uiPassword: storedOptions.uiPassword,
-          suppressStartupSummary: true,
-          suppressUiPasswordWarning: true,
-          quiet: true,
-        });
+    if (isUserStartupServiceActive()) {
+      updateSpin?.message('Restarting systemd user service...');
+      try {
+        restartUserStartupService();
+        startupServiceRestarted = true;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        const msg = `Package updated but failed to restart pichamber.service. Run: systemctl --user restart pichamber.service (${detail})`;
+        updateSpin?.error('Startup service restart failed');
+        if (showOutput) {
+          clackOutro('update incomplete');
+        }
+        throw new Error(msg);
+      }
+    } else {
+      const runningInstances = await discoverRunningInstances();
+      if (runningInstances.length > 0) {
+        updateSpin?.message(`Stopping ${runningInstances.length} running instance(s)...`);
+        for (const instance of runningInstances) {
+          try {
+            const requested = await requestServerShutdown(instance.port, instance.host);
+            await stopInstanceProcess(instance.pid, {
+              shutdownWaitMs: requested ? 5000 : 0,
+              gracefulTimeoutMs: 2500,
+              forceTimeoutMs: 3000,
+            });
+            removePidFile(instance.pidFilePath);
+          } catch {
+          }
+        }
+
+        updateSpin?.message(`Restarting ${runningInstances.length} instance(s)...`);
+        for (const instance of runningInstances) {
+          const storedOptions = readInstanceOptions(instance.instanceFilePath) || { port: instance.port };
+          await serveCommand({
+            port: storedOptions.port || instance.port,
+            host: storedOptions.host,
+            explicitPort: true,
+            uiPassword: storedOptions.uiPassword,
+            suppressStartupSummary: true,
+            suppressUiPasswordWarning: true,
+            quiet: true,
+          });
+        }
+        restartedCount = runningInstances.length;
       }
     }
 
@@ -168,7 +224,9 @@ function createUpdateCommand({ importFromFilePath, packageManagerPath, serveComm
         currentVersion,
         latestVersion: updateInfo.version || 'latest',
         updated: true,
-        restartedCount: runningInstances.length,
+        packageManager: pm,
+        restartedCount,
+        startupServiceRestarted,
       });
       return;
     }
@@ -181,4 +239,3 @@ function createUpdateCommand({ importFromFilePath, packageManagerPath, serveComm
 }
 
 export { createUpdateCommand };
-

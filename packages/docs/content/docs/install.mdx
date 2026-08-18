@@ -9,16 +9,43 @@ Download PiChamber from the [GitHub Releases](https://github.com/RyderAsKing/PiC
 
 ## Server
 
-PiChamber server requires Node.js 22 or newer.
+PiChamber server requires Node.js 22 or newer, or Bun. Install the CLI package with a package manager.
+
+**Bun (recommended):**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/RyderAsKing/PiChamber/main/scripts/install.sh | bash
+bun add -g @pi-chamber/web
 ```
 
-Or install the CLI package from npm:
+Other package managers:
 
 ```sh
 npm install -g @pi-chamber/web
+pnpm add -g @pi-chamber/web
+yarn global add @pi-chamber/web
 ```
 
 Run `pichamber serve` after installation. The server creates and owns its local Pi session daemon automatically.
+
+Use one package manager for install and update. `pichamber update` upgrades the global copy that owns the `pichamber` binary you ran.
+
+## Run without installing
+
+```sh
+bunx @pi-chamber/web serve
+npx @pi-chamber/web serve
+pnpm dlx @pi-chamber/web serve
+```
+
+This downloads the package into a cache and runs it. It does not install `pichamber` on PATH. Prefer a global install for daily use and `pichamber startup enable`.
+
+## Run from source
+
+```sh
+git clone https://github.com/RyderAsKing/PiChamber.git
+cd PiChamber
+bun install
+bun run dev
+```
+
+`bun run start:web` starts the packaged web server. `bun run electron:dev` starts the desktop shell. See the repository contributing guide for ports and other scripts.

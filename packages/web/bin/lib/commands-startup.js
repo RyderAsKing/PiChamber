@@ -1,5 +1,5 @@
 import { EXIT_CODE, TunnelCliError } from './cli-errors.js';
-import { getStartupStatus, enableStartupService, disableStartupService } from './cli-startup.js';
+import { getStartupStatus, enableStartupService, disableStartupService, formatStartupServeCommand } from './cli-startup.js';
 import {
   intro as clackIntro,
   outro as clackOutro,
@@ -27,7 +27,18 @@ async function startupCommand(options, action = 'status') {
     status = getStartupStatus();
   }
 
-  const result = { action: normalized, ...status };
+  const generatedUiPassword = typeof status.generatedUiPassword === 'string' && status.generatedUiPassword.length > 0
+    ? status.generatedUiPassword
+    : undefined;
+  const { generatedUiPassword: _generatedUiPassword, ...publicStatus } = status;
+  void _generatedUiPassword;
+  const serveCommand = normalized === 'enable' ? formatStartupServeCommand(options) : undefined;
+  const result = {
+    action: normalized,
+    ...publicStatus,
+    ...(serveCommand ? { serveCommand } : {}),
+    ...(generatedUiPassword ? { password: generatedUiPassword } : {}),
+  };
   if (!result.supported) {
     throw new TunnelCliError(
       `Startup integration is not supported on ${result.platform}.`,
@@ -46,7 +57,7 @@ async function startupCommand(options, action = 'status') {
   }
 
   if (isQuietMode(options)) {
-    process.stdout.write(`startup ${result.enabled ? 'enabled' : 'disabled'} platform:${result.platform} supported:${result.supported ? 'yes' : 'no'}${result.servicePath ? ` path:${result.servicePath}` : ''}\n`);
+    process.stdout.write(`startup ${result.enabled ? 'enabled' : 'disabled'} platform:${result.platform} supported:${result.supported ? 'yes' : 'no'}${result.servicePath ? ` path:${result.servicePath}` : ''}${serveCommand ? ` command:${serveCommand}` : ''}${generatedUiPassword ? ` pass:${generatedUiPassword}` : ''}\n`);
     return;
   }
 
@@ -55,8 +66,12 @@ async function startupCommand(options, action = 'status') {
   if (typeof result.activeState === 'string') {
     logStatus(result.active ? 'success' : result.activeState === 'failed' ? 'error' : 'warning', `service ${result.activeState}`);
   }
-  if (normalized === 'enable') {
-    logStatus('info', 'service command', 'pichamber serve --foreground');
+  if (serveCommand) {
+    logStatus('info', 'service command', serveCommand);
+  }
+  if (generatedUiPassword) {
+    logStatus('success', 'UI password', generatedUiPassword);
+    logStatus('warning', 'save this password', 'it is not shown again');
   }
   clackOutro(normalized === 'status' ? 'status complete' : `${normalized} complete`);
 }
