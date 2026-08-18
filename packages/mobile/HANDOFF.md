@@ -130,8 +130,8 @@ iOS Simulator helpers: `mobile:sim:{boot,install,launch,run,serve,list,kill}` (s
 - Manifest: permissions `INTERNET`, `CAMERA` (+ optional camera feature), `POST_NOTIFICATIONS`
   (Android 13+; older versions allow notifications by default). `windowSoftInputMode=adjustResize`.
   FCM `default_notification_icon=@drawable/ic_stat_notify`.
-- Adaptive launcher icon: full-bleed color background + `ic_launcher_foreground` (sources under
-  `packages/mobile/assets/`, regenerable with `@capacitor/assets`).
+- Adaptive launcher icon: `#141414` background + PiChamber glyph foreground. Sources live under
+  `packages/mobile/assets/` and are regenerated with `bun run icons:brand` (not `@capacitor/assets`).
 
 ## Quirks / gotchas
 

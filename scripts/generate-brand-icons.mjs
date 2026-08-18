@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Rasterize PiChamber brand SVGs into packaged PNG/ICO/ICNS assets.
+ * Rasterize PiChamber brand SVGs into packaged PNG/ICO/ICNS assets
+ * for desktop, web, and mobile launcher/splash images.
  * Usage: bun scripts/generate-brand-icons.mjs
  */
 import fs from 'node:fs';
@@ -16,11 +17,23 @@ const read = (filePath) => fs.readFileSync(filePath);
 
 const recolorSvg = (svg, color) => Buffer.from(String(svg).replaceAll('currentColor', color));
 
+const BRAND_BG = { r: 20, g: 20, b: 20, alpha: 1 };
+
 const png = async (svg, size, { background } = {}) => {
   let image = sharp(Buffer.isBuffer(svg) ? svg : Buffer.from(svg));
   if (background) image = image.flatten({ background });
   return image.resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
 };
+
+const solidPng = async (width, height, background = BRAND_BG) =>
+  sharp({
+    create: { width, height, channels: 4, background },
+  }).png().toBuffer();
+
+const compositeCentered = async (width, height, overlay, background = BRAND_BG) =>
+  sharp({
+    create: { width, height, channels: 4, background },
+  }).composite([{ input: overlay, gravity: 'centre' }]).png().toBuffer();
 
 const encodeIco = (images) => {
   const headerSize = 6 + (16 * images.length);
@@ -128,3 +141,58 @@ write(path.join(webPublic, 'pwa-192.png'), await png(logoDarkSvg, 192));
 write(path.join(webPublic, 'pwa-512.png'), await png(logoDarkSvg, 512));
 write(path.join(webPublic, 'pwa-maskable-192.png'), await png(logoDarkSvg, 192, { background: '#141414' }));
 write(path.join(webPublic, 'pwa-maskable-512.png'), await png(logoDarkSvg, 512, { background: '#141414' }));
+
+const mobileDir = path.join(root, 'packages/mobile');
+const mobileAssets = path.join(mobileDir, 'assets');
+const androidRes = path.join(mobileDir, 'android/app/src/main/res');
+const iosAppAssets = path.join(mobileDir, 'ios/App/App/Assets.xcassets');
+const whiteGlyph = recolorSvg(glyphSvg, '#ffffff');
+const iconForeground = await png(whiteGlyph, 1024);
+const iconOnly = await compositeCentered(1024, 1024, await png(whiteGlyph, 680));
+
+write(path.join(mobileAssets, 'icon-foreground.png'), iconForeground);
+write(path.join(mobileAssets, 'icon-background.png'), await solidPng(1024, 1024));
+write(path.join(mobileAssets, 'icon-only.png'), iconOnly);
+write(path.join(iosAppAssets, 'AppIcon.appiconset/AppIcon-512@2x.png'), iconOnly);
+
+for (const [density, size] of [
+  ['ldpi', 36],
+  ['mdpi', 48],
+  ['hdpi', 72],
+  ['xhdpi', 96],
+  ['xxhdpi', 144],
+  ['xxxhdpi', 192],
+]) {
+  const dir = path.join(androidRes, `mipmap-${density}`);
+  const launcher = await compositeCentered(size, size, await png(whiteGlyph, Math.round(size * 0.66)));
+  write(path.join(dir, 'ic_launcher.png'), launcher);
+  write(path.join(dir, 'ic_launcher_round.png'), launcher);
+  write(path.join(dir, 'ic_launcher_foreground.png'), await png(whiteGlyph, size));
+  write(path.join(dir, 'ic_launcher_background.png'), await solidPng(size, size));
+}
+
+const writeSplash = async (filePath, width, height) => {
+  const logoSize = Math.round(Math.min(width, height) * 0.28);
+  write(filePath, await compositeCentered(width, height, await png(whiteGlyph, logoSize)));
+};
+
+await writeSplash(path.join(androidRes, 'drawable/splash.png'), 480, 320);
+for (const [folder, width, height] of [
+  ['drawable-port-mdpi', 320, 480],
+  ['drawable-port-hdpi', 480, 800],
+  ['drawable-port-xhdpi', 720, 1280],
+  ['drawable-port-xxhdpi', 960, 1600],
+  ['drawable-port-xxxhdpi', 1280, 1920],
+  ['drawable-land-mdpi', 480, 320],
+  ['drawable-land-hdpi', 800, 480],
+  ['drawable-land-xhdpi', 1280, 720],
+  ['drawable-land-xxhdpi', 1600, 960],
+  ['drawable-land-xxxhdpi', 1920, 1280],
+]) {
+  await writeSplash(path.join(androidRes, folder, 'splash.png'), width, height);
+}
+
+const iosSplash = await compositeCentered(2732, 2732, await png(whiteGlyph, 760));
+for (const name of ['splash-2732x2732.png', 'splash-2732x2732-1.png', 'splash-2732x2732-2.png']) {
+  write(path.join(iosAppAssets, 'Splash.imageset', name), iosSplash);
+}

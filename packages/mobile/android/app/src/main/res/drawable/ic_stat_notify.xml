@@ -1,22 +1,22 @@
-<!-- Notification small icon: a monochrome (alpha-only) silhouette of the PiChamber cube.
-     Android tints it white in the status bar / notification, so only the shape matters. The small
-     filled diamond on the top face is a minimal stand-in for the PiChamber mark, so the tiny
-     silhouette still reads as the PiChamber logo rather than a generic cube. -->
+<!-- Notification small icon: a monochrome silhouette of the PiChamber mark.
+     Android tints it white in the status bar, so only the shape matters. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Cube wireframe: outer hexagon + the three edges meeting at the front vertex. -->
     <path
         android:fillColor="#00000000"
+        android:pathData="M12,2.1 L20.7,7.1 L20.7,16.9 L12,21.9 L3.3,16.9 L3.3,7.1 Z"
+        android:strokeWidth="1.6"
         android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="1.8"
-        android:strokeLineJoin="round"
         android:strokeLineCap="round"
-        android:pathData="M12,2.02 L20.65,7.01 L20.65,16.99 L12,21.98 L3.35,16.99 L3.35,7.01 Z M3.35,7.01 L12,12 L20.65,7.01 M12,12 L12,21.98" />
-    <!-- PiChamber mark on the top face (iso-proportioned diamond). -->
+        android:strokeLineJoin="round" />
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M12,5.7 L14.6,7.2 L12,8.7 L9.4,7.2 Z" />
+        android:fillColor="#00000000"
+        android:pathData="M7.2,8.3 H16.8 M9.4,8.3 V16.4 M14.6,8.3 V13.6 C14.6,15.5 15.7,16.4 17.4,16.4"
+        android:strokeWidth="1.8"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
 </vector>
