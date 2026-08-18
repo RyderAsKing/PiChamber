@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-08-18
+
+This release lets phones reach a desktop on the same Wi-Fi, keeps streaming
+cheap on long chats, and cleans up chat and session chrome.
+
+- Android phones on the same network as a PiChamber desktop can connect:
+  pairing advertises the real LAN address, packaged app origins are allowed
+  for CORS, and launcher/splash art uses the PiChamber mark.
+- Live replies no longer rebuild the whole transcript on every token. Folded
+  history uses **Load older history** and **Load all history** instead of a
+  picker.
+- Non-working message actions are gone. Session rename and history navigation
+  stay put when older turns appear.
+- Changes covers Pi-native last-turn edits and Git branch diffs. Embedded
+  quick-chat loads against the panel's project instead of guessing.
+- Native app menus on Windows and Linux open from the title-bar control.
+
 ## [0.1.6] - 2026-08-18
 
 This release updates the dedicated mobile UI and enables Android APK builds
