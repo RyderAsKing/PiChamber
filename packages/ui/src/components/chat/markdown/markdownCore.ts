@@ -293,9 +293,11 @@ export type RenderedBlock = {
  * block that changed, keeping per-step streaming cost ~O(last block).
  * While streaming, the splitter freezes settled leading blocks and re-lexes
  * only the source tail so parse work tracks the growing frontier, not the
- * whole reply. The live tail is not converted to HTML; Shiki and KaTeX wait
- * until the settle pass. Live prose is a paragraph-shaped text node so it
- * wraps at the chat column; unfinished fences, lists, and quotes keep pre-wrap.
+ * whole reply. Append-only live tails skip this function entirely and write
+ * the trailing text node. The live tail is not converted to HTML; Shiki and
+ * KaTeX wait until the settle pass. Live prose is a paragraph-shaped text
+ * node so it wraps at the chat column; unfinished fences, lists, and quotes
+ * keep pre-wrap.
  */
 export const renderMarkdownBlocks = async (
   text: string,

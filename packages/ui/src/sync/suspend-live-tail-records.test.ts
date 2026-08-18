@@ -7,7 +7,7 @@ import {
 } from '@/lib/pi/event-reducer';
 import type { PiSessionEvent } from '@/lib/pi/protocol';
 
-import { shouldReuseSuspendedRecords } from './suspend-live-tail-records';
+import { selectStreamingAssistantMessageId, shouldReuseSuspendedRecords, shouldReuseUserHistory } from './suspend-live-tail-records';
 
 const baseEvent = <T extends PiSessionEvent['name']>(
   name: T,
@@ -108,5 +108,69 @@ describe('shouldReuseSuspendedRecords', () => {
       text: 'steer',
     })).state;
     expect(shouldReuseSuspendedRecords(beforeUser, sessionOf(state), 'm1')).toBe(false);
+  });
+
+  test('reuses from lastMutationKind without scanning historical parts', () => {
+    let state = seedBusyAssistant();
+    state = applyPiEvent(state, baseEvent('assistant.message.delta', 3, {
+      messageId: 'm1',
+      contentIndex: 0,
+      delta: 'working',
+    })).state;
+    const before = sessionOf(state);
+    state = applyPiEvent(state, baseEvent('assistant.message.delta', 4, {
+      messageId: 'm1',
+      contentIndex: 0,
+      delta: 'working more',
+    })).state;
+    const after = sessionOf(state);
+    expect(after.lastMutationKind).toBe('part');
+    expect(after.lastMutatedMessageId).toBe('m1');
+    expect(shouldReuseSuspendedRecords(before, after, 'm1')).toBe(true);
+  });
+
+  test('selects the live assistant id and keeps it across token deltas', () => {
+    let state = seedBusyAssistant();
+    expect(selectStreamingAssistantMessageId(sessionOf(state))).toBe('m1');
+
+    const beforeDelta = sessionOf(state);
+    state = applyPiEvent(state, baseEvent('assistant.message.delta', 3, {
+      messageId: 'm1',
+      contentIndex: 0,
+      delta: 'working',
+    })).state;
+    const afterDelta = sessionOf(state);
+    expect(selectStreamingAssistantMessageId(afterDelta)).toBe('m1');
+    expect(shouldReuseSuspendedRecords(
+      beforeDelta,
+      afterDelta,
+      selectStreamingAssistantMessageId(afterDelta) ?? '',
+    )).toBe(true);
+
+    state = applyPiEvent(state, baseEvent('assistant.message.end', 4, {
+      messageId: 'm1',
+      text: 'working',
+    })).state;
+    expect(selectStreamingAssistantMessageId(sessionOf(state))).toBeNull();
+  });
+
+  test('reuses user history across assistant token deltas', () => {
+    let state = seedBusyAssistant();
+    const before = sessionOf(state);
+    state = applyPiEvent(state, baseEvent('assistant.message.delta', 3, {
+      messageId: 'm1',
+      contentIndex: 0,
+      delta: 'working',
+    })).state;
+    const after = sessionOf(state);
+    expect(shouldReuseUserHistory(before, after)).toBe(true);
+
+    state = applyPiEvent(state, baseEvent('assistant.message.start', 4, {
+      messageId: 'u2',
+      role: 'user',
+      startedAt: 4,
+      text: 'again',
+    })).state;
+    expect(shouldReuseUserHistory(after, sessionOf(state))).toBe(false);
   });
 });

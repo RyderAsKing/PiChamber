@@ -3,7 +3,7 @@ import { useMemo, useRef } from 'react';
 import { getPiSessionStore, type PiSessionStoreState } from '@/apps/pi-session-store';
 import { piProjectedToRecords, mapPart } from '@/lib/chat/pi-to-renderable';
 import type { Message, Part, PermissionRequest, QuestionRequest, Session, SessionStatus } from '@/lib/chat/types';
-import { projectSession, type PiReducerMessage, type PiReducerSessionState } from '@/lib/pi/event-reducer';
+import { projectSession, type PiReducerMessage, type PiReducerMessagePart, type PiReducerSessionState } from '@/lib/pi/event-reducer';
 import { usePiSessionSnapshot, usePiSessionStore } from './pi-session-context';
 import { mapPiSessionList } from './sync-refs';
 import {
@@ -13,7 +13,7 @@ import {
   uiSessionListEqual,
   type LiveSessionLifecycle,
 } from './pi-session-catalog';
-import { shouldReuseSuspendedRecords } from './suspend-live-tail-records';
+import { selectStreamingAssistantMessageId, shouldReuseSuspendedRecords, shouldReuseUserHistory } from './suspend-live-tail-records';
 import { INITIAL_STATE, type State } from './types';
 
 const IDLE: SessionStatus = { type: 'idle' };
@@ -25,6 +25,7 @@ const EMPTY_USER_HISTORY: string[] = [];
 const EMPTY_MESSAGE_RECORDS: ReturnType<typeof piProjectedToRecords> = [];
 const READY_LOAD_STATE = { loading: false, complete: true, status: 'ready' as const, cursor: undefined, error: null as string | null };
 const EMPTY_PARTS: Part[] = [];
+const liveMappedParts = new WeakMap<PiReducerMessagePart, Part>();
 const TOPIC_CATALOG = 'catalog';
 const TOPIC_CHROME = 'chrome';
 /** Build the per-session topic key for `usePiSessionSnapshot`. */
@@ -115,7 +116,8 @@ export function useDirectorySync<T>(
 }
 
 export function useSessionMessages(sessionID: string, _directory?: string) {
-  return useSessionMessageRecords(sessionID).map((record) => record.info);
+  const records = useSessionMessageRecords(sessionID);
+  return useMemo(() => records.map((record) => record.info), [records]);
 }
 
 export function useSessionMessagesResolved(_sessionID: string, _directory?: string): boolean {
@@ -171,18 +173,22 @@ export function useSessionParts(
       const parts: Part[] = [];
       for (const partId of order) {
         const part = session.parts.get(partId);
-        if (part) {
-          parts.push(
-            mapPart({
-              id: part.id,
-              type: part.type,
-              text: part.text,
-              streaming: part.streaming,
-              ...(part.tool ? { tool: part.tool } : {}),
-              ...(part.attachment ? { attachment: part.attachment } : {}),
-            }, { full: true }),
-          );
+        if (!part) continue;
+        const cached = liveMappedParts.get(part);
+        if (cached) {
+          parts.push(cached);
+          continue;
         }
+        const mapped = mapPart({
+          id: part.id,
+          type: part.type,
+          text: part.text,
+          streaming: part.streaming,
+          ...(part.tool ? { tool: part.tool } : {}),
+          ...(part.attachment ? { attachment: part.attachment } : {}),
+        }, { full: true });
+        liveMappedParts.set(part, mapped);
+        parts.push(mapped);
       }
       return parts;
     }
@@ -300,11 +306,16 @@ export function useSessionRenderable(sessionID: string, _directory?: string): bo
 
 export function useUserMessageHistory(sessionID: string): string[] {
   // Subscribe narrowly to one session's reducer record — other sessions'
-  // events won't invalidate the memo. The projected text is canonical,
-  // so we treat the session reference change as the recompute trigger.
+  // events won't invalidate the memo. Assistant token deltas keep the same
+  // published session for this hook so the composer does not walk every
+  // historical user turn on each token.
   const session = usePiSessionSnapshot(
     (state) => (sessionID ? state.reducer.bySession.get(sessionID) ?? null : null),
-    undefined,
+    (previous, next) => {
+      if (Object.is(previous, next)) return true;
+      if (!previous || !next) return false;
+      return shouldReuseUserHistory(previous, next);
+    },
     sessionID ? sessionTopic(sessionID) : '*',
   );
   return useMemo(() => {
@@ -333,27 +344,40 @@ export function useUserMessageHistory(sessionID: string): string[] {
   }, [session]);
 }
 
+export function useSessionStreamingMessageId(sessionID: string): string | null {
+  return usePiSessionSnapshot(
+    (state) => selectStreamingAssistantMessageId(
+      sessionID ? state.reducer.bySession.get(sessionID) ?? null : null,
+    ),
+    Object.is,
+    sessionID ? sessionTopic(sessionID) : '*',
+  );
+}
+
 export function useSessionMessageRecords(
   sessionID: string,
   _directory?: string,
   options?: {
-    enabled?: boolean;
+    /** Set `false` to rebuild records on every part delta. Default freezes the live tail. */
     suspendPartUpdates?: boolean;
     suspendPartUpdatesForMessageId?: string | null;
   },
 ) {
-  const suspendPartUpdates = options?.suspendPartUpdates === true;
-  const suspendMessageId = options?.suspendPartUpdatesForMessageId ?? null;
+  const suspendPartUpdates = options?.suspendPartUpdates !== false;
+  const explicitSuspendMessageId = options?.suspendPartUpdatesForMessageId ?? null;
   // Subscribe to one session's reducer entry; other sessions' stream
   // events keep the same reference so React skips recomputation.
-  // While the live tail is suspended, token/tool-part updates on that
-  // message keep the previous session snapshot so ChatContainer does not
-  // rebuild the transcript tree on every frame.
+  // Live-tail text/thinking/tool-part updates freeze the published records
+  // array so ChatContainer, the composer, and the status row do not
+  // re-project the whole transcript on every token. The live tail overlays
+  // parts from `useSessionParts`.
   const session = usePiSessionSnapshot(
     (state) => (sessionID ? state.reducer.bySession.get(sessionID) ?? null : null),
     (previous, next) => {
       if (Object.is(previous, next)) return true;
-      if (!suspendPartUpdates || !suspendMessageId || !previous || !next) return false;
+      if (!suspendPartUpdates || !previous || !next) return false;
+      const suspendMessageId = explicitSuspendMessageId ?? selectStreamingAssistantMessageId(next);
+      if (!suspendMessageId) return false;
       return shouldReuseSuspendedRecords(previous, next, suspendMessageId);
     },
     sessionID ? sessionTopic(sessionID) : '*',
@@ -372,6 +396,7 @@ export function useSessionMessageRecords(
     }
 
     const previous = previousRef.current;
+    const suspendMessageId = explicitSuspendMessageId ?? selectStreamingAssistantMessageId(session);
     if (
       suspendPartUpdates
       && suspendMessageId
@@ -395,9 +420,15 @@ export function useSessionMessageRecords(
         : null,
     );
     const records = piProjectedToRecords(projection);
-    previousRef.current = { sessionId: sessionID, session, projection, records };
-    return records;
-  }, [session, sessionID, suspendMessageId, suspendPartUpdates]);
+    const previousRecords = previous?.records;
+    const reusedRecords = previousRecords
+      && previousRecords.length === records.length
+      && previousRecords.every((record, index) => record === records[index])
+      ? previousRecords
+      : records;
+    previousRef.current = { sessionId: sessionID, session, projection, records: reusedRecords };
+    return reusedRecords;
+  }, [explicitSuspendMessageId, session, sessionID, suspendPartUpdates]);
 }
 
 export function useSessionReducerPart(

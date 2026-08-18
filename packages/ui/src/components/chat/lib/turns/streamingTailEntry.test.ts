@@ -131,4 +131,82 @@ describe('buildLiveStreamingEntry', () => {
         if (next.kind !== 'turn') return;
         expect(next.turn.assistantMessages[0]?.parts).toEqual([visible]);
     });
+
+    test('keeps user message and activity identity for text-only live updates', () => {
+        const assistant = message('assistant_1', 'assistant', 'user_1', [textPart('part_1', 'hel')]);
+        const entry = turnEntry(assistant);
+        const next = buildLiveStreamingEntry(entry, {
+            activeStreamingMessageId: 'assistant_1',
+            liveParts: [textPart('part_1', 'hello')],
+            showTextJustificationActivity: false,
+            showTurnChangedFiles: false,
+        });
+
+        expect(next).not.toBe(entry);
+        expect(next.kind).toBe('turn');
+        if (next.kind !== 'turn' || entry.kind !== 'turn') return;
+        expect(next.turn.userMessage).toBe(entry.turn.userMessage);
+        expect(next.turn.activityParts).toBe(entry.turn.activityParts);
+        expect(next.turn.assistantMessages[0]).not.toBe(entry.turn.assistantMessages[0]);
+        expect(next.turn.assistantMessages[0]?.parts[0]?.text).toBe('hello');
+    });
+
+    test('keeps sibling assistant identity when only the live text part changes', () => {
+        const settled = message('assistant_1', 'assistant', 'user_1', [textPart('part_done', 'done')]);
+        const streaming = message('assistant_2', 'assistant', 'user_1', [textPart('part_live', 'hel')]);
+        const user = message('user_1', 'user');
+        const entry: StreamingTailEntry = {
+            kind: 'turn',
+            key: 'turn:user_1',
+            isLastTurn: true,
+            turn: {
+                turnId: 'user_1',
+                userMessageId: 'user_1',
+                userMessage: user,
+                headerMessageId: streaming.info.id,
+                messages: [],
+                assistantMessageIds: [settled.info.id, streaming.info.id],
+                assistantMessages: [settled, streaming],
+                activityParts: [],
+                activitySegments: [],
+                summary: {},
+                hasTools: false,
+                hasReasoning: false,
+                stream: { isStreaming: true, isRetrying: false },
+            },
+        };
+
+        const next = buildLiveStreamingEntry(entry, {
+            activeStreamingMessageId: 'assistant_2',
+            liveParts: [textPart('part_live', 'hello')],
+            showTextJustificationActivity: false,
+            showTurnChangedFiles: false,
+        });
+
+        expect(next.kind).toBe('turn');
+        if (next.kind !== 'turn') return;
+        expect(next.turn.assistantMessages[0]).toBe(settled);
+        expect(next.turn.assistantMessages[1]).not.toBe(streaming);
+        expect(next.turn.userMessage).toBe(user);
+        expect(next.turn.activityParts).toBe(entry.kind === 'turn' ? entry.turn.activityParts : []);
+    });
+
+    test('re-projects when a non-text part is replaced even with the same id', () => {
+        const tool = { id: 'tool_1', type: 'tool', tool: 'bash', state: { status: 'running' } } as Part;
+        const assistant = message('assistant_1', 'assistant', 'user_1', [tool, textPart('part_1', 'hel')]);
+        const entry = turnEntry(assistant);
+        const nextTool = { id: 'tool_1', type: 'tool', tool: 'bash', state: { status: 'completed' } } as Part;
+
+        const next = buildLiveStreamingEntry(entry, {
+            activeStreamingMessageId: 'assistant_1',
+            liveParts: [nextTool, textPart('part_1', 'hello')],
+            showTextJustificationActivity: false,
+            showTurnChangedFiles: false,
+        });
+
+        expect(next.kind).toBe('turn');
+        if (next.kind !== 'turn' || entry.kind !== 'turn') return;
+        expect(next.turn.activityParts).not.toBe(entry.turn.activityParts);
+        expect(next.turn.assistantMessages[0]?.parts[0]).toBe(nextTool);
+    });
 });

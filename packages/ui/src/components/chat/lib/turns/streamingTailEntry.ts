@@ -37,6 +37,37 @@ const withLiveParts = (
     });
 };
 
+const isTextOnlyLivePartsChange = (left: readonly Part[], right: readonly Part[]): boolean => {
+    if (left === right) return true;
+    if (left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index += 1) {
+        const previous = left[index];
+        const next = right[index];
+        if (!previous || !next) return false;
+        if (previous.id !== next.id || previous.type !== next.type) return false;
+        // Tools/activity membership can change without a new part id. Only text
+        // may be a new object; everything else must keep reducer identity.
+        if (previous.type !== 'text' && previous !== next) return false;
+    }
+    return true;
+};
+
+const patchTurnMessages = (
+    turn: TurnRecord,
+    assistantMessages: ChatMessageEntry[],
+): TurnRecord['messages'] => {
+    if (turn.messages.length === 0) return turn.messages;
+    const liveMessageById = new Map(assistantMessages.map((message) => [message.info.id, message]));
+    let changed = false;
+    const next = turn.messages.map((record) => {
+        const live = liveMessageById.get(record.messageId);
+        if (!live || live === record.message) return record;
+        changed = true;
+        return { ...record, message: live };
+    });
+    return changed ? next : turn.messages;
+};
+
 export const buildLiveStreamingEntry = <TEntry extends StreamingTailEntry>(
     entry: TEntry,
     options: BuildLiveStreamingEntryOptions,
@@ -70,9 +101,30 @@ export const buildLiveStreamingEntry = <TEntry extends StreamingTailEntry>(
         return entry;
     }
 
-    // Re-project from the turn's full ordered message records (not just
-    // userMessage + assistants) so hidden user messages merged into this turn
-    // keep parenting their assistant replies.
+    const previousAssistant = entry.turn.assistantMessages.find(
+        (message) => message.info.id === activeStreamingMessageId,
+    );
+    const nextAssistant = assistantMessages.find(
+        (message) => message.info.id === activeStreamingMessageId,
+    );
+    const textOnly = Boolean(
+        previousAssistant
+        && nextAssistant
+        && isTextOnlyLivePartsChange(previousAssistant.parts, nextAssistant.parts),
+    );
+
+    if (textOnly) {
+        return {
+            ...entry,
+            turn: {
+                ...entry.turn,
+                assistantMessages,
+                messages: patchTurnMessages(entry.turn, assistantMessages),
+            },
+        };
+    }
+
+    // Tool/reasoning membership changed: re-project so activity rows stay in sync.
     const liveMessageById = new Map(assistantMessages.map((message) => [message.info.id, message]));
     const sourceMessages = entry.turn.messages.length > 0
         ? entry.turn.messages
@@ -90,6 +142,7 @@ export const buildLiveStreamingEntry = <TEntry extends StreamingTailEntry>(
         ...entry.turn,
         assistantMessages,
         assistantMessageIds: assistantMessages.map((message) => message.info.id),
+        messages: patchTurnMessages(entry.turn, assistantMessages),
     };
 
     return {

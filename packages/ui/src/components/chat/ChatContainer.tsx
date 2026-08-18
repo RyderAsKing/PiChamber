@@ -31,8 +31,8 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 
 // New sync system imports
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useStreamingStore } from '@/sync/streaming';
 import {
+    useSessionStreamingMessageId,
     useSessionMessageCount,
     useSessionMessageRecords,
     useSessionMessageLoadState,
@@ -551,30 +551,15 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     const isTimelineDialogOpen = useUIStore((s) => s.isTimelineDialogOpen);
     const setTimelineDialogOpen = useUIStore((s) => s.setTimelineDialogOpen);
 
-    // Streaming state
-    const streamingMessageId = useStreamingStore(
-        React.useCallback(
-            (s) => (currentSessionId ? s.streamingMessageIds.get(currentSessionId) ?? null : null),
-            [currentSessionId],
-        ),
-    );
-    const activeStreamingPhase = useStreamingStore(
-        React.useCallback(
-            (s) => {
-                if (!streamingMessageId) return null;
-                return s.messageStreamStates.get(streamingMessageId)?.phase ?? null;
-            },
-            [streamingMessageId],
-        ),
-    );
+    // Streaming id comes from the Pi reducer, not the unused OpenCode
+    // streaming store. Transcript freeze is default in
+    // `useSessionMessageRecords`; this id only drives the live-tail overlay.
+    const streamingMessageId = useSessionStreamingMessageId(currentSessionId ?? '');
+    const activeStreamingPhase = streamingMessageId ? 'streaming' : null;
     const sessionMessageCount = useSessionMessageCount(currentSessionId ?? '', effectiveSessionDirectory);
     const hasRenderableSessionSnapshot = useSessionRenderable(currentSessionId ?? '', effectiveSessionDirectory);
     // Messages from sync system
-    const sessionMessageRecords = useSessionMessageRecords(currentSessionId ?? '', effectiveSessionDirectory, {
-        enabled: active,
-        suspendPartUpdates: Boolean(streamingMessageId),
-        suspendPartUpdatesForMessageId: streamingMessageId,
-    });
+    const sessionMessageRecords = useSessionMessageRecords(currentSessionId ?? '', effectiveSessionDirectory);
     const sessionMessages = currentSessionId ? sessionMessageRecords : EMPTY_MESSAGES;
     const sessionMessageLoadState = useSessionMessageLoadState(
         currentSessionId ?? '',

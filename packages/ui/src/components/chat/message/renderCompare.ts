@@ -148,6 +148,16 @@ export const areOptionalRenderRelevantMessagesEqual = (left?: MessageRecord, rig
   return areRenderRelevantMessagesEqual(left, right);
 };
 
+/**
+ * Neighbors only affect grouping/hidden-user layout. Streaming assistant
+ * text must not invalidate the previous user (or sibling) ChatMessage.
+ */
+export const areOptionalNeighborMessagesEqual = (left?: MessageRecord, right?: MessageRecord): boolean => {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return areRenderRelevantMessageInfoEqual(left.info, right.info);
+};
+
 const areTurnDiffStatsEqual = (left?: TurnDiffStats, right?: TurnDiffStats): boolean => {
   if (!left || !right) {
     return left === right;

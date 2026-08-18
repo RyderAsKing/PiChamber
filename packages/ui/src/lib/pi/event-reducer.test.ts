@@ -588,6 +588,54 @@ describe("projectSession", () => {
     expect(after.messages[200]?.parts[0]?.text).toBe("streaming")
   })
 
+  test("token deltas keep historical part object identity without cloning the full map", () => {
+    const history = Array.from({ length: 40 }, (_, index) => {
+      const turn = Math.floor(index / 2) + 1
+      const isUser = index % 2 === 0
+      const id = isUser ? `u${turn}` : `a${turn}`
+      return {
+        message: {
+          id,
+          sessionId: "sess-1",
+          directory: "/work",
+          role: isUser ? "user" as const : "assistant" as const,
+          text: isUser ? `ask ${turn}` : `reply ${turn}`,
+          thinking: "",
+          createdAt: index + 1,
+          ...(isUser ? {} : { durationMs: 10 }),
+        },
+        parts: isUser
+          ? []
+          : [{ id: `${id}:text:0`, index: 0, type: "text" as const, text: `reply ${turn}` }],
+      }
+    })
+    const { state: hydrated } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 40,
+      messages: history,
+    })
+    const historicalPart = hydrated.bySession.get("sess-1")?.parts.get("a1:text:0")
+    expect(historicalPart).toBeDefined()
+
+    let state = applyPiEvent(hydrated, baseEvent("assistant.message.start", 41, {
+      messageId: "live",
+      role: "assistant",
+      parentId: "u20",
+      startedAt: 10_000,
+    })).state
+    const beforeParts = state.bySession.get("sess-1")?.parts
+    state = applyPiEvent(state, baseEvent("assistant.message.delta", 42, {
+      messageId: "live",
+      contentIndex: 0,
+      delta: "token",
+    })).state
+    const afterSession = state.bySession.get("sess-1") as PiReducerSessionState
+    expect(afterSession.parts.get("a1:text:0")).toBe(historicalPart)
+    expect(afterSession.parts).not.toBe(beforeParts)
+    expect(afterSession.lastMutationKind).toBe("part")
+    expect(afterSession.lastMutatedMessageId).toBe("live")
+  })
+
   test("returns the previous projection object when nothing visible changed", () => {
     const { session } = hydrateSessionFromDetail({
       session: { id: "sess-1", directory: "/work" },

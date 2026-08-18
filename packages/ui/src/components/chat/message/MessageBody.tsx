@@ -32,6 +32,8 @@ import { formatTimestampForDisplay } from './timeFormat';
 import { ToolRevealOnMount } from './parts/ToolRevealOnMount';
 import { StaticToolRow } from './parts/ProgressiveGroup';
 import { isExpandableTool } from './parts/toolRenderUtils';
+import CollapsedToolsGate from './parts/CollapsedToolsGate';
+import { shouldCollapseSettledTools } from '../lib/turns/foldHistoryTurns';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { extractLoopbackUrls } from '@/lib/url';
 import { useDeviceInfo } from '@/lib/device';
@@ -995,6 +997,18 @@ const AssistantMessageBody = React.memo(({
     const toolParts = React.useMemo(() => {
         return visibleParts.filter((part): part is ToolPartType => part.type === 'tool');
     }, [visibleParts]);
+    const settledToolCount = React.useMemo(() => {
+        let count = 0;
+        for (const part of toolParts) {
+            const status = part.state?.status;
+            if (status !== 'running' && status !== 'pending') count += 1;
+        }
+        return count;
+    }, [toolParts]);
+    const [denseToolsExpanded, setDenseToolsExpanded] = React.useState(false);
+    React.useEffect(() => {
+        setDenseToolsExpanded(false);
+    }, [messageId]);
 
     const toolRevealStateRef = React.useRef<{
         messageId: string;
@@ -1376,6 +1390,11 @@ const AssistantMessageBody = React.memo(({
     const errorIconName = errorVariant === 'info' ? 'information' : 'error-warning';
     const shouldShowMessageActions = hasCopyableText;
     const isTurnWorking = Boolean(turnGroupingContext?.isWorking);
+    const collapseDenseTools = shouldCollapseSettledTools(settledToolCount, {
+        isTurnWorking,
+        isMessageCompleted,
+        expanded: denseToolsExpanded,
+    });
     const shouldShowTurnFooter = isLastAssistantInTurn
         && hasTextContent
         && !isTurnWorking
@@ -1419,6 +1438,7 @@ const AssistantMessageBody = React.memo(({
         // Expandable tools (bash, edit, task) get individual rows.
         // Text renders inline at its natural position.
         let i = 0;
+        let emittedToolsGate = false;
         while (i < visibleParts.length) {
             const part = visibleParts[i];
 
@@ -1490,6 +1510,24 @@ const AssistantMessageBody = React.memo(({
                     continue;
                 }
 
+                if (collapseDenseTools || denseToolsExpanded) {
+                    if (!emittedToolsGate) {
+                        rendered.push(
+                            <CollapsedToolsGate
+                                key={`dense-tools-${messageId}`}
+                                toolCount={settledToolCount}
+                                expanded={denseToolsExpanded}
+                                onToggle={() => setDenseToolsExpanded((current) => !current)}
+                            />,
+                        );
+                        emittedToolsGate = true;
+                    }
+                    if (collapseDenseTools) {
+                        i++;
+                        continue;
+                    }
+                }
+
                 // Expandable tools: bash, edit, write, task, question — individual rows
                 if (isExpandableTool(toolName)) {
                     rendered.push(
@@ -1545,6 +1583,8 @@ const AssistantMessageBody = React.memo(({
     }, [
         alwaysShowMessageActions,
         animatedToolIdsLookup,
+        collapseDenseTools,
+        denseToolsExpanded,
         collapsibleThinkingBlocks,
         collapseThinkingByDefault,
         expandedTools,
@@ -1560,6 +1600,7 @@ const AssistantMessageBody = React.memo(({
         shouldShowTool,
         effectiveStreamPhase,
         showReasoningTraces,
+        settledToolCount,
         visibleParts,
     ]);
 
