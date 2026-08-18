@@ -222,17 +222,6 @@ main() {
   
   if eval "$INSTALL_CMD"; then
     echo ""
-    # PiChamber wordmark. Hardcoded so the user needs no extra tools.
-    printf '%b' "$BLUE"
-    cat <<'EOF'
-  ░█▀▀░█▀█░█▀█░█▀▀░█▀▀░█▀▀
-  ░█▀▀░█▀█░█▀█░█▀▀░█░█░█▀▀
-  ░▀▀▀░▀░▀░▀░▀░▀▀▀░▀▀▀░▀▀▀
-  ░█▀▀░█░█░█▀█░█▄█░█▀▄░█▀▀
-  ░█░░░█▀█░█▀█░█░█░█▀▄░█▀▀
-  ░▀▀▀░▀░▀░▀░▀░▀░▀░▀▀░░▀▀▀
-EOF
-    printf '%b\n' "$NC"
     success "PiChamber installed successfully!"
     echo ""
 
