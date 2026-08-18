@@ -144,10 +144,10 @@
     min-height: 0;
   }
 
-  /* Ensure proper flex behavior */
-  :root.mobile-pointer:not(.desktop-runtime) .flex.flex-col {
-    min-height: 0;
-  }
+  /* Do not set min-height: 0 on every flex-col. The composer card is also
+     flex-col; collapsing it inside overflow-hidden ancestors clips the
+     model/thinking/send footer to a 1px border. Height-constrained shells
+     already have min-height: 0 via the h-full / h-screen rules above. */
 
 }
 

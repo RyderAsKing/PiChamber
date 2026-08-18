@@ -56,6 +56,14 @@ export interface SidebarSpacesBarProps {
 
 const FOLDER_LONG_PRESS_MS = 500;
 
+const folderBarRowClass = (mobileVariant: boolean, selected: boolean) => cn(
+  'relative flex w-full items-center gap-1.5 rounded-xl px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+  mobileVariant && 'py-1.5',
+  selected
+    ? 'bg-interactive-selection text-foreground'
+    : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
+);
+
 const SortableFolderRow: React.FC<{
   project: SpaceProject;
   label: string;
@@ -77,7 +85,7 @@ const SortableFolderRow: React.FC<{
   onRemoveProject,
   mobileVariant = false,
 }) => {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: project.id,
     disabled: !canDrag,
   });
@@ -121,25 +129,21 @@ const SortableFolderRow: React.FC<{
               onTouchEnd={clearLongPress}
               onTouchCancel={clearLongPress}
               style={{ touchAction: 'manipulation' }}
-              className={cn(
-                'relative flex w-full items-center justify-between rounded-xl px-3 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
-                mobileVariant && 'py-1.5',
-                isSelected
-                  ? 'bg-interactive-selection text-foreground'
-                  : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
-              )}
+              className={folderBarRowClass(mobileVariant, isSelected)}
               aria-pressed={isSelected}
             />
           }
         >
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            {/* Do not spread dnd-kit `attributes` here: they set role="button", and
+                mobile.css then forces [role="button"] to min 36px, indenting the icon. */}
             <span
               className={cn(
-                'inline-flex shrink-0 items-center justify-center',
+                'inline-flex size-4 shrink-0 items-center justify-center',
                 canDrag && 'touch-none select-none cursor-grab active:cursor-grabbing',
               )}
               aria-label={canDrag ? `Reorder ${label}` : undefined}
-              {...(canDrag ? { ...attributes, ...listeners } : {})}
+              {...(canDrag ? listeners : {})}
             >
               <Icon name="folder" className={cn(sidebarRowIconClass(mobileVariant), 'text-muted-foreground')} />
             </span>
@@ -214,12 +218,7 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
       <button
         type="button"
         onClick={() => onSelectProject(null)}
-        className={cn(
-          'group relative flex w-full items-center justify-between rounded-xl px-3 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
-          isAllSelected
-            ? 'bg-interactive-selection text-foreground'
-            : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
-        )}
+        className={folderBarRowClass(mobileVariant, isAllSelected)}
         aria-pressed={isAllSelected}
       >
         <div className="flex min-w-0 items-center gap-1.5">
@@ -258,9 +257,7 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
       <button
         type="button"
         onClick={onOpenDirectoryDialog}
-        className={cn(
-          'flex w-full items-center gap-1.5 rounded-xl px-3 py-2 typography-ui-label text-muted-foreground hover:bg-interactive-hover hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
-        )}
+        className={folderBarRowClass(mobileVariant, false)}
       >
         <Icon name="add" className={sidebarRowIconClass(mobileVariant)} />
         <span className={sidebarRowLabelClass(mobileVariant)}>{"Add folder"}</span>

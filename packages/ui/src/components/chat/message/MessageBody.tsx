@@ -532,12 +532,13 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
         const formatted = formatTimestampForDisplay(messageCreatedAt, timeFormatPreference);
         return formatted.length > 0 ? formatted : null;
     }, [ messageCreatedAt, timeFormatPreference]);
+    const useInFlowUserActions = isMobile || alwaysShowActions;
     const actionsBlock = (canCopyMessage && hasCopyableText) && showUserActions ? (
         <div className={cn(
             'group/user-actions',
-            isMobile
+            useInFlowUserActions
                 ? userActionsMode === 'inline'
-                    ? 'flex items-center justify-end pt-2 pb-3'
+                    ? 'mt-2 mb-1 flex items-center justify-end'
                     : stickyUserHeaderEnabled
                         ? 'flex h-9 items-start justify-end pt-0'
                         : 'flex h-11 items-start justify-end pt-0'

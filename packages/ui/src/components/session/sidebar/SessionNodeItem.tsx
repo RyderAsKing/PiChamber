@@ -31,7 +31,7 @@ import { DraggableSessionRow } from './sessionFolderDnd';
 import { nodeContainsSessionId, nodeHasPinnedMembershipChange, selectQuestionBadgeSessionScopes } from './sessionNodeItemUtils';
 import type { SessionNodeChildRenderExtras, SessionNodeRenderExtras } from './sessionNodeItemUtils';
 import type { SessionNode } from './types';
-import { formatProjectLabel, formatSessionCompactDateLabel, formatSessionDateLabel, normalizePath } from './utils';
+import { formatProjectLabel, formatSessionCompactDateLabel, normalizePath } from './utils';
 import { renderHighlightedText } from './highlightedText';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
@@ -301,7 +301,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   const isElectron = React.useMemo(() => canUseElectronDesktopIPC(), []);
   const showQuickArchiveAction = !archivedBucket && !mobileVariant;
   const suppressNextSelectRef = React.useRef(false);
-  const [isTouchPressed, setIsTouchPressed] = React.useState(false);
   const editingIdRef = React.useRef(editingId);
   editingIdRef.current = editingId;
   const pendingRenameRef = React.useRef<{ id: string; title: string } | null>(null);
@@ -442,7 +441,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   const unseenCount = useSessionUnseenCount(session.id);
   const needsAttention = unseenCount > 0 && (!isSubtaskSession || notifyOnSubtasks);
   const sessionTimestamp = resolvedSession.time?.updated || resolvedSession.time?.created || Date.now();
-  const sessionUpdatedLabel = formatSessionDateLabel(sessionTimestamp);
   const sessionCompactUpdatedLabel = formatSessionCompactDateLabel(sessionTimestamp);
   const isMenuOpen = openSidebarMenuKey === menuInstanceKey;
   const [isContextMenuOpen, setIsContextMenuOpen] = React.useState(false);
@@ -733,16 +731,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   const handleRowMouseDown = (event: React.MouseEvent<HTMLButtonElement>) => {
     if (event.button === 2 || (event.button === 0 && event.ctrlKey && !selectionModeEnabled)) {
       suppressNextSelectRef.current = true;
-    }
-  };
-  const handleRowPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
-    if (mobileVariant && event.pointerType === 'touch') {
-      setIsTouchPressed(true);
-    }
-  };
-  const handleRowPointerEnd = (event: React.PointerEvent<HTMLButtonElement>) => {
-    if (mobileVariant && event.pointerType === 'touch') {
-      setIsTouchPressed(false);
     }
   };
 
@@ -1050,163 +1038,89 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                 </button>
               </form>
             ) : (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-  	                    onPointerDown={handleRowPointerDown}
-  	                    onPointerUp={handleRowPointerEnd}
-  	                    onPointerCancel={handleRowPointerEnd}
-  	                    onMouseDown={handleRowMouseDown}
-  	                    onClick={(event) => handleRowSelect(event)}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      handleSessionDoubleClick(session.id, sessionTitle);
-                    }}
-                    className={cn(
-	                      'flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5 overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 text-foreground select-none',
-	                      isTouchPressed && 'bg-interactive-hover/70',
-                    )}
-                  >
-                    {/* Top Row: Title */}
-                    <div className="flex w-full items-center min-w-0 flex-1 gap-1.5 overflow-hidden">
-                      <div className={cn('block min-w-0 flex-1 truncate font-normal typography-ui-label', needsAttention ? 'text-foreground' : 'text-foreground/90')}>
-                        {renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}
-                      </div>
-                    </div>
+              <button
+                type="button"
+                onMouseDown={handleRowMouseDown}
+                onClick={(event) => handleRowSelect(event)}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  handleSessionDoubleClick(session.id, sessionTitle);
+                }}
+                className="flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5 overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 text-foreground select-none"
+              >
+                <div className="flex w-full items-center min-w-0 flex-1 gap-1.5 overflow-hidden">
+                  <div className={cn('block min-w-0 flex-1 truncate font-normal typography-ui-label', needsAttention ? 'text-foreground' : 'text-foreground/90')}>
+                    {renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}
+                  </div>
+                </div>
 
-                    {/* Bottom Row: folder / branch / git / PR / duration */}
-                    {((secondaryMeta?.showFolderLabel && tooltipProjectLabel) || tooltipBranchLabel || isGitRepo || prSummary || subtaskCount > 0 || (agentName && agentName !== 'default') || showActivityDuration || pendingPermissionCount > 0 || pendingQuestionCount > 0) ? (
-                      <div className="flex w-full min-w-0 items-center gap-2 overflow-hidden pt-0.5 typography-ui-label font-normal text-muted-foreground">
-                        {secondaryMeta?.showFolderLabel && tooltipProjectLabel ? (
-                          <span className="min-w-0 max-w-[110px] shrink-0 truncate" title={`Folder: ${tooltipProjectLabel}`}>
-                            {tooltipProjectLabel}
-                          </span>
-                        ) : null}
-
-                        {tooltipBranchLabel ? (
-                          <span className="inline-flex min-w-0 max-w-[160px] shrink-0 items-center gap-1" title={`Branch: ${tooltipBranchLabel}`}>
-                            <Icon
-                              name="git-branch"
-                              className={cn('size-3.5 shrink-0', !prIconColor && 'text-muted-foreground')}
-                              style={prIconColor ? { color: prIconColor } : undefined}
-                            />
-                            <span className="truncate">{tooltipBranchLabel}</span>
-                          </span>
-                        ) : isGitRepo ? (
-                          <span className="inline-flex shrink-0 items-center gap-1" title="Git repository">
-                            <Icon name="git-repository" className="size-3.5 shrink-0 text-muted-foreground" />
-                            <span>git</span>
-                          </span>
-                        ) : null}
-
-                        {prSummary ? (
-                          <span
-                            className="inline-flex shrink-0 items-center gap-1"
-                            style={prIconColor ? { color: prIconColor } : undefined}
-                            title={prStatusLabel ? `PR #${prSummary.number}: ${prStatusLabel}` : `PR #${prSummary.number}`}
-                          >
-                            <Icon name="git-pull-request" className="size-3.5 shrink-0" />
-                            <span>#{prSummary.number}</span>
-                          </span>
-                        ) : null}
-
-                        {subtaskCount > 0 ? (
-                          <span className="inline-flex shrink-0 items-center gap-1" title={`${subtaskCount} ${subtaskCount === 1 ? 'subtask' : 'subtasks'}`}>
-                            <Icon name="node-tree" className="size-3.5 shrink-0" />
-                            <span>{subtaskCount}</span>
-                          </span>
-                        ) : null}
-
-                        {agentName && agentName !== 'default' ? (
-                          <span className="min-w-0 max-w-[80px] shrink-0 truncate" title={`Agent: ${agentName}`}>
-                            {agentName}
-                          </span>
-                        ) : null}
-
-                        {showActivityDuration ? (
-                          <SessionActivityDuration sessionId={session.id} running={isStreaming} className="text-muted-foreground/70" />
-                        ) : null}
-
-                        {pendingPermissionCount > 0 ? (
-                          <span className="inline-flex items-center gap-0.5 text-destructive shrink-0" title={"Permission required"} aria-label={"Permission required"}>
-                            <Icon name="shield" className="size-3.5" />
-                            <span>{pendingPermissionCount}</span>
-                          </span>
-                        ) : null}
-
-                        {pendingQuestionCount > 0 ? (
-                          <span className="inline-flex items-center gap-0.5 text-status-info shrink-0" title={pendingQuestionLabel} aria-label={pendingQuestionLabel}>
-                            <Icon name="question" className="size-3.5" />
-                            <span>{pendingQuestionCount}</span>
-                          </span>
-                        ) : null}
-                      </div>
+                {((secondaryMeta?.showFolderLabel && tooltipProjectLabel) || tooltipBranchLabel || isGitRepo || prSummary || subtaskCount > 0 || (agentName && agentName !== 'default') || showActivityDuration || pendingPermissionCount > 0 || pendingQuestionCount > 0) ? (
+                  <div className="flex w-full min-w-0 items-center gap-2 overflow-hidden pt-0.5 typography-ui-label font-normal text-muted-foreground">
+                    {secondaryMeta?.showFolderLabel && tooltipProjectLabel ? (
+                      <span className="min-w-0 max-w-[110px] shrink-0 truncate">
+                        {tooltipProjectLabel}
+                      </span>
                     ) : null}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="right" sideOffset={56} className="max-w-xs text-left">
-                  <div className="flex min-w-44 flex-col gap-1.5 text-left text-xs">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="min-w-0 truncate font-normal text-foreground">{sessionTitle}</span>
-                      {isStreaming ? (
-                        <SessionActivityDuration sessionId={session.id} running={true} className="flex-shrink-0 text-primary font-medium" />
-                      ) : showUnreadCompleteDot ? (
-                        <SessionUnreadDot label={"Session complete"} />
-                      ) : (
-                        <span className="flex-shrink-0 text-muted-foreground" title={sessionUpdatedLabel}>{sessionCompactUpdatedLabel}</span>
-                      )}
-                    </div>
-                    {isStreaming ? (
-                      <div className="flex min-w-0 items-center gap-1.5 text-primary">
-                        <AgentThinkingLoader variant="inline" text={null} animationType="spinner" speedMs={80} className="h-3 w-3 shrink-0" />
-                        <span className="min-w-0 truncate font-medium">
-                          Running for <SessionActivityDuration sessionId={session.id} running={true} />
-                        </span>
-                      </div>
-                    ) : null}
-                    {tooltipProjectLabel ? (
-                      <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-                        <Icon name="folder" className="h-3 w-3 flex-shrink-0" />
-                        <span className="min-w-0 truncate">{tooltipProjectLabel}</span>
-                      </div>
-                    ) : null}
+
                     {tooltipBranchLabel ? (
-                      <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-                        <Icon name="git-branch" className="h-3 w-3 flex-shrink-0" style={prIconColor ? { color: prIconColor } : undefined} />
-                        <span className="min-w-0 truncate">{tooltipBranchLabel}</span>
-                      </div>
+                      <span className="inline-flex min-w-0 max-w-[160px] shrink-0 items-center gap-1">
+                        <Icon
+                          name="git-branch"
+                          className={cn('size-3.5 shrink-0', !prIconColor && 'text-muted-foreground')}
+                          style={prIconColor ? { color: prIconColor } : undefined}
+                        />
+                        <span className="truncate">{tooltipBranchLabel}</span>
+                      </span>
                     ) : isGitRepo ? (
-                      <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-                        <Icon name="git-repository" className="h-3 w-3 flex-shrink-0" />
-                        <span className="min-w-0 truncate">Git Repository</span>
-                      </div>
+                      <span className="inline-flex shrink-0 items-center gap-1">
+                        <Icon name="git-repository" className="size-3.5 shrink-0 text-muted-foreground" />
+                        <span>git</span>
+                      </span>
                     ) : null}
-                    {prSummary && prStatusLabel ? (
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <Icon name="git-pull-request" className="h-3 w-3 flex-shrink-0" style={prIconColor ? { color: prIconColor } : undefined} />
-                        <span className="min-w-0 truncate" style={prIconColor ? { color: prIconColor } : undefined}>
-                          #{prSummary.number} · {prStatusLabel}
-                        </span>
-                      </div>
+
+                    {prSummary ? (
+                      <span
+                        className="inline-flex shrink-0 items-center gap-1"
+                        style={prIconColor ? { color: prIconColor } : undefined}
+                      >
+                        <Icon name="git-pull-request" className="size-3.5 shrink-0" />
+                        <span>#{prSummary.number}</span>
+                      </span>
                     ) : null}
+
                     {subtaskCount > 0 ? (
-                      <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-                        <Icon name="node-tree" className="h-3 w-3 flex-shrink-0" />
-                        <span className="min-w-0 truncate text-[11px]">
-                          {subtaskCount} {subtaskCount === 1 ? 'subtask' : 'subtasks'}
-                        </span>
-                      </div>
+                      <span className="inline-flex shrink-0 items-center gap-1">
+                        <Icon name="node-tree" className="size-3.5 shrink-0" />
+                        <span>{subtaskCount}</span>
+                      </span>
                     ) : null}
+
                     {agentName && agentName !== 'default' ? (
-                      <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-                        <Icon name="terminal" className="h-3 w-3 flex-shrink-0" />
-                        <span className="min-w-0 truncate text-[11px]">Agent: {agentName}</span>
-                      </div>
+                      <span className="min-w-0 max-w-[80px] shrink-0 truncate">
+                        {agentName}
+                      </span>
+                    ) : null}
+
+                    {showActivityDuration ? (
+                      <SessionActivityDuration sessionId={session.id} running={isStreaming} className="text-muted-foreground/70" />
+                    ) : null}
+
+                    {pendingPermissionCount > 0 ? (
+                      <span className="inline-flex items-center gap-0.5 text-destructive shrink-0" aria-label={"Permission required"}>
+                        <Icon name="shield" className="size-3.5" />
+                        <span>{pendingPermissionCount}</span>
+                      </span>
+                    ) : null}
+
+                    {pendingQuestionCount > 0 ? (
+                      <span className="inline-flex items-center gap-0.5 text-status-info shrink-0" aria-label={pendingQuestionLabel}>
+                        <Icon name="question" className="size-3.5" />
+                        <span>{pendingQuestionCount}</span>
+                      </span>
                     ) : null}
                   </div>
-                </TooltipContent>
-              </Tooltip>
+                ) : null}
+              </button>
             )}
           </div>
 
@@ -1236,7 +1150,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
               ) : showUnreadCompleteDot ? (
                 <SessionUnreadDot label={"Session complete"} />
               ) : (
-                <span className="text-[11px] text-muted-foreground/75 whitespace-nowrap" title={sessionUpdatedLabel}>
+                <span className="text-[11px] text-muted-foreground/75 whitespace-nowrap">
                   {sessionCompactUpdatedLabel}
                 </span>
               )}

@@ -67,6 +67,13 @@ const CHAT_SCROLL_STYLE = {
     overscrollBehavior: 'contain',
     overscrollBehaviorY: 'contain',
 } as const;
+// The transcript column is overflow-hidden. Without shrink-0 the composer is a
+// default flex item (shrink 1) and can collapse to a 1px border under the
+// messages. Fullscreen mobile composer is the exception: it owns the column.
+const composerBarClassName = (expanded: boolean) => cn(
+    'relative z-10 bg-background',
+    expanded ? 'flex-1 min-h-0' : 'shrink-0',
+);
 const CHAT_NAVIGATION_IGNORED_TARGET_SELECTOR = [
     'a[href]',
     'button',
@@ -1015,7 +1022,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 						isDesktopExpandedInput
 							? 'flex-1 bg-background'
 							: useCompactDraftLayout
-								? 'bg-background px-0'
+								? 'shrink-0 bg-background px-0'
 								: 'flex-1 items-center justify-center bg-background px-0 pb-[6vh]'
 					)}
 				>
@@ -1046,7 +1053,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 							</Button>
 						</div>
 					</div>
-					<div className="relative z-10 bg-background">
+					<div className={composerBarClassName(false)}>
 						{promptReadOnly ? <ReadOnlyPromptBanner /> : <ChatInput scrollToBottom={scrollToBottomOnSend} />}
 					</div>
 				</div>
@@ -1066,14 +1073,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                 >
                     <PiChamberLogo width={120} height={120} isAnimated />
                 </div>
-                <div
-                    className={cn(
-                        'relative z-10',
-						isDesktopExpandedInput
-							? 'flex-1 min-h-0 bg-background'
-							: 'bg-background'
-					)}
-				>
+                <div className={composerBarClassName(isDesktopExpandedInput)}>
                     {promptReadOnly ? <ReadOnlyPromptBanner /> : <ChatInput scrollToBottom={scrollToBottomOnSend} />}
 				</div>
             </div>
@@ -1101,14 +1101,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                         </div>
                     ) : null}
                 </div>
-                <div
-                    className={cn(
-                        'relative z-10',
-						isDesktopExpandedInput
-							? 'flex-1 min-h-0 bg-background'
-							: 'bg-background'
-					)}
-				>
+                <div className={composerBarClassName(isDesktopExpandedInput)}>
                     {promptReadOnly ? <ReadOnlyPromptBanner /> : <ChatInput scrollToBottom={scrollToBottomOnSend} />}
 				</div>
             </div>
@@ -1152,14 +1145,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                 onLoadEarlierPrompts={handleLoadOlderClick}
             />
 
-            <div
-                className={cn(
-                    'relative z-10',
-                    isDesktopExpandedInput
-                        ? 'flex-1 min-h-0 bg-background'
-                        : 'bg-background'
-                )}
-            >
+            <div className={composerBarClassName(isDesktopExpandedInput)}>
                 {!isDesktopExpandedInput && sessionMessages.length > 0 && (
                     <ScrollToBottomButton
                         visible={timelineController.showScrollToBottom}

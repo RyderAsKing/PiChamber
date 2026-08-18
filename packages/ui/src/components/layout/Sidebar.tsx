@@ -2,6 +2,7 @@ import React from 'react';
 import { cn } from '@/lib/utils';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { useUIStore } from '@/stores/useUIStore';
+import { usePanelSlide } from './usePanelSlide';
 
 const SIDEBAR_CONTENT_WIDTH = 280;
 const SIDEBAR_MIN_WIDTH = 280;
@@ -55,6 +56,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, isMobile, children, cl
             activeResizePointerIDRef.current = null;
         }
     }, [isResizing]);
+
+    const slide = usePanelSlide(isOpen);
 
     if (isMobile) {
         return null;
@@ -120,27 +123,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, isMobile, children, cl
     };
 
     const currentWidth = isResizing ? (resizingWidthRef.current ?? appliedWidth) : appliedWidth;
+    const layoutWidth = isResizing ? currentWidth : appliedWidth;
 
     return (
         <aside
             ref={sidebarRef}
             className={cn(
-                'relative flex h-full overflow-hidden border-r border-border will-change-[width] motion-reduce:transition-none',
+                'relative flex h-full overflow-hidden border-r border-border motion-reduce:transition-none',
                 'bg-sidebar',
                 !isOpen && 'border-r-0',
                 className,
             )}
             style={{
-                width: `${currentWidth}px`,
-                minWidth: `${currentWidth}px`,
-                maxWidth: `${currentWidth}px`,
+                width: `${layoutWidth}px`,
+                minWidth: `${layoutWidth}px`,
+                maxWidth: `${layoutWidth}px`,
                 ['--oc-left-sidebar-width' as string]: `${isResizing ? currentWidth : openWidth}px`,
                 overflowX: 'clip',
-                transitionProperty: isResizing ? 'none' : 'width, min-width, max-width',
-                transitionDuration: '200ms',
-                transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)',
+                transform: isResizing || slide.slidIn ? 'translateX(0)' : 'translateX(-100%)',
+                transition: isResizing ? 'none' : slide.transition,
             }}
-            aria-hidden={!isOpen || appliedWidth === 0}
+            aria-hidden={!isOpen || layoutWidth === 0}
         >
             {isOpen && (
                 <div
@@ -165,9 +168,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, isMobile, children, cl
             )}
             <div
                 className={cn(
-                    'relative z-10 flex h-full shrink-0 flex-col transition-opacity duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                    'relative z-10 flex h-full shrink-0 flex-col',
                     isResizing && 'pointer-events-none',
-                    !isOpen && 'pointer-events-none select-none opacity-0'
+                    !isOpen && 'pointer-events-none select-none',
                 )}
                 style={{ width: 'var(--oc-left-sidebar-width)', overflowX: 'hidden' }}
                 aria-hidden={!isOpen}

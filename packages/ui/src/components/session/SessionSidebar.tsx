@@ -1310,13 +1310,8 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   }, [mobileVariant, onNavigateAway, openNewSessionDraft, setActiveMainTab, setSessionSwitcherOpen]);
 
   return (
-    // One shared tooltip provider for the whole sidebar: session tooltips open
-    // instantly, and moving between rows hands the tooltip over (grouping)
-    // instead of replaying the exit/enter animation for each row.
-    // closeDelay bridges the small gap between rows: the tooltip survives the
-    // pointer crossing row margins, and the grouping timeout hands it over to
-    // the next row without an exit/enter cycle.
-    <TooltipProvider delay={0} closeDelay={150} timeout={600}>
+    // Header/action tooltips only. Session rows do not use hover/hold tooltips.
+    <TooltipProvider delay={400} closeDelay={150} timeout={600}>
     <div
       ref={sessionSearchContainerRef}
       className={cn(
@@ -1412,7 +1407,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         />
       ) : null}
 
-      {(isVisible || mobileVariant) ? <SidebarProjectsList
+      <SidebarProjectsList
         sectionsForRender={filteredSectionsForSidebarRender}
         projectSections={projectSections}
         activeProjectId={activeProjectId}
@@ -1448,7 +1443,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         openSidebarMenuKey={openSidebarMenuKey}
         setOpenSidebarMenuKey={setOpenSidebarMenuKey}
         isInlineEditing={isInlineEditing}
-      /> : null}
+      />
 
       {selectionModeEnabled && hasSelection ? (
         <BulkActionBar

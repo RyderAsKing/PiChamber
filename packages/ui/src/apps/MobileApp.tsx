@@ -57,6 +57,9 @@ import { useDeepLinkHandlers, useDeepLinkSource } from './deepLinkNavigation';
 import { useEdgeSwipe } from './useEdgeSwipe';
 import { useNativePushRegistration } from './useNativePushRegistration';
 import { IpadSidebarResizeHandle } from './IpadSidebarResizeHandle';
+import { Header } from '@/components/layout/Header';
+import { TitlebarLeftControls } from '@/components/layout/TitlebarLeftControls';
+import { usePanelSlide } from '@/components/layout/usePanelSlide';
 import {
   IPAD_LEFT_SIDEBAR_WIDTH,
   IPAD_RIGHT_SIDEBAR_WIDTH,
@@ -131,17 +134,21 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   const orientation = useOrientation();
   const isPortrait = orientation === 'portrait';
   const hasHardwareKeyboard = useHardwareKeyboard();
-  const [sidebarOpen, setSidebarOpen] = React.useState(() => readTabletLayout().roomyForPanels);
-
-  const toggleSidebar = React.useCallback(() => {
-    setSidebarOpen((current: boolean) => !current);
-  }, []);
+  const setSidebarOpen = useUIStore((state) => state.setSidebarOpen);
+  const sidebarOpen = useUIStore((state) => state.isSidebarOpen);
+  const wasTabletLayoutRef = React.useRef(false);
 
   // Folding shut (or losing the room for a side-by-side layout) must not leave
   // a sidebar open over a phone-width screen.
-  React.useEffect(() => {
-    if (!isTabletLayout) setSidebarOpen(false);
-  }, [isTabletLayout]);
+  React.useLayoutEffect(() => {
+    if (isTabletLayout && !wasTabletLayoutRef.current) {
+      setSidebarOpen(readTabletLayout().roomyForPanels);
+    }
+    if (!isTabletLayout && wasTabletLayoutRef.current) {
+      setSidebarOpen(false);
+    }
+    wasTabletLayoutRef.current = isTabletLayout;
+  }, [isTabletLayout, setSidebarOpen]);
 
   const openFilesSurface = React.useCallback(() => {
     setPendingChangesDiff(null);
@@ -169,6 +176,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   // drawer, which is the layout that actually works at that width.
   const workspaceAsPanel = roomyForPanels;
   const workspacePanelWidth = workspaceAsPanel && workspaceOpen ? rightResize.width : 0;
+  const sidebarSlide = usePanelSlide(isTabletLayout && sidebarOpen);
   const sidebarWidth = isTabletLayout && sidebarOpen ? leftResize.width : 0;
 
   // Publish the chat column's insets so overlays portaled to <body> (model
@@ -249,7 +257,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         openSettingsSurface(section ? 'page-content' : 'nav');
       },
     }),
-    [isTabletLayout, openChangesSurface, openFilesSurface, openSettingsSurface, openSurface, setSettingsPage],
+    [isTabletLayout, openChangesSurface, openFilesSurface, openSettingsSurface, openSurface, setSettingsPage, setSidebarOpen],
   );
   useDeepLinkHandlers(deepLinkHandlers);
 
@@ -306,32 +314,27 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           <aside
             ref={leftResize.asideRef}
             className={cn(
-              // bg-background, not bg-sidebar: the session/worktree/project
-              // rows are opaque bg-background (the swipe actions live under
-              // them), so a tinted sidebar would show through as row-shaped
-              // bands. Same surface as the phone drawer.
-              'relative flex h-full shrink-0 flex-col overflow-hidden border-r border-border/70 bg-background will-change-[width] motion-reduce:transition-none',
+              'relative flex h-full shrink-0 flex-col overflow-hidden border-r border-border/70 bg-sidebar motion-reduce:transition-none',
               !sidebarOpen && 'border-r-0',
             )}
             style={{
-              width: sidebarOpen ? leftResize.width : 0,
-              minWidth: sidebarOpen ? leftResize.width : 0,
-              maxWidth: sidebarOpen ? leftResize.width : 0,
+              width: sidebarWidth,
+              minWidth: sidebarWidth,
+              maxWidth: sidebarWidth,
               ['--oc-ipad-sidebar-width' as string]: `${leftResize.width}px`,
               overflowX: 'clip',
               paddingTop: 'var(--oc-safe-area-top, 0px)',
-              transitionProperty: leftResize.isResizing ? 'none' : 'width, min-width, max-width',
-              transitionDuration: '200ms',
-              transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)',
+              transform: leftResize.isResizing || sidebarSlide.slidIn ? 'translateX(0)' : 'translateX(-100%)',
+              transition: leftResize.isResizing ? 'none' : sidebarSlide.transition,
             }}
             aria-hidden={!sidebarOpen}
             data-page-scroll-lock="true"
           >
             <div
               className={cn(
-                'flex h-full shrink-0 flex-col transition-opacity duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                'flex h-full shrink-0 flex-col',
                 leftResize.isResizing && 'pointer-events-none',
-                !sidebarOpen && 'pointer-events-none select-none opacity-0',
+                !sidebarOpen && 'pointer-events-none select-none',
               )}
               style={{ width: 'var(--oc-ipad-sidebar-width)', overflowX: 'hidden' }}
             >
@@ -361,12 +364,21 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           </aside>
         ) : null}
 
-        <div className="flex h-full min-w-0 flex-1 flex-col" data-page-scroll-lock="true">
-          <MobileHeader
-            onOpenSessions={() => (isTabletLayout ? toggleSidebar() : setSessionsSheetOpen(true))}
-            onOpenWorkspace={() => setWorkspaceOpen(true)}
-            compactTitle={isTabletLayout}
-          />
+        <div className="relative flex h-full min-w-0 flex-1 flex-col" data-page-scroll-lock="true">
+          {isTabletLayout ? (
+            <>
+              <TitlebarLeftControls />
+              <Header
+                onToggleRightDrawer={() => setWorkspaceOpen(true)}
+                rightDrawerOpen={workspaceOpen}
+              />
+            </>
+          ) : (
+            <MobileHeader
+              onOpenSessions={() => setSessionsSheetOpen(true)}
+              onOpenWorkspace={() => setWorkspaceOpen(true)}
+            />
+          )}
           <main ref={chatMainRef} className="relative min-h-0 flex-1 overflow-hidden" data-page-scroll-lock="true">
             <div className="h-full w-full">
               <ErrorBoundary>
@@ -480,7 +492,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           >
             <ErrorBoundary>
               <SettingsView
-                forceMobile
+                forceMobile={!isTabletLayout}
                 isWindowed
                 initialMobileStage={settingsInitialMobileStage}
                 onClose={closeSurface}

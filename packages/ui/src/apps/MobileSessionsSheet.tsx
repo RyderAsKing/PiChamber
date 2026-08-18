@@ -66,13 +66,14 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
     close();
   }, [close, openNewSessionDraft, setActiveMainTab, setSessionSwitcherOpen]);
 
+  const isTabletSidebar = variant === 'sidebar';
   const sidebar = (
     <SessionSidebar
-      mobileVariant
+      mobileVariant={!isTabletSidebar}
       isVisible
       allowReselect
-      onSessionSelected={close}
-      onNavigateAway={close}
+      onSessionSelected={isTabletSidebar ? undefined : close}
+      onNavigateAway={isTabletSidebar ? undefined : close}
     />
   );
 
@@ -80,20 +81,6 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
     return (
       <aside className="relative flex h-full w-full flex-col bg-sidebar">
         {sidebar}
-        <Button
-          type="button"
-          variant="outline"
-          size="lg"
-          className="absolute z-20 size-12 rounded-full p-0 [corner-shape:round] supports-[corner-shape:squircle]:rounded-full"
-          style={{
-            right: '1rem',
-            bottom: 'calc(1rem + var(--oc-safe-area-bottom, 0px))',
-          }}
-          onClick={handleNewSession}
-          aria-label="New session"
-        >
-          <Icon name="chat-new" className="size-5" />
-        </Button>
       </aside>
     );
   }

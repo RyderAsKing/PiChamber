@@ -5,7 +5,9 @@ everything between typing and sending.
 
 `ChatInput.tsx` (one directory up) is the orchestrator. It holds the composer's
 own state and wires these modules together; it should not grow logic that
-belongs to one of them.
+belongs to one of them. `ChatContainer` pins that chrome with `shrink-0` at the
+bottom of the overflow-hidden chat column so the transcript scroller cannot
+collapse the editor or the in-card footer.
 
 ## Layers
 
