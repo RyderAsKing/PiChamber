@@ -6,7 +6,8 @@ import { useTabletLayout } from '@/lib/device';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useSelectionStore } from '@/sync/selection-store';
-import { useSessionMessages } from '@/sync/sync-context';
+import { useSessionMessageRecords } from '@/sync/sync-context';
+import { computePiContextWindowTokens, extractSessionMessageBreakdown, type PiUsageLike } from '@/stores/utils/tokenUtils';
 
 const TABLET_METADATA_POPOVER_WIDTH = 380;
 
@@ -26,10 +27,6 @@ const getNumericLimit = (limit: unknown, key: 'context' | 'output'): number | un
   const value = (limit as Partial<Record<'context' | 'output', unknown>>)[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 };
-
-const getTokenCount = (value: unknown): number => (
-  typeof value === 'number' && Number.isFinite(value) ? value : 0
-);
 
 const formatTokens = (value: number): string => {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -197,10 +194,10 @@ const SessionMetadataOverlay: React.FC<{
     <div ref={wrapperRef} className="fixed inset-x-0 bottom-0 top-[calc(var(--oc-safe-area-top,0px)+var(--oc-header-height,56px))] z-20 pointer-events-none">
       <div
         ref={panelRef}
-        role="dialog"
-        aria-label={"Open session metadata"}
+        role="tooltip"
+        aria-label={"Context usage for current conversation"}
         className={cn(
-          'overflow-y-auto overscroll-contain rounded-[20px] border border-border/70 bg-[var(--surface-elevated)] p-2 shadow-[0_12px_32px_rgb(0_0_0_/_0.2)] will-change-transform',
+          'overflow-y-auto overscroll-contain rounded-lg border border-border/70 bg-[var(--surface-elevated)] p-2 shadow-[0_8px_24px_rgb(0_0_0_/_0.18)] will-change-transform',
           isPopover ? 'absolute origin-top-left' : 'mx-3 mt-2',
           isExiting ? 'pointer-events-none' : 'pointer-events-auto',
         )}
@@ -227,7 +224,11 @@ const SessionMetadataOverlay: React.FC<{
                 <span className="text-muted-foreground">{contextDisplay.tokens}</span>
               </span>
             </MetadataRow>
-          ) : null}
+          ) : (
+            <div className="px-2.5 py-2 typography-meta text-muted-foreground">
+              {"Context usage is not available for this conversation yet."}
+            </div>
+          )}
         </div>
       </div>
       <style>{`
@@ -258,10 +259,11 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
   isNewSessionDraftOpen: boolean;
 }) {
   const metadataTriggerRef = React.useRef<HTMLButtonElement>(null);
-  const activeSessionMessages = useSessionMessages(currentSessionId ?? '', effectiveDirectory ?? undefined);
+  const activeSessionMessageRecords = useSessionMessageRecords(currentSessionId ?? '', effectiveDirectory ?? undefined);
   const providers = useConfigStore((state) => state.providers);
   const currentProviderId = useConfigStore((state) => state.currentProviderId);
   const currentModelId = useConfigStore((state) => state.currentModelId);
+  const currentModel = useConfigStore((state) => state.getCurrentModel());
   const getModelMetadata = useConfigStore((state) => state.getModelMetadata);
   useConfigStore((state) => state.modelsMetadata.size);
   const savedSessionModel = useSelectionStore(
@@ -272,23 +274,41 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
   );
 
   const latestMessageModel = React.useMemo(() => {
-    for (let i = activeSessionMessages.length - 1; i >= 0; i -= 1) {
-      const message = activeSessionMessages[i] as typeof activeSessionMessages[number] & {
-        model?: { providerID?: string; modelID?: string };
+    for (let i = activeSessionMessageRecords.length - 1; i >= 0; i -= 1) {
+      const message = activeSessionMessageRecords[i]?.info as typeof activeSessionMessageRecords[number]['info'] & {
+        model?: { providerID?: string; modelID?: string; providerId?: string; modelId?: string };
       };
       if (message.role !== 'user') continue;
-      const providerID = typeof message.model?.providerID === 'string' && message.model.providerID.trim().length > 0
-        ? message.model.providerID
+      const messageModel = message.model;
+      const providerCandidate = messageModel?.providerID ?? messageModel?.providerId;
+      const modelCandidate = messageModel?.modelID ?? messageModel?.modelId;
+      const providerID = typeof providerCandidate === 'string' && providerCandidate.trim().length > 0
+        ? providerCandidate
         : undefined;
-      const modelID = typeof message.model?.modelID === 'string' && message.model.modelID.trim().length > 0
-        ? message.model.modelID
+      const modelID = typeof modelCandidate === 'string' && modelCandidate.trim().length > 0
+        ? modelCandidate
         : undefined;
       if (providerID && modelID) return { providerID, modelID };
     }
     return null;
-  }, [activeSessionMessages]);
+  }, [activeSessionMessageRecords]);
+
+  const contextMessage = React.useMemo(() => {
+    for (let i = activeSessionMessageRecords.length - 1; i >= 0; i -= 1) {
+      const record = activeSessionMessageRecords[i];
+      if (record?.info.role !== 'assistant') continue;
+      if (extractSessionMessageBreakdown(record).total > 0) return record;
+    }
+    return null;
+  }, [activeSessionMessageRecords]);
 
   const modelRef = latestMessageModel
+    ?? (() => {
+      const model = contextMessage?.info.model as { providerID?: string; providerId?: string; modelID?: string; modelId?: string } | undefined;
+      const providerID = model?.providerID ?? model?.providerId;
+      const modelID = model?.modelID ?? model?.modelId;
+      return providerID && modelID ? { providerID, modelID } : null;
+    })()
     ?? (savedSessionModel ? { providerID: savedSessionModel.providerId, modelID: savedSessionModel.modelId } : null)
     ?? (currentProviderId && currentModelId ? { providerID: currentProviderId, modelID: currentModelId } : null);
   const provider = modelRef ? providers.find((entry) => entry.id === modelRef.providerID) : undefined;
@@ -296,27 +316,13 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
   const metadata = modelRef ? getModelMetadata(modelRef.providerID, modelRef.modelID) : undefined;
   const contextLimit = getNumericLimit((liveModel as { limit?: unknown } | undefined)?.limit, 'context')
     ?? metadata?.limit?.context
+    ?? getNumericLimit((currentModel as { limit?: unknown } | undefined)?.limit, 'context')
     ?? 0;
-  const totalTokens = React.useMemo(() => {
-    for (let i = activeSessionMessages.length - 1; i >= 0; i -= 1) {
-      const message = activeSessionMessages[i] as typeof activeSessionMessages[number] & {
-        tokens?: {
-          input?: unknown;
-          output?: unknown;
-          reasoning?: unknown;
-          cache?: { read?: unknown; write?: unknown };
-        };
-      };
-      if (message.role !== 'assistant' || !message.tokens) continue;
-      const total = getTokenCount(message.tokens.input)
-        + getTokenCount(message.tokens.output)
-        + getTokenCount(message.tokens.reasoning)
-        + getTokenCount(message.tokens.cache?.read)
-        + getTokenCount(message.tokens.cache?.write);
-      if (total > 0) return total;
-    }
-    return 0;
-  }, [activeSessionMessages]);
+  const contextBreakdown = contextMessage ? extractSessionMessageBreakdown(contextMessage) : null;
+  const contextUsage = (contextMessage?.info as { usage?: PiUsageLike } | undefined)?.usage;
+  const totalTokens = contextUsage
+    ? computePiContextWindowTokens(contextUsage)
+    : contextBreakdown?.total ?? 0;
 
   const contextPercentage =
     !isNewSessionDraftOpen && totalTokens > 0 && contextLimit > 0
@@ -343,7 +349,8 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
         ref={metadataTriggerRef}
         type="button"
         className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        aria-label={"Open session metadata"}
+        aria-label={"Show context usage for current conversation"}
+        title={"Context usage"}
         aria-expanded={open}
         onClick={() => onOpenChange((currentOpen) => !currentOpen)}
         style={{ touchAction: 'manipulation' }}

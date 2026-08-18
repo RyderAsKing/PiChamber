@@ -60,7 +60,11 @@ export function useRouter(): void {
           const currentSessionId = useSessionUIStore.getState().currentSessionId;
           const piSelectedId = getPiSessionStore().getState().selectedSessionId;
           if (route.sessionId !== currentSessionId || route.sessionId !== piSelectedId) {
-            const directoryHint = useSessionUIStore.getState().getDirectoryForSession(route.sessionId);
+            const embeddedDirectory = isEmbeddedChat && typeof window !== 'undefined'
+              ? new URLSearchParams(window.location.search).get('directory')
+              : null;
+            const directoryHint = embeddedDirectory
+              || useSessionUIStore.getState().getDirectoryForSession(route.sessionId);
             setCurrentSession(route.sessionId, directoryHint);
           }
         }
@@ -91,7 +95,7 @@ export function useRouter(): void {
         isApplyingRouteRef.current = false;
       }
     },
-    [setCurrentSession, setActiveMainTab, setSettingsDialogOpen, setSettingsPage, navigateToDiff]
+    [isEmbeddedChat, setCurrentSession, setActiveMainTab, setSettingsDialogOpen, setSettingsPage, navigateToDiff]
   );
 
   /**

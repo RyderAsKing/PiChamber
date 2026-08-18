@@ -2176,8 +2176,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         "shadow-[0_4px_16px_-4px_rgb(0_0_0_/_0.12)]",
                         "focus-within:ring-1",
                         inputMode === 'shell'
-                            ? 'focus-within:ring-[var(--status-info)]'
-                            : 'focus-within:ring-primary/50',
+                            ? 'focus-within:ring-[color:color-mix(in_srgb,var(--status-info)_45%,transparent)]'
+                            : 'focus-within:ring-primary/30',
                         isDragging && "ring-2 ring-primary ring-offset-2"
                     )}
                     style={{

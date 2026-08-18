@@ -205,7 +205,7 @@ export function WorkingPlaceholder({
 
     return (
       <div
-        className="flex h-full items-center text-muted-foreground pl-0.5"
+        className="flex h-full min-w-0 items-center text-muted-foreground"
         role="status"
         aria-live="polite"
         aria-label={`${retryText}...`}
@@ -229,13 +229,13 @@ export function WorkingPlaceholder({
 
   return (
     <div
-      className="flex h-full items-center text-muted-foreground pl-0.5"
+      className="flex h-full min-w-0 items-center text-muted-foreground"
       role="status"
       aria-live={displayedPermission ? 'assertive' : 'polite'}
       aria-label={label}
       data-waiting={displayedPermission ? 'true' : undefined}
     >
-      <span className="typography-ui-header inline-flex items-center gap-1.5">
+      <span className="typography-ui-header inline-flex min-w-0 items-center gap-1.5 leading-5">
         {hasProviderLogo && providerLogoSrc ? (
           <img
             src={providerLogoSrc}
@@ -248,7 +248,7 @@ export function WorkingPlaceholder({
             onError={handleProviderLogoError}
           />
         ) : null}
-        <AgentThinkingLoader text={label} variant="inline" animationType="spinner" />
+        <AgentThinkingLoader text={label} variant="inline" animationType="spinner" className="min-w-0" />
       </span>
     </div>
   );

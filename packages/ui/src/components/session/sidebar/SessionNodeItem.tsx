@@ -585,62 +585,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     setRenameDraft(editTitle);
   }, [editingId, editTitle, session.id]);
 
-  if (editingId === session.id) {
-    return (
-      <div
-        key={session.id}
-        style={{ paddingLeft: ROW_TEXT_LEFT_PX + depth * ROW_DEPTH_STEP_PX }}
-        // my-0.5 matches the normal row box so entering rename mode does not
-        // shift the row vertically.
-        className="group relative my-0.5 flex items-center rounded-sm py-1 pr-1.5"
-      >
-        <div className="flex min-w-0 flex-1 flex-col gap-0">
-          <form
-            ref={formRef}
-            data-session-rename-form={session.id}
-            className="flex w-full items-center gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              handleSaveEdit(renameDraft);
-            }}
-          >
-            <input
-              value={renameDraft}
-              onChange={(event) => setRenameDraft(event.target.value)}
-              className="flex-1 min-w-0 bg-transparent typography-ui-label outline-none placeholder:text-muted-foreground"
-              autoFocus
-              placeholder={"Rename"}
-              onKeyDown={(event) => {
-                event.stopPropagation();
-                if (event.key === 'Escape') {
-                  handleCancelEdit();
-                  return;
-                }
-              }}
-            />
-            <button
-              type="submit"
-              aria-label={"Save session name"}
-              title={"Save session name"}
-              className="shrink-0 text-muted-foreground hover:text-foreground"
-            >
-              <Icon name="check" className="size-4" />
-            </button>
-            <button
-              type="button"
-              onClick={handleCancelEdit}
-              aria-label={"Cancel renaming session"}
-              title={"Cancel renaming session"}
-              className="shrink-0 text-muted-foreground hover:text-foreground"
-            >
-              <Icon name="close" className="size-4" />
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
   const pendingPermissionCount = sessionPermissions.length;
   const pendingQuestionLabel = pendingQuestionCount === 1
     ? "1 pending question"
@@ -1062,7 +1006,50 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
             {subsessionChevron}
             {leadingIndicators}
-            {(
+            {editingId === session.id ? (
+              <form
+                ref={formRef}
+                data-session-rename-form={session.id}
+                className="flex min-h-8 min-w-0 flex-1 items-center gap-2"
+                onPointerDown={(event) => event.stopPropagation()}
+                onMouseDown={(event) => event.stopPropagation()}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  handleSaveEdit(renameDraft);
+                }}
+              >
+                <input
+                  value={renameDraft}
+                  onChange={(event) => setRenameDraft(event.target.value)}
+                  className="min-w-0 flex-1 bg-transparent typography-ui-label text-foreground outline-none placeholder:text-muted-foreground"
+                  autoFocus
+                  placeholder={"Rename"}
+                  onKeyDown={(event) => {
+                    event.stopPropagation();
+                    if (event.key === 'Escape') {
+                      handleCancelEdit();
+                    }
+                  }}
+                />
+                <button
+                  type="submit"
+                  aria-label={"Save session name"}
+                  title={"Save session name"}
+                  className="shrink-0 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                >
+                  <Icon name="check" className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  aria-label={"Cancel renaming session"}
+                  title={"Cancel renaming session"}
+                  className="shrink-0 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                >
+                  <Icon name="close" className="size-4" />
+                </button>
+              </form>
+            ) : (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button

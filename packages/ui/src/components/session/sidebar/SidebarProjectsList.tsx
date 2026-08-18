@@ -4,7 +4,6 @@ import { formatDirectoryName, cn } from '@/lib/utils';
 import type { SessionGroup, SessionNode } from './types';
 import { formatProjectLabel } from './utils';
 import { SidebarSessionLikeButton } from './sidebarRowChrome';
-import type { ProjectSortOrder } from '@/stores/useSessionDisplayStore';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import type { SortableDragHandleProps } from './sortableItems';
 import { ProjectHeaderIdentity } from './sortableItems';
@@ -87,7 +86,6 @@ type Props = {
   removeProject: (id: string) => void;
   projectHeaderSentinelRefs: React.MutableRefObject<Map<string, HTMLDivElement | null>>;
   reorderProjects: (fromIndex: number, toIndex: number) => void;
-  projectSortOrder: ProjectSortOrder;
   openSidebarMenuKey: string | null;
   setOpenSidebarMenuKey: (key: string | null) => void;
   isInlineEditing: boolean;

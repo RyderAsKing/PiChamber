@@ -112,10 +112,6 @@ export function rememberRuntimeLiveStatus(_args?: unknown): void {
   void _args;
 }
 
-export function setContextObligatoryMessage(..._args: unknown[]): void {
-  void _args;
-}
-
 export async function dismissOpenPermissionsForSession(_sessionId: string): Promise<boolean> {
   void _sessionId;
   return false;

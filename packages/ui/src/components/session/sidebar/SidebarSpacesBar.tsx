@@ -25,7 +25,6 @@ import {
 } from '@/components/ui/context-menu';
 import { cn, formatDirectoryName } from '@/lib/utils';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { formatProjectLabel, sidebarRowIconClass, sidebarRowLabelClass } from './utils';
 
 export type SpaceProject = {
@@ -191,7 +190,6 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
 }) => {
   const isAllSelected = selectedProjectId === null;
   const reorderProjects = useProjectsStore((state) => state.reorderProjects);
-  const setProjectSortOrder = useSessionDisplayStore((state) => state.setProjectSortOrder);
   const canDrag = projects.length > 1;
 
   const sensors = useSensors(
@@ -206,9 +204,8 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
     const fromIndex = storeProjects.findIndex((project) => project.id === active.id);
     const toIndex = storeProjects.findIndex((project) => project.id === over.id);
     if (fromIndex < 0 || toIndex < 0) return;
-    setProjectSortOrder('manual');
     reorderProjects(fromIndex, toIndex);
-  }, [reorderProjects, setProjectSortOrder]);
+  }, [reorderProjects]);
 
   return (
     <div className={cn('select-none px-3 pt-1 pb-2 border-b border-border/40 space-y-0.5', className)}>

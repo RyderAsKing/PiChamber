@@ -10,10 +10,8 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionMessageRecords } from '@/sync/sync-context';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from "@/components/icon/Icon";
 import { getFullText, getMessagePreview } from './lib/messagePreview';
-import { useDeviceInfo } from '@/lib/device';
 import { cn } from '@/lib/utils';
 
 interface TimelineDialogProps {
@@ -40,12 +38,6 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
     
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
     const messages = useSessionMessageRecords(currentSessionId ?? '');
-    const revertToMessage = useSessionUIStore((state) => state.revertToMessage);
-    const forkFromMessage = useSessionUIStore((state) => state.forkFromMessage);
-    const { isMobile, isTablet } = useDeviceInfo();
-    const alwaysShowActions = isMobile || isTablet;
-
-    const [forkingMessageId, setForkingMessageId] = React.useState<string | null>(null);
     const [searchQuery, setSearchQuery] = React.useState('');
     const [selectedIndex, setSelectedIndex] = React.useState(0);
     const itemRefs = React.useRef<(HTMLDivElement | null)[]>([]);
@@ -208,18 +200,6 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
         }
     }, [filteredMessages, navigateToMessage, selectedIndex]);
 
-    // Handle fork with loading state and session refresh
-    const handleFork = async (messageId: string) => {
-        if (!currentSessionId) return;
-        setForkingMessageId(messageId);
-        try {
-            await forkFromMessage(currentSessionId, messageId);
-            onOpenChange(false);
-        } finally {
-            setForkingMessageId(null);
-        }
-    };
-
     if (!currentSessionId) return null;
 
     return (
@@ -231,7 +211,7 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
                         {"Conversation Timeline"}
                     </DialogTitle>
                     <DialogDescription>
-                        {"Navigate to any point in the conversation or fork a new session"}
+                        {"Navigate to any point in the conversation"}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -324,47 +304,6 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
                                             {!snippet && preview && preview.length >= 80 && '…'}
                                         </p>
 
-                                        <div className="flex-shrink-0 h-5 flex items-center mr-2">
-                                            <div className={cn("gap-1", alwaysShowActions ? "flex" : "hidden group-hover:flex")}>
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        <button
-                                                            type="button"
-                                                            className="h-5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
-                                                            onClick={async (e) => {
-                                                                e.stopPropagation();
-                                                                await revertToMessage(currentSessionId, message.info.id);
-                                                                onOpenChange(false);
-                                                            }}
-                                                        >
-                                                            <Icon name="arrow-go-back" className="h-4 w-4" />
-                                                        </button>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent sideOffset={6}>{"Revert from here"}</TooltipContent>
-                                                </Tooltip>
-
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        <button
-                                                            type="button"
-                                                            className="h-5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleFork(message.info.id);
-                                                            }}
-                                                            disabled={forkingMessageId === message.info.id}
-                                                        >
-                                                            {forkingMessageId === message.info.id ? (
-                                                                <Icon name="loader-4" className="h-4 w-4 animate-spin" />
-                                                            ) : (
-                                                                <Icon name="git-branch" className="h-4 w-4" />
-                                                            )}
-                                                        </button>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent sideOffset={6}>{"Fork from here"}</TooltipContent>
-                                                </Tooltip>
-                                            </div>
-                                        </div>
                                     </div>
                                 </React.Fragment>
                             );

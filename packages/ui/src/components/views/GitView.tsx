@@ -50,7 +50,7 @@ import { ConflictDialog } from './git/ConflictDialog';
 import { StashDialog } from './git/StashDialog';
 import { InProgressOperationBanner } from './git/InProgressOperationBanner';
 import { BranchIntegrationSection, type OperationLogEntry } from './git/BranchIntegrationSection';
-import { deriveBaseBranch } from './git/baseBranch';
+import { deriveBaseBranch, hasResolvableBaseBranch } from './git/baseBranch';
 import { createGitIndexMutationQueue, type GitIndexMutationDirection, type GitIndexMutationQueue } from './git/gitIndexMutationQueue';
 import type { GitRemote } from '@/lib/gitApi';
 import { cn } from '@/lib/utils';
@@ -1189,6 +1189,19 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     localBranches,
   ]);
 
+  const branchScopeAvailable = Boolean(
+    currentBranch
+    && baseBranch
+    && currentBranch !== baseBranch
+    && (status?.tracking || effectiveRemotes.length > 0)
+    && typeof git.getGitRangeDiff === 'function'
+    && hasResolvableBaseBranch({
+      baseBranch,
+      localBranches,
+      remoteBranches,
+    }),
+  );
+
   const updateTargetBranch = React.useMemo(() => {
     const remoteNames = effectiveRemotes.map((remote) => remote.name);
     const remoteCandidates = remoteNames.map((remote) => `${remote}/${baseBranch}`);
@@ -2038,11 +2051,14 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
 
       <div className="flex-1 min-h-0 overflow-hidden">
         <div className="flex h-full min-h-0 flex-col">
-          {(changeEntries?.length ?? 0) > 0 ? (
+          {(changeEntries?.length ?? 0) > 0 || branchScopeAvailable ? (
             <>
               <div className="min-h-0 flex-1 overflow-hidden">
                 <React.Suspense fallback={null}>
                   <DiffView
+                    diffScope={changeEntries.length > 0 ? 'all' : 'branch'}
+                    branchBase={branchScopeAvailable ? baseBranch : null}
+                    branchHead={branchScopeAvailable ? currentBranch : null}
                     showOpenInEditorAction
                     hideStackedFileSidebar
                     stackedDefaultCollapsedAll
@@ -2050,23 +2066,25 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
                   />
                 </React.Suspense>
               </div>
-              <div ref={actionPanelScrollRef} className="shrink-0 px-4 pb-4 pt-2">
-                <CommitSection
-                  stagedCount={stagedCount}
-                  commitMessage={commitMessage}
-                  onCommitMessageChange={setCommitMessage}
-                  generatedHighlights={generatedHighlights}
-                  onInsertHighlights={handleInsertHighlights}
-                  onGenerateMessage={handleGenerateCommitMessage}
-                  isGeneratingMessage={isGeneratingMessage}
-                  onCommit={() => handleCommit({ pushAfter: false })}
-                  onCommitAndPush={() => handleCommit({ pushAfter: true })}
-                  commitAction={commitAction}
-                  hasPendingIndexMutation={hasPendingIndexMutation}
-                  gitmojiEnabled={settingsGitmojiEnabled}
-                  onOpenGitmojiPicker={() => setIsGitmojiPickerOpen(true)}
-                />
-              </div>
+              {changeEntries.length > 0 ? (
+                <div ref={actionPanelScrollRef} className="shrink-0 px-4 pb-4 pt-2">
+                  <CommitSection
+                    stagedCount={stagedCount}
+                    commitMessage={commitMessage}
+                    onCommitMessageChange={setCommitMessage}
+                    generatedHighlights={generatedHighlights}
+                    onInsertHighlights={handleInsertHighlights}
+                    onGenerateMessage={handleGenerateCommitMessage}
+                    isGeneratingMessage={isGeneratingMessage}
+                    onCommit={() => handleCommit({ pushAfter: false })}
+                    onCommitAndPush={() => handleCommit({ pushAfter: true })}
+                    commitAction={commitAction}
+                    hasPendingIndexMutation={hasPendingIndexMutation}
+                    gitmojiEnabled={settingsGitmojiEnabled}
+                    onOpenGitmojiPicker={() => setIsGitmojiPickerOpen(true)}
+                  />
+                </div>
+              ) : null}
             </>
           ) : (
             <GitEmptyState onOpenStashes={() => setIsStashesDialogOpen(true)} />

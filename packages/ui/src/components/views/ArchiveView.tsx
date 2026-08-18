@@ -1,4 +1,5 @@
 import React from 'react';
+import { Dialog } from '@base-ui/react/dialog';
 import type { Session } from '@/lib/chat/types';
 import { Icon } from '@/components/icon/Icon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -143,10 +144,31 @@ export function ArchiveView(): React.ReactNode {
   );
 
   return (
-    <div className="absolute inset-0 z-10 flex flex-col bg-background">
-      <div className="flex min-h-0 flex-1">
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Portal>
+        <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/25 dark:bg-black/40 transition-opacity duration-150 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 max-[640px]:p-2 pointer-events-none">
+          <Dialog.Popup className="pointer-events-auto flex h-[min(84vh,720px)] max-h-[calc(100dvh-2rem)] w-[min(92vw,960px)] flex-col overflow-hidden rounded-2xl border border-border/80 bg-background shadow-2xl transition-all duration-150 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 max-[640px]:h-[calc(100dvh-1rem)] max-[640px]:max-h-none max-[640px]:w-[calc(100vw-1rem)] max-[640px]:rounded-xl">
+            <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/70 bg-sidebar px-4">
+              <Dialog.Title className="flex items-center gap-2 typography-ui-label font-medium text-foreground">
+                <Icon name="archive" className="size-4 text-muted-foreground" />
+                {"Archived sessions"}
+              </Dialog.Title>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                aria-label={"Close archived sessions"}
+              >
+                <Icon name="close" className="size-4" />
+              </button>
+            </div>
+            <Dialog.Description className="sr-only">
+              {"Browse and restore archived sessions."}
+            </Dialog.Description>
+            <div className="flex min-h-0 flex-1">
         {/* Directory filter panel */}
-        <div className="flex w-64 flex-shrink-0 flex-col border-r border-border/50">
+        <div className="flex w-64 flex-shrink-0 flex-col border-r border-border/50 max-[640px]:w-40">
           <div className="flex-1 space-y-0.5 overflow-y-auto p-2">
             {renderDirectoryItem(
               '__all__',
@@ -182,7 +204,6 @@ export function ArchiveView(): React.ReactNode {
                 className="h-8 w-full rounded-md border border-border bg-transparent pl-8 pr-3 typography-ui-label text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
               />
             </div>
-            {/* Pages have no close button: you leave via the sidebar. */}
             <span className="flex-shrink-0 typography-micro text-muted-foreground">
               {filteredSessions.length === 1
                 ? `${filteredSessions.length} archived session`
@@ -265,7 +286,10 @@ export function ArchiveView(): React.ReactNode {
             </div>
           </div>
         </div>
-      </div>
-    </div>
+            </div>
+          </Dialog.Popup>
+        </div>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
