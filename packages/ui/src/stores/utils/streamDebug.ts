@@ -1,3 +1,5 @@
+import { isPerfHudEnabled } from '@/lib/perf/perfFlags';
+
 export const streamDebugEnabled = (): boolean => {
     if (typeof window === 'undefined') return false;
     try {
@@ -61,6 +63,8 @@ const readInitialStreamPerfEnabled = (): boolean => {
 
 let streamPerfEnabled = readInitialStreamPerfEnabled();
 
+const isStreamPerfWanted = (): boolean => streamPerfEnabled || isPerfHudEnabled();
+
 const nowMs = (): number => {
     if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
         return performance.now();
@@ -69,7 +73,7 @@ const nowMs = (): number => {
 };
 
 const ensureStreamPerfState = (): StreamPerfState | null => {
-    if (!streamPerfEnabled || typeof window === 'undefined') {
+    if (!isStreamPerfWanted() || typeof window === 'undefined') {
         return null;
     }
 
@@ -131,7 +135,9 @@ export const setStreamPerfEnabled = (enabled: boolean): void => {
         }
 
         window.localStorage.removeItem(STREAM_PERF_STORAGE_KEY);
-        delete window.__pichamberStreamPerfState;
+        if (!isPerfHudEnabled()) {
+            delete window.__pichamberStreamPerfState;
+        }
     } catch {
         // ignore storage failures in debug helper
     }
@@ -142,7 +148,7 @@ export const resetStreamPerf = (): void => {
         return;
     }
 
-    if (streamPerfEnabled) {
+    if (isStreamPerfWanted()) {
         window.__pichamberStreamPerfState = {
             counters: new Map<string, PerfCounter>(),
             startedAt: Date.now(),
@@ -162,8 +168,8 @@ export const getStreamPerfSnapshot = (): StreamPerfSnapshot => {
         };
     }
 
-    const state = window.__pichamberStreamPerfState;
-    if (!streamPerfEnabled || !state) {
+    const state = ensureStreamPerfState();
+    if (!state) {
         return {
             enabled: false,
             startedAt: null,
@@ -191,14 +197,14 @@ export const streamPerfObserve = (metric: string, value: number): void => {
 };
 
 export const streamPerfMark = (metric: string): void => {
-    if (!streamPerfEnabled || typeof performance === 'undefined' || typeof performance.mark !== 'function') {
+    if (!isStreamPerfWanted() || typeof performance === 'undefined' || typeof performance.mark !== 'function') {
         return;
     }
     performance.mark(`pichamber.${metric}`);
 };
 
 export const streamPerfMeasure = <T>(metric: string, fn: () => T): T => {
-    if (!streamPerfEnabled) {
+    if (!isStreamPerfWanted()) {
         return fn();
     }
 

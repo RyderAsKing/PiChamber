@@ -166,6 +166,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['telemetry', 'analytics'],
   },
   {
+    id: 'general.performance-overlay',
+    page: 'general',
+    title: "Performance overlay",
+    description: "Show a live frame-time overlay for debugging jank. Adds overhead and stays on this device only.",
+    keywords: ['fps', 'performance', 'hud', 'diagnostics', 'debug', 'jank', 'frame'],
+  },
+  {
     id: 'chat.message-transport',
     page: 'general',
     title: "Message Stream Transport",
