@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-PACKAGE_NAME="@pichamber/web"
+PACKAGE_NAME="@pi-chamber/web"
 BIN_NAME="pichamber"
 MIN_NODE_VERSION=22
 

@@ -16,7 +16,7 @@ on:
         default: false
         type: boolean
       publish_npm:
-        description: 'Also publish @pichamber/web to npm (off for desktop-only releases)'
+        description: 'Also publish @pi-chamber/web to npm (off for desktop-only releases)'
         required: false
         default: false
         type: boolean

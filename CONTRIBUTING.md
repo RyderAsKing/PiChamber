@@ -72,7 +72,7 @@ bun run lint:ui
 | `bun run build:ui` | Build only `packages/ui` |
 | `bun run build:electron` | Run Electron package build script without full packaging |
 | `bun run electron:build` | Build packaged desktop app for the current OS |
-| `bun run pack:web` | Create a package archive for `@pichamber/web` |
+| `bun run pack:web` | Create a package archive for `@pi-chamber/web` |
 
 ## Platform Build Notes
 
@@ -106,7 +106,7 @@ The final AppImage verifier checks desktop identity and the architecture of Elec
 
 ## Desktop releases
 
-PiChamber's public GitHub Release path is **Electron desktop** (macOS, Windows, Linux AppImage) plus a signed **Android APK/AAB** on version tags. npm (`@pichamber/web`) stays opt-in. iOS TestFlight stays opt-in via the Mobile Release workflow.
+PiChamber's public GitHub Release path is **Electron desktop** (macOS, Windows, Linux AppImage) plus a signed **Android APK/AAB** on version tags. npm (`@pi-chamber/web`) stays opt-in via the **Release** workflow (`publish_npm`). Store a granular npm **Automation** token as the `NPM_TOKEN` Actions secret; it must be allowed to publish the `pi-chamber` org. iOS TestFlight stays opt-in via the Mobile Release workflow.
 
 To cut a version:
 

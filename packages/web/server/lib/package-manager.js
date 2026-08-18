@@ -9,9 +9,9 @@ import { resolvePiChamberDataDir, resolvePiChamberDataPath } from './pichamber-d
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PACKAGE_NAME = '@pichamber/web';
+const PACKAGE_NAME = '@pi-chamber/web';
 const PACKAGE_PATH_SEGMENTS = PACKAGE_NAME.split('/');
-const NPM_REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}`;
+const NPM_REGISTRY_URL = `https://registry.npmjs.org/${encodeURIComponent(PACKAGE_NAME)}`;
 const OFFICIAL_GITHUB_REPO = 'ryderasking/pichamber';
 const CHANGELOG_URL = 'https://raw.githubusercontent.com/RyderAsKing/PiChamber/main/CHANGELOG.md';
 const GITHUB_RELEASES_URL = 'https://github.com/RyderAsKing/PiChamber/releases';
@@ -694,8 +694,8 @@ function isOfficialPiChamberRegistryPackage(data) {
 }
 
 /**
- * Fetch latest version from npm only when `@pichamber/web` is this project's package.
- * The scoped name is currently occupied by an unrelated 1.0.0; dist-tag alone is not enough.
+ * Fetch latest version from npm only when `@pi-chamber/web` is this project's package.
+ * Dist-tag alone is not enough if an unrelated package occupies the name.
  */
 async function getLatestVersion() {
   try {

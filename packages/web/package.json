@@ -1,8 +1,12 @@
 {
-  "name": "@pichamber/web",
-  "version": "0.1.7",
+  "name": "@pi-chamber/web",
+  "version": "0.1.8",
   "private": false,
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RyderAsKing/PiChamber.git"
+  },
   "main": "./server/index.js",
   "types": "./server/index.d.ts",
   "bin": {

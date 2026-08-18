@@ -1,13 +1,13 @@
 {
   "name": "@pichamber/electron",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "private": true,
   "description": "Electron desktop runtime for PiChamber",
   "author": "PiChamber",
   "type": "module",
   "main": "./dist-bundle/main.mjs",
   "dependencies": {
-    "@pichamber/web": "workspace:*",
+    "@pi-chamber/web": "workspace:*",
     "electron-context-menu": "^4.1.2",
     "electron-log": "^5.4.3",
     "electron-updater": "^6.8.3"
