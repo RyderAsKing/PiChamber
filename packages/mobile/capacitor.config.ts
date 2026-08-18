@@ -16,6 +16,11 @@ const config: CapacitorConfig = {
     allowMixedContent: true,
   },
   plugins: {
+    CapacitorHttp: {
+      // Native HTTP is required to reach plain-http LAN PiChamber servers from
+      // the Android https://localhost WebView (mixed content + CORS).
+      enabled: true,
+    },
     Keyboard: {
       // 'none' leaves the WebView at full height; the UI follows the keyboard
       // itself via the --oc-keyboard-inset CSS variable driven by keyboardWillShow

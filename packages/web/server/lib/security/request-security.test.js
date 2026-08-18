@@ -33,6 +33,14 @@ describe('request security runtime', () => {
       },
       socket: {},
     })).resolves.toBe(true);
+
+    await expect(runtime.isRequestOriginAllowed({
+      headers: {
+        origin: 'http://localhost',
+        host: '192.168.1.130:1202',
+      },
+      socket: {},
+    })).resolves.toBe(true);
   });
 
   test('rejects unknown origins', async () => {

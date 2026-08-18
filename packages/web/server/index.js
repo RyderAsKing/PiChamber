@@ -19,6 +19,7 @@ import {
   isUnsafeUnauthenticatedLanAllowed,
 } from './lib/security/bind-host.js';
 import { applyUiCorsHeaders } from './lib/server/cors.js';
+import { createPairingTransportResolvers } from './lib/server/lan-addresses.js';
 import { parseServeCliOptions } from './lib/server/cli-options.js';
 import { runCliEntryIfMain } from './lib/server/cli-entry-runtime.js';
 import {
@@ -99,6 +100,13 @@ export async function startWebUiServer(options = {}) {
   const apiOnly = options.apiOnly === true || isEnvFlagEnabled(process.env.PICHAMBER_API_ONLY ?? process.env.PICHAMBER_API_ONLY);
   const app = express();
   const server = http.createServer(app);
+  const pairingTransports = createPairingTransportResolvers({
+    getPort: () => {
+      const address = server.address();
+      return typeof address === 'object' && address ? address.port : null;
+    },
+    bindHost: host,
+  });
   const serverStartedAt = new Date().toISOString();
   const dataPath = (name) => path.join(PICHAMBER_DATA_DIR, name);
   const remoteClientAuthRuntime = createRemoteClientAuthRuntime({ fsPromises: fs.promises, path, crypto: await import('node:crypto'), storePath: dataPath('remote-clients.json') });
@@ -143,8 +151,8 @@ export async function startWebUiServer(options = {}) {
     clientPairingRuntime,
     readSettingsFromDiskMigrated: async () => ({}),
     normalizeTunnelSessionTtlMs: () => 8 * 60 * 60 * 1000,
-    getPairingTransports: (req) => ({ local: null, lan: `${req.protocol}://${req.get('host')}`, relayAvailable: false }),
-    getDirectCandidateUrls: () => [],
+    getPairingTransports: () => pairingTransports.getPairingTransports(),
+    getDirectCandidateUrls: () => pairingTransports.getDirectCandidateUrls(),
     getServerId: async () => null,
     getServerLabel: () => os.hostname() || 'PiChamber',
   });
