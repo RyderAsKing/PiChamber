@@ -55,9 +55,6 @@ export const MainLayout: React.FC = () => {
             setSettingsWindowMounted(true);
         }
     }, [isSettingsDialogOpen]);
-    const isArchivePageOpen = useUIStore((state) => state.isArchivePageOpen);
-    const isSurfacePageOpen = isArchivePageOpen;
-
     React.useEffect(() => {
         const closeSurfacePages = () => useUIStore.getState().closeMainSurfaces();
         const unsubscribeSession = useSessionUIStore.subscribe((state, prev) => {
@@ -329,11 +326,11 @@ export const MainLayout: React.FC = () => {
                         )}
                     >
                         <main className="w-full h-full overflow-hidden bg-background relative" data-page-scroll-lock="true">
-                            <div className={cn('absolute inset-0', (!isChatActive || isSurfacePageOpen) && 'invisible')}>
-                                <ErrorBoundary><ChatView active={isChatActive && !isSettingsDialogOpen && !isSurfacePageOpen} /></ErrorBoundary>
+                            <div className={cn('absolute inset-0', !isChatActive && 'invisible')}>
+                                <ErrorBoundary><ChatView active={isChatActive && !isSettingsDialogOpen} /></ErrorBoundary>
                             </div>
                             {secondaryView && (
-                                <div className={cn('absolute inset-0', isSurfacePageOpen && 'invisible')}>
+                                <div className="absolute inset-0">
                                     <ErrorBoundary>{secondaryView}</ErrorBoundary>
                                 </div>
                             )}
@@ -408,11 +405,11 @@ export const MainLayout: React.FC = () => {
                                         {/* Holds the chat and the context panel together. */}
                                         <div className="relative flex flex-1 min-h-0 min-w-0 overflow-hidden" data-page-scroll-lock="true" data-chat-area="true">
                                             <main className="flex-1 overflow-hidden bg-background relative" data-page-scroll-lock="true">
-                                                <div className={cn('absolute inset-0', (!isChatActive || isSurfacePageOpen) && 'invisible')}>
-                                                    <ErrorBoundary><ChatView active={isChatActive && !isSettingsDialogOpen && !isSurfacePageOpen} /></ErrorBoundary>
+                                                <div className={cn('absolute inset-0', !isChatActive && 'invisible')}>
+                                                    <ErrorBoundary><ChatView active={isChatActive && !isSettingsDialogOpen} /></ErrorBoundary>
                                                 </div>
                                                 {secondaryView && (
-                                                    <div className={cn('absolute inset-0', isSurfacePageOpen && 'invisible')}>
+                                                    <div className="absolute inset-0">
                                                         <ErrorBoundary>{secondaryView}</ErrorBoundary>
                                                     </div>
                                                 )}

@@ -4314,10 +4314,13 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
         return null;
       }
 
-      const menu = Menu.getApplicationMenu() || buildAutoHiddenMenu();
-      const x = Number.isFinite(Number(args.x)) ? Math.max(0, Math.round(Number(args.x))) : undefined;
-      const y = Number.isFinite(Number(args.y)) ? Math.max(0, Math.round(Number(args.y))) : undefined;
-      menu.popup({ window: browserWindow, x, y });
+      // Let Electron anchor the popup to the native click position. Renderer
+      // client coordinates are relative to the web contents and are not
+      // reliable screen coordinates on frameless Windows/Linux windows.
+      const menu = process.platform === 'darwin'
+        ? (Menu.getApplicationMenu() || buildMacMenu())
+        : buildAutoHiddenMenu();
+      menu.popup({ window: browserWindow });
       return null;
     }
 

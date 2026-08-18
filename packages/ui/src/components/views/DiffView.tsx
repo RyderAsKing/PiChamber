@@ -38,7 +38,10 @@ import { sessionEvents } from '@/lib/sessionEvents';
 import { findDiffScrollAnchor, getRestoredDiffScrollTop, type DiffScrollAnchor } from './diffScrollAnchor';
 import { fileDiffFromPatch } from '@/lib/diff/patchFileDiff';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useSessionMessages } from '@/sync/sync-context';
+import { useSessionMessageRecords } from '@/sync/sync-context';
+import type { ToolPart } from '@/lib/chat/types';
+import { extractChangedFiles } from '@/components/chat/changedFiles';
+import { projectTurnRecords } from '@/components/chat/lib/turns/projectTurnRecords';
 import { getFirstChangedModifiedLineFromPatch } from './diffPatchUtils';
 import type { FileDiffMetadata } from '@pierre/diffs';
 
@@ -74,7 +77,7 @@ type DiffData = {
     fileDiff?: FileDiffMetadata;
     contextMode?: DiffContextMode;
 };
-type DiffScope = 'all' | 'staged' | 'working' | 'turn';
+type DiffScope = 'all' | 'staged' | 'working' | 'turn' | 'branch';
 
 type TurnSnapshotDiff = {
     file?: string;
@@ -181,6 +184,40 @@ const listTurnDiffs = (value: unknown): TurnSnapshotDiff[] => {
     });
 };
 
+const parseRangeDiff = (value: string): TurnSnapshotDiff[] => {
+    const chunks = value.split(/^diff --git /m).slice(1);
+    return chunks.flatMap((chunk) => {
+        const [header = ''] = chunk.split('\n', 1);
+        const separator = header.lastIndexOf(' b/');
+        if (separator <= 2) return [];
+
+        const fromPath = header.slice(2, separator);
+        const toPath = header.slice(separator + 3).trim();
+        const body = `diff --git ${chunk}`;
+        const status = body.includes('\nnew file mode ')
+            ? 'added'
+            : body.includes('\ndeleted file mode ')
+                ? 'deleted'
+                : body.includes('\nrename from ')
+                    ? 'renamed'
+                    : 'modified';
+        let additions = 0;
+        let deletions = 0;
+        for (const line of body.split('\n')) {
+            if (line.startsWith('+') && !line.startsWith('+++')) additions += 1;
+            if (line.startsWith('-') && !line.startsWith('---')) deletions += 1;
+        }
+
+        return [{
+            file: status === 'deleted' ? fromPath : toPath,
+            status,
+            additions,
+            deletions,
+            patch: body,
+        }];
+    });
+};
+
 const statusToGitCode = (status?: string): string => {
     if (status === 'added') return 'A';
     if (status === 'deleted') return 'D';
@@ -224,26 +261,46 @@ const formatDiffTotals = (
 };
 
 interface ChangeScopeSelectorProps {
-    scope: Extract<DiffScope, 'working' | 'staged' | 'turn'>;
+    scope: Extract<DiffScope, 'all' | 'working' | 'staged' | 'turn' | 'branch'>;
+    isGitRepo: boolean | null;
+    branchAvailable: boolean;
+    allCount: number;
     workingCount: number;
     stagedCount: number;
     turnCount: number;
-    onScopeChange?: (scope: Extract<DiffScope, 'working' | 'staged' | 'turn'>) => void;
+    branchCount: number;
+    onScopeChange?: (scope: Extract<DiffScope, 'all' | 'working' | 'staged' | 'turn' | 'branch'>) => void;
 }
 
 const ChangeScopeSelector = React.memo<ChangeScopeSelectorProps>(({
     scope,
+    isGitRepo,
+    branchAvailable,
+    allCount,
     workingCount,
     stagedCount,
     turnCount,
+    branchCount,
     onScopeChange,
 }) => {
     const [open, setOpen] = React.useState(false);
-    const currentCount = scope === 'staged' ? stagedCount : scope === 'turn' ? turnCount : workingCount;
+    const currentCount = scope === 'all'
+        ? allCount
+        : scope === 'staged'
+            ? stagedCount
+            : scope === 'turn'
+                ? turnCount
+                : scope === 'branch'
+                    ? branchCount
+                    : workingCount;
     const currentLabel = scope === 'staged'
         ? "Staged"
         : scope === 'turn'
             ? "Last turn"
+            : scope === 'branch'
+                ? "Branch"
+                : scope === 'all'
+                    ? "All"
             : "Changed";
 
     return (
@@ -264,30 +321,50 @@ const ChangeScopeSelector = React.memo<ChangeScopeSelectorProps>(({
                 <DropdownMenuRadioGroup
                     value={scope}
                     onValueChange={(value) => {
-                        if (value === 'working' || value === 'staged' || value === 'turn') {
+                        if (value === 'all' || value === 'working' || value === 'staged' || value === 'turn' || value === 'branch') {
                             onScopeChange?.(value);
                             setOpen(false);
                         }
                     }}
                 >
-                    <DropdownMenuRadioItem value="working">
+                    {isGitRepo !== false ? (
+                      <DropdownMenuRadioItem value="all">
+                        <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                            <span>{"All"}</span>
+                            <span className="typography-meta text-muted-foreground">{allCount}</span>
+                        </span>
+                      </DropdownMenuRadioItem>
+                    ) : null}
+                    {isGitRepo !== false ? (
+                      <DropdownMenuRadioItem value="working">
                         <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
                             <span>{"Changed"}</span>
                             <span className="typography-meta text-muted-foreground">{workingCount}</span>
                         </span>
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="staged">
+                      </DropdownMenuRadioItem>
+                    ) : null}
+                    {isGitRepo !== false ? (
+                      <DropdownMenuRadioItem value="staged">
                         <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
                             <span>{"Staged"}</span>
                             <span className="typography-meta text-muted-foreground">{stagedCount}</span>
                         </span>
-                    </DropdownMenuRadioItem>
+                      </DropdownMenuRadioItem>
+                    ) : null}
                     <DropdownMenuRadioItem value="turn">
                         <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
                             <span>{"Last turn"}</span>
                             <span className="typography-meta text-muted-foreground">{turnCount}</span>
                         </span>
                     </DropdownMenuRadioItem>
+                    {branchAvailable ? (
+                      <DropdownMenuRadioItem value="branch">
+                        <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                            <span>{"Branch"}</span>
+                            <span className="typography-meta text-muted-foreground">{branchCount}</span>
+                        </span>
+                      </DropdownMenuRadioItem>
+                    ) : null}
                 </DropdownMenuRadioGroup>
             </DropdownMenuContent>
         </DropdownMenu>
@@ -562,6 +639,7 @@ interface MultiFileDiffEntryProps {
     isOpeningInEditor?: boolean;
     onOpenInEditor?: (filePath: string, diffData: DiffData | null) => void;
     staged?: boolean;
+    showFileActions?: boolean;
     loadFullFiles?: boolean;
     initialDiffData?: DiffData | null;
 }
@@ -581,6 +659,7 @@ const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(({
     isOpeningInEditor = false,
     onOpenInEditor,
     staged = false,
+    showFileActions = true,
     loadFullFiles = false,
     initialDiffData = null,
 }) => {
@@ -917,17 +996,19 @@ const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(({
                                 renderSideBySide={renderSideBySide}
                                 wrapLines={wrapLines}
                             />
-                            <div className="pointer-events-none absolute bottom-3 right-3 z-20">
-                                <div className="pointer-events-auto">
-                                    <FileDiffActions
-                                        filePath={file.path}
-                                        staged={staged}
-                                        busyAction={fileAction}
-                                        disabled={fileAction !== null}
-                                        onAction={handleFileAction}
-                                    />
+                            {showFileActions ? (
+                                <div className="pointer-events-none absolute bottom-3 right-3 z-20">
+                                    <div className="pointer-events-auto">
+                                        <FileDiffActions
+                                            filePath={file.path}
+                                            staged={staged}
+                                            busyAction={fileAction}
+                                            disabled={fileAction !== null}
+                                            onAction={handleFileAction}
+                                        />
+                                    </div>
                                 </div>
-                            </div>
+                            ) : null}
                         </>
                     ) : null}
                 </div>
@@ -942,7 +1023,9 @@ interface DiffViewProps {
     pinSelectedFileHeaderToTopOnNavigate?: boolean;
     showOpenInEditorAction?: boolean;
     diffScope?: DiffScope;
-    onDiffScopeChange?: (scope: Extract<DiffScope, 'working' | 'staged' | 'turn'>) => void;
+    onDiffScopeChange?: (scope: Extract<DiffScope, 'all' | 'working' | 'staged' | 'turn' | 'branch'>) => void;
+    branchBase?: string | null;
+    branchHead?: string | null;
     targetFilePath?: string | null;
     /** Render diff content flush with the container edges (no outer padding). */
     flushContent?: boolean;
@@ -955,6 +1038,8 @@ export const DiffView: React.FC<DiffViewProps> = ({
     showOpenInEditorAction = false,
     diffScope = 'all',
     onDiffScopeChange,
+    branchBase = null,
+    branchHead = null,
     targetFilePath = null,
     flushContent = false,
 }) => {
@@ -979,6 +1064,9 @@ export const DiffView: React.FC<DiffViewProps> = ({
     const [scrollRequestNonce, setScrollRequestNonce] = React.useState(0);
     const [fileDiffRefreshNonce, setFileDiffRefreshNonce] = React.useState<Map<string, number>>(() => new Map());
     const [activeDiffScope, setActiveDiffScope] = React.useState(diffScope);
+    const [branchDiffs, setBranchDiffs] = React.useState<TurnSnapshotDiff[]>([]);
+    const [branchDiffError, setBranchDiffError] = React.useState<string | null>(null);
+    const [branchDiffLoading, setBranchDiffLoading] = React.useState(false);
 
     React.useEffect(() => {
         setActiveDiffScope(diffScope);
@@ -995,7 +1083,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
     const setDiffWrapLines = useUIStore((state) => state.setDiffWrapLines);
     const openContextFileAtLine = useUIStore((state) => state.openContextFileAtLine);
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
-    const sessionMessages = useSessionMessages(currentSessionId ?? '', effectiveDirectory ?? undefined);
+    const sessionMessageRecords = useSessionMessageRecords(currentSessionId ?? '', effectiveDirectory ?? undefined);
     const diffWrapLines = diffWrapLinesStore;
     const forcedStaged = activeDiffScope === 'staged' ? true : activeDiffScope === 'working' ? false : null;
     const activeDiffStaged = forcedStaged ?? displayFileStaged;
@@ -1046,13 +1134,77 @@ export const DiffView: React.FC<DiffViewProps> = ({
     }, []);
 
     const lastTurnDiffs = React.useMemo(() => {
-        for (let index = sessionMessages.length - 1; index >= 0; index -= 1) {
-            const message = sessionMessages[index] as { role?: string; summary?: { diffs?: unknown } };
-            if (message.role !== 'user') continue;
-            return listTurnDiffs(message.summary?.diffs);
+        const projection = projectTurnRecords(sessionMessageRecords, {
+            showTextJustificationActivity: false,
+            showTurnChangedFiles: true,
+            mergeHiddenUserTurns: true,
+        });
+
+        for (let index = projection.turns.length - 1; index >= 0; index -= 1) {
+            const turn = projection.turns[index];
+            if (!turn) continue;
+
+            const toolParts = turn.activityParts
+                .map((activity) => activity.part)
+                .filter((part): part is ToolPart => part.type === 'tool');
+            const changedFiles = extractChangedFiles(toolParts);
+            if (changedFiles.length > 0) {
+                return changedFiles.map((file) => ({
+                    file: file.path,
+                    status: 'modified',
+                    additions: file.additions,
+                    deletions: file.deletions,
+                    patch: file.patch,
+                }));
+            }
+
+            const summaryDiffs = listTurnDiffs(
+                (turn.userMessage.info as { summary?: { diffs?: unknown } }).summary?.diffs,
+            );
+            if (summaryDiffs.length > 0) {
+                return summaryDiffs;
+            }
         }
+
         return [];
-    }, [sessionMessages]);
+    }, [sessionMessageRecords]);
+
+    React.useEffect(() => {
+        if (
+            activeDiffScope !== 'branch'
+            || !effectiveDirectory
+            || !branchBase
+            || !branchHead
+            || !git.getGitRangeDiff
+        ) {
+            setBranchDiffs([]);
+            setBranchDiffError(null);
+            setBranchDiffLoading(false);
+            return;
+        }
+
+        let cancelled = false;
+        setBranchDiffLoading(true);
+        setBranchDiffError(null);
+        void git.getGitRangeDiff(effectiveDirectory, {
+            base: branchBase,
+            head: branchHead,
+            contextLines: DEFAULT_CONTEXT_DIFF_LINES,
+        }).then((response) => {
+            if (cancelled) return;
+            setBranchDiffs(parseRangeDiff(response.diff ?? ''));
+            setBranchDiffLoading(false);
+        }).catch((error) => {
+            if (cancelled) return;
+            setBranchDiffs([]);
+            setBranchDiffLoading(false);
+            setBranchDiffError(error instanceof Error ? error.message : String(error));
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [activeDiffScope, branchBase, branchHead, effectiveDirectory, git]);
 
     const lastTurnDiffData = React.useMemo(() => {
         const map = new Map<string, DiffData>();
@@ -1071,9 +1223,19 @@ export const DiffView: React.FC<DiffViewProps> = ({
         return map;
     }, [lastTurnDiffs]);
 
+    const branchDiffData = React.useMemo(() => {
+        const map = new Map<string, DiffData>();
+        for (const diff of branchDiffs) {
+            if (!diff.file || typeof diff.patch !== 'string') continue;
+            map.set(diff.file, createTextDiffDataFromPatch(diff.file, diff.patch, 'patch'));
+        }
+        return map;
+    }, [branchDiffs]);
+
     const changedFiles: FileEntry[] = React.useMemo(() => {
-        if (activeDiffScope === 'turn') {
-            return lastTurnDiffs
+        if (activeDiffScope === 'turn' || activeDiffScope === 'branch') {
+            const source = activeDiffScope === 'branch' ? branchDiffs : lastTurnDiffs;
+            return source
                 .map((diff) => ({
                     path: diff.file ?? '',
                     index: '',
@@ -1103,7 +1265,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
                 isNew: isNewStatusFile(file),
             }))
             .sort((a, b) => a.path.localeCompare(b.path));
-    }, [activeDiffScope, lastTurnDiffs, status]);
+    }, [activeDiffScope, branchDiffs, lastTurnDiffs, status]);
 
     const workingFileCount = React.useMemo(() => {
         if (!status?.files) return 0;
@@ -1116,6 +1278,8 @@ export const DiffView: React.FC<DiffViewProps> = ({
     }, [status]);
 
     const turnFileCount = lastTurnDiffs.length;
+    const allFileCount = status?.files?.length ?? 0;
+    const branchFileCount = branchDiffs.length;
 
     const changedFilePathsKey = React.useMemo(
         () => changedFiles.map((file) => file.path).join('\0'),
@@ -1621,14 +1785,21 @@ export const DiffView: React.FC<DiffViewProps> = ({
                                     onSelect={handleSelectFile}
                                     onExpandedChange={handleStackedEntryExpandedChange}
                                     registerSectionRef={registerSectionRef}
-                                    showOpenInEditorAction={showOpenInEditorAction && activeDiffScope !== 'turn'}
+                                    showOpenInEditorAction={showOpenInEditorAction && activeDiffScope !== 'turn' && activeDiffScope !== 'branch'}
                                     isOpeningInEditor={openingEditorFilePath === file.path}
                                     onOpenInEditor={(filePath, diffData) => {
                                         void openFileInEditorAtChange(filePath, diffData);
                                     }}
                                     staged={getFileStaged(file.path)}
+                                    showFileActions={activeDiffScope !== 'turn' && activeDiffScope !== 'branch'}
                                     loadFullFiles={loadFullFiles}
-                                    initialDiffData={activeDiffScope === 'turn' ? lastTurnDiffData.get(file.path) ?? null : null}
+                                    initialDiffData={
+                                        activeDiffScope === 'turn'
+                                            ? lastTurnDiffData.get(file.path) ?? null
+                                            : activeDiffScope === 'branch'
+                                                ? branchDiffData.get(file.path) ?? null
+                                                : null
+                                    }
                                 />
                             ))}
                         </div>
@@ -1657,10 +1828,27 @@ export const DiffView: React.FC<DiffViewProps> = ({
             );
         }
 
-        if (activeDiffScope !== 'turn' && isGitRepo === false) {
+        if (activeDiffScope !== 'turn' && activeDiffScope !== 'branch' && isGitRepo === false) {
             return (
                 <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
                     {"Not a git repository. Use the Git tab to initialize or change directories."}
+                </div>
+            );
+        }
+
+        if (activeDiffScope === 'branch' && branchDiffLoading) {
+            return (
+                <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <Icon name="loader-4" className="size-4 animate-spin" />
+                    {"Loading branch changes..."}
+                </div>
+            );
+        }
+
+        if (activeDiffScope === 'branch' && branchDiffError) {
+            return (
+                <div className="flex flex-1 items-center justify-center px-4 text-center text-sm text-muted-foreground">
+                    {`Failed to load branch changes: ${branchDiffError}`}
                 </div>
             );
         }
@@ -1679,13 +1867,17 @@ export const DiffView: React.FC<DiffViewProps> = ({
     return (
         <div className="flex h-full flex-col overflow-hidden bg-background">
             <div className="@container/diff-toolbar flex min-w-0 items-center gap-2 px-3 py-2 bg-background">
-                {!isMobile && (
-                    isGitRepo !== false && (activeDiffScope === 'working' || activeDiffScope === 'staged' || activeDiffScope === 'turn') ? (
+                {(isGitRepo !== false || activeDiffScope === 'turn')
+                    && (activeDiffScope === 'all' || activeDiffScope === 'working' || activeDiffScope === 'staged' || activeDiffScope === 'turn' || activeDiffScope === 'branch') ? (
                         <ChangeScopeSelector
                             scope={activeDiffScope}
+                            isGitRepo={isGitRepo}
+                            branchAvailable={Boolean(branchBase && branchHead)}
+                            allCount={allFileCount}
                             workingCount={workingFileCount}
                             stagedCount={stagedFileCount}
                             turnCount={turnFileCount}
+                            branchCount={branchFileCount}
                             onScopeChange={(scope) => {
                                 setActiveDiffScope(scope);
                                 onDiffScopeChange?.(scope);
@@ -1701,8 +1893,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
                                         : `${changedFiles.length} files changed`)}
                             </span>
                         </div>
-                    )
-                )}
+                    )}
                 {changedFiles.length > 0 && (
                     <Button
                         variant="ghost"
@@ -1723,7 +1914,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
                         </span>
                     </Button>
                 )}
-                {changedFiles.length > 0 && (
+                {changedFiles.length > 0 && activeDiffScope !== 'turn' && activeDiffScope !== 'branch' && (
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <Button

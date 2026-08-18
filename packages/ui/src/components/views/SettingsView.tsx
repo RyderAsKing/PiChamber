@@ -911,10 +911,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
       )}
 
       {!isMobile && (
-        <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/70 bg-sidebar px-4">
-          <div className="flex items-center gap-2 text-foreground">
+        <div className="flex shrink-0 items-center justify-between px-5 pb-3 pt-4">
+          <div className="flex items-center gap-2 typography-ui-header font-medium text-foreground">
             <Icon name="settings-3" className="size-4 text-muted-foreground" />
-            <span className="typography-ui-label font-medium">{"Settings"}</span>
+            <span>{"Settings"}</span>
           </div>
           {onClose && (
             <button
@@ -922,7 +922,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
               onClick={onClose}
               aria-label={"Close settings"}
               title={`Close Settings (${shortcutKey}+,)`}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+              className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
             >
               <Icon name="close" className="size-4" />
             </button>

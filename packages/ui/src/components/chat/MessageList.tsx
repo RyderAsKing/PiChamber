@@ -842,6 +842,15 @@ type StaticHistoryListProps = {
     onLoadAllHistory: (foldedCount: number) => void;
 };
 
+type RevealViewportSnapshot = {
+    top: number;
+    height: number;
+    anchor: {
+        messageId: string;
+        offsetTop: number;
+    } | null;
+};
+
 const StaticHistoryList = React.memo(({ entries, engine, contentRef, scrollRef, registerTanstackVirtualizer, virtualizerKey, onMessageContentChange, getAnimationHandlers, scrollToBottom, stickyUserHeader, shouldAnimateUserMessage, onUserAnimationConsumed, onLoadOlderHistory, onLoadAllHistory, }: StaticHistoryListProps) => {
     const isTanstack = engine === 'tanstack';
 
@@ -1196,7 +1205,31 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     const [revealedOlderCount, setRevealedOlderCount] = React.useState<number>(
         () => readRevealedOlderTurns(sessionKey),
     );
+    const pendingRevealViewportRef = React.useRef<RevealViewportSnapshot | null>(null);
     const pendingExpandedTurnScrollRef = React.useRef<string | null>(null);
+    const captureRevealViewport = React.useCallback((): RevealViewportSnapshot | null => {
+        const container = scrollRef?.current;
+        if (!container) return null;
+
+        const containerRect = container.getBoundingClientRect();
+        const visibleMessage = Array.from(container.querySelectorAll<HTMLElement>('[data-message-id]'))
+            .find((node) => {
+                const rect = node.getBoundingClientRect();
+                return rect.bottom > containerRect.top + 1
+                    && !isInsideStuckSticky(node, container, containerRect.top);
+            });
+
+        return {
+            top: container.scrollTop,
+            height: container.scrollHeight,
+            anchor: visibleMessage?.dataset.messageId
+                ? {
+                    messageId: visibleMessage.dataset.messageId,
+                    offsetTop: visibleMessage.getBoundingClientRect().top - containerRect.top,
+                }
+                : null,
+        };
+    }, [scrollRef]);
     const setRevealedOlderTurns = React.useCallback((value: number | ((current: number) => number)) => {
         setRevealedOlderCount((current) => {
             const next = typeof value === 'function' ? value(current) : value;
@@ -1205,11 +1238,13 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         });
     }, [sessionKey]);
     const loadOlderHistory = React.useCallback((foldedCount: number) => {
+        pendingRevealViewportRef.current = captureRevealViewport();
         setRevealedOlderTurns((current) => nextRevealedOlderCount(current, foldedCount));
-    }, [setRevealedOlderTurns]);
+    }, [captureRevealViewport, setRevealedOlderTurns]);
     const loadAllHistory = React.useCallback((foldedCount: number) => {
+        pendingRevealViewportRef.current = captureRevealViewport();
         setRevealedOlderTurns((current) => current + foldedCount);
-    }, [setRevealedOlderTurns]);
+    }, [captureRevealViewport, setRevealedOlderTurns]);
     const revealFoldedTurn = React.useCallback((turnId: string, foldedTurns: readonly TurnRecord[], historyTurnCount: number) => {
         const ordinal = foldedTurns.findIndex((turn) => turn.turnId === turnId);
         if (ordinal < 0) return;
@@ -1438,13 +1473,40 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         ];
     }, [revealedOlderCount, staticRenderEntries, trailingEntryFirstMessage]);
     React.useLayoutEffect(() => {
+        const revealSnapshot = pendingRevealViewportRef.current;
+        if (revealSnapshot) {
+            pendingRevealViewportRef.current = null;
+            const container = scrollRef?.current;
+            if (container) {
+                const anchor = revealSnapshot.anchor?.messageId
+                    ? container.querySelector<HTMLElement>(`[data-message-id="${revealSnapshot.anchor.messageId}"]`)
+                    : null;
+                if (anchor && revealSnapshot.anchor) {
+                    const containerRect = container.getBoundingClientRect();
+                    const delta = anchor.getBoundingClientRect().top
+                        - containerRect.top
+                        - revealSnapshot.anchor.offsetTop;
+                    if (delta !== 0) {
+                        container.scrollTop += delta;
+                    }
+                } else {
+                    const heightDelta = container.scrollHeight - revealSnapshot.height;
+                    if (heightDelta > 0) {
+                        container.scrollTop = revealSnapshot.top + heightDelta;
+                    } else {
+                        container.scrollTop = revealSnapshot.top;
+                    }
+                }
+            }
+        }
+
         const turnId = pendingExpandedTurnScrollRef.current;
         if (!turnId) return;
         pendingExpandedTurnScrollRef.current = null;
         const container = resolveScrollContainer();
         const turnElement = container?.querySelector<HTMLElement>(`[data-turn-id="${turnId}"]`);
         turnElement?.scrollIntoView({ block: 'start' });
-    }, [historyEntries, resolveScrollContainer]);
+    }, [historyEntries, resolveScrollContainer, scrollRef]);
     // Mobile always starts with the same virtualized engine it will use after
     // pagination. Switching a short list from normal DOM to TanStack during a
     // prepend remounts the history subtree, and the newly enabled end-anchored

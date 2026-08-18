@@ -732,45 +732,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     });
   }, []);
 
-  // Collapse/expand covers both levels: projects and their worktree groups.
-  const projectSectionsRef = React.useRef<typeof projectSections>([]);
-
-  const collapseAllProjects = React.useCallback(() => {
-    ignoreIntersectionUntil.current = Date.now() + 150;
-    setVisibleSessionCountByGroup(new Map());
-    setCollapsedGroups(() => {
-      const allGroupKeys = new Set<string>();
-      projectSectionsRef.current.forEach((section) => {
-        section.groups.forEach((group) => {
-          if (!group.isMain) allGroupKeys.add(`${section.project.id}:${group.id}`);
-        });
-      });
-      return allGroupKeys;
-    });
-    setCollapsedProjects(() => {
-      const allIds = new Set(projects.map((p) => p.id));
-      try {
-        safeStorage.setItem(PROJECT_COLLAPSE_STORAGE_KEY, JSON.stringify(Array.from(allIds)));
-      } catch { /* ignored */ }
-      scheduleCollapsedProjectsPersist(allIds);
-      return allIds;
-    });
-  }, [projects, safeStorage, scheduleCollapsedProjectsPersist]);
-
-  const expandAllProjects = React.useCallback(() => {
-    ignoreIntersectionUntil.current = Date.now() + 150;
-    setVisibleSessionCountByGroup(new Map());
-    setCollapsedGroups(new Set());
-    setCollapsedProjects(() => {
-      const empty = new Set<string>();
-      try {
-        safeStorage.setItem(PROJECT_COLLAPSE_STORAGE_KEY, JSON.stringify([]));
-      } catch { /* ignored */ }
-      scheduleCollapsedProjectsPersist(empty);
-      return empty;
-    });
-  }, [safeStorage, scheduleCollapsedProjectsPersist]);
-
   const toggleProject = React.useCallback((projectId: string) => {
     // Ignore intersection events for a short period after toggling
     ignoreIntersectionUntil.current = Date.now() + 150;
@@ -863,7 +824,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   }
 
   const showArchivedSessions = useSessionDisplayStore((state) => state.showArchivedSessions);
-  const projectSortOrder = useSessionDisplayStore((state) => state.projectSortOrder);
   const stickyZoneHeaders = useSessionDisplayStore((state) => state.stickyZoneHeaders);
   const manualProjectOrder = useProjectsStore((state) => state.manualProjectOrder);
   const projectExpandedParentsRef = React.useRef<Set<string>>(new Set());
@@ -897,7 +857,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     gitRepoStatus,
     updateStore,
     showArchivedSessions,
-    projectSortOrder,
     projectRepoStatus,
     projectRootBranches,
     resolvedWorktreeTopologyKey,
@@ -936,42 +895,11 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   previousSidebarRenderSourcesRef.current = sidebarRenderSources;
 
   const sortedProjects = React.useMemo(() => {
-    const list = [...normalizedProjects];
-
-    switch (projectSortOrder) {
-      case 'a-z':
-        list.sort((a, b) => {
-          const aLabel = (a.label || a.path).toLowerCase();
-          const bLabel = (b.label || b.path).toLowerCase();
-          return aLabel.localeCompare(bLabel);
-        });
-        break;
-      case 'z-a':
-        list.sort((a, b) => {
-          const aLabel = (a.label || a.path).toLowerCase();
-          const bLabel = (b.label || b.path).toLowerCase();
-          return bLabel.localeCompare(aLabel);
-        });
-        break;
-      case 'date-added':
-        list.sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0));
-        break;
-      case 'recent':
-        list.sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0));
-        break;
-      case 'manual': {
-        const orderMap = new Map(manualProjectOrder.map((id, i) => [id, i]));
-        list.sort((a, b) => {
-          const ai = orderMap.get(a.id) ?? Infinity;
-          const bi = orderMap.get(b.id) ?? Infinity;
-          return ai - bi;
-        });
-        break;
-      }
-    }
-
-    return list;
-  }, [normalizedProjects, projectSortOrder, manualProjectOrder]);
+    const orderMap = new Map(manualProjectOrder.map((id, index) => [id, index]));
+    return [...normalizedProjects].sort((a, b) => (
+      (orderMap.get(a.id) ?? Infinity) - (orderMap.get(b.id) ?? Infinity)
+    ));
+  }, [manualProjectOrder, normalizedProjects]);
 
   const {
     projectSections,
@@ -994,8 +922,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     buildGroupSearchText,
     foldersMap,
   });
-
-  projectSectionsRef.current = projectSections;
 
   const searchEmptyState = React.useMemo(() => (
     <div className="py-6 text-center text-muted-foreground">
@@ -1450,8 +1376,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         setSessionSearchQuery={setSessionSearchQuery}
         hasSessionSearchQuery={hasSessionSearchQuery}
         searchMatchCount={searchMatchCount}
-        collapseAllProjects={collapseAllProjects}
-        expandAllProjects={expandAllProjects}
         selectionModeEnabled={selectionModeEnabled}
         onToggleSelectionMode={handleToggleSelectionMode}
         mobileVariant={mobileVariant}
@@ -1518,7 +1442,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         removeProject={removeProject}
         projectHeaderSentinelRefs={projectHeaderSentinelRefs}
         reorderProjects={reorderProjects}
-        projectSortOrder={projectSortOrder}
         getOrderedGroups={getOrderedGroups}
         setGroupOrderByProject={setGroupOrderByProject}
         renderProjectStatusIndicator={renderProjectStatusIndicator}

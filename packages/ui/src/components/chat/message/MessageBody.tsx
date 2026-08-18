@@ -15,14 +15,12 @@ import { WorkerHighlightedCode } from '@/components/code/WorkerHighlightedCode';
 import { isEmptyTextPart, extractTextContent } from './partUtils';
 import { FadeInOnReveal } from './FadeInOnReveal';
 import { Button } from '@/components/ui/button';
-import { ForkSessionDialog, type ForkSessionExecution } from '@/components/session/ForkSessionDialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { ContentChangeReason } from '@/hooks/useChatAutoFollow';
 
 import { SimpleMarkdownRenderer } from '../MarkdownRenderer';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useUIStore } from '@/stores/useUIStore';
-import { flattenAssistantTextParts } from '@/lib/messages/messageText';
 import { TextSelectionMenu } from './TextSelectionMenu';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { useChatSurfaceMode } from '@/components/chat/useChatSurfaceMode';
@@ -411,15 +409,10 @@ interface MessageBodyProps {
     showReasoningTraces?: boolean;
     agentMention?: AgentMentionInfo;
     turnGroupingContext?: TurnGroupingContext;
-    onRevert?: () => void;
-    onFork?: () => void;
     errorMessage?: string;
     errorVariant?: 'error' | 'info';
     userActionsMode?: 'inline' | 'external-content' | 'external-actions';
     stickyUserHeaderEnabled?: boolean;
-    contextPinned?: boolean;
-    contextPinPending?: boolean;
-    onToggleContextPin?: () => void;
     footerProviderID?: string | null;
     footerModelName?: string;
     footerAgentName?: string;
@@ -445,7 +438,7 @@ const writeRevealedToolIds = (messageId: string, value: Set<string>): void => {
     revealedToolIdsByMessage.set(messageId, new Set(value));
 };
 
-const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobile, alwaysShowActions = isMobile, hasTouchInput, hasTextContent, onCopyMessage, copiedMessage, onShowPopup, agentMention, onRevert, onFork, contextPinned, contextPinPending, onToggleContextPin, userActionsMode = 'inline', stickyUserHeaderEnabled = true }: {
+const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobile, alwaysShowActions = isMobile, hasTouchInput, hasTextContent, onCopyMessage, copiedMessage, onShowPopup, agentMention, userActionsMode = 'inline', stickyUserHeaderEnabled = true }: {
     messageId: string;
     parts: Part[];
     messageCreatedAt?: number | null;
@@ -457,15 +450,9 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
     copiedMessage?: boolean;
     onShowPopup: (content: ToolPopupContent) => void;
     agentMention?: AgentMentionInfo;
-    onRevert?: () => void;
-    onFork?: () => void;
-    contextPinned?: boolean;
-    contextPinPending?: boolean;
-    onToggleContextPin?: () => void;
     userActionsMode?: 'inline' | 'external-content' | 'external-actions';
     stickyUserHeaderEnabled?: boolean;
 }) => {
-    const chatSurfaceMode = useChatSurfaceMode();
     const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
     const [copyHintVisible, setCopyHintVisible] = React.useState(false);
     const copyHintTimeoutRef = React.useRef<number | null>(null);
@@ -540,13 +527,12 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
         [hasCopyableText, isTouchContext, onCopyMessage, revealCopyHint]
     );
 
-    const effectiveOnFork = chatSurfaceMode === 'mini-chat' ? undefined : onFork;
     const timestamp = React.useMemo(() => {
         if (typeof messageCreatedAt !== 'number' || messageCreatedAt <= 0) return null;
         const formatted = formatTimestampForDisplay(messageCreatedAt, timeFormatPreference);
         return formatted.length > 0 ? formatted : null;
     }, [ messageCreatedAt, timeFormatPreference]);
-    const actionsBlock = ((canCopyMessage && hasCopyableText) || onRevert || effectiveOnFork || onToggleContextPin) && showUserActions ? (
+    const actionsBlock = (canCopyMessage && hasCopyableText) && showUserActions ? (
         <div className={cn(
             'group/user-actions',
             isMobile
@@ -588,71 +574,6 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
                         <TooltipContent>{timestamp}</TooltipContent>
                     </Tooltip>
                 ) : null}
-                {onRevert && (
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6 text-muted-foreground bg-transparent hover:text-foreground hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50"
-                                aria-label={"Revert to this message"}
-                                onPointerDown={(event) => event.stopPropagation()}
-                                onClick={(event) => {
-                                    event.stopPropagation();
-                                    onRevert();
-                                }}
-                            >
-                                <Icon name="arrow-go-back" className="h-3 w-3" />
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent sideOffset={6}>{"Revert from here"}</TooltipContent>
-                    </Tooltip>
-                )}
-                {effectiveOnFork && (
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6 text-muted-foreground bg-transparent hover:text-foreground hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50"
-                                aria-label={"Fork from this message"}
-                                onPointerDown={(event) => event.stopPropagation()}
-                                onClick={(event) => {
-                                    event.stopPropagation();
-                                    effectiveOnFork();
-                                }}
-                            >
-                                <Icon name="git-branch" className="h-3 w-3" />
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent sideOffset={6}>{"Fork from here"}</TooltipContent>
-                    </Tooltip>
-                )}
-                {onToggleContextPin && hasCopyableText && (
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className={cn(
-                                    'h-6 w-6 bg-transparent hover:text-foreground hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50',
-                                    contextPinned ? 'text-[color:var(--status-info)]' : 'text-muted-foreground',
-                                )}
-                                disabled={contextPinPending}
-                                aria-pressed={contextPinned}
-                                aria-label={(contextPinned ? "Unpin from context (will not survive compaction)" : "Pin into context (survives compaction)")}
-                                onPointerDown={(event) => event.stopPropagation()}
-                                onClick={(event) => { event.stopPropagation(); onToggleContextPin(); }}
-                            >
-                                <Icon name={contextPinned ? 'pushpin-2-fill' : 'pushpin-2'} className="h-3 w-3" />
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent sideOffset={6}>{(contextPinned ? "Unpin from context (will not survive compaction)" : "Pin into context (survives compaction)")}</TooltipContent>
-                    </Tooltip>
-                )}
                 {canCopyMessage && hasCopyableText && (
                     <Tooltip>
                         <TooltipTrigger asChild>
@@ -960,9 +881,6 @@ const AssistantMessageBody = React.memo(({
     turnGroupingContext,
     errorMessage,
     errorVariant = 'error',
-    contextPinned,
-    contextPinPending,
-    onToggleContextPin,
     footerProviderID,
     footerModelName,
     footerAgentName,
@@ -1089,8 +1007,6 @@ const AssistantMessageBody = React.memo(({
     const assistantTextParts = React.useMemo(() => {
         return visibleParts.filter((part) => part.type === 'text');
     }, [visibleParts]);
-    const assistantPlanText = React.useMemo(() => flattenAssistantTextParts(assistantTextParts), [assistantTextParts]);
-
     const openContextPreview = useUIStore((state) => state.openContextPreview);
     const isMiniChatSurface = chatSurfaceMode === 'mini-chat';
 
@@ -1126,12 +1042,9 @@ const AssistantMessageBody = React.memo(({
         return null;
     }, [assistantTextParts, isMobile, isMiniChatSurface, toolParts]);
 
-    const createSessionFromAssistantMessage = useSessionUIStore((state) => state.createSessionFromAssistantMessage);
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
     const getDirectoryForSession = useSessionUIStore((state) => state.getDirectoryForSession);
     const effectiveDirectory = useEffectiveDirectory();
-    const [isForkDialogOpen, setIsForkDialogOpen] = React.useState(false);
-    const [isForkSubmitting, setIsForkSubmitting] = React.useState(false);
     const collapsibleThinkingBlocks = useUIStore((state) => state.collapsibleThinkingBlocks);
     const collapseThinkingByDefault = useUIStore((state) => state.collapseThinkingByDefault);
     const showSplitAssistantMessageActions = useUIStore((state) => state.showSplitAssistantMessageActions);
@@ -1259,34 +1172,6 @@ const AssistantMessageBody = React.memo(({
     }, [awaitingMessageCompletion, hasTools, onContentChange, reasoningComplete, reasoningParts.length, shouldHoldReasoning]);
 
     const hasCopyableText = Boolean(hasTextContent) && !awaitingMessageCompletion;
-
-    const handleForkClick = React.useCallback(
-        (event: React.MouseEvent<HTMLButtonElement>) => {
-            event.stopPropagation();
-            event.preventDefault();
-            if (!createSessionFromAssistantMessage || !assistantPlanText.trim()) {
-                return;
-            }
-            setIsForkDialogOpen(true);
-        },
-        [createSessionFromAssistantMessage, assistantPlanText]
-    );
-
-    const handleConfirmFork = React.useCallback(
-        async (execution: ForkSessionExecution) => {
-            if (!createSessionFromAssistantMessage) {
-                return;
-            }
-            setIsForkSubmitting(true);
-            try {
-                await createSessionFromAssistantMessage(messageId, execution);
-                setIsForkDialogOpen(false);
-            } finally {
-                setIsForkSubmitting(false);
-            }
-        },
-        [createSessionFromAssistantMessage, messageId]
-    );
 
     const shareMessageAsImage = React.useCallback(
         async (requestedSourceElement?: HTMLElement | null) => {
@@ -1662,44 +1547,6 @@ const AssistantMessageBody = React.memo(({
                     <TooltipContent sideOffset={6}>{"Open preview"}</TooltipContent>
                 </Tooltip>
             ) : null}
-            {onToggleContextPin && hasCopyableText ? (
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className={cn(
-                                'h-8 w-8 bg-transparent hover:text-foreground hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50',
-                                contextPinned ? 'text-[color:var(--status-info)]' : 'text-muted-foreground',
-                            )}
-                            disabled={contextPinPending}
-                            aria-pressed={contextPinned}
-                            aria-label={(contextPinned ? "Unpin from context (will not survive compaction)" : "Pin into context (survives compaction)")}
-                            onPointerDown={(event) => event.stopPropagation()}
-                            onClick={(event) => { event.stopPropagation(); onToggleContextPin(); }}
-                        >
-                            <Icon name={contextPinned ? 'pushpin-2-fill' : 'pushpin-2'} className="h-3.5 w-3.5" />
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent sideOffset={6}>{(contextPinned ? "Unpin from context (will not survive compaction)" : "Pin into context (survives compaction)")}</TooltipContent>
-                </Tooltip>
-            ) : null}
-            {!isMiniChatSurface ? <Tooltip>
-                <TooltipTrigger asChild>
-                    <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8 text-muted-foreground bg-transparent hover:text-foreground hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50"
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={handleForkClick}
-                    >
-                        <Icon name="chat-new" className="h-4 w-4" />
-                    </Button>
-                </TooltipTrigger>
-                <TooltipContent sideOffset={6}>{"Start new session from this answer"}</TooltipContent>
-            </Tooltip> : null}
         </>
     );
  
@@ -1714,15 +1561,6 @@ const AssistantMessageBody = React.memo(({
               style={CONTAIN_LAYOUT_STYLE}
           >
               <TextSelectionMenu containerRef={messageContentRef} />
-             {isForkDialogOpen ? (
-                 <ForkSessionDialog
-                     open={isForkDialogOpen}
-                     onOpenChange={setIsForkDialogOpen}
-                     projectDirectory={effectiveDirectory ?? null}
-                     submitting={isForkSubmitting}
-                     onConfirm={handleConfirmFork}
-                 />
-             ) : null}
               <div>
                  <div
                      className="message-content-text leading-relaxed overflow-hidden text-foreground/90 [&_p:last-child]:mb-0 [&_ul:last-child]:mb-0 [&_ol:last-child]:mb-0"
@@ -1875,11 +1713,6 @@ const MessageBody = React.memo(({ isUser, ...props }: MessageBodyProps) => {
                 copiedMessage={props.copiedMessage}
                 onShowPopup={props.onShowPopup}
                 agentMention={props.agentMention}
-                onRevert={props.onRevert}
-                onFork={props.onFork}
-                contextPinned={props.contextPinned}
-                contextPinPending={props.contextPinPending}
-                onToggleContextPin={props.onToggleContextPin}
                 userActionsMode={props.userActionsMode}
                 stickyUserHeaderEnabled={props.stickyUserHeaderEnabled}
             />

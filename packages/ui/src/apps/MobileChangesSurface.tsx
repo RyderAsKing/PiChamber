@@ -21,9 +21,12 @@ import {
   useGitLoadingStatus,
 } from '@/stores/useGitStore';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 
 type SyncAction = 'fetch' | 'pull' | 'push' | 'sync' | null;
 type CommitAction = 'commit' | 'commitAndPush' | null;
+
+const DiffView = lazyWithChunkRecovery(() => import('@/components/views/DiffView').then((module) => ({ default: module.DiffView })));
 
 const normalizePath = (value?: string | null): string => (value || '').replace(/\\/g, '/').replace(/\/+$/g, '');
 
@@ -463,7 +466,16 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
   }
 
   if (isGitRepo === false) {
-    return renderListState(<MobileChangesState icon message={"This directory is not a Git repository"} description={"Initialize Git in this directory or open a repository."} />);
+    return renderListState(
+      <React.Suspense fallback={<MobileChangesState loading message={"Loading last turn changes..."} />}>
+        <DiffView
+          diffScope="turn"
+          hideStackedFileSidebar
+          stackedDefaultCollapsedAll
+          flushContent
+        />
+      </React.Suspense>,
+    );
   }
 
   if (route.type === 'diff') {

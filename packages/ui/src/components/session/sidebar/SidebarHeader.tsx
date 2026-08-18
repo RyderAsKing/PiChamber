@@ -1,16 +1,7 @@
 import React from 'react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { Icon } from "@/components/icon/Icon";
-import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 
 type Props = {
   hideDirectoryControls: boolean;
@@ -29,8 +20,6 @@ type Props = {
   setSessionSearchQuery: (value: string) => void;
   hasSessionSearchQuery: boolean;
   searchMatchCount: number;
-  collapseAllProjects: () => void;
-  expandAllProjects: () => void;
   selectionModeEnabled: boolean;
   onToggleSelectionMode: () => void;
   /** Dedicated mobile: occupy the same header band as the chat and workspace drawers. */
@@ -55,17 +44,10 @@ export function SidebarHeader(props: Props): React.ReactNode {
     setSessionSearchQuery,
     hasSessionSearchQuery,
     searchMatchCount,
-    collapseAllProjects,
-    expandAllProjects,
     selectionModeEnabled,
     onToggleSelectionMode,
     mobileVariant = false,
   } = props;
-
-  const projectSortOrder = useSessionDisplayStore((state) => state.projectSortOrder);
-  const setProjectSortOrder = useSessionDisplayStore((state) => state.setProjectSortOrder);
-  const stickyZoneHeaders = useSessionDisplayStore((state) => state.stickyZoneHeaders);
-  const toggleStickyZoneHeaders = useSessionDisplayStore((state) => state.toggleStickyZoneHeaders);
 
   if (hideDirectoryControls) {
     return null;
@@ -203,58 +185,6 @@ export function SidebarHeader(props: Props): React.ReactNode {
               </TooltipContent>
             </Tooltip>
 
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className={actionClassName}
-                      aria-label={"Display mode"}
-                    >
-                      <Icon name="equalizer-2" className={headerActionIconClass} />
-                    </button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={4}><p>{"Display mode"}</p></TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent align="end" className="min-w-[180px]">
-                <DropdownMenuLabel>{"Sort projects"}</DropdownMenuLabel>
-                {([
-                  ['manual', 'Manual'],
-                  ['a-z', 'A → Z'],
-                  ['z-a', 'Z → A'],
-                  ['date-added', 'Newest'],
-                  ['recent', 'Recent'],
-                ] as const).map(([order, label]) => (
-                  <DropdownMenuItem
-                    key={order}
-                    onClick={() => setProjectSortOrder(order)}
-                    className="flex items-center justify-between"
-                  >
-                    <span>{label}</span>
-                    {projectSortOrder === order ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={toggleStickyZoneHeaders}
-                  className="flex items-center justify-between"
-                >
-                  <span>{"Sticky project headers"}</span>
-                  {stickyZoneHeaders ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={collapseAllProjects} className="flex items-center gap-2">
-                  <Icon name="contract-up-down" className="h-4 w-4" />
-                  <span>{"Collapse all"}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={expandAllProjects} className="flex items-center gap-2">
-                  <Icon name="expand-up-down" className="h-4 w-4" />
-                  <span>{"Expand all"}</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
           </div>
         </div>
 
@@ -266,7 +196,6 @@ export function SidebarHeader(props: Props): React.ReactNode {
                   ? `${searchMatchCount} match`
                   : `${searchMatchCount} matches`}</span>
               ) : <span />}
-              <span>{"Esc to clear"}</span>
             </div>
             <div className="relative">
               <Icon name="search" className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

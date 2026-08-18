@@ -307,9 +307,9 @@ export const StatusRow: React.FC<StatusRowProps> = ({
       className={cn("mb-1", isMobile && "mt-2", !hasLeftAccessory && "chat-column")}
       style={STATUS_ROW_CONTAINER_STYLE}
     >
-      <div className={cn("flex items-center justify-between py-0.5 gap-2 h-[1.2rem]", hasLeftAccessory && "px-0.5")}>
+      <div className={cn("flex min-h-5 items-center justify-between gap-2 py-0.5", hasLeftAccessory && "px-0.5")}>
         {/* Left: Abort status | Working placeholder | leftAccessory */}
-        <div className={cn("flex-1 flex items-center min-w-0 gap-2", hasLeftAccessory ? "pl-1.5" : "overflow-x-hidden")}>
+        <div className={cn("flex min-w-0 flex-1 items-center gap-2", hasLeftAccessory ? "pl-1.5" : "overflow-x-hidden")}>
           {showAssistantStatus && showAbortStatus ? (
             <div className="flex h-full items-center text-[var(--status-error)] pl-0.5">
               <span className="flex items-center gap-1.5 typography-ui-label">

@@ -38,12 +38,8 @@ export const TitlebarLeftControls: React.FC = () => {
   const showAppMenu = usesFramelessChrome;
   const showOverlay = showToggle || showWindowControls || showAppMenu;
 
-  const handleOpenWindowsAppMenu = React.useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    void invokeDesktop('desktop_show_app_menu', {
-      x: rect.left,
-      y: rect.bottom,
-    }).catch((error) => {
+  const handleOpenWindowsAppMenu = React.useCallback(() => {
+    void invokeDesktop('desktop_show_app_menu').catch((error) => {
       console.warn('[titlebar] failed to open app menu', error);
     });
   }, []);
