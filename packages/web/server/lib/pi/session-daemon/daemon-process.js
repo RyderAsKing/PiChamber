@@ -1,7 +1,9 @@
 import { readFile, chmod, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { createSessionDaemon } from './session-daemon.js';
+
+const DAEMON_ENTRYPOINT = fileURLToPath(import.meta.url);
 
 const argument = (name) => {
   const index = process.argv.indexOf(name);
@@ -41,6 +43,7 @@ const writeReadyState = () => writeState({
   protocolVersion: 1,
   pid: process.pid,
   endpoint,
+  entrypoint: DAEMON_ENTRYPOINT,
   startedAt: new Date().toISOString(),
 });
 

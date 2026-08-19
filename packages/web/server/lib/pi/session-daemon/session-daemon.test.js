@@ -390,6 +390,93 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  it('shares an in-flight sessions.list for the same directory', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-share-'));
+    const endpoint = testDaemonEndpoint(root);
+    const agentDir = join(root, 'agent');
+    await mkdir(agentDir, { recursive: true });
+    let calls = 0;
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      agentDir,
+      createRuntime: async () => ({ session: new FakeSession(), async dispose() {} }),
+      listSessions: async () => {
+        calls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        return [{
+          path: join(root, 'session.jsonl'),
+          id: 'pi-session-1',
+          cwd: root,
+          created: new Date('2026-01-01T00:00:00.000Z'),
+          modified: new Date('2026-01-02T00:00:00.000Z'),
+        }];
+      },
+    });
+    await daemon.start();
+
+    const first = connectClient(endpoint);
+    await first.authenticate();
+    const second = connectClient(endpoint);
+    await second.authenticate();
+    const [left, right] = await Promise.all([
+      first.request('sessions.list', { directory: root }),
+      second.request('sessions.list', { directory: root }),
+    ]);
+    expect(calls).toBe(1);
+    expect(left.result.sessions[0].session.id).toBe('pi-session-1');
+    expect(right.result.sessions[0].session.id).toBe('pi-session-1');
+    await first.close();
+    await second.close();
+  });
+
+  it('shares an in-flight sessions.open for the same session id', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-open-share-'));
+    const endpoint = testDaemonEndpoint(root);
+    const agentDir = join(root, 'agent');
+    await mkdir(agentDir, { recursive: true });
+    const sessionFile = join(root, 'session.jsonl');
+    await writeFile(sessionFile, `{"type":"session","id":"pi-session-1","cwd":${JSON.stringify(root)}}\n`);
+    let calls = 0;
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      agentDir,
+      listSessions: async () => [{
+        path: sessionFile,
+        id: 'pi-session-1',
+        cwd: root,
+        created: new Date('2026-01-01T00:00:00.000Z'),
+        modified: new Date('2026-01-02T00:00:00.000Z'),
+      }],
+      createRuntime: async (options) => {
+        calls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        return new FakeRuntime({
+          cwd: options.cwd,
+          session: new FakeSession('pi-session-1', options.sessionFile),
+        });
+      },
+    });
+    await daemon.start();
+
+    const first = connectClient(endpoint);
+    await first.authenticate();
+    const second = connectClient(endpoint);
+    await second.authenticate();
+    const [left, right] = await Promise.all([
+      first.request('sessions.open', { sessionId: 'pi-session-1', directory: root }),
+      second.request('sessions.open', { sessionId: 'pi-session-1', directory: root }),
+    ]);
+    expect(calls).toBe(1);
+    expect(left.result.session.id).toBe('pi-session-1');
+    expect(right.result.session.id).toBe('pi-session-1');
+    await first.close();
+    await second.close();
+  });
+
   it('does not include in-memory sessions from another directory when listing a newly selected project directory', async () => {
     const rootA = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-a-'));
     const rootB = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-b-'));
@@ -1198,7 +1285,7 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
-  it('overlays a live streaming assistant onto getSession and marks unmatched tools running', async () => {
+  it('projects unmatched tools as running only while the session is authoritative-busy', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-live-hydrate-'));
     const endpoint = testDaemonEndpoint(root);
     const projectDir = join(root, 'project');
@@ -1207,12 +1294,29 @@ describe('Pi session daemon spike', () => {
     await mkdir(agentDir, { recursive: true });
     const session = new FakeSession('pi-session-live');
     session.isStreaming = true;
-    session.entries = [{
-      type: 'message',
-      id: 'user-1',
-      timestamp: '2026-01-01T00:00:01.000Z',
-      message: { role: 'user', content: 'run it', timestamp: 1_000 },
-    }];
+    session.entries = [
+      {
+        type: 'message',
+        id: 'user-1',
+        timestamp: '2026-01-01T00:00:01.000Z',
+        message: { role: 'user', content: 'run it', timestamp: 1_000 },
+      },
+      {
+        type: 'message',
+        id: 'assistant-1',
+        timestamp: '2026-01-01T00:00:01.100Z',
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'calling bash' },
+            { type: 'toolCall', id: 'tool-live', name: 'bash', arguments: { command: 'ls' } },
+          ],
+          provider: 'test',
+          model: 'model',
+          timestamp: 1_100,
+        },
+      },
+    ];
     session.messages = [
       { role: 'user', content: 'run it', timestamp: 1_000 },
       {
@@ -1247,6 +1351,58 @@ describe('Pi session daemon spike', () => {
       expect.objectContaining({ type: 'text', text: 'calling bash' }),
       expect.objectContaining({ type: 'tool', name: 'bash', state: 'running', toolCallId: 'tool-live' }),
     ]));
+
+    session.isStreaming = false;
+    const settled = await client.request('sessions.open', { sessionId: session.sessionId, cwd: projectDir });
+    expect(settled.result.lifecycle).toBe('idle');
+    expect(settled.result.messages[1].parts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'tool',
+        name: 'bash',
+        state: 'error',
+        toolCallId: 'tool-live',
+        isError: true,
+        error: 'Tool was interrupted before completion.',
+        endedAt: expect.any(Number),
+      }),
+    ]));
+    await client.close();
+  });
+
+  it('overlays an unpersisted live user prompt onto getSession while streaming', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-live-user-'));
+    const endpoint = testDaemonEndpoint(root);
+    const projectDir = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    await mkdir(projectDir, { recursive: true });
+    await mkdir(agentDir, { recursive: true });
+    const session = new FakeSession('pi-session-live-user');
+    session.isStreaming = true;
+    session.entries = [];
+    session.messages = [
+      { role: 'user', content: 'just sent', timestamp: 2_000 },
+    ];
+
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: projectDir,
+      agentDir,
+      createRuntime: async () => ({ session, async dispose() {} }),
+      listSessions: async () => [],
+    });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    const detail = await client.request('sessions.create', { cwd: projectDir });
+    expect(detail.result.isStreaming).toBe(true);
+    expect(detail.result.lifecycle).toBe('busy');
+    expect(detail.result.messages).toEqual([
+      expect.objectContaining({
+        message: expect.objectContaining({ role: 'user', text: 'just sent' }),
+      }),
+    ]);
     await client.close();
   });
 

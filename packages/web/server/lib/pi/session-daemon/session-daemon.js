@@ -19,7 +19,13 @@ import {
 import { createPiModelConfigStore } from '../model-config-store.js';
 import { clampThinkingLevel, getSupportedThinkingLevels, isPiThinkingLevel } from '../thinking-levels.js';
 import { createSessionRuntimeRegistry } from './runtime-registry.js';
-import { getPiSessionDirectory, validatePiSessionJsonlDirectory, validatePiSessionJsonlFile } from './session-jsonl.js';
+import {
+  findPiSessionJsonlById,
+  getPiSessionDirectory,
+  listPiSessionJsonlDirectory,
+  validatePiSessionJsonlDirectory,
+  validatePiSessionJsonlFile,
+} from './session-jsonl.js';
 
 const PROTOCOL_VERSION = 1;
 const MAX_FRAME_BYTES = 16 * 1024 * 1024;
@@ -80,10 +86,10 @@ export function createSessionDaemon({
   createRuntime = createPiSessionRuntime,
   healthMetadata = {},
   idleTimeoutMs = 5 * 60 * 1_000,
-  listSessions = ({ cwd: sessionCwd, agentDir: sessionAgentDir = agentDir }) => SessionManager.list(
-    sessionCwd,
-    getPiSessionDirectory({ cwd: sessionCwd, agentDir: sessionAgentDir }),
-  ),
+  listSessions = ({ cwd: sessionCwd, agentDir: sessionAgentDir = agentDir }) => listPiSessionJsonlDirectory({
+    cwd: sessionCwd,
+    agentDir: sessionAgentDir,
+  }),
   createSettingsManager = ({ cwd: settingsCwd, agentDir: settingsAgentDir = agentDir, projectTrusted }) => SettingsManager.create(
     settingsCwd,
     settingsAgentDir,
@@ -335,9 +341,8 @@ export function createSessionDaemon({
     idleDisposeTimers.set(sessionId, timer);
   };
 
-  const listSessionItems = async (requestedDirectory) => {
-    const targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : (activeDirectory || cwd);
-    await validatePiSessionJsonlDirectory({ cwd: targetDir, agentDir });
+  const listInflightByDirectory = new Map();
+  const listSessionItemsUnshared = async (targetDir) => {
     const sessions = await listSessions({ cwd: targetDir, agentDir });
     if (!Array.isArray(sessions)) {
       throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi returned an invalid session collection.');
@@ -392,6 +397,17 @@ export function createSessionDaemon({
     });
   };
 
+  const listSessionItems = async (requestedDirectory) => {
+    const targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : (activeDirectory || cwd);
+    const inflight = listInflightByDirectory.get(targetDir);
+    if (inflight) return inflight;
+    const pending = listSessionItemsUnshared(targetDir).finally(() => {
+      if (listInflightByDirectory.get(targetDir) === pending) listInflightByDirectory.delete(targetDir);
+    });
+    listInflightByDirectory.set(targetDir, pending);
+    return pending;
+  };
+
   const renameSession = async (payload) => {
     if (!payload || typeof payload !== 'object' || typeof payload.sessionId !== 'string' || payload.sessionId.length === 0
       || typeof payload.title !== 'string' || payload.title.trim().length === 0 || payload.title.length > 256) {
@@ -428,6 +444,21 @@ export function createSessionDaemon({
     if (typeof sessionId !== 'string' || sessionId.length === 0) {
       throw new SessionDaemonProtocolError('INVALID_SESSION', 'The Pi session does not exist.');
     }
+    // Filename identity is enough to 404 a missing id without listing or
+    // fully reading every transcript in every cwd. Deep-linking a stale
+    // `?session=` used to hang here while `validatePiSessionJsonlDirectory`
+    // scanned multi-megabyte JSONL files that cannot be the target.
+    try {
+      const named = await findPiSessionJsonlById({ sessionId, agentDir });
+      if (named?.path && named.cwd) {
+        await validatePiSessionJsonlFile(named.path);
+        const directory = await resolveDirectory(named.cwd);
+        knownDirectories.add(directory);
+        return { target: { id: sessionId, path: named.path }, directory };
+      }
+    } catch {
+      // Fall through to SDK list / header scan for non-standard filenames.
+    }
     const candidateDirs = new Set();
     if (requestedDirectory) {
       try {
@@ -440,7 +471,6 @@ export function createSessionDaemon({
 
     for (const dir of candidateDirs) {
       try {
-        await validatePiSessionJsonlDirectory({ cwd: dir, agentDir });
         const sessions = await listSessions({ cwd: dir, agentDir });
         const target = Array.isArray(sessions) ? sessions.find((session) => session?.id === sessionId) : undefined;
         if (target && typeof target.path === 'string' && target.path.length > 0) {
@@ -492,7 +522,8 @@ export function createSessionDaemon({
     throw new SessionDaemonProtocolError('INVALID_SESSION', 'The Pi session does not exist.');
   };
 
-  const activateSession = async (sessionId, requestedDirectory) => {
+  const activateInflightBySessionId = new Map();
+  const activateSessionUnshared = async (sessionId, requestedDirectory) => {
     if (!runtimeRegistry) {
       runtimeRegistry = createSessionRuntimeRegistry({
         onSessionEvent: ({ cwd: eventCwd, sessionId: eventSessionId }, event) => publishSessionEvent(eventSessionId, event, eventCwd),
@@ -521,11 +552,42 @@ export function createSessionDaemon({
     if (newRuntime.session?.sessionId !== sessionId && typeof newRuntime.switchSession === 'function') {
       await newRuntime.switchSession(target.path);
     }
-    runtimeRegistry.register(newRuntime, { cwd: directory });
+    const raced = runtimeRegistry.findBySessionId(sessionId);
+    if (raced) {
+      try { await newRuntime.dispose?.(); } catch { /* keep the winner */ }
+      runtime = raced;
+      if (raced.cwd) activeDirectory = raced.cwd;
+      return raced;
+    }
+    try {
+      runtimeRegistry.register(newRuntime, { cwd: directory });
+    } catch (error) {
+      if (error?.code === 'SESSION_RUNTIME_CONFLICT') {
+        try { await newRuntime.dispose?.(); } catch { /* keep the winner */ }
+        const winner = runtimeRegistry.findBySessionId(sessionId)
+          || runtimeRegistry.get({ cwd: directory, sessionId });
+        if (winner) {
+          runtime = winner;
+          if (winner.cwd) activeDirectory = winner.cwd;
+          return winner;
+        }
+      }
+      throw error;
+    }
     runtime = newRuntime;
     activeDirectory = directory;
     rememberRuntimeSession();
     return newRuntime;
+  };
+
+  const activateSession = async (sessionId, requestedDirectory) => {
+    const inflight = activateInflightBySessionId.get(sessionId);
+    if (inflight) return inflight;
+    const pending = activateSessionUnshared(sessionId, requestedDirectory).finally(() => {
+      if (activateInflightBySessionId.get(sessionId) === pending) activateInflightBySessionId.delete(sessionId);
+    });
+    activateInflightBySessionId.set(sessionId, pending);
+    return pending;
   };
 
   const liveProjectionEntries = (session, persisted) => {
@@ -549,7 +611,7 @@ export function createSessionDaemon({
     let liveIndex = 0;
     const liveAssistantId = streamingMessageIds.get(session.sessionId);
     for (const message of liveMessages) {
-      if (!message || (message.role !== 'assistant' && message.role !== 'toolResult')) continue;
+      if (!message || (message.role !== 'user' && message.role !== 'assistant' && message.role !== 'toolResult')) continue;
       const timestamp = typeof message.timestamp === 'number' ? message.timestamp : undefined;
       const key = `${message.role}:${timestamp ?? ''}`;
       if (timestamp !== undefined && persistedKeys.has(key)) continue;
@@ -606,6 +668,7 @@ export function createSessionDaemon({
         if (part?.type === 'toolCall') {
           const result = toolResults.get(part.id);
           const running = streaming && !result;
+          const interrupted = !running && !result;
           return [{
             type: 'tool',
             id: `${entry.id}:tool:${part.id}`,
@@ -613,12 +676,20 @@ export function createSessionDaemon({
             toolCallId: part.id,
             name: part.name,
             input: redactAttachmentValues(part.arguments),
-            state: result?.isError ? 'error' : running ? 'running' : 'completed',
+            state: result?.isError || interrupted ? 'error' : running ? 'running' : 'completed',
             ...(result?.output ? { output: result.output } : {}),
-            ...(result?.error ? { error: result.error } : {}),
-            ...(result?.isError ? { isError: true } : {}),
+            ...(result?.error
+              ? { error: result.error }
+              : interrupted
+                ? { error: 'Tool was interrupted before completion.' }
+                : {}),
+            ...(result?.isError || interrupted ? { isError: true } : {}),
             ...(result?.metadata ? { metadata: result.metadata } : {}),
-            ...(Number.isFinite(result?.endedAt) ? { endedAt: result.endedAt } : {}),
+            ...(Number.isFinite(result?.endedAt)
+              ? { endedAt: result.endedAt }
+              : interrupted
+                ? { endedAt: createdAt }
+                : {}),
           }];
         }
         return [];
@@ -1424,17 +1495,18 @@ export function createSessionDaemon({
   const deleteSession = async (sessionId, requestedDirectory) => {
     const active = runtimeRegistry?.findBySessionId(sessionId);
     let targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : active?.cwd || activeDirectory || cwd;
+    const activeSessionFile = active?.session?.sessionManager?.getSessionFile?.();
     if (active) {
       if (active.session?.isStreaming) await active.session.abort();
       await runtimeRegistry?.dispose(active);
       if (runtime === active) runtime = undefined;
     }
-    try {
+    if (active && typeof activeSessionFile === 'string' && activeSessionFile.length > 0) {
+      await rm(activeSessionFile, { force: true });
+    } else if (!active) {
       const { target, directory } = await findPersistedSession(sessionId, targetDir);
       targetDir = directory;
       await rm(target.path, { force: false });
-    } catch (error) {
-      if (!active || error?.code !== 'INVALID_SESSION') throw error;
     }
     publish('session.lifecycle', { state: 'idle', deleted: true }, sessionId, targetDir);
   };

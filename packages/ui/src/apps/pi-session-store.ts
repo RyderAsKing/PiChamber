@@ -88,8 +88,8 @@ const lifecycleFromEvent = (event: PiSessionEvent): LiveSessionLifecycle | undef
  *   membership, stub insert). Token deltas that leave the catalog ref
  *   unchanged do **not** emit this.
  * - `chrome`: cluster UI — `connection`, `error`, `directory`,
- *   `selectedSessionId`, `sessions[]`, `sessionsListStatus`,
- *   `focusPending`, `hydratedSessionIds`.
+   *   `selectedSessionId`, `sessions[]`, `sessionsListStatus`,
+   *   `focusPending`, `hydratedSessionIds`, `sessionLoadErrorById`.
  * - `*` (default when `subscribe` is called without a topic): broadcast
  *   to every listener regardless of topic. Kept for tests and any
  *   unmigrated caller; production hooks pass an explicit topic so the
@@ -113,6 +113,14 @@ export interface PiSessionStoreState {
   error: PiRequestError | null;
   showArchived: boolean;
   hydratedSessionIds: ReadonlySet<PiSessionId>;
+  /**
+   * Per-session hydrate failures. A missing or unreadable session must not
+   * take the cluster to `connection: 'error'` (that looks like a daemon
+   * outage) and must not leave the chat on the PiChamber logo forever.
+   * `useSessionMessageLoadState` maps this to the existing
+   * "Session could not be loaded" block.
+   */
+  sessionLoadErrorById: ReadonlyMap<PiSessionId, PiRequestError>;
   /** True while a `focusProject` is in flight (between pointer swap and
    *  list/hydrate settle or fail). Chat uses this to keep the existing
    *  chat visible — the PiChamber logo replaces an empty draft on a cold
@@ -153,6 +161,7 @@ const initial = (): PiSessionStoreState => ({
   error: null,
   showArchived: false,
   hydratedSessionIds: new Set(),
+  sessionLoadErrorById: new Map(),
   focusPending: false,
   sessionsListStatus: 'idle',
   catalog: initialCatalog(),
@@ -166,6 +175,14 @@ interface PendingFocus {
 }
 const asError = (error: unknown) => error instanceof PiRequestError ? error : new PiRequestError('DAEMON_REQUEST_FAILED', error instanceof Error ? error.message : undefined);
 
+const isInvalidSessionError = (error: unknown): error is PiRequestError => (
+  error instanceof PiRequestError && error.code === 'INVALID_SESSION'
+);
+
+const isSessionRuntimeConflictError = (error: unknown): error is PiRequestError => (
+  error instanceof PiRequestError && error.code === 'SESSION_RUNTIME_CONFLICT'
+);
+
 const delayBeforeRetry = async (): Promise<void> => {
   if (FOCUS_RETRY_DELAY_MS <= 0) return;
   await new Promise<void>((resolve) => setTimeout(resolve, FOCUS_RETRY_DELAY_MS));
@@ -177,6 +194,14 @@ export const getPiSessionStore = (): PiSessionStore => {
   sharedStore ??= new PiSessionStore();
   return sharedStore;
 };
+
+const viteHot = (import.meta as ImportMeta & { hot?: { dispose: (cb: () => void) => void } }).hot;
+if (viteHot) {
+  viteHot.dispose(() => {
+    sharedStore?.dispose();
+    sharedStore = null;
+  });
+}
 
 /** One connected Pi runtime. The store owns a runtime-wide cluster:
  *  a single event stream, a `reducer.bySession` map, `hydratedSessionIds`, and
@@ -226,6 +251,10 @@ export class PiSessionStore {
   /** Sessions currently being re-fetched because a live event arrived after
    *  their transcript was dropped. Dedupes overlapping prompt/event hydrates. */
   private restoringTranscriptById = new Set<PiSessionId>();
+  /** In-flight `getSession` hydrates keyed by session id. Sidebar select,
+   *  ChatContainer `ensureHydrated`, and Strict Mode remounts share one
+   *  request so overlapping opens cannot race the daemon runtime registry. */
+  private hydrateInflightById = new Map<PiSessionId, Promise<void>>();
   private readonly cadence = new PiStreamCadence((events) => this.commitEvents(events));
   private unsubscribeRuntime = subscribeRuntimeEndpointChanged((detail) => {
     if (detail.runtimeKey === detail.previousRuntimeKey) {
@@ -279,6 +308,7 @@ export class PiSessionStore {
     this.directoryRefreshGenerationByDirectory.clear();
     this.evictionScheduled = false;
     this.restoringTranscriptById.clear();
+    this.hydrateInflightById.clear();
     this.cadence.dispose();
     this.stream?.dispose();
     this.stream = null;
@@ -303,6 +333,29 @@ export class PiSessionStore {
     this.state = { ...this.state, error: asError(error), connection: 'error' };
     this.emitChrome();
   };
+  /**
+   * A single session could not be hydrated. The cluster stays `ready` so
+   * other chats keep working; `focusPending` clears so AppEffects can
+   * settle and ChatContainer can leave the logo for the error block.
+   */
+  private failSessionLoad(sessionId: string, error: PiRequestError) {
+    const nextErrors = new Map(this.state.sessionLoadErrorById);
+    nextErrors.set(sessionId, error);
+    const selectedFailed = this.state.selectedSessionId === sessionId;
+    this.state = {
+      ...this.state,
+      sessionLoadErrorById: nextErrors,
+      focusPending: selectedFailed ? false : this.state.focusPending,
+    };
+    this.emitChrome();
+  }
+  private clearSessionLoadError(sessionId: string) {
+    if (!this.state.sessionLoadErrorById.has(sessionId)) return;
+    const nextErrors = new Map(this.state.sessionLoadErrorById);
+    nextErrors.delete(sessionId);
+    this.state = { ...this.state, sessionLoadErrorById: nextErrors };
+    this.emitChrome();
+  }
   clear = () => {
     this.runtimeGeneration += 1;
     this.focusGeneration += 1;
@@ -318,6 +371,7 @@ export class PiSessionStore {
     this.directoryRefreshGenerationByDirectory.clear();
     this.evictionScheduled = false;
     this.restoringTranscriptById.clear();
+    this.hydrateInflightById.clear();
     this.cadence.dispose();
     this.stream?.dispose(); this.stream = null;
     this.state = { ...initial(), connection: 'ready' };
@@ -431,6 +485,14 @@ export class PiSessionStore {
     }
     try {
       const requestedDirectory = typeof options.directory === 'string' && options.directory.trim() ? options.directory : null;
+      // A provided cwd is enough to attach. `open` lists that folder, hydrates
+      // the id once, and only then `getSession`s if the id lives elsewhere.
+      // Probing `getSession` here first downloaded the whole transcript just
+      // to learn `directory`, then `open` downloaded it again.
+      if (requestedDirectory) {
+        await this.open(requestedDirectory, options.sessionId);
+        return;
+      }
       if (options.sessionId && !options.sessionDirectoryKnown) {
         try {
           const detail = await piClient.getSession(options.sessionId, { directory: requestedDirectory ?? undefined, runtimeKey: getRuntimeKey() });
@@ -441,10 +503,6 @@ export class PiSessionStore {
         } catch {
           // Session lookup failed, fall through to directory resolution
         }
-      }
-      if (requestedDirectory) {
-        await this.open(requestedDirectory, options.sessionId);
-        return;
       }
       const projects = await piClient.listProjects({ runtimeKey: getRuntimeKey() });
       const directory = projects.projects.find((project) => project.selected)?.directory ?? projects.projects[0]?.directory;
@@ -627,18 +685,17 @@ export class PiSessionStore {
             matchedSession = { session: detail.session, updatedAt: detail.session.updatedAt };
           }
         } catch {
-          // Fall back to default session if desired session doesn't exist
+          // Keep the requested id selected; hydrate() records a per-session
+          // load error so the chat can leave the logo instead of spinning.
         }
       }
       if (expected !== this.focusGeneration || startedRuntimeGeneration !== this.runtimeGeneration) return;
-      const preferredStillSelected = desiredSessionId
-        ? listPayload.sessions.find((item) => item.session.id === desiredSessionId)
-        : undefined;
-      const nextSelectedSessionId = preferredStillSelected?.session.id
-        ?? matchedSession?.session.id
-        ?? listPayload.sessions.find((item) => !item.session.archived)?.session.id
-        ?? listPayload.sessions[0]?.session.id
-        ?? null;
+      const nextSelectedSessionId = matchedSession?.session.id
+        ?? (desiredSessionId ? desiredSessionId : (
+          listPayload.sessions.find((item) => !item.session.archived)?.session.id
+          ?? listPayload.sessions[0]?.session.id
+          ?? null
+        ));
       this.pendingPreferredSessionId = null;
       const nextCatalog = applyDirectoryListToCatalog(this.state.catalog, resolvedDirectory, listPayload.sessions, Date.now());
       const catalogChanged = nextCatalog !== this.state.catalog;
@@ -797,6 +854,7 @@ export class PiSessionStore {
     this.directoryRefreshGenerationByDirectory.clear();
     this.evictionScheduled = false;
     this.restoringTranscriptById.clear();
+    this.hydrateInflightById.clear();
     this.cadence.dispose();
     this.stream?.dispose(); this.stream = null;
     this.state = {
@@ -845,13 +903,16 @@ export class PiSessionStore {
             matchedSession = { session: detail.session, updatedAt: detail.session.updatedAt };
           }
         } catch {
-          // Fall back to default session if desired session doesn't exist
+          // Keep the requested id selected; hydrate() records a per-session
+          // load error so the chat can leave the logo instead of spinning.
         }
       }
       const selectedSessionId = matchedSession?.session.id
-        ?? result.sessions.find((item) => !item.session.archived)?.session.id
-        ?? result.sessions[0]?.session.id
-        ?? null;
+        ?? (desiredSessionId ? desiredSessionId : (
+          result.sessions.find((item) => !item.session.archived)?.session.id
+          ?? result.sessions[0]?.session.id
+          ?? null
+        ));
       this.pendingPreferredSessionId = null;
       // First-attach: the cluster owns this runtime the moment its list
       // resolves. A folder click during list → hydrate → stream-attach
@@ -1262,6 +1323,12 @@ export class PiSessionStore {
     const nextFocusPending = isSelectedHydrated
       ? false
       : this.state.focusPending && !this.hydratedSessionIds.has(this.state.selectedSessionId ?? '');
+    let nextLoadErrors = this.state.sessionLoadErrorById;
+    if (nextLoadErrors.has(session.sessionId)) {
+      const updated = new Map(nextLoadErrors);
+      updated.delete(session.sessionId);
+      nextLoadErrors = updated;
+    }
     // Connection chrome is owned by the bootstrap / reconnect paths, not
     // by hydration. Treat the merge as a no-op for `connection` so a
     // hydrate completion doesn't unexpectedly flip a `'loading'` window
@@ -1284,6 +1351,7 @@ export class PiSessionStore {
       error: null,
       focusPending: nextFocusPending,
       hydratedSessionIds: new Set(this.hydratedSessionIds),
+      sessionLoadErrorById: nextLoadErrors,
       catalog: nextCatalog,
     };
     // commitHydratedSession always wraps `hydratedSessionIds` in a new
@@ -1296,6 +1364,26 @@ export class PiSessionStore {
   }
 
   private async hydrate(
+    sessionId: string,
+    expected: number,
+    known?: Awaited<ReturnType<typeof piClient.getSession>>,
+    options?: {
+      force?: boolean;
+      initialHealth?: Extract<PiBootstrapHealth, { state: 'ready' }>;
+      initialSessions?: readonly PiSessionListItem[];
+    },
+  ) {
+    if (expected !== this.runtimeGeneration) return;
+    const inflight = this.hydrateInflightById.get(sessionId);
+    if (inflight) return inflight;
+    const pending = this.hydrateUnshared(sessionId, expected, known, options).finally(() => {
+      if (this.hydrateInflightById.get(sessionId) === pending) this.hydrateInflightById.delete(sessionId);
+    });
+    this.hydrateInflightById.set(sessionId, pending);
+    return pending;
+  }
+
+  private async hydrateUnshared(
     sessionId: string,
     expected: number,
     known?: Awaited<ReturnType<typeof piClient.getSession>>,
@@ -1324,6 +1412,7 @@ export class PiSessionStore {
       }
       return;
     }
+    this.clearSessionLoadError(sessionId);
     try {
       if (this.stream) {
         const detail = known ?? await piClient.getSession(sessionId, { directory, runtimeKey });
@@ -1356,12 +1445,26 @@ export class PiSessionStore {
         ? this.sessionFromDetail(known)
         : bootstrap.reducerState.bySession.get(sessionId);
       if (!hydratedSession) {
-        const detail = known ?? await piClient.getSession(sessionId, { directory, runtimeKey });
-        if (expected !== this.runtimeGeneration) {
+        try {
+          const detail = known ?? await piClient.getSession(sessionId, { directory, runtimeKey });
+          if (expected !== this.runtimeGeneration) {
+            bootstrap.stream?.dispose();
+            return;
+          }
+          hydratedSession = this.sessionFromDetail(detail);
+        } catch (error) {
+          // Attach the cluster stream even when the requested chat is
+          // gone so a stale deep link cannot block the rest of the runtime.
+          this.stream = bootstrap.stream;
+          ready = true;
+          if (expected === this.runtimeGeneration && isInvalidSessionError(error)) {
+            this.failSessionLoad(sessionId, error);
+            return;
+          }
           bootstrap.stream?.dispose();
-          return;
+          this.stream = null;
+          throw error;
         }
-        hydratedSession = this.sessionFromDetail(detail);
       }
       if (hydratedSession.sessionId !== sessionId) {
         bootstrap.stream?.dispose();
@@ -1370,7 +1473,26 @@ export class PiSessionStore {
       this.stream = bootstrap.stream;
       this.commitHydratedSession(hydratedSession, buffered);
       ready = true;
-    } catch (error) { if (expected === this.runtimeGeneration) this.reportError(error); }
+    } catch (error) {
+      if (expected !== this.runtimeGeneration) return;
+      if (isInvalidSessionError(error)) {
+        this.failSessionLoad(sessionId, error);
+        return;
+      }
+      if (isSessionRuntimeConflictError(error)) {
+        try {
+          const detail = await piClient.getSession(sessionId, { directory, runtimeKey });
+          if (expected !== this.runtimeGeneration) return;
+          if (detail.session.id !== sessionId) return;
+          this.commitHydratedSession(this.sessionFromDetail(detail));
+        } catch (retryError) {
+          if (expected !== this.runtimeGeneration) return;
+          this.failSessionLoad(sessionId, asError(retryError));
+        }
+        return;
+      }
+      this.reportError(error);
+    }
   }
 
   private async reconnect(sessionId: string, expected: number, runtimeKey: string) {
@@ -1775,6 +1897,7 @@ export class PiSessionStore {
     this.directoryRefreshGenerationByDirectory.clear();
     this.evictionScheduled = false;
     this.restoringTranscriptById.clear();
+    this.hydrateInflightById.clear();
     this.cadence.dispose();
     this.stream?.dispose();
     this.stream = null;

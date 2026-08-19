@@ -394,6 +394,23 @@ describe('PiSessionStore runtime-scoped sessions', () => {
     store.dispose();
   });
 
+  test('deep-link start with a directory hydrates the session once', async () => {
+    const stubs = stubDaemons({
+      listSessions: async () => ({
+        sessions: [{ session: { id: 's1', directory: '/repo', createdAt: 1, updatedAt: 1 }, updatedAt: 1 }],
+      }),
+    });
+    try {
+      const store = new PiSessionStore();
+      await store.start({ directory: '/repo', sessionId: 's1' });
+      expect(stubs.calls.listSessions).toBe(1);
+      expect(stubs.calls.getSession).toBe(1);
+      store.dispose();
+    } finally {
+      stubs.restore();
+    }
+  });
+
   test('LRU eviction keeps re-touched idle sessions resident after overflow', async () => {
     const store = new PiSessionStore();
     const internal = asInternal(store);
@@ -1151,6 +1168,121 @@ describe('PiSessionStore behaviour parity', () => {
 
     await store.select('first');
     expect(hydrateCalls).toBe(1);
+    store.dispose();
+  });
+
+  test('overlapping select and ensureHydrated share one getSession', async () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    internal.stream = { dispose: () => undefined };
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      connection: 'ready',
+      selectedSessionId: 'other',
+      sessions: [{ session: { id: 's1', directory: '/repo', createdAt: 1, updatedAt: 1 } as never, updatedAt: 1 }],
+    };
+    let started = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const stubs = stubDaemons({
+      getSession: async (id) => {
+        started += 1;
+        await gate;
+        return {
+          session: { id, directory: '/repo', createdAt: 1, updatedAt: 1 },
+          lastSequence: 1,
+          messages: [],
+        };
+      },
+    });
+    try {
+      const first = store.select('s1');
+      const second = store.ensureHydrated('s1');
+      await tickMicrotasks(20);
+      expect(started).toBe(1);
+      release();
+      await Promise.all([first, second]);
+      expect(stubs.calls.getSession).toBe(1);
+      expect(internal.hydratedSessionIds.has('s1')).toBe(true);
+      expect(store.getState().connection).toBe('ready');
+    } finally {
+      stubs.restore();
+    }
+    store.dispose();
+  });
+
+  test('a runtime-conflict hydrate retries without taking the cluster down', async () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    internal.stream = { dispose: () => undefined };
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      connection: 'ready',
+      selectedSessionId: 's1',
+      sessions: [{ session: { id: 's1', directory: '/repo', createdAt: 1, updatedAt: 1 } as never, updatedAt: 1 }],
+    };
+    let calls = 0;
+    const stubs = stubDaemons({
+      getSession: async (id) => {
+        calls += 1;
+        if (calls === 1) {
+          throw new PiRequestError('SESSION_RUNTIME_CONFLICT', 'A Pi runtime already owns this session and directory.', 400);
+        }
+        return {
+          session: { id, directory: '/repo', createdAt: 1, updatedAt: 1 },
+          lastSequence: 1,
+          messages: [],
+        };
+      },
+    });
+    try {
+      await store.select('s1');
+      expect(calls).toBe(2);
+      expect(store.getState().connection).toBe('ready');
+      expect(store.getState().error).toBeNull();
+      expect(internal.hydratedSessionIds.has('s1')).toBe(true);
+    } finally {
+      stubs.restore();
+    }
+    store.dispose();
+  });
+
+  test('a missing selected session fails that chat without taking the cluster down', async () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    const stream = { dispose: () => undefined };
+    internal.stream = stream;
+    internal.hydratedSessionIds = new Set(['alive']);
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      connection: 'ready',
+      focusPending: true,
+      selectedSessionId: 'missing',
+      sessions: [{ session: { id: 'alive', directory: '/repo', createdAt: 1, updatedAt: 1 } as never, updatedAt: 1 }],
+      hydratedSessionIds: new Set(['alive']),
+    };
+    const stubs = stubDaemons({
+      getSession: async () => {
+        throw new PiRequestError('INVALID_SESSION', 'The Pi session does not exist.', 404);
+      },
+    });
+    try {
+      await store.select('missing');
+      const state = store.getState();
+      expect(state.connection).toBe('ready');
+      expect(state.focusPending).toBe(false);
+      expect(internal.stream).toBe(stream);
+      expect(internal.hydratedSessionIds.has('alive')).toBe(true);
+      expect(internal.hydratedSessionIds.has('missing')).toBe(false);
+      expect(state.sessionLoadErrorById.get('missing')?.code).toBe('INVALID_SESSION');
+    } finally {
+      stubs.restore();
+    }
     store.dispose();
   });
 });

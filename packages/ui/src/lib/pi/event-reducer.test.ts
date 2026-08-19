@@ -354,6 +354,24 @@ describe("hydrateSessionFromDetail", () => {
     expect(session.parts.get("p1")?.tool?.state).toBe("running")
   })
 
+  test("marks a live turn busy when getSession has no assistant yet", () => {
+    const { session } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 4,
+      isStreaming: true,
+      lifecycle: "busy",
+      messages: [{
+        message: {
+          id: "u1", sessionId: "sess-1", directory: "/work", role: "user",
+          text: "run it", createdAt: 1_000,
+        },
+        parts: [],
+      }],
+    })
+    expect(session.lifecycle).toBe("busy")
+    expect(session.streamingMessages.size).toBe(0)
+  })
+
   test("resumes delta streaming on a hydrated message", () => {
     const { state: initial } = hydrateSessionFromDetail({
       session: { id: "sess-1", directory: "/work" },

@@ -42,6 +42,10 @@ const hasValidStateIdentity = (state) => (
 
 const isValidState = (state) => hasValidStateIdentity(state) && typeof state.startedAt === 'string';
 
+const daemonEntrypointMatches = (state) => (
+  typeof state?.entrypoint === 'string' && state.entrypoint === DAEMON_ENTRYPOINT
+);
+
 const isValidFailureState = (state) => hasValidStateIdentity(state)
   && state.state === 'failed'
   && typeof state.error?.code === 'string';
@@ -306,6 +310,26 @@ export const createPiSessionDaemonSupervisor = ({
     return true;
   };
 
+  const requestDaemonExit = async (state) => {
+    if (!state || !Number.isInteger(state.pid) || state.pid <= 0) return;
+    try {
+      processLike.kill(state.pid, 'SIGTERM');
+    } catch {
+      if (isPidAlive(processLike, state.pid)) throw new PiSessionDaemonUnavailableError('DAEMON_STOP_FAILED');
+      await removeStaleState(state);
+      return;
+    }
+    const deadline = Date.now() + startupTimeoutMs;
+    while (Date.now() < deadline) {
+      if (!isPidAlive(processLike, state.pid)) {
+        await removeStaleState(state);
+        return;
+      }
+      await wait(RETRY_DELAY_MS);
+    }
+    throw new PiSessionDaemonUnavailableError('DAEMON_STOP_TIMEOUT');
+  };
+
   const start = async () => {
     intentionallyStopped = false;
     if (startPromise) return startPromise;
@@ -313,9 +337,15 @@ export const createPiSessionDaemonSupervisor = ({
       const credential = await ensureCredential();
       try {
         const existing = await probe(credential);
-        return { state: 'ready', reused: true, protocolVersion: PROTOCOL_VERSION, capabilities: existing.health.capabilities ?? [] };
+        if (daemonEntrypointMatches(existing.state)) {
+          return { state: 'ready', reused: true, protocolVersion: PROTOCOL_VERSION, capabilities: existing.health.capabilities ?? [] };
+        }
+        // A healthy daemon from another install (global npm vs this checkout)
+        // must not keep answering getSession without the live-turn overlay.
+        await requestDaemonExit(existing.state);
       } catch (error) {
         if (!(error instanceof PiSessionDaemonUnavailableError)) throw error;
+        if (error.code === 'DAEMON_STOP_FAILED' || error.code === 'DAEMON_STOP_TIMEOUT') throw error;
       }
 
       const staleState = await readState() ?? await readFailureState();
@@ -386,16 +416,19 @@ export const createPiSessionDaemonSupervisor = ({
     let credential = await readCredential();
     try {
       const ready = await probe(credential);
-      return { credential, ready };
+      if (daemonEntrypointMatches(ready.state)) {
+        return { credential, ready };
+      }
     } catch (probeError) {
       if (intentionallyStopped) throw new PiSessionDaemonUnavailableError('DAEMON_UNAVAILABLE');
       if (probeError instanceof PiSessionDaemonUnavailableError && isPermanentStartupFailure(probeError.code)) {
         throw probeError;
       }
-      await start();
-      credential = await readCredential();
-      return { credential, ready: await probe(credential) };
     }
+    if (intentionallyStopped) throw new PiSessionDaemonUnavailableError('DAEMON_UNAVAILABLE');
+    await start();
+    credential = await readCredential();
+    return { credential, ready: await probe(credential) };
   };
 
   const requestDaemon = async (command, payload) => {
@@ -435,22 +468,9 @@ export const createPiSessionDaemonSupervisor = ({
     return withOperationLock(async () => {
       const credential = await readCredential();
       const { state } = await probe(credential);
-      try {
-        processLike.kill(state.pid, 'SIGTERM');
-      } catch {
-        throw new PiSessionDaemonUnavailableError('DAEMON_STOP_FAILED');
-      }
-
-      const deadline = Date.now() + startupTimeoutMs;
-      while (Date.now() < deadline) {
-        if (!isPidAlive(processLike, state.pid)) {
-          await removeStaleState(state);
-          intentionallyStopped = true;
-          return { state: 'stopped' };
-        }
-        await wait(RETRY_DELAY_MS);
-      }
-      throw new PiSessionDaemonUnavailableError('DAEMON_STOP_TIMEOUT');
+      await requestDaemonExit(state);
+      intentionallyStopped = true;
+      return { state: 'stopped' };
     });
   };
 

@@ -278,19 +278,31 @@ export function useSessionMessageLoadState(sessionID: string, _directory?: strin
   const selectedSessionId = usePiSessionSnapshot((state) => state.selectedSessionId, undefined, TOPIC_CHROME);
   const connection = usePiSessionSnapshot((state) => state.connection, undefined, TOPIC_CHROME);
   const error = usePiSessionSnapshot((state) => state.error, undefined, TOPIC_CHROME);
+  const sessionLoadErrorById = usePiSessionSnapshot((state) => state.sessionLoadErrorById, undefined, TOPIC_CHROME);
   return useMemo(() => {
     if (!sessionID) return READY_LOAD_STATE;
     const isHydrated = hydratedSessionIds.has(sessionID);
-    const isLoading = !isHydrated && (selectedSessionId === sessionID || connection === 'loading');
-    const isError = connection === 'error' && error !== null;
+    if (isHydrated) return READY_LOAD_STATE;
+    const sessionError = sessionLoadErrorById.get(sessionID)
+      ?? (connection === 'error' && error ? error : null);
+    if (sessionError) {
+      return {
+        loading: false,
+        complete: false,
+        status: 'error' as const,
+        cursor: undefined,
+        error: sessionError.message ?? 'Session load failed',
+      };
+    }
+    const isLoading = selectedSessionId === sessionID || connection === 'loading';
     return {
       loading: isLoading,
-      complete: isHydrated,
-      status: isError ? ('error' as const) : isLoading ? ('loading' as const) : ('ready' as const),
+      complete: false,
+      status: isLoading ? ('loading' as const) : ('ready' as const),
       cursor: undefined,
-      error: isError ? (error?.message ?? 'Session load failed') : null,
+      error: null,
     };
-  }, [connection, error, hydratedSessionIds, selectedSessionId, sessionID]);
+  }, [connection, error, hydratedSessionIds, selectedSessionId, sessionID, sessionLoadErrorById]);
 }
 
 export function useChildStoreManager() {

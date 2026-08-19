@@ -139,7 +139,7 @@ chat transcript selectors.
 - `catalog` — `state.catalog` identity changed.
 - `chrome` — cluster UI: `connection`, `error`, `directory`,
   `selectedSessionId`, `sessions[]`, `sessionsListStatus`,
-  `focusPending`, `hydratedSessionIds`.
+  `focusPending`, `hydratedSessionIds`, `sessionLoadErrorById`.
 - `*` (default) — broadcast every commit, for tests and legacy callers.
 
 `commitEvents` walks the event batch and collects the session ids whose
@@ -166,9 +166,15 @@ loader preconditions to a folder switch without a known id, and
 `sessionsListStatus` lets the chat distinguish loading / ready / failed.
 `focusPending` is set the moment a folder click swaps the pointer and clears
 only when the selected id becomes hydrated, the focus resolves to an
-authoritative empty `sessions[]`, or the focus fails outright. While
-`focusPending` is true, `AppEffects` keeps the existing UI store identity so
-the chat does not collapse back to `ChatEmptyState`.
+authoritative empty `sessions[]`, the focus fails outright, or hydrate of
+the selected id fails with `INVALID_SESSION`. A missing deep-linked session
+(`?session=` for an id with no JSONL) is a per-session load error in
+`sessionLoadErrorById`, not `connection: 'error'` and not an infinite
+PiChamber logo. The chat's existing "Session could not be loaded" block
+covers that id; other chats on the cluster keep working. `ensureSessionRenderable`
+must hydrate when the UI id is already selected but not in `hydratedSessionIds`
+— a no-op there left stale deep links spinning after `select()` during
+`connection: 'loading'` set the pointer without fetching.
 
 Warm folder switches skip the loader: if the preferred session id is already
 in `hydratedSessionIds`, `focusProject` selects it immediately and resolves

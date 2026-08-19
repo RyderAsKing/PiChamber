@@ -110,6 +110,34 @@ describe('Pi session daemon supervisor', () => {
     });
   }, 20_000);
 
+  it('replaces a healthy daemon that predates entrypoint identity', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-supervisor-entrypoint-'));
+    const cwd = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    await Promise.all([mkdir(cwd), mkdir(agentDir)]);
+    const env = {
+      ...process.env,
+      PI_OFFLINE: '1',
+      PICHAMBER_DATA_DIR: join(root, 'data'),
+      PICHAMBER_PI_AGENT_DIR: agentDir,
+      XDG_RUNTIME_DIR: join(root, 'runtime'),
+    };
+
+    supervisor = createPiSessionDaemonSupervisor({ env, cwd });
+    await expect(supervisor.start()).resolves.toMatchObject({ state: 'ready', reused: false });
+    const first = JSON.parse(await readFile(supervisor.paths.stateFile, 'utf8'));
+    expect(typeof first.entrypoint).toBe('string');
+    const firstPid = first.pid;
+    const { entrypoint: _entrypoint, ...legacyState } = first;
+    await writeFile(supervisor.paths.stateFile, JSON.stringify(legacyState));
+
+    await expect(supervisor.start()).resolves.toMatchObject({ state: 'ready', reused: false });
+    await waitForExit(firstPid);
+    const second = JSON.parse(await readFile(supervisor.paths.stateFile, 'utf8'));
+    expect(second.pid).not.toBe(firstPid);
+    expect(second.entrypoint).toBe(first.entrypoint);
+  }, 20_000);
+
   it('spawns the daemon as Node when the parent process is Electron', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-supervisor-electron-'));
     const cwd = join(root, 'project');

@@ -163,7 +163,12 @@ export async function startWebUiServer(options = {}) {
   await listen(server, port, host);
   const resolvedPort = typeof server.address() === 'object' && server.address() ? server.address().port : null;
   if (typeof resolvedPort === 'number') process.send?.({ type: 'pichamber:ready', port: resolvedPort });
-  await piSessionDaemonRuntime.start().catch((error) => console.warn(`[PiSessionDaemon] unavailable: ${error?.code ?? 'DAEMON_UNAVAILABLE'}`));
+  // Warm the detached daemon as soon as HTTP is listening. Requests arriving
+  // during cold start share the supervisor's startPromise; server readiness
+  // itself never waits for provider/model initialization in the child.
+  void piSessionDaemonRuntime.start().catch((error) => {
+    console.warn(`[PiSessionDaemon] unavailable: ${error?.code ?? 'DAEMON_UNAVAILABLE'}`);
+  });
   const controller = {
     expressApp: app,
     httpServer: server,

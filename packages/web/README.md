@@ -8,7 +8,7 @@ PiChamber's web server and browser UI for the Pi coding-agent runtime.
 pichamber serve --port 3000
 ```
 
-The server starts the local Pi session daemon, serves the browser UI, and exposes authenticated Pi routes under `/api/pi/*`.
+The server starts warming the local Pi session daemon as soon as HTTP is listening, serves the browser UI, and exposes authenticated Pi routes under `/api/pi/*`. HTTP readiness does not wait for Pi provider/model initialization; early Pi requests share the supervisor's in-flight startup.
 
 ```bash
 pichamber serve --port 8080

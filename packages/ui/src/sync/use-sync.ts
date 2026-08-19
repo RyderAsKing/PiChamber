@@ -15,7 +15,9 @@ export function useSync() {
       const state = store.getState();
       if (state.selectedSessionId !== sessionId) {
         await store.select(sessionId);
+        return;
       }
+      await store.ensureHydrated(sessionId);
     },
     loadMore: async () => undefined,
     syncSession: async (sessionId: string) => {
