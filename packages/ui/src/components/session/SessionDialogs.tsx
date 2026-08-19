@@ -16,11 +16,10 @@ import { DirectoryExplorerDialog } from './DirectoryExplorerDialog';
 import type { Session } from '@/lib/chat/types';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import * as sessionActions from '@/sync/session-actions';
-import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useDeviceInfo } from '@/lib/device';
 import { sessionEvents } from '@/lib/sessionEvents';
+import { subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
 
 const renderToastDescription = (text?: string) =>
     text ? <span className="text-foreground/80 dark:text-foreground/70">{text}</span> : undefined;
@@ -32,7 +31,6 @@ type DeleteDialogState = {
 
 export const SessionDialogs: React.FC = () => {
     const [isDirectoryDialogOpen, setIsDirectoryDialogOpen] = React.useState(false);
-    const [hasShownInitialDirectoryPrompt, setHasShownInitialDirectoryPrompt] = React.useState(false);
     const [deleteDialog, setDeleteDialog] = React.useState<DeleteDialogState | null>(null);
     const [isProcessingDelete, setIsProcessingDelete] = React.useState(false);
 
@@ -40,23 +38,14 @@ export const SessionDialogs: React.FC = () => {
     const deleteSessions = useSessionUIStore((s) => s.deleteSessions);
     const showDeletionDialog = useUIStore((state) => state.showDeletionDialog);
     const setShowDeletionDialog = useUIStore((state) => state.setShowDeletionDialog);
-    const isHomeReady = useDirectoryStore((s) => s.isHomeReady);
-    const projects = useProjectsStore((s) => s.projects);
     const { isMobile, isTablet, hasTouchInput } = useDeviceInfo();
     const useMobileOverlay = isMobile || isTablet || hasTouchInput;
 
     React.useEffect(() => {
-        if (hasShownInitialDirectoryPrompt || !isHomeReady || projects.length > 0) {
-            return;
-        }
-
-        setHasShownInitialDirectoryPrompt(true);
-        setIsDirectoryDialogOpen(true);
-    }, [
-        hasShownInitialDirectoryPrompt,
-        isHomeReady,
-        projects.length,
-    ]);
+        return subscribeRuntimeEndpointWillChange(() => {
+            setIsDirectoryDialogOpen(false);
+        });
+    }, []);
 
     const openDeleteDialog = React.useCallback((payload: { sessions: Session[]; dateLabel?: string }) => {
         setDeleteDialog({
