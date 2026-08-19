@@ -1,12 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
-  DENSE_SETTLED_TOOL_COLLAPSE,
   HISTORY_FOLD_KEEP_RECENT,
   HISTORY_FOLD_REVEAL_BATCH,
   nextRevealedOlderCount,
   revealedCountForTurn,
-  shouldCollapseSettledTools,
   shouldFoldHistoryTurn,
 } from './foldHistoryTurns';
 
@@ -41,28 +39,5 @@ describe('nextRevealedOlderCount', () => {
   test('loads a batch without passing the remaining folded turns', () => {
     expect(nextRevealedOlderCount(0, 8)).toBe(HISTORY_FOLD_REVEAL_BATCH);
     expect(nextRevealedOlderCount(6, 1)).toBe(7);
-  });
-});
-
-describe('shouldCollapseSettledTools', () => {
-  test('collapses a dense completed turn', () => {
-    expect(shouldCollapseSettledTools(DENSE_SETTLED_TOOL_COLLAPSE, {
-      isTurnWorking: false,
-      isMessageCompleted: true,
-      expanded: false,
-    })).toBe(true);
-  });
-
-  test('keeps tools visible while the turn is working or the user expanded them', () => {
-    expect(shouldCollapseSettledTools(40, {
-      isTurnWorking: true,
-      isMessageCompleted: false,
-      expanded: false,
-    })).toBe(false);
-    expect(shouldCollapseSettledTools(40, {
-      isTurnWorking: false,
-      isMessageCompleted: true,
-      expanded: true,
-    })).toBe(false);
   });
 });

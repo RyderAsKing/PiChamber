@@ -47,6 +47,7 @@ import {
     parseTaskMetadataBlock,
     readTaskSessionIdFromOutput,
     readTaskSessionIdFromRecord,
+    shouldHydrateTaskChildSession,
     stripTaskMetadataFromOutput,
     type TaskToolSummaryEntry,
 } from './taskToolModel';
@@ -1876,21 +1877,6 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
         return readTaskSessionIdFromOutput(taskOutputString);
     }, [isTaskTool, metadata, parsedTaskMetadata.sessionId, partMetadata, taskOutputString]);
 
-    const childSessionLookupId = hasFinalMetadataTaskSummary ? '' : (taskSessionId ?? '');
-
-    const childSessionMessages = useSessionMessageRecords(childSessionLookupId, currentDirectory);
-    useEnsureSessionMessages(childSessionLookupId, currentDirectory);
-
-    const childSessionTaskSummaryEntries = React.useMemo<TaskToolSummaryEntry[]>(() => {
-        if (!isTaskTool || !taskSessionId) {
-            return [];
-        }
-        if (!Array.isArray(childSessionMessages) || childSessionMessages.length === 0) {
-            return [];
-        }
-        return buildTaskSummaryEntriesFromSession(childSessionMessages as unknown as Parameters<typeof buildTaskSummaryEntriesFromSession>[0]);
-    }, [childSessionMessages, isTaskTool, taskSessionId]);
-
     React.useEffect(() => {
         if (typeof time?.end === 'number' || typeof pinnedTime.end === 'number') {
             setLocalFinalizedAt(undefined);
@@ -1916,6 +1902,26 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
     const effectiveTimeEnd = isFinalized ? (pinnedTime.end ?? time?.end ?? localFinalizedAt) : undefined;
     const isActive = !isFinalized && activeLatched;
     const shouldTreatAsFinalized = isFinalized;
+    const childSessionLookupId = shouldHydrateTaskChildSession({
+        isTaskTool,
+        isExpanded,
+        isActive,
+        hasFinalMetadataSummary: hasFinalMetadataTaskSummary,
+        taskSessionId,
+    }) ? (taskSessionId ?? '') : '';
+
+    const childSessionMessages = useSessionMessageRecords(childSessionLookupId, currentDirectory);
+    useEnsureSessionMessages(childSessionLookupId, currentDirectory);
+
+    const childSessionTaskSummaryEntries = React.useMemo<TaskToolSummaryEntry[]>(() => {
+        if (!isTaskTool || !taskSessionId) {
+            return [];
+        }
+        if (!Array.isArray(childSessionMessages) || childSessionMessages.length === 0) {
+            return [];
+        }
+        return buildTaskSummaryEntriesFromSession(childSessionMessages as unknown as Parameters<typeof buildTaskSummaryEntriesFromSession>[0]);
+    }, [childSessionMessages, isTaskTool, taskSessionId]);
 
     const taskSummaryEntries = React.useMemo<TaskToolSummaryEntry[]>(() => {
         if (childSessionTaskSummaryEntries.length > 0) {

@@ -1,8 +1,9 @@
 import React from 'react';
 
+import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { useUpdateStore } from '@/stores/useUpdateStore';
 
-export function useUpdatePolling() {
+export function useUpdatePolling(enabled = true) {
   const checkForUpdates = useUpdateStore((state) => state.checkForUpdates);
   const checkForUpdatesRef = React.useRef(checkForUpdates);
 
@@ -11,6 +12,7 @@ export function useUpdatePolling() {
   }, [checkForUpdates]);
 
   React.useEffect(() => {
+    if (!enabled) return;
     const initialDelayMs = 3000;
     const defaultIntervalMs = 60 * 60 * 1000;
     const minIntervalMs = 5 * 60 * 1000;
@@ -42,5 +44,15 @@ export function useUpdatePolling() {
         window.clearTimeout(timer);
       }
     };
-  }, []);
+  }, [enabled]);
+}
+
+export function DeferredUpdatePolling() {
+  const bootstrapSettled = usePiSessionSnapshot(
+    (state) => state.connection === 'ready',
+    undefined,
+    'chrome',
+  );
+  useUpdatePolling(bootstrapSettled);
+  return null;
 }

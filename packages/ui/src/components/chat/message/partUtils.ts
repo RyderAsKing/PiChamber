@@ -27,6 +27,13 @@ export const isEmptyTextPart = (part: Part): boolean => {
     return !text || text.trim().length === 0;
 };
 
+export const filterRenderableAssistantParts = (parts: Part[]): Part[] => parts.filter((part) => {
+    if (isEmptyTextPart(part)) {
+        return false;
+    }
+    return (part as { type?: unknown }).type !== 'compaction';
+});
+
 type PartWithSynthetic = Part & { synthetic?: boolean };
 
 interface VisibleFilterOptions {

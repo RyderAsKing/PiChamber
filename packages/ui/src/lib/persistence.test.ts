@@ -313,6 +313,30 @@ describe('updateDesktopSettings', () => {
     }
   });
 
+  test('shares one startup settings load across concurrent consumers', async () => {
+    const loadResult = deferred<{ settings: SettingsPayload; source: 'web' }>();
+    let loadCalls = 0;
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://settings-coalesce.example', runtimeKey: 'settings-coalesce' });
+    registerSettingsApi(
+      async () => ({}),
+      () => {
+        loadCalls += 1;
+        return loadResult.promise;
+      },
+    );
+
+    const first = syncDesktopSettings();
+    const second = syncDesktopSettings();
+    expect(loadCalls).toBe(1);
+
+    loadResult.resolve({
+      settings: { terminalShell: 'fish', draftStartersScheduleTaskAdded: true },
+      source: 'web',
+    });
+    await Promise.all([first, second]);
+    expect(useUIStore.getState().terminalShell).toBe('fish');
+  });
+
   test('rejects stale loads by generation across an A to B to A switch', async () => {
     const originalLoad = deferred<{ settings: SettingsPayload; source: 'web' }>();
     switchRuntimeEndpoint({ apiBaseUrl: 'https://load-a.example', runtimeKey: 'load-a' });

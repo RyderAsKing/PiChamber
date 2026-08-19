@@ -17,7 +17,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { PerfHudHost } from '@/components/perf/PerfHudHost';
 import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
 import { useRouter } from '@/hooks/useRouter';
-import { useUpdatePolling } from '@/hooks/useUpdatePolling';
+import { DeferredUpdatePolling } from '@/hooks/useUpdatePolling';
 import { useWindowTitle } from '@/hooks/useWindowTitle';
 import { opencodeClient } from '@/lib/pi/legacy-ui-client';
 import type { RuntimeAPIs } from '@/lib/api/types';
@@ -917,7 +917,6 @@ export function MobileApp({ apis }: MobileAppProps) {
 
   useAppFontEffects();
   usePushVisibilityBeacon({ enabled: true });
-  useUpdatePolling();
   useWindowTitle();
   useRouter();
   // APNs is the only notification channel on the native app (background-capable,
@@ -1046,6 +1045,7 @@ export function MobileApp({ apis }: MobileAppProps) {
         <RuntimeAPIProvider apis={apis}>
           <TooltipProvider delayDuration={300} skipDelayDuration={150}>
             <FireworksProvider>
+              <DeferredUpdatePolling />
               <div className="h-full bg-background text-foreground">
                 {/* Cold-launch continuity: keep the boot logo up over the shell
                     until the last-session restore decides between session and

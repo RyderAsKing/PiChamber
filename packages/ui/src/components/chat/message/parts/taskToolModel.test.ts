@@ -8,6 +8,7 @@ import {
     parseTaskMetadataBlock,
     readTaskSessionIdFromRecord,
     readTaskSessionIdFromOutput,
+    shouldHydrateTaskChildSession,
 } from './taskToolModel';
 
 describe('taskToolModel', () => {
@@ -40,5 +41,19 @@ describe('taskToolModel', () => {
             tool: 'read',
             state: { status: 'completed', title: undefined, input: { filePath: 'a.ts' } },
         }]);
+    });
+
+    test('hydrates child transcripts only for active or expanded task details', () => {
+        const base = {
+            isTaskTool: true,
+            isExpanded: false,
+            isActive: false,
+            hasFinalMetadataSummary: false,
+            taskSessionId: 'child-1',
+        };
+        expect(shouldHydrateTaskChildSession(base)).toBe(false);
+        expect(shouldHydrateTaskChildSession({ ...base, isExpanded: true })).toBe(true);
+        expect(shouldHydrateTaskChildSession({ ...base, isActive: true })).toBe(true);
+        expect(shouldHydrateTaskChildSession({ ...base, isExpanded: true, hasFinalMetadataSummary: true })).toBe(false);
     });
 });

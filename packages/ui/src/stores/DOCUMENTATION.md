@@ -15,6 +15,8 @@ Use a store only for state shared across distant component trees or for a cache 
 
 Caches and async work must be scoped to the active runtime. A failed authoritative request must preserve existing state and remain distinguishable from a successful empty result.
 
+`useGitStore.fetchBranches()` coalesces concurrent loads by runtime and directory. Composer, dialog, and Git-surface mounts share one request; a runtime switch clears the in-flight owner so an old host cannot commit into the new store.
+
 `useProjectsStore.resetForRuntimeSwitch()` clears project paths until the new
 runtime's authenticated settings snapshot arrives; persisted paths from another
 host are not a valid bootstrap source.

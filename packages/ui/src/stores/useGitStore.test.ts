@@ -187,22 +187,24 @@ describe('useGitStore', () => {
     expect(useGitStore.getState().getDiff('/repo', 'src/second.ts')?.modified).toBe('d');
   });
 
-  test('keeps the newest branch request when completions are reversed', async () => {
-    const requests = [createDeferred<Awaited<ReturnType<GitAPI['getGitBranches']>>>(), createDeferred<Awaited<ReturnType<GitAPI['getGitBranches']>>>()];
-    let index = 0;
+  test('shares a runtime-scoped in-flight branch request', async () => {
+    const request = createDeferred<Awaited<ReturnType<GitAPI['getGitBranches']>>>();
+    let calls = 0;
     const git = {
       ...createGitApi(async () => createStatus()),
-      getGitBranches: () => requests[index++].promise,
+      getGitBranches: () => {
+        calls += 1;
+        return request.promise;
+      },
     };
     const first = useGitStore.getState().fetchBranches('/repo', git);
     const second = useGitStore.getState().fetchBranches('/repo', git);
 
-    requests[1].resolve({ all: ['new'], current: 'new', branches: {} });
-    await second;
-    requests[0].resolve({ all: ['old'], current: 'old', branches: {} });
-    await first;
+    expect(calls).toBe(1);
+    request.resolve({ all: ['main'], current: 'main', branches: {} });
+    await Promise.all([first, second]);
 
-    expect(useGitStore.getState().getDirectoryState('/repo')?.branches?.current).toBe('new');
+    expect(useGitStore.getState().getDirectoryState('/repo')?.branches?.current).toBe('main');
   });
 
   test('optimistically stages modified files and preserves untouched file references', () => {

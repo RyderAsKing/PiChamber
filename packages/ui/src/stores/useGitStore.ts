@@ -100,6 +100,7 @@ interface GitAPI {
 const inFlightDiffFetchesByDirectory = new Map<string, Set<string>>();
 const diffFetchGenerationByDirectory = new Map<string, number>();
 const inFlightStatusFetches = new Map<string, Promise<boolean>>();
+const inFlightBranchFetches = new Map<string, Promise<void>>();
 const inFlightEnsureAllByDirectory = new Map<string, Promise<void>>();
 const requestGenerationByChannel = new Map<string, number>();
 const statusMutationRevisionByDirectory = new Map<string, number>();
@@ -556,6 +557,7 @@ export const useGitStore = create<GitStore>()(
         requestGenerationByChannel.clear();
         statusMutationRevisionByDirectory.clear();
         inFlightStatusFetches.clear();
+        inFlightBranchFetches.clear();
         inFlightEnsureAllByDirectory.clear();
         inFlightDiffFetchesByDirectory.clear();
         diffFetchGenerationByDirectory.clear();
@@ -834,30 +836,43 @@ export const useGitStore = create<GitStore>()(
       },
 
       fetchBranches: async (directory, git) => {
-        const token = startRequest(directory, 'branches');
-        {
-          const newDirectories = new Map(get().directories);
-          const d = newDirectories.get(directory) ?? createEmptyDirectoryState();
-          newDirectories.set(directory, { ...d, isLoadingBranches: true });
-          set({ directories: newDirectories });
-        }
+        const runtimeKey = getRuntimeKey();
+        const requestKey = runtimeDirectoryKey(runtimeKey, directory);
+        const existing = inFlightBranchFetches.get(requestKey);
+        if (existing) return existing;
 
-        try {
-          const branches = await git.getGitBranches(directory);
-          if (!isRequestCurrent(token, directory)) return;
-          const newDirectories = new Map(get().directories);
-          const dirState = newDirectories.get(directory) ?? createEmptyDirectoryState();
-          newDirectories.set(directory, { ...dirState, branches, isLoadingBranches: false, lastBranchesFetch: Date.now() });
-          set({ directories: newDirectories });
-          writeCachedBranches(token.runtimeKey, directory, branches);
-        } catch (error) {
-          console.error('Failed to fetch git branches:', error);
-          if (!isRequestCurrent(token, directory)) return;
-          const newDirectories = new Map(get().directories);
-          const d = newDirectories.get(directory) ?? createEmptyDirectoryState();
-          newDirectories.set(directory, { ...d, isLoadingBranches: false });
-          set({ directories: newDirectories });
-        }
+        const token = startRequest(directory, 'branches');
+        const pending: Promise<void> = (async () => {
+          {
+            const newDirectories = new Map(get().directories);
+            const d = newDirectories.get(directory) ?? createEmptyDirectoryState();
+            newDirectories.set(directory, { ...d, isLoadingBranches: true });
+            set({ directories: newDirectories });
+          }
+
+          try {
+            const branches = await git.getGitBranches(directory);
+            if (!isRequestCurrent(token, directory)) return;
+            const newDirectories = new Map(get().directories);
+            const dirState = newDirectories.get(directory) ?? createEmptyDirectoryState();
+            newDirectories.set(directory, { ...dirState, branches, isLoadingBranches: false, lastBranchesFetch: Date.now() });
+            set({ directories: newDirectories });
+            writeCachedBranches(token.runtimeKey, directory, branches);
+          } catch (error) {
+            console.error('Failed to fetch git branches:', error);
+            if (!isRequestCurrent(token, directory)) return;
+            const newDirectories = new Map(get().directories);
+            const d = newDirectories.get(directory) ?? createEmptyDirectoryState();
+            newDirectories.set(directory, { ...d, isLoadingBranches: false });
+            set({ directories: newDirectories });
+          }
+        })().finally(() => {
+          if (inFlightBranchFetches.get(requestKey) === pending) {
+            inFlightBranchFetches.delete(requestKey);
+          }
+        });
+        inFlightBranchFetches.set(requestKey, pending);
+        return pending;
       },
 
       fetchLog: async (directory, git, maxCount) => {

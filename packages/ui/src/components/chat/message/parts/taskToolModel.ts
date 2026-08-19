@@ -14,6 +14,25 @@ export type TaskToolSummaryEntry = {
     };
 };
 
+export const shouldHydrateTaskChildSession = ({
+    isTaskTool,
+    isExpanded,
+    isActive,
+    hasFinalMetadataSummary,
+    taskSessionId,
+}: {
+    isTaskTool: boolean;
+    isExpanded: boolean;
+    isActive: boolean;
+    hasFinalMetadataSummary: boolean;
+    taskSessionId?: string;
+}): boolean => (
+    isTaskTool
+    && Boolean(taskSessionId)
+    && !hasFinalMetadataSummary
+    && (isExpanded || isActive)
+);
+
 const normalizeSessionIdCandidate = (value: unknown): string | undefined => {
     if (typeof value !== 'string') return undefined;
     const trimmed = value.trim();

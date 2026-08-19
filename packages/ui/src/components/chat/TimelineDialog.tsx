@@ -25,7 +25,7 @@ interface TimelineDialogProps {
     onLoadEarlier?: () => void;
 }
 
-export const TimelineDialog: React.FC<TimelineDialogProps> = ({
+const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
     open,
     onOpenChange,
     onScrollToMessage,
@@ -353,6 +353,13 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
             </DialogContent>
         </Dialog>
     );
+};
+
+export const TimelineDialog: React.FC<TimelineDialogProps> = (props) => {
+    if (!props.open) {
+        return null;
+    }
+    return <TimelineDialogContent {...props} />;
 };
 
 function getSearchSnippet(text: string, query: string, contextChars: number = 30): string | null {

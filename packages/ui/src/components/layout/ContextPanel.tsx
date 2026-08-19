@@ -2943,13 +2943,10 @@ export const ContextPanel: React.FC = () => {
             <BrowserPane initialUrl={tab.targetPath ?? ''} directory={directoryKey} tabID={tab.id} />
           </div>
         ))}
-        {diffTabs.map((tab) => (
+        {isOpen ? diffTabs.filter((tab) => activeTab?.id === tab.id).map((tab) => (
           <div
             key={tab.id}
-            className={cn(
-              'absolute inset-0',
-              activeTab?.id !== tab.id && 'hidden'
-            )}
+            className="absolute inset-0"
           >
             <React.Suspense fallback={null}>
               <DiffView
@@ -2964,13 +2961,13 @@ export const ContextPanel: React.FC = () => {
               />
             </React.Suspense>
           </div>
-        ))}
+        )) : null}
         {hasTerminalTab ? (
           <div className={cn('absolute inset-0', activeTab?.mode === 'terminal' ? 'block' : 'hidden')}>
             <TerminalView visible={isOpen && activeTab?.mode === 'terminal'} />
           </div>
         ) : null}
-        {activeTab?.mode !== 'chat' && !isFileTabActive && activeTab?.mode !== 'browser' && activeTab?.mode !== 'diff' && activeTab?.mode !== 'terminal' ? activeNonChatContent : null}
+        {isOpen && activeTab?.mode !== 'chat' && !isFileTabActive && activeTab?.mode !== 'browser' && activeTab?.mode !== 'diff' && activeTab?.mode !== 'terminal' ? activeNonChatContent : null}
       </div>
       </div>
     </aside>

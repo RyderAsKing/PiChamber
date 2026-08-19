@@ -1,7 +1,6 @@
 export const HISTORY_FOLD_KEEP_RECENT = 2;
 export const HISTORY_FOLD_REVEAL_BATCH = 2;
 export const HISTORY_GATE_ESTIMATED_SIZE = 72;
-export const DENSE_SETTLED_TOOL_COLLAPSE = 8;
 
 const visibleRecentTurnCount = (
   revealedOlderCount: number,
@@ -30,12 +29,3 @@ export const nextRevealedOlderCount = (
   foldedCount: number,
   batch = HISTORY_FOLD_REVEAL_BATCH,
 ): number => revealedOlderCount + Math.max(0, Math.min(batch, foldedCount));
-
-export const shouldCollapseSettledTools = (
-  settledToolCount: number,
-  options: { isTurnWorking: boolean; isMessageCompleted: boolean; expanded: boolean },
-  threshold = DENSE_SETTLED_TOOL_COLLAPSE,
-): boolean => {
-  if (options.expanded || options.isTurnWorking || !options.isMessageCompleted) return false;
-  return settledToolCount >= threshold;
-};

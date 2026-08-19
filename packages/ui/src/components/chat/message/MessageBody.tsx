@@ -12,7 +12,7 @@ import type { StreamPhase, ToolPopupContent, AgentMentionInfo } from './types';
 import type { TurnChangedFile, TurnGroupingContext } from '../lib/turns/types';
 import { cn } from '@/lib/utils';
 import { WorkerHighlightedCode } from '@/components/code/WorkerHighlightedCode';
-import { isEmptyTextPart, extractTextContent } from './partUtils';
+import { isEmptyTextPart, extractTextContent, filterRenderableAssistantParts } from './partUtils';
 import { FadeInOnReveal } from './FadeInOnReveal';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -30,8 +30,6 @@ import { formatTimestampForDisplay } from './timeFormat';
 import { ToolRevealOnMount } from './parts/ToolRevealOnMount';
 import { StaticToolRow } from './parts/ProgressiveGroup';
 import { isExpandableTool } from './parts/toolRenderUtils';
-import CollapsedToolsGate from './parts/CollapsedToolsGate';
-import { shouldCollapseSettledTools } from '../lib/turns/foldHistoryTurns';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { extractLoopbackUrls } from '@/lib/url';
 import { useDeviceInfo } from '@/lib/device';
@@ -905,29 +903,12 @@ const AssistantMessageBody = React.memo(({
     const awaitingMessageCompletion = !isMessageCompleted;
 
     const visibleParts = React.useMemo(() => {
-        return parts
-            .filter((part) => !isEmptyTextPart(part))
-            .filter((part) => {
-                const rawPart = part as Record<string, unknown>;
-                return rawPart.type !== 'compaction';
-            });
+        return filterRenderableAssistantParts(parts);
     }, [parts]);
 
     const toolParts = React.useMemo(() => {
         return visibleParts.filter((part): part is ToolPartType => part.type === 'tool');
     }, [visibleParts]);
-    const settledToolCount = React.useMemo(() => {
-        let count = 0;
-        for (const part of toolParts) {
-            const status = part.state?.status;
-            if (status !== 'running' && status !== 'pending') count += 1;
-        }
-        return count;
-    }, [toolParts]);
-    const [denseToolsExpanded, setDenseToolsExpanded] = React.useState(false);
-    React.useEffect(() => {
-        setDenseToolsExpanded(false);
-    }, [messageId]);
 
     const toolRevealStateRef = React.useRef<{
         messageId: string;
@@ -1064,17 +1045,22 @@ const AssistantMessageBody = React.memo(({
         });
     }, [toolParts]);
 
-    const isActiveTool = React.useCallback((toolPart: ToolPartType): boolean => {
-        const state = (toolPart as Record<string, unknown>).state as Record<string, unknown> | undefined ?? {};
-        const status = state?.status;
-        return status === 'pending' || status === 'running' || status === 'started';
-    }, []);
-
     const isToolFinalized = React.useCallback((toolPart: ToolPartType) => {
         const state = (toolPart as Record<string, unknown>).state as Record<string, unknown> | undefined ?? {};
         const status = state?.status;
         if (status === 'pending' || status === 'running' || status === 'started') {
             return false;
+        }
+        if (
+            status === 'completed'
+            || status === 'cancelled'
+            || status === 'canceled'
+            || status === 'error'
+            || status === 'failed'
+            || status === 'aborted'
+            || status === 'timeout'
+        ) {
+            return true;
         }
         const time = state?.time as Record<string, unknown> | undefined ?? {};
         const endTime = typeof time?.end === 'number' ? time.end : undefined;
@@ -1087,10 +1073,6 @@ const AssistantMessageBody = React.memo(({
         }
         return true;
     }, []);
-
-    const shouldShowTool = React.useCallback((toolPart: ToolPartType): boolean => {
-        return isActiveTool(toolPart) || isToolFinalized(toolPart);
-    }, [isActiveTool, isToolFinalized]);
 
     const allToolsFinalized = React.useMemo(() => {
         if (toolParts.length === 0) {
@@ -1276,11 +1258,6 @@ const AssistantMessageBody = React.memo(({
     const errorIconName = errorVariant === 'info' ? 'information' : 'error-warning';
     const shouldShowMessageActions = hasCopyableText;
     const isTurnWorking = Boolean(turnGroupingContext?.isWorking);
-    const collapseDenseTools = shouldCollapseSettledTools(settledToolCount, {
-        isTurnWorking,
-        isMessageCompleted,
-        expanded: denseToolsExpanded,
-    });
     const shouldShowTurnFooter = isLastAssistantInTurn
         && (hasTextContent || Boolean(errorMessage))
         && !isTurnWorking;
@@ -1322,7 +1299,6 @@ const AssistantMessageBody = React.memo(({
         // Expandable tools (bash, edit, task) get individual rows.
         // Text renders inline at its natural position.
         let i = 0;
-        let emittedToolsGate = false;
         while (i < visibleParts.length) {
             const part = visibleParts[i];
 
@@ -1389,29 +1365,6 @@ const AssistantMessageBody = React.memo(({
                 const toolPart = part as ToolPartType;
                 const toolName = toolPart.tool?.toLowerCase() ?? '';
 
-                if (!shouldShowTool(toolPart)) {
-                    i++;
-                    continue;
-                }
-
-                if (collapseDenseTools || denseToolsExpanded) {
-                    if (!emittedToolsGate) {
-                        rendered.push(
-                            <CollapsedToolsGate
-                                key={`dense-tools-${messageId}`}
-                                toolCount={settledToolCount}
-                                expanded={denseToolsExpanded}
-                                onToggle={() => setDenseToolsExpanded((current) => !current)}
-                            />,
-                        );
-                        emittedToolsGate = true;
-                    }
-                    if (collapseDenseTools) {
-                        i++;
-                        continue;
-                    }
-                }
-
                 // Expandable tools: bash, edit, write, task, question — individual rows
                 if (isExpandableTool(toolName)) {
                     rendered.push(
@@ -1467,8 +1420,6 @@ const AssistantMessageBody = React.memo(({
     }, [
         alwaysShowMessageActions,
         animatedToolIdsLookup,
-        collapseDenseTools,
-        denseToolsExpanded,
         collapsibleThinkingBlocks,
         collapseThinkingByDefault,
         expandedTools,
@@ -1481,10 +1432,8 @@ const AssistantMessageBody = React.memo(({
         onShowPopup,
         onToggleTool,
         shouldShowStandaloneMessageActions,
-        shouldShowTool,
         effectiveStreamPhase,
         showReasoningTraces,
-        settledToolCount,
         visibleParts,
     ]);
 
