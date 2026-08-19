@@ -56,9 +56,11 @@ what a surface keeps doing once the user has left it).
 
 ## profile:session
 
-Creates a session, opens it in a browser, dispatches a prompt through the
-supported `pichamber session` CLI, and records until the session reports
-itself idle. No input is synthesised; the prompt is the only stimulus.
+Opens the app in a reusable browser profile, creates a session through the
+page's authenticated Pi API, dispatches a prompt, and records until the session
+reports itself idle. No input is synthesised; the prompt is the only stimulus.
+Setup requests deliberately run in the page so pairing credentials and UI
+passwords never enter profiler arguments or process output.
 
 Streaming is judged by responsiveness, not totals, so the report leads with the
 long-task distribution, a timeline-trace breakdown naming where time went,
@@ -135,8 +137,10 @@ of these failure modes once produced a confident, wrong "everything is fast":
   long tasks; the missing-task case is reported instead.
 - **A scenario that never ran.** A session belonging to a directory the browser
   is not viewing renders nothing and produces a perfectly quiet profile.
-  `profile:session` verifies both new message elements in the DOM and
-  message-list render counters before believing a quiet result.
+  `profile:session` verifies visible message or character growth together with
+  message-list render counters. Character growth is required as an alternative
+  because a virtualized large history can replace rows without increasing the
+  number of mounted message elements.
 
 Preserve this property when extending these scripts. A metric reading zero must
 be a measurement, never a disabled instrument.

@@ -28,6 +28,15 @@ session stores and must not React-render on the frame loop.
 Leave the overlay off during CDP profile captures so it cannot become the
 work being measured.
 
+## Responsive-chat capture invariants
+
+Production streaming comparisons must use the same historical-session and
+dense-tool workload before and after a candidate change. Keep tool headers
+visible in both captures. Hidden timeline/context/diff surfaces must contribute
+no transcript subscriptions, and collapsed settled Task cards must contribute
+no child-session hydration. Report development-server observations separately;
+Vite/HMR connection and module-transform behavior is not production evidence.
+
 ## Privacy
 
 Snapshots contain only aggregate counters, frame timings, and heap size.

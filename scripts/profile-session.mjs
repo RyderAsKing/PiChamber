@@ -5,8 +5,8 @@
  * Where `profile:idle` measures what the app does when nothing happens, this
  * command measures the opposite: what it costs to receive and render a live
  * assistant response. It creates a session, opens it in a real browser, sends a
- * prompt through the supported `pichamber session` CLI, and records until the
- * session reports itself idle again.
+ * prompt through the same authenticated Pi API used by the page, and records
+ * until the session reports itself idle again.
  *
  * The streaming path is judged by responsiveness rather than by totals: a
  * response that renders in one 4-second block and one that renders in eighty
@@ -14,12 +14,11 @@
  * report therefore leads with the long-task distribution, frame production, and
  * per-token render cost, not with elapsed wall time.
  *
- * No input is synthesised. The only stimulus is the prompt, dispatched over the
- * CLI, so everything recorded is the application reacting to its own event
- * stream.
+ * No input is synthesised. The only stimulus is the prompt, dispatched by the
+ * profiled page, so everything recorded is the application reacting to its own
+ * event stream.
  */
 
-import { spawn } from "node:child_process"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
@@ -33,7 +32,6 @@ import { growthPerSecond, metricMap, round, summarizeLongTasks, summarizeTraceEv
 import { expandProjects, expandSessionLists } from "./perf/scenario.mjs"
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
-const cliPath = join(repoRoot, "packages/web/bin/cli.js")
 
 const DEFAULT_PROMPT = "Write a technical explanation of how a bytecode virtual machine executes"
   + " a function call, about 800 words. Include three fenced code blocks in different languages"
@@ -134,41 +132,50 @@ const parseArgs = (argv) => {
   }
   const parsed = new URL(options.url)
   options.port = options.port ?? parsed.port ?? "3000"
-  options.dir = resolve(options.dir)
+  // A Windows-hosted Chrome/Node profiler can target a server running in WSL.
+  // Preserve an explicit POSIX project directory for the server API instead of
+  // rewriting it as a path on the profiling host.
+  options.dir = options.dir.startsWith("/") ? options.dir : resolve(options.dir)
   return options
 }
 
 /**
- * Runs an `pichamber session` subcommand and returns its parsed JSON.
- * The CLI is the supported automation entry point, so the harness drives the
- * same path a scripted user would rather than reaching into internal APIs.
+ * Runs a same-origin Pi API request in the profiled browser.
+ *
+ * Browser ownership matters here: the production UI can require pairing or a
+ * UI password, and the reusable profile already owns that authenticated
+ * session. Keeping setup and polling in the page avoids copying credentials
+ * into profiler arguments or process output.
  */
-const runSessionCli = (args, { timeoutMs = 900_000 } = {}) => new Promise((resolvePromise, reject) => {
-  const child = spawn(process.execPath, [cliPath, "session", ...args, "--json"], {
-    stdio: ["ignore", "pipe", "pipe"],
-  })
-  let stdout = ""
-  let stderr = ""
-  const timer = setTimeout(() => {
-    child.kill("SIGTERM")
-    reject(new Error(`session ${args[0]} timed out after ${Math.round(timeoutMs / 1000)}s`))
-  }, timeoutMs)
-  child.stdout.on("data", (chunk) => { stdout += chunk })
-  child.stderr.on("data", (chunk) => { stderr += chunk })
-  child.on("error", (error) => { clearTimeout(timer); reject(error) })
-  child.on("close", (code) => {
-    clearTimeout(timer)
-    if (code !== 0) {
-      reject(new Error(`session ${args[0]} exited with ${code}: ${stderr.trim() || stdout.trim()}`))
-      return
-    }
-    try {
-      resolvePromise(JSON.parse(stdout))
-    } catch {
-      reject(new Error(`session ${args[0]} returned unparseable output: ${stdout.slice(0, 400)}`))
-    }
-  })
-})
+const runSessionRequest = async (client, path, { method = "GET", body } = {}) => {
+  const raw = await evaluateValue(client, `(async () => {
+    const response = await fetch(${JSON.stringify(path)}, {
+      method: ${JSON.stringify(method)},
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      ${body === undefined ? "" : `body: ${JSON.stringify(JSON.stringify(body))},`}
+    })
+    const text = await response.text()
+    let value = null
+    try { value = text ? JSON.parse(text) : null } catch { value = text }
+    return JSON.stringify({ ok: response.ok, status: response.status, value })
+  })()`)
+  const result = JSON.parse(raw ?? "null")
+  if (!result?.ok) {
+    const code = result?.value?.error?.code
+    throw new Error(`Pi API ${method} ${path} failed with ${result?.status ?? "unknown"}${code ? ` (${code})` : ""}`)
+  }
+  return result.value
+}
+
+const parseModelRef = (value) => {
+  if (!value) return undefined
+  const separator = value.indexOf("/")
+  if (separator <= 0 || separator === value.length - 1) {
+    throw new Error("--model must use provider/model format")
+  }
+  return { providerId: value.slice(0, separator), modelId: value.slice(separator + 1) }
+}
 
 /**
  * Reads what the page actually rendered for the session under test.
@@ -332,24 +339,8 @@ const main = async () => {
     ? JSON.parse(await readFile(join(resolve(options.baseline), "session-summary.json"), "utf8"))
     : null
 
-  const cliBase = ["--dir", options.dir, "--port", String(options.port)]
-
   let sessionId = options.session
-  if (!sessionId) {
-    const created = await runSessionCli([
-      "create", ...cliBase,
-      "--title", `perf: ${options.label ?? "streaming capture"}`,
-    ])
-    sessionId = created.sessionId
-    console.log(`Created session ${sessionId}`)
-  } else {
-    console.log(`Reusing session ${sessionId}`)
-  }
-
   const target = new URL(options.url)
-  // The displayed session and the streaming session are deliberately separable:
-  // a background session must not make the foreground one expensive.
-  target.searchParams.set("session", options.viewSession ?? sessionId)
 
   const port = await reservePort()
   const chromeProcess = launchChrome({ chrome, profileDir, port, headless: options.headless })
@@ -379,6 +370,27 @@ const main = async () => {
     })
 
     let loaded = client.once("Page.loadEventFired", 60_000)
+    await client.send("Page.navigate", { url: target.toString() })
+    await loaded
+    if (!sessionId) {
+      const created = await runSessionRequest(client, "/api/pi/sessions", {
+        method: "POST",
+        body: {
+          cwd: options.dir,
+          title: `perf: ${options.label ?? "streaming capture"}`,
+        },
+      })
+      sessionId = created?.session?.id
+      if (!sessionId) throw new Error("Pi API created a session without an id")
+      console.log(`Created session ${sessionId}`)
+    } else {
+      console.log(`Reusing session ${sessionId}`)
+    }
+    // The displayed session and the streaming session are deliberately
+    // separable: a background session must not make the foreground one
+    // expensive.
+    target.searchParams.set("session", options.viewSession ?? sessionId)
+    loaded = client.once("Page.loadEventFired", 60_000)
     await client.send("Page.navigate", { url: target.toString() })
     await loaded
     // The application's own stream counters are opt-in; enabling them before
@@ -426,15 +438,21 @@ const main = async () => {
     const renderedBefore = await countRenderedMessages(client)
     const startedAt = Date.now()
 
-    const sendArgs = [
-      "send", ...cliBase,
-      "--session", sessionId,
-      "--prompt", options.prompt,
-      ...(options.model ? ["--model", options.model] : []),
-      ...(options.agent ? ["--agent", options.agent] : []),
-    ]
+    if (options.agent) throw new Error("--agent is no longer supported by the Pi session API")
     console.log("Dispatching the prompt and recording until the session reports idle.")
-    const dispatch = runSessionCli(sendArgs, { timeoutMs: options.timeout * 1000 })
+    const dispatch = runSessionRequest(
+      client,
+      `/api/pi/sessions/${encodeURIComponent(sessionId)}/prompt`,
+      {
+        method: "POST",
+        body: {
+          sessionId,
+          text: options.prompt,
+          directory: options.dir,
+          ...(options.model ? { model: parseModelRef(options.model) } : {}),
+        },
+      },
+    )
 
     const samples = []
     let dispatchError = null
@@ -462,12 +480,15 @@ const main = async () => {
         animationSnapshot = await snapshotAnimations(client)
       }
 
-      // `session status` is the authoritative activity source; polling it
-      // avoids inferring completion from render or network quiet periods,
-      // which a slow provider would misreport as a finished response.
-      const status = await runSessionCli(["status", ...cliBase, "--session", sessionId], { timeoutMs: 30_000 })
+      // Session detail lifecycle is authoritative; polling it avoids inferring
+      // completion from render or network quiet periods, which a slow provider
+      // would misreport as a finished response.
+      const status = await runSessionRequest(
+        client,
+        `/api/pi/sessions/${encodeURIComponent(sessionId)}?directory=${encodeURIComponent(options.dir)}`,
+      )
         .catch(() => null)
-      const type = status?.sessionStatus?.type ?? status?.status
+      const type = status?.lifecycle ?? (status?.isStreaming ? "busy" : null)
       if (type && type !== "idle") sawBusy = true
       if (sawBusy && type === "idle") { becameIdle = true; break }
     }
@@ -514,15 +535,15 @@ const main = async () => {
     const syncCounters = await evaluateValue(client, `window.__pichamberSyncPerformance?.getSnapshot() ?? null`)
     const dispatchResult = await dispatch.catch(() => null)
 
-    // Both signals must agree: new message elements in the DOM and the
-    // application's own message-list render counters firing.
+    const renderedCharacterGrowth = renderedAfter.characters - renderedBefore.characters
+    // Virtualized histories keep a stable number of message elements while
+    // replacing rows and streaming text into the active row. Require visible
+    // DOM growth of either kind plus the app's own message-list render signal.
     const messageListRendered = (streamPerformance?.entries ?? [])
       .some((entry) => entry.metric.startsWith("ui.message_list") && entry.count > 0)
     const renderedStream = options.viewSession
       ? true
-      : renderedAfter.messages > renderedBefore.messages && messageListRendered
-
-    const renderedCharacterGrowth = renderedAfter.characters - renderedBefore.characters
+      : (renderedAfter.messages > renderedBefore.messages || renderedCharacterGrowth > 0) && messageListRendered
 
     const tasks = summarizeLongTasks(traceEvents)
     const traceBreakdown = summarizeTraceEvents(traceEvents)
