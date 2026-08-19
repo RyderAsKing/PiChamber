@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-19
+
+This release restores responsive, complete chat rendering while making session
+startup and reconnect behavior more reliable.
+
+- Tool cards are no longer hidden after dense turns. Interrupted persisted tool
+  calls render as explicit errors, while genuinely active calls remain running.
+- Reopening or switching sessions coalesces overlapping open and hydrate work,
+  preserves authoritative in-flight tool state, and avoids transient runtime
+  conflicts being reported as a disconnected server.
+- The Pi session daemon warms after HTTP starts listening, and concurrent
+  settings and Git branch loads now share one request.
+- Closed timelines, hidden diff panels, and collapsed historical Task tools no
+  longer hydrate or subscribe to session data they cannot display.
+- Update polling waits for session bootstrap, and Strict Mode remounts continue
+  to share the existing event-stream owner.
+- Production streaming profiling now drives the authenticated browser API,
+  supports Windows-hosted Chrome profiling a WSL server, and validates
+  virtualized histories through visible character growth.
+
 ## [0.2.0] - 2026-08-19
 
 This release makes the server install path honest: you install and upgrade
