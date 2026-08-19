@@ -139,6 +139,8 @@ export const reconnectPiSession = async (
     const hydrated = hydrateSessionFromDetail({
       session: detail.session,
       lastSequence: detail.lastSequence,
+      ...(detail.isStreaming !== undefined ? { isStreaming: detail.isStreaming } : {}),
+      ...(detail.lifecycle ? { lifecycle: detail.lifecycle } : {}),
       messages: detail.messages.map((entry) => ({
         message: entry.message,
         parts: entry.parts.map((part) => ({
@@ -178,9 +180,9 @@ export const reconnectPiSession = async (
           sessionId: detail.session.id,
           directory: detail.session.directory,
           lastSequence: detail.lastSequence,
-          isStreaming: false,
+          isStreaming: detail.isStreaming === true,
           queue: { steering: 0, followUp: 0 },
-          lifecycle: 'idle',
+          lifecycle: detail.lifecycle ?? (detail.isStreaming ? 'busy' : 'idle'),
           ...(detail.session.model ? { model: detail.session.model } : {}),
           ...(detail.session.thinking ? { thinking: detail.session.thinking } : {}),
         },

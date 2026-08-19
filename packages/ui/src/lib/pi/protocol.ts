@@ -138,6 +138,10 @@ export interface PiSessionDetailResponse {
   messages: PiMessageView[];
   /** Last sequence number the daemon has published for this session. */
   lastSequence: number;
+  /** True while the daemon still has an in-flight assistant turn. */
+  isStreaming: boolean;
+  /** Authoritative lifecycle at getSession time. Idle is not proof the stream is dead. */
+  lifecycle: PiSessionLifecycleState;
 }
 
 /** A message view returned by the API, including part data. */

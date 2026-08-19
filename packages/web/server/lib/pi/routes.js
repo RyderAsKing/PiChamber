@@ -181,7 +181,17 @@ const projectSessionDetail = (value) => {
     });
     return { message: projected, parts };
   });
-  return { session: projectSession(value.session), messages, lastSequence: value.lastSequence };
+  const isStreaming = value.isStreaming === true;
+  const lifecycle = ['idle', 'busy', 'retry', 'error', 'interrupted'].includes(value.lifecycle)
+    ? value.lifecycle
+    : (isStreaming ? 'busy' : 'idle');
+  return {
+    session: projectSession(value.session),
+    messages,
+    lastSequence: value.lastSequence,
+    isStreaming,
+    lifecycle,
+  };
 };
 
 const projectProviders = (value) => {
@@ -952,6 +962,8 @@ export const registerPiRuntimeRoutes = (app, {
         session: projectSession(result.session),
         messages: [],
         lastSequence: result.lastSequence,
+        isStreaming: result.isStreaming === true,
+        lifecycle: result.isStreaming === true ? 'busy' : 'idle',
       });
     } catch (error) {
       writeDaemonError(res, error);

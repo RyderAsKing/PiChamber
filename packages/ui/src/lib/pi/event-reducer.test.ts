@@ -324,6 +324,36 @@ describe("hydrateSessionFromDetail", () => {
     expect(session.parts.get("p1")?.tool?.state).toBe("completed")
   })
 
+  test("restores live streaming UI from an in-flight getSession", () => {
+    const { session } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 12,
+      isStreaming: true,
+      lifecycle: "busy",
+      messages: [{
+        message: {
+          id: "u1", sessionId: "sess-1", directory: "/work", role: "user",
+          text: "run it", createdAt: 1_000,
+        },
+        parts: [],
+      }, {
+        message: {
+          id: "m1", sessionId: "sess-1", directory: "/work", role: "assistant",
+          parentId: "u1", text: "", thinking: "", createdAt: 1_100,
+        },
+        parts: [{
+          id: "p1", index: 0, type: "tool", toolCallId: "tc-1", name: "bash",
+          state: "running", startedAt: 1_200,
+        }],
+      }],
+    })
+    expect(session.lifecycle).toBe("busy")
+    expect(session.streamingMessages.has("m1")).toBe(true)
+    expect(session.messages.get("m1")?.streaming).toBe(true)
+    expect(session.parts.get("p1")?.streaming).toBe(true)
+    expect(session.parts.get("p1")?.tool?.state).toBe("running")
+  })
+
   test("resumes delta streaming on a hydrated message", () => {
     const { state: initial } = hydrateSessionFromDetail({
       session: { id: "sess-1", directory: "/work" },

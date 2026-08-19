@@ -107,6 +107,55 @@ describe("reconnectPiSession", () => {
     expect(mockCreatePiEventStream.mock.calls[0]?.[1]?.sessionId).toBe(undefined)
   })
 
+  test("hydrates a still-streaming session instead of fabricating idle", async () => {
+    mockFetchPiRuntimeHealth.mockResolvedValueOnce({
+      state: "ready",
+      protocolVersion: 1,
+      capabilities: [],
+    })
+    mockCreatePiEventStream.mockReturnValueOnce({
+      dispose: () => undefined,
+      reconnect: () => undefined,
+      eventsUrl: "ws://test/events",
+    } as never)
+    installFetchMock((call) => {
+      const url = new URL(call.url, "http://localhost")
+      if (url.pathname === "/api/pi/sessions/s1") {
+        return jsonResponse({
+          session: { id: "s1", directory: "/work" },
+          messages: [{
+            message: {
+              id: "m1", sessionId: "s1", directory: "/work", role: "assistant",
+              text: "", thinking: "", createdAt: 1,
+            },
+            parts: [{
+              id: "p1", index: 0, type: "tool", toolCallId: "tc-1", name: "bash",
+              state: "running",
+            }],
+          }],
+          lastSequence: 12,
+          isStreaming: true,
+          lifecycle: "busy",
+        })
+      }
+      return jsonResponse({}, { status: 500 })
+    })
+    const { reconnectPiSession } = await import("./reconnect")
+    const result = await reconnectPiSession({
+      directory: "/work",
+      sessionId: "s1",
+      lastKnownSequence: 5,
+      onEvent: () => {},
+    }, dependencies)
+    expect(result.phase).toBe("ready")
+    expect(result.snapshotState.bySession.get("s1")?.isStreaming).toBe(true)
+    expect(result.snapshotState.bySession.get("s1")?.lifecycle).toBe("busy")
+    const session = result.reducerState.bySession.get("s1")
+    expect(session?.lifecycle).toBe("busy")
+    expect(session?.streamingMessages.has("m1")).toBe(true)
+    expect(session?.parts.get("p1")?.tool?.state).toBe("running")
+  })
+
   test("resumes from the client cursor when it is ahead of the snapshot sequence", async () => {
     mockFetchPiRuntimeHealth.mockResolvedValueOnce({
       state: "ready",

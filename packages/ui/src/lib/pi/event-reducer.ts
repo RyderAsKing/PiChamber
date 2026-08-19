@@ -731,6 +731,11 @@ export const applyPiEvent = (
         if (event.payload.snapshot.model) session.model = event.payload.snapshot.model;
         if (event.payload.snapshot.thinking) session.thinking = event.payload.snapshot.thinking;
         if (event.payload.snapshot.queue) session.queue = { ...event.payload.snapshot.queue };
+        markHydratedLiveActivity(session, {
+          isStreaming: event.payload.snapshot.isStreaming,
+          lifecycle: session.lifecycle,
+          settleWhenIdle: true,
+        });
       }
       break;
     case 'session.lifecycle':
@@ -1036,6 +1041,64 @@ export const projectSession = (
   };
 };
 
+const markHydratedLiveActivity = (
+  session: PiReducerSessionState,
+  options?: {
+    isStreaming?: boolean;
+    lifecycle?: PiSessionLifecycleState;
+    inferFromRunningTools?: boolean;
+    settleWhenIdle?: boolean;
+  },
+): void => {
+  const runningMessageIds: string[] = [];
+  const runningPartIds: string[] = [];
+  for (const [partId, part] of session.parts) {
+    const toolState = part.tool?.state;
+    if (part.type !== 'tool' || (toolState !== 'running' && toolState !== 'pending')) continue;
+    runningPartIds.push(partId);
+    const messageId = part.tool?.toolCallId ? session.toolsByCallId.get(part.tool.toolCallId) : undefined;
+    if (messageId) runningMessageIds.push(messageId);
+  }
+
+  const live = options?.isStreaming === true
+    || options?.lifecycle === 'busy'
+    || options?.lifecycle === 'retry'
+    || (options?.inferFromRunningTools === true && runningMessageIds.length > 0);
+  if (!live) {
+    if (options?.settleWhenIdle) {
+      session.streamingMessages = new Set();
+      session.messages = new Map(session.messages);
+      for (const [messageId, message] of session.messages) {
+        if (message.streaming) session.messages.set(messageId, { ...message, streaming: false });
+      }
+    }
+    return;
+  }
+
+  session.lifecycle = options?.lifecycle === 'retry' ? 'retry' : 'busy';
+  session.streamingMessages = new Set(session.streamingMessages);
+  for (const partId of runningPartIds) {
+    const part = session.parts.get(partId);
+    if (part) session.parts.set(partId, { ...part, streaming: true });
+  }
+  let targetId = runningMessageIds[runningMessageIds.length - 1];
+  if (!targetId) {
+    const messages = uniqueSessionMessages(session);
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const candidate = messages[index];
+      if (candidate?.role === 'assistant') {
+        targetId = candidate.id;
+        break;
+      }
+    }
+  }
+  if (!targetId) return;
+  const message = session.messages.get(targetId);
+  if (!message || message.role !== 'assistant') return;
+  session.messages.set(targetId, { ...message, streaming: true });
+  session.streamingMessages.add(targetId);
+};
+
 /**
  * Hydrate a session state from a `PiSessionDetailResponse`. The result is
  * ready to receive delta events with `fromSequence` strictly greater than
@@ -1050,6 +1113,8 @@ export const hydrateSessionFromDetail = (
       thinking?: PiThinkingLevel;
     };
     lastSequence: number;
+    isStreaming?: boolean;
+    lifecycle?: PiSessionLifecycleState;
     messages: Array<{
       message: PiUserMessage | PiAssistantMessage;
       parts: Array<{
@@ -1140,6 +1205,11 @@ export const hydrateSessionFromDetail = (
   });
   if (resolved.model) session.model = resolved.model;
   if (resolved.thinking) session.thinking = resolved.thinking;
+  markHydratedLiveActivity(session, {
+    ...(detail.isStreaming !== undefined ? { isStreaming: detail.isStreaming } : {}),
+    ...(detail.lifecycle ? { lifecycle: detail.lifecycle } : {}),
+    inferFromRunningTools: true,
+  });
 
   state.lastSequence.set(detail.session.id, detail.lastSequence);
   return { state, session };

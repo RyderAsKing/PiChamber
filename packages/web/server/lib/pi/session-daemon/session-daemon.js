@@ -528,9 +528,51 @@ export function createSessionDaemon({
     return newRuntime;
   };
 
+  const liveProjectionEntries = (session, persisted) => {
+    if (!session?.isStreaming) return persisted;
+    const liveMessages = [];
+    if (Array.isArray(session.messages)) liveMessages.push(...session.messages);
+    const streamingMessage = session.state?.streamingMessage;
+    if (streamingMessage && liveMessages[liveMessages.length - 1] !== streamingMessage) {
+      liveMessages.push(streamingMessage);
+    }
+    if (liveMessages.length === 0) return persisted;
+
+    const persistedKeys = new Set();
+    for (const entry of persisted) {
+      if (entry?.type !== 'message' || !entry.message) continue;
+      const timestamp = typeof entry.message.timestamp === 'number' ? entry.message.timestamp : Date.parse(entry.timestamp);
+      persistedKeys.add(`${entry.message.role}:${Number.isFinite(timestamp) ? timestamp : ''}`);
+    }
+
+    const entries = [...persisted];
+    let liveIndex = 0;
+    const liveAssistantId = streamingMessageIds.get(session.sessionId);
+    for (const message of liveMessages) {
+      if (!message || (message.role !== 'assistant' && message.role !== 'toolResult')) continue;
+      const timestamp = typeof message.timestamp === 'number' ? message.timestamp : undefined;
+      const key = `${message.role}:${timestamp ?? ''}`;
+      if (timestamp !== undefined && persistedKeys.has(key)) continue;
+      persistedKeys.add(key);
+      const id = message.role === 'assistant' && liveAssistantId
+        ? liveAssistantId
+        : `live-${session.sessionId}-${liveIndex}`;
+      liveIndex += 1;
+      entries.push({
+        type: 'message',
+        id,
+        timestamp: new Date(timestamp || Date.now()).toISOString(),
+        message,
+      });
+    }
+    return entries;
+  };
+
   const projectMessageEntries = (session, targetDir = activeDirectory || cwd) => {
-    const entries = session?.sessionManager?.getEntries?.();
-    if (!Array.isArray(entries)) return [];
+    const persisted = session?.sessionManager?.getEntries?.();
+    const entries = liveProjectionEntries(session, Array.isArray(persisted) ? persisted : []);
+    if (entries.length === 0) return [];
+    const streaming = session?.isStreaming === true;
     const toolResults = new Map();
     for (const entry of entries) {
       if (entry?.type !== 'message' || !entry.message || entry.message.role !== 'toolResult' || typeof entry.message.toolCallId !== 'string') continue;
@@ -563,6 +605,7 @@ export function createSessionDaemon({
         if (part?.type === 'thinking') return [{ type: 'thinking', id: `${entry.id}:thinking:${index}`, index, text: redactAttachmentPaths(part.thinking) }];
         if (part?.type === 'toolCall') {
           const result = toolResults.get(part.id);
+          const running = streaming && !result;
           return [{
             type: 'tool',
             id: `${entry.id}:tool:${part.id}`,
@@ -570,7 +613,7 @@ export function createSessionDaemon({
             toolCallId: part.id,
             name: part.name,
             input: redactAttachmentValues(part.arguments),
-            state: result?.isError ? 'error' : 'completed',
+            state: result?.isError ? 'error' : running ? 'running' : 'completed',
             ...(result?.output ? { output: result.output } : {}),
             ...(result?.error ? { error: result.error } : {}),
             ...(result?.isError ? { isError: true } : {}),
@@ -608,6 +651,7 @@ export function createSessionDaemon({
     const sessionModel = lastAssistant?.model
       ?? (model?.provider && model?.id ? { providerId: model.provider, modelId: model.id } : undefined);
     const sessionThinking = lastAssistant?.thinkingLevel || session.thinkingLevel;
+    const isStreaming = session.isStreaming === true;
     return {
       session: {
         id: session.sessionId, directory: targetDir, createdAt, updatedAt: createdAt,
@@ -618,6 +662,8 @@ export function createSessionDaemon({
       },
       messages,
       lastSequence: sequence,
+      isStreaming,
+      lifecycle: isStreaming ? 'busy' : 'idle',
     };
   };
 

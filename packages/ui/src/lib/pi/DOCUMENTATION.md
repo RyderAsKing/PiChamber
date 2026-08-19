@@ -58,7 +58,11 @@ accepted sequence per session id and rejects any event for that session whose
 sequence is `<=` the last accepted value. `getSession` reports that same global
 cursor, not proof that the returned transcript contains every locally applied
 delta, so hydration overlays an in-flight busy/retry turn onto the fetched
-history instead of replacing it. Sending a prompt on an already-open session
+history instead of replacing it. The daemon projects that in-flight turn into
+`getSession` while `isStreaming` is true (live `session.messages` plus running
+tools, plus `lifecycle: 'busy'`), and `hydrateSessionFromDetail` restores
+`streamingMessages` and part streaming flags from that payload so a restarted
+chat shows the working/tooling state immediately. Sending a prompt on an already-open session
 must not install an empty `bySession` row: live events only carry the new
 turn, so a blank placeholder would make prior history disappear. If the
 resident transcript is missing or empty, `prompt()` re-hydrates from the
@@ -69,7 +73,10 @@ created a one-turn resident row, then overlays the JSONL log onto it. Reconnect 
 `max(clientAppliedMax, snapshot.lastSequence)` so a quieter session cannot
 rewind the runtime stream into the retained event log. It merges the selected
 session snapshot into the existing cluster without disposing other hydrated
-sessions, and reattaches the runtime-wide stream; narrowing that stream would
+sessions, and reattaches the runtime-wide stream with the same disconnect
+handler; a later `session.snapshot` (replay window missed) force-hydrates that
+session from `getSession` so missed tool/text updates are not stuck until a
+manual refresh. Narrowing that stream would
 lose events after the next resident session switch. Pi's delta
 `contentIndex` is a stable content-block identity and may repeat for every
 chunk in that block; reducers apply those chunks with `applyAssistantTextDelta`
@@ -209,7 +216,9 @@ entries schedules one scan, not one per entry.
 `reconnect()` merges the snapshot into the existing cluster (no disposals)
 and then iterates any hydrated resident whose `lastSequence` is behind the
 resumed cursor, issuing a `getSession` and `commitHydratedSession` for each.
-A quiet background turn does not lose the disconnect gap.
+A quiet background turn does not lose the disconnect gap. Accepted
+`session.snapshot` events also force-hydrate that session, because a snapshot
+means the bounded event log could not replay the disconnect gap.
 
 ### `ensureHydrated`
 

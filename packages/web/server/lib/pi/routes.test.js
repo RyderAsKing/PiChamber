@@ -429,6 +429,8 @@ describe('Pi runtime route', () => {
       },
       messages: [],
       lastSequence: 7,
+      isStreaming: false,
+      lifecycle: 'idle',
     });
   });
 
@@ -465,6 +467,8 @@ describe('Pi runtime route', () => {
         parts: [{ type: 'text', id: 'entry-1:0', index: 0, text: 'hello' }],
       }],
       lastSequence: 9,
+      isStreaming: false,
+      lifecycle: 'idle',
     });
     const promptResponse = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions/pi-session-4/prompt`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other', text: 'hello' }),

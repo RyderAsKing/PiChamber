@@ -203,6 +203,8 @@ export const bootstrapPiDirectory = async (
       const { state } = hydrateSessionFromDetail({
         session: detail.session,
         lastSequence: detail.lastSequence,
+        ...(detail.isStreaming !== undefined ? { isStreaming: detail.isStreaming } : {}),
+        ...(detail.lifecycle ? { lifecycle: detail.lifecycle } : {}),
         messages: detail.messages.map((entry) => ({
           message: entry.message,
           parts: entry.parts.map((part) => ({

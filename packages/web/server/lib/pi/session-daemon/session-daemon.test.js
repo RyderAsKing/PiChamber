@@ -1198,6 +1198,58 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  it('overlays a live streaming assistant onto getSession and marks unmatched tools running', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-live-hydrate-'));
+    const endpoint = testDaemonEndpoint(root);
+    const projectDir = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    await mkdir(projectDir, { recursive: true });
+    await mkdir(agentDir, { recursive: true });
+    const session = new FakeSession('pi-session-live');
+    session.isStreaming = true;
+    session.entries = [{
+      type: 'message',
+      id: 'user-1',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      message: { role: 'user', content: 'run it', timestamp: 1_000 },
+    }];
+    session.messages = [
+      { role: 'user', content: 'run it', timestamp: 1_000 },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'calling bash' },
+          { type: 'toolCall', id: 'tool-live', name: 'bash', arguments: { command: 'ls' } },
+        ],
+        provider: 'test',
+        model: 'model',
+        timestamp: 1_100,
+      },
+    ];
+
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: projectDir,
+      agentDir,
+      createRuntime: async () => ({ session, async dispose() {} }),
+      listSessions: async () => [],
+    });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    const detail = await client.request('sessions.create', { cwd: projectDir });
+    expect(detail.result.isStreaming).toBe(true);
+    expect(detail.result.lifecycle).toBe('busy');
+    expect(detail.result.messages).toHaveLength(2);
+    expect(detail.result.messages[1].parts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'text', text: 'calling bash' }),
+      expect.objectContaining({ type: 'tool', name: 'bash', state: 'running', toolCallId: 'tool-live' }),
+    ]));
+    await client.close();
+  });
+
   it('projects Pi usage in getSession messages and message_end events, omitting malformed payloads', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-usage-'));
     const endpoint = testDaemonEndpoint(root);

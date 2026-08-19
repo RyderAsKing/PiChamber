@@ -1147,6 +1147,8 @@ export class PiSessionStore {
     return hydrateSessionFromDetail({
       session: detail.session,
       lastSequence: detail.lastSequence,
+      ...(detail.isStreaming !== undefined ? { isStreaming: detail.isStreaming } : {}),
+      ...(detail.lifecycle ? { lifecycle: detail.lifecycle } : {}),
       messages: detail.messages,
     }).session;
   }
@@ -1381,6 +1383,7 @@ export class PiSessionStore {
         runtimeKey,
         lastKnownSequence: cursorAtReconnect,
         onEvent: (event) => this.apply(event),
+        onStreamDisconnect: () => void this.reconnect(this.state.selectedSessionId ?? sessionId, expected, runtimeKey),
       });
       if (expected !== this.runtimeGeneration) { result.stream?.dispose(); return; }
       if (result.phase === 'ready') {
@@ -1542,6 +1545,7 @@ export class PiSessionStore {
       working = result.state;
       if (!result.didApply) continue;
       if (missingBefore && hadCursor) restoreIds.add(event.sessionId);
+      if (event.name === 'session.snapshot') restoreIds.add(event.sessionId);
       applied = true;
       touchedSessionIds.add(event.sessionId);
       this.notePromptProgress(event);
