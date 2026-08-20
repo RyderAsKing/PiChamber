@@ -6,6 +6,7 @@ import type { RouteState, AppRouteState } from '@/lib/router';
 import type { MainTab } from '@/stores/useUIStore';
 import { resolveSettingsSlug } from '@/lib/settings/metadata';
 import { isEmbeddedSessionChat } from '@/components/layout/contextPanelEmbeddedChat';
+import { routeSessionIdForState } from '@/lib/router/session-intent';
 
 import { getPiSessionStore } from '@/apps/pi-session-store';
 
@@ -107,7 +108,11 @@ export function useRouter(): void {
     const uiState = useUIStore.getState();
 
     return {
-      sessionId: sessionState.currentSessionId ?? piState.selectedSessionId,
+      sessionId: routeSessionIdForState({
+        currentSessionId: sessionState.currentSessionId,
+        piSelectedSessionId: piState.selectedSessionId,
+        draft: sessionState.newSessionDraft,
+      }),
       tab: uiState.activeMainTab,
       isSettingsOpen: uiState.isSettingsDialogOpen,
       settingsPath: uiState.settingsPage,
@@ -156,7 +161,11 @@ export function useRouter(): void {
       if (!isEmbeddedChat) {
         updateBrowserURL({
           ...getCurrentAppState(),
-          sessionId: route.sessionId ?? useSessionUIStore.getState().currentSessionId ?? getPiSessionStore().getState().selectedSessionId,
+          sessionId: route.sessionId ?? routeSessionIdForState({
+            currentSessionId: useSessionUIStore.getState().currentSessionId,
+            piSelectedSessionId: getPiSessionStore().getState().selectedSessionId,
+            draft: useSessionUIStore.getState().newSessionDraft,
+          }),
           tab: route.tab ?? useUIStore.getState().activeMainTab,
           settingsPath: route.settingsPath ?? useUIStore.getState().settingsPage,
           diffFile: route.diffFile ?? useUIStore.getState().pendingDiffFile,
@@ -173,22 +182,40 @@ export function useRouter(): void {
       return;
     }
 
-    let prevSessionId: string | null = useSessionUIStore.getState().currentSessionId ?? getPiSessionStore().getState().selectedSessionId;
+    const readRouteSessionId = () => {
+      const uiState = useSessionUIStore.getState();
+      const piState = getPiSessionStore().getState();
+      return routeSessionIdForState({
+        currentSessionId: uiState.currentSessionId,
+        piSelectedSessionId: piState.selectedSessionId,
+        draft: uiState.newSessionDraft,
+      });
+    };
 
-    const syncIfChanged = (newSessionId: string | null) => {
-      if (!newSessionId || newSessionId === prevSessionId || isApplyingRouteRef.current) {
+    let prevSessionId: string | null = readRouteSessionId();
+    let prevDraftOpen = useSessionUIStore.getState().newSessionDraft?.open === true;
+
+    const syncIfChanged = () => {
+      const uiState = useSessionUIStore.getState();
+      const nextSessionId = readRouteSessionId();
+      const nextDraftOpen = uiState.newSessionDraft?.open === true;
+      if (
+        (nextSessionId === prevSessionId && nextDraftOpen === prevDraftOpen)
+        || isApplyingRouteRef.current
+      ) {
         return;
       }
-      prevSessionId = newSessionId;
+      prevSessionId = nextSessionId;
+      prevDraftOpen = nextDraftOpen;
       syncURLFromState({ replace: true });
     };
 
-    const unsubscribeUI = useSessionUIStore.subscribe((state) => {
-      syncIfChanged(state.currentSessionId);
+    const unsubscribeUI = useSessionUIStore.subscribe(() => {
+      syncIfChanged();
     });
 
     const unsubscribePi = getPiSessionStore().subscribe(() => {
-      syncIfChanged(getPiSessionStore().getState().selectedSessionId);
+      syncIfChanged();
     });
 
     return () => {

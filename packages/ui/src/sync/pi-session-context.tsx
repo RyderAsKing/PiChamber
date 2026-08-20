@@ -4,6 +4,8 @@ import { getPiSessionStore, type PiSessionStore, type PiSessionStoreState, type 
 import { useProjectsStore } from '@/stores/useProjectsStore';
 
 import { parseRoute } from '@/lib/router';
+import { isNewSessionDraftActive } from '@/lib/router/session-intent';
+import { useSessionUIStore } from '@/sync/session-ui-store';
 import { createSnapshotSelectorCache } from './select-snapshot';
 
 const PiSessionContext = React.createContext<PiSessionStore | null>(null);
@@ -28,7 +30,9 @@ export const PiSessionProvider = ({ children, directory }: { children: ReactNode
   // session cluster, so background busy runs keep streaming.
   useEffect(() => {
     const route = parseRoute();
-    if (route.sessionId) {
+    const ui = useSessionUIStore.getState();
+    const draftIsActive = isNewSessionDraftActive(ui.newSessionDraft, ui.currentSessionId);
+    if (route.sessionId && !draftIsActive) {
       const state = store.getState();
       if (state.selectedSessionId === route.sessionId && state.connection === 'ready') return;
       void store.start({ directory: targetDirectory ?? undefined, sessionId: route.sessionId });
@@ -42,7 +46,7 @@ export const PiSessionProvider = ({ children, directory }: { children: ReactNode
     // loader by pre-selecting the last session the cluster attached for
     // that directory. The hint is internal — explicit route / caller
     // hints still win.
-    const remembered = store.lastSelectedSessionForDirectory(targetDirectory);
+    const remembered = draftIsActive ? null : store.lastSelectedSessionForDirectory(targetDirectory);
     void store.start({
       directory: targetDirectory,
       ...(remembered ? { sessionId: remembered, sessionDirectoryKnown: true } : {}),
