@@ -181,7 +181,9 @@ in `hydratedSessionIds`, `focusProject` selects it immediately and resolves
 the list in the background. `PiSessionProvider` seeds `start({directory})`
 with the cluster's `lastSelectedSessionForDirectory(directory)` hint so a
 warm folder change lands the user on their remembered session with no
-spinner.
+spinner. A user-opened draft suppresses raw URL session reapplication and
+keeps the Pi selection out of the visible route until a session is
+materialized.
 
 ### List failure vs empty success
 
