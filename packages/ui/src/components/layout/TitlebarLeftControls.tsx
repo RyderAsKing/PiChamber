@@ -40,6 +40,10 @@ export const TitlebarLeftControls: React.FC = () => {
   const showWindowControls = usesFramelessChrome && windowControlsSide === 'left';
   const showAppMenu = usesFramelessChrome;
   const showOverlay = showToggle || showWindowControls || showAppMenu;
+  // A toggle-only cluster is always a 2rem button. Measuring it on every
+  // sidebar toggle flushes the just-invalidated layout tree; only native
+  // window chrome can make this cluster's width variable.
+  const hasVariableWidthControls = showWindowControls || showAppMenu;
 
   const handleOpenWindowsAppMenu = React.useCallback(() => {
     void invokeDesktop('desktop_show_app_menu').catch((error) => {
@@ -59,9 +63,7 @@ export const TitlebarLeftControls: React.FC = () => {
       document.documentElement.style.setProperty('--oc-titlebar-overlay-width', `${Math.round(width)}px`);
     };
 
-    if (!showOverlay) {
-      publishWidth(0);
-      publishOverlayWidth(0);
+    if (!hasVariableWidthControls) {
       return;
     }
 
@@ -92,7 +94,7 @@ export const TitlebarLeftControls: React.FC = () => {
     return () => {
       observer.disconnect();
     };
-  }, [showOverlay, showToggle, showWindowControls, showAppMenu]);
+  }, [hasVariableWidthControls]);
 
   if (!showOverlay) {
     return null;

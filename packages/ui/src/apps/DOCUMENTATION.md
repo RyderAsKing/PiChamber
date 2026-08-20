@@ -46,6 +46,8 @@
 
 - Both sides and both directions are covered; `usePanelSlide` still drives the non-drag open/close `transform` for the left sidebar's inner surface.
 
+- **Toggle-only titlebar controls** have a fixed `2.5rem` header reservation. Do not measure and publish their width through root CSS variables on each sidebar toggle: those geometry reads synchronously resolve the invalidated layout tree. Electron frameless controls remain measured because their native-control footprint is variable.
+
 ## Horizontal-Scroll Exclusions
 
 - **Shared predicate**: `isSwipeExcludedTarget` in `gestureMath` (selector `button, a, input, textarea, select, [contenteditable], [data-no-drawer-swipe]` + `scrollWidth > clientWidth && overflowX auto|scroll`). Single source for `useDrawerSwipe` and `useEdgeSwipe`, including when a drawer-local surface is already open.

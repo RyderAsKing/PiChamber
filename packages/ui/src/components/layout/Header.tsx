@@ -1149,7 +1149,9 @@ export const Header: React.FC<HeaderProps> = ({
   const headerInsetSpacerWidth = isSidebarOpen ? '0.75rem' : 'var(--oc-titlebar-left-inset, 0.75rem)';
   const headerControlsSpacerWidth = isSidebarOpen
     ? '0px'
-    : 'calc(var(--oc-titlebar-controls-width, 5.5rem) + 0.5rem)';
+    : isDesktopApp && usesFramelessChrome
+      ? 'calc(var(--oc-titlebar-controls-width, 5.5rem) + 0.5rem)'
+      : '2.5rem';
 
   useEffect(() => {
     if (!isDesktopApp || !isMacPlatform) {

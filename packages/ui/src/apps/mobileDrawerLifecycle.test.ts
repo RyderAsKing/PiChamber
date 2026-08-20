@@ -7,6 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const mobileAppSource = readFileSync(join(__dirname, 'MobileApp.tsx'), 'utf8');
 const sessionsSheetSource = readFileSync(join(__dirname, 'MobileSessionsSheet.tsx'), 'utf8');
 const workspaceDrawerSource = readFileSync(join(__dirname, 'MobileWorkspaceDrawer.tsx'), 'utf8');
+const titlebarControlsSource = readFileSync(join(__dirname, '../components/layout/TitlebarLeftControls.tsx'), 'utf8');
 const drawerSwipeSource = readFileSync(join(__dirname, 'useDrawerSwipe.ts'), 'utf8');
 const edgeSwipeSource = readFileSync(join(__dirname, 'useEdgeSwipe.ts'), 'utf8');
 const drawerSurfaceSource = readFileSync(join(__dirname, 'drawerSurface.ts'), 'utf8');
@@ -49,6 +50,11 @@ describe('mobile drawer lifecycle', () => {
   test('tablet panel toggles do not rerender the chat tree', () => {
     expect(mobileAppSource).toContain('const MobileChatView = React.memo(ChatView);');
     expect(mobileAppSource).toContain('<MobileChatView />');
+  });
+
+  test('toggle-only titlebar controls do not measure layout', () => {
+    expect(titlebarControlsSource).toContain('const hasVariableWidthControls = showWindowControls || showAppMenu;');
+    expect(titlebarControlsSource).toContain('if (!hasVariableWidthControls) {\n      return;\n    }');
   });
 
   test('close handlers clear focus before hiding the drawer', () => {
