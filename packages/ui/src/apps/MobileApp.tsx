@@ -55,6 +55,7 @@ import { useAppFontEffects } from './useAppFontEffects';
 import { useFontsReady } from './useFontsReady';
 import { useDeepLinkHandlers, useDeepLinkSource } from './deepLinkNavigation';
 import { useEdgeSwipe } from './useEdgeSwipe';
+import { MOBILE_DRAWER_DURATION_MS, MOBILE_DRAWER_EASING } from './useDrawerSwipe';
 import { useNativePushRegistration } from './useNativePushRegistration';
 import { IpadSidebarResizeHandle } from './IpadSidebarResizeHandle';
 import { Header } from '@/components/layout/Header';
@@ -79,6 +80,31 @@ const NATIVE_RESUME_SYNC_EVENT_THROTTLE_MS = 1_000;
     (Changes / Files / Terminal / Notes / MCP) are separate layers. */
 type MobileSurface = 'instances' | 'settings' | 'update';
 
+const settlePhoneDrawer = (
+  side: 'left' | 'right',
+  shouldOpen: boolean,
+  drawer: HTMLElement | null,
+  scrim: HTMLElement | null,
+  root: HTMLElement | null,
+) => {
+  if (drawer) {
+    drawer.style.transition = `transform ${MOBILE_DRAWER_DURATION_MS}ms ${MOBILE_DRAWER_EASING}`;
+    drawer.style.transform = shouldOpen
+      ? 'none'
+      : side === 'left' ? 'translateX(-100%)' : 'translateX(100%)';
+    delete drawer.dataset.dragProgress;
+  }
+  if (scrim) {
+    scrim.style.transition = `opacity ${MOBILE_DRAWER_DURATION_MS}ms ${MOBILE_DRAWER_EASING}`;
+    scrim.style.opacity = shouldOpen ? '1' : '0';
+    scrim.style.pointerEvents = shouldOpen ? 'auto' : 'none';
+  }
+  if (root) {
+    root.style.pointerEvents = shouldOpen ? 'auto' : 'none';
+    root.style.visibility = shouldOpen ? 'visible' : '';
+  }
+};
+
 const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onActiveConnectionDeleted }) => {
   
   const [sessionsSheetOpen, setSessionsSheetOpen] = React.useState(false);
@@ -93,6 +119,23 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   const [settingsInitialMobileStage, setSettingsInitialMobileStage] = React.useState<'nav' | 'page-content'>('nav');
   // When set, the Changes surface opens directly into the per-file diff for this path.
   const [pendingChangesDiff, setPendingChangesDiff] = React.useState<{ path: string; staged: boolean } | null>(null);
+  // Track imperative timeouts so a second drag doesn't have its transition
+  // cleared by a stale timeout from the previous drag (which caused the
+  // “hang after 1-2 pulls” - drawer stuck mid-way with transition cleared).
+  const dragTimeoutsRef = React.useRef<number[]>([]);
+  const clearDragTimeouts = React.useCallback(() => {
+    dragTimeoutsRef.current.forEach((id) => window.clearTimeout(id));
+    dragTimeoutsRef.current = [];
+  }, []);
+  React.useEffect(() => () => clearDragTimeouts(), [clearDragTimeouts]);
+  const setSessionsSheetOpenSafely = React.useCallback((open: boolean) => {
+    clearDragTimeouts();
+    setSessionsSheetOpen(open);
+  }, [clearDragTimeouts]);
+  const setWorkspaceOpenSafely = React.useCallback((open: boolean) => {
+    clearDragTimeouts();
+    setWorkspaceOpen(open);
+  }, [clearDragTimeouts]);
   const setSettingsPage = useUIStore((state) => state.setSettingsPage);
   const isArchivePageOpen = useUIStore((state) => state.isArchivePageOpen);
   const setArchivePageOpen = useUIStore((state) => state.setArchivePageOpen);
@@ -116,8 +159,8 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   }, []);
 
   const closeWorkspace = React.useCallback(() => {
-    setWorkspaceOpen(false);
-  }, []);
+    setWorkspaceOpenSafely(false);
+  }, [setWorkspaceOpenSafely]);
 
   const openSettingsSurface = React.useCallback((stage: 'nav' | 'page-content') => {
     setSettingsInitialMobileStage(stage);
@@ -153,14 +196,14 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   const openFilesSurface = React.useCallback(() => {
     setPendingChangesDiff(null);
     setWorkspaceTab('files');
-    setWorkspaceOpen(true);
-  }, []);
+    setWorkspaceOpenSafely(true);
+  }, [setWorkspaceOpenSafely]);
 
   const openChangesSurface = React.useCallback((diff: { path: string; staged: boolean } | null = null) => {
     setPendingChangesDiff(diff);
     setWorkspaceTab('changes');
-    setWorkspaceOpen(true);
-  }, []);
+    setWorkspaceOpenSafely(true);
+  }, [setWorkspaceOpenSafely]);
 
   const leftResize = useIpadSidebarResize('left', 'pichamber.ipad.leftSidebarWidth', IPAD_LEFT_SIDEBAR_WIDTH);
   const rightResize = useIpadSidebarResize(
@@ -238,7 +281,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     () => ({
       openSessions: () => {
         if (isTabletLayout) setSidebarOpen(true);
-        else setSessionsSheetOpen(true);
+        else setSessionsSheetOpenSafely(true);
       },
       openView: (target: ViewTarget) => {
         if (target === 'files') {
@@ -257,19 +300,170 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         openSettingsSurface(section ? 'page-content' : 'nav');
       },
     }),
-    [isTabletLayout, openChangesSurface, openFilesSurface, openSettingsSurface, openSurface, setSettingsPage, setSidebarOpen],
+    [isTabletLayout, openChangesSurface, openFilesSurface, openSettingsSurface, openSurface, setSettingsPage, setSessionsSheetOpenSafely, setSidebarOpen],
   );
   useDeepLinkHandlers(deepLinkHandlers);
 
-  // Edge swipes on the chat: left edge opens the sessions drawer (the
-  // persistent sidebar on a tablet), right edge the workspace drawer.
+  // Horizontal swipes anywhere in the chat open or close the drawers. Vertical
+  // scrolling and controls keep their normal touch behavior.
   const chatMainRef = React.useRef<HTMLElement>(null);
   useEdgeSwipe(chatMainRef, {
-    onLeftEdgeSwipe: () => {
-      if (isTabletLayout) setSidebarOpen(true);
-      else setSessionsSheetOpen(true);
+    leftOpen: isTabletLayout ? sidebarOpen : sessionsSheetOpen,
+    rightOpen: workspaceOpen,
+    leftWidth: () => {
+      if (isTabletLayout) return leftResize.width;
+      const el = document.querySelector('[data-mobile-sessions-drawer]') as HTMLElement | null;
+      return el?.offsetWidth || window.innerWidth * 0.72;
     },
-    onRightEdgeSwipe: () => setWorkspaceOpen(true),
+    rightWidth: () => {
+      if (isTabletLayout) return rightResize.width;
+      const el = document.querySelector('[data-mobile-workspace-drawer]') as HTMLElement | null;
+      return el?.offsetWidth || window.innerWidth;
+    },
+    onLeftProgress: (progress) => {
+      if (isTabletLayout) {
+        // Tablet sidebar is width-animated, not a drawer. Map progress 0..1
+        // to width 0..full via transform so it tracks the finger without
+        // reflowing the chat column mid-drag.
+        const aside = leftResize.asideRef.current as HTMLElement | null;
+        if (!aside) return;
+        const w = leftResize.width;
+        const x = (progress - 1) * w;
+        aside.style.transition = 'none';
+        aside.style.transform = progress >= 0.999 ? 'translateX(0)' : `translateX(${x}px)`;
+        // Keep the aside sized so the chat doesn't jump, but clip via transform.
+        (aside as HTMLElement).dataset.dragProgress = String(progress);
+        return;
+      }
+      const drawer = document.querySelector('[data-mobile-sessions-drawer]') as HTMLElement | null;
+      const scrim = document.querySelector('[data-mobile-sessions-scrim]') as HTMLElement | null;
+      const root = document.querySelector('[data-mobile-sessions-root]') as HTMLElement | null;
+      if (root) {
+        root.style.pointerEvents = 'auto';
+        (root as HTMLElement).style.visibility = 'visible';
+      }
+      if (drawer) {
+        drawer.style.transition = 'none';
+        drawer.style.transform = progress >= 0.999 ? 'none' : `translateX(${(progress - 1) * 100}%)`;
+        (drawer as HTMLElement).dataset.dragProgress = String(progress);
+      }
+      if (scrim) {
+        scrim.style.transition = 'none';
+        scrim.style.opacity = String(progress);
+        scrim.style.pointerEvents = progress > 0.01 ? 'auto' : 'none';
+      }
+    },
+    onRightProgress: (progress) => {
+      // Tablet-panel variant is an aside with width, not a drawer.
+      if (isTabletLayout && (roomyForPanels)) {
+        const aside = rightResize.asideRef.current as HTMLElement | null;
+        if (!aside) return;
+        const w = rightResize.width;
+        const x = (1 - progress) * w;
+        aside.style.transition = 'none';
+        aside.style.transform = progress >= 0.999 ? 'translateX(0)' : `translateX(${x}px)`;
+        (aside as HTMLElement).dataset.dragProgress = String(progress);
+        return;
+      }
+      const drawer = document.querySelector('[data-mobile-workspace-drawer]') as HTMLElement | null;
+      const scrim = document.querySelector('[data-mobile-workspace-scrim]') as HTMLElement | null;
+      const root = document.querySelector('[data-mobile-workspace-root]') as HTMLElement | null;
+      if (root) {
+        root.style.pointerEvents = 'auto';
+        (root as HTMLElement).style.visibility = 'visible';
+      }
+      if (drawer) {
+        drawer.style.transition = 'none';
+        drawer.style.transform = progress >= 0.999 ? 'none' : `translateX(${(1 - progress) * 100}%)`;
+        (drawer as HTMLElement).dataset.dragProgress = String(progress);
+      }
+      if (scrim) {
+        scrim.style.transition = 'none';
+        scrim.style.opacity = String(progress);
+        scrim.style.pointerEvents = progress > 0.01 ? 'auto' : 'none';
+      }
+    },
+    onLeftOpen: () => {
+      if (isTabletLayout) setSidebarOpen(true);
+      else setSessionsSheetOpenSafely(true);
+    },
+    onLeftClose: () => {
+      if (isTabletLayout) setSidebarOpen(false);
+      else setSessionsSheetOpenSafely(false);
+    },
+    onRightOpen: () => setWorkspaceOpenSafely(true),
+    onRightClose: () => setWorkspaceOpenSafely(false),
+    onDragStart: (side) => {
+      clearDragTimeouts();
+      if (side === 'left' && isTabletLayout) {
+        const a = leftResize.asideRef.current as HTMLElement | null;
+        if (a) a.style.transition = 'none';
+      }
+      if (side === 'right' && isTabletLayout) {
+        const a = rightResize.asideRef.current as HTMLElement | null;
+        if (a) a.style.transition = 'none';
+      }
+    },
+    onDragEnd: (side, didSettleOpen) => {
+      // Tablet sidebars use width+transform with a 200ms slide. Drive the
+      // settle animation imperatively so it starts from the finger's last
+      // position instead of snapping to -100% before the slide's rAF.
+      if (isTabletLayout && side === 'left') {
+        const a = leftResize.asideRef.current as HTMLElement | null;
+        if (a) {
+          const raw = (a as HTMLElement).dataset.dragProgress;
+          const progress = raw ? Number(raw) : (didSettleOpen ? 1 : 0);
+          const shouldOpen = typeof didSettleOpen === 'boolean' ? didSettleOpen : progress > 0.5;
+          const w = leftResize.width;
+          a.style.transition = 'transform 200ms cubic-bezier(0.22, 1, 0.36, 1)';
+          a.style.transform = shouldOpen ? 'translateX(0)' : `translateX(${-w}px)`;
+          dragTimeoutsRef.current.push(window.setTimeout(() => {
+            a.style.transition = '';
+            a.style.transform = '';
+            delete (a as HTMLElement).dataset.dragProgress;
+          }, 220));
+        }
+        return;
+      }
+      if (side === 'left') {
+        const drawer = document.querySelector('[data-mobile-sessions-drawer]') as HTMLElement | null;
+        const scrim = document.querySelector('[data-mobile-sessions-scrim]') as HTMLElement | null;
+        const root = document.querySelector('[data-mobile-sessions-root]') as HTMLElement | null;
+        const progress = drawer?.dataset.dragProgress;
+        const shouldOpen = typeof didSettleOpen === 'boolean'
+          ? didSettleOpen
+          : (progress ? Number(progress) > 0.5 : false);
+        settlePhoneDrawer('left', shouldOpen, drawer, scrim, root);
+        return;
+      }
+      if (side === 'right') {
+        if (isTabletLayout && roomyForPanels) {
+          const a = rightResize.asideRef.current as HTMLElement | null;
+          if (a) {
+            const raw = (a as HTMLElement).dataset.dragProgress;
+            const progress = raw ? Number(raw) : (didSettleOpen ? 1 : 0);
+            const shouldOpen = typeof didSettleOpen === 'boolean' ? didSettleOpen : progress > 0.5;
+            const w = rightResize.width;
+            a.style.transition = 'transform 200ms cubic-bezier(0.22, 1, 0.36, 1), width 200ms cubic-bezier(0.22, 1, 0.36, 1)';
+            a.style.transform = shouldOpen ? 'translateX(0)' : `translateX(${w}px)`;
+            dragTimeoutsRef.current.push(window.setTimeout(() => {
+              a.style.transition = '';
+              a.style.transform = '';
+              delete (a as HTMLElement).dataset.dragProgress;
+            }, 220));
+          }
+        } else {
+          const drawer = document.querySelector('[data-mobile-workspace-drawer]') as HTMLElement | null;
+          const scrim = document.querySelector('[data-mobile-workspace-scrim]') as HTMLElement | null;
+          const root = document.querySelector('[data-mobile-workspace-root]') as HTMLElement | null;
+          const progress = drawer?.dataset.dragProgress;
+          const shouldOpen = typeof didSettleOpen === 'boolean'
+            ? didSettleOpen
+            : (progress ? Number(progress) > 0.5 : false);
+          settlePhoneDrawer('right', shouldOpen, drawer, scrim, root);
+        }
+      }
+    },
   });
 
   // Top-most layer first: a plan or fullscreen surface can sit ABOVE a drawer
@@ -289,11 +483,11 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       return true;
     }
     if (sessionsSheetOpen) {
-      setSessionsSheetOpen(false);
+      setSessionsSheetOpenSafely(false);
       return true;
     }
     return false;
-  }, [activeSurface, closeSurface, closeWorkspace, isArchivePageOpen, sessionsSheetOpen, setArchivePageOpen, workspaceOpen]);
+  }, [activeSurface, closeSurface, closeWorkspace, isArchivePageOpen, sessionsSheetOpen, setArchivePageOpen, setSessionsSheetOpenSafely, workspaceOpen]);
 
   useNativeAndroidBackButton(handleNativeBack);
 
@@ -369,17 +563,17 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             <>
               <TitlebarLeftControls />
               <Header
-                onToggleRightDrawer={() => setWorkspaceOpen(true)}
+                onToggleRightDrawer={() => setWorkspaceOpenSafely(true)}
                 rightDrawerOpen={workspaceOpen}
               />
             </>
           ) : (
             <MobileHeader
-              onOpenSessions={() => setSessionsSheetOpen(true)}
-              onOpenWorkspace={() => setWorkspaceOpen(true)}
+              onOpenSessions={() => setSessionsSheetOpenSafely(true)}
+              onOpenWorkspace={() => setWorkspaceOpenSafely(true)}
             />
           )}
-          <main ref={chatMainRef} className="relative min-h-0 flex-1 overflow-hidden" data-page-scroll-lock="true">
+          <main ref={chatMainRef} className="relative min-h-0 flex-1 overflow-hidden" data-page-scroll-lock="true" style={{ touchAction: 'pan-y' } as React.CSSProperties}>
             <div className="h-full w-full">
               <ErrorBoundary>
                 <ChatView />
@@ -394,7 +588,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         {!isTabletLayout ? (
           <MobileSessionsSheet
             open={sessionsSheetOpen}
-            onOpenChange={setSessionsSheetOpen}
+            onOpenChange={setSessionsSheetOpenSafely}
           />
         ) : null}
 

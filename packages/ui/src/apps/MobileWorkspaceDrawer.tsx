@@ -8,11 +8,10 @@ import { TerminalView } from '@/components/views/TerminalView';
 import { cn } from '@/lib/utils';
 import { MobileChangesSurface } from './MobileChangesSurface';
 import { MobileFilesSurface } from './MobileFilesSurface';
+import { MOBILE_DRAWER_DURATION_MS, MOBILE_DRAWER_EASING, useDrawerSwipe } from './useDrawerSwipe';
 
 const DRAWER_ROOT_ID = 'mobile-surface-root';
 const ENTER_DELAY_MS = 16;
-const ENTER_DURATION_MS = 320;
-const DRAWER_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
 export type MobileWorkspaceTab = 'changes' | 'files' | 'terminal' | 'notes';
 
@@ -49,18 +48,19 @@ export const MobileWorkspaceDrawer: React.FC<{
   pendingChangesDiff: { path: string; staged: boolean } | null;
   variant?: 'drawer' | 'panel';
 }> = ({ open, onClose, tab, onTabChange, pendingChangesDiff, variant = 'drawer' }) => {
-  
   const rootRef = React.useRef<HTMLElement | null>(null);
+  const drawerRef = React.useRef<HTMLElement>(null);
+  const scrimRef = React.useRef<HTMLButtonElement>(null);
+  const rootElementRef = React.useRef<HTMLDivElement>(null);
+  const handleClose = React.useCallback(() => {
+    const activeElement = typeof document !== 'undefined' ? document.activeElement : null;
+    if (activeElement instanceof HTMLElement && rootElementRef.current?.contains(activeElement)) {
+      activeElement.blur();
+    }
+    onClose();
+  }, [onClose]);
   const [entered, setEntered] = React.useState(false);
   const [visible, setVisible] = React.useState(open);
-  const onCloseRef = React.useRef(onClose);
-  React.useEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
-  const tabRef = React.useRef(tab);
-  React.useEffect(() => {
-    tabRef.current = tab;
-  }, [tab]);
   const prefersReducedMotion = React.useMemo(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -94,7 +94,7 @@ export const MobileWorkspaceDrawer: React.FC<{
       return () => window.clearTimeout(id);
     }
     setEntered(false);
-    const id = window.setTimeout(() => setVisible(false), ENTER_DURATION_MS + 40);
+    const id = window.setTimeout(() => setVisible(false), MOBILE_DRAWER_DURATION_MS + 40);
     return () => window.clearTimeout(id);
   }, [open, prefersReducedMotion]);
 
@@ -103,18 +103,38 @@ export const MobileWorkspaceDrawer: React.FC<{
     const previousOverflow = document.body.style.overflow;
     if (variant === 'drawer') document.body.style.overflow = 'hidden';
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && tabRef.current !== 'terminal') onCloseRef.current();
+      if (event.key === 'Escape' && tab !== 'terminal') handleClose();
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       if (variant === 'drawer') document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', handleKeyDown);
     };
+  }, [handleClose, open, tab, variant]);
+
+  // Fallback for browsers that do not move focus when the closed drawer
+  // becomes inert.
+  React.useEffect(() => {
+    const root = rootElementRef.current;
+    if (!root || open || variant !== 'drawer') return;
+    const active = document.activeElement as HTMLElement | null;
+    if (active && root.contains(active)) active.blur();
   }, [open, variant]);
+
+  useDrawerSwipe({
+    side: 'right',
+    enabled: variant === 'drawer',
+    open,
+    drawerRef,
+    scrimRef,
+    onClose: handleClose,
+    widthRatio: 1,
+    prefersReducedMotion,
+  });
 
   if (variant === 'drawer' && !rootRef.current) return null;
 
-  const duration = prefersReducedMotion ? 0 : ENTER_DURATION_MS;
+  const duration = prefersReducedMotion ? 0 : MOBILE_DRAWER_DURATION_MS;
 
   const tabs = (
     <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto" role="tablist" aria-label="Workspace">
@@ -149,7 +169,7 @@ export const MobileWorkspaceDrawer: React.FC<{
         {tabs}
         <button
           type="button"
-          onClick={onClose}
+          onClick={handleClose}
           aria-label="Close workspace panel"
           className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
         >
@@ -187,7 +207,7 @@ export const MobileWorkspaceDrawer: React.FC<{
         {visitedTabs.has('notes') ? (
           <div className={cn('h-full', tab !== 'notes' && 'hidden')}>
             <ErrorBoundary>
-              <ProjectContextPanel onActionComplete={onClose} />
+              <ProjectContextPanel onActionComplete={handleClose} />
             </ErrorBoundary>
           </div>
         ) : null}
@@ -201,25 +221,30 @@ export const MobileWorkspaceDrawer: React.FC<{
 
   return createPortal(
     <div
+      ref={rootElementRef}
       className="fixed inset-0 z-50"
-      aria-hidden={!open}
+      inert={!open}
       style={{
         pointerEvents: open ? 'auto' : 'none',
         visibility: visible ? 'visible' : 'hidden',
       }}
+      data-mobile-workspace-root="true"
     >
       <button
+        ref={scrimRef}
         type="button"
         className="absolute inset-0 cursor-default bg-black/70"
         aria-label="Close workspace panel"
-        onClick={onClose}
+        onClick={handleClose}
         tabIndex={open ? 0 : -1}
         style={{
           opacity: entered ? 1 : 0,
-          transition: duration ? `opacity ${duration}ms ${DRAWER_EASING}` : 'none',
+          transition: duration ? `opacity ${duration}ms ${MOBILE_DRAWER_EASING}` : 'none',
         }}
+        data-mobile-workspace-scrim="true"
       />
       <section
+        ref={drawerRef as unknown as React.RefObject<HTMLElement>}
         role="dialog"
         aria-modal="true"
         aria-label={"Open workspace panel"}
@@ -227,8 +252,10 @@ export const MobileWorkspaceDrawer: React.FC<{
         style={{
           paddingTop: 'var(--oc-safe-area-top, 0px)',
           transform: entered ? 'none' : 'translateX(100%)',
-          transition: duration ? `transform ${duration}ms ${DRAWER_EASING}` : 'none',
+          transition: duration ? `transform ${duration}ms ${MOBILE_DRAWER_EASING}` : 'none',
+          touchAction: 'pan-y',
         }}
+        data-mobile-workspace-drawer="true"
       >
         {body}
       </section>

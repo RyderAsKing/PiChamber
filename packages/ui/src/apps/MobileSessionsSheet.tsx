@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { MOBILE_DRAWER_DURATION_MS, MOBILE_DRAWER_EASING, useDrawerSwipe } from './useDrawerSwipe';
 
 type MobileSessionsSheetProps = {
   open: boolean;
@@ -16,23 +17,39 @@ type MobileSessionsSheetProps = {
 };
 
 const ENTER_DELAY_MS = 16;
-const ENTER_DURATION_MS = 320;
-const DRAWER_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
 export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
   open,
   onOpenChange,
   variant = 'drawer',
 }) => {
-  const close = React.useCallback(() => onOpenChange(false), [onOpenChange]);
+  const rootRefElement = React.useRef<HTMLDivElement>(null);
+  const close = React.useCallback(() => {
+    const activeElement = typeof document !== 'undefined' ? document.activeElement : null;
+    if (activeElement instanceof HTMLElement && rootRefElement.current?.contains(activeElement)) {
+      activeElement.blur();
+    }
+    onOpenChange(false);
+  }, [onOpenChange]);
   const openNewSessionDraft = useSessionUIStore((state) => state.openNewSessionDraft);
   const setActiveMainTab = useUIStore((state) => state.setActiveMainTab);
   const setSessionSwitcherOpen = useUIStore((state) => state.setSessionSwitcherOpen);
   const [entered, setEntered] = React.useState(false);
+  const drawerRef = React.useRef<HTMLDivElement>(null);
+  const scrimRef = React.useRef<HTMLButtonElement>(null);
   const prefersReducedMotion = React.useMemo(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }, []);
+
+  // Fallback for browsers that do not move focus when the closed drawer
+  // becomes inert.
+  React.useEffect(() => {
+    const root = rootRefElement.current;
+    if (!root || open) return;
+    const active = document.activeElement as HTMLElement | null;
+    if (active && root.contains(active)) active.blur();
+  }, [open]);
 
   React.useEffect(() => {
     if (variant === 'sidebar') return undefined;
@@ -70,12 +87,23 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
   const sidebar = (
     <SessionSidebar
       mobileVariant={!isTabletSidebar}
-      isVisible
+      isVisible={open}
       allowReselect
       onSessionSelected={isTabletSidebar ? undefined : close}
       onNavigateAway={isTabletSidebar ? undefined : close}
     />
   );
+
+  useDrawerSwipe({
+    side: 'left',
+    enabled: variant === 'drawer',
+    open,
+    drawerRef,
+    scrimRef,
+    onClose: close,
+    widthRatio: 0.72,
+    prefersReducedMotion,
+  });
 
   if (variant === 'sidebar') {
     return (
@@ -87,17 +115,20 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
 
   if (typeof document === 'undefined') return null;
 
-  const duration = prefersReducedMotion ? 0 : ENTER_DURATION_MS;
+  const duration = prefersReducedMotion ? 0 : MOBILE_DRAWER_DURATION_MS;
 
   return createPortal(
     <div
+      ref={rootRefElement}
       className="fixed inset-0 z-50"
-      aria-hidden={!open}
+      inert={!open}
       style={{
         pointerEvents: open ? 'auto' : 'none',
       }}
+      data-mobile-sessions-root="true"
     >
       <button
+        ref={scrimRef}
         type="button"
         className="absolute inset-0 cursor-default bg-black/70"
         aria-label="Close sessions"
@@ -105,16 +136,20 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
         tabIndex={open ? 0 : -1}
         style={{
           opacity: entered ? 1 : 0,
-          transition: `opacity ${duration}ms ${DRAWER_EASING}`,
+          transition: `opacity ${duration}ms ${MOBILE_DRAWER_EASING}`,
         }}
+        data-mobile-sessions-scrim="true"
       />
       <div
+        ref={drawerRef}
         className={cn('relative z-10 flex h-full w-[72%] max-w-[72%] flex-col bg-sidebar')}
         style={{
           paddingTop: 'var(--oc-safe-area-top, 0px)',
           transform: entered ? 'none' : 'translateX(-100%)',
-          transition: duration ? `transform ${duration}ms ${DRAWER_EASING}` : 'none',
+          transition: duration ? `transform ${duration}ms ${MOBILE_DRAWER_EASING}` : 'none',
+          touchAction: 'pan-y',
         }}
+        data-mobile-sessions-drawer="true"
       >
         {sidebar}
       </div>
