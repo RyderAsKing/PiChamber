@@ -145,8 +145,16 @@ export const MobileWorkspaceDrawer: React.FC<{
 
   const body = (
     <>
-      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center px-2">
+      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 px-2">
         {tabs}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close workspace panel"
+          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+        >
+          <Icon name="close" className="size-4" />
+        </button>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
         {visitedTabs.has('changes') ? (
@@ -215,7 +223,7 @@ export const MobileWorkspaceDrawer: React.FC<{
         role="dialog"
         aria-modal="true"
         aria-label={"Open workspace panel"}
-        className="oc-keyboard-inset-surface absolute inset-y-0 right-0 z-10 flex h-full w-[80%] max-w-[80%] flex-col bg-sidebar"
+        className="oc-keyboard-inset-surface absolute inset-y-0 right-0 z-10 flex h-full w-full flex-col bg-sidebar"
         style={{
           paddingTop: 'var(--oc-safe-area-top, 0px)',
           transform: entered ? 'none' : 'translateX(100%)',

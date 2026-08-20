@@ -768,96 +768,11 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
         {isPinnedSession ? <Icon name="unpin" className="mr-1 h-4 w-4" /> : <Icon name="pushpin" className="mr-1 h-4 w-4" />}
         {isPinnedSession ? "Unpin session" : "Pin session"}
       </Item>
-      {!resolvedSession.share ? (
-        <Item onClick={() => handleShareSession(resolvedSession)} className="[&>svg]:mr-1">
-          <Icon name="share-2" className="mr-1 h-4 w-4" />
-          {"Share"}
-        </Item>
-      ) : (
-        <>
-          <Item onClick={() => { if ((resolvedSession.share as any)?.url) handleCopyShareUrl((resolvedSession.share as any).url, session.id); }} className="[&>svg]:mr-1">
-            {copiedSessionId === session.id
-              ? <><Icon name="check" className="mr-1 h-4 w-4"  style={{ color: 'var(--status-success)' }}/>{"Copied"}</>
-              : <><Icon name="file-copy" className="mr-1 h-4 w-4" />{"Copy link"}</>}
-          </Item>
-          <Item onClick={() => handleUnshareSession(session.id)} className="[&>svg]:mr-1">
-            <Icon name="link-unlink-m" className="mr-1 h-4 w-4" />
-            {"Unshare"}
-          </Item>
-        </>
-      )}
+
       <Item onClick={() => { void handleExportSession(); }} className="[&>svg]:mr-1">
         <Icon name="download" className="mr-1 h-4 w-4" />
         {"Export Markdown"}
       </Item>
-      {sessionDirectory && !archivedBucket ? (() => {
-        const scopes: string[] = [];
-        const pushScope = (candidate: string | null | undefined) => {
-          const normalized = normalizePath(candidate ?? null);
-          if (normalized && !scopes.includes(normalized)) scopes.push(normalized);
-        };
-        if (projectId) {
-          const project = useProjectsStore.getState().projects.find((entry) => entry.id === projectId);
-          const projectRoot = normalizePath(project?.path ?? null);
-          pushScope(projectRoot);
-        }
-        pushScope(sessionDirectory);
-        const folderEntries = scopes.flatMap((scope) =>
-          getFoldersForScope(scope).map((folder) => ({ scope, folder })));
-        const currentEntry = folderEntries.find(({ scope, folder }) =>
-          getSessionFolderId(scope, session.id) === folder.id) ?? null;
-        const defaultScope = scopes[0] ?? sessionDirectory;
-        return (
-          <>
-            <Separator />
-            <Sub>
-              <SubTrigger className="[&>svg]:mr-1"><Icon name="folder" className="h-4 w-4" />{"Move to folder"}</SubTrigger>
-              <SubContent className="min-w-[180px]">
-                {folderEntries.length === 0 ? (
-                  <Item disabled className="text-muted-foreground">{"No folders yet"}</Item>
-                ) : (
-                  folderEntries.map(({ scope, folder }) => {
-                    const isCurrent = currentEntry?.folder.id === folder.id;
-                    return (
-                      <Item key={folder.id} onClick={() => {
-                        if (isCurrent) {
-                          removeSessionFromFolder(scope, session.id);
-                          return;
-                        }
-                        if (currentEntry && currentEntry.scope !== scope) {
-                          removeSessionFromFolder(currentEntry.scope, session.id);
-                        }
-                        addSessionToFolder(scope, folder.id, session.id);
-                      }}>
-                        <span className="flex-1 truncate">{folder.name}</span>
-                        {isCurrent ? <Icon name="check" className="ml-2 h-3.5 w-3.5 text-primary flex-shrink-0" /> : null}
-                      </Item>
-                    );
-                  })
-                )}
-                <Separator />
-                <Item onClick={() => {
-                  const newFolder = createFolderAndStartRename(defaultScope);
-                  if (!newFolder) return;
-                  if (currentEntry && currentEntry.scope !== defaultScope) {
-                    removeSessionFromFolder(currentEntry.scope, session.id);
-                  }
-                  addSessionToFolder(defaultScope, newFolder.id, session.id);
-                }}>
-                  <Icon name="add" className="mr-1 h-4 w-4" />
-                  {"New folder..."}
-                </Item>
-                {currentEntry ? (
-                  <Item onClick={() => { removeSessionFromFolder(currentEntry.scope, session.id); }} className="text-destructive focus:text-destructive">
-                    <Icon name="close" className="mr-1 h-4 w-4" />
-                    {"Remove from folder"}
-                  </Item>
-                ) : null}
-              </SubContent>
-            </Sub>
-          </>
-        );
-      })() : null}
 
       <Item
         disabled={!sessionDirectory}

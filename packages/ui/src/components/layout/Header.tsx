@@ -838,8 +838,6 @@ export const Header: React.FC<HeaderProps> = ({
   const headerDirectoryStore = useDirectoryStore(openDirectory || undefined, { bootstrap: false });
   const sync = useSync();
   const updateSessionTitle = useSessionUIStore((state) => state.updateSessionTitle);
-  const shareSession = useSessionUIStore((state) => state.shareSession);
-  const unshareSession = useSessionUIStore((state) => state.unshareSession);
   const archiveSessions = useSessionUIStore((state) => state.archiveSessions);
   const deleteSessions = useSessionUIStore((state) => state.deleteSessions);
   const [isRenamingHeaderSession, setIsRenamingHeaderSession] = React.useState(false);
@@ -890,35 +888,6 @@ export const Header: React.FC<HeaderProps> = ({
       toast[result.ok ? 'success' : 'error']((result.ok ? "Session ID copied" : "Failed to copy session ID"));
     }).catch(() => toast.error("Failed to copy session ID"));
   }, [currentSessionId]);
-
-  const shareCurrentSession = React.useCallback(async () => {
-    if (!currentSessionId) return;
-    const result = (await shareSession(currentSessionId)) as { share?: { url?: string }; url?: string } | null;
-    const url = result?.share?.url ?? result?.url;
-    if (url) {
-      const copied = await copyTextToClipboard(url);
-      toast[copied.ok ? 'success' : 'warning']("Session shared", {
-        description: (copied.ok ? "Share link copied to clipboard." : "Failed to copy URL"),
-      });
-      return;
-    }
-    toast.error("Unable to share session");
-  }, [currentSessionId, shareSession]);
-
-  const copyCurrentSessionShareUrl = React.useCallback(() => {
-    const shareUrl = currentSession?.shareUrl;
-    if (!shareUrl) return;
-    void copyTextToClipboard(shareUrl).then((result) => {
-      toast[result.ok ? 'success' : 'error']((result.ok ? "Copied" : "Failed to copy URL"));
-    }).catch(() => toast.error("Failed to copy URL"));
-  }, [currentSession?.shareUrl]);
-
-  const unshareCurrentSession = React.useCallback(async () => {
-    if (!currentSessionId) return;
-    const result = await unshareSession(currentSessionId);
-    toast[result ? 'success' : 'error']((result ? "Session unshared" : "Unable to unshare session"));
-  }, [currentSessionId, unshareSession]);
-
   const exportCurrentSession = React.useCallback(async () => {
     if (!currentSessionId || !openDirectory) {
       toast.error("Nothing to export");
@@ -1608,14 +1577,6 @@ export const Header: React.FC<HeaderProps> = ({
                     <DropdownMenuItem onClick={() => { pendingHeaderRenameRef.current = true; }}><Icon name="pencil-ai" className="mr-2 size-4" />{"Rename"}</DropdownMenuItem>
                     <DropdownMenuItem onClick={copyCurrentSessionId}><Icon name="file-copy" className="mr-2 size-4" />{"Copy session ID"}</DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    {currentSession?.shareUrl ? (
-                      <>
-                        <DropdownMenuItem onClick={copyCurrentSessionShareUrl}><Icon name="file-copy" className="mr-2 size-4" />{"Copy link"}</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => void unshareCurrentSession()}><Icon name="link-unlink-m" className="mr-2 size-4" />{"Unshare"}</DropdownMenuItem>
-                      </>
-                    ) : (
-                      <DropdownMenuItem onClick={() => void shareCurrentSession()}><Icon name="share-2" className="mr-2 size-4" />{"Share"}</DropdownMenuItem>
-                    )}
                     <DropdownMenuItem onClick={() => void exportCurrentSession()}><Icon name="download" className="mr-2 size-4" />{"Export Markdown"}</DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => setPendingHeaderRetentionAction('archive')}><Icon name="inbox-archive" className="mr-2 size-4" />{"Archive"}</DropdownMenuItem>
