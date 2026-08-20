@@ -15,6 +15,7 @@ import {
 import type { Theme } from '@/types/theme';
 import { getProjectDisplayLabel, type DraftTargetProject } from '../state/useDraftTarget';
 import { useUIStore } from '@/stores/useUIStore';
+import { useTabletLayout } from '@/lib/device';
 
 const truncateWithEllipsis = (value: string, limit: number): string => {
     if (value.length <= limit) return value;
@@ -46,7 +47,9 @@ export interface DraftTargetProps {
 
 /** A project's icon plus its name. */
 export function ProjectLabel({ project }: { project: DraftTargetProject; theme: Theme }) {
-    const isMobile = useUIStore((state) => state.isMobile);
+    const isMobileRaw = useUIStore((state) => state.isMobile);
+    const { enabled: isTabletLayout } = useTabletLayout();
+    const isMobile = isMobileRaw && !isTabletLayout;
     const rawLabel = getProjectDisplayLabel(project);
     const label = isMobile ? truncateWithEllipsis(rawLabel, 20) : rawLabel;
     return (
@@ -151,7 +154,10 @@ export function MobileDraftTargetTriggers(
 ) {
     
     const { selectedProject, selectedBranchLabel, showBranchSelector, showProjectSelector = true, endAccessory, theme, onOpenPicker } = props;
-    const displayBranchLabel = selectedBranchLabel ? truncateWithEllipsis(selectedBranchLabel, 26) : null;
+    const { enabled: isTabletForBranch } = useTabletLayout();
+    const displayBranchLabel = selectedBranchLabel
+        ? (isTabletForBranch ? selectedBranchLabel : truncateWithEllipsis(selectedBranchLabel, 26))
+        : null;
 
     return (
         <div className="mb-1.5 flex min-w-0 w-full items-center justify-between gap-2 pl-2 pr-1">

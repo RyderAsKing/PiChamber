@@ -33,7 +33,8 @@ import { useDesktopWindowControlsLayout } from '@/hooks/useDesktopWindowControls
 import { ContextUsageDisplay } from '@/components/ui/ContextUsageDisplay';
 import { WindowsWindowControls } from '@/components/desktop/WindowsWindowControls';
 import { UpdateDialog } from '@/components/ui/UpdateDialog';
-import { useDeviceInfo, useTabletStandalonePwaRuntime } from '@/lib/device';
+import { useDeviceInfo, useTabletLayout, useTabletStandalonePwaRuntime } from '@/lib/device';
+import { MobileSessionMetadataButton } from '@/apps/MobileSessionMetadata';
 import { cn, hasModifier } from '@/lib/utils';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { updateDesktopSettings } from '@/lib/persistence';
@@ -425,11 +426,15 @@ interface TabConfig {
   showDot?: boolean;
 }
 
+type TabletWorkspaceTab = 'changes' | 'files' | 'terminal' | 'notes';
+
 interface HeaderProps {
   onToggleLeftDrawer?: () => void;
   onToggleRightDrawer?: () => void;
   leftDrawerOpen?: boolean;
   rightDrawerOpen?: boolean;
+  tabletWorkspaceTab?: TabletWorkspaceTab;
+  onSelectTabletWorkspaceTab?: (tab: TabletWorkspaceTab) => void;
 }
 
 type HeaderSessionSnapshot = {
@@ -446,6 +451,8 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleRightDrawer,
   leftDrawerOpen,
   rightDrawerOpen,
+  tabletWorkspaceTab,
+  onSelectTabletWorkspaceTab,
 }) => {
   streamPerfCount('ui.header.render');
   const setSessionSwitcherOpen = useUIStore((state) => state.setSessionSwitcherOpen);
@@ -501,6 +508,15 @@ export const Header: React.FC<HeaderProps> = ({
   }, [activeProject]);
 
   const { isMobile } = useDeviceInfo();
+  const { enabled: isTabletLayoutEnabled } = useTabletLayout();
+  const isTabletWorkspaceMode = Boolean(isTabletLayoutEnabled && onSelectTabletWorkspaceTab && tabletWorkspaceTab !== undefined);
+  const tabletWorkspaceTabs = React.useMemo<Array<{ id: TabletWorkspaceTab; label: string; icon: IconName }>>(() => [
+    { id: 'changes', label: "Changes", icon: "git-branch" },
+    { id: 'files', label: "Files", icon: "file-text" },
+    { id: 'terminal', label: "Terminal", icon: "terminal-box" },
+    { id: 'notes', label: "Notes", icon: "sticky-note" },
+  ], []);
+  const [tabletMetadataOpen, setTabletMetadataOpen] = React.useState(false);
   const githubAuthStatus = null;
 
   const headerRef = React.useRef<HTMLElement | null>(null);
@@ -1069,11 +1085,14 @@ export const Header: React.FC<HeaderProps> = ({
     if (leftDrawerOpen) {
       return 'sessions';
     }
+    if (isTabletWorkspaceMode) {
+      return rightDrawerOpen && tabletWorkspaceTab ? tabletWorkspaceTab : null;
+    }
     if (rightDrawerOpen) {
       return 'git';
     }
     return activeMainTab;
-  }, [activeMainTab, leftDrawerOpen, rightDrawerOpen]);
+  }, [activeMainTab, isTabletWorkspaceMode, leftDrawerOpen, rightDrawerOpen, tabletWorkspaceTab]);
 
   const closeMobileHeaderPanels = React.useCallback(() => {
     if (leftDrawerOpen && onToggleLeftDrawer) {
@@ -1641,56 +1660,73 @@ export const Header: React.FC<HeaderProps> = ({
 
   const renderMobile = () => (
     <div className="app-region-drag relative flex items-center gap-2 px-3 py-2 select-none">
-      <div className="flex items-center gap-2 shrink-0">
-        {/* Use drawer toggle when onToggleLeftDrawer is provided, otherwise use legacy session switcher */}
-        {onToggleLeftDrawer ? (
-          <button
-            type="button"
-            onClick={handleMobileLeftDrawerToggle}
-            className={cn(
-              mobileHeaderIconButtonClass,
-              mobileActiveHeaderItem === 'sessions' && 'bg-interactive-selection text-interactive-selection-foreground'
-            )}
-            aria-label={leftDrawerOpen ? "Close sessions" : "Open sessions"}
-          >
-            <Icon name="layout-left" className="h-5 w-5" />
-          </button>
-        ) : isSessionSwitcherOpen ? (
-          <button
-            type="button"
-            onClick={() => setSessionSwitcherOpen(false)}
-            className="app-region-no-drag h-9 w-9 p-2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-md active:bg-interactive-active"
-            aria-label={"Back"}
-          >
-            <Icon name="arrow-left-s" className="h-5 w-5" />
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={handleOpenSessionSwitcher}
-            className="app-region-no-drag h-9 w-9 p-2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-md active:bg-interactive-active"
-            aria-label={"Open sessions"}
-          >
-            <Icon name="play-list-add" className="h-5 w-5" />
-          </button>
-        )}
+      {isTabletLayoutEnabled && (
+        <>
+          <div
+            aria-hidden
+            className="shrink-0 self-stretch transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+            style={{ width: headerInsetSpacerWidth }}
+          />
+          <div
+            aria-hidden
+            className="app-region-no-drag shrink-0 self-stretch transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+            style={{ width: headerControlsSpacerWidth }}
+          />
+        </>
+      )}
+      {!isTabletLayoutEnabled && (
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Use drawer toggle when onToggleLeftDrawer is provided, otherwise use legacy session switcher */}
+          {onToggleLeftDrawer ? (
+            <button
+              type="button"
+              onClick={handleMobileLeftDrawerToggle}
+              className={cn(
+                mobileHeaderIconButtonClass,
+                mobileActiveHeaderItem === 'sessions' && 'bg-interactive-selection text-interactive-selection-foreground'
+              )}
+              aria-label={leftDrawerOpen ? "Close sessions" : "Open sessions"}
+            >
+              <Icon name="layout-left" className="h-5 w-5" />
+            </button>
+          ) : isSessionSwitcherOpen ? (
+            <button
+              type="button"
+              onClick={() => setSessionSwitcherOpen(false)}
+              className="app-region-no-drag h-9 w-9 p-2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-md active:bg-interactive-active"
+              aria-label={"Back"}
+            >
+              <Icon name="arrow-left-s" className="h-5 w-5" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleOpenSessionSwitcher}
+              className="app-region-no-drag h-9 w-9 p-2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-md active:bg-interactive-active"
+              aria-label={"Open sessions"}
+            >
+              <Icon name="play-list-add" className="h-5 w-5" />
+            </button>
+          )}
 
-        {!onToggleLeftDrawer && isSessionSwitcherOpen && (
-          <span className="typography-ui-label font-semibold text-foreground">{"Sessions"}</span>
-        )}
-      </div>
+          {!onToggleLeftDrawer && isSessionSwitcherOpen && (
+            <span className="typography-ui-label font-semibold text-foreground">{"Sessions"}</span>
+          )}
+        </div>
+      )}
 
       {(!isSessionSwitcherOpen || Boolean(onToggleLeftDrawer)) && (
         <>
           <div className="app-region-no-drag flex min-w-0 flex-1 items-center">
-            <div className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden scrollbar-hidden touch-pan-x overscroll-x-contain">
-              <div className="flex w-max items-center gap-1 pr-1">
-                <div
-                  className="flex items-center gap-0.5 rounded-lg bg-[var(--surface-muted)]/50 p-0.5"
-                  role="tablist"
-                  aria-label={"Main navigation"}
-                >
-                  {tabs.map((tab) => {
+            {!isTabletWorkspaceMode && (
+              <div className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden scrollbar-hidden touch-pan-x overscroll-x-contain">
+                <div className="flex w-max items-center gap-1 pr-1">
+                  <div
+                    className="flex items-center gap-0.5 rounded-lg bg-[var(--surface-muted)]/50 p-0.5"
+                    role="tablist"
+                    aria-label="Main navigation"
+                  >
+                    {tabs.map((tab) => {
                     const isActive = activeMainTab === tab.id;
                     const isDiffTab = tab.icon === 'diff';
                     const tabIconName = isDiffTab ? null : (tab.icon as IconName);
@@ -1739,12 +1775,63 @@ export const Header: React.FC<HeaderProps> = ({
                       </Tooltip>
                     );
                   })}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
+            {isTabletWorkspaceMode && (
+              <>
+                <div
+                  className="flex items-center gap-0.5 rounded-lg bg-[var(--surface-muted)]/50 p-0.5"
+                  role="tablist"
+                  aria-label="Workspace"
+                >
+                  {tabletWorkspaceTabs.map((tab) => {
+                    const isActive = rightDrawerOpen && tabletWorkspaceTab === tab.id;
+                    return (
+                      <Tooltip key={tab.id}>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isMobile) {
+                                blurActiveElement();
+                                closeMobileHeaderPanels();
+                              }
+                              setTabletMetadataOpen(false);
+                              onSelectTabletWorkspaceTab?.(tab.id);
+                            }}
+                            aria-label={tab.label}
+                            aria-selected={isActive}
+                            role="tab"
+                            className={cn(
+                              mobileHeaderIconButtonClass,
+                              'relative rounded-lg',
+                              isActive && 'bg-interactive-selection text-interactive-selection-foreground'
+                            )}
+                          >
+                            <Icon name={tab.icon} className="h-5 w-5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>{tab.label}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
+                </div>
+                <MobileSessionMetadataButton
+                  open={tabletMetadataOpen}
+                  onOpenChange={setTabletMetadataOpen}
+                  currentSessionId={currentSessionId}
+                  effectiveDirectory={openDirectory || null}
+                  isNewSessionDraftOpen={isNewSessionDraftOpen}
+                />
+              </>
+            )}
             {projectActionsContext && (
               <ProjectActionsButton
                 projectRef={projectActionsContext.projectRef}
@@ -1755,7 +1842,7 @@ export const Header: React.FC<HeaderProps> = ({
               />
             )}
 
-            {onToggleRightDrawer ? (
+            {onToggleRightDrawer && !isTabletWorkspaceMode ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button

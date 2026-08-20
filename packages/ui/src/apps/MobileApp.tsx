@@ -222,6 +222,19 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   const sidebarSlide = usePanelSlide(isTabletLayout && sidebarOpen);
   const sidebarWidth = isTabletLayout && sidebarOpen ? leftResize.width : 0;
 
+  const handleTabletWorkspaceTabSelect = React.useCallback((nextTab: MobileWorkspaceTab) => {
+    if (workspaceOpen && workspaceTab === nextTab) {
+      setWorkspaceOpenSafely(false);
+    } else {
+      setWorkspaceTab(nextTab);
+      setWorkspaceOpenSafely(true);
+    }
+  }, [workspaceOpen, workspaceTab, setWorkspaceOpenSafely]);
+
+  const handleToggleWorkspace = React.useCallback(() => {
+    setWorkspaceOpenSafely(!workspaceOpen);
+  }, [workspaceOpen, setWorkspaceOpenSafely]);
+
   // Publish the chat column's insets so overlays portaled to <body> (model
   // picker, directory picker, every MobileOverlayPanel) can center on the CHAT
   // rather than on the window. Zero on phones, where the two are the same.
@@ -563,8 +576,10 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             <>
               <TitlebarLeftControls />
               <Header
-                onToggleRightDrawer={() => setWorkspaceOpenSafely(true)}
+                onToggleRightDrawer={handleToggleWorkspace}
                 rightDrawerOpen={workspaceOpen}
+                tabletWorkspaceTab={workspaceTab}
+                onSelectTabletWorkspaceTab={handleTabletWorkspaceTabSelect}
               />
             </>
           ) : (

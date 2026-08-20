@@ -10,6 +10,7 @@ type TodoStatus = string;
 type TodoPriority = string;
 import { useUIStore } from "@/stores/useUIStore";
 import { useTodosPersistStore } from "@/stores/useTodosPersistStore";
+import { useTabletLayout } from '@/lib/device';
 import { WorkingPlaceholder } from "./message/parts/WorkingPlaceholder";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Icon } from "@/components/icon/Icon";
@@ -185,7 +186,9 @@ export const StatusRow: React.FC<StatusRowProps> = ({
     if (liveTodos.length > 0) return liveTodos;
     return persistedSessionTodos ?? EMPTY_TODOS;
   }, [liveTodos, persistedSessionTodos, currentSessionId]);
-  const isMobile = useUIStore((state) => state.isMobile);
+  const isMobileRaw = useUIStore((state) => state.isMobile);
+  const { enabled: isTabletLayout } = useTabletLayout();
+  const isMobile = isMobileRaw && !isTabletLayout;
   const isCompact = isMobile;
 
   // Filter out cancelled todos for display and keep original order.

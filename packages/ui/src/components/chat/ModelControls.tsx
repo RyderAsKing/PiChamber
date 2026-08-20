@@ -14,7 +14,7 @@ import { Icon } from "@/components/icon/Icon";
 import type { IconName } from "@/components/icon/icons";
 import { ModelPickerList, type ModelPickerEntry, type ModelPickerProvider } from '@/components/model-picker/ModelPickerList';
 import { isDesktopShell } from '@/lib/desktop';
-import { useDeviceInfo } from '@/lib/device';
+import { useDeviceInfo, useTabletLayout } from '@/lib/device';
 import { mergeModelMetadataWithLiveModel } from '@/lib/modelMetadata';
 import { getModelDisplayName as getSharedModelDisplayName } from '@/lib/modelDisplay';
 import { cn } from '@/lib/utils';
@@ -295,8 +295,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const { favoriteModelsList, recentModelsList } = useModelLists();
 
     const { isMobile: deviceIsMobile } = useDeviceInfo();
+    const { enabled: isTabletLayout } = useTabletLayout();
     const uiIsMobile = useUIStore((state) => state.isMobile);
-    const isMobile = deviceIsMobile || uiIsMobile;
+    const isMobile = (deviceIsMobile || uiIsMobile) && !isTabletLayout;
     const isDesktop = React.useMemo(() => isDesktopShell(), []);
     const isCompact = isMobile;
     const [localMobilePanel, setLocalMobilePanel] = React.useState<MobileControlsPanel>(null);

@@ -4,6 +4,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { RuntimeAPIContext } from '@/contexts/runtimeAPIContext';
 import { useMobileAppActions } from '@/apps/mobileAppContext';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
+import { useTabletLayout } from '@/lib/device';
 import { Icon } from "@/components/icon/Icon";
 import { cn } from '@/lib/utils';
 import {
@@ -26,7 +27,9 @@ export const PendingChangesBar: React.FC<{ align?: 'start' | 'end' }> = React.me
         currentDirectory ? s.directories.get(currentDirectory)?.status ?? null : null,
     );
     const mobileActions = useMobileAppActions();
-    const isMobile = useUIStore((state) => state.isMobile);
+    const isMobileRaw = useUIStore((state) => state.isMobile);
+    const { enabled: isTabletLayout } = useTabletLayout();
+    const isMobile = isMobileRaw && !isTabletLayout;
 
     // Close popover when clicking outside
     React.useEffect(() => {
