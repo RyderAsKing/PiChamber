@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-20
+
+This release polishes mobile and tablet interaction, smooths drawer and
+sidebar motion, and removes a few nagging UI leftovers.
+
+- Mobile drawers now open from edge swipes and close reliably with
+  velocity-aware gestures; accidental opens while scrolling are suppressed.
+  Shared gesture math and drawer surface handling are extracted and covered
+  by unit tests.
+- Tablet header now toggles workspace tabs directly (Changes / Files /
+  Terminal / Notes) on the right, with tap-to-close on the active tab.
+  Collapsed-sidebar overlap is fixed with header spacers, and the
+  context-usage ring is visible like on phones.
+- Tablet composer now matches desktop detail: full model/branch/project
+  names (no 20/26-char truncation), full pending-changes and task text, and
+  desktop draft selectors/sheets.
+- Performance: titlebar no longer flushes layout on sidebar toggle, and
+  drawer and tablet sidebar interactions are throttled for smoother frames.
+- Phone composer truncates long model/project (20 chars) and branch
+  (26 chars) labels to keep the input readable, condenses the pending-changes
+  pill to icon + diff on mobile, and makes the thinking-level slider
+  draggable on touch without selecting nearby text.
+- Mobile workspace drawer is now fullscreen with an explicit close button
+  in the header.
+- Session menus, the header session menu, and the bulk action bar no longer
+  show Share or Move to folder.
+- Adding a folder no longer auto-pops on launch or instance/runtime switch;
+  the directory dialog opens only from explicit user action (sidebar,
+  command palette, settings) and dismisses when the runtime changes.
+- Android adds a debug variant (`com.pichamber.app.debug`,
+  "PiChamber - Debug" with `-debug` version suffix) that can be installed
+  side-by-side with the release build for development.
+
 ## [0.2.1] - 2026-08-19
 
 This release restores responsive, complete chat rendering while making session
