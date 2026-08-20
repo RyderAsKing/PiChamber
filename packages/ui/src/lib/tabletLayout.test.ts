@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { readTabletLayout, type TabletLayout } from './device';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const deviceSource = readFileSync(join(__dirname, 'device.ts'), 'utf8');
 
 // No module mocking here on purpose: mock.module is process-global and would
 // leak into every other test file. Outside a Capacitor shell isIPadApp() is
@@ -53,5 +59,24 @@ describe('readTabletLayout', () => {
 
   test('folding shut drops back to the phone layout', () => {
     expect(withViewport(370, 900).enabled).toBe(false);
+  });
+});
+
+describe('useTabletLayout shared subscription', () => {
+  test('uses useSyncExternalStore with one global resize and one orientation listener', () => {
+    expect(deviceSource).toContain('useSyncExternalStore');
+    expect(deviceSource).toContain('subscribeTabletLayout');
+    expect(deviceSource).toContain('readTabletLayoutSnapshot');
+    // Single global listeners, not per-consumer
+    expect(deviceSource).toContain("window.addEventListener('resize', scheduleTabletLayoutUpdate)");
+    expect(deviceSource).toContain("window.matchMedia('(orientation: landscape)')");
+    expect(deviceSource).toContain('tabletLayoutSubscribers');
+  });
+
+  test('provides stable snapshots and correct SSR cleanup', () => {
+    expect(deviceSource).toContain('isSameTabletLayout');
+    expect(deviceSource).toContain('DEFAULT_TABLET_LAYOUT');
+    expect(deviceSource).toContain('cleanupTabletLayoutSource');
+    expect(deviceSource).toContain('tabletLayoutSnapshot = null');
   });
 });

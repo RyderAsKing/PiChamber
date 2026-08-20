@@ -355,13 +355,21 @@ export const MainLayout: React.FC = () => {
     const secondaryView = React.useMemo(() => {
         // Desktop surfaces live in the context panel; the only full-view
         // overlays left there are the terminal (promoted by project actions)
-        // and the diagram viewer. Mobile keeps the full tab set.
+        // and the diagram viewer. Mobile keeps the full tab set; the Git view
+        // is normally opened in the right drawer and is not mounted at startup.
+        // A route-addressable active Git tab remains available as a full view.
         if (!isMobile && activeMainTab !== 'terminal' && activeMainTab !== 'diagram') {
+            return null;
+        }
+        const mobileGitDrawerVisible = mobileRightSidebarOpen || mobileRightDrawerVisible;
+        if (isMobile && activeMainTab === 'git' && mobileGitDrawerVisible) {
             return null;
         }
         switch (activeMainTab) {
             case 'git':
-                return <React.Suspense fallback={null}><GitView isActive={!mobileRightSidebarOpen} /></React.Suspense>;
+                // Mobile keeps the route-addressable full view when the drawer is closed;
+                // otherwise URLs such as ?tab=git would leave the main area blank.
+                return <React.Suspense fallback={null}><GitView isActive={true} /></React.Suspense>;
             case 'diff':
                 return <React.Suspense fallback={null}><DiffView /></React.Suspense>;
             case 'terminal':
@@ -375,7 +383,7 @@ export const MainLayout: React.FC = () => {
             default:
                 return null;
         }
-    }, [activeMainTab, isMobile, mobileRightSidebarOpen]);
+    }, [activeMainTab, isMobile, mobileRightDrawerVisible, mobileRightSidebarOpen]);
 
     const isChatActive = activeMainTab === 'chat';
 
@@ -437,7 +445,7 @@ export const MainLayout: React.FC = () => {
                             isSettingsDialogOpen && 'hidden'
                         )}
                     >
-                        <main ref={mainInteractiveRef as React.RefObject<HTMLElement>} className="w-full h-full overflow-hidden bg-background relative" data-page-scroll-lock="true" style={{ touchAction: 'pan-y' as const }}>
+                        <main ref={mainInteractiveRef as React.RefObject<HTMLElement>} className="w-full h-full overflow-hidden bg-background relative" data-page-scroll-lock="true" style={{ touchAction: 'pan-x pan-y' as const }}>
                             <div className={cn('absolute inset-0', !isChatActive && 'invisible')}>
                                 <ErrorBoundary><ChatView active={isChatActive && !isSettingsDialogOpen} /></ErrorBoundary>
                             </div>
@@ -481,7 +489,9 @@ export const MainLayout: React.FC = () => {
                                 aria-hidden={!mobileRightSidebarOpen}
                             >
                                 <ErrorBoundary>
-                                    <React.Suspense fallback={null}><GitView isActive={mobileRightSidebarOpen || mobileRightDrawerVisible} /></React.Suspense>
+                                    {(mobileRightSidebarOpen || mobileRightDrawerVisible) ? (
+                                        <React.Suspense fallback={null}><GitView isActive={mobileRightSidebarOpen} /></React.Suspense>
+                                    ) : null}
                                 </ErrorBoundary>
                             </motion.div>
                         </main>

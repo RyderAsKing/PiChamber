@@ -221,7 +221,7 @@ const UserSubtaskPart: React.FC<{ part: SubtaskPartLike }> = ({ part }) => {
                         {expanded ? "Hide prompt" : "Show prompt"}
                     </button>
                     {expanded ? (
-                        <pre className="typography-meta mt-1.5 overflow-x-auto whitespace-pre-wrap break-words text-foreground/85">
+                        <pre className="typography-meta mt-1.5 overflow-x-auto whitespace-pre-wrap break-words text-foreground/85" data-no-drawer-swipe="true">
                             {prompt}
                         </pre>
                     ) : null}
@@ -317,7 +317,7 @@ const UserShellActionPart: React.FC<{ part: ShellActionPartLike }> = ({ part }) 
             </div>
 
             {command ? (
-                <div className="typography-meta mt-1.5 overflow-x-auto font-mono">
+                <div className="typography-meta mt-1.5 overflow-x-auto font-mono" data-no-drawer-swipe="true">
                     <WorkerHighlightedCode
                         language="bash"
                         code={command}

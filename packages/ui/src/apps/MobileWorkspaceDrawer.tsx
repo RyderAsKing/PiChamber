@@ -39,7 +39,17 @@ const WORKSPACE_TABS: Array<{
     The phone drawer closes via the remaining 20% scrim, Escape (unless the
     terminal tab owns the keys), or the Android back button (handled by
     MobileShell). */
-export const MobileWorkspaceDrawer: React.FC<{
+export const MobileWorkspaceDrawer = React.memo(function MobileWorkspaceDrawer({
+  open,
+  onClose,
+  tab,
+  onTabChange,
+  pendingChangesDiff,
+  variant = 'drawer',
+  drawerRefExternal,
+  scrimRefExternal,
+  rootRefExternal,
+}: {
   open: boolean;
   onClose: () => void;
   tab: MobileWorkspaceTab;
@@ -47,17 +57,28 @@ export const MobileWorkspaceDrawer: React.FC<{
   /** When set, the Changes tab opens directly into the per-file diff. */
   pendingChangesDiff: { path: string; staged: boolean } | null;
   variant?: 'drawer' | 'panel';
-}> = ({ open, onClose, tab, onTabChange, pendingChangesDiff, variant = 'drawer' }) => {
+  drawerRefExternal?: React.RefObject<HTMLElement | null>;
+  scrimRefExternal?: React.RefObject<HTMLButtonElement | null>;
+  rootRefExternal?: React.RefObject<HTMLDivElement | null>;
+}) {
   const rootRef = React.useRef<HTMLElement | null>(null);
-  const drawerRef = React.useRef<HTMLElement>(null);
-  const scrimRef = React.useRef<HTMLButtonElement>(null);
-  const rootElementRef = React.useRef<HTMLDivElement>(null);
+  const drawerRefInternal = React.useRef<HTMLElement>(null);
+  const scrimRefInternal = React.useRef<HTMLButtonElement>(null);
+  const rootElementRefInternal = React.useRef<HTMLDivElement>(null);
+  const drawerRef = (drawerRefExternal ?? drawerRefInternal) as React.RefObject<HTMLElement | null>;
+  const scrimRef = (scrimRefExternal ?? scrimRefInternal) as React.RefObject<HTMLButtonElement | null>;
+  const rootElementRef = (rootRefExternal ?? rootElementRefInternal) as React.RefObject<HTMLDivElement | null>;
+  const setRootElementRef = React.useCallback((node: HTMLDivElement | null) => {
+    (rootElementRefInternal as React.MutableRefObject<HTMLDivElement | null>).current = node;
+    if (rootRefExternal) (rootRefExternal as React.MutableRefObject<HTMLDivElement | null>).current = node;
+  }, [rootRefExternal]);
   const handleClose = React.useCallback(() => {
     const activeElement = typeof document !== 'undefined' ? document.activeElement : null;
     if (activeElement instanceof HTMLElement && rootElementRef.current?.contains(activeElement)) {
       activeElement.blur();
     }
     onClose();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onClose]);
   const [entered, setEntered] = React.useState(false);
   const [visible, setVisible] = React.useState(open);
@@ -119,6 +140,7 @@ export const MobileWorkspaceDrawer: React.FC<{
     if (!root || open || variant !== 'drawer') return;
     const active = document.activeElement as HTMLElement | null;
     if (active && root.contains(active)) active.blur();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, variant]);
 
   useDrawerSwipe({
@@ -137,7 +159,7 @@ export const MobileWorkspaceDrawer: React.FC<{
   const duration = prefersReducedMotion ? 0 : MOBILE_DRAWER_DURATION_MS;
 
   const tabs = (
-    <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto" role="tablist" aria-label="Workspace">
+    <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto" role="tablist" aria-label="Workspace" data-no-drawer-swipe="true">
       {WORKSPACE_TABS.map((item) => {
         const isActive = tab === item.id;
         return (
@@ -221,7 +243,7 @@ export const MobileWorkspaceDrawer: React.FC<{
 
   return createPortal(
     <div
-      ref={rootElementRef}
+      ref={setRootElementRef}
       className="fixed inset-0 z-50"
       inert={!open}
       style={{
@@ -231,7 +253,7 @@ export const MobileWorkspaceDrawer: React.FC<{
       data-mobile-workspace-root="true"
     >
       <button
-        ref={scrimRef}
+        ref={scrimRef as React.RefObject<HTMLButtonElement>}
         type="button"
         className="absolute inset-0 cursor-default bg-black/70"
         aria-label="Close workspace panel"
@@ -253,7 +275,7 @@ export const MobileWorkspaceDrawer: React.FC<{
           paddingTop: 'var(--oc-safe-area-top, 0px)',
           transform: entered ? 'none' : 'translateX(100%)',
           transition: duration ? `transform ${duration}ms ${MOBILE_DRAWER_EASING}` : 'none',
-          touchAction: 'pan-y',
+          touchAction: 'pan-x pan-y',
         }}
         data-mobile-workspace-drawer="true"
       >
@@ -262,4 +284,4 @@ export const MobileWorkspaceDrawer: React.FC<{
     </div>,
     rootRef.current as HTMLElement,
   );
-};
+});

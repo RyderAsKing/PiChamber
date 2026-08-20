@@ -55,7 +55,14 @@ import { useAppFontEffects } from './useAppFontEffects';
 import { useFontsReady } from './useFontsReady';
 import { useDeepLinkHandlers, useDeepLinkSource } from './deepLinkNavigation';
 import { useEdgeSwipe } from './useEdgeSwipe';
-import { MOBILE_DRAWER_DURATION_MS, MOBILE_DRAWER_EASING } from './useDrawerSwipe';
+import {
+  applyPhoneDrawerProgress,
+  applyTabletPanelProgress,
+  beginPhoneDrawerDrag,
+  beginTabletPanelDrag,
+  settlePhoneDrawerViaRefs,
+  settleTabletPanel,
+} from './drawerSurface';
 import { useNativePushRegistration } from './useNativePushRegistration';
 import { IpadSidebarResizeHandle } from './IpadSidebarResizeHandle';
 import { Header } from '@/components/layout/Header';
@@ -80,30 +87,12 @@ const NATIVE_RESUME_SYNC_EVENT_THROTTLE_MS = 1_000;
     (Changes / Files / Terminal / Notes / MCP) are separate layers. */
 type MobileSurface = 'instances' | 'settings' | 'update';
 
-const settlePhoneDrawer = (
-  side: 'left' | 'right',
-  shouldOpen: boolean,
-  drawer: HTMLElement | null,
-  scrim: HTMLElement | null,
-  root: HTMLElement | null,
-) => {
-  if (drawer) {
-    drawer.style.transition = `transform ${MOBILE_DRAWER_DURATION_MS}ms ${MOBILE_DRAWER_EASING}`;
-    drawer.style.transform = shouldOpen
-      ? 'none'
-      : side === 'left' ? 'translateX(-100%)' : 'translateX(100%)';
-    delete drawer.dataset.dragProgress;
-  }
-  if (scrim) {
-    scrim.style.transition = `opacity ${MOBILE_DRAWER_DURATION_MS}ms ${MOBILE_DRAWER_EASING}`;
-    scrim.style.opacity = shouldOpen ? '1' : '0';
-    scrim.style.pointerEvents = shouldOpen ? 'auto' : 'none';
-  }
-  if (root) {
-    root.style.pointerEvents = shouldOpen ? 'auto' : 'none';
-    root.style.visibility = shouldOpen ? 'visible' : '';
-  }
-};
+// Sidebar state changes must not rerender the transcript/composer tree. ChatView
+// subscribes to its own session state, so parent layout changes can safely be
+// memoized away here.
+const MobileChatView = React.memo(ChatView);
+
+/* settlePhoneDrawer moved to drawerSurface adapter; MobileApp stays open-state only */
 
 const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onActiveConnectionDeleted }) => {
   
@@ -128,6 +117,18 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     dragTimeoutsRef.current = [];
   }, []);
   React.useEffect(() => () => clearDragTimeouts(), [clearDragTimeouts]);
+  // Ref-based drawer surfaces: phone drawers use these instead of querySelector per touchmove
+  const phoneLeftDrawerRef = React.useRef<HTMLElement | null>(null);
+  const phoneLeftScrimRef = React.useRef<HTMLButtonElement | null>(null);
+  const phoneLeftRootRef = React.useRef<HTMLElement | null>(null);
+  const phoneRightDrawerRef = React.useRef<HTMLElement | null>(null);
+  const phoneRightScrimRef = React.useRef<HTMLButtonElement | null>(null);
+  const phoneRightRootRef = React.useRef<HTMLElement | null>(null);
+  // Tablet two-layer inner surfaces: shell width stays committed, inner translates during drag
+  const leftPanelInnerRef = React.useRef<HTMLElement | null>(null);
+  const rightPanelInnerRef = React.useRef<HTMLElement | null>(null);
+  const leftDragProgressRef = React.useRef(0);
+  const rightDragProgressRef = React.useRef(0);
   const setSessionsSheetOpenSafely = React.useCallback((open: boolean) => {
     clearDragTimeouts();
     setSessionsSheetOpen(open);
@@ -235,6 +236,10 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     setWorkspaceOpenSafely(!workspaceOpen);
   }, [workspaceOpen, setWorkspaceOpenSafely]);
 
+  const handleTabletSessionsOpenChange = React.useCallback((nextOpen: boolean) => {
+    if (!nextOpen && !roomyForPanels) setSidebarOpen(false);
+  }, [roomyForPanels, setSidebarOpen]);
+
   // Publish the chat column's insets so overlays portaled to <body> (model
   // picker, directory picker, every MobileOverlayPanel) can center on the CHAT
   // rather than on the window. Zero on phones, where the two are the same.
@@ -325,76 +330,45 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     rightOpen: workspaceOpen,
     leftWidth: () => {
       if (isTabletLayout) return leftResize.width;
-      const el = document.querySelector('[data-mobile-sessions-drawer]') as HTMLElement | null;
-      return el?.offsetWidth || window.innerWidth * 0.72;
+      return phoneLeftDrawerRef.current?.offsetWidth || window.innerWidth * 0.72;
     },
     rightWidth: () => {
       if (isTabletLayout) return rightResize.width;
-      const el = document.querySelector('[data-mobile-workspace-drawer]') as HTMLElement | null;
-      return el?.offsetWidth || window.innerWidth;
+      return phoneRightDrawerRef.current?.offsetWidth || window.innerWidth;
     },
     onLeftProgress: (progress) => {
+      leftDragProgressRef.current = progress;
       if (isTabletLayout) {
-        // Tablet sidebar is width-animated, not a drawer. Map progress 0..1
-        // to width 0..full via transform so it tracks the finger without
-        // reflowing the chat column mid-drag.
-        const aside = leftResize.asideRef.current as HTMLElement | null;
-        if (!aside) return;
-        const w = leftResize.width;
-        const x = (progress - 1) * w;
-        aside.style.transition = 'none';
-        aside.style.transform = progress >= 0.999 ? 'translateX(0)' : `translateX(${x}px)`;
-        // Keep the aside sized so the chat doesn't jump, but clip via transform.
-        (aside as HTMLElement).dataset.dragProgress = String(progress);
+        applyTabletPanelProgress(
+          { shell: leftResize.asideRef as React.RefObject<HTMLElement | null>, inner: leftPanelInnerRef },
+          progress,
+          leftResize.width,
+          'left',
+        );
         return;
       }
-      const drawer = document.querySelector('[data-mobile-sessions-drawer]') as HTMLElement | null;
-      const scrim = document.querySelector('[data-mobile-sessions-scrim]') as HTMLElement | null;
-      const root = document.querySelector('[data-mobile-sessions-root]') as HTMLElement | null;
-      if (root) {
-        root.style.pointerEvents = 'auto';
-        (root as HTMLElement).style.visibility = 'visible';
-      }
-      if (drawer) {
-        drawer.style.transition = 'none';
-        drawer.style.transform = progress >= 0.999 ? 'none' : `translateX(${(progress - 1) * 100}%)`;
-        (drawer as HTMLElement).dataset.dragProgress = String(progress);
-      }
-      if (scrim) {
-        scrim.style.transition = 'none';
-        scrim.style.opacity = String(progress);
-        scrim.style.pointerEvents = progress > 0.01 ? 'auto' : 'none';
-      }
+      applyPhoneDrawerProgress(
+        { drawer: phoneLeftDrawerRef as React.RefObject<HTMLElement | null>, scrim: phoneLeftScrimRef as React.RefObject<HTMLElement | null>, root: phoneLeftRootRef as React.RefObject<HTMLElement | null> },
+        'left',
+        progress,
+      );
     },
     onRightProgress: (progress) => {
-      // Tablet-panel variant is an aside with width, not a drawer.
-      if (isTabletLayout && (roomyForPanels)) {
-        const aside = rightResize.asideRef.current as HTMLElement | null;
-        if (!aside) return;
-        const w = rightResize.width;
-        const x = (1 - progress) * w;
-        aside.style.transition = 'none';
-        aside.style.transform = progress >= 0.999 ? 'translateX(0)' : `translateX(${x}px)`;
-        (aside as HTMLElement).dataset.dragProgress = String(progress);
+      rightDragProgressRef.current = progress;
+      if (isTabletLayout && roomyForPanels) {
+        applyTabletPanelProgress(
+          { shell: rightResize.asideRef as React.RefObject<HTMLElement | null>, inner: rightPanelInnerRef },
+          progress,
+          rightResize.width,
+          'right',
+        );
         return;
       }
-      const drawer = document.querySelector('[data-mobile-workspace-drawer]') as HTMLElement | null;
-      const scrim = document.querySelector('[data-mobile-workspace-scrim]') as HTMLElement | null;
-      const root = document.querySelector('[data-mobile-workspace-root]') as HTMLElement | null;
-      if (root) {
-        root.style.pointerEvents = 'auto';
-        (root as HTMLElement).style.visibility = 'visible';
-      }
-      if (drawer) {
-        drawer.style.transition = 'none';
-        drawer.style.transform = progress >= 0.999 ? 'none' : `translateX(${(1 - progress) * 100}%)`;
-        (drawer as HTMLElement).dataset.dragProgress = String(progress);
-      }
-      if (scrim) {
-        scrim.style.transition = 'none';
-        scrim.style.opacity = String(progress);
-        scrim.style.pointerEvents = progress > 0.01 ? 'auto' : 'none';
-      }
+      applyPhoneDrawerProgress(
+        { drawer: phoneRightDrawerRef as React.RefObject<HTMLElement | null>, scrim: phoneRightScrimRef as React.RefObject<HTMLButtonElement | null>, root: phoneRightRootRef as React.RefObject<HTMLElement | null> },
+        'right',
+        progress,
+      );
     },
     onLeftOpen: () => {
       if (isTabletLayout) setSidebarOpen(true);
@@ -408,73 +382,87 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     onRightClose: () => setWorkspaceOpenSafely(false),
     onDragStart: (side) => {
       clearDragTimeouts();
-      if (side === 'left' && isTabletLayout) {
-        const a = leftResize.asideRef.current as HTMLElement | null;
-        if (a) a.style.transition = 'none';
+      if (side === 'left') {
+        leftDragProgressRef.current = isTabletLayout
+          ? (sidebarOpen ? 1 : 0)
+          : (sessionsSheetOpen ? 1 : 0);
+        if (isTabletLayout) {
+          beginTabletPanelDrag({
+            shell: leftResize.asideRef as React.RefObject<HTMLElement | null>,
+            inner: leftPanelInnerRef,
+          });
+        } else {
+          beginPhoneDrawerDrag({
+            drawer: phoneLeftDrawerRef as React.RefObject<HTMLElement | null>,
+            scrim: phoneLeftScrimRef as React.RefObject<HTMLElement | null>,
+            root: phoneLeftRootRef as React.RefObject<HTMLElement | null>,
+          });
+        }
+        return;
       }
-      if (side === 'right' && isTabletLayout) {
-        const a = rightResize.asideRef.current as HTMLElement | null;
-        if (a) a.style.transition = 'none';
+
+      rightDragProgressRef.current = workspaceOpen ? 1 : 0;
+      if (isTabletLayout && roomyForPanels) {
+        beginTabletPanelDrag({
+          shell: rightResize.asideRef as React.RefObject<HTMLElement | null>,
+          inner: rightPanelInnerRef,
+        });
+      } else {
+        beginPhoneDrawerDrag({
+          drawer: phoneRightDrawerRef as React.RefObject<HTMLElement | null>,
+          scrim: phoneRightScrimRef as React.RefObject<HTMLElement | null>,
+          root: phoneRightRootRef as React.RefObject<HTMLElement | null>,
+        });
       }
     },
     onDragEnd: (side, didSettleOpen) => {
-      // Tablet sidebars use width+transform with a 200ms slide. Drive the
-      // settle animation imperatively so it starts from the finger's last
-      // position instead of snapping to -100% before the slide's rAF.
-      if (isTabletLayout && side === 'left') {
-        const a = leftResize.asideRef.current as HTMLElement | null;
-        if (a) {
-          const raw = (a as HTMLElement).dataset.dragProgress;
-          const progress = raw ? Number(raw) : (didSettleOpen ? 1 : 0);
-          const shouldOpen = typeof didSettleOpen === 'boolean' ? didSettleOpen : progress > 0.5;
-          const w = leftResize.width;
-          a.style.transition = 'transform 200ms cubic-bezier(0.22, 1, 0.36, 1)';
-          a.style.transform = shouldOpen ? 'translateX(0)' : `translateX(${-w}px)`;
-          dragTimeoutsRef.current.push(window.setTimeout(() => {
-            a.style.transition = '';
-            a.style.transform = '';
-            delete (a as HTMLElement).dataset.dragProgress;
-          }, 220));
-        }
-        return;
-      }
       if (side === 'left') {
-        const drawer = document.querySelector('[data-mobile-sessions-drawer]') as HTMLElement | null;
-        const scrim = document.querySelector('[data-mobile-sessions-scrim]') as HTMLElement | null;
-        const root = document.querySelector('[data-mobile-sessions-root]') as HTMLElement | null;
-        const progress = drawer?.dataset.dragProgress;
         const shouldOpen = typeof didSettleOpen === 'boolean'
           ? didSettleOpen
-          : (progress ? Number(progress) > 0.5 : false);
-        settlePhoneDrawer('left', shouldOpen, drawer, scrim, root);
+          : leftDragProgressRef.current > 0.5;
+        leftDragProgressRef.current = shouldOpen ? 1 : 0;
+        if (isTabletLayout) {
+          const timeoutId = settleTabletPanel(
+            {
+              shell: leftResize.asideRef as React.RefObject<HTMLElement | null>,
+              inner: leftPanelInnerRef,
+            },
+            shouldOpen,
+            leftResize.width,
+            'left',
+          );
+          if (timeoutId !== undefined) dragTimeoutsRef.current.push(timeoutId);
+        } else {
+          settlePhoneDrawerViaRefs('left', shouldOpen, {
+            drawer: phoneLeftDrawerRef as React.RefObject<HTMLElement | null>,
+            scrim: phoneLeftScrimRef as React.RefObject<HTMLElement | null>,
+            root: phoneLeftRootRef as React.RefObject<HTMLElement | null>,
+          });
+        }
         return;
       }
-      if (side === 'right') {
-        if (isTabletLayout && roomyForPanels) {
-          const a = rightResize.asideRef.current as HTMLElement | null;
-          if (a) {
-            const raw = (a as HTMLElement).dataset.dragProgress;
-            const progress = raw ? Number(raw) : (didSettleOpen ? 1 : 0);
-            const shouldOpen = typeof didSettleOpen === 'boolean' ? didSettleOpen : progress > 0.5;
-            const w = rightResize.width;
-            a.style.transition = 'transform 200ms cubic-bezier(0.22, 1, 0.36, 1), width 200ms cubic-bezier(0.22, 1, 0.36, 1)';
-            a.style.transform = shouldOpen ? 'translateX(0)' : `translateX(${w}px)`;
-            dragTimeoutsRef.current.push(window.setTimeout(() => {
-              a.style.transition = '';
-              a.style.transform = '';
-              delete (a as HTMLElement).dataset.dragProgress;
-            }, 220));
-          }
-        } else {
-          const drawer = document.querySelector('[data-mobile-workspace-drawer]') as HTMLElement | null;
-          const scrim = document.querySelector('[data-mobile-workspace-scrim]') as HTMLElement | null;
-          const root = document.querySelector('[data-mobile-workspace-root]') as HTMLElement | null;
-          const progress = drawer?.dataset.dragProgress;
-          const shouldOpen = typeof didSettleOpen === 'boolean'
-            ? didSettleOpen
-            : (progress ? Number(progress) > 0.5 : false);
-          settlePhoneDrawer('right', shouldOpen, drawer, scrim, root);
-        }
+
+      const shouldOpen = typeof didSettleOpen === 'boolean'
+        ? didSettleOpen
+        : rightDragProgressRef.current > 0.5;
+      rightDragProgressRef.current = shouldOpen ? 1 : 0;
+      if (isTabletLayout && roomyForPanels) {
+        const timeoutId = settleTabletPanel(
+          {
+            shell: rightResize.asideRef as React.RefObject<HTMLElement | null>,
+            inner: rightPanelInnerRef,
+          },
+          shouldOpen,
+          rightResize.width,
+          'right',
+        );
+        if (timeoutId !== undefined) dragTimeoutsRef.current.push(timeoutId);
+      } else {
+        settlePhoneDrawerViaRefs('right', shouldOpen, {
+          drawer: phoneRightDrawerRef as React.RefObject<HTMLElement | null>,
+          scrim: phoneRightScrimRef as React.RefObject<HTMLElement | null>,
+          root: phoneRightRootRef as React.RefObject<HTMLElement | null>,
+        });
       }
     },
   });
@@ -515,8 +503,8 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         data-page-scroll-lock="true"
       >
         {/* iPad: persistent full-height sessions sidebar; the chat column and
-            its header butt against it (iPadOS-style split layout). Always
-            mounted so open/close animates width, same as the desktop Sidebar. */}
+            its header butt against it (iPadOS-style split layout). The shell
+            commits layout width once; the inner surface owns the animation. */}
         {isTabletLayout ? (
           <aside
             ref={leftResize.asideRef}
@@ -531,30 +519,32 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
               ['--oc-ipad-sidebar-width' as string]: `${leftResize.width}px`,
               overflowX: 'clip',
               paddingTop: 'var(--oc-safe-area-top, 0px)',
-              transform: leftResize.isResizing || sidebarSlide.slidIn ? 'translateX(0)' : 'translateX(-100%)',
-              transition: leftResize.isResizing ? 'none' : sidebarSlide.transition,
             }}
-            aria-hidden={!sidebarOpen}
+            inert={!sidebarOpen}
             data-page-scroll-lock="true"
           >
             <div
+              ref={leftPanelInnerRef as React.RefObject<HTMLDivElement>}
               className={cn(
                 'flex h-full shrink-0 flex-col',
                 leftResize.isResizing && 'pointer-events-none',
                 !sidebarOpen && 'pointer-events-none select-none',
               )}
-              style={{ width: 'var(--oc-ipad-sidebar-width)', overflowX: 'hidden' }}
+              style={{
+                width: 'var(--oc-ipad-sidebar-width)',
+                overflowX: 'hidden',
+                transform: leftResize.isResizing || sidebarSlide.slidIn ? 'translateX(0)' : 'translateX(-100%)',
+                transition: leftResize.isResizing ? 'none' : 'transform 200ms cubic-bezier(0.22, 1, 0.36, 1)',
+              }}
             >
               <ErrorBoundary>
                 <MobileSessionsSheet
-                  open
+                  open={sidebarOpen}
                   variant="sidebar"
                   // The surface asks to close after picking a session/project
                   // or creating a worktree: give the space back to the chat
                   // where the sidebar is a guest, keep it put where it is not.
-                  onOpenChange={(value) => {
-                    if (!value && !roomyForPanels) setSidebarOpen(false);
-                  }}
+                  onOpenChange={handleTabletSessionsOpenChange}
                 />
               </ErrorBoundary>
             </div>
@@ -588,10 +578,10 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
               onOpenWorkspace={() => setWorkspaceOpenSafely(true)}
             />
           )}
-          <main ref={chatMainRef} className="relative min-h-0 flex-1 overflow-hidden" data-page-scroll-lock="true" style={{ touchAction: 'pan-y' } as React.CSSProperties}>
+          <main ref={chatMainRef} className="relative min-h-0 flex-1 overflow-hidden" data-page-scroll-lock="true" style={{ touchAction: 'pan-x pan-y' } as React.CSSProperties}>
             <div className="h-full w-full">
               <ErrorBoundary>
-                <ChatView />
+                <MobileChatView />
               </ErrorBoundary>
             </div>
           </main>
@@ -604,19 +594,22 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           <MobileSessionsSheet
             open={sessionsSheetOpen}
             onOpenChange={setSessionsSheetOpenSafely}
+            drawerRefExternal={phoneLeftDrawerRef as React.RefObject<HTMLDivElement | null>}
+            scrimRefExternal={phoneLeftScrimRef as React.RefObject<HTMLButtonElement | null>}
+            rootRefExternal={phoneLeftRootRef as React.RefObject<HTMLDivElement | null>}
           />
         ) : null}
 
-        {/* Tablet: the workspace lives inside an animated aside so landscape
+        {/* Tablet: the workspace lives inside a side-panel shell so landscape
             gets a real sidebar. The drawer element keeps its position in the
             tree across rotation — only its `variant` changes — so the mounted
             panes (open diff, edited file, attached terminal) survive it. In
-            portrait the drawer portals itself out and this aside stays at 0. */}
+            portrait the drawer portals itself out and this shell stays at 0. */}
         {isTabletLayout ? (
           <aside
             ref={rightResize.asideRef}
             className={cn(
-              'relative flex h-full shrink-0 flex-col overflow-hidden border-l border-border/70 bg-background will-change-[width] motion-reduce:transition-none',
+              'relative flex h-full shrink-0 flex-col overflow-hidden border-l border-border/70 bg-background motion-reduce:transition-none',
               !workspacePanelWidth && 'border-l-0',
             )}
             style={{
@@ -626,20 +619,23 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
               ['--oc-ipad-sidebar-width' as string]: `${rightResize.width}px`,
               overflowX: 'clip',
               paddingTop: 'var(--oc-safe-area-top, 0px)',
-              transitionProperty: rightResize.isResizing ? 'none' : 'width, min-width, max-width',
-              transitionDuration: '200ms',
-              transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)',
             }}
-            aria-hidden={!workspacePanelWidth}
+            inert={!workspacePanelWidth}
             data-page-scroll-lock="true"
           >
             <div
+              ref={rightPanelInnerRef as React.RefObject<HTMLDivElement>}
               className={cn(
                 'flex h-full min-h-0 shrink-0 flex-col transition-opacity duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
                 rightResize.isResizing && 'pointer-events-none',
                 !workspacePanelWidth && 'pointer-events-none select-none opacity-0',
               )}
-              style={{ width: 'var(--oc-ipad-sidebar-width)', overflowX: 'hidden' }}
+              style={{
+                width: 'var(--oc-ipad-sidebar-width)',
+                overflowX: 'hidden',
+                transform: workspacePanelWidth ? 'translateX(0)' : 'translateX(100%)',
+                transition: rightResize.isResizing ? 'none' : 'transform 200ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms cubic-bezier(0.22, 1, 0.36, 1)',
+              }}
             >
               <ErrorBoundary>
                 <MobileWorkspaceDrawer
@@ -649,6 +645,9 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
                   onTabChange={setWorkspaceTab}
                   pendingChangesDiff={pendingChangesDiff}
                   variant={workspaceAsPanel ? 'panel' : 'drawer'}
+                  drawerRefExternal={phoneRightDrawerRef as React.RefObject<HTMLElement | null>}
+                  scrimRefExternal={phoneRightScrimRef as React.RefObject<HTMLButtonElement | null>}
+                  rootRefExternal={phoneRightRootRef as React.RefObject<HTMLDivElement | null>}
                 />
               </ErrorBoundary>
             </div>
@@ -668,6 +667,9 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             tab={workspaceTab}
             onTabChange={setWorkspaceTab}
             pendingChangesDiff={pendingChangesDiff}
+            drawerRefExternal={phoneRightDrawerRef as React.RefObject<HTMLElement | null>}
+            scrimRefExternal={phoneRightScrimRef as React.RefObject<HTMLButtonElement | null>}
+            rootRefExternal={phoneRightRootRef as React.RefObject<HTMLDivElement | null>}
           />
         )}
 

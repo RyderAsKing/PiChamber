@@ -14,15 +14,22 @@ type MobileSessionsSheetProps = {
   onOpenChange: (open: boolean) => void;
   /** 'drawer' renders a 72%-width overlay; 'sidebar' is the tablet persistent pane. */
   variant?: 'drawer' | 'sidebar';
+  /** External refs so the shell can drive the drawer without querySelector per-frame */
+  drawerRefExternal?: React.RefObject<HTMLDivElement | null>;
+  scrimRefExternal?: React.RefObject<HTMLButtonElement | null>;
+  rootRefExternal?: React.RefObject<HTMLDivElement | null>;
 };
 
 const ENTER_DELAY_MS = 16;
 
-export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
+export const MobileSessionsSheet = React.memo(function MobileSessionsSheet({
   open,
   onOpenChange,
   variant = 'drawer',
-}) => {
+  drawerRefExternal,
+  scrimRefExternal,
+  rootRefExternal,
+}: MobileSessionsSheetProps) {
   const rootRefElement = React.useRef<HTMLDivElement>(null);
   const close = React.useCallback(() => {
     const activeElement = typeof document !== 'undefined' ? document.activeElement : null;
@@ -35,8 +42,14 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
   const setActiveMainTab = useUIStore((state) => state.setActiveMainTab);
   const setSessionSwitcherOpen = useUIStore((state) => state.setSessionSwitcherOpen);
   const [entered, setEntered] = React.useState(false);
-  const drawerRef = React.useRef<HTMLDivElement>(null);
-  const scrimRef = React.useRef<HTMLButtonElement>(null);
+  const drawerRefInternal = React.useRef<HTMLDivElement>(null);
+  const scrimRefInternal = React.useRef<HTMLButtonElement>(null);
+  const drawerRef = (drawerRefExternal ?? drawerRefInternal) as React.RefObject<HTMLDivElement | null>;
+  const scrimRef = (scrimRefExternal ?? scrimRefInternal) as React.RefObject<HTMLButtonElement | null>;
+  const rootRefForExternal = React.useCallback((node: HTMLDivElement | null) => {
+    (rootRefElement as React.MutableRefObject<HTMLDivElement | null>).current = node;
+    if (rootRefExternal) (rootRefExternal as React.MutableRefObject<HTMLDivElement | null>).current = node;
+  }, [rootRefExternal]);
   const prefersReducedMotion = React.useMemo(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -119,7 +132,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
 
   return createPortal(
     <div
-      ref={rootRefElement}
+      ref={rootRefForExternal}
       className="fixed inset-0 z-50"
       inert={!open}
       style={{
@@ -128,7 +141,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
       data-mobile-sessions-root="true"
     >
       <button
-        ref={scrimRef}
+        ref={scrimRef as React.RefObject<HTMLButtonElement>}
         type="button"
         className="absolute inset-0 cursor-default bg-black/70"
         aria-label="Close sessions"
@@ -141,13 +154,13 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
         data-mobile-sessions-scrim="true"
       />
       <div
-        ref={drawerRef}
+        ref={drawerRef as React.RefObject<HTMLDivElement>}
         className={cn('relative z-10 flex h-full w-[72%] max-w-[72%] flex-col bg-sidebar')}
         style={{
           paddingTop: 'var(--oc-safe-area-top, 0px)',
           transform: entered ? 'none' : 'translateX(-100%)',
           transition: duration ? `transform ${duration}ms ${MOBILE_DRAWER_EASING}` : 'none',
-          touchAction: 'pan-y',
+          touchAction: 'pan-x pan-y',
         }}
         data-mobile-sessions-drawer="true"
       >
@@ -173,4 +186,4 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({
     </div>,
     document.body,
   );
-};
+});

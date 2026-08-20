@@ -1,5 +1,14 @@
 import React from 'react';
 
+import {
+  DRAG_THRESHOLD,
+  getEdgeProgress,
+  isSwipeExcludedTarget,
+  MAX_OFF_AXIS,
+  MIN_DISTANCE,
+  shouldSettleOpenForEdge,
+} from './gestureMath';
+
 /**
  * Native-feeling drawer swipes on the mobile chat: start a horizontal swipe
  * anywhere in the content area and drag toward the other side.
@@ -21,12 +30,6 @@ const EDGE_ZONE = 48; // Used only to disambiguate two open drawers.
 // Android reserves the physical screen edge for system navigation. Keep the
 // wider zone for the rare case where both drawers are open at once.
 const ANDROID_EDGE_ZONE = 96;
-const MIN_DISTANCE = 48;
-const MAX_OFF_AXIS_RATIO = 1.2;
-const DRAG_THRESHOLD = 6;
-const VELOCITY_THRESHOLD = 0.18;
-const SETTLE_PROGRESS = 0.38;
-const SWIPE_EXCLUDED_SELECTOR = 'button, a, input, textarea, select, [contenteditable="true"], [data-no-drawer-swipe]';
 
 export interface EdgeSwipeOptions {
   /** Interactive open/close — called on settle (velocity + 50%). */
@@ -67,22 +70,6 @@ const invoke = <Args extends unknown[]>(
   }
 };
 
-const isSwipeExcludedTarget = (target: EventTarget | null, root: HTMLElement): boolean => {
-  if (!(target instanceof Element)) return false;
-  const interactiveTarget = target.closest(SWIPE_EXCLUDED_SELECTOR);
-  if (interactiveTarget && root.contains(interactiveTarget)) return true;
-
-  let node: Element | null = target;
-  while (node && node !== root) {
-    if (node instanceof HTMLElement && node.scrollWidth > node.clientWidth) {
-      const overflowX = getComputedStyle(node).overflowX;
-      if (overflowX === 'auto' || overflowX === 'scroll') return true;
-    }
-    node = node.parentElement;
-  }
-  return false;
-};
-
 const getWidth = (value: number | (() => number) | undefined, fallback: number): number => {
   if (typeof value === 'function') {
     const v = value();
@@ -99,18 +86,16 @@ export const useEdgeSwipe = (
   const optionsRef = React.useRef(options);
   optionsRef.current = options;
 
-  // Re-run when `enabled` flips so a remounted `ref.current` (e.g. isMobile
-  // false→true) gets listeners attached. Reading `ref.current` only on mount
-  // would leave the new element without listeners.
   const enabled = options.enabled;
   React.useEffect(() => {
     const element = ref.current;
     if (!element) return;
     if (enabled === false) return;
-    // Hint the browser to allow vertical pan but not horizontal — lets us
-    // call preventDefault() only after we lock to horizontal.
+    // Permit horizontal descendants to scroll while still allowing us to
+    // preventDefault after horizontal intent is confirmed. pan-y alone would
+    // block horizontal scrolling inside code blocks/terminal/composer.
     const prevTouchAction = element.style.touchAction;
-    element.style.touchAction = 'pan-y';
+    element.style.touchAction = 'pan-x pan-y';
     const platform = (window as typeof window & { Capacitor?: { getPlatform?: () => string } }).Capacitor?.getPlatform?.();
     const edgeZone = platform === 'android' ? ANDROID_EDGE_ZONE : EDGE_ZONE;
 
@@ -132,9 +117,6 @@ export const useEdgeSwipe = (
     };
 
     const abortDraggingWithSnap = () => {
-      // Called when a gesture that was already driving the drawer is
-      // aborted (multi-touch, cancel). Snap back to where it started so
-      // the drawer doesn't get stranded mid-way.
       const opts = optionsRef.current;
       const abortedSide = side;
       const wasOpen = isOpenAtStart;
@@ -148,10 +130,20 @@ export const useEdgeSwipe = (
       reset();
     };
 
+    /**
+     * Single cancellation path for multi-touch / touchcancel: restores drawer to
+     * starting state and clears transient drag state. Used for both mid-drag
+     * and pre-drag cancellations.
+     */
+    const cancelGesture = () => {
+      abortDraggingWithSnap();
+      // If we never entered dragging but were tracking, just reset without snap.
+      if (!isDragging) reset();
+    };
+
     const onTouchStart = (event: TouchEvent) => {
       const opts = optionsRef.current;
       if (opts.enabled === false) {
-        // If we were mid-drag, snap back.
         if (isDragging && side) abortDraggingWithSnap();
         else reset();
         return;
@@ -161,16 +153,25 @@ export const useEdgeSwipe = (
         else reset();
         return;
       }
+      // If a second drag starts before the first settle animation finishes, the
+      // previous settle's transition is still running on the drawer surface.
+      // Let the next hasDecided -> onDragStart clear it (MobileApp clears timeouts/transitions there).
       const touch = event.touches[0];
       const rect = element.getBoundingClientRect();
       const width = element.clientWidth;
       const leftOpen = !!opts.leftOpen;
       const rightOpen = !!opts.rightOpen;
 
-      // If a drawer is open, that drawer's close gesture takes priority and
-      // may start anywhere. Both should never be open simultaneously, but if
-      // they are, pick the one whose edge was touched, otherwise left.
+      const shouldExclude = (target: EventTarget | null) => isSwipeExcludedTarget(target, element);
+
       if (leftOpen || rightOpen) {
+        // Apply exclusion even when a drawer is open — horizontal scrolling
+        // inside code blocks, terminal, composer controls, tab lists must not
+        // be hijacked as a close gesture.
+        if (shouldExclude(event.target)) {
+          reset();
+          return;
+        }
         if (leftOpen && rightOpen) {
           const nearLeft = touch.clientX <= rect.left + edgeZone;
           const nearRight = touch.clientX >= rect.right - edgeZone;
@@ -181,8 +182,6 @@ export const useEdgeSwipe = (
             side = 'left';
             isOpenAtStart = true;
           } else {
-            // Default to left when ambiguous; the other drawer covers the
-            // opposite edge, so a central touch is more likely a close.
             side = leftOpen ? 'left' : 'right';
             isOpenAtStart = true;
           }
@@ -201,7 +200,7 @@ export const useEdgeSwipe = (
         if (widthAtStart < 10) widthAtStart = 320;
         tracking = true;
       } else {
-        if (isSwipeExcludedTarget(event.target, element)) {
+        if (shouldExclude(event.target)) {
           reset();
           return;
         }
@@ -221,7 +220,8 @@ export const useEdgeSwipe = (
     const onTouchMove = (event: TouchEvent) => {
       if (!tracking) return;
       if (event.touches.length !== 1) {
-        abortDraggingWithSnap();
+        // Two-finger interruption during active drag: cancel and restore
+        cancelGesture();
         return;
       }
       const touch = event.touches[0];
@@ -230,9 +230,7 @@ export const useEdgeSwipe = (
 
       if (!hasDecided) {
         if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
-        // Vertical scroll dominates — abort the drawer gesture and let the
-        // page handle it.
-        if (Math.abs(dy) > Math.abs(dx) * MAX_OFF_AXIS_RATIO) {
+        if (Math.abs(dy) > Math.abs(dx) * MAX_OFF_AXIS) {
           reset();
           return;
         }
@@ -245,7 +243,7 @@ export const useEdgeSwipe = (
           );
           if (widthAtStart < 10) widthAtStart = window.innerWidth || 320;
         }
-        // Direction must match the side and open state.
+        // Wrong-direction and vertical gestures: reset rather than track
         if (side === 'left') {
           if (!isOpenAtStart && dx <= 0) { reset(); return; }
           if (isOpenAtStart && dx >= 0) { reset(); return; }
@@ -260,26 +258,11 @@ export const useEdgeSwipe = (
 
       if (!isDragging) return;
 
-      // Lock horizontal scrolling while the drawer follows the finger.
       if (event.cancelable) event.preventDefault();
 
       const opts = optionsRef.current;
-      let progress = 0;
-      if (side === 'left') {
-        if (!isOpenAtStart) {
-          progress = Math.min(1, Math.max(0, dx / widthAtStart));
-        } else {
-          progress = Math.min(1, Math.max(0, 1 + dx / widthAtStart));
-        }
-        invoke(opts.onLeftProgress, progress);
-      } else {
-        if (!isOpenAtStart) {
-          progress = Math.min(1, Math.max(0, -dx / widthAtStart));
-        } else {
-          progress = Math.min(1, Math.max(0, 1 - dx / widthAtStart));
-        }
-        invoke(opts.onRightProgress, progress);
-      }
+      const progress = getEdgeProgress(side!, isOpenAtStart, dx, widthAtStart);
+      invoke(side === 'left' ? opts.onLeftProgress : opts.onRightProgress, progress);
     };
 
     const finish = (endX: number, endY: number) => {
@@ -290,7 +273,7 @@ export const useEdgeSwipe = (
       const dx = endX - startX;
       const dy = endY - startY;
       if (!side && !isOpenAtStart && Math.abs(dx) >= MIN_DISTANCE
-        && Math.abs(dy) <= Math.abs(dx) * MAX_OFF_AXIS_RATIO) {
+        && Math.abs(dy) <= Math.abs(dx) * MAX_OFF_AXIS) {
         const opts = optionsRef.current;
         side = dx > 0 ? 'left' : 'right';
         widthAtStart = getWidth(
@@ -304,15 +287,12 @@ export const useEdgeSwipe = (
         return;
       }
       const dt = Math.max(1, Date.now() - startTime);
-      const velocity = dx / dt; // px/ms
       const opts = optionsRef.current;
 
-      // If we never entered the dragging state, fall back to the original
-      // distance-based commit for quick flings that somehow skipped touchmove.
       if (!isDragging) {
         const absDx = Math.abs(dx);
         const absDy = Math.abs(dy);
-        if (absDx >= MIN_DISTANCE && absDy <= absDx * MAX_OFF_AXIS_RATIO) {
+        if (absDx >= MIN_DISTANCE && absDy <= absDx * MAX_OFF_AXIS) {
           if (side === 'left' && !isOpenAtStart && dx > 0) {
             invoke(opts.onLeftProgress, 1);
             invoke(opts.onLeftOpen);
@@ -320,14 +300,12 @@ export const useEdgeSwipe = (
             invoke(opts.onRightProgress, 1);
             invoke(opts.onRightOpen);
           } else {
-            // Wrong direction — snap back.
             invoke(
               side === 'left' ? opts.onLeftProgress : opts.onRightProgress,
               isOpenAtStart ? 1 : 0,
             );
           }
         } else {
-          // Not enough movement — snap back.
           invoke(
             side === 'left' ? opts.onLeftProgress : opts.onRightProgress,
             isOpenAtStart ? 1 : 0,
@@ -339,44 +317,16 @@ export const useEdgeSwipe = (
         return;
       }
 
-      // Interactive settle: velocity can override progress.
-      let progress = 0;
-      if (side === 'left') {
-        if (!isOpenAtStart) progress = Math.min(1, Math.max(0, dx / widthAtStart));
-        else progress = Math.min(1, Math.max(0, 1 + dx / widthAtStart));
-      } else {
-        if (!isOpenAtStart) progress = Math.min(1, Math.max(0, -dx / widthAtStart));
-        else progress = Math.min(1, Math.max(0, 1 - dx / widthAtStart));
-      }
-
-      let shouldOpen: boolean;
-      if (side === 'left') {
-        if (!isOpenAtStart) {
-          if (velocity > VELOCITY_THRESHOLD) shouldOpen = true;
-          else if (velocity < -VELOCITY_THRESHOLD) shouldOpen = false;
-          else shouldOpen = progress > SETTLE_PROGRESS;
-        } else {
-          if (velocity < -VELOCITY_THRESHOLD) shouldOpen = false;
-          else if (velocity > VELOCITY_THRESHOLD) shouldOpen = true;
-          else shouldOpen = progress > SETTLE_PROGRESS;
-        }
-      } else {
-        if (!isOpenAtStart) {
-          if (velocity < -VELOCITY_THRESHOLD) shouldOpen = true;
-          else if (velocity > VELOCITY_THRESHOLD) shouldOpen = false;
-          else shouldOpen = progress > SETTLE_PROGRESS;
-        } else {
-          if (velocity > VELOCITY_THRESHOLD) shouldOpen = false;
-          else if (velocity < -VELOCITY_THRESHOLD) shouldOpen = true;
-          else shouldOpen = progress > SETTLE_PROGRESS;
-        }
-      }
+      const progress = getEdgeProgress(side, isOpenAtStart, dx, widthAtStart);
+      const shouldOpen = shouldSettleOpenForEdge({
+        side,
+        isOpenAtStart,
+        dx,
+        dt,
+        progress,
+      });
 
       const finishedSide = side;
-      // Don't snap progress here — leave the drawer at the finger's last
-      // position (transition: none) and let the caller's settle animation
-      // spring/transition it to the final state. Snapping with `none`
-      // would make it jump instead of animating.
       if (finishedSide === 'left') {
         invoke(shouldOpen ? opts.onLeftOpen : opts.onLeftClose);
       } else {
@@ -393,26 +343,15 @@ export const useEdgeSwipe = (
       const dx = touch.clientX - startX;
       const dy = touch.clientY - startY;
       if (tracking && (isDragging || (Math.abs(dx) >= MIN_DISTANCE
-        && Math.abs(dy) <= Math.abs(dx) * MAX_OFF_AXIS_RATIO)) && event.cancelable) {
+        && Math.abs(dy) <= Math.abs(dx) * MAX_OFF_AXIS)) && event.cancelable) {
         event.preventDefault();
       }
       finish(touch.clientX, touch.clientY);
     };
 
     const onTouchCancel = () => {
-      // Snap back to where we started.
-      const opts = optionsRef.current;
-      if (side) {
-        invoke(
-          side === 'left' ? opts.onLeftProgress : opts.onRightProgress,
-          isOpenAtStart ? 1 : 0,
-        );
-        const finishedSide = side;
-        reset();
-        invoke(opts.onDragEnd, finishedSide);
-      } else {
-        reset();
-      }
+      // touchcancel during open and close gestures: restore to starting state
+      cancelGesture();
     };
 
     element.addEventListener('touchstart', onTouchStart, { passive: true });
@@ -420,6 +359,12 @@ export const useEdgeSwipe = (
     element.addEventListener('touchend', onTouchEnd, { passive: false });
     element.addEventListener('touchcancel', onTouchCancel, { passive: true });
     return () => {
+      // Hook cleanup/unmount: ensure any in-flight drag is cancelled and restored
+      try {
+        if (isDragging && side) abortDraggingWithSnap();
+      } catch {
+        // never throw during cleanup
+      }
       element.style.touchAction = prevTouchAction;
       element.removeEventListener('touchstart', onTouchStart);
       element.removeEventListener('touchmove', onTouchMove);

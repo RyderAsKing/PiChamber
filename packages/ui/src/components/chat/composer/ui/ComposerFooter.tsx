@@ -115,7 +115,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                     data-chat-input-footer="true"
                 >
                     <div className="flex w-full items-center justify-between gap-x-1.5">
-                        <div className="composer-mobile-actions flex min-w-0 items-center gap-x-2 overflow-x-auto pl-1">
+                        <div className="composer-mobile-actions flex min-w-0 items-center gap-x-2 overflow-x-auto pl-1" data-no-drawer-swipe="true">
                             {attachments}
                             {leadingExtra ? (
                                 <div className="w-max shrink-0">

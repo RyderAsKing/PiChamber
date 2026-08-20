@@ -1719,7 +1719,7 @@ export const Header: React.FC<HeaderProps> = ({
         <>
           <div className="app-region-no-drag flex min-w-0 flex-1 items-center">
             {!isTabletWorkspaceMode && (
-              <div className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden scrollbar-hidden touch-pan-x overscroll-x-contain">
+              <div className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden scrollbar-hidden touch-pan-x overscroll-x-contain" data-no-drawer-swipe="true">
                 <div className="flex w-max items-center gap-1 pr-1">
                   <div
                     className="flex items-center gap-0.5 rounded-lg bg-[var(--surface-muted)]/50 p-0.5"

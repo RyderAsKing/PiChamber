@@ -1112,7 +1112,7 @@ export const PierreDiffViewer: React.FC<PierreDiffViewerProps> = ({
   // Fallback for 'inline' layout
   return (
     <div className={cn("relative", "w-full")}>
-      <div ref={diffRootRef} className="pierre-diff-wrapper w-full overflow-x-auto overflow-y-visible relative">
+      <div ref={diffRootRef} className="pierre-diff-wrapper w-full overflow-x-auto overflow-y-visible relative" data-no-drawer-swipe="true">
       <div ref={diffContainerRef} className="w-full" />
     </div>
     {commentOverlays}
