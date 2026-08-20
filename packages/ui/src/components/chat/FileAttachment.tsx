@@ -488,7 +488,7 @@ export const MessageFilesDisplay = memo(({ files, onShowPopup, compact = false }
         )}
 
         {imageFiles.length > 0 && (
-          <div className="overflow-x-auto -mx-1 px-1 py-0.5 scrollbar-thin">
+          <div className="overflow-x-auto -mx-1 px-1 py-0.5 scrollbar-thin" data-no-drawer-swipe="true">
             <div className="flex snap-x snap-mandatory gap-2">
               {imageFiles.map((file, index) => {
                 const filename = resolveDisplayName(file) || 'Image';

@@ -20,6 +20,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { DeferredUpdatePolling } from '@/hooks/useUpdatePolling';
 import { useDeviceInfo } from '@/lib/device';
+import { useEdgeSwipe } from '@/apps/useEdgeSwipe';
 import { cn } from '@/lib/utils';
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 
@@ -85,6 +86,12 @@ export const MainLayout: React.FC = () => {
         useUIStore.getState().setSessionSwitcherOpen(open);
     }, []);
     const initialDrawerWidthRef = React.useRef(typeof window === 'undefined' ? 0 : window.innerWidth);
+    const mainInteractiveRef = React.useRef<HTMLElement>(null);
+    const isDraggingRef = React.useRef(false);
+    const dragStartLeftOpenRef = React.useRef(false);
+    const dragStartRightOpenRef = React.useRef(false);
+    const leftAnimateRef = React.useRef<ReturnType<typeof animate> | null>(null);
+    const rightAnimateRef = React.useRef<ReturnType<typeof animate> | null>(null);
 
     // Left drawer motion value
     const leftDrawerX = useMotionValue(-initialDrawerWidthRef.current);
@@ -102,6 +109,33 @@ export const MainLayout: React.FC = () => {
         }
     }, [isMobile]);
 
+    // Keep widths in sync on resize/orientation change so the off-screen
+    // position stays correctly at -width. Without this a rotation would leave
+    // the closed drawer peeking at the old width.
+    useEffect(() => {
+        if (!isMobile) return;
+        const syncWidths = () => {
+            const w = window.innerWidth;
+            leftDrawerWidth.current = w;
+            rightDrawerWidth.current = w;
+            // If closed, snap to new off-screen position without animation
+            if (!mobileLeftDrawerOpen) {
+                const cur = leftDrawerX.get();
+                if (cur < -10) leftDrawerX.set(-w);
+            }
+            if (!mobileRightSidebarOpen) {
+                const cur = rightDrawerX.get();
+                if (cur > 10) rightDrawerX.set(w);
+            }
+        };
+        window.addEventListener('resize', syncWidths);
+        window.addEventListener('orientationchange', syncWidths as EventListener);
+        return () => {
+            window.removeEventListener('resize', syncWidths);
+            window.removeEventListener('orientationchange', syncWidths as EventListener);
+        };
+    }, [isMobile, leftDrawerX, rightDrawerX, mobileLeftDrawerOpen, mobileRightSidebarOpen]);
+
     // Sync left drawer state and motion value
     useEffect(() => {
         if (!isMobile) {
@@ -111,12 +145,15 @@ export const MainLayout: React.FC = () => {
         if (mobileLeftDrawerOpen) {
             setMobileLeftDrawerVisible(true);
         }
-        animate(leftDrawerX, mobileLeftDrawerOpen ? 0 : -leftDrawerWidth.current, {
+        const w = leftDrawerWidth.current || initialDrawerWidthRef.current || (typeof window !== 'undefined' ? window.innerWidth : 0);
+        const controls = animate(leftDrawerX, mobileLeftDrawerOpen ? 0 : -w, {
             type: 'spring',
             stiffness: 400,
             damping: 35,
             mass: 0.8,
         });
+        leftAnimateRef.current = controls;
+        return () => controls.stop();
     }, [mobileLeftDrawerOpen, isMobile, leftDrawerX]);
 
     // Sync right drawer state and motion value
@@ -128,12 +165,15 @@ export const MainLayout: React.FC = () => {
         if (mobileRightSidebarOpen) {
             setMobileRightDrawerVisible(true);
         }
-        animate(rightDrawerX, mobileRightSidebarOpen ? 0 : rightDrawerWidth.current, {
+        const w = rightDrawerWidth.current || initialDrawerWidthRef.current || (typeof window !== 'undefined' ? window.innerWidth : 0);
+        const controls = animate(rightDrawerX, mobileRightSidebarOpen ? 0 : w, {
             type: 'spring',
             stiffness: 400,
             damping: 35,
             mass: 0.8,
         });
+        rightAnimateRef.current = controls;
+        return () => controls.stop();
     }, [isMobile, mobileRightSidebarOpen, rightDrawerX]);
 
     useEffect(() => {
@@ -239,16 +279,97 @@ export const MainLayout: React.FC = () => {
         setMobileRightSidebarOpen(!mobileRightSidebarOpen);
     }, [mobileLeftDrawerOpen, mobileRightSidebarOpen, setMobileSessionPanelOpen]);
 
+    // Horizontal drawer swipes follow the finger and settle with velocity and
+    // progress. Motion values update frame-by-frame without React state.
+    useEdgeSwipe(mainInteractiveRef, {
+        enabled: isMobile,
+        leftOpen: mobileLeftDrawerOpen,
+        rightOpen: mobileRightSidebarOpen,
+        leftWidth: () => leftDrawerWidth.current || initialDrawerWidthRef.current || (typeof window !== 'undefined' ? window.innerWidth : 0),
+        rightWidth: () => rightDrawerWidth.current || initialDrawerWidthRef.current || (typeof window !== 'undefined' ? window.innerWidth : 0),
+        onLeftProgress: (p) => {
+            const w = leftDrawerWidth.current || initialDrawerWidthRef.current || (typeof window !== 'undefined' ? window.innerWidth : 0);
+            leftDrawerX.set(w * (p - 1));
+        },
+        onRightProgress: (p) => {
+            const w = rightDrawerWidth.current || initialDrawerWidthRef.current || (typeof window !== 'undefined' ? window.innerWidth : 0);
+            rightDrawerX.set(w * (1 - p));
+        },
+        onLeftOpen: () => {
+            if (mobileRightSidebarOpen) setMobileRightSidebarOpen(false);
+            setMobileSessionPanelOpen(true);
+        },
+        onLeftClose: () => setMobileSessionPanelOpen(false),
+        onRightOpen: () => {
+            if (mobileLeftDrawerOpen) setMobileSessionPanelOpen(false);
+            setMobileRightSidebarOpen(true);
+        },
+        onRightClose: () => setMobileRightSidebarOpen(false),
+        onDragStart: (side) => {
+            isDraggingRef.current = true;
+            if (side === 'left') {
+                dragStartLeftOpenRef.current = mobileLeftDrawerOpen;
+                leftAnimateRef.current?.stop();
+                if (!mobileLeftDrawerVisible) setMobileLeftDrawerVisible(true);
+            } else {
+                dragStartRightOpenRef.current = mobileRightSidebarOpen;
+                rightAnimateRef.current?.stop();
+                if (!mobileRightDrawerVisible) setMobileRightDrawerVisible(true);
+            }
+        },
+        onDragEnd: (side, didSettleOpen) => {
+            isDraggingRef.current = false;
+            // If the gesture settled to the same state it started from
+            // (e.g. dragged 30% but didn't cross threshold), the
+            // open-state hasn't changed so the spring effect above won't
+            // re-run — manually spring back to the start position.
+            if (side === 'left' && typeof didSettleOpen === 'boolean') {
+                const startedOpen = dragStartLeftOpenRef.current;
+                if (didSettleOpen === startedOpen) {
+                    const w = leftDrawerWidth.current || initialDrawerWidthRef.current || (typeof window !== 'undefined' ? window.innerWidth : 0);
+                    const controls = animate(leftDrawerX, startedOpen ? 0 : -w, {
+                        type: 'spring',
+                        stiffness: 400,
+                        damping: 35,
+                        mass: 0.8,
+                    });
+                    leftAnimateRef.current = controls;
+                }
+            }
+            if (side === 'right' && typeof didSettleOpen === 'boolean') {
+                const startedOpen = dragStartRightOpenRef.current;
+                if (didSettleOpen === startedOpen) {
+                    const w = rightDrawerWidth.current || initialDrawerWidthRef.current || (typeof window !== 'undefined' ? window.innerWidth : 0);
+                    const controls = animate(rightDrawerX, startedOpen ? 0 : w, {
+                        type: 'spring',
+                        stiffness: 400,
+                        damping: 35,
+                        mass: 0.8,
+                    });
+                    rightAnimateRef.current = controls;
+                }
+            }
+        },
+    });
+
     const secondaryView = React.useMemo(() => {
         // Desktop surfaces live in the context panel; the only full-view
         // overlays left there are the terminal (promoted by project actions)
-        // and the diagram viewer. Mobile keeps the full tab set.
+        // and the diagram viewer. Mobile keeps the full tab set; the Git view
+        // is normally opened in the right drawer and is not mounted at startup.
+        // A route-addressable active Git tab remains available as a full view.
         if (!isMobile && activeMainTab !== 'terminal' && activeMainTab !== 'diagram') {
+            return null;
+        }
+        const mobileGitDrawerVisible = mobileRightSidebarOpen || mobileRightDrawerVisible;
+        if (isMobile && activeMainTab === 'git' && mobileGitDrawerVisible) {
             return null;
         }
         switch (activeMainTab) {
             case 'git':
-                return <React.Suspense fallback={null}><GitView isActive={!mobileRightSidebarOpen} /></React.Suspense>;
+                // Mobile keeps the route-addressable full view when the drawer is closed;
+                // otherwise URLs such as ?tab=git would leave the main area blank.
+                return <React.Suspense fallback={null}><GitView isActive={true} /></React.Suspense>;
             case 'diff':
                 return <React.Suspense fallback={null}><DiffView /></React.Suspense>;
             case 'terminal':
@@ -262,7 +383,7 @@ export const MainLayout: React.FC = () => {
             default:
                 return null;
         }
-    }, [activeMainTab, isMobile, mobileRightSidebarOpen]);
+    }, [activeMainTab, isMobile, mobileRightDrawerVisible, mobileRightSidebarOpen]);
 
     const isChatActive = activeMainTab === 'chat';
 
@@ -324,7 +445,7 @@ export const MainLayout: React.FC = () => {
                             isSettingsDialogOpen && 'hidden'
                         )}
                     >
-                        <main className="w-full h-full overflow-hidden bg-background relative" data-page-scroll-lock="true">
+                        <main ref={mainInteractiveRef as React.RefObject<HTMLElement>} className="w-full h-full overflow-hidden bg-background relative" data-page-scroll-lock="true" style={{ touchAction: 'pan-x pan-y' as const }}>
                             <div className={cn('absolute inset-0', !isChatActive && 'invisible')}>
                                 <ErrorBoundary><ChatView active={isChatActive && !isSettingsDialogOpen} /></ErrorBoundary>
                             </div>
@@ -358,13 +479,21 @@ export const MainLayout: React.FC = () => {
                                     <SessionSidebar mobileVariant isVisible={mobileLeftDrawerVisible} />
                                 </ErrorBoundary>
                             </motion.div>
-                            {mobileRightDrawerVisible && (
-                                <motion.div className="absolute inset-0 z-20 bg-sidebar" data-page-scroll-lock="true" style={{ x: rightDrawerX }} aria-hidden={!mobileRightSidebarOpen}>
-                                    <ErrorBoundary>
+                            <motion.div
+                                className={cn(
+                                    'absolute inset-0 z-20 bg-sidebar',
+                                    !mobileRightDrawerVisible && 'pointer-events-none invisible',
+                                )}
+                                data-page-scroll-lock="true"
+                                style={{ x: rightDrawerX }}
+                                aria-hidden={!mobileRightSidebarOpen}
+                            >
+                                <ErrorBoundary>
+                                    {(mobileRightSidebarOpen || mobileRightDrawerVisible) ? (
                                         <React.Suspense fallback={null}><GitView isActive={mobileRightSidebarOpen} /></React.Suspense>
-                                    </ErrorBoundary>
-                                </motion.div>
-                            )}
+                                    ) : null}
+                                </ErrorBoundary>
+                            </motion.div>
                         </main>
                     </div>
 

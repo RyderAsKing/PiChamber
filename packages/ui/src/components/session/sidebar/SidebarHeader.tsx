@@ -68,7 +68,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
             mobileVariant ? 'h-[var(--oc-header-height,56px)] gap-1' : 'min-h-8 gap-2',
           )}
         >
-          <div className={cn('flex min-w-0 items-center', mobileVariant ? 'gap-0.5 overflow-x-auto' : 'gap-1.5')}>
+          <div className={cn('flex min-w-0 items-center', mobileVariant ? 'gap-0.5 overflow-x-auto' : 'gap-1.5')} data-no-drawer-swipe={mobileVariant ? "true" : undefined}>
             {onOpenSettings ? (
               <Tooltip>
                 <TooltipTrigger asChild>

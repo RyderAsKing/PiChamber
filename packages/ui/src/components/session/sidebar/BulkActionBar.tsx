@@ -1,11 +1,4 @@
 import React from 'react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from "@/components/icon/Icon";
 import { cn } from '@/lib/utils';
@@ -27,19 +20,12 @@ type Props = {
 
 export const BulkActionBar: React.FC<Props> = ({
   selectedCount,
-  scopeKey,
-  scopeFolders,
   archivedBucket,
-  onMoveToFolder,
-  onCreateFolderAndMove,
-  onRemoveFromFolder,
-  canRemoveFromFolder,
   onRestore,
   onDelete,
   onDone,
 }) => {
   
-  const canMoveToFolder = Boolean(scopeKey) && !archivedBucket;
   const destructiveLabel = archivedBucket
     ? "Delete"
     : "Archive";
@@ -53,52 +39,6 @@ export const BulkActionBar: React.FC<Props> = ({
       </span>
 
       <div className="ml-auto flex items-center gap-0.5">
-        {canMoveToFolder ? (
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className={iconButtonClass}
-                    aria-label={"Move to folder"}
-                  >
-                    <Icon name="folder" className="h-4 w-4" />
-                  </button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent side="top" sideOffset={4}><p>{"Move to folder"}</p></TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end" className="min-w-[180px]">
-              {scopeFolders.length === 0 ? (
-                <DropdownMenuItem disabled className="text-muted-foreground">
-                  {"No folders yet"}
-                </DropdownMenuItem>
-              ) : (
-                scopeFolders.map((folder) => (
-                  <DropdownMenuItem key={folder.id} onClick={() => onMoveToFolder(folder.id)}>
-                    <span className="flex-1 truncate">{folder.name}</span>
-                  </DropdownMenuItem>
-                ))
-              )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={onCreateFolderAndMove}>
-                <Icon name="add" className="mr-1 h-4 w-4" />
-                {"New folder..."}
-              </DropdownMenuItem>
-              {canRemoveFromFolder ? (
-                <DropdownMenuItem
-                  onClick={onRemoveFromFolder}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <Icon name="close" className="mr-1 h-4 w-4" />
-                  {"Remove from folder"}
-                </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
-
         {archivedBucket ? (
           <Tooltip>
             <TooltipTrigger asChild>

@@ -8,11 +8,10 @@ import { TerminalView } from '@/components/views/TerminalView';
 import { cn } from '@/lib/utils';
 import { MobileChangesSurface } from './MobileChangesSurface';
 import { MobileFilesSurface } from './MobileFilesSurface';
+import { MOBILE_DRAWER_DURATION_MS, MOBILE_DRAWER_EASING, useDrawerSwipe } from './useDrawerSwipe';
 
 const DRAWER_ROOT_ID = 'mobile-surface-root';
 const ENTER_DELAY_MS = 16;
-const ENTER_DURATION_MS = 320;
-const DRAWER_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
 export type MobileWorkspaceTab = 'changes' | 'files' | 'terminal' | 'notes';
 
@@ -40,7 +39,17 @@ const WORKSPACE_TABS: Array<{
     The phone drawer closes via the remaining 20% scrim, Escape (unless the
     terminal tab owns the keys), or the Android back button (handled by
     MobileShell). */
-export const MobileWorkspaceDrawer: React.FC<{
+export const MobileWorkspaceDrawer = React.memo(function MobileWorkspaceDrawer({
+  open,
+  onClose,
+  tab,
+  onTabChange,
+  pendingChangesDiff,
+  variant = 'drawer',
+  drawerRefExternal,
+  scrimRefExternal,
+  rootRefExternal,
+}: {
   open: boolean;
   onClose: () => void;
   tab: MobileWorkspaceTab;
@@ -48,19 +57,31 @@ export const MobileWorkspaceDrawer: React.FC<{
   /** When set, the Changes tab opens directly into the per-file diff. */
   pendingChangesDiff: { path: string; staged: boolean } | null;
   variant?: 'drawer' | 'panel';
-}> = ({ open, onClose, tab, onTabChange, pendingChangesDiff, variant = 'drawer' }) => {
-  
+  drawerRefExternal?: React.RefObject<HTMLElement | null>;
+  scrimRefExternal?: React.RefObject<HTMLButtonElement | null>;
+  rootRefExternal?: React.RefObject<HTMLDivElement | null>;
+}) {
   const rootRef = React.useRef<HTMLElement | null>(null);
+  const drawerRefInternal = React.useRef<HTMLElement>(null);
+  const scrimRefInternal = React.useRef<HTMLButtonElement>(null);
+  const rootElementRefInternal = React.useRef<HTMLDivElement>(null);
+  const drawerRef = (drawerRefExternal ?? drawerRefInternal) as React.RefObject<HTMLElement | null>;
+  const scrimRef = (scrimRefExternal ?? scrimRefInternal) as React.RefObject<HTMLButtonElement | null>;
+  const rootElementRef = (rootRefExternal ?? rootElementRefInternal) as React.RefObject<HTMLDivElement | null>;
+  const setRootElementRef = React.useCallback((node: HTMLDivElement | null) => {
+    (rootElementRefInternal as React.MutableRefObject<HTMLDivElement | null>).current = node;
+    if (rootRefExternal) (rootRefExternal as React.MutableRefObject<HTMLDivElement | null>).current = node;
+  }, [rootRefExternal]);
+  const handleClose = React.useCallback(() => {
+    const activeElement = typeof document !== 'undefined' ? document.activeElement : null;
+    if (activeElement instanceof HTMLElement && rootElementRef.current?.contains(activeElement)) {
+      activeElement.blur();
+    }
+    onClose();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose]);
   const [entered, setEntered] = React.useState(false);
   const [visible, setVisible] = React.useState(open);
-  const onCloseRef = React.useRef(onClose);
-  React.useEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
-  const tabRef = React.useRef(tab);
-  React.useEffect(() => {
-    tabRef.current = tab;
-  }, [tab]);
   const prefersReducedMotion = React.useMemo(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -94,7 +115,7 @@ export const MobileWorkspaceDrawer: React.FC<{
       return () => window.clearTimeout(id);
     }
     setEntered(false);
-    const id = window.setTimeout(() => setVisible(false), ENTER_DURATION_MS + 40);
+    const id = window.setTimeout(() => setVisible(false), MOBILE_DRAWER_DURATION_MS + 40);
     return () => window.clearTimeout(id);
   }, [open, prefersReducedMotion]);
 
@@ -103,21 +124,42 @@ export const MobileWorkspaceDrawer: React.FC<{
     const previousOverflow = document.body.style.overflow;
     if (variant === 'drawer') document.body.style.overflow = 'hidden';
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && tabRef.current !== 'terminal') onCloseRef.current();
+      if (event.key === 'Escape' && tab !== 'terminal') handleClose();
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       if (variant === 'drawer') document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', handleKeyDown);
     };
+  }, [handleClose, open, tab, variant]);
+
+  // Fallback for browsers that do not move focus when the closed drawer
+  // becomes inert.
+  React.useEffect(() => {
+    const root = rootElementRef.current;
+    if (!root || open || variant !== 'drawer') return;
+    const active = document.activeElement as HTMLElement | null;
+    if (active && root.contains(active)) active.blur();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, variant]);
+
+  useDrawerSwipe({
+    side: 'right',
+    enabled: variant === 'drawer',
+    open,
+    drawerRef,
+    scrimRef,
+    onClose: handleClose,
+    widthRatio: 1,
+    prefersReducedMotion,
+  });
 
   if (variant === 'drawer' && !rootRef.current) return null;
 
-  const duration = prefersReducedMotion ? 0 : ENTER_DURATION_MS;
+  const duration = prefersReducedMotion ? 0 : MOBILE_DRAWER_DURATION_MS;
 
   const tabs = (
-    <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto" role="tablist" aria-label="Workspace">
+    <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto" role="tablist" aria-label="Workspace" data-no-drawer-swipe="true">
       {WORKSPACE_TABS.map((item) => {
         const isActive = tab === item.id;
         return (
@@ -145,8 +187,16 @@ export const MobileWorkspaceDrawer: React.FC<{
 
   const body = (
     <>
-      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center px-2">
+      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 px-2">
         {tabs}
+        <button
+          type="button"
+          onClick={handleClose}
+          aria-label="Close workspace panel"
+          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+        >
+          <Icon name="close" className="size-4" />
+        </button>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
         {visitedTabs.has('changes') ? (
@@ -179,7 +229,7 @@ export const MobileWorkspaceDrawer: React.FC<{
         {visitedTabs.has('notes') ? (
           <div className={cn('h-full', tab !== 'notes' && 'hidden')}>
             <ErrorBoundary>
-              <ProjectContextPanel onActionComplete={onClose} />
+              <ProjectContextPanel onActionComplete={handleClose} />
             </ErrorBoundary>
           </div>
         ) : null}
@@ -193,38 +243,45 @@ export const MobileWorkspaceDrawer: React.FC<{
 
   return createPortal(
     <div
+      ref={setRootElementRef}
       className="fixed inset-0 z-50"
-      aria-hidden={!open}
+      inert={!open}
       style={{
         pointerEvents: open ? 'auto' : 'none',
         visibility: visible ? 'visible' : 'hidden',
       }}
+      data-mobile-workspace-root="true"
     >
       <button
+        ref={scrimRef as React.RefObject<HTMLButtonElement>}
         type="button"
         className="absolute inset-0 cursor-default bg-black/70"
         aria-label="Close workspace panel"
-        onClick={onClose}
+        onClick={handleClose}
         tabIndex={open ? 0 : -1}
         style={{
           opacity: entered ? 1 : 0,
-          transition: duration ? `opacity ${duration}ms ${DRAWER_EASING}` : 'none',
+          transition: duration ? `opacity ${duration}ms ${MOBILE_DRAWER_EASING}` : 'none',
         }}
+        data-mobile-workspace-scrim="true"
       />
       <section
+        ref={drawerRef as unknown as React.RefObject<HTMLElement>}
         role="dialog"
         aria-modal="true"
         aria-label={"Open workspace panel"}
-        className="oc-keyboard-inset-surface absolute inset-y-0 right-0 z-10 flex h-full w-[80%] max-w-[80%] flex-col bg-sidebar"
+        className="oc-keyboard-inset-surface absolute inset-y-0 right-0 z-10 flex h-full w-full flex-col bg-sidebar"
         style={{
           paddingTop: 'var(--oc-safe-area-top, 0px)',
           transform: entered ? 'none' : 'translateX(100%)',
-          transition: duration ? `transform ${duration}ms ${DRAWER_EASING}` : 'none',
+          transition: duration ? `transform ${duration}ms ${MOBILE_DRAWER_EASING}` : 'none',
+          touchAction: 'pan-x pan-y',
         }}
+        data-mobile-workspace-drawer="true"
       >
         {body}
       </section>
     </div>,
     rootRef.current as HTMLElement,
   );
-};
+});

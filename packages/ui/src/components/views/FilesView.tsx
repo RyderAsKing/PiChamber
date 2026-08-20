@@ -3683,6 +3683,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                   ref={editorTabsScrollRef}
                   className="flex min-w-0 items-center gap-1 overflow-x-auto scrollbar-none"
                   style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                  data-no-drawer-swipe="true"
                 >
                   {openFiles.map((file) => {
                     const isActive = selectedFile?.path === file.path;

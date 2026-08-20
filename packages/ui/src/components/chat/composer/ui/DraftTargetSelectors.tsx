@@ -14,6 +14,13 @@ import {
 } from '@/components/ui/select';
 import type { Theme } from '@/types/theme';
 import { getProjectDisplayLabel, type DraftTargetProject } from '../state/useDraftTarget';
+import { useUIStore } from '@/stores/useUIStore';
+import { useTabletLayout } from '@/lib/device';
+
+const truncateWithEllipsis = (value: string, limit: number): string => {
+    if (value.length <= limit) return value;
+    return `${value.slice(0, limit)}...`;
+};
 
 export interface BranchOption {
     value: string;
@@ -40,10 +47,15 @@ export interface DraftTargetProps {
 
 /** A project's icon plus its name. */
 export function ProjectLabel({ project }: { project: DraftTargetProject; theme: Theme }) {
+    const isMobileRaw = useUIStore((state) => state.isMobile);
+    const { enabled: isTabletLayout } = useTabletLayout();
+    const isMobile = isMobileRaw && !isTabletLayout;
+    const rawLabel = getProjectDisplayLabel(project);
+    const label = isMobile ? truncateWithEllipsis(rawLabel, 20) : rawLabel;
     return (
         <span className="inline-flex min-w-0 items-center gap-1.5">
             <Icon name="folder" className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="truncate text-muted-foreground">{getProjectDisplayLabel(project)}</span>
+            <span className="truncate text-muted-foreground">{label}</span>
         </span>
     );
 }
@@ -142,6 +154,10 @@ export function MobileDraftTargetTriggers(
 ) {
     
     const { selectedProject, selectedBranchLabel, showBranchSelector, showProjectSelector = true, endAccessory, theme, onOpenPicker } = props;
+    const { enabled: isTabletForBranch } = useTabletLayout();
+    const displayBranchLabel = selectedBranchLabel
+        ? (isTabletForBranch ? selectedBranchLabel : truncateWithEllipsis(selectedBranchLabel, 26))
+        : null;
 
     return (
         <div className="mb-1.5 flex min-w-0 w-full items-center justify-between gap-2 pl-2 pr-1">
@@ -163,7 +179,7 @@ export function MobileDraftTargetTriggers(
                     onClick={() => onOpenPicker('branch')}
                 >
                     <Icon name="git-branch" className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
-                    <span className="truncate">{selectedBranchLabel ?? "Branch"}</span>
+                    <span className="truncate">{displayBranchLabel ?? "Branch"}</span>
                     <Icon name="arrow-down-s" className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
                 </button>
             ) : null}

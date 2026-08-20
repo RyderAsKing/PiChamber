@@ -76,24 +76,55 @@ function ThinkingLevelSlider({
   const maxIndex = Math.max(0, options.length - 1);
   const fraction = maxIndex === 0 ? 0 : selectedIndex / maxIndex;
   const valueText = thinkingLevelLabel(options[selectedIndex]);
+  const draggingPointerIdRef = React.useRef<number | null>(null);
+  const valueRef = React.useRef(value);
+  const optionsRef = React.useRef(options);
+  const onChangeRef = React.useRef(onChange);
+  React.useEffect(() => { valueRef.current = value; }, [value]);
+  React.useEffect(() => { optionsRef.current = options; }, [options]);
+  React.useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
 
   const emitFromClientX = React.useCallback((clientX: number) => {
     const rect = trackRef.current?.getBoundingClientRect();
-    if (!rect || rect.width <= 0 || options.length === 0) return;
-    const nextIndex = nearestDiscreteIndex((clientX - rect.left) / rect.width, options.length);
-    const next = options[nextIndex];
-    if (next !== value) onChange(next);
-  }, [onChange, options, value]);
+    const currentOptions = optionsRef.current;
+    if (!rect || rect.width <= 0 || currentOptions.length === 0) return;
+    const clamped = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
+    const nextIndex = nearestDiscreteIndex(clamped, currentOptions.length);
+    const next = currentOptions[nextIndex];
+    if (next !== valueRef.current) onChangeRef.current(next);
+  }, []);
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    // Prevent text selection and ensure we own the gesture; without setPointerCapture
+    // mobile browsers deliver the subsequent move to the scroll container instead of the track.
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    draggingPointerIdRef.current = event.pointerId;
+    try {
+      (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    } catch { /* ignored – setPointerCapture not supported in some test envs */ }
     emitFromClientX(event.clientX);
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    if (draggingPointerIdRef.current !== event.pointerId) return;
+    // While dragging, continuously update the selected variant based on pointer position.
+    event.preventDefault();
     emitFromClientX(event.clientX);
+  };
+
+  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (draggingPointerIdRef.current !== event.pointerId) return;
+    draggingPointerIdRef.current = null;
+    try {
+      if ((event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId)) {
+        (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+      }
+    } catch { /* ignored */ }
+  };
+
+  const handlePointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (draggingPointerIdRef.current !== event.pointerId) return;
+    draggingPointerIdRef.current = null;
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -118,8 +149,12 @@ function ThinkingLevelSlider({
       aria-valuenow={selectedIndex}
       aria-valuetext={valueText}
       className="cursor-pointer touch-none select-none px-4 py-1 outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)] rounded-full"
+      style={{ touchAction: 'none' }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+      onLostPointerCapture={handlePointerCancel}
       onKeyDown={handleKeyDown}
     >
       <div className="relative h-8">

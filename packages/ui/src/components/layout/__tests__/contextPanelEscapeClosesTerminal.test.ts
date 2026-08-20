@@ -52,7 +52,7 @@ describe('issue #2644: Escape in terminal must not close the context panel', () 
     const handlerStart = mobileWorkspaceDrawerSource.indexOf("if (event.key === 'Escape'");
     expect(handlerStart).toBeGreaterThan(-1);
     const handler = mobileWorkspaceDrawerSource.slice(handlerStart, handlerStart + 200);
-    expect(handler).toContain("tabRef.current !== 'terminal'");
+    expect(handler).toContain("tab !== 'terminal'");
   });
 });
 

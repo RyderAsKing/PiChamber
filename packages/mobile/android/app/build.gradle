@@ -34,6 +34,12 @@ android {
         }
     }
     buildTypes {
+        debug {
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+            resValue "string", "app_name", "PiChamber - Debug"
+            resValue "string", "title_activity_main", "PiChamber - Debug"
+        }
         release {
             if (hasCiSigning) {
                 signingConfig signingConfigs.release

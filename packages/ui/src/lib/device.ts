@@ -404,6 +404,71 @@ export const readTabletLayout = (): TabletLayout => {
   };
 };
 
+const isSameTabletLayout = (left: TabletLayout, right: TabletLayout): boolean => (
+  left.enabled === right.enabled && left.roomyForPanels === right.roomyForPanels
+);
+
+const DEFAULT_TABLET_LAYOUT: TabletLayout = { enabled: false, roomyForPanels: false };
+const tabletLayoutSubscribers = new Set<() => void>();
+let tabletLayoutSnapshot: TabletLayout | null = null;
+let tabletLayoutFrameId: number | undefined;
+let cleanupTabletLayoutSource: (() => void) | null = null;
+
+const readTabletLayoutSnapshot = (): TabletLayout => {
+  if (typeof window === 'undefined') return DEFAULT_TABLET_LAYOUT;
+  if (!tabletLayoutSnapshot) tabletLayoutSnapshot = readTabletLayout();
+  return tabletLayoutSnapshot;
+};
+
+const notifyTabletLayoutSubscribers = () => {
+  for (const listener of tabletLayoutSubscribers) listener();
+};
+
+const updateTabletLayoutSnapshot = () => {
+  tabletLayoutFrameId = undefined;
+  const next = readTabletLayout();
+  if (tabletLayoutSnapshot && isSameTabletLayout(tabletLayoutSnapshot, next)) return;
+  tabletLayoutSnapshot = next;
+  notifyTabletLayoutSubscribers();
+};
+
+const scheduleTabletLayoutUpdate = () => {
+  if (typeof window === 'undefined' || tabletLayoutFrameId !== undefined) return;
+  tabletLayoutFrameId = window.requestAnimationFrame(updateTabletLayoutSnapshot);
+};
+
+const startTabletLayoutSource = (): (() => void) => {
+  if (typeof window === 'undefined') return () => {};
+  tabletLayoutSnapshot = readTabletLayout();
+  window.addEventListener('resize', scheduleTabletLayoutUpdate);
+  const orientationQuery = typeof window.matchMedia === 'function'
+    ? window.matchMedia('(orientation: landscape)')
+    : null;
+  const cleanupOrientation = attachMediaQueryListener(orientationQuery, scheduleTabletLayoutUpdate);
+  return () => {
+    window.removeEventListener('resize', scheduleTabletLayoutUpdate);
+    cleanupOrientation();
+    if (tabletLayoutFrameId !== undefined) {
+      window.cancelAnimationFrame(tabletLayoutFrameId);
+      tabletLayoutFrameId = undefined;
+    }
+  };
+};
+
+const subscribeTabletLayout = (listener: () => void): (() => void) => {
+  if (typeof window === 'undefined') return () => {};
+  tabletLayoutSubscribers.add(listener);
+  if (!cleanupTabletLayoutSource) cleanupTabletLayoutSource = startTabletLayoutSource();
+  return () => {
+    tabletLayoutSubscribers.delete(listener);
+    if (tabletLayoutSubscribers.size === 0 && cleanupTabletLayoutSource) {
+      cleanupTabletLayoutSource();
+      cleanupTabletLayoutSource = null;
+      tabletLayoutSnapshot = null;
+    }
+  };
+};
+
 /**
  * The tablet layout decision, live.
  *
@@ -411,39 +476,14 @@ export const readTabletLayout = (): TabletLayout => {
  * the app runs, and the Android shell keeps the WebView alive across the fold
  * (`configChanges` covers screenSize), so every consumer has to re-decide
  * rather than remember what it saw at mount.
+ * Shared via useSyncExternalStore so N consumers share one resize/orientation subscription.
  */
 export function useTabletLayout(): TabletLayout {
-  const [layout, setLayout] = React.useState<TabletLayout>(readTabletLayout);
-
-  React.useEffect(() => {
-    if (typeof window === 'undefined') return;
-    let frame: number | undefined;
-    const update = () => {
-      frame = undefined;
-      const next = readTabletLayout();
-      setLayout((current) => (
-        current.enabled === next.enabled && current.roomyForPanels === next.roomyForPanels
-          ? current
-          : next
-      ));
-    };
-    const schedule = () => {
-      if (frame !== undefined) return;
-      frame = window.requestAnimationFrame(update);
-    };
-
-    update();
-    window.addEventListener('resize', schedule);
-    const orientationQuery = window.matchMedia?.('(orientation: landscape)') ?? null;
-    const detachOrientation = attachMediaQueryListener(orientationQuery, schedule);
-    return () => {
-      window.removeEventListener('resize', schedule);
-      detachOrientation();
-      if (frame !== undefined) window.cancelAnimationFrame(frame);
-    };
-  }, []);
-
-  return layout;
+  return React.useSyncExternalStore(
+    subscribeTabletLayout,
+    readTabletLayoutSnapshot,
+    () => DEFAULT_TABLET_LAYOUT,
+  );
 }
 
 export function useDeviceInfo(): DeviceInfo {

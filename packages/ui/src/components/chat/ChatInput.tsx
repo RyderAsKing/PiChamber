@@ -315,6 +315,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const isMiniChatSurface = chatSurfaceMode === 'mini-chat';
     const hasHardwareKeyboard = useHardwareKeyboard();
     const { enabled: isTabletLayout } = useTabletLayout();
+    const isMobileForDraft = isMobile && !isTabletLayout;
     const setImagePreviewOpen = useUIStore((state) => state.setImagePreviewOpen);
     const inputBarOffset = useUIStore((state) => state.inputBarOffset);
     const persistChatDraft = useUIStore((state) => state.persistChatDraft);
@@ -2111,7 +2112,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         ? null
                         : pendingChangesBar}
                 />
-                {!isMobile && showDraftTargetSelectors && selectedDraftProject && (newSessionDraftOpen || shouldShowDraftBranchSelector) ? (
+                {!isMobileForDraft && showDraftTargetSelectors && selectedDraftProject && (newSessionDraftOpen || shouldShowDraftBranchSelector) ? (
                     <DraftTargetSelectors
                         projects={draftProjects}
                         selectedProject={selectedDraftProject}
@@ -2128,7 +2129,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         theme={currentTheme}
                     />
                 ) : null}
-                {isMobile && showDraftTargetSelectors && selectedDraftProject && (newSessionDraftOpen || shouldShowDraftBranchSelector) ? (
+                {isMobileForDraft && showDraftTargetSelectors && selectedDraftProject && (newSessionDraftOpen || shouldShowDraftBranchSelector) ? (
                     <MobileDraftTargetTriggers
                         selectedProject={selectedDraftProject}
                         selectedBranchLabel={selectedDraftBranchLabel}
@@ -2446,7 +2447,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
         {/* Mobile draft target pickers: bottom sheets replacing the inline
             project/branch Selects (which desktop keeps). */}
-        {isMobile && showDraftTargetSelectors && selectedDraftProject ? (
+        {isMobileForDraft && showDraftTargetSelectors && selectedDraftProject ? (
             <MobileDraftTargetSheets
                 projects={draftProjects}
                 selectedProject={selectedDraftProject}

@@ -4,6 +4,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { RuntimeAPIContext } from '@/contexts/runtimeAPIContext';
 import { useMobileAppActions } from '@/apps/mobileAppContext';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
+import { useTabletLayout } from '@/lib/device';
 import { Icon } from "@/components/icon/Icon";
 import { cn } from '@/lib/utils';
 import {
@@ -26,6 +27,9 @@ export const PendingChangesBar: React.FC<{ align?: 'start' | 'end' }> = React.me
         currentDirectory ? s.directories.get(currentDirectory)?.status ?? null : null,
     );
     const mobileActions = useMobileAppActions();
+    const isMobileRaw = useUIStore((state) => state.isMobile);
+    const { enabled: isTabletLayout } = useTabletLayout();
+    const isMobile = isMobileRaw && !isTabletLayout;
 
     // Close popover when clicking outside
     React.useEffect(() => {
@@ -105,10 +109,14 @@ export const PendingChangesBar: React.FC<{ align?: 'start' | 'end' }> = React.me
                 aria-expanded={isExpanded}
             >
                 <Icon name="git-branch" className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                <span className="min-w-0 typography-ui-label text-foreground flex-shrink-0">{labelHead}</span>
-                <span className="status-row__changed-label min-w-0 typography-ui-label text-foreground truncate">
-                    {"changed in workspace"}
-                </span>
+                {!isMobile ? (
+                    <>
+                        <span className="min-w-0 typography-ui-label text-foreground flex-shrink-0">{labelHead}</span>
+                        <span className="status-row__changed-label min-w-0 typography-ui-label text-foreground truncate">
+                            {"changed in workspace"}
+                        </span>
+                    </>
+                ) : null}
                 <span className="text-[0.75rem] tabular-nums inline-flex items-baseline gap-1 flex-shrink-0">
                     {totalAdded > 0 ? <span style={{ color: 'var(--status-success)' }}>+{totalAdded}</span> : null}
                     {totalRemoved > 0 ? <span style={{ color: 'var(--status-error)' }}>-{totalRemoved}</span> : null}
