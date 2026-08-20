@@ -23,7 +23,7 @@ export type SettingsPageSlug =
 type SettingsPageGroup =
   | 'general'
   | 'projects'
-  | 'content';
+  | 'agent';
 
 export interface SettingsRuntimeContext {
   isWeb: boolean;
@@ -74,21 +74,21 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
   {
     slug: 'providers',
     title: 'Providers',
-    group: 'content',
+    group: 'agent',
     kind: 'split',
     keywords: ['provider', 'providers', 'models', 'model', 'api key', 'api keys', 'openai', 'anthropic', 'ollama', 'credentials'],
   },
   {
     slug: 'behavior',
     title: 'Behavior',
-    group: 'content',
+    group: 'agent',
     kind: 'single',
     keywords: ['behavior', 'agents.md', 'system prompt', 'global rules', 'instructions', 'override'],
   },
   {
     slug: 'skills.installed',
     title: 'Skills',
-    group: 'content',
+    group: 'agent',
     kind: 'split',
     keywords: ['skill', 'skills', 'instructions', 'install', 'catalog'],
   },
@@ -130,14 +130,14 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
   {
     slug: 'magic-prompts',
     title: 'Magic Prompts',
-    group: 'content',
+    group: 'agent',
     kind: 'split',
     keywords: ['prompts', 'templates', 'git', 'github', 'review', 'commit', 'pull request'],
   },
   {
     slug: 'snippets',
     title: 'Snippets',
-    group: 'content',
+    group: 'agent',
     kind: 'split',
     keywords: ['prompt', 'templates', 'multi-run', 'strategy', 'approach'],
   },

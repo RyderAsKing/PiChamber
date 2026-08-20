@@ -556,7 +556,6 @@ const materializeAuthoritativeUiSettings = (settings: DesktopSettings): DesktopS
     mermaidRenderingMode: defaults.mermaidRenderingMode,
     userMessageRenderingMode: defaults.userMessageRenderingMode,
     collapsibleUserMessages: defaults.collapsibleUserMessages,
-    messageStreamTransport: 'auto',
     stickyUserHeader: defaults.stickyUserHeader,
     promptNavigatorEnabled: defaults.promptNavigatorEnabled,
     expandedEditorToolbar: defaults.expandedEditorToolbar,
@@ -745,12 +744,6 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
   }
   if (typeof settings.collapsibleUserMessages === 'boolean' && settings.collapsibleUserMessages !== store.collapsibleUserMessages) {
     store.setCollapsibleUserMessages(settings.collapsibleUserMessages);
-  }
-  if (typeof settings.messageStreamTransport === 'string'
-    && (settings.messageStreamTransport === 'auto' || settings.messageStreamTransport === 'ws' || settings.messageStreamTransport === 'sse')) {
-    if (configStore && settings.messageStreamTransport !== configStore.settingsMessageStreamTransport) {
-      configStore.setSettingsMessageStreamTransport(settings.messageStreamTransport);
-    }
   }
   if (typeof settings.stickyUserHeader === 'boolean' && settings.stickyUserHeader !== store.stickyUserHeader) {
     store.setStickyUserHeader(settings.stickyUserHeader);
@@ -1285,10 +1278,6 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
     if (candidate.desktopWindowControlsStyle === 'classic' || candidate.desktopWindowControlsStyle === 'traffic-lights') {
       result.desktopWindowControlsStyle = candidate.desktopWindowControlsStyle;
     }
-  }
-  if (typeof candidate.messageStreamTransport === 'string'
-    && (candidate.messageStreamTransport === 'auto' || candidate.messageStreamTransport === 'ws' || candidate.messageStreamTransport === 'sse')) {
-    result.messageStreamTransport = candidate.messageStreamTransport;
   }
   if (typeof candidate.mermaidRenderingMode === 'string'
     && (candidate.mermaidRenderingMode === 'svg' || candidate.mermaidRenderingMode === 'ascii')) {

@@ -567,6 +567,16 @@ export const registerPiRuntimeRoutes = (app, {
     }
   });
 
+  app.post('/api/pi/providers/refresh', async (req, res) => {
+    const directory = typeof req.body?.directory === 'string' && req.body.directory.length > 0 ? req.body.directory : undefined;
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.refresh', directory ? { directory } : undefined);
+      res.json(projectProviders(result));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
   app.get('/api/pi/providers/:providerId/config', async (req, res) => {
     const providerId = req.params.providerId;
     if (typeof providerId !== 'string' || providerId.length === 0) {

@@ -1035,7 +1035,6 @@ interface ConfigStore {
     settingsGitmojiEnabled: boolean;
     settingsDefaultFileViewerPreview: boolean;
     settingsZenModel: string | undefined;
-    settingsMessageStreamTransport: 'auto' | 'ws' | 'sse';
 
     activateDirectory: (directory: string | null | undefined) => Promise<void>;
 
@@ -1061,7 +1060,6 @@ interface ConfigStore {
     setSettingsGitmojiEnabled: (enabled: boolean) => void;
     setSettingsDefaultFileViewerPreview: (enabled: boolean) => void;
     setSettingsZenModel: (model: string | undefined) => void;
-    setSettingsMessageStreamTransport: (transport: 'auto' | 'ws' | 'sse') => void;
     getResolvedGitGenerationModel: () => { providerId: string; modelId: string } | null;
     saveAgentModelSelection: (agentName: string, providerId: string, modelId: string) => void;
     getAgentModelSelection: (agentName: string) => { providerId: string; modelId: string } | null;
@@ -1122,7 +1120,6 @@ export const useConfigStore = create<ConfigStore>()(
                 settingsGitmojiEnabled: false,
                 settingsDefaultFileViewerPreview: false,
                 settingsZenModel: undefined,
-                settingsMessageStreamTransport: 'auto',
 
                 activateDirectory: async (directory) => {
                     // Resolve the worktree to its owning project up-front so the
@@ -1791,7 +1788,6 @@ export const useConfigStore = create<ConfigStore>()(
                                     settingsGitmojiEnabled: openChamberDefaults.gitmojiEnabled ?? false,
                                     settingsDefaultFileViewerPreview: openChamberDefaults.defaultFileViewerPreview ?? false,
                                     settingsZenModel: resolvedZenModel,
-                                    settingsMessageStreamTransport: openChamberDefaults.messageStreamTransport ?? state.settingsMessageStreamTransport ?? 'auto',
                                     directoryScoped: {
                                         ...state.directoryScoped,
                                         [directoryKey]: nextSnapshot,
@@ -2521,10 +2517,6 @@ export const useConfigStore = create<ConfigStore>()(
                     set({ settingsZenModel: model });
                 },
 
-                setSettingsMessageStreamTransport: (transport: 'auto' | 'ws' | 'sse') => {
-                    set({ settingsMessageStreamTransport: transport });
-                },
-
                 getResolvedGitGenerationModel: () => {
                     const state = get();
                     return resolveGitGenerationModelSelection({
@@ -2850,7 +2842,6 @@ export const useConfigStore = create<ConfigStore>()(
                     settingsGitmojiEnabled: state.settingsGitmojiEnabled,
                     settingsDefaultFileViewerPreview: state.settingsDefaultFileViewerPreview,
                     settingsZenModel: state.settingsZenModel,
-                    settingsMessageStreamTransport: state.settingsMessageStreamTransport,
                 }),
              },
          ),

@@ -171,12 +171,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['fps', 'performance', 'hud', 'diagnostics', 'debug', 'jank', 'frame'],
   },
   {
-    id: 'chat.message-transport',
-    page: 'general',
-    title: "Message Stream Transport",
-    keywords: ['streaming', 'sse', 'websocket'],
-  },
-  {
     id: 'chat.reasoning-traces',
     page: 'chat',
     title: "Show Reasoning Traces",
