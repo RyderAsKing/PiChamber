@@ -89,7 +89,7 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
     slug: 'skills.installed',
     title: 'Skills',
     group: 'agent',
-    kind: 'split',
+    kind: 'single',
     keywords: ['skill', 'skills', 'instructions', 'install', 'catalog'],
   },
   {

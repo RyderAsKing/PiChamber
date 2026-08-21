@@ -9,7 +9,6 @@ import { useSkillsStore } from '@/stores/useSkillsStore';
 import { Tooltip, TooltipTrigger } from '@/components/ui/tooltip';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { BehaviorPage } from '@/components/sections/behavior/BehaviorPage';
-import { SkillsSidebar } from '@/components/sections/skills/SkillsSidebar';
 import { SkillsPage } from '@/components/sections/skills/SkillsPage';
 import { ProjectsSidebar } from '@/components/sections/projects/ProjectsSidebar';
 import { ProjectsPage } from '@/components/sections/projects/ProjectsPage';
@@ -471,8 +470,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
     switch (slug) {
       case 'projects':
         return <ProjectsSidebar onItemSelect={opts.onItemSelect} />;
-      case 'skills.installed':
-        return <SkillsSidebar onItemSelect={opts.onItemSelect} />;
       case 'magic-prompts':
         return <MagicPromptsSidebar onItemSelect={opts.onItemSelect} />;
       case 'snippets':
@@ -552,7 +549,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
   }, [isMobile, mobileStage, settingsSlug]);
 
   const showBackButton = isMobile && mobileStage !== 'nav';
-  const backButtonTargetsPageSidebar = isMobile && mobileStage === 'page-content' && settingsSlug === 'skills.installed';
+  const backButtonTargetsPageSidebar = false;
   const showOpenPageSidebarButton = mobileStage === 'page-content'
     && activePageMeta?.kind === 'split'
     && !backButtonTargetsPageSidebar;
@@ -585,51 +582,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
 
   const handleMobilePageSidebarItemSelect = React.useCallback(() => {
     setMobileStage('page-content');
-    if (settingsSlug === 'skills.installed') {
-      pushMobileSplitDetailHistory(settingsSlug);
-    }
-  }, [pushMobileSplitDetailHistory, settingsSlug]);
+  }, []);
 
   const handleBack = React.useCallback(() => {
-    if (backButtonTargetsPageSidebar) {
-      const currentDetail = typeof window !== 'undefined'
-        ? getSettingsDetailHistoryEntry(window.history.state)
-        : null;
-      if (currentDetail?.page === settingsSlug) {
-        window.history.back();
-        return;
-      }
-      setMobileStage('page-sidebar');
-      return;
-    }
-
     setMobileStage('nav');
-  }, [backButtonTargetsPageSidebar, settingsSlug]);
-
-  React.useEffect(() => {
-    if (!isMobile) {
-      return;
-    }
-
-    const handlePopState = (event: PopStateEvent) => {
-      if (settingsSlug !== 'skills.installed') {
-        return;
-      }
-
-      const detail = getSettingsDetailHistoryEntry(event.state);
-      if (detail?.page === 'skills.installed') {
-        setMobileStage('page-content');
-        return;
-      }
-
-      setMobileStage((stage) => stage === 'page-content' ? 'page-sidebar' : stage);
-    };
-
-    window.addEventListener('popstate', handlePopState);
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-    };
-  }, [isMobile, settingsSlug]);
+  }, []);
 
   const handleOpenPageSidebar = React.useCallback(() => {
     setMobileStage('page-sidebar');

@@ -17,6 +17,8 @@ export interface DiscoveredSkill {
   source: SkillSource;
   description?: string;
   location: 'global' | 'project' | 'package' | 'path';
+  /** Markdown body of the SKILL.md file, when the daemon returns it. */
+  content?: string;
 }
 
 interface SkillsStore {
@@ -61,6 +63,7 @@ export const useSkillsStore = create<SkillsStore>()(
                 source: 'agents' as const,
                 ...(skill.description ? { description: skill.description } : {}),
                 location: skill.location,
+                ...(typeof skill.content === 'string' && skill.content.length > 0 ? { content: skill.content } : {}),
               }));
               set((state) => ({
                 skills,
