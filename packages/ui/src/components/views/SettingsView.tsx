@@ -14,7 +14,6 @@ import { SkillsPage } from '@/components/sections/skills/SkillsPage';
 import { ProjectsSidebar } from '@/components/sections/projects/ProjectsSidebar';
 import { ProjectsPage } from '@/components/sections/projects/ProjectsPage';
 import { RemoteInstancesPage } from '@/components/sections/remote-instances/RemoteInstancesPage';
-import { ProvidersSidebar } from '@/components/sections/providers/ProvidersSidebar';
 import { ProvidersPage } from '@/components/sections/providers/ProvidersPage';
 import { MagicPromptsSidebar } from '@/components/sections/magic-prompts/MagicPromptsSidebar';
 import { MagicPromptsPage } from '@/components/sections/magic-prompts/MagicPromptsPage';
@@ -474,8 +473,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         return <ProjectsSidebar onItemSelect={opts.onItemSelect} />;
       case 'skills.installed':
         return <SkillsSidebar onItemSelect={opts.onItemSelect} />;
-      case 'providers':
-        return <ProvidersSidebar onItemSelect={opts.onItemSelect} />;
       case 'magic-prompts':
         return <MagicPromptsSidebar onItemSelect={opts.onItemSelect} />;
       case 'snippets':
