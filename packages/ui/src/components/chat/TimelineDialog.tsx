@@ -53,6 +53,7 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
             // PiSessionStore is the source for streaming, not the legacy sync store.
             // Dynamically import to avoid cycle in some test setups.
             try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
                 const { getPiSessionStore } = require('@/apps/pi-session-store');
                 const rec = getPiSessionStore().getState().reducer.bySession.get(currentSessionId);
                 setIsStreaming(rec?.lifecycle === 'busy' || rec?.lifecycle === 'retry');
@@ -62,6 +63,7 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
         };
         update();
         try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
             const { getPiSessionStore } = require('@/apps/pi-session-store');
             return getPiSessionStore().subscribe(update, `session:${currentSessionId}`);
         } catch {

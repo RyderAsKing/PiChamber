@@ -42,6 +42,8 @@ export const SkillsPage: React.FC = () => {
     } else {
       setIsEditingSkill(false);
     }
+  // skill identity drives draft; tracking id/content avoids extra resets from stable skill object re-renders.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skill?.id, skill?.content]);
 
   const refreshSkills = React.useCallback(async () => {

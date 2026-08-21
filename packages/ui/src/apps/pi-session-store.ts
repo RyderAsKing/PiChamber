@@ -1419,7 +1419,7 @@ export class PiSessionStore {
           queue: existing.queue.steering > 0 || existing.queue.followUp > 0 ? existing.queue : hydratedSession.queue,
         }
       : hydratedSession;
-    let reducer: PiReducerState = {
+    const reducer: PiReducerState = {
       bySession: new Map(this.state.reducer.bySession),
       lastSequence: new Map(this.state.reducer.lastSequence),
     };

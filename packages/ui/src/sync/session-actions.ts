@@ -96,7 +96,9 @@ export async function revertToMessage(sessionId: string, messageId: string): Pro
     try {
       const { useInputStore } = await import('@/sync/input-store');
       useInputStore.getState().setPendingRevertText(editorText);
-    } catch {}
+    } catch {
+      // ignore: input store may be unavailable during hydration
+    }
   }
 }
 
@@ -112,9 +114,13 @@ export async function unrevertSession(sessionId: string): Promise<void> {
       try {
         const { useInputStore } = await import('@/sync/input-store');
         useInputStore.getState().setPendingRevertText(editorText);
-      } catch {}
+      } catch {
+        // ignore: input store may be unavailable during hydration
+      }
     }
-  } catch {}
+  } catch {
+    // ignore: navigation state may be unavailable
+  }
 }
 
 export async function forkFromMessage(sessionId: string, messageId?: string): Promise<void> {

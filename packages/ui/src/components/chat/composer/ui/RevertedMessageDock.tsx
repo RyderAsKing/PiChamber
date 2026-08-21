@@ -8,39 +8,12 @@
  */
 
 import React from 'react';
-import type { Part } from '@/lib/chat/types';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
-import { isSyntheticPart } from '@/lib/messages/synthetic';
 import { cn } from '@/lib/utils';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useRevertNavigation } from '@/sync/revert-navigation-store';
-
-/**
- * A one-line preview of a reverted message: its text parts joined and
- * collapsed to a single line, falling back to an attached filename and then to
- * a caller-supplied placeholder.
- */
-const getRevertedPreview = (parts: Part[], fallback: string): string => {
-    const text = parts
-        .filter((part) => part.type === 'text' && !isSyntheticPart(part))
-        .map((part) => {
-            const record = part as Record<string, unknown>;
-            return typeof record.text === 'string'
-                ? record.text
-                : typeof record.content === 'string'
-                    ? record.content
-                    : '';
-        })
-        .join('\n')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-    if (text) return text;
-    const filePart = parts.find((part) => part.type === 'file') as (Part & { filename?: string }) | undefined;
-    return filePart?.filename ? `[${filePart.filename}]` : fallback;
-};
 
 type RevertedMessageDockProps = {
     sessionId: string | null;
