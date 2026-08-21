@@ -211,8 +211,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
     return SETTINGS_PAGE_METADATA
       .filter((page) => page.slug !== 'home')
       .filter((page) => !allowedPages || allowedPages.has(page.slug))
-      .filter((page) => isPageAvailable(page, runtimeCtx));
-  }, [runtimeCtx, visiblePageSlugs]);
+      .filter((page) => isPageAvailable(page, runtimeCtx))
+      // Mobile shows the live connection banner above the nav instead; the
+      // redundant Remote Instances entry stays reachable via that banner.
+      .filter((page) => !(isMobile && page.slug === 'remote-instances'));
+  }, [isMobile, runtimeCtx, visiblePageSlugs]);
 
   const sortedFilteredPages = React.useMemo(() => {
     const rank = new Map<SettingsPageSlug, number>(pageOrder.map((s, i) => [s, i]));
@@ -501,7 +504,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         return <ProvidersPage />;
       case 'about':
         return (
-          <SettingsPageLayout title={"About"} showSaveStatus={false}>
+          // The mobile header already shows the page title; rendering it again
+          // here read as a duplicate heading.
+          <SettingsPageLayout title={isMobile ? undefined : "About"}>
             <AboutSettings />
           </SettingsPageLayout>
         );
@@ -525,7 +530,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
       default:
         return null;
     }
-  }, [openChamberSectionBySlug, renderUnavailable, runtimeCtx]);
+  }, [isMobile, openChamberSectionBySlug, renderUnavailable, runtimeCtx]);
 
   // Mobile: if opened via deep-link / palette to a non-home page, jump into it once.
   React.useEffect(() => {

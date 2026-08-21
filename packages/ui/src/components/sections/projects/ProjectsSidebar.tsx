@@ -8,8 +8,10 @@ import { Icon } from "@/components/icon/Icon";
 import { cn } from '@/lib/utils';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { SETTINGS_PANEL_TITLE_CLASS } from '@/components/sections/shared/SettingsSection';
+import { useDeviceInfo } from '@/lib/device';
 
 export const ProjectsSidebar: React.FC<{ onItemSelect?: () => void }> = ({ onItemSelect }) => {
+  const { isMobile } = useDeviceInfo();
   const projects = useProjectsStore((state) => state.projects);
   const selectedId = useUIStore((state) => state.settingsProjectsSelectedId);
   const setSelectedId = useUIStore((state) => state.setSettingsProjectsSelectedId);
@@ -36,7 +38,8 @@ export const ProjectsSidebar: React.FC<{ onItemSelect?: () => void }> = ({ onIte
       variant="background"
       header={
         <div className={cn('border-b px-3', 'pt-4 pb-3')}>
-          <h2 className={`${SETTINGS_PANEL_TITLE_CLASS} mb-3`}>{"Projects"}</h2>
+          {/* The mobile header already shows the page title. */}
+          {!isMobile && <h2 className={`${SETTINGS_PANEL_TITLE_CLASS} mb-3`}>{"Projects"}</h2>}
           <div className="flex items-center justify-between gap-2">
             <span className="typography-meta text-muted-foreground">{`Total ${projects.length}`}</span>
             {(

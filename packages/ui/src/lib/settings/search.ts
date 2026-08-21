@@ -157,13 +157,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['terminal', 'keyboard', 'esc', 'ctrl', 'arrows'],
   },
   {
-    id: 'appearance.usage-reports',
-    page: 'general',
-    title: "Send anonymous usage reports",
-    description: "Helps us understand which app versions are actively used so we can prioritize improvements. Only app version, platform, and runtime are collected - no personal data or code.",
-    keywords: ['telemetry', 'analytics'],
-  },
-  {
     id: 'general.performance-overlay',
     page: 'general',
     title: "Performance overlay",

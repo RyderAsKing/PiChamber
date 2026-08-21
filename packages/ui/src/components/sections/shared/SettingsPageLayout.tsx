@@ -19,8 +19,6 @@ interface SettingsPageLayoutProps {
   description?: React.ReactNode;
   /** Optional content rendered at the end of the header row (before save status). */
   headerEnd?: React.ReactNode;
-  /** Show persistence feedback for instant-save settings. */
-  showSaveStatus?: boolean;
   /** Additional className for the content container */
   className?: string;
   /** Additional className for the outer ScrollableOverlay */
@@ -40,9 +38,11 @@ export const SettingsPageLayout: React.FC<SettingsPageLayoutProps> = ({
   titleAccessory,
   description,
   headerEnd,
-  showSaveStatus = false,
 }) => {
-  const hasHeader = title != null || description != null || headerEnd != null || showSaveStatus;
+  // Only render chrome when there is visible header content; an empty row
+  // would read as excess top padding (e.g. mobile pages whose title lives in
+  // the app header).
+  const hasHeader = title != null || description != null || headerEnd != null;
   const isPlainTitle = typeof title === 'string' || typeof title === 'number';
   const hasTitleChrome = titleLeading != null || titleAccessory != null;
 

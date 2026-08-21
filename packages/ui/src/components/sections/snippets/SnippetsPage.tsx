@@ -67,7 +67,7 @@ export const SnippetsPage: React.FC = () => {
   }
 
   return (
-    <><ProjectTrustDialog onResolved={() => { void useSnippetsStore.getState().loadSnippets(); }} /><SettingsPageLayout title={isNew ? "New template" : `/${name}`} description={isNew ? "Create a new prompt template" : description} showSaveStatus={false}>
+    <><ProjectTrustDialog onResolved={() => { void useSnippetsStore.getState().loadSnippets(); }} /><SettingsPageLayout title={isNew ? "New template" : `/${name}`} description={isNew ? "Create a new prompt template" : description}>
       {isNew ? <SettingsSection title={"Identity"} divider={false}>
         <SettingsFieldRow label={"Name"}>
           <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={"Template name"} className="h-8 w-full max-w-48" />

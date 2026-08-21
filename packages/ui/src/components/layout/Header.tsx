@@ -670,8 +670,8 @@ export const Header: React.FC<HeaderProps> = ({
     setRemoteUpdateChecking(true);
     setRemoteUpdateError(null);
     try {
-      // Status-only poll: must not count as usage on the remote server's install id.
-      const params = new URLSearchParams({ appType: 'web', instanceMode: 'remote', reportUsage: 'false' });
+      // Status-only poll of the remote server's update feed.
+      const params = new URLSearchParams({ appType: 'web', instanceMode: 'remote' });
       const response = await runtimeFetch(`/api/pi/update-check?${params.toString()}`, {
         method: 'GET',
         headers: { Accept: 'application/json' },

@@ -4,9 +4,11 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { ProjectSettingsPanel } from '@/components/sections/projects/ProjectSettingsPanel';
 import type { ProjectIdentitySaveData } from '@/components/sections/projects/useProjectIdentityForm';
+import { useDeviceInfo } from '@/lib/device';
 
 export const ProjectsPage: React.FC = () => {
   
+  const { isMobile } = useDeviceInfo();
   const projects = useProjectsStore((state) => state.projects);
   const updateProjectMeta = useProjectsStore((state) => state.updateProjectMeta);
   const selectedId = useUIStore((state) => state.settingsProjectsSelectedId);
@@ -38,7 +40,7 @@ export const ProjectsPage: React.FC = () => {
 
   if (!selectedProject) {
     return (
-      <SettingsPageLayout title={"Projects"} showSaveStatus>
+      <SettingsPageLayout title={isMobile ? undefined : "Projects"}>
         <p className="typography-meta text-muted-foreground">{"No projects available."}</p>
       </SettingsPageLayout>
     );
@@ -50,7 +52,6 @@ export const ProjectsPage: React.FC = () => {
     <SettingsPageLayout
       title={headerLabel}
       description={selectedProject.path}
-      showSaveStatus
       outerClassName="bg-background"
     >
       <ProjectSettingsPanel project={selectedProject} onIdentitySave={handleIdentitySave} />

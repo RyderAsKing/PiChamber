@@ -1,10 +1,7 @@
 import { spawnSync } from 'child_process';
-import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-
-import { resolvePiChamberDataDir, resolvePiChamberDataPath } from './pichamber-data-dir.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -38,34 +35,6 @@ function getConfiguredUpdateCheckUrl() {
     ? process.env.PICHAMBER_UPDATE_API_URL.trim()
     : '';
   return override.length > 0 ? override : null;
-}
-
-function getPiChamberConfigDir() {
-  // Use the canonical resolver so PICHAMBER_DATA_DIR is honored everywhere.
-  return resolvePiChamberDataDir();
-}
-
-function sanitizeInstallScope(scope) {
-  if (scope === 'desktop-electron' || scope === 'web' || scope === 'mobile-capacitor') return scope;
-  return 'web';
-}
-
-function getOrCreateInstallId(scope = 'web') {
-  const configDir = getPiChamberConfigDir();
-  const normalizedScope = sanitizeInstallScope(scope);
-  const idPath = path.join(configDir, `install-id-${normalizedScope}`);
-
-  try {
-    const existing = fs.readFileSync(idPath, 'utf8').trim();
-    if (existing) return existing;
-  } catch {
-    // Generate new id.
-  }
-
-  const installId = crypto.randomUUID();
-  fs.mkdirSync(configDir, { recursive: true });
-  fs.writeFileSync(idPath, `${installId}\n`, { encoding: 'utf8', mode: 0o600 });
-  return installId;
 }
 
 function mapPlatform(value) {
@@ -140,7 +109,6 @@ async function checkForUpdatesFromApi(currentVersion, options = {}) {
     const shouldTrustClientPlatform = appType === 'desktop-electron' || appType === 'mobile-capacitor';
     const platform = shouldTrustClientPlatform ? normalizePlatform(options.platform) : hostPlatform;
     const arch = shouldTrustClientPlatform ? normalizeArch(options.arch) : hostArch;
-    const reportUsage = options.reportUsage !== false;
     const payload = {
       appType,
       deviceClass: normalizeDeviceClass(options.deviceClass),
@@ -148,9 +116,7 @@ async function checkForUpdatesFromApi(currentVersion, options = {}) {
       arch,
       channel: 'stable',
       currentVersion,
-      installId: reportUsage ? (options.installId || getOrCreateInstallId(appType)) : undefined,
       instanceMode: options.instanceMode || 'unknown',
-      reportUsage,
     };
 
     const response = await fetch(updateCheckUrl, {

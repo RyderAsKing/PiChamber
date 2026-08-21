@@ -28,7 +28,7 @@ export const SkillsPage: React.FC = () => {
   return (
     <>
       <ProjectTrustDialog onResolved={() => { void useSkillsStore.getState().loadSkills(); }} />
-    <SettingsPageLayout title={skill.name} description={skill.description} showSaveStatus={false}>
+    <SettingsPageLayout title={skill.name} description={skill.description}>
       <SettingsSection title={"Basic Information"} divider={false} settingsItem="skills.discovery">
         <p className="typography-meta text-muted-foreground">
           {skill.location === 'project' ? "Project" : "Global"}

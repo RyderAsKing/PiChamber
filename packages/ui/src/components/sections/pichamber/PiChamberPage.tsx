@@ -42,7 +42,7 @@ export const PiChamberPage: React.FC<PiChamberPageProps> = ({ section }) => {
     // If no section specified, show all (mobile/legacy behavior)
     if (!section) {
         return (
-            <SettingsPageLayout showSaveStatus className="pichamber-page-body space-y-3 sm:space-y-6">
+            <SettingsPageLayout className="pichamber-page-body space-y-3 sm:space-y-6">
                 <PiChamberVisualSettings />
                 <DefaultsSettings />
                 {showDesktopNetworkSettings && <DesktopNetworkSettings />}
@@ -105,9 +105,9 @@ export const PiChamberPage: React.FC<PiChamberPageProps> = ({ section }) => {
 
     return (
         <SettingsPageLayout
-            title={pageTitle}
-            description={pageDescription}
-            showSaveStatus
+            // The mobile header already shows the page title.
+            title={isMobile ? undefined : pageTitle}
+            description={isMobile ? undefined : pageDescription}
             className="pichamber-page-body"
         >
             {renderSectionContent()}
@@ -139,7 +139,6 @@ const GeneralSectionContent: React.FC = () => {
                 'terminalQuickKeys',
                 'terminalShell',
                 'terminalLoginShell',
-                'reportUsage',
                 'perfHud',
             ]} />
         </>

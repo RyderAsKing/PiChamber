@@ -5,6 +5,7 @@ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { SETTINGS_PANEL_TITLE_CLASS } from '@/components/sections/shared/SettingsSection';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { cn } from '@/lib/utils';
+import { useDeviceInfo } from '@/lib/device';
 
 interface SkillsSidebarProps {
   onItemSelect?: () => void;
@@ -17,11 +18,13 @@ export const SkillsSidebar: React.FC<SkillsSidebarProps> = ({ onItemSelect }) =>
   const selectedSkillName = useSkillsStore((state) => state.selectedSkillName);
   const setSelectedSkill = useSkillsStore((state) => state.setSelectedSkill);
   const sorted = React.useMemo(() => [...skills].sort((left, right) => left.name.localeCompare(right.name)), [skills]);
+  const { isMobile } = useDeviceInfo();
 
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="border-b px-3 pb-3 pt-4">
-        <h2 className={`${SETTINGS_PANEL_TITLE_CLASS} mb-3`}>{"Skills"}</h2>
+        {/* The mobile header already shows the page title. */}
+        {!isMobile && <h2 className={`${SETTINGS_PANEL_TITLE_CLASS} mb-3`}>{"Skills"}</h2>}
         <span className="typography-meta text-muted-foreground">{`Total ${skills.length}`}</span>
       </div>
       <ScrollableOverlay outerClassName="min-h-0 flex-1" className="space-y-1 px-3 py-2">

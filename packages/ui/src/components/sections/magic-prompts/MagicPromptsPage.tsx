@@ -317,7 +317,6 @@ export const MagicPromptsPage: React.FC = () => {
           {resettingAll ? "Resetting..." : "Reset All Overrides"}
         </Button>
       )}
-      showSaveStatus={false}
     >
       {pageConfig.blocks.map((block, index) => {
         const definition = getMagicPromptDefinition(block.id);

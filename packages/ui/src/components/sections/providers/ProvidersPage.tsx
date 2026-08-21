@@ -199,7 +199,7 @@ export const ProvidersPage: React.FC = () => {
       ? providerToCustomFormState({ id: editableConfig.providerId, name: editableConfig.label, options: { baseURL: editableConfig.baseUrl }, models: editableConfig.models })
       : undefined;
     return (
-      <SettingsPageLayout title={editableConfig ? "Edit custom provider" : "Custom provider"} showSaveStatus={false}>
+      <SettingsPageLayout title={editableConfig ? "Edit custom provider" : "Custom provider"}>
         <CustomProviderForm
           existingProviderIDs={new Set(providers?.map((item) => item.id) ?? [])}
           mode={editableConfig ? "edit" : "create"}
@@ -230,7 +230,6 @@ export const ProvidersPage: React.FC = () => {
       title={provider.label}
       titleLeading={<ProviderLogo providerId={provider.id} className="size-5 shrink-0" />}
       description={<span className="font-mono typography-settings-description text-muted-foreground">{provider.id}</span>}
-      showSaveStatus={false}
     >
       {failed ? <p className="typography-meta text-[var(--status-error)]">{"Unavailable"}</p> : null}
       <SettingsSection

@@ -361,15 +361,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const setDesktopWindowControlsPosition = useUIStore((state) => state.setDesktopWindowControlsPosition);
     const desktopWindowControlsStyle = useUIStore((state) => state.desktopWindowControlsStyle);
     const setDesktopWindowControlsStyle = useUIStore((state) => state.setDesktopWindowControlsStyle);
-    const reportUsage = useUIStore(state => state.reportUsage);
-    const setReportUsage = useUIStore(state => state.setReportUsage);
     const perfHudEnabled = React.useSyncExternalStore(subscribePerfHudEnabled, isPerfHudEnabled, () => false);
-
-    // Sync reportUsage changes to server settings
-    const handleReportUsageChange = React.useCallback((enabled: boolean) => {
-        setReportUsage(enabled);
-        void updateDesktopSettings({ reportUsage: enabled });
-    }, [setReportUsage]);
 
     const handleWindowControlsPositionChange = React.useCallback((value: DesktopWindowControlsPosition) => {
         setDesktopWindowControlsPosition(value);
@@ -735,11 +727,11 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     }, [setMobileKeyboardMode, showMobileKeyboardModeSetting, showPwaInstallNameSetting, showPwaOrientationSetting]);
 
     return (
-        <div className="space-y-0">
+        <>
 
                 {/* --- Appearance & Themes --- */}
                 {hasAppearanceSettings && (
-                    <div className="space-y-0">
+                    <>
                         {hasThemeSettings && (
                             <SettingsSection title={"Color mode & Theme"} divider={false}>
                                 <SettingsTwoColumn>
@@ -1084,7 +1076,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                             )}
                             </SettingsSection>
                         )}
-                    </div>
+                    </>
                 )}
 
                 {/* --- Density & type --- */}
@@ -1704,20 +1696,6 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                     </>
                 )}
 
-                {/* --- Privacy & Data --- */}
-                {shouldShow('reportUsage') && (
-                    <SettingsSection title={"Privacy"}>
-                        <SettingsCheckboxRow
-                            checked={reportUsage}
-                            onChange={handleReportUsageChange}
-                            label={"Send anonymous usage reports"}
-                            info={"Helps us understand which app versions are actively used so we can prioritize improvements. Only app version, platform, and runtime are collected - no personal data or code."}
-                            ariaLabel={"Send anonymous usage reports"}
-                            settingsItem="appearance.usage-reports"
-                        />
-                    </SettingsSection>
-                )}
-
                 {shouldShow('perfHud') && (
                     <SettingsSection title={"Diagnostics"}>
                         <SettingsCheckboxRow
@@ -1731,6 +1709,6 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                     </SettingsSection>
                 )}
 
-            </div>
+        </>
     );
 };

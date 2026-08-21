@@ -25,6 +25,7 @@ import type { IconName } from "@/components/icon/icons";
 import { cn } from '@/lib/utils';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
 import { SettingsSection } from '@/components/sections/shared/SettingsSection';
+import { useDeviceInfo } from '@/lib/device';
 
 const ICON_MAP: Record<string, IconName> = {
   branch: 'git-branch',
@@ -45,6 +46,7 @@ const COLOR_MAP: Record<string, string> = {
 
 export const GitPage: React.FC = () => {
   
+  const { isMobile } = useDeviceInfo();
   const {
     profiles,
     globalIdentity,
@@ -116,8 +118,7 @@ export const GitPage: React.FC = () => {
   return (
     <>
       <SettingsPageLayout
-        title={"Git"}
-        showSaveStatus
+        title={isMobile ? undefined : "Git"}
       >
         <SettingsSection
           title={"Identities"}

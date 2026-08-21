@@ -495,7 +495,6 @@ export const registerPiRuntimeRoutes = (app, {
         currentVersion: typeof req.query.currentVersion === 'string' ? req.query.currentVersion : undefined,
         appType: typeof req.query.appType === 'string' ? req.query.appType : undefined,
         platform: typeof req.query.platform === 'string' ? req.query.platform : undefined,
-        reportUsage: req.query.reportUsage === 'true',
       }));
     } catch {
       res.status(503).json({ error: 'Update check unavailable' });

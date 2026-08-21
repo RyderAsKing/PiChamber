@@ -8,11 +8,13 @@ import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLay
 import { SettingsSection } from '@/components/sections/shared/SettingsSection';
 import { piClient } from '@/lib/pi/client';
 import type { PiResource } from '@/lib/pi/types';
+import { useDeviceInfo } from '@/lib/device';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 
 /** Pi global and applicable project instruction files. Pi, rather than PiChamber, remains their source of truth. */
 export const BehaviorPage: React.FC = () => {
   
+  const { isMobile } = useDeviceInfo();
   const [agents, setAgents] = React.useState<PiResource[] | null>(null);
   const [drafts, setDrafts] = React.useState<Record<string, string>>({});
   const [saving, setSaving] = React.useState<string | null>(null);
@@ -43,7 +45,7 @@ export const BehaviorPage: React.FC = () => {
 
   return <>
     <ProjectTrustDialog onResolved={() => { void refresh().catch(() => setFailed(true)); }} />
-    <SettingsPageLayout title={"Behavior"} description={"Guide how the agent responds."} showSaveStatus={false}>
+    <SettingsPageLayout title={isMobile ? undefined : "Behavior"} description={isMobile ? undefined : "Guide how the agent responds."}>
       {failed ? <p className="typography-meta text-[var(--status-error)]">{"Unavailable"}</p> : null}
       {(agents ?? []).map((agent, index) => {
         const content = drafts[agent.id] ?? '';
