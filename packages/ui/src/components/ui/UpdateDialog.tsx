@@ -160,8 +160,7 @@ async function waitForUpdateApplied(
 ): Promise<boolean> {
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      // Status-only poll while waiting for the update to apply; not a usage report.
-      const response = await runtimeFetch('/api/pi/update-check?reportUsage=false', {
+      const response = await runtimeFetch('/api/pi/update-check', {
         method: 'GET',
         headers: { Accept: 'application/json' },
       });

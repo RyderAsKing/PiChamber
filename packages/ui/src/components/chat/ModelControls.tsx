@@ -355,6 +355,11 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         if (activeMobilePanel !== 'model') {
             setMobileModelQuery('');
             setExpandedMobileModelKey(null);
+            // Mirror desktop cleanup: pending thinking selections are per-picker-session.
+            // Clearing here prevents a stale pending variant from leaking into the next
+            // mobile model pick after a cancelled drag or a variant-panel switch.
+            setPendingThinkingVariants(new Map());
+            setAdjustedThinkingModels(new Set());
         }
     }, [activeMobilePanel]);
 
@@ -863,6 +868,28 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         }
     }, [commitVariantSelectionForModel, currentModelId, currentProviderId]);
 
+    const handleVariantLiveChange = React.useCallback((variant: PiThinkingLevel | undefined) => {
+        if (!currentProviderId || !currentModelId) return;
+        const variantOptions = getModelVariantOptions(currentProviderId, currentModelId);
+        if (variantOptions.length === 0) {
+            manualVariantSelectionRef.current = false;
+            void applyComposerThinking(undefined).catch(notifyThinkingApplyFailed);
+            return;
+        }
+        const next = isPiThinkingLevel(variant) && variantOptions.includes(variant) ? variant : undefined;
+        manualVariantSelectionRef.current = true;
+        void applyComposerThinking(next).catch(notifyThinkingApplyFailed);
+    }, [currentProviderId, currentModelId, getModelVariantOptions]);
+
+    const handleVariantCommit = React.useCallback((variant: PiThinkingLevel | undefined) => {
+        if (variant !== currentVariant) {
+            handleVariantLiveChange(variant);
+        }
+        if (currentProviderId && currentModelId) {
+            addRecentEffort(currentProviderId, currentModelId, variant);
+        }
+    }, [handleVariantLiveChange, currentProviderId, currentModelId, currentVariant, addRecentEffort]);
+
     const handleProviderAndModelChange = (
         providerId: string,
         modelId: string,
@@ -1123,7 +1150,10 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             const variantOptions = getModelVariantOptions(providerId, modelId);
             const hasVariants = variantOptions.length > 0;
             const resolvedVariant = resolveModelVariantSelection(providerId, modelId);
-            const variantLabel = hasVariants ? formatEffortLabel(resolvedVariant) : null;
+            const pendingVariant = pendingThinkingVariants.get(rowKey);
+            const hasPendingForRow = pendingThinkingVariants.has(rowKey);
+            const effectiveVariant = hasPendingForRow ? pendingVariant : resolvedVariant;
+            const variantLabel = hasVariants ? formatEffortLabel(effectiveVariant) : null;
             const isExpanded = expandedMobileModelKey === rowKey;
             const capabilityIcons = getCapabilityIcons(metadata).map((icon) => ({
                 ...icon,
@@ -1149,7 +1179,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                     <div className="flex items-center gap-2 px-2 py-1.5">
                         <button
                             type="button"
-                            onClick={() => handleMobileModelApply(providerId, modelId, resolvedVariant)}
+                            onClick={() => handleMobileModelApply(providerId, modelId, effectiveVariant)}
                             className={cn(
                                 'flex flex-1 min-w-0 items-start gap-2 text-left',
                                 'focus:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded-lg'
@@ -1233,11 +1263,24 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                         </div>
                     </div>
                     {isExpanded && hasVariants ? (
-                        <div className="border-t border-border/30 px-1 py-1">
+                        <div className="border-t border-border/30 px-1 py-1" data-no-drawer-swipe="true">
                             <ThinkingLevelPicker
                                 levels={variantOptions}
-                                value={parsePiThinkingLevel(resolvedVariant) ?? undefined}
-                                onChange={(next) => handleMobileModelApply(providerId, modelId, next)}
+                                value={parsePiThinkingLevel(effectiveVariant) ?? undefined}
+                                onChange={() => {}}
+                                onCommit={(next) => {
+                                    setPendingThinkingVariants((prev) => {
+                                        const nextMap = new Map(prev);
+                                        nextMap.set(rowKey, next as string | undefined);
+                                        return nextMap;
+                                    });
+                                    setAdjustedThinkingModels((prev) => {
+                                        const nextSet = new Set(prev);
+                                        nextSet.add(rowKey);
+                                        return nextSet;
+                                    });
+                                    setModelPickerRenderVersion((v) => v + 1);
+                                }}
                             />
                         </div>
                     ) : null}
@@ -1391,17 +1434,11 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         const targetVariants = getModelVariantOptions(currentProviderId, currentModelId);
         if (targetVariants.length === 0) return null;
 
-        const selectedVariant = resolveModelVariantSelection(currentProviderId, currentModelId);
-
-        const handleSelect = (variant: PiThinkingLevel | undefined) => {
-            const result = applyModelSelectionWithVariant(currentProviderId, currentModelId, variant);
-            if (result !== 'applied') {
-                return;
-            }
-
-            closeMobilePanel();
-            requestAnimationFrame(focusChatInput);
-        };
+        // Use the live composer variant directly so dragging to Default (undefined)
+        // stays on Default while dragging. The resolver would snap Default back to
+        // the model's configured default for new sessions, which caused the
+        // right-to-left glitch where the thumb jumped to the highest level.
+        const selectedVariant = currentVariant;
 
         return (
             <MobileOverlayPanel
@@ -1412,7 +1449,8 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                 <ThinkingLevelPicker
                     levels={targetVariants}
                     value={parsePiThinkingLevel(selectedVariant) ?? undefined}
-                    onChange={handleSelect}
+                    onChange={handleVariantLiveChange}
+                    onCommit={handleVariantCommit}
                 />
             </MobileOverlayPanel>
         );

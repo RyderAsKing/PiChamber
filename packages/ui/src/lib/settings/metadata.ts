@@ -75,7 +75,7 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
     slug: 'providers',
     title: 'Providers',
     group: 'agent',
-    kind: 'split',
+    kind: 'single',
     keywords: ['provider', 'providers', 'models', 'model', 'api key', 'api keys', 'openai', 'anthropic', 'ollama', 'credentials'],
   },
   {
@@ -89,7 +89,7 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
     slug: 'skills.installed',
     title: 'Skills',
     group: 'agent',
-    kind: 'split',
+    kind: 'single',
     keywords: ['skill', 'skills', 'instructions', 'install', 'catalog'],
   },
   {
@@ -129,21 +129,22 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
   },
   {
     slug: 'magic-prompts',
-    title: 'Magic Prompts',
+    title: 'PiChamber Utility Prompts',
     group: 'agent',
     kind: 'split',
-    keywords: ['prompts', 'templates', 'git', 'github', 'review', 'commit', 'pull request'],
+    keywords: ['prompts', 'templates', 'git', 'github', 'review', 'commit', 'pull request', 'utility'],
+    isAvailable: () => false,
   },
   {
     slug: 'snippets',
     title: 'Snippets',
     group: 'agent',
-    kind: 'split',
+    kind: 'single',
     keywords: ['prompt', 'templates', 'multi-run', 'strategy', 'approach'],
   },
 
   { slug: 'notifications', title: 'Notifications', group: 'general', kind: 'single', keywords: ['alerts', 'native', 'summary', 'summarization'], },
-  { slug: 'tunnel', title: 'External Tunnel', group: 'projects', kind: 'single', keywords: ['tunnel', 'external', 'cloudflare', 'qr', 'remote', 'mobile', 'share'] },
+  { slug: 'tunnel', title: 'External Tunnel', group: 'projects', kind: 'single', keywords: ['tunnel', 'external', 'cloudflare', 'qr', 'remote', 'mobile', 'share'], isAvailable: () => false, },
   { slug: 'about', title: 'About', group: 'general', kind: 'single', keywords: ['about', 'version', 'updates', 'release', 'changelog', 'pi', 'pichamber', 'open source'] },
 ] as const;
 

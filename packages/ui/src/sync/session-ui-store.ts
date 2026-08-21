@@ -1144,74 +1144,41 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   },
 
   // ---------------------------------------------------------------------------
-  // handleSlashUndo — reads from sync, records history for redo
+  // handleSlashUndo — Pi-native: revert to previous user message
   // ---------------------------------------------------------------------------
   handleSlashUndo: async (sessionId) => {
-    const messages = getSyncMessages(sessionId)
-    const sessions = getSyncSessions()
-    const currentSession = sessions.find((s) => s.id === sessionId)
-
-    const userMessages = messages.filter((m) => m.role === "user")
-    if (userMessages.length === 0) return
-
-    const revertToId = (currentSession as any)?.revert?.messageID
-    let targetMessage: typeof messages[number] | undefined
-    if (revertToId) {
-      targetMessage = [...userMessages].reverse().find((m) => m.id < revertToId)
-    } else {
-      targetMessage = userMessages[userMessages.length - 1]
-    }
-
-    if (!targetMessage) return
-
-    // Read target message parts BEFORE calling revertToMessage.
-    // revertToMessage optimistically deletes messages from the sync store
-    // before the API call, so getSyncParts must run first.
-    const targetParts = getSyncParts(targetMessage.id)
-    const textPart = targetParts.find((p: Part) => p.type === "text") as TextPart | undefined
-    const preview = textPart?.text
-      ? String(textPart.text).slice(0, 50) + (textPart.text.length > 50 ? "..." : "")
-      : "[No text]"
-
-    // revertToMessage handles the redo stack push internally
-    await get().revertToMessage(sessionId, targetMessage.id)
-
-    const { toast } = await import("sonner")
-    toast.success(`Reverted to ${preview}`)
+    const reducerState = getPiSessionStore().getState().reducer.bySession.get(sessionId);
+    const messages = reducerState ? [...reducerState.messages.values()] : [];
+    const userMessages = messages.filter((m) => m.role === "user");
+    if (userMessages.length === 0) return;
+    const targetMessage = userMessages[userMessages.length - 1];
+    if (!targetMessage) return;
+    const preview = String(targetMessage.text ?? '').slice(0, 50) + ((targetMessage.text?.length ?? 0) > 50 ? "..." : "") || "[No text]";
+    await get().revertToMessage(sessionId, targetMessage.id);
+    const { toast } = await import("sonner");
+    toast.success(`Reverted — conversation rewound. Files on disk were not changed.`);
+    void preview;
   },
 
   // ---------------------------------------------------------------------------
-  // handleSlashRedo — moves the authoritative revert marker forward
+  // handleSlashRedo — Pi-native: navigate to saved previous leaf
   // ---------------------------------------------------------------------------
   handleSlashRedo: async (sessionId, options) => {
-    if (options?.fullUnrevert) {
-      const { unrevertSession } = await import("./session-actions")
-      await unrevertSession(sessionId)
-      const { toast } = await import("sonner")
-      toast.success("Restored all messages")
-      return
+    const { getRevertNavigation } = await import("./revert-navigation-store");
+    const entry = getRevertNavigation(sessionId);
+    if (!entry?.previousLeafId) {
+      if (options?.fullUnrevert) {
+        const { unrevertSession } = await import("./session-actions");
+        await unrevertSession(sessionId);
+        const { toast } = await import("sonner");
+        toast.success("Restored all messages");
+      }
+      return;
     }
-
-    const sessions = getSyncSessions()
-    const currentSession = sessions.find((s) => s.id === sessionId)
-    const revertToId = (currentSession as any)?.revert?.messageID
-    if (!revertToId) return
-
-    await refetchSessionMessages(sessionId)
-    const messages = getSyncMessages(sessionId)
-    const userMessages = messages.filter((m) => m.role === "user")
-    const targetMessage = userMessages.find((m) => m.id > revertToId)
-
-    if (targetMessage) {
-      await get().revertToMessage(sessionId, targetMessage.id, { skipRedoPush: true })
-      const { toast } = await import("sonner")
-      toast.success("Redone")
-      return
-    }
-
-    await unrevertSessionAction(sessionId)
-    const { toast } = await import("sonner")
-    toast.success("Restored all messages")
+    const { unrevertSession } = await import("./session-actions");
+    await unrevertSession(sessionId);
+    const { toast } = await import("sonner");
+    toast.success("Restored all messages");
   },
 
   // ---------------------------------------------------------------------------

@@ -59,7 +59,7 @@ export const MagicPromptsSidebar: React.FC<MagicPromptsSidebarProps> = ({ onItem
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="border-b px-3 pt-4 pb-3">
-        <h2 className={SETTINGS_PANEL_TITLE_CLASS}>{"Magic Prompts"}</h2>
+        <h2 className={SETTINGS_PANEL_TITLE_CLASS}>{"PiChamber Utility Prompts"}</h2>
         <p className="typography-meta mt-1 text-muted-foreground">{"Select a prompt template to edit."}</p>
       </div>
 

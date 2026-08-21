@@ -30,6 +30,7 @@ import {
 import { SettingsInfoHint } from '@/components/sections/shared/SettingsInfoHint';
 import { useDesktopSshStore } from '@/stores/useDesktopSshStore';
 import { useUIStore } from '@/stores/useUIStore';
+import { useDeviceInfo } from '@/lib/device';
 import { toast } from '@/components/ui';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Radio } from '@/components/ui/radio';
@@ -379,6 +380,7 @@ const normalizeForSave = (instance: DesktopSshInstance): DesktopSshInstance => {
 };
 
 export const RemoteInstancesPage: React.FC = () => {
+    const { isMobile } = useDeviceInfo();
     const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
   const { clientAuth } = useRuntimeAPIs();
   const showInstanceManagement = isDesktopShell();
@@ -1384,7 +1386,7 @@ export const RemoteInstancesPage: React.FC = () => {
 
   if (!draft) {
     return (
-      <SettingsPageLayout title={"Remote Instances"}>
+      <SettingsPageLayout title={isMobile ? undefined : "Remote Instances"}>
         {clientAuth ? (
           <SettingsSection
             title={"Connect to this server"}
@@ -1767,8 +1769,6 @@ export const RemoteInstancesPage: React.FC = () => {
         </Dialog>
 
         {showInstanceManagement ? <SettingsSection
-          title={"Remote Instances"}
-          description={`Total ${instances.length}`}
           headerAction={(
             <Button type="button" size="xs" className="!font-normal" onClick={() => setSshAddDialogOpen(true)}>
               <Icon name="add" className="h-3.5 w-3.5" />

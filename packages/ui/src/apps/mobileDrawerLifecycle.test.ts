@@ -82,7 +82,7 @@ describe('mobile drawer lifecycle', () => {
 
   test('drawer-local horizontal scroll is excluded from close gestures', () => {
     expect(drawerSwipeSource).toContain('isSwipeExcludedTarget');
-    expect(drawerSwipeSource).toContain('isSwipeExcludedTarget(event.target, drawer)');
+    expect(drawerSwipeSource).toContain('isSwipeExcludedTarget(event.target, drawer, { excludeInteractive: false })');
   });
 
   test('settled close cleanup does not restore the drawer to open styles', () => {

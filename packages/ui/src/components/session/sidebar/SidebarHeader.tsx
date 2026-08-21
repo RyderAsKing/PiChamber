@@ -85,7 +85,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
               </Tooltip>
             ) : null}
 
-            {onOpenInstances ? (
+            {!mobileVariant && onOpenInstances ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -119,33 +119,37 @@ export function SidebarHeader(props: Props): React.ReactNode {
               </Tooltip>
             ) : null}
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={handleOpenDirectoryDialog}
-                  className={actionClassName}
-                  aria-label={"Add project"}
-                >
-                  <Icon name="folder-add" className={headerActionIconClass} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={4}><p>{"Add project"}</p></TooltipContent>
-            </Tooltip>
+            {!mobileVariant ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleOpenDirectoryDialog}
+                    className={actionClassName}
+                    aria-label={"Add project"}
+                  >
+                    <Icon name="folder-add" className={headerActionIconClass} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={4}><p>{"Add project"}</p></TooltipContent>
+              </Tooltip>
+            ) : null}
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={onOpenArchive}
-                  className={actionClassName}
-                  aria-label={"Archive"}
-                >
-                  <Icon name="archive" className={headerActionIconClass} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={4}><p>{"Archive"}</p></TooltipContent>
-            </Tooltip>
+            {!mobileVariant ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={onOpenArchive}
+                    className={actionClassName}
+                    aria-label={"Archive"}
+                  >
+                    <Icon name="archive" className={headerActionIconClass} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={4}><p>{"Archive"}</p></TooltipContent>
+              </Tooltip>
+            ) : null}
           </div>
 
           <div className={cn('flex shrink-0 items-center', mobileVariant ? 'gap-0.5' : 'gap-1.5')}>

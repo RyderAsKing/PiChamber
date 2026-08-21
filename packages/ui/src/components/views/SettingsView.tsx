@@ -9,28 +9,27 @@ import { useSkillsStore } from '@/stores/useSkillsStore';
 import { Tooltip, TooltipTrigger } from '@/components/ui/tooltip';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { BehaviorPage } from '@/components/sections/behavior/BehaviorPage';
-import { SkillsSidebar } from '@/components/sections/skills/SkillsSidebar';
 import { SkillsPage } from '@/components/sections/skills/SkillsPage';
 import { ProjectsSidebar } from '@/components/sections/projects/ProjectsSidebar';
 import { ProjectsPage } from '@/components/sections/projects/ProjectsPage';
 import { RemoteInstancesPage } from '@/components/sections/remote-instances/RemoteInstancesPage';
-import { ProvidersSidebar } from '@/components/sections/providers/ProvidersSidebar';
 import { ProvidersPage } from '@/components/sections/providers/ProvidersPage';
 import { MagicPromptsSidebar } from '@/components/sections/magic-prompts/MagicPromptsSidebar';
 import { MagicPromptsPage } from '@/components/sections/magic-prompts/MagicPromptsPage';
-import { SnippetsSidebar } from '@/components/sections/snippets/SnippetsSidebar';
 import { SnippetsPage } from '@/components/sections/snippets/SnippetsPage';
 import { GitPage } from '@/components/sections/git-identities/GitPage';
 import type { PiChamberSection } from '@/components/sections/pichamber/types';
 import { PiChamberPage } from '@/components/sections/pichamber/PiChamberPage';
 import { AboutSettings } from '@/components/sections/pichamber/AboutSettings';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
+import { useMobileAppActions } from '@/apps/mobileAppContext';
 import {
   SETTINGS_SECTION_TITLE_CLASS,
 } from '@/components/sections/shared/SettingsSection';
 import { useDeviceInfo } from '@/lib/device';
 import { isDesktopLocalOriginActive, isDesktopShell, isWebRuntime } from '@/lib/desktop';
 import { isWindowsArm64 as isWindowsArm64Platform } from '@/lib/platform';
+import { getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { Icon } from "@/components/icon/Icon";
 import {
   SETTINGS_PAGE_METADATA,
@@ -146,6 +145,8 @@ function getCurrentHistoryState(): Record<string, unknown> {
 export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile, isWindowed, visiblePageSlugs, initialMobileStage = 'nav' }) => {
     const deviceInfo = useDeviceInfo();
   const isMobile = forceMobile ?? deviceInfo.isMobile;
+  const mobileAppActions = useMobileAppActions();
+  const [activeRemoteLabel, setActiveRemoteLabel] = React.useState<string | null>(null);
 
   const settingsPageRaw = useUIStore((state) => state.settingsPage);
   const isSettingsDialogOpen = useUIStore((state) => state.isSettingsDialogOpen);
@@ -169,6 +170,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
   }, [isMobile, setSettingsPage, settingsSlug]);
 
   const [settingsSearchQuery, setSettingsSearchQuery] = React.useState('');
+  const [isMobileSettingsSearchOpen, setIsMobileSettingsSearchOpen] = React.useState(false);
+  const mobileSettingsSearchInputRef = React.useRef<HTMLInputElement>(null);
   const [pendingSearchItemId, setPendingSearchItemId] = React.useState<string | null>(null);
   const [activeSearchResultIndex, setActiveSearchResultIndex] = React.useState(0);
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -205,8 +208,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
     return SETTINGS_PAGE_METADATA
       .filter((page) => page.slug !== 'home')
       .filter((page) => !allowedPages || allowedPages.has(page.slug))
-      .filter((page) => isPageAvailable(page, runtimeCtx));
-  }, [runtimeCtx, visiblePageSlugs]);
+      .filter((page) => isPageAvailable(page, runtimeCtx))
+      // Mobile shows the live connection banner above the nav instead; the
+      // redundant Remote Instances entry stays reachable via that banner.
+      .filter((page) => !(isMobile && page.slug === 'remote-instances'));
+  }, [isMobile, runtimeCtx, visiblePageSlugs]);
 
   const sortedFilteredPages = React.useMemo(() => {
     const rank = new Map<SettingsPageSlug, number>(pageOrder.map((s, i) => [s, i]));
@@ -286,7 +292,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
       case 'sessions':
         return "Sessions";
       case 'magic-prompts':
-        return "Magic Prompts";
+        return "PiChamber Utility Prompts";
       case 'snippets':
         return "Snippets";
       case 'notifications':
@@ -372,13 +378,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
   }, [isMobile, openPage, prepareSettingsSearchTarget]);
 
   const handleSettingsSearchKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!settingsSearchQuery.trim()) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      if (settingsSearchQuery.trim()) {
+        setSettingsSearchQuery('');
+        return;
+      }
+      if (isMobile && isMobileSettingsSearchOpen) {
+        setIsMobileSettingsSearchOpen(false);
+      }
       return;
     }
 
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      setSettingsSearchQuery('');
+    if (!settingsSearchQuery.trim()) {
       return;
     }
 
@@ -408,7 +420,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         openSearchResult(result);
       }
     }
-  }, [openSearchResult, settingsSearchQuery, settingsSearchResults]);
+  }, [isMobile, isMobileSettingsSearchOpen, openSearchResult, settingsSearchQuery, settingsSearchResults]);
 
   React.useEffect(() => {
     const targetId = pendingSearchItemId;
@@ -457,14 +469,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
     switch (slug) {
       case 'projects':
         return <ProjectsSidebar onItemSelect={opts.onItemSelect} />;
-      case 'skills.installed':
-        return <SkillsSidebar onItemSelect={opts.onItemSelect} />;
-      case 'providers':
-        return <ProvidersSidebar onItemSelect={opts.onItemSelect} />;
       case 'magic-prompts':
         return <MagicPromptsSidebar onItemSelect={opts.onItemSelect} />;
-      case 'snippets':
-        return <SnippetsSidebar onItemSelect={opts.onItemSelect} />;
       default:
         return null;
     }
@@ -489,7 +495,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         return <ProvidersPage />;
       case 'about':
         return (
-          <SettingsPageLayout title={"About"} showSaveStatus={false}>
+          // The mobile header already shows the page title; rendering it again
+          // here read as a duplicate heading.
+          <SettingsPageLayout title={isMobile ? undefined : "About"}>
             <AboutSettings />
           </SettingsPageLayout>
         );
@@ -513,7 +521,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
       default:
         return null;
     }
-  }, [openChamberSectionBySlug, renderUnavailable, runtimeCtx]);
+  }, [isMobile, openChamberSectionBySlug, renderUnavailable, runtimeCtx]);
 
   // Mobile: if opened via deep-link / palette to a non-home page, jump into it once.
   React.useEffect(() => {
@@ -538,7 +546,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
   }, [isMobile, mobileStage, settingsSlug]);
 
   const showBackButton = isMobile && mobileStage !== 'nav';
-  const backButtonTargetsPageSidebar = isMobile && mobileStage === 'page-content' && settingsSlug === 'skills.installed';
+  const backButtonTargetsPageSidebar = false;
   const showOpenPageSidebarButton = mobileStage === 'page-content'
     && activePageMeta?.kind === 'split'
     && !backButtonTargetsPageSidebar;
@@ -571,89 +579,165 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
 
   const handleMobilePageSidebarItemSelect = React.useCallback(() => {
     setMobileStage('page-content');
-    if (settingsSlug === 'skills.installed') {
-      pushMobileSplitDetailHistory(settingsSlug);
-    }
-  }, [pushMobileSplitDetailHistory, settingsSlug]);
+  }, []);
 
   const handleBack = React.useCallback(() => {
-    if (backButtonTargetsPageSidebar) {
-      const currentDetail = typeof window !== 'undefined'
-        ? getSettingsDetailHistoryEntry(window.history.state)
-        : null;
-      if (currentDetail?.page === settingsSlug) {
-        window.history.back();
-        return;
-      }
-      setMobileStage('page-sidebar');
-      return;
-    }
-
     setMobileStage('nav');
-  }, [backButtonTargetsPageSidebar, settingsSlug]);
-
-  React.useEffect(() => {
-    if (!isMobile) {
-      return;
-    }
-
-    const handlePopState = (event: PopStateEvent) => {
-      if (settingsSlug !== 'skills.installed') {
-        return;
-      }
-
-      const detail = getSettingsDetailHistoryEntry(event.state);
-      if (detail?.page === 'skills.installed') {
-        setMobileStage('page-content');
-        return;
-      }
-
-      setMobileStage((stage) => stage === 'page-content' ? 'page-sidebar' : stage);
-    };
-
-    window.addEventListener('popstate', handlePopState);
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-    };
-  }, [isMobile, settingsSlug]);
+  }, []);
 
   const handleOpenPageSidebar = React.useCallback(() => {
     setMobileStage('page-sidebar');
   }, []);
 
+  React.useEffect(() => {
+    if (!isMobile || mobileStage !== 'nav') {
+      setIsMobileSettingsSearchOpen(false);
+    }
+  }, [isMobile, mobileStage]);
+
+  React.useEffect(() => {
+    if (isMobileSettingsSearchOpen) {
+      window.setTimeout(() => mobileSettingsSearchInputRef.current?.focus(), 0);
+    }
+  }, [isMobileSettingsSearchOpen]);
+
+  React.useEffect(() => {
+    const update = async () => {
+      try {
+        const { loadMobileConnections, isActiveRuntimeConnection } = await import('@/apps/mobileConnections');
+        const connections = await loadMobileConnections().catch(() => []);
+        const active = connections.find((c) => isActiveRuntimeConnection(c));
+        if (active) {
+          setActiveRemoteLabel(active.label);
+          return;
+        }
+      } catch {}
+      if (mobileAppActions?.instanceLabel) {
+        setActiveRemoteLabel(mobileAppActions.instanceLabel);
+        return;
+      }
+      try {
+        const { desktopHostsGet } = await import('@/lib/desktopHosts');
+        const { buildLocalDesktopHost, getLocalDesktopOrigin, resolveCurrentDesktopHost } = await import('@/lib/desktopCurrentHost');
+        const cfg = await desktopHostsGet().catch(() => ({ hosts: [] as any[] }));
+        const local = buildLocalDesktopHost(getLocalDesktopOrigin());
+        const all = [local, ...cfg.hosts];
+        const resolved = resolveCurrentDesktopHost(all);
+        if (resolved && resolved.label && resolved.label !== 'Instance') {
+          setActiveRemoteLabel(resolved.label);
+          return;
+        }
+      } catch {}
+      const url = getRuntimeApiBaseUrl();
+      const key = getRuntimeKey();
+      if (key === 'local') {
+        setActiveRemoteLabel('Local');
+        return;
+      }
+      if (key.startsWith('relay:')) {
+        const serverId = key.split(':')[1]?.split('@')[0];
+        setActiveRemoteLabel(serverId ? `Relay ${serverId.slice(0, 8)}` : 'Private relay');
+        return;
+      }
+      if (key.startsWith('host:')) {
+        setActiveRemoteLabel(key.replace('host:', ''));
+        return;
+      }
+      if (url) {
+        try {
+          const parsed = new URL(url);
+          setActiveRemoteLabel(parsed.host);
+          return;
+        } catch {
+          setActiveRemoteLabel(url);
+          return;
+        }
+      }
+      setActiveRemoteLabel(null);
+    };
+    void update();
+    return subscribeRuntimeEndpointChanged(() => void update());
+  }, [mobileAppActions?.instanceLabel]);
+
   const renderSettingsNav = () => {
     const hasSearchQuery = settingsSearchQuery.trim().length > 0;
+    const effectiveHasSearchQuery = isMobile ? (isMobileSettingsSearchOpen && hasSearchQuery) : hasSearchQuery;
 
     return (
       <div className="flex h-full flex-col overflow-hidden">
-        <div className="px-3 pt-3">
-          <div className="flex h-10 items-center gap-1.5 rounded-md border border-border bg-transparent px-2 text-muted-foreground focus-within:ring-2 focus-within:ring-primary/40 sm:h-8">
-            <Icon name="search" className="h-4 w-4 shrink-0" />
-            <input
-              value={settingsSearchQuery}
-              onChange={(event) => setSettingsSearchQuery(event.target.value)}
-              onKeyDown={handleSettingsSearchKeyDown}
-              placeholder={"Search settings"}
-              aria-label={"Search settings"}
-              className="typography-ui-label min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground/70"
-            />
-            {hasSearchQuery && (
+        {isMobile ? (
+          !effectiveHasSearchQuery ? (
+            <div className="px-3 pt-3">
               <button
                 type="button"
-                onClick={() => setSettingsSearchQuery('')}
-                aria-label={"Clear settings search"}
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-interactive-hover hover:text-foreground sm:h-5 sm:w-5"
+                onClick={() => {
+                  if (mobileAppActions?.openInstances) {
+                    mobileAppActions.openInstances();
+                    return;
+                  }
+                  openPage('remote-instances');
+                }}
+                className={cn("flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3.5 text-left shadow-sm hover:bg-interactive-hover/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50", activeRemoteLabel ? "border-[var(--status-success)]/30 bg-[var(--status-success)]/10" : "border-border bg-card")}
               >
-                <Icon name="close" className="h-3.5 w-3.5" />
+                <div className="min-w-0 flex-1">
+                  {activeRemoteLabel ? (
+                    <>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="typography-ui-label font-medium text-foreground truncate">{activeRemoteLabel}</span>
+                        <span className="flex items-center gap-1.5 shrink-0 typography-micro">
+                          <span className="size-1.5 shrink-0 rounded-full bg-[var(--status-success)] animate-pulse" aria-hidden />
+                          <span className="text-[var(--status-success)]">Connected</span>
+                        </span>
+                      </div>
+                      <div className="typography-micro text-muted-foreground truncate">Manage instances & pair devices</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="typography-ui-label font-medium text-foreground truncate">Not connected</span>
+                        <span className="flex items-center gap-1.5 shrink-0 typography-micro">
+                          <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground" aria-hidden />
+                          <span className="text-muted-foreground">Select a server</span>
+                        </span>
+                      </div>
+                      <div className="typography-micro text-muted-foreground truncate">Manage instances & pair devices</div>
+                    </>
+                  )}
+                </div>
+                <Icon name="arrow-right-s" className="size-4 shrink-0 text-muted-foreground" />
               </button>
-            )}
+            </div>
+          ) : null
+        ) : (
+          <div className="px-3 pt-3">
+            <div className="flex h-10 items-center gap-1.5 rounded-md border border-border bg-transparent px-2 text-muted-foreground focus-within:ring-2 focus-within:ring-primary/40 sm:h-8">
+              <Icon name="search" className="h-4 w-4 shrink-0" />
+              <input
+                value={settingsSearchQuery}
+                onChange={(event) => setSettingsSearchQuery(event.target.value)}
+                onKeyDown={handleSettingsSearchKeyDown}
+                placeholder={"Search settings"}
+                aria-label={"Search settings"}
+                className="typography-ui-label min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground/70"
+              />
+              {hasSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSettingsSearchQuery('')}
+                  aria-label={"Clear settings search"}
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-interactive-hover hover:text-foreground sm:h-5 sm:w-5"
+                >
+                  <Icon name="close" className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Scrollable nav items */}
         <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
           <div className="flex flex-col gap-0.5 px-3 pt-3 pb-2">
-            {hasSearchQuery ? (
+            {effectiveHasSearchQuery ? (
               settingsSearchResults.length > 0 ? (() => {
                 let resultIndex = 0;
                 return groupedSettingsSearchResults.map((group) => (
@@ -880,6 +964,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
             </button>
           )}
 
+          {isMobile && mobileStage === 'nav' ? (
+            <button
+              type="button"
+              onClick={() => {
+                const next = !isMobileSettingsSearchOpen;
+                setIsMobileSettingsSearchOpen(next);
+                if (!next) setSettingsSearchQuery('');
+                else window.setTimeout(() => mobileSettingsSearchInputRef.current?.focus(), 0);
+              }}
+              aria-label={isMobileSettingsSearchOpen ? "Close search" : "Search settings"}
+              aria-expanded={isMobileSettingsSearchOpen}
+              className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg p-2 text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              <Icon name={isMobileSettingsSearchOpen ? "close" : "search"} className="h-5 w-5" />
+            </button>
+          ) : null}
+
           {onClose && (
             <button
               type="button"
@@ -910,7 +1011,35 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         </>
       )}
 
-
+      {isMobile && mobileStage === 'nav' && isMobileSettingsSearchOpen ? (
+        <div
+          className="flex shrink-0 items-center gap-2 border-b bg-background px-3 py-2"
+          style={{ borderColor: 'var(--interactive-border)' }}
+        >
+          <div className="flex h-10 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-border bg-transparent px-2 text-muted-foreground focus-within:ring-2 focus-within:ring-primary/40">
+            <Icon name="search" className="h-4 w-4 shrink-0" />
+            <input
+              ref={mobileSettingsSearchInputRef}
+              value={settingsSearchQuery}
+              onChange={(event) => setSettingsSearchQuery(event.target.value)}
+              onKeyDown={handleSettingsSearchKeyDown}
+              placeholder={"Search settings"}
+              aria-label={"Search settings"}
+              className="typography-ui-label min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground/70"
+            />
+            {settingsSearchQuery.trim().length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setSettingsSearchQuery('')}
+                aria-label={"Clear settings search"}
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
+              >
+                <Icon name="close" className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {isMobile ? (

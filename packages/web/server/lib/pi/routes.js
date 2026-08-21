@@ -135,6 +135,23 @@ const projectUsage = (raw) => {
   };
 };
 
+const sanitizeNavigation = (value) => {
+  if (!value || typeof value !== 'object' || typeof value.targetEntryId !== 'string' || value.targetEntryId.length === 0) return null;
+  const previousLeafId = value.previousLeafId === null ? null : (typeof value.previousLeafId === 'string' ? value.previousLeafId : null);
+  const newLeafId = value.newLeafId === null ? null : (typeof value.newLeafId === 'string' ? value.newLeafId : null);
+  if (previousLeafId !== null && typeof previousLeafId !== 'string') return null;
+  if (newLeafId !== null && typeof newLeafId !== 'string') return null;
+  const editorText = typeof value.editorText === 'string' ? value.editorText : undefined;
+  // Limit editorText defensively; Pi prompts are bounded and we never persist this.
+  if (editorText !== undefined && editorText.length > 200_000) return null;
+  return {
+    targetEntryId: value.targetEntryId,
+    previousLeafId,
+    newLeafId,
+    ...(editorText !== undefined ? { editorText } : {}),
+  };
+};
+
 const projectSessionDetail = (value) => {
   if (!value || typeof value !== 'object' || !Array.isArray(value.messages) || !Number.isSafeInteger(value.lastSequence)) throw protocolMismatch();
   const messages = value.messages.map((item) => {
@@ -495,7 +512,6 @@ export const registerPiRuntimeRoutes = (app, {
         currentVersion: typeof req.query.currentVersion === 'string' ? req.query.currentVersion : undefined,
         appType: typeof req.query.appType === 'string' ? req.query.appType : undefined,
         platform: typeof req.query.platform === 'string' ? req.query.platform : undefined,
-        reportUsage: req.query.reportUsage === 'true',
       }));
     } catch {
       res.status(503).json({ error: 'Update check unavailable' });
@@ -901,7 +917,11 @@ export const registerPiRuntimeRoutes = (app, {
 
   app.post('/api/pi/sessions/:sessionId/navigate', async (req, res) => {
     const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.navigate', { messageId: req.body?.messageId });
-    if (result !== undefined) res.json(projectSessionDetail(result));
+    if (result === undefined) return;
+    const detail = projectSessionDetail(result);
+    const navigation = sanitizeNavigation(result.navigation);
+    if (navigation) detail.navigation = navigation;
+    res.json(detail);
   });
 
   for (const [suffix, command] of [['fork', 'sessions.fork'], ['clone', 'sessions.clone']]) {

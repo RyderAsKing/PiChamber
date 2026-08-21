@@ -8,44 +8,12 @@
  */
 
 import React from 'react';
-import type { Part } from '@/lib/chat/types';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
-import { isSyntheticPart } from '@/lib/messages/synthetic';
 import { cn } from '@/lib/utils';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useDirectorySync } from '@/sync/sync-context';
-import {
-    EMPTY_REVERTED_MESSAGE_DOCK_STATE,
-    buildRevertedMessageDockState,
-    type RevertedMessageDockState,
-} from '../../revertedMessageDockState';
-
-/**
- * A one-line preview of a reverted message: its text parts joined and
- * collapsed to a single line, falling back to an attached filename and then to
- * a caller-supplied placeholder.
- */
-const getRevertedPreview = (parts: Part[], fallback: string): string => {
-    const text = parts
-        .filter((part) => part.type === 'text' && !isSyntheticPart(part))
-        .map((part) => {
-            const record = part as Record<string, unknown>;
-            return typeof record.text === 'string'
-                ? record.text
-                : typeof record.content === 'string'
-                    ? record.content
-                    : '';
-        })
-        .join('\n')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-    if (text) return text;
-    const filePart = parts.find((part) => part.type === 'file') as (Part & { filename?: string }) | undefined;
-    return filePart?.filename ? `[${filePart.filename}]` : fallback;
-};
+import { useRevertNavigation } from '@/sync/revert-navigation-store';
 
 type RevertedMessageDockProps = {
     sessionId: string | null;
@@ -60,27 +28,20 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
     const [restoringId, setRestoringId] = React.useState<string | null>(null);
     const [forkingId, setForkingId] = React.useState<string | null>(null);
     const [collapsed, setCollapsed] = React.useState(true);
-    const revertedStateRef = React.useRef<RevertedMessageDockState>(EMPTY_REVERTED_MESSAGE_DOCK_STATE);
-    const revertedState = useDirectorySync(
-        React.useCallback((state) => {
-            const next = buildRevertedMessageDockState(state, sessionId, revertedStateRef.current);
-            revertedStateRef.current = next;
-            return next;
-        }, [sessionId]),
-    );
-    const revertMessageID = revertedState.revertMessageID;
-    const userMessages = React.useMemo(
-        () => revertedState.records.map((record) => record.message),
-        [revertedState],
-    );
+    const navigation = useRevertNavigation(sessionId);
+    const revertMessageID = navigation?.targetEntryId;
+    const abandonedUser = React.useMemo(() => {
+        if (!navigation) return [];
+        return navigation.abandoned.filter((entry) => entry.role === 'user');
+    }, [navigation]);
     const noTextContent = "No text content";
     const items = React.useMemo(() => {
-        if (!revertMessageID) return [];
-        return revertedState.records.map((record) => ({
-            id: record.message.id,
-            text: getRevertedPreview(record.parts, noTextContent),
+        if (!navigation || abandonedUser.length === 0) return [];
+        return abandonedUser.map((entry) => ({
+            id: entry.id,
+            text: entry.preview?.replace(/\s+/g, ' ').trim() || noTextContent,
         }));
-    }, [noTextContent, revertMessageID, revertedState]);
+    }, [abandonedUser, navigation, noTextContent]);
     const firstRevertedMessageId = items[0]?.id;
 
     React.useEffect(() => {
@@ -91,16 +52,18 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
         if (!sessionId || restoringId) return;
         setRestoringId(messageId);
         try {
-            const nextMessage = userMessages.find((message) => message.id > messageId);
-            if (nextMessage) {
-                await revertToMessage(sessionId, nextMessage.id, { skipRedoPush: true });
+            // Use branch order (array position), not lexical ID comparison.
+            const index = abandonedUser.findIndex((entry) => entry.id === messageId);
+            const next = index >= 0 ? abandonedUser[index + 1] : undefined;
+            if (next) {
+                await revertToMessage(sessionId, next.id);
             } else {
                 await handleSlashRedo(sessionId, { fullUnrevert: true });
             }
         } finally {
             setRestoringId(null);
         }
-    }, [handleSlashRedo, revertToMessage, restoringId, sessionId, userMessages]);
+    }, [abandonedUser, handleSlashRedo, revertToMessage, restoringId, sessionId]);
 
     const handleFork = React.useCallback(async (messageId: string) => {
         if (!sessionId || forkingId) return;

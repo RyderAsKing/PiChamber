@@ -90,16 +90,41 @@ export async function refetchSessionMessages(_id?: string): Promise<void> {
 }
 
 export async function revertToMessage(sessionId: string, messageId: string): Promise<void> {
-  await store().navigate(sessionId, messageId);
+  const detail = await store().navigate(sessionId, messageId) as unknown as { navigation?: { editorText?: string } } | undefined;
+  const editorText = detail?.navigation?.editorText;
+  if (typeof editorText === 'string' && editorText.length > 0) {
+    try {
+      const { useInputStore } = await import('@/sync/input-store');
+      useInputStore.getState().setPendingRevertText(editorText);
+    } catch {
+      // ignore: input store may be unavailable during hydration
+    }
+  }
 }
 
-export async function unrevertSession(_id?: string): Promise<void> {
-  void _id;
+export async function unrevertSession(sessionId: string): Promise<void> {
+  try {
+    const { getRevertNavigation } = await import('@/sync/revert-navigation-store');
+    const entry = getRevertNavigation(sessionId);
+    const target = entry?.previousLeafId;
+    if (!target) return;
+    const detail = await store().navigate(sessionId, target) as unknown as { navigation?: { editorText?: string } } | undefined;
+    const editorText = detail?.navigation?.editorText;
+    if (typeof editorText === 'string' && editorText.length > 0) {
+      try {
+        const { useInputStore } = await import('@/sync/input-store');
+        useInputStore.getState().setPendingRevertText(editorText);
+      } catch {
+        // ignore: input store may be unavailable during hydration
+      }
+    }
+  } catch {
+    // ignore: navigation state may be unavailable
+  }
 }
 
-export async function forkFromMessage(sessionId: string, _messageId?: string): Promise<void> {
-  void _messageId;
-  await store().fork(sessionId);
+export async function forkFromMessage(sessionId: string, messageId?: string): Promise<void> {
+  await store().fork(sessionId, messageId);
 }
 
 export async function fetchMessagesForSession(_sessionId?: string, _directory?: string | null): Promise<never[]> {

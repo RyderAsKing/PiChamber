@@ -50,9 +50,9 @@
 
 ## Horizontal-Scroll Exclusions
 
-- **Shared predicate**: `isSwipeExcludedTarget` in `gestureMath` (selector `button, a, input, textarea, select, [contenteditable], [data-no-drawer-swipe]` + `scrollWidth > clientWidth && overflowX auto|scroll`). Single source for `useDrawerSwipe` and `useEdgeSwipe`, including when a drawer-local surface is already open.
+- **Shared predicate**: `isSwipeExcludedTarget` in `gestureMath` (selector `button, a, input, textarea, select, [contenteditable], [data-no-drawer-swipe]` + `scrollWidth > clientWidth && overflowX auto|scroll`). Single source for both hooks. `useEdgeSwipe` (content surface) always excludes interactive controls; `useDrawerSwipe` (drawer-local close) passes `{ excludeInteractive: false }` so a swipe anywhere on the drawer can close it — only the explicit `[data-no-drawer-swipe]` marker and horizontal scrollers remain excluded.
 
-- **Applied for both open and closed states**: `useEdgeSwipe` checks `isSwipeExcludedTarget` before tracking even when a drawer is already open. Previously it only checked when closed, causing horizontal scroll inside code blocks / terminal / composer / tab lists to be hijacked as a close gesture.
+- **Applied for both open and closed states on the content surface**: `useEdgeSwipe` checks `isSwipeExcludedTarget` before tracking even when a drawer is already open. Previously it only checked when closed, causing horizontal scroll inside code blocks / terminal / composer / tab lists to be hijacked as a close gesture.
 
 - **Explicit markers** (`data-no-drawer-swipe="true"`) on:
   - `MobileWorkspaceDrawer` tab strip

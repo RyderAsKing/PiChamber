@@ -17,10 +17,9 @@ import {
 import { SortableTabsStrip, type SortableTabsStripItem } from '@/components/ui/sortable-tabs-strip';
 
 import { DiffIcon } from '@/components/icons/DiffIcon';
-import { useUIStore, type ContextPanelMode, type MainTab } from '@/stores/useUIStore';
-import { useConfigStore } from '@/stores/useConfigStore';
+import { useUIStore, type MainTab } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { buildSessionMessageRecordsSnapshot, useDirectoryStore, useGlobalSessionStatus, useSession, useSessionMessages, useSessionMessagesResolved } from '@/sync/sync-context';
+import { buildSessionMessageRecordsSnapshot, useDirectoryStore, useGlobalSessionStatus, useSession, useSessionMessages } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useGitBranchLabel } from '@/stores/useGitStore';
@@ -30,7 +29,6 @@ import { streamPerfCount } from '@/stores/utils/streamDebug';
 import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useDesktopWindowControlsLayout } from '@/hooks/useDesktopWindowControlsLayout';
-import { ContextUsageDisplay } from '@/components/ui/ContextUsageDisplay';
 import { WindowsWindowControls } from '@/components/desktop/WindowsWindowControls';
 import { UpdateDialog } from '@/components/ui/UpdateDialog';
 import { useDeviceInfo, useTabletLayout, useTabletStandalonePwaRuntime } from '@/lib/device';
@@ -43,7 +41,6 @@ import { eventMatchesShortcut, formatShortcutForDisplay, getEffectiveShortcutCom
 
 type UsageWindow = any;
 import type { GitHubAuthStatus } from '@/lib/api/types';
-import type { SessionContextUsage } from '@/stores/types/sessionTypes';
 import { DesktopHostSwitcherDialog } from '@/components/desktop/DesktopHostSwitcher';
 import { OpenInAppButton } from '@/components/desktop/OpenInAppButton';
 import { ProjectActionsButton } from '@/components/layout/ProjectActionsButton';
@@ -354,21 +351,7 @@ const DesktopServicesMenu = React.memo(function DesktopServicesMenu({
   );
 });
 
-const isSameContextUsage = (
-  a: SessionContextUsage | null,
-  b: SessionContextUsage | null,
-): boolean => {
-  if (a === b) return true;
-  if (!a || !b) return false;
 
-  return a.totalTokens === b.totalTokens
-    && a.percentage === b.percentage
-    && a.contextLimit === b.contextLimit
-    && (a.outputLimit ?? 0) === (b.outputLimit ?? 0)
-    && (a.normalizedOutput ?? 0) === (b.normalizedOutput ?? 0)
-    && a.thresholdLimit === b.thresholdLimit
-    && (a.lastMessageId ?? '') === (b.lastMessageId ?? '');
-};
 
 const formatCompactHeaderLabel = (value: string): string => {
   const trimmed = value.trim();
@@ -403,19 +386,6 @@ const normalize = (value: string): string => {
   if (!value) return '';
   const replaced = value.replace(/\\/g, '/');
   return replaced === '/' ? '/' : replaced.replace(/\/+$/, '');
-};
-
-const getActiveContextMode = (panelState: {
-  isOpen: boolean;
-  activeTabId: string | null;
-  tabs: Array<{ id: string; mode: ContextPanelMode }>;
-} | undefined): ContextPanelMode | null => {
-  if (!panelState?.isOpen || !Array.isArray(panelState.tabs) || panelState.tabs.length === 0) {
-    return null;
-  }
-
-  const activeTab = panelState.tabs.find((tab) => tab.id === panelState.activeTabId) ?? panelState.tabs[panelState.tabs.length - 1];
-  return activeTab?.mode ?? null;
 };
 
 interface TabConfig {
@@ -458,20 +428,15 @@ export const Header: React.FC<HeaderProps> = ({
   const setSessionSwitcherOpen = useUIStore((state) => state.setSessionSwitcherOpen);
   const toggleSidebar = useUIStore((state) => state.toggleSidebar);
   const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
-  const openContextOverview = useUIStore((state) => state.openContextOverview);
-  const closeContextPanel = useUIStore((state) => state.closeContextPanel);
   const activeMainTab = useUIStore((state) => state.activeMainTab);
   const setActiveMainTab = useUIStore((state) => state.setActiveMainTab);
   const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
   const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
 
-  const getCurrentModel = useConfigStore((state) => state.getCurrentModel);
   const runtimeApis = useRuntimeAPIs();
 
-  const getContextUsage = useSessionUIStore((state) => state.getContextUsage);
   const isNewSessionDraftOpen = useSessionUIStore((state) => Boolean(state.newSessionDraft?.open));
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
-  const currentSessionMessagesResolved = useSessionMessagesResolved(currentSessionId ?? '');
   const currentSessionStatus = useGlobalSessionStatus(currentSessionId ?? '');
   const currentSessionRecord = useSession(currentSessionId);
   const currentGlobalSession = React.useMemo((): HeaderSessionSnapshot | null => {
@@ -573,32 +538,6 @@ export const Header: React.FC<HeaderProps> = ({
     setIsDesktopApp(isDesktopShell());
   }, []);
 
-  const currentModel = getCurrentModel();
-  const limit = currentModel && typeof currentModel.limit === 'object' && currentModel.limit !== null
-    ? (currentModel.limit as Record<string, unknown>)
-    : null;
-  const contextLimit = (limit && typeof limit.context === 'number' ? limit.context : 0);
-  const outputLimit = (limit && typeof limit.output === 'number' ? limit.output : 0);
-  const contextUsage = getContextUsage(contextLimit, outputLimit);
-  const [stableDesktopContextUsage, setStableDesktopContextUsage] = React.useState<SessionContextUsage | null>(null);
-  const isContextUsageResolvedForSession = !currentSessionId || currentSessionMessagesResolved;
-
-  useEffect(() => {
-    if (!currentSessionId) {
-      setStableDesktopContextUsage((prev) => (prev === null ? prev : null));
-      return;
-    }
-
-    if (contextUsage && contextUsage.totalTokens > 0) {
-      setStableDesktopContextUsage((prev) => (isSameContextUsage(prev, contextUsage) ? prev : contextUsage));
-      return;
-    }
-
-    if (isContextUsageResolvedForSession) {
-      setStableDesktopContextUsage((prev) => (prev === null ? prev : null));
-    }
-  }, [contextUsage, currentSessionId, isContextUsageResolvedForSession]);
-
   const isSessionSwitcherOpen = useUIStore((state) => state.isSessionSwitcherOpen);
   const githubAvatarUrl = null;
   const githubLogin = null;
@@ -612,12 +551,6 @@ export const Header: React.FC<HeaderProps> = ({
   const [remoteUpdateChecking, setRemoteUpdateChecking] = React.useState(false);
   const [remoteUpdateError, setRemoteUpdateError] = React.useState<string | null>(null);
   const compactCurrentInstanceLabel = React.useMemo(() => formatCompactHeaderLabel(currentInstanceLabel), [currentInstanceLabel]);
-  const showDesktopHeaderContextUsage = activeMainTab === 'chat'
-    && !!stableDesktopContextUsage
-    && stableDesktopContextUsage.totalTokens > 0;
-  const desktopHeaderDisplayPercentage = stableDesktopContextUsage && stableDesktopContextUsage.contextLimit > 0
-    ? Math.min(999, (stableDesktopContextUsage.totalTokens / stableDesktopContextUsage.contextLimit) * 100)
-    : 0;
 
   const refreshCurrentInstanceLabel = React.useCallback(async () => {
     if (typeof window === 'undefined' || !isDesktopApp) {
@@ -670,8 +603,8 @@ export const Header: React.FC<HeaderProps> = ({
     setRemoteUpdateChecking(true);
     setRemoteUpdateError(null);
     try {
-      // Status-only poll: must not count as usage on the remote server's install id.
-      const params = new URLSearchParams({ appType: 'web', instanceMode: 'remote', reportUsage: 'false' });
+      // Status-only poll of the remote server's update feed.
+      const params = new URLSearchParams({ appType: 'web', instanceMode: 'remote' });
       const response = await runtimeFetch(`/api/pi/update-check?${params.toString()}`, {
         method: 'GET',
         headers: { Accept: 'application/json' },
@@ -831,10 +764,6 @@ export const Header: React.FC<HeaderProps> = ({
   const openDirectory = React.useMemo(() => {
     return sessionDirectory || draftDirectory;
   }, [draftDirectory, sessionDirectory]);
-  const activeContextMode = useUIStore(React.useCallback((state) => {
-    const directory = normalize(openDirectory || '');
-    return directory ? getActiveContextMode(state.contextPanelByDirectory[directory]) : null;
-  }, [openDirectory]));
 
   const gitBranchForDirectory = useGitBranchLabel(openDirectory || null);
   const currentBranchLabel = gitBranchForDirectory;
@@ -1058,27 +987,6 @@ export const Header: React.FC<HeaderProps> = ({
     });
   }, [activeProject?.path, currentSessionId, handleOpenDraftMiniChat, isNewSessionDraftOpen, openDirectory]);
 
-  const handleOpenContextPanel = React.useCallback(() => {
-    const directory = normalize(openDirectory || '');
-    if (!directory) {
-      return;
-    }
-
-    const panelState = useUIStore.getState().contextPanelByDirectory[directory];
-    if (getActiveContextMode(panelState) === 'context') {
-      closeContextPanel(directory);
-      return;
-    }
-
-    openContextOverview(directory);
-  }, [closeContextPanel, openContextOverview, openDirectory]);
-
-  const isContextPanelActive = activeContextMode === 'context';
-
-
-
-
-
   const desktopHeaderIconButtonClass = DESKTOP_HEADER_ICON_BUTTON_CLASS;
   const mobileHeaderIconButtonClass = MOBILE_HEADER_ICON_BUTTON_CLASS;
   const mobileActiveHeaderItem = React.useMemo(() => {
@@ -1147,11 +1055,16 @@ export const Header: React.FC<HeaderProps> = ({
   // slides in/out in lockstep with the sidebar. When the sidebar is open the
   // overlay is over the sidebar, so the header only keeps normal content padding.
   const headerInsetSpacerWidth = isSidebarOpen ? '0.75rem' : 'var(--oc-titlebar-left-inset, 0.75rem)';
+  // Tablet overlay renders the toggle at h-9 (see TABLET_TOGGLE_BUTTON_CLASS
+  // in TitlebarLeftControls); phone/regular paths still use the 32px desktop
+  // toggle so the +0.5rem right margin matches in either case.
   const headerControlsSpacerWidth = isSidebarOpen
     ? '0px'
     : isDesktopApp && usesFramelessChrome
       ? 'calc(var(--oc-titlebar-controls-width, 5.5rem) + 0.5rem)'
-      : '2.5rem';
+      : isTabletLayoutEnabled
+        ? '2.75rem'
+        : '2.5rem';
 
   useEffect(() => {
     if (!isDesktopApp || !isMacPlatform) {
@@ -1623,23 +1536,6 @@ export const Header: React.FC<HeaderProps> = ({
               projectRef={projectActionsContext.projectRef}
               directory={projectActionsContext.directory}
               className="mr-1"
-            />
-          ) : null}
-          {showDesktopHeaderContextUsage && stableDesktopContextUsage ? (
-            <ContextUsageDisplay
-              totalTokens={stableDesktopContextUsage.totalTokens}
-              percentage={desktopHeaderDisplayPercentage}
-              colorPercentage={stableDesktopContextUsage.percentage}
-              contextLimit={stableDesktopContextUsage.contextLimit}
-              outputLimit={stableDesktopContextUsage.outputLimit ?? 0}
-              size="compact"
-              hideIcon
-              showPercentIcon
-              onClick={handleOpenContextPanel}
-              pressed={isContextPanelActive}
-              className={!showMiniChatHeaderAction ? 'mr-3.5' : ''}
-              valueClassName="typography-ui-label font-medium leading-none text-foreground"
-              percentIconClassName="h-4.5 w-4.5"
             />
           ) : null}
 

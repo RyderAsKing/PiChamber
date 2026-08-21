@@ -1169,6 +1169,16 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                 canLoadEarlier={timelineController.historySignals.canLoadEarlier}
                 isLoadingEarlier={timelineController.isLoadingOlder}
                 onLoadEarlier={handleLoadOlderClick}
+                onRevert={async (messageId) => {
+                    if (!currentSessionId) return;
+                    const entryId = messageId.includes(':') ? messageId.split(':')[0] ?? messageId : messageId;
+                    await useSessionUIStore.getState().revertToMessage(currentSessionId, entryId);
+                }}
+                onFork={async (messageId) => {
+                    if (!currentSessionId) return;
+                    const entryId = messageId.includes(':') ? messageId.split(':')[0] ?? messageId : messageId;
+                    await useSessionUIStore.getState().forkFromMessage(currentSessionId, entryId);
+                }}
             />
         </div>
     );

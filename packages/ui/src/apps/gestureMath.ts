@@ -96,12 +96,25 @@ const SWIPE_EXCLUDED_SELECTOR =
 
 /**
  * Shared exclusion predicate: buttons/inputs/editable + any horizontal scroll container.
- * Must be used for both closed AND open drawer cases.
+ * Must be used for both closed AND open drawer cases for the content surface.
+ * For drawer-local close gestures (useDrawerSwipe) interactive elements are
+ * intentionally *not* excluded so a swipe anywhere on the drawer can close it;
+ * only the explicit marker and horizontal scrollers remain.
  */
-export const isSwipeExcludedTarget = (target: EventTarget | null, root: HTMLElement): boolean => {
+export const isSwipeExcludedTarget = (
+  target: EventTarget | null,
+  root: HTMLElement,
+  options?: { excludeInteractive?: boolean },
+): boolean => {
   if (!(target instanceof Element)) return false;
-  const interactive = (target as Element).closest(SWIPE_EXCLUDED_SELECTOR);
-  if (interactive && root.contains(interactive)) return true;
+  const excludeInteractive = options?.excludeInteractive ?? true;
+  if (excludeInteractive) {
+    const interactive = (target as Element).closest(SWIPE_EXCLUDED_SELECTOR);
+    if (interactive && root.contains(interactive)) return true;
+  } else {
+    const noSwipe = (target as Element).closest('[data-no-drawer-swipe]');
+    if (noSwipe && root.contains(noSwipe)) return true;
+  }
   let node: Element | null = target as Element;
   while (node && node !== root) {
     if (node instanceof HTMLElement && node.scrollWidth > node.clientWidth) {

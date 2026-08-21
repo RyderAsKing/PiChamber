@@ -144,6 +144,18 @@ export interface PiSessionDetailResponse {
   lifecycle: PiSessionLifecycleState;
 }
 
+/** Metadata returned after a successful tree navigation. */
+export interface PiNavigationMeta {
+  targetEntryId: string;
+  previousLeafId: string | null;
+  newLeafId: string | null;
+  editorText?: string;
+}
+
+export interface PiSessionNavigateResponse extends PiSessionDetailResponse {
+  navigation: PiNavigationMeta;
+}
+
 /** A message view returned by the API, including part data. */
 export interface PiMessageView {
   message: PiUserMessage | PiAssistantMessage;

@@ -298,13 +298,17 @@ The mounted Providers surface submits API keys once through the authenticated
 adapter or renders Pi's opaque browser/device/manual-code login state; stored
 credentials never return to the browser. Custom OpenAI-compatible providers
 are written through the same adapter to Pi `models.json`; configuration
-responses omit credentials and headers, which are write-only. PiChamber new-session model, per-model thinking, small-model, and walkthrough-model
+responses omit credentials and headers, which are write-only. PiChamber new-session model, small-model, and walkthrough-model
 defaults live in its own sidecar and are edited on the Sessions settings page
-with the shared model picker. Default thinking is stored per `provider/model`
-and applied on session create and composer model changes, clamped to that
-model's Pi `thinkingLevels`. A leftover global `defaultThinking` is only a
-clamp fallback when no default model is set. Providers settings owns
-authentication and the catalog, not those defaults. `providers.list` projects
+with the shared model picker. Per-model thinking variants live solely in
+Providers settings — each model row shows its default variant directly
+without a boxed border (`Default` when unset) and stores `pichamber.defaultThinkingByModel`
+(`provider/model` → level). The Sessions default-thinking row edits the same
+map entry for the current default model. All are applied on session create and
+composer model changes, clamped to that model’s Pi `thinkingLevels`. A leftover
+global `defaultThinking` is only a clamp fallback when no default model is set.
+Providers owns authentication, catalog, and per-model variant defaults; Sessions
+owns new-session model selection. `providers.list` projects
 Pi `getSupportedThinkingLevels` (`off` through `max`, with `xhigh`/`max`
 opt-in and `null` map entries hidden). Only the explicit new-session
 overrides are passed to the daemon, so Pi's normal settings fallback remains

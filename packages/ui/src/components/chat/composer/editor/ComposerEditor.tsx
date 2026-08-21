@@ -464,6 +464,8 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
             if (branch) observer.observe(branch);
             if (boundEl) observer.observe(boundEl);
             return () => observer.disconnect();
+        // handlersRef is a stable ref that always points to latest props; no need to re-subscribe.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         }, [boundGapPx, boundSelector, fillContainer, maxLines]);
 
         React.useEffect(() => {

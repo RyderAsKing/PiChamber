@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import type { UpdateInfo, UpdateProgress } from '@/lib/desktop';
 import { getDeviceInfo } from '@/lib/device';
-import { useUIStore } from './useUIStore';
 import {
   checkForDesktopUpdates,
   downloadDesktopUpdate,
@@ -37,23 +36,6 @@ interface UpdateStore extends UpdateState {
 }
 
 type ClientRuntime = 'desktop' | 'web' | 'mobile';
-
-const CLIENT_INSTALL_ID_KEY = 'pichamber.update-install-id';
-
-function getClientInstallId(): string | undefined {
-  if (typeof window === 'undefined' || typeof crypto.randomUUID !== 'function') return undefined;
-
-  try {
-    const existing = window.localStorage.getItem(CLIENT_INSTALL_ID_KEY)?.trim();
-    if (existing) return existing;
-
-    const installId = crypto.randomUUID();
-    window.localStorage.setItem(CLIENT_INSTALL_ID_KEY, installId);
-    return installId;
-  } catch {
-    return undefined;
-  }
-}
 
 function detectDeviceClass(): 'mobile' | 'tablet' | 'desktop' | 'unknown' {
   if (typeof window === 'undefined') return 'unknown';
@@ -95,17 +77,10 @@ function detectPlatform(): 'macos' | 'windows' | 'linux' | 'web' | 'android' | '
 }
 
 function mapRuntimeParams(runtime: ClientRuntime): URLSearchParams {
-  // Check if user has opted out of usage reporting (default: true/enabled from UI store)
-  const shouldReportUsage = useUIStore.getState().reportUsage;
-  
-  const params = new URLSearchParams({ reportUsage: shouldReportUsage ? 'true' : 'false' });
+  const params = new URLSearchParams();
   params.set('deviceClass', detectDeviceClass());
   params.set('arch', detectArch());
   params.set('platform', detectPlatform());
-  if (shouldReportUsage && (runtime === 'desktop' || runtime === 'mobile')) {
-    const installId = getClientInstallId();
-    if (installId) params.set('installId', installId);
-  }
   if (runtime === 'desktop') {
     params.set('appType', 'desktop-electron');
     params.set('instanceMode', isDesktopLocalOriginActive() ? 'local' : 'remote');

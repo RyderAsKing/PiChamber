@@ -17,10 +17,16 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 
 import { Icon } from '@/components/icon/Icon';
+import { ContextProgressIcon } from '@/components/ui/ContextProgressIcon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useDeviceInfo } from '@/lib/device';
+import { useConfigStore } from '@/stores/useConfigStore';
+import { useSelectionStore } from '@/sync/selection-store';
+import { useSessionMessageRecords } from '@/sync/sync-context';
+import { useSessionUIStore } from '@/sync/session-ui-store';
+import { computeCacheHitRate, computePiContextWindowTokens, extractSessionMessageBreakdown, type PiUsageLike } from '@/stores/utils/tokenUtils';
 import {
   getGitRailPresentation,
   getVisibleContextRailSurfaces,
@@ -56,11 +62,42 @@ type RailItemProps = {
   orderNumber?: number | null;
   showOrderNumber?: boolean;
   onSelect: (surface: ContextSurfaceDescriptor) => void;
+  /** When set and surface is "context", renders the live circular chart instead of the static icon. */
+  chartPercentage?: number | null;
+  /** Rich tooltip data that mirrors the mobile popover (progress + token breakdown + cache). */
+  chartDetails?: {
+    percentage: number;
+    totalTokens: number;
+    contextLimit: number;
+    outputLimit: number;
+    cacheRead: number | null;
+    cacheWrite: number | null;
+    cacheHitPercent: number | null;
+    hasData: boolean;
+  } | null;
+};
+
+const formatTokensCompact = (value: number): string => {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return String(value);
+};
+
+const getRailNumericLimit = (limit: unknown, key: 'context' | 'output'): number | undefined => {
+  if (!limit || typeof limit !== 'object') return undefined;
+  const v = (limit as Partial<Record<'context' | 'output', unknown>>)[key];
+  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 };
 
 // The badge corner is 16px tall; cap large counts so the pill stays compact
 // on the 36px rail button (matching the order-number badge's footprint).
 const formatRailBadgeCount = (count: number): string => (count > 99 ? '99+' : String(count));
+
+const getRailPercentageColor = (pct: number): string => {
+  if (pct >= 90) return 'text-[var(--status-error)]';
+  if (pct >= 75) return 'text-[var(--status-warning)]';
+  return 'text-[var(--status-success)]';
+};
 
 const ContextPanelRailItem: React.FC<RailItemProps> = ({
   surface,
@@ -74,6 +111,8 @@ const ContextPanelRailItem: React.FC<RailItemProps> = ({
   orderNumber,
   showOrderNumber,
   onSelect,
+  chartPercentage,
+  chartDetails,
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: surface.id,
@@ -103,7 +142,11 @@ const ContextPanelRailItem: React.FC<RailItemProps> = ({
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            <Icon name={surface.icon} className="h-[18px] w-[18px]" />
+            {surface.id === 'context' && typeof chartPercentage === 'number' ? (
+              <ContextProgressIcon percentage={chartPercentage} className="size-[18px] -rotate-90" />
+            ) : (
+              <Icon name={surface.icon} className="h-[18px] w-[18px]" />
+            )}
             {showOrderNumber && orderNumber != null ? (
               <span
                 aria-hidden="true"
@@ -133,14 +176,75 @@ const ContextPanelRailItem: React.FC<RailItemProps> = ({
             ) : null}
           </button>
         </TooltipTrigger>
-        <TooltipContent side="left" sideOffset={8}>
-          <div className="flex flex-col gap-0.5">
-            <span>{label}</span>
-            <span className="typography-micro text-muted-foreground">{description}</span>
-            {badgeDescription ? (
-              <span className="typography-micro text-muted-foreground">{badgeDescription}</span>
-            ) : null}
-          </div>
+        <TooltipContent side="left" sideOffset={8} className={surface.id === 'context' && chartDetails ? 'p-0 border-0 bg-transparent shadow-none' : undefined}>
+          {surface.id === 'context' && chartDetails ? (
+            <div className="w-[300px] overflow-hidden rounded-lg border border-border/70 bg-[var(--surface-elevated)] p-2 shadow-[0_8px_24px_rgb(0_0_0_/_0.18)]">
+              <div className="space-y-1">
+                <div className="flex min-w-0 items-center gap-3 rounded-xl px-2.5 py-2.5">
+                  <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+                    <ContextProgressIcon percentage={chartDetails.percentage} className="size-[18px] -rotate-90" />
+                  </span>
+                  <span className="shrink-0 typography-ui-label text-muted-foreground">{label}</span>
+                  <span className="min-w-0 flex-1 truncate text-right typography-ui-label font-medium text-foreground">
+                    {chartDetails.hasData ? (
+                      <span className="inline-flex items-baseline gap-1.5 tabular-nums">
+                        <span className={cn('font-semibold', getRailPercentageColor(chartDetails.percentage))}>{chartDetails.percentage.toFixed(1)}%</span>
+                        <span className="text-muted-foreground">{`${formatTokensCompact(chartDetails.totalTokens)}/${formatTokensCompact(chartDetails.contextLimit)}`}</span>
+                      </span>
+                    ) : (
+                      <span className="typography-micro text-muted-foreground">{"No data yet"}</span>
+                    )}
+                  </span>
+                </div>
+                {chartDetails.hasData ? (
+                  <>
+                    <div className="flex justify-between rounded-xl px-2.5 py-1.5 typography-micro">
+                      <span className="text-muted-foreground">{"Used tokens"}</span>
+                      <span className="font-medium text-foreground tabular-nums">{formatTokensCompact(chartDetails.totalTokens)}</span>
+                    </div>
+                    <div className="flex justify-between rounded-xl px-2.5 py-1.5 typography-micro">
+                      <span className="text-muted-foreground">{"Context limit"}</span>
+                      <span className="font-medium text-foreground tabular-nums">{formatTokensCompact(chartDetails.contextLimit)}</span>
+                    </div>
+                    <div className="flex justify-between rounded-xl px-2.5 py-1.5 typography-micro">
+                      <span className="text-muted-foreground">{"Output limit"}</span>
+                      <span className="font-medium text-foreground tabular-nums">{formatTokensCompact(chartDetails.outputLimit)}</span>
+                    </div>
+                    {typeof chartDetails.cacheRead === 'number' && typeof chartDetails.cacheWrite === 'number' ? (
+                      <>
+                        <div className="flex justify-between rounded-xl px-2.5 py-1.5 typography-micro">
+                          <span className="text-muted-foreground">{"Cache read"}</span>
+                          <span className="font-medium text-foreground tabular-nums">{formatTokensCompact(chartDetails.cacheRead)}</span>
+                        </div>
+                        <div className="flex justify-between rounded-xl px-2.5 py-1.5 typography-micro">
+                          <span className="text-muted-foreground">{"Cache write"}</span>
+                          <span className="font-medium text-foreground tabular-nums">{formatTokensCompact(chartDetails.cacheWrite)}</span>
+                        </div>
+                      </>
+                    ) : null}
+                    {typeof chartDetails.cacheHitPercent === 'number' ? (
+                      <div className="flex justify-between rounded-xl px-2.5 py-1.5 typography-micro">
+                        <span className="text-muted-foreground">{"Cache hit"}</span>
+                        <span className="font-medium text-foreground tabular-nums">{`${chartDetails.cacheHitPercent.toFixed(1)}%`}</span>
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <div className="px-2.5 py-2 typography-micro text-muted-foreground">
+                    {description}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-0.5">
+              <span>{label}</span>
+              <span className="typography-micro text-muted-foreground">{description}</span>
+              {badgeDescription ? (
+                <span className="typography-micro text-muted-foreground">{badgeDescription}</span>
+              ) : null}
+            </div>
+          )}
         </TooltipContent>
       </Tooltip>
     </div>
@@ -252,6 +356,92 @@ export const ContextPanelRail: React.FC = () => {
   const activeMode = panelState?.isOpen ? activeTab?.mode ?? null : null;
   const changedFilesCount = gitStatus?.files.length ?? 0;
 
+  // ── Live context chart for the "Context" rail entry ──────────────────────
+  // Mirrors the header / tablet logic so the rail badge is the same live
+  // signal wherever the user sees it: a circular progress that opens the
+  // context panel on click and surfaces the token breakdown (including cache)
+  // on hover.
+  const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
+  const isNewSessionDraftOpen = useSessionUIStore((s) => Boolean(s.newSessionDraft?.open));
+  const providers = useConfigStore((s) => s.providers);
+  const currentProviderId = useConfigStore((s) => s.currentProviderId);
+  const currentModelId = useConfigStore((s) => s.currentModelId);
+  const currentModel = useConfigStore((s) => s.getCurrentModel());
+  const getModelMetadata = useConfigStore((s) => s.getModelMetadata);
+  useConfigStore((s) => s.modelsMetadata.size);
+  const savedSessionModel = useSelectionStore(
+    React.useCallback(
+      (s) => (currentSessionId ? s.sessionModelSelections.get(currentSessionId) ?? null : null),
+      [currentSessionId],
+    ),
+  );
+  const railMessageRecords = useSessionMessageRecords(currentSessionId ?? '', effectiveDirectory ?? undefined);
+  const railContextMessage = React.useMemo(() => {
+    for (let i = railMessageRecords.length - 1; i >= 0; i -= 1) {
+      const rec = railMessageRecords[i];
+      if (rec?.info.role !== 'assistant') continue;
+      try {
+        if (extractSessionMessageBreakdown(rec as unknown as { info: { usage?: PiUsageLike; tokens?: unknown } & Record<string, unknown>; parts: Array<{ tokens?: unknown } & Record<string, unknown>> }).total > 0) return rec;
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  }, [railMessageRecords]);
+  const railLatestUserModel = React.useMemo(() => {
+    for (let i = railMessageRecords.length - 1; i >= 0; i -= 1) {
+      const m = railMessageRecords[i]?.info as typeof railMessageRecords[number]['info'] & { model?: { providerID?: string; modelID?: string; providerId?: string; modelId?: string } };
+      if (m.role !== 'user') continue;
+      const mm = m.model;
+      const p = mm?.providerID ?? mm?.providerId;
+      const mid = mm?.modelID ?? mm?.modelId;
+      if (typeof p === 'string' && p.trim() && typeof mid === 'string' && mid.trim()) return { providerID: p, modelID: mid };
+    }
+    return null;
+  }, [railMessageRecords]);
+  const railModelRef = railLatestUserModel
+    ?? (() => {
+      const m = railContextMessage?.info.model as { providerID?: string; providerId?: string; modelID?: string; modelId?: string } | undefined;
+      const p = m?.providerID ?? m?.providerId;
+      const mid = m?.modelID ?? m?.modelId;
+      return p && mid ? { providerID: p, modelID: mid } : null;
+    })()
+    ?? (savedSessionModel ? { providerID: savedSessionModel.providerId, modelID: savedSessionModel.modelId } : null)
+    ?? (currentProviderId && currentModelId ? { providerID: currentProviderId, modelID: currentModelId } : null);
+  const railProvider = railModelRef ? providers.find((e) => e.id === railModelRef.providerID) : undefined;
+  const railLiveModel = railProvider?.models.find((m) => m.id === railModelRef?.modelID);
+  const railMetadata = railModelRef ? getModelMetadata(railModelRef.providerID, railModelRef.modelID) : undefined;
+  const railContextLimit = getRailNumericLimit((railLiveModel as { limit?: unknown } | undefined)?.limit, 'context')
+    ?? railMetadata?.limit?.context
+    ?? getRailNumericLimit((currentModel as { limit?: unknown } | undefined)?.limit, 'context')
+    ?? 0;
+  const railOutputLimit = getRailNumericLimit((railLiveModel as { limit?: unknown } | undefined)?.limit, 'output')
+    ?? railMetadata?.limit?.output
+    ?? getRailNumericLimit((currentModel as { limit?: unknown } | undefined)?.limit, 'output')
+    ?? 0;
+  const railBreakdown = railContextMessage ? (() => { try { return extractSessionMessageBreakdown(railContextMessage as unknown as { info: { usage?: PiUsageLike; tokens?: unknown } & Record<string, unknown>; parts: Array<{ tokens?: unknown } & Record<string, unknown>> }); } catch { return null; } })() : null;
+  const railUsage = (railContextMessage?.info as { usage?: PiUsageLike } | undefined)?.usage;
+  const railTotalTokens = railUsage ? computePiContextWindowTokens(railUsage) : railBreakdown?.total ?? 0;
+  const railPercentage = !isNewSessionDraftOpen && railTotalTokens > 0 && railContextLimit > 0
+    ? Math.min((railTotalTokens / railContextLimit) * 100, 999)
+    : 0;
+  const railChartPercentage = railPercentage;
+  const railCacheHit = railBreakdown ? computeCacheHitRate({ input: railBreakdown.input, cache: { read: railBreakdown.cacheRead, write: railBreakdown.cacheWrite } }) : null;
+  const railCacheHitPercent = railCacheHit?.hasInput ? railCacheHit.percent : null;
+  const railChartDetails = React.useMemo(() => {
+    const hasData = !!railContextMessage && railTotalTokens > 0 && railContextLimit > 0;
+    return {
+      percentage: railPercentage,
+      totalTokens: railTotalTokens,
+      contextLimit: railContextLimit,
+      outputLimit: railOutputLimit,
+      cacheRead: railBreakdown?.cacheRead ?? null,
+      cacheWrite: railBreakdown?.cacheWrite ?? null,
+      cacheHitPercent: railCacheHitPercent,
+      hasData,
+    };
+  }, [railBreakdown, railCacheHitPercent, railContextLimit, railContextMessage, railOutputLimit, railPercentage, railTotalTokens]);
+
   const surfaces = React.useMemo(() => {
     return getVisibleContextRailSurfaces({
       railOrder: contextRailOrder,
@@ -293,6 +483,7 @@ export const ContextPanelRail: React.FC = () => {
             const label = railSurface.label;
             const gitChangedCount = surface.id === 'git' && isGitRepo === true ? changedFilesCount : 0;
             const badgeCount = gitChangedCount > 0 ? gitChangedCount : null;
+            const isContextSurface = surface.id === 'context';
             return (
               <ContextPanelRailItem
                 key={surface.id}
@@ -303,11 +494,13 @@ export const ContextPanelRail: React.FC = () => {
                 description={railSurface.description}
                 badgeCount={badgeCount}
                 badgeAriaLabel={badgeCount !== null
-                  ? (badgeCount === 1 ? "{label}, {count} changed file" : "{label}, {count} changed files")
+                  ? (badgeCount === 1 ? `${label}, ${badgeCount} changed file` : `${label}, ${badgeCount} changed files`)
                   : null}
                 badgeDescription={badgeCount !== null
-                  ? (badgeCount === 1 ? "{count} changed file" : "{count} changed files")
+                  ? (badgeCount === 1 ? `${badgeCount} changed file` : `${badgeCount} changed files`)
                   : null}
+                chartPercentage={isContextSurface ? railChartPercentage : undefined}
+                chartDetails={isContextSurface ? railChartDetails : undefined}
                 orderNumber={index + 1}
                 showOrderNumber={revealNumbers}
                 onSelect={(selected) => openContextSurface(directoryKey, selected.mode)}

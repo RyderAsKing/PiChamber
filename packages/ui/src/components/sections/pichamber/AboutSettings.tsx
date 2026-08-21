@@ -16,7 +16,6 @@ import {
 } from '@/components/sections/shared/SettingsSection';
 
 const GITHUB_URL = 'https://github.com/RyderAsKing/PiChamber';
-const DISCORD_URL = 'https://github.com/RyderAsKing/PiChamber/discussions';
 const PI_URL = 'https://pi.dev/';
 
 const MIN_CHECKING_DURATION = 800; // ms
@@ -157,19 +156,15 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
             </a>
 
             <a
-              href={DISCORD_URL}
+              href={PI_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 typography-ui-label text-muted-foreground transition-colors hover:text-foreground"
             >
-              <Icon name="discord-fill" className="size-5" />
-              <span>Discord</span>
+              <Icon name="information" className="size-5" />
+              <span>Pi Agent</span>
             </a>
           </div>
-
-          <a href={PI_URL} target="_blank" rel="noopener noreferrer" className="typography-ui-label text-muted-foreground transition-colors hover:text-foreground">
-            Pi Agent at pi.dev
-          </a>
         </div>
 
         <AboutDetails />
@@ -352,9 +347,6 @@ const AboutDetails: React.FC = () => (
       <div className="flex flex-wrap gap-x-5 gap-y-2 typography-ui-label">
         <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className="text-muted-foreground transition-colors hover:text-foreground">
           PiChamber on GitHub
-        </a>
-        <a href={DISCORD_URL} target="_blank" rel="noopener noreferrer" className="text-muted-foreground transition-colors hover:text-foreground">
-          GitHub discussions
         </a>
         <a href="https://github.com/RyderAsKing/PiChamber/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="text-muted-foreground transition-colors hover:text-foreground">
           MIT license

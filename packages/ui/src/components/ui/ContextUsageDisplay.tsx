@@ -3,17 +3,10 @@ import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { Icon } from "@/components/icon/Icon";
+import { clampContextPercent, resolveContextUsageTone } from '@/components/ui/ContextProgressIcon';
 
-const clampPercent = (value: number | null): number => {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(100, Math.round(value)));
-};
-
-const resolveUsageTone = (pct: number): 'safe' | 'warn' | 'critical' => {
-  if (pct >= 90) return 'critical';
-  if (pct >= 75) return 'warn';
-  return 'safe';
-};
+const clampPercent = clampContextPercent;
+const resolveUsageTone = resolveContextUsageTone;
 
 interface ContextUsageDisplayProps {
   totalTokens: number;
@@ -30,6 +23,10 @@ interface ContextUsageDisplayProps {
   percentIconClassName?: string;
   onClick?: () => void;
   pressed?: boolean;
+  /** Optional cache diagnostics surfaced in the hover tooltip / mobile sheet. */
+  cacheRead?: number;
+  cacheWrite?: number;
+  cacheHitPercent?: number | null;
 }
 
 export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
@@ -47,6 +44,9 @@ export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
   percentIconClassName,
   onClick,
   pressed = false,
+  cacheRead,
+  cacheWrite,
+  cacheHitPercent,
 }) => {
   
   const [mobileTooltipOpen, setMobileTooltipOpen] = React.useState(false);
@@ -82,10 +82,17 @@ export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
   const circularProgressOffset = circularProgressCircumference * (1 - progressPct / 100);
 
   const safeOutputLimit = typeof outputLimit === 'number' ? Math.max(outputLimit, 0) : 0;
+  const hasCache = typeof cacheRead === 'number' && typeof cacheWrite === 'number';
+  const safeCacheRead = hasCache ? Math.max(0, cacheRead as number) : 0;
+  const safeCacheWrite = hasCache ? Math.max(0, cacheWrite as number) : 0;
+  const hasCacheHit = typeof cacheHitPercent === 'number' && Number.isFinite(cacheHitPercent);
   const tooltipLines = [
     `Used tokens: ${formatTokens(totalTokens)}`,
     `Context limit: ${formatTokens(contextLimit)}`,
     `Output limit: ${formatTokens(safeOutputLimit)}`,
+    ...(hasCache ? [`Cache read: ${formatTokens(safeCacheRead)}`, `Cache write: ${formatTokens(safeCacheWrite)}`] : []),
+    ...(hasCacheHit ? [`Cache hit: ${(cacheHitPercent as number).toFixed(1)}%`] : []),
+    `${Math.min(percentage, 999).toFixed(1)}% used`,
   ];
 
   const isInteractive = !isMobile && typeof onClick === 'function';
@@ -192,6 +199,24 @@ export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
                 <span className="typography-meta text-muted-foreground">{"Output limit"}</span>
                 <span className="typography-meta text-foreground font-medium">{formatTokens(safeOutputLimit)}</span>
               </div>
+              {hasCache ? (
+                <>
+                  <div className="flex justify-between items-center">
+                    <span className="typography-meta text-muted-foreground">{"Cache read"}</span>
+                    <span className="typography-meta text-foreground font-medium">{formatTokens(safeCacheRead)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="typography-meta text-muted-foreground">{"Cache write"}</span>
+                    <span className="typography-meta text-foreground font-medium">{formatTokens(safeCacheWrite)}</span>
+                  </div>
+                </>
+              ) : null}
+              {hasCacheHit ? (
+                <div className="flex justify-between items-center">
+                  <span className="typography-meta text-muted-foreground">{"Cache hit"}</span>
+                  <span className="typography-meta text-foreground font-medium">{(cacheHitPercent as number).toFixed(1)}%</span>
+                </div>
+              ) : null}
               <div className="flex justify-between items-center pt-1 border-t border-border/40">
                 <span className="typography-meta text-muted-foreground">{"Usage"}</span>
                 <span className={cn('typography-meta font-semibold', getPercentageColor(colorPct))}>

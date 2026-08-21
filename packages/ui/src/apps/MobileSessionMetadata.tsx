@@ -2,25 +2,15 @@ import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
 import type { IconName } from '@/components/icon/icons';
+import { ContextProgressIcon } from '@/components/ui/ContextProgressIcon';
 import { useTabletLayout } from '@/lib/device';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useSelectionStore } from '@/sync/selection-store';
 import { useSessionMessageRecords } from '@/sync/sync-context';
-import { computePiContextWindowTokens, extractSessionMessageBreakdown, type PiUsageLike } from '@/stores/utils/tokenUtils';
+import { computeCacheHitRate, computePiContextWindowTokens, extractSessionMessageBreakdown, type PiUsageLike } from '@/stores/utils/tokenUtils';
 
 const TABLET_METADATA_POPOVER_WIDTH = 380;
-
-const clampPercent = (value: number | null): number => {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(100, Math.round(value)));
-};
-
-const resolveUsageTone = (pct: number): 'safe' | 'warn' | 'critical' => {
-  if (pct >= 90) return 'critical';
-  if (pct >= 75) return 'warn';
-  return 'safe';
-};
 
 const getNumericLimit = (limit: unknown, key: 'context' | 'output'): number | undefined => {
   if (!limit || typeof limit !== 'object') return undefined;
@@ -38,53 +28,10 @@ type ContextDisplay = {
   percentage: number;
   tokens: string;
   colorClass: string;
+  cacheRead: number | null;
+  cacheWrite: number | null;
+  cacheHitPercent: number | null;
 } | null;
-
-const ContextProgressIcon: React.FC<{ percentage: number }> = ({ percentage }) => {
-  const progressPct = clampPercent(percentage);
-  const tone = resolveUsageTone(percentage);
-  const progressColor = tone === 'critical'
-    ? 'var(--status-error)'
-    : tone === 'warn'
-      ? 'var(--status-warning)'
-      : 'var(--status-success)';
-  const size = 18;
-  const stroke = 3;
-  const radius = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
-
-  return (
-    <svg
-      viewBox={`0 0 ${size} ${size}`}
-      className="size-[18px] -rotate-90"
-      role="progressbar"
-      aria-valuenow={Math.round(progressPct)}
-      aria-valuemin={0}
-      aria-valuemax={100}
-    >
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={radius}
-        fill="none"
-        stroke="var(--interactive-border)"
-        strokeWidth={stroke}
-      />
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={radius}
-        fill="none"
-        stroke={progressColor}
-        strokeWidth={stroke}
-        strokeLinecap="round"
-        strokeDasharray={circumference}
-        strokeDashoffset={circumference * (1 - progressPct / 100)}
-        className="transition-[stroke-dashoffset,stroke] duration-300"
-      />
-    </svg>
-  );
-};
 
 const MetadataRow: React.FC<{
   icon?: IconName;
@@ -108,6 +55,7 @@ const SessionMetadataOverlay: React.FC<{
   onClose: () => void;
   anchorRef: React.RefObject<HTMLElement | null>;
   contextDisplay: ContextDisplay;
+  cacheSubtitle?: string | null;
 }> = ({ open, onClose, anchorRef, contextDisplay }) => {
   const panelRef = React.useRef<HTMLDivElement>(null);
   const [shouldRender, setShouldRender] = React.useState(open);
@@ -215,15 +163,32 @@ const SessionMetadataOverlay: React.FC<{
       >
         <div className="space-y-1">
           {contextDisplay ? (
-            <MetadataRow
-              iconNode={<ContextProgressIcon percentage={contextDisplay.percentage} />}
-              label={"Context"}
-            >
-              <span className="inline-flex items-baseline gap-1.5 tabular-nums">
-                <span className={cn('font-semibold', contextDisplay.colorClass)}>{contextDisplay.percentage.toFixed(1)}%</span>
-                <span className="text-muted-foreground">{contextDisplay.tokens}</span>
-              </span>
-            </MetadataRow>
+            <>
+              <MetadataRow
+                iconNode={<ContextProgressIcon percentage={contextDisplay.percentage} />}
+                label={"Context"}
+              >
+                <span className="inline-flex items-baseline gap-1.5 tabular-nums">
+                  <span className={cn('font-semibold', contextDisplay.colorClass)}>{contextDisplay.percentage.toFixed(1)}%</span>
+                  <span className="text-muted-foreground">{contextDisplay.tokens}</span>
+                </span>
+              </MetadataRow>
+              {contextDisplay.cacheRead !== null && contextDisplay.cacheWrite !== null ? (
+                <>
+                  <MetadataRow icon="stack" label={"Cache read"}>
+                    <span className="tabular-nums">{formatTokens(contextDisplay.cacheRead)}</span>
+                  </MetadataRow>
+                  <MetadataRow icon="edit" label={"Cache write"}>
+                    <span className="tabular-nums">{formatTokens(contextDisplay.cacheWrite)}</span>
+                  </MetadataRow>
+                </>
+              ) : null}
+              {contextDisplay.cacheHitPercent !== null ? (
+                <MetadataRow icon="check" label={"Cache hit"}>
+                  <span className="tabular-nums">{contextDisplay.cacheHitPercent.toFixed(1)}%</span>
+                </MetadataRow>
+              ) : null}
+            </>
           ) : (
             <div className="px-2.5 py-2 typography-meta text-muted-foreground">
               {"Context usage is not available for this conversation yet."}
@@ -339,8 +304,14 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
         : contextPercentage >= 75
           ? 'text-[var(--status-warning)]'
           : 'text-[var(--status-success)]';
+  const cacheRead = contextBreakdown?.cacheRead ?? null;
+  const cacheWrite = contextBreakdown?.cacheWrite ?? null;
+  const cacheHit = contextBreakdown
+    ? computeCacheHitRate({ input: contextBreakdown.input, cache: { read: contextBreakdown.cacheRead, write: contextBreakdown.cacheWrite } })
+    : { percent: 0, hasInput: false };
+  const cacheHitPercent = cacheHit.hasInput ? cacheHit.percent : null;
   const contextDisplay: ContextDisplay = contextPercentage !== null && contextTokens
-    ? { percentage: contextPercentage, tokens: contextTokens, colorClass: contextColorClass }
+    ? { percentage: contextPercentage, tokens: contextTokens, colorClass: contextColorClass, cacheRead, cacheWrite, cacheHitPercent }
     : null;
 
   return (

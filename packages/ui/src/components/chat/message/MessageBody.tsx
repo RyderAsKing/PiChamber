@@ -27,6 +27,8 @@ import { useChatSurfaceMode } from '@/components/chat/useChatSurfaceMode';
 import { toast } from '@/components/ui';
 import { Icon } from "@/components/icon/Icon";
 import { formatTimestampForDisplay } from './timeFormat';
+import { MessageRevertAction } from './MessageRevertAction';
+import { MessageForkAction } from './MessageForkAction';
 import { ToolRevealOnMount } from './parts/ToolRevealOnMount';
 import { StaticToolRow } from './parts/ProgressiveGroup';
 import { isExpandableTool } from './parts/toolRenderUtils';
@@ -436,7 +438,8 @@ const writeRevealedToolIds = (messageId: string, value: Set<string>): void => {
     revealedToolIdsByMessage.set(messageId, new Set(value));
 };
 
-const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobile, alwaysShowActions = isMobile, hasTouchInput, hasTextContent, onCopyMessage, copiedMessage, onShowPopup, agentMention, userActionsMode = 'inline', stickyUserHeaderEnabled = true }: {
+const UserMessageBody = React.memo(({ sessionId, messageId, parts, messageCreatedAt, isMobile, alwaysShowActions = isMobile, hasTouchInput, hasTextContent, onCopyMessage, copiedMessage, onShowPopup, agentMention, userActionsMode = 'inline', stickyUserHeaderEnabled = true }: {
+    sessionId?: string | null;
     messageId: string;
     parts: Part[];
     messageCreatedAt?: number | null;
@@ -531,7 +534,7 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
         return formatted.length > 0 ? formatted : null;
     }, [ messageCreatedAt, timeFormatPreference]);
     const useInFlowUserActions = isMobile || alwaysShowActions;
-    const actionsBlock = (canCopyMessage && hasCopyableText) && showUserActions ? (
+    const actionsBlock = showUserActions ? (
         <div className={cn(
             'group/user-actions',
             useInFlowUserActions
@@ -573,6 +576,8 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
                         <TooltipContent>{timestamp}</TooltipContent>
                     </Tooltip>
                 ) : null}
+                <MessageRevertAction sessionId={sessionId ?? null} messageId={messageId} size="user" />
+                <MessageForkAction sessionId={sessionId ?? null} messageId={messageId} size="user" />
                 {canCopyMessage && hasCopyableText && (
                     <Tooltip>
                         <TooltipTrigger asChild>
@@ -673,6 +678,8 @@ interface AssistantMessageActionButtonsProps {
     isTouchContext: boolean;
     onCopyMessage?: () => void | boolean | Promise<void | boolean>;
     onShareImage: (sourceElement?: HTMLElement | null) => Promise<void>;
+    sessionId?: string | null;
+    messageId?: string | null;
 }
 
 const AssistantMessageActionButtons = React.memo(({
@@ -680,6 +687,8 @@ const AssistantMessageActionButtons = React.memo(({
     isTouchContext,
     onCopyMessage,
     onShareImage,
+    sessionId,
+    messageId,
 }: AssistantMessageActionButtonsProps) => {
     const chatSurfaceMode = useChatSurfaceMode();
     const [copyHintVisible, setCopyHintVisible] = React.useState(false);
@@ -785,6 +794,12 @@ const AssistantMessageActionButtons = React.memo(({
 
     return (
         <>
+            {sessionId && messageId ? (
+                <MessageRevertAction sessionId={sessionId} messageId={messageId} size="assistant" />
+            ) : null}
+            {sessionId && messageId ? (
+                <MessageForkAction sessionId={sessionId} messageId={messageId} size="assistant" />
+            ) : null}
             {onCopyMessage && (
                 <Tooltip>
                     <TooltipTrigger asChild>
@@ -1269,8 +1284,10 @@ const AssistantMessageBody = React.memo(({
             isTouchContext={isTouchContext}
             onCopyMessage={onCopyMessage}
             onShareImage={shareMessageAsImage}
+            sessionId={sessionId}
+            messageId={messageId}
         />
-    ), [hasCopyableText, isTouchContext, onCopyMessage, shareMessageAsImage]);
+    ), [hasCopyableText, isTouchContext, messageId, onCopyMessage, sessionId, shareMessageAsImage]);
 
     const lastRenderableTextPartIndex = React.useMemo(() => {
         if (!shouldShowStandaloneMessageActions) {
@@ -1650,6 +1667,7 @@ const MessageBody = React.memo(({ isUser, ...props }: MessageBodyProps) => {
     if (isUser) {
         return (
             <UserMessageBody
+                sessionId={props.sessionId}
                 messageId={props.messageId}
                 parts={props.parts}
                 messageCreatedAt={props.messageCreatedAt}

@@ -1,5 +1,6 @@
 import type { Message, Part } from '@/lib/chat/types';
 import type { State } from '@/sync/types';
+import { getRevertNavigation } from '@/sync/revert-navigation-store';
 
 type RevertedMessageRecord = {
     message: Message & { role: 'user' };
@@ -41,6 +42,32 @@ export const buildRevertedMessageDockState = (
 ): RevertedMessageDockState => {
     if (!sessionId) {
         return EMPTY_REVERTED_MESSAGE_DOCK_STATE;
+    }
+
+    // Pi-native path: prefer UI-owned navigation state. This preserves
+    // abandoned branch order (no random-hex ID `</>` comparison) and
+    // works when the active transcript no longer contains the tail.
+    const piNav = getRevertNavigation(sessionId);
+    if (piNav && piNav.abandoned.length > 0) {
+        const userAbandoned = piNav.abandoned.filter((entry) => entry.role === 'user');
+        if (userAbandoned.length > 0) {
+            const records: RevertedMessageRecord[] = userAbandoned.map((entry) => ({
+                message: {
+                    id: entry.id,
+                    role: 'user',
+                    sessionId: sessionId,
+                } as unknown as Message & { role: 'user' },
+                parts: [{ type: 'text', id: `${entry.id}:text:0`, index: 0, text: entry.preview } as unknown as Part],
+            }));
+            const nextId = piNav.targetEntryId;
+            if (previous.revertMessageID === nextId && areRecordsEqual(previous.records, records)) {
+                return previous;
+            }
+            return {
+                revertMessageID: nextId,
+                records,
+            };
+        }
     }
 
     const session = state.session.find((item) => item.id === sessionId);

@@ -37,6 +37,9 @@ export const SkillAutocomplete = React.forwardRef<SkillAutocompleteHandle, Skill
   const keyboardNavigationRef = React.useRef(false);
   const [filteredSkills, setFilteredSkills] = React.useState<SkillInfo[]>([]);
   const itemRefs = React.useRef<(HTMLDivElement | null)[]>([]);
+  const ignoreClickRef = React.useRef(false);
+  const pointerStartRef = React.useRef<{ x: number; y: number } | null>(null);
+  const pointerMovedRef = React.useRef(false);
   const skills = useSkillsStore((s) => s.skills);
   const loadSkills = useSkillsStore((s) => s.loadSkills);
 
@@ -136,7 +139,40 @@ export const SkillAutocomplete = React.forwardRef<SkillAutocompleteHandle, Skill
             isMobile ? 'items-center' : 'items-start',
           index === selectedIndex && 'bg-interactive-selection'
         )}
-        onClick={() => onSkillSelect(skill.name)}
+        onMouseDown={(event) => event.preventDefault()}
+        onPointerDown={(event) => {
+          if (event.pointerType !== 'touch') return;
+          pointerStartRef.current = { x: event.clientX, y: event.clientY };
+          pointerMovedRef.current = false;
+        }}
+        onPointerMove={(event) => {
+          if (event.pointerType !== 'touch' || !pointerStartRef.current) return;
+          const dx = event.clientX - pointerStartRef.current.x;
+          const dy = event.clientY - pointerStartRef.current.y;
+          if (Math.hypot(dx, dy) > 6) pointerMovedRef.current = true;
+        }}
+        onPointerUp={(event) => {
+          if (event.pointerType !== 'touch') return;
+          const didMove = pointerMovedRef.current;
+          pointerStartRef.current = null;
+          pointerMovedRef.current = false;
+          if (didMove) return;
+          event.preventDefault();
+          event.stopPropagation();
+          ignoreClickRef.current = true;
+          onSkillSelect(skill.name);
+        }}
+        onPointerCancel={() => {
+          pointerStartRef.current = null;
+          pointerMovedRef.current = false;
+        }}
+        onClick={() => {
+          if (ignoreClickRef.current) {
+            ignoreClickRef.current = false;
+            return;
+          }
+          onSkillSelect(skill.name);
+        }}
         onMouseMove={() => {
           keyboardNavigationRef.current = false;
           setSelectedIndex(index);
