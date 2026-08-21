@@ -118,7 +118,10 @@ runtime events and reconnect completions are ignored. The event stream uses
 the shared authenticated URL resolver for WebSocket and SSE URLs, `runtimeFetch`
 for SSE, and `openRuntimeWebSocket` for WS/relay operation. Only one connection
 is active per generation; a failed WS is closed before SSE fallback or
-reconnect begins.
+reconnect begins. The transport owns indefinite wire reconnect with exponential
+backoff. Hidden/offline waits are interrupted when the app becomes visible or
+the browser reports online, rather than leaving a resumed app behind a
+minute-long timer.
 
 ## Mounted UI ownership
 
@@ -226,7 +229,16 @@ entries schedules one scan, not one per entry.
 
 ### Reconnect catch-up
 
-`reconnect()` merges the snapshot into the existing cluster (no disposals)
+A wire disconnect keeps the resident cluster and stream handle, publishes
+`connection: 'reconnecting'`, and lets the transport retry indefinitely. A
+healthy reattach returns the cluster to `ready`; one transient health request
+must not turn a retrying stream into a terminal error. Hydrated chats show a
+connection banner with an explicit retry action while their existing transcript
+stays visible. Native mobile dispatches an authoritative session resync only
+after its foreground transport probe succeeds, so returning during network
+startup does not strand a one-shot retry against the old endpoint.
+
+The explicit `resync()` / reconnect path merges the snapshot into the existing cluster (no disposals)
 and then iterates any hydrated resident whose `lastSequence` is behind the
 resumed cursor, issuing a `getSession` and `commitHydratedSession` for each.
 A quiet background turn does not lose the disconnect gap. Accepted

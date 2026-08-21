@@ -14,6 +14,7 @@ import { recordMobileDiagnosticError } from '@/lib/mobile-error-log';
 import { PiRequestError, piClient, type PiClientScope } from '@/lib/pi/client';
 import { reconnectPiSession } from '@/lib/pi/reconnect';
 import { PiStreamCadence } from '@/lib/pi/stream-cadence';
+import type { PiStreamHandle } from '@/lib/pi/transport';
 import type { PiSessionEvent, PiSessionListItem } from '@/lib/pi/protocol';
 import type { PiSession, PiSessionId, PiSessionLifecycleState, PiThinkingLevel } from '@/lib/pi/types';
 import { resolveCreateThinking } from '@/lib/pi/thinking';
@@ -100,7 +101,7 @@ const TOPIC_BROADCAST = '*';
 const TOPIC_CATALOG = 'catalog';
 const TOPIC_CHROME = 'chrome';
 
-export type PiConnectionState = 'loading' | 'ready' | 'unavailable' | 'error';
+export type PiConnectionState = 'loading' | 'ready' | 'reconnecting' | 'unavailable' | 'error';
 export type PiSessionsListStatus = 'idle' | 'loading' | 'ready' | 'failed';
 export interface PiSessionStoreState {
   /** Currently focused project directory. Switching folders updates this without
@@ -214,7 +215,7 @@ if (viteHot) {
 export class PiSessionStore {
   private state = initial();
   private listenersByTopic = new Map<string, Set<Listener>>();
-  private stream: { dispose: () => void } | null = null;
+  private stream: PiStreamHandle | null = null;
   /** Advances only on bootstrap / reconnect / runtime switch / dispose —
    *  guards every async completion that may still be in flight when the
    *  cluster is torn down or restarted. */
@@ -328,6 +329,30 @@ export class PiSessionStore {
     if (!this.state.error) return;
     this.state = { ...this.state, error: null };
     this.emitChrome();
+  };
+  /** Force an authoritative selected-session snapshot and replace the live
+   * event stream. Safe to call repeatedly from a user retry or system resume;
+   * concurrent calls share the reconnect already in flight. */
+  resync = async (): Promise<void> => {
+    const sessionId = this.state.selectedSessionId;
+    const directory = this.state.directory;
+    if (sessionId && directory) {
+      await this.reconnect(sessionId, this.runtimeGeneration, getRuntimeKey());
+      return;
+    }
+    if (this.stream) {
+      this.stream.reconnect('manual-resync');
+      return;
+    }
+    if (directory) {
+      await this.open(directory, null);
+      return;
+    }
+    if (sessionId) {
+      await this.start({ sessionId });
+      return;
+    }
+    await this.connectWithoutProject();
   };
   reportError = (error: unknown) => {
     this.state = { ...this.state, error: asError(error), connection: 'error' };
@@ -862,6 +887,7 @@ export class PiSessionStore {
       directory,
       selectedSessionId: preferredSessionId ?? null,
       connection: 'loading',
+      error: null,
       hydratedSessionIds: new Set(),
       reducer: {
         bySession: new Map(this.state.reducer.bySession),
@@ -926,6 +952,7 @@ export class PiSessionStore {
         sessions: result.sessions,
         selectedSessionId,
         connection: 'ready',
+        error: null,
         catalog: nextCatalog,
       };
       const openTopics: string[] = [TOPIC_CHROME];
@@ -1435,7 +1462,8 @@ export class PiSessionStore {
         ...(options?.initialHealth ? { initialHealth: options.initialHealth } : {}),
         ...(options?.initialSessions ? { initialSessions: options.initialSessions } : {}),
         onEvent,
-        onStreamDisconnect: () => void this.reconnect(this.state.selectedSessionId ?? sessionId, expected, runtimeKey),
+        onStreamDisconnect: (reason) => this.handleStreamDisconnect(reason, expected, runtimeKey),
+        onStreamReconnect: () => this.handleStreamReconnect(expected, runtimeKey),
       });
       if (expected !== this.runtimeGeneration) {
         bootstrap.stream?.dispose();
@@ -1495,9 +1523,29 @@ export class PiSessionStore {
     }
   }
 
+  private handleStreamDisconnect(_reason: string, expected: number, runtimeKey: string) {
+    if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) return;
+    if (this.state.connection === 'reconnecting') return;
+    this.state = { ...this.state, connection: 'reconnecting', error: null };
+    this.emitChrome();
+  }
+
+  private handleStreamReconnect(expected: number, runtimeKey: string) {
+    if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) return;
+    if (this.state.connection === 'ready' && !this.state.error) return;
+    this.state = { ...this.state, connection: 'ready', error: null };
+    this.emitChrome();
+  }
+
   private async reconnect(sessionId: string, expected: number, runtimeKey: string) {
-    if (this.recovering || expected !== this.runtimeGeneration) return; this.recovering = true; this.cadence.flush(); this.stream?.dispose(); this.stream = null;
+    if (this.recovering || expected !== this.runtimeGeneration) return;
+    this.recovering = true;
+    this.cadence.flush();
     const cursorAtReconnect = this.streamCursor();
+    this.stream?.dispose();
+    this.stream = null;
+    this.state = { ...this.state, connection: 'reconnecting', error: null };
+    this.emitChrome();
     try {
       const result = await reconnectPiSession({
         directory: this.directory(),
@@ -1505,7 +1553,8 @@ export class PiSessionStore {
         runtimeKey,
         lastKnownSequence: cursorAtReconnect,
         onEvent: (event) => this.apply(event),
-        onStreamDisconnect: () => void this.reconnect(this.state.selectedSessionId ?? sessionId, expected, runtimeKey),
+        onStreamDisconnect: (reason) => this.handleStreamDisconnect(reason, expected, runtimeKey),
+        onStreamReconnect: () => this.handleStreamReconnect(expected, runtimeKey),
       });
       if (expected !== this.runtimeGeneration) { result.stream?.dispose(); return; }
       if (result.phase === 'ready') {

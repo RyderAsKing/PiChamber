@@ -364,15 +364,22 @@ export const createPiEventStream = (
   // explicitly requested by a runtime that provides a matching upgrade path.
   let mode: 'ws' | 'sse' = options.transport === 'ws' ? 'ws' : 'sse';
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconnectWakeCleanup: ConnectionCleanup | null = null;
   let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
   let activeAbort: ConnectionCleanup | null = null;
   let generation = 0;
   let healthyConnection = false;
 
-  const clearTimers = () => {
+  const clearReconnectWait = () => {
     if (reconnectTimer) clearTimeout(reconnectTimer);
-    if (heartbeatTimer) clearTimeout(heartbeatTimer);
     reconnectTimer = null;
+    reconnectWakeCleanup?.();
+    reconnectWakeCleanup = null;
+  };
+
+  const clearTimers = () => {
+    clearReconnectWait();
+    if (heartbeatTimer) clearTimeout(heartbeatTimer);
     heartbeatTimer = null;
   };
 
@@ -419,11 +426,22 @@ export const createPiEventStream = (
     if (disposed || signal.aborted || reconnectTimer) return;
     recordMobileDiagnostic('stream-reconnect', { code: reason });
     handlers.onDisconnect?.(reason);
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null;
+    const retryNow = () => {
+      if (disposed || signal.aborted) return;
+      clearReconnectWait();
       attempt += 1;
       void connect();
-    }, computeBackoff());
+    };
+    const wakeIfUsable = () => {
+      if (isVisible() && isOnline()) retryNow();
+    };
+    if (typeof window !== 'undefined') window.addEventListener('online', wakeIfUsable);
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', wakeIfUsable);
+    reconnectWakeCleanup = () => {
+      if (typeof window !== 'undefined') window.removeEventListener('online', wakeIfUsable);
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', wakeIfUsable);
+    };
+    reconnectTimer = setTimeout(retryNow, computeBackoff());
   };
 
   const handleDisconnect = (reason: string, connectionId: number) => {

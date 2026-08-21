@@ -6,6 +6,7 @@ import type { PiReducerMessage, PiReducerSessionState } from '@/lib/pi/event-red
 import { createReducerPartMap } from '@/lib/pi/event-reducer';
 import type { PiSessionEvent } from '@/lib/pi/protocol';
 import type { PiSessionId } from '@/lib/pi/types';
+import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useNotificationStore } from '@/sync/notification-store';
 import { resetSessionOrdering, useSessionOrderingStore } from '@/sync/session-ordering';
 
@@ -63,6 +64,8 @@ interface StoreInternal {
   evictIdleTranscripts: () => void;
   hydrate: (sessionId: string, runtimeGeneration: number, known?: unknown, options?: { force?: boolean }) => Promise<void>;
   reconnect: (sessionId: string, expected: number, runtimeKey: string) => Promise<void>;
+  handleStreamDisconnect: (reason: string, expected: number, runtimeKey: string) => void;
+  handleStreamReconnect: (expected: number, runtimeKey: string) => void;
 }
 
 const asInternal = (store: PiSessionStore): StoreInternal => store as unknown as StoreInternal;
@@ -507,6 +510,35 @@ describe('PiSessionStore runtime-scoped sessions', () => {
     store.dispose();
   });
 
+  test('a transient stream disconnect preserves the cluster and returns to ready after transport recovery', () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    const stream = { dispose: () => undefined };
+    internal.stream = stream;
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      connection: 'ready',
+      selectedSessionId: 'connected',
+      reducer: {
+        bySession: new Map([['connected', reducerSession({ sessionId: 'connected', lifecycle: 'busy', lastSequence: 10 })]]),
+        lastSequence: new Map([['connected', 10]]),
+      },
+      hydratedSessionIds: new Set(['connected']),
+    };
+
+    internal.handleStreamDisconnect('sse-eof', internal.runtimeGeneration, getRuntimeKey());
+    expect(store.getState().connection).toBe('reconnecting');
+    expect(internal.stream).toBe(stream);
+    expect(store.getState().reducer.bySession.get('connected')?.lifecycle).toBe('busy');
+
+    internal.handleStreamReconnect(internal.runtimeGeneration, getRuntimeKey());
+    expect(store.getState().connection).toBe('ready');
+    expect(store.getState().error).toBeNull();
+    expect(internal.stream).toBe(stream);
+    store.dispose();
+  });
+
   test('reconnect keeps resident transcripts and resumes max cursor without dropping the cluster', () => {
     const store = new PiSessionStore();
     const internal = asInternal(store);
@@ -879,6 +911,29 @@ describe('PiSessionStore hydrate/overlay reconciliation', () => {
       store.dispose();
     } finally {
       stubs.restore();
+    }
+  });
+
+  test('manual resync retries a failed connection even when no session is selected', async () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      selectedSessionId: null,
+      connection: 'error',
+      error: new PiRequestError('DAEMON_UNAVAILABLE', 'offline'),
+    };
+    const stubs = stubDaemons({ listSessions: async () => ({ sessions: [] }) });
+    try {
+      await store.resync();
+      expect(stubs.calls.selectProject).toBe(1);
+      expect(stubs.calls.listSessions).toBe(1);
+      expect(store.getState().connection).toBe('ready');
+      expect(store.getState().error).toBeNull();
+    } finally {
+      stubs.restore();
+      store.dispose();
     }
   });
 

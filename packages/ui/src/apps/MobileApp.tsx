@@ -794,6 +794,7 @@ export function MobileApp({ apis }: MobileAppProps) {
     // runtime-endpoint-changed subscription (which re-bootstraps the app), so we
     // only refresh in place when the transport is 'unchanged'.
     const refreshInPlace = () => {
+      window.dispatchEvent(new Event('pichamber:session-resync'));
       void initializeApp();
       void refreshGitHubAuthStatus(apis.github, { force: true });
       if (providersCount === 0) void loadProviders({ source: 'mobileApp:nativeResume' });

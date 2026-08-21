@@ -57,6 +57,7 @@ import { createFirstVisibleSessionPerformanceTracker } from '@/sync/session-load
 import { hasActiveQuestionToolInCurrentTurn, recoverPendingQuestionWithRetry } from '@/sync/question-recovery';
 import { useGlobalSyncStore } from '@/sync/global-sync-store';
 import { parseRoute } from '@/lib/router';
+import { usePiSessionSnapshot, usePiSessionStore } from '@/sync/pi-session-context';
 
 const EMPTY_MESSAGES: Array<{ info: Message; parts: Part[] }> = [];
 const IDLE_SESSION_STATUS = { type: 'idle' as const };
@@ -536,6 +537,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 
     // Sync actions
     const sync = useSync();
+    const piSessionStore = usePiSessionStore();
+    const piConnection = usePiSessionSnapshot((state) => state.connection, undefined, 'chrome');
     const syncDirectory = useSyncDirectory();
     const effectiveSessionDirectory = currentSessionDirectory ?? syncDirectory;
     const currentSessionKey = currentSessionId
@@ -968,8 +971,32 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         && (isSessionHydrating || sessionMessageLoadState.status === 'loading');
     const retrySessionLoad = React.useCallback(() => {
         if (!active || !currentSessionId) return;
+        const connection = piSessionStore.getState().connection;
+        if (connection === 'error' || connection === 'unavailable') {
+            void piSessionStore.resync();
+            return;
+        }
         void sync.ensureSessionRenderable(currentSessionId, true, effectiveSessionDirectory);
-    }, [active, currentSessionId, effectiveSessionDirectory, sync]);
+    }, [active, currentSessionId, effectiveSessionDirectory, piSessionStore, sync]);
+    const retryConnection = React.useCallback(() => {
+        void piSessionStore.resync();
+    }, [piSessionStore]);
+    const connectionNotice = piConnection === 'ready' || piConnection === 'loading' ? null : (
+        <div
+            className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-[var(--surface-muted)] px-4 py-2 text-sm text-foreground"
+            role="status"
+            aria-live="polite"
+        >
+            <span>
+                {piConnection === 'reconnecting'
+                    ? 'Connection lost. Reconnecting to the session stream.'
+                    : 'Unable to connect to the server.'}
+            </span>
+            <Button variant="outline" size="sm" onClick={retryConnection}>
+                {piConnection === 'reconnecting' ? 'Retry now' : 'Reconnect'}
+            </Button>
+        </div>
+    );
 
     React.useEffect(() => {
         if (!active || !currentSessionId) return;
@@ -1116,6 +1143,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 	return (
 		<div data-composer-bound className="relative flex min-w-0 flex-1 flex-col h-full bg-background">
 			{returnToParentButton}
+            {connectionNotice}
 			<ChatViewport
 				currentSessionId={currentSessionId}
                 currentSessionKey={currentSessionKey ?? currentSessionId}

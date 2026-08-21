@@ -29,6 +29,14 @@ export const PiSessionProvider = ({ children, directory }: { children: ReactNode
   // project selected we clear the focus pointer but never the resident
   // session cluster, so background busy runs keep streaming.
   useEffect(() => {
+    const resyncAfterResume = () => {
+      void store.resync();
+    };
+    window.addEventListener('pichamber:session-resync', resyncAfterResume);
+    return () => window.removeEventListener('pichamber:session-resync', resyncAfterResume);
+  }, [store]);
+
+  useEffect(() => {
     const route = parseRoute();
     const ui = useSessionUIStore.getState();
     const draftIsActive = isNewSessionDraftActive(ui.newSessionDraft, ui.currentSessionId);

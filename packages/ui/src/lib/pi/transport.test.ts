@@ -95,6 +95,35 @@ describe("createPiEventStream", () => {
     handle.dispose()
   })
 
+  test("interrupts a hidden reconnect wait when the app becomes visible", async () => {
+    const originalDocument = (globalThis as { document?: unknown }).document
+    const originalNavigator = (globalThis as { navigator?: unknown }).navigator
+    const lifecycle = new EventTarget() as EventTarget & { visibilityState: "hidden" | "visible" }
+    lifecycle.visibilityState = "hidden"
+    Object.defineProperty(globalThis, "document", { configurable: true, value: lifecycle })
+    Object.defineProperty(globalThis, "navigator", { configurable: true, value: { onLine: true } })
+    runtimeFetch
+      .mockRejectedValueOnce(new Error("offline while suspended"))
+      .mockResolvedValueOnce(new Response(new ReadableStream()))
+
+    try {
+      const { createPiEventStream } = await import("./transport")
+      const handle = createPiEventStream({ onEvent: () => {} }, { reconnectDelayMs: 10_000 })
+      await flush()
+      expect(runtimeFetch.mock.calls.length).toBe(1)
+
+      lifecycle.visibilityState = "visible"
+      lifecycle.dispatchEvent(new Event("visibilitychange"))
+      await flush()
+
+      expect(runtimeFetch.mock.calls.length).toBe(2)
+      handle.dispose()
+    } finally {
+      Object.defineProperty(globalThis, "document", { configurable: true, value: originalDocument })
+      Object.defineProperty(globalThis, "navigator", { configurable: true, value: originalNavigator })
+    }
+  })
+
   test("uses EventSource on direct Capacitor runtimes instead of buffered fetch", async () => {
     const originalEventSource = (globalThis as { EventSource?: unknown }).EventSource
     const received: number[] = []
