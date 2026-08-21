@@ -36,7 +36,7 @@ describe('getExecutableSearchDirectories', () => {
 
 describe('findExecutableOnPath', () => {
   it('finds Windows Store app execution aliases even when PATH omits WindowsApps', () => {
-    const aliasPath = 'C:\\Users\\Ada\\AppData\\Local\\Microsoft\\WindowsApps\\ngrok.exe';
+    const aliasPath = 'C:\\Users\\Ada\\AppData\\Local\\Microsoft\\WindowsApps\\cloudflared.exe';
     const fsLike = {
       statSync: (candidate) => {
         if (candidate === aliasPath) {
@@ -47,7 +47,7 @@ describe('findExecutableOnPath', () => {
       accessSync: () => {},
     };
 
-    const resolved = findExecutableOnPath('ngrok', {
+    const resolved = findExecutableOnPath('cloudflared', {
       platform: 'win32',
       env: {
         PATH: 'C:\\Tools',
@@ -63,7 +63,7 @@ describe('findExecutableOnPath', () => {
 
 describe('resolveExecutableLaunchTarget', () => {
   it('returns a Windows launch target with WindowsApps on PATH when stat lookup fails', () => {
-    const target = resolveExecutableLaunchTarget('ngrok', {
+    const target = resolveExecutableLaunchTarget('cloudflared', {
       platform: 'win32',
       env: {
         PATH: 'C:\\Windows\\System32',
@@ -75,7 +75,7 @@ describe('resolveExecutableLaunchTarget', () => {
       },
     });
 
-    expect(target?.command).toBe('ngrok');
+    expect(target?.command).toBe('cloudflared');
     expect(target?.env.Path).toContain('C:\\Users\\Ada\\AppData\\Local\\Microsoft\\WindowsApps');
   });
 });

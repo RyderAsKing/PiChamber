@@ -165,7 +165,7 @@ interface TunnelDependencyInstallInfo {
   installCommand: string;
 }
 
-const getProviderDependencyName = (provider: string): string => (provider === 'ngrok' ? 'ngrok' : 'cloudflared');
+const getProviderDependencyName = (_provider: string): string => 'cloudflared';
 
 const getClientInstallPlatform = (): string => {
   if (typeof window !== 'undefined' && typeof window.__PICHAMBER_PLATFORM__ === 'string') {
@@ -187,17 +187,7 @@ const getClientInstallPlatform = (): string => {
   return 'linux';
 };
 
-const getFallbackInstallCommand = (provider: string, platform = getClientInstallPlatform()): string => {
-  if (provider === 'ngrok') {
-    if (platform === 'win32') {
-      return 'winget install ngrok -s msstore';
-    }
-    if (platform === 'darwin') {
-      return 'brew install ngrok';
-    }
-    return 'https://ngrok.com/download';
-  }
-
+const getFallbackInstallCommand = (_provider: string, platform = getClientInstallPlatform()): string => {
   if (platform === 'win32') {
     return 'winget install --id Cloudflare.cloudflared';
   }
@@ -232,20 +222,16 @@ const getProviderLabel = (provider: string): string => {
   if (provider === 'cloudflare') {
     return 'Cloudflare';
   }
-  if (provider === 'ngrok') {
-    return 'Ngrok';
-  }
   return provider;
 };
 
 const ProviderOptionLabel: React.FC<{ provider: string }> = ({ provider }) => {
   const label = getProviderLabel(provider);
   const isCloudflare = provider === 'cloudflare';
-  const isNgrok = provider === 'ngrok';
 
   return (
     <span className="flex items-center gap-2">
-      <Icon name="cloud" className={cn('size-4 shrink-0', isCloudflare || isNgrok ? 'text-[var(--status-warning)]' : 'text-muted-foreground')} />
+      <Icon name="cloud" className={cn('size-4 shrink-0', isCloudflare ? 'text-[var(--status-warning)]' : 'text-muted-foreground')} />
       <span>{label}</span>
     </span>
   );
@@ -546,9 +532,7 @@ export const TunnelSettings: React.FC = () => {
           : 8 * 60 * 60 * 1000;
 
       const loadedMode: TunnelMode = toUiTunnelMode(statusData.mode ?? settingsData?.tunnelMode);
-      const loadedProvider = typeof settingsData?.tunnelProvider === 'string' && settingsData.tunnelProvider.trim().length > 0
-        ? settingsData.tunnelProvider.trim().toLowerCase()
-        : 'cloudflare';
+      const loadedProvider = 'cloudflare';
       const loadedManagedLocalConfigPath = typeof settingsData?.managedLocalTunnelConfigPath === 'string'
         ? settingsData.managedLocalTunnelConfigPath.trim() || null
         : null;
@@ -842,17 +826,6 @@ export const TunnelSettings: React.FC = () => {
       toast.error("Failed to save managed remote tunnel token");
     }
   }, [sessionTokensByPresetId]);
-
-  const handleProviderChange = React.useCallback(async (provider: string) => {
-    setManagedRemoteValidationError(null);
-    setErrorMessage(null);
-    const capability = providerCapabilities.find((entry) => entry.provider === provider);
-    const defaultMode = capability?.modes?.some((mode) => mode.key === tunnelMode)
-      ? tunnelMode
-      : toUiTunnelMode(capability?.modes?.[0]?.key);
-    await saveTunnelSettings({ tunnelProvider: provider, tunnelMode: defaultMode });
-    void refreshTunnelDependencyCheck(provider);
-  }, [providerCapabilities, refreshTunnelDependencyCheck, saveTunnelSettings, tunnelMode]);
 
   const handleBrowseManagedLocalConfig = React.useCallback(async () => {
     const result = await requestFileAccess({
@@ -1320,33 +1293,9 @@ export const TunnelSettings: React.FC = () => {
           <div className="space-y-3">
             <div data-settings-item="tunnel.provider" className="space-y-1.5">
               <p className={SETTINGS_FIELD_LABEL_CLASS}>{"Provider"}</p>
-              <Select
-                value={tunnelProvider}
-                onValueChange={(value) => {
-                  void handleProviderChange(value);
-                }}
-                disabled={isSavingMode || state === 'starting' || state === 'stopping'}
-              >
-                <SelectTrigger size={SETTINGS_SELECT_SIZE} className="max-w-[16rem]">
-                  <SelectValue placeholder={"Select provider"}>
-                    {getProviderLabel(tunnelProvider)}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {providerCapabilities.length > 0
-                    ? providerCapabilities.map((capability) => (
-                      <SelectItem key={capability.provider} value={capability.provider}>
-                        <ProviderOptionLabel provider={capability.provider} />
-                      </SelectItem>
-                    ))
-                    : (
-                      <SelectItem value="cloudflare">
-                        <ProviderOptionLabel provider="cloudflare" />
-                      </SelectItem>
-                    )}
-                  <SelectItem value="__more-soon" disabled>{"More providers coming soon"}</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2 text-sm text-foreground">
+                <ProviderOptionLabel provider="cloudflare" />
+              </div>
             </div>
 
             <div data-settings-item="tunnel.type" className="space-y-1.5">

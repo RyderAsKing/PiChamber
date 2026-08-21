@@ -590,7 +590,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'tunnel',
     title: "Provider",
     description: "Configure secure remote access with quick links or your own managed remote Cloudflare tunnel.",
-    keywords: ['remote access', 'cloudflare', 'ngrok'],
+    keywords: ['remote access', 'cloudflare'],
   },
   {
     id: 'tunnel.type',

@@ -1,5 +1,4 @@
 export const TUNNEL_PROVIDER_CLOUDFLARE = 'cloudflare';
-export const TUNNEL_PROVIDER_NGROK = 'ngrok';
 
 export const TUNNEL_MODE_QUICK = 'quick';
 export const TUNNEL_MODE_MANAGED_REMOTE = 'managed-remote';

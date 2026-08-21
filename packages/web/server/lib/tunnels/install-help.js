@@ -1,6 +1,5 @@
 import {
   TUNNEL_PROVIDER_CLOUDFLARE,
-  TUNNEL_PROVIDER_NGROK,
 } from './types.js';
 
 const PROVIDER_INSTALL_INFO = {
@@ -11,15 +10,6 @@ const PROVIDER_INSTALL_INFO = {
       darwin: 'brew install cloudflared',
       win32: 'winget install --id Cloudflare.cloudflared',
       linux: 'Download cloudflared from https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflared/downloads/',
-    },
-  },
-  [TUNNEL_PROVIDER_NGROK]: {
-    dependency: 'ngrok',
-    installUrl: 'https://ngrok.com/download',
-    commands: {
-      darwin: 'brew install ngrok',
-      win32: 'winget install ngrok -s msstore',
-      linux: 'Download ngrok from https://ngrok.com/download',
     },
   },
 };

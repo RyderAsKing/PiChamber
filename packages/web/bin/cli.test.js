@@ -14,7 +14,6 @@ import { resolveTargetPort } from './lib/cli-api-target.js';
 import { DEFAULT_TUNNEL_PROVIDER_CAPABILITIES } from './lib/cli-tunnel-capabilities.js';
 import {
   TUNNEL_PROVIDER_CLOUDFLARE,
-  TUNNEL_PROVIDER_NGROK,
 } from '../server/lib/tunnels/types.js';
 import {
   assertAuthenticatedNetworkExposure,
@@ -241,7 +240,6 @@ describe('cli args', () => {
   it('loads fallback tunnel provider capabilities for CLI startup', () => {
     expect(DEFAULT_TUNNEL_PROVIDER_CAPABILITIES.map((provider) => provider.provider)).toEqual([
       TUNNEL_PROVIDER_CLOUDFLARE,
-      TUNNEL_PROVIDER_NGROK,
     ]);
   });
 
@@ -520,7 +518,7 @@ describe('compatibility exports', () => {
     });
   });
 
-  it('includes ngrok in fallback tunnel providers when no server is reachable', async () => {
+  it('includes cloudflare in fallback tunnel providers when no server is reachable', async () => {
     await withTempPiChamberDataDir(async () => {
       const port = await allocateLoopbackPort();
       const output = await captureStdout(async () => {
@@ -529,11 +527,11 @@ describe('compatibility exports', () => {
 
       const body = JSON.parse(output);
       expect(body.source).toBe('fallback');
-      expect(body.providers.map((entry) => entry.provider)).toContain('ngrok');
+      expect(body.providers.map((entry) => entry.provider)).toContain('cloudflare');
     });
   });
 
-  it('supports ngrok quick dry-run with an explicit port', async () => {
+  it('supports cloudflare quick dry-run with an explicit port', async () => {
     await withTempPiChamberDataDir(async () => {
       const output = await captureStdout(async () => {
         await commands.tunnel({
@@ -541,7 +539,7 @@ describe('compatibility exports', () => {
           dryRun: true,
           explicitPort: true,
           port: 3003,
-          provider: 'ngrok',
+          provider: 'cloudflare',
           mode: 'quick',
         }, 'start');
       });
@@ -550,7 +548,7 @@ describe('compatibility exports', () => {
       expect(body).toEqual(expect.objectContaining({
         ok: true,
         dryRun: true,
-        provider: 'ngrok',
+        provider: 'cloudflare',
         mode: 'quick',
       }));
     });
@@ -587,7 +585,7 @@ describe('CLI HTTP helpers', () => {
       try {
         const { response, body } = await requestJson(port, '/api/pichamber/tunnel/start', {
           method: 'POST',
-          body: JSON.stringify({ provider: 'ngrok', mode: 'quick' }),
+          body: JSON.stringify({ provider: 'cloudflare', mode: 'quick' }),
         });
 
         expect(response.ok).toBe(true);
