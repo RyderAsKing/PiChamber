@@ -93,7 +93,8 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
   const loadGlobalGitIdentity = useGitIdentitiesStore((s) => s.loadGlobalIdentity);
   const loadDefaultGitIdentityId = useGitIdentitiesStore((s) => s.loadDefaultGitIdentityId);
   const { canRequestAccess, startAccessing } = useFileSystemAccess();
-  const { isMobile } = useDeviceInfo();
+  const { isMobile, isTablet } = useDeviceInfo();
+  const shouldSuppressAutoFocus = isMobile || isTablet;
   const inputRef = React.useRef<HTMLInputElement>(null);
   const rowRefs = React.useRef(new Map<string, HTMLButtonElement>());
   const [dialogHomeDirectory, setDialogHomeDirectory] = React.useState('');
@@ -134,20 +135,24 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     setShowHidden(false);
     previousBrowsePathRef.current = '~/';
     setFolderEnterFrom('right');
-    requestAnimationFrame(() => focusPathInput(inputRef.current));
+    if (!shouldSuppressAutoFocus) {
+      requestAnimationFrame(() => focusPathInput(inputRef.current));
+    }
 
     let cancelled = false;
     const resolveHome = async () => {
       const resolved = await resolveFreshFilesystemHome();
       if (cancelled) return;
       setDialogHomeDirectory(resolved || homeDirectory || '');
-      requestAnimationFrame(() => focusPathInput(inputRef.current));
+      if (!shouldSuppressAutoFocus) {
+        requestAnimationFrame(() => focusPathInput(inputRef.current));
+      }
     };
     void resolveHome();
     return () => {
       cancelled = true;
     };
-  }, [homeDirectory, open]);
+  }, [homeDirectory, open, shouldSuppressAutoFocus]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -336,9 +341,9 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
   }, [query]);
 
   React.useLayoutEffect(() => {
-    if (!open) return;
+    if (!open || shouldSuppressAutoFocus) return;
     focusPathInput(inputRef.current);
-  }, [open]);
+  }, [open, shouldSuppressAutoFocus]);
 
   React.useLayoutEffect(() => {
     const row = rows[highlightedIndex];
