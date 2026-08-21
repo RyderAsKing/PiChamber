@@ -4,6 +4,70 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-21
+
+This release ships per-message branching, rebuilds Providers, Skills, and
+Snippets around a unified grid and detail pattern, and makes tunneling and
+settings honest about what PiChamber actually supports.
+
+- **Per-message revert and fork with timeline.** Any user message can be
+  reverted or forked from its own action menu. Reverted messages are tracked
+  per-message with a dedicated dock and a `TimelineDialog` showing the full
+  branch. Forking creates a durable server-side branch (real Git branch) with
+  a forked title, and navigation intent keeps blank/draft routing predictable.
+  Server work lives in `session-daemon` and `protocol`, with
+  `revert-navigation-store`, `pi-session-store`, and `session-ui-store`
+  owning the client state.
+- **Providers catalog rebuilt.** List + sidebar is now grid `ProviderCard`s
+  with auth-first sort, search, refresh, and a detail drill-down. Per-model
+  default variant is set inline, catalog refresh and connected-state handling
+  are fixed, and Settings polish removes stale polling. `ProvidersSidebar` is
+  removed.
+- **Skills catalog rebuilt.** Grid `SkillCard`s with project-first sort,
+  markdown detail view, pill left-aligned and `id` hidden, and markdown
+  loading for content. Mobile `/skill` now works: case-insensitive hint
+  matching, warm catalog load, and touch-friendly autocomplete. `SkillsSidebar`
+  is removed.
+- **Snippets rebuilt.** Grid `SnippetCard`s with browse + full-page
+  `SnippetMarkdownEditor`, consolidated to a single kind (the kind selector is
+  gone), and the trigger is rewired from `/` to `#` with direct content
+  expansion. Mobile `SkillAutocomplete`/`SnippetAutocomplete` and
+  `ThinkingLevelControl` touch handling are fixed.
+- **Settings cleanup.** Utility prompts are renamed/hidden, tunnel provider is
+  renamed and hidden to match the Cloudflare-only reality, Behavior and Skills
+  now edit markdown, usage reporting is removed, mobile headers are deduped,
+  settings padding and `SettingsPageLayout` are fixed, and PiChamber visual
+  and defaults panes are tuned. Mobile Settings adds a Remote Servers card and
+  sidebar cleanup; desktop context chart on the rail gets a mobile-style hover
+  with git changed-files count interpolation (`ContextProgressIcon`,
+  `ContextUsageDisplay`).
+- **Tunnels: Cloudflare only (breaking).** `ngrok` is removed entirely:
+  `ngrok-tunnel.js`, tests, provider, types, `package-manager` helpers, and
+  `cli-tunnel-capabilities` ngrok paths are deleted. `TunnelSettings`,
+  `DOCS/references`, and research notes now document Cloudflare as the sole
+  provider. If you relied on `ngrok`, reconfigure to Cloudflare (`cloudflared`)
+  before upgrading.
+- **Desktop and rail polish.** Context rail tooltip interpolates live git
+  changed-file counts, header/titlebar controls are aligned (collapsed-sidebar
+  toggle matches row-mates, spacer fixes), and prompt navigator rail count is
+  corrected.
+- **Mobile and drawer reliability.** Directory explorer no longer auto-focuses
+  on mobile (prevents keyboard pop), drawer swipe can close from anywhere with
+  shared `gestureMath` fixes, thinking slider stays interactive while
+  dragging, and `ChatInput`/`ComposerEditor` focus handling is tightened.
+- **Session drafts that stay put.** New-session drafts are preserved across
+  folder changes and runtime switches, blank draft navigation intent is
+  documented and tested (`session-intent`), and `ArchiveView`/`SidebarHeader`
+  routing handles drafts consistently.
+- **Pi provider resilience.** Session daemon now handles the Pi SDK provider
+  retry lifecycle correctly so transient provider errors no longer stick
+  sessions in failed state, with daemon tests and `pi-sdk-provider-error-handling`
+  research note.
+- **Docs and housekeeping.** README previews and “why PiChamber” refreshed,
+  `pi-revert-support` and `external-tunnel-support` research added, lint
+  (`prefer-const`, `require-imports`, `exhaustive-deps`) cleaned, and patch
+  releases bundled for provider/skill/snippet polish.
+
 ## [0.2.2] - 2026-08-20
 
 This release polishes mobile and tablet interaction, smooths drawer and
