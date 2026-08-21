@@ -6,13 +6,15 @@ import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLay
 import { SettingsSection } from '@/components/sections/shared/SettingsSection';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { toast } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { useDeviceInfo } from '@/lib/device';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { SkillCard, SkillCardSkeleton } from '@/components/sections/skills/SkillCard';
 import { SimpleMarkdownRenderer } from '@/components/chat/MarkdownRenderer';
+import { SnippetMarkdownEditor } from '@/components/sections/snippets/SnippetMarkdownEditor';
 
-/** Pi-native skill discovery — grid browse + detail with markdown. Skill files remain owned by Pi and are read-only here. */
+/** Pi-native skill discovery — grid browse + detail with markdown and inline editing when Pi marks the skill editable. */
 export const SkillsPage: React.FC = () => {
   const { isMobile } = useDeviceInfo();
   const selectedSkillName = useSkillsStore((state) => state.selectedSkillName);
@@ -28,6 +30,19 @@ export const SkillsPage: React.FC = () => {
     () => skills.find((item) => item.name === selectedSkillName) ?? null,
     [skills, selectedSkillName],
   );
+  const updateSkillContent = useSkillsStore((state) => state.updateSkillContent);
+  const [isEditingSkill, setIsEditingSkill] = React.useState(false);
+  const [skillDraft, setSkillDraft] = React.useState('');
+  const [isSavingSkill, setIsSavingSkill] = React.useState(false);
+
+  React.useEffect(() => {
+    if (skill) {
+      setSkillDraft(skill.content ?? '');
+      setIsEditingSkill(false);
+    } else {
+      setIsEditingSkill(false);
+    }
+  }, [skill?.id, skill?.content]);
 
   const refreshSkills = React.useCallback(async () => {
     if (refreshing) return;
@@ -85,6 +100,26 @@ export const SkillsPage: React.FC = () => {
   if (skill) {
     const locationLabel = skill.location === 'project' ? 'Project' : skill.location === 'global' ? 'Global' : skill.location;
     const hasContent = typeof skill.content === 'string' && skill.content.trim().length > 0;
+    const isEditable = skill.editable === true;
+    const isDirty = skillDraft !== (skill.content ?? '');
+
+    const handleSaveSkill = async () => {
+      if (!isEditable || isSavingSkill) return;
+      setIsSavingSkill(true);
+      const ok = await updateSkillContent(skill.name, skillDraft);
+      setIsSavingSkill(false);
+      if (ok) {
+        toast.success("Skill saved");
+        setIsEditingSkill(false);
+      } else {
+        toast.error("Failed to save skill");
+      }
+    };
+
+    const handleCancelSkillEdit = () => {
+      setSkillDraft(skill.content ?? '');
+      setIsEditingSkill(false);
+    };
 
     return (
       <>
@@ -105,15 +140,64 @@ export const SkillsPage: React.FC = () => {
             </span>
           }
           description={skill.description ? <span className="typography-settings-description text-muted-foreground">{skill.description}</span> : undefined}
+          headerEnd={
+            isEditable && !isEditingSkill ? (
+              <Button variant="outline" size="xs" onClick={() => setIsEditingSkill(true)}>
+                <Icon name="edit" className="size-3.5" />
+                Edit
+              </Button>
+            ) : undefined
+          }
         >
           <SettingsSection title="Details" divider={false} settingsItem="skills.discovery">
             <div className="flex flex-wrap gap-2 typography-micro">
               <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 font-medium capitalize text-muted-foreground">{locationLabel}</span>
+              {isEditable ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-[var(--status-success)]/10 px-2.5 py-1 font-medium text-[var(--status-success)]">
+                  <Icon name="check" className="size-3.5" aria-hidden />
+                  Editable
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 font-medium text-muted-foreground">
+                  <span className="size-1.5 rounded-full bg-muted-foreground/60" aria-hidden />
+                  Read-only
+                </span>
+              )}
             </div>
+            {!isEditable ? (
+              <p className="typography-micro text-muted-foreground">This skill is provided by a package or template and cannot be edited. Create a new skill in your project to customize it.</p>
+            ) : null}
           </SettingsSection>
 
-          <SettingsSection title="Skill Guide" settingsItem="skills.content" info="Rendered from the SKILL.md markdown file discovered by Pi.">
-            {hasContent ? (
+          <SettingsSection
+            title="Skill Guide"
+            settingsItem="skills.content"
+            info={isEditingSkill ? "Markdown supported. Preview your changes before saving." : "Rendered from the SKILL.md markdown file discovered by Pi."}
+            headerAction={
+              isEditable && isEditingSkill ? (
+                <span className="typography-micro text-muted-foreground">{isDirty ? "Unsaved changes" : "No changes"}</span>
+              ) : undefined
+            }
+          >
+            {isEditingSkill ? (
+              <>
+                <SnippetMarkdownEditor
+                  value={skillDraft}
+                  onChange={setSkillDraft}
+                  placeholder="Write the skill guide in markdown..."
+                  hideExpandsNote
+                  minHeight={360}
+                />
+                <div className="flex items-center justify-between gap-2 pt-3">
+                  <Button variant="ghost" size="xs" onClick={handleCancelSkillEdit} disabled={isSavingSkill}>
+                    Cancel
+                  </Button>
+                  <Button size="xs" onClick={() => void handleSaveSkill()} disabled={isSavingSkill || !isDirty}>
+                    {isSavingSkill ? "Saving..." : "Save Changes"}
+                  </Button>
+                </div>
+              </>
+            ) : hasContent ? (
               <div className="rounded-xl border border-border/60 bg-[var(--surface-elevated)] p-4 @xl:p-6">
                 <SimpleMarkdownRenderer content={skill.content ?? ''} stripFrontmatter className="max-w-none" />
               </div>
@@ -122,8 +206,22 @@ export const SkillsPage: React.FC = () => {
                 <Icon name="book-open" className="size-6 text-muted-foreground/60" aria-hidden />
                 <p className="typography-meta text-muted-foreground">No guide content available for this skill.</p>
                 <p className="typography-micro text-muted-foreground">The daemon did not return markdown for this resource.</p>
+                {isEditable ? (
+                  <Button variant="outline" size="xs" onClick={() => setIsEditingSkill(true)} className="mt-2">
+                    <Icon name="edit" className="size-3.5" />
+                    Add content
+                  </Button>
+                ) : null}
               </div>
             )}
+            {isEditable && !isEditingSkill && hasContent ? (
+              <div className="flex justify-end pt-3">
+                <Button variant="outline" size="xs" onClick={() => setIsEditingSkill(true)}>
+                  <Icon name="edit" className="size-3.5" />
+                  Edit
+                </Button>
+              </div>
+            ) : null}
           </SettingsSection>
         </SettingsPageLayout>
       </>

@@ -785,7 +785,7 @@ export const fetchMagicPromptOverrides = async (): Promise<Record<string, string
     })
       .then(async (response) => {
         if (!response.ok) {
-          throw new Error('Failed to load magic prompts');
+          throw new Error('Failed to load PiChamber utility prompts');
         }
         const payload = await response.json().catch(() => ({}));
         const normalized = normalizeOverridesPayload(payload);
@@ -803,7 +803,7 @@ export const fetchMagicPromptOverrides = async (): Promise<Record<string, string
 export const getMagicPromptDefinition = (id: MagicPromptId): MagicPromptDefinition => {
   const definition = MAGIC_PROMPT_DEFINITION_BY_ID.get(id);
   if (!definition) {
-    throw new Error(`Unknown magic prompt id: ${id}`);
+    throw new Error(`Unknown utility prompt id: ${id}`);
   }
   return definition;
 };
@@ -837,7 +837,7 @@ export const saveMagicPromptOverride = async (id: MagicPromptId, text: string): 
   });
   if (!response.ok) {
     const errorPayload = await response.json().catch(() => ({}));
-    throw new Error((errorPayload as { error?: string })?.error || 'Failed to save magic prompt');
+    throw new Error((errorPayload as { error?: string })?.error || 'Failed to save utility prompt');
   }
   const payload = await response.json();
   cachedOverrides = normalizeOverridesPayload(payload);
@@ -854,7 +854,7 @@ export const resetMagicPromptOverride = async (id: MagicPromptId): Promise<Magic
   });
   if (!response.ok) {
     const errorPayload = await response.json().catch(() => ({}));
-    throw new Error((errorPayload as { error?: string })?.error || 'Failed to reset magic prompt');
+    throw new Error((errorPayload as { error?: string })?.error || 'Failed to reset utility prompt');
   }
   const payload = await response.json();
   cachedOverrides = normalizeOverridesPayload(payload);
@@ -871,7 +871,7 @@ export const resetAllMagicPromptOverrides = async (): Promise<MagicPromptOverrid
   });
   if (!response.ok) {
     const errorPayload = await response.json().catch(() => ({}));
-    throw new Error((errorPayload as { error?: string })?.error || 'Failed to reset all magic prompts');
+    throw new Error((errorPayload as { error?: string })?.error || 'Failed to reset all utility prompts');
   }
   const payload = await response.json();
   cachedOverrides = normalizeOverridesPayload(payload);

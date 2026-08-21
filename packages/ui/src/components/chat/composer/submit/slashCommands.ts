@@ -1,7 +1,7 @@
 /**
  * The composer's local slash commands.
  *
- * Most of them do the same thing: render a pair of magic prompts — one the
+ * Most of them do the same thing: render a pair of utility prompts — one the
  * user sees, one the model is instructed with — and send them as a single
  * message. That shape was previously written out nine times as an `else if`
  * chain, so adding a command meant copying twenty lines and remembering to

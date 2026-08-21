@@ -204,7 +204,7 @@ export const MagicPromptsPage: React.FC = () => {
         setOverrides(nextOverrides);
       } catch (error) {
         console.warn('Failed to load magic prompts:', error);
-        toast.error("Failed to load Magic Prompts");
+        toast.error("Failed to load PiChamber Utility Prompts");
       } finally {
         if (active) {
           setLoading(false);
@@ -247,10 +247,10 @@ export const MagicPromptsPage: React.FC = () => {
         ? await resetMagicPromptOverride(id)
         : await saveMagicPromptOverride(id, value);
       setOverrides(payload.overrides);
-      toast.success("Magic prompt saved");
+      toast.success("Utility prompt saved");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      toast.error("Failed to save magic prompt", { description: message });
+      toast.error("Failed to save utility prompt", { description: message });
     } finally {
       setSavingIds((current) => ({ ...current, [id]: false }));
     }
@@ -268,7 +268,7 @@ export const MagicPromptsPage: React.FC = () => {
       toast.success("Prompt reset to default");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      toast.error("Failed to reset prompt", { description: message });
+      toast.error("Failed to reset utility prompt", { description: message });
     } finally {
       setResettingIds((current) => ({ ...current, [id]: false }));
     }
@@ -293,7 +293,7 @@ export const MagicPromptsPage: React.FC = () => {
     return (
       <div className="py-6 px-6 flex items-center gap-2 text-muted-foreground">
         <span className="inline-block h-1.5 w-1.5 rounded-full bg-current animate-busy-pulse" aria-label={"Loading"} />
-        <span className="typography-ui">{"Loading Magic Prompts..."}</span>
+        <span className="typography-ui">{"Loading PiChamber Utility Prompts..."}</span>
       </div>
     );
   }

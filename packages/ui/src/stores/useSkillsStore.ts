@@ -19,6 +19,7 @@ export interface DiscoveredSkill {
   location: 'global' | 'project' | 'package' | 'path';
   /** Markdown body of the SKILL.md file, when the daemon returns it. */
   content?: string;
+  editable?: boolean;
 }
 
 interface SkillsStore {
@@ -28,6 +29,7 @@ interface SkillsStore {
   setSelectedSkill: (name: string | null) => void;
   loadSkills: () => Promise<boolean>;
   renameSkill: (name: string, newName: string) => Promise<boolean>;
+  updateSkillContent: (name: string, content: string) => Promise<boolean>;
   getSkillByName: (name: string) => DiscoveredSkill | undefined;
 }
 
@@ -75,6 +77,7 @@ export const useSkillsStore = create<SkillsStore>()(
                 ...(skill.description ? { description: skill.description } : {}),
                 location: skill.location,
                 ...(typeof skill.content === 'string' && skill.content.length > 0 ? { content: skill.content } : {}),
+                ...(skill.editable === true ? { editable: true as const } : {}),
               }));
               set((state) => ({
                 skills,
@@ -99,6 +102,29 @@ export const useSkillsStore = create<SkillsStore>()(
         },
         // Pi package/source mutation is intentionally not exposed by WS5.
         renameSkill: async () => false,
+        updateSkillContent: async (name, content) => {
+          const skill = get().skills.find((item) => item.name === name);
+          if (!skill) return false;
+          try {
+            const response = await piClient.updateResource({ resourceId: skill.id, content }, { runtimeKey: getRuntimeKey() });
+            const nextSkills = response.skills.map((item) => ({
+              id: item.id,
+              name: item.name,
+              path: item.id,
+              scope: (item.location === 'project' ? 'project' : 'user') as SkillScope,
+              source: 'agents' as const,
+              ...(item.description ? { description: item.description } : {}),
+              location: item.location,
+              ...(typeof item.content === 'string' && item.content.length > 0 ? { content: item.content } : {}),
+              ...(item.editable === true ? { editable: true as const } : {}),
+            }));
+            set({ skills: nextSkills });
+            loadedAtByKey.set(getRuntimeKey(), Date.now());
+            return true;
+          } catch {
+            return false;
+          }
+        },
         getSkillByName: (name) => get().skills.find((skill) => skill.name === name),
       }),
       {

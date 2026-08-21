@@ -14,6 +14,8 @@ interface SnippetMarkdownEditorProps {
   /** Optional id for anchoring via data-settings-item. */
   settingsItem?: string;
   minHeight?: number;
+  /** Hide the snippet-specific "Expands as #name" note. Used for Behavior/Skills. */
+  hideExpandsNote?: boolean;
 }
 
 export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
@@ -23,8 +25,9 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
   placeholder = 'Enter the prompt template text... Use markdown to format your snippet. It will expand as #name in the composer.',
   settingsItem,
   minHeight = 220,
+  hideExpandsNote = false,
 }) => {
-  const [mode, setMode] = React.useState<'write' | 'preview'>(readOnly ? 'preview' : 'write');
+  const [mode, setMode] = React.useState<'write' | 'preview'>('preview');
   const hasContent = value.trim().length > 0;
 
   React.useEffect(() => {
@@ -48,6 +51,15 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
           <Button
             variant="chip"
             size="xs"
+            aria-pressed={mode === 'preview'}
+            onClick={() => setMode('preview')}
+          >
+            <Icon name="eye" className="size-3.5" aria-hidden />
+            Preview
+          </Button>
+          <Button
+            variant="chip"
+            size="xs"
             aria-pressed={mode === 'write'}
             disabled={readOnly}
             onClick={() => setMode('write')}
@@ -56,19 +68,10 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
             <Icon name="edit" className="size-3.5" aria-hidden />
             Write
           </Button>
-          <Button
-            variant="chip"
-            size="xs"
-            aria-pressed={mode === 'preview'}
-            onClick={() => setMode('preview')}
-          >
-            <Icon name="eye" className="size-3.5" aria-hidden />
-            Preview
-          </Button>
         </div>
-        <span className="hidden typography-micro text-muted-foreground @xl:inline">
-          {readOnly ? 'Read-only' : 'Markdown supported'}
-        </span>
+        {readOnly ? (
+          <span className="hidden typography-micro text-muted-foreground @xl:inline">Read-only</span>
+        ) : null}
       </div>
 
       {showWrite ? (
@@ -108,10 +111,12 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
 
       {!readOnly ? (
         <div className="flex items-center justify-between gap-2 border-t border-border/40 bg-muted/10 px-3 py-2 typography-micro text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <Icon name="information" className="size-3.5 shrink-0 opacity-60" aria-hidden />
-            Expands as <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">#{'`{name}`'}</code> in the composer
-          </span>
+          {hideExpandsNote ? <span /> : (
+            <span className="flex items-center gap-1.5">
+              <Icon name="information" className="size-3.5 shrink-0 opacity-60" aria-hidden />
+              Expands as <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">#{'`{name}`'}</code> in the composer
+            </span>
+          )}
           <span className="tabular-nums">{value.length} chars</span>
         </div>
       ) : null}

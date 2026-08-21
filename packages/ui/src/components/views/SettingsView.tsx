@@ -292,7 +292,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
       case 'sessions':
         return "Sessions";
       case 'magic-prompts':
-        return "Magic Prompts";
+        return "PiChamber Utility Prompts";
       case 'snippets':
         return "Snippets";
       case 'notifications':
