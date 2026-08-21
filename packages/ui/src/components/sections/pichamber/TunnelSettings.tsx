@@ -165,7 +165,7 @@ interface TunnelDependencyInstallInfo {
   installCommand: string;
 }
 
-const getProviderDependencyName = (_provider: string): string => 'cloudflared';
+const getProviderDependencyName = (): string => 'cloudflared';
 
 const getClientInstallPlatform = (): string => {
   if (typeof window !== 'undefined' && typeof window.__PICHAMBER_PLATFORM__ === 'string') {
@@ -187,7 +187,7 @@ const getClientInstallPlatform = (): string => {
   return 'linux';
 };
 
-const getFallbackInstallCommand = (_provider: string, platform = getClientInstallPlatform()): string => {
+const getFallbackInstallCommand = (platform = getClientInstallPlatform()): string => {
   if (platform === 'win32') {
     return 'winget install --id Cloudflare.cloudflared';
   }
@@ -203,13 +203,13 @@ const createTunnelDependencyInstallInfo = (provider: string, checkData?: TunnelC
     : provider;
   const dependency = typeof checkData?.dependency === 'string' && checkData.dependency.trim().length > 0
     ? checkData.dependency.trim()
-    : getProviderDependencyName(responseProvider);
+    : getProviderDependencyName();
   const platform = typeof checkData?.platform === 'string' && checkData.platform.trim().length > 0
     ? checkData.platform.trim()
     : getClientInstallPlatform();
   const installCommand = typeof checkData?.installCommand === 'string' && checkData.installCommand.trim().length > 0
     ? checkData.installCommand.trim()
-    : getFallbackInstallCommand(responseProvider, platform);
+    : getFallbackInstallCommand(platform);
 
   return {
     provider: responseProvider,
@@ -478,32 +478,6 @@ export const TunnelSettings: React.FC = () => {
     setDependencyInstallInfo(createTunnelDependencyInstallInfo(fallbackProvider, checkData));
     return checkData.available === true;
   }, []);
-
-  const refreshTunnelDependencyCheck = React.useCallback(async (provider: string, signal?: AbortSignal): Promise<boolean | null> => {
-    try {
-      const checkRes = await runtimeFetch('/api/pichamber/tunnel/check', {
-        query: { provider },
-        ...(signal ? { signal } : {}),
-      });
-      if (!checkRes.ok) {
-        return null;
-      }
-      const checkData = (await checkRes.json()) as TunnelCheckResponse;
-      if (signal?.aborted) {
-        return null;
-      }
-      const available = applyDependencyCheck(checkData, provider);
-      setState((current) => {
-        if (current === 'checking' || current === 'starting' || current === 'active' || current === 'stopping') {
-          return current;
-        }
-        return available ? 'idle' : 'not-available';
-      });
-      return available;
-    } catch {
-      return null;
-    }
-  }, [applyDependencyCheck]);
 
   const checkAvailabilityAndStatus = React.useCallback(async (signal: AbortSignal) => {
     try {
