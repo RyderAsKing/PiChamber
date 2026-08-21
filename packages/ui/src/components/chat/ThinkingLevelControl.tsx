@@ -63,68 +63,108 @@ function ThinkingLevelSlider({
   levels,
   value,
   onChange,
+  onCommit,
   allowUnset = true,
 }: {
   levels: readonly PiThinkingLevel[];
   value: PiThinkingLevel | undefined;
   onChange: (next: PiThinkingLevel | undefined) => void;
+  onCommit?: (next: PiThinkingLevel | undefined) => void;
   allowUnset?: boolean;
 }) {
   const trackRef = React.useRef<HTMLDivElement>(null);
   const options = thinkingOptions(levels, allowUnset);
-  const selectedIndex = Math.max(0, options.findIndex((option) => option === value));
+  const [dragValue, setDragValue] = React.useState<PiThinkingLevel | undefined | null>(null);
+  const [dragFraction, setDragFraction] = React.useState<number | null>(null);
+  const displayValue = dragValue !== null ? dragValue : value;
+  const selectedIndex = Math.max(0, options.findIndex((option) => option === displayValue));
   const maxIndex = Math.max(0, options.length - 1);
   const fraction = maxIndex === 0 ? 0 : selectedIndex / maxIndex;
+  const displayFraction = dragFraction !== null ? dragFraction : fraction;
   const valueText = thinkingLevelLabel(options[selectedIndex]);
   const draggingPointerIdRef = React.useRef<number | null>(null);
   const valueRef = React.useRef(value);
   const optionsRef = React.useRef(options);
   const onChangeRef = React.useRef(onChange);
+  const onCommitRef = React.useRef(onCommit);
+  const dragValueRef = React.useRef<PiThinkingLevel | undefined | null>(null);
   React.useEffect(() => { valueRef.current = value; }, [value]);
   React.useEffect(() => { optionsRef.current = options; }, [options]);
   React.useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+  React.useEffect(() => { onCommitRef.current = onCommit; }, [onCommit]);
+  React.useEffect(() => { dragValueRef.current = dragValue; }, [dragValue]);
+  React.useEffect(() => {
+    if (dragValue !== null && dragValue === value) {
+      setDragValue(null);
+      setDragFraction(null);
+    }
+  }, [value, dragValue]);
 
-  const emitFromClientX = React.useCallback((clientX: number) => {
+  const computeNext = React.useCallback((clientX: number): { next: PiThinkingLevel | undefined; clamped: number } => {
     const rect = trackRef.current?.getBoundingClientRect();
     const currentOptions = optionsRef.current;
-    if (!rect || rect.width <= 0 || currentOptions.length === 0) return;
+    if (!rect || rect.width <= 0 || currentOptions.length === 0) return { next: currentOptions[0], clamped: 0 };
     const clamped = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
     const nextIndex = nearestDiscreteIndex(clamped, currentOptions.length);
-    const next = currentOptions[nextIndex];
-    if (next !== valueRef.current) onChangeRef.current(next);
+    return { next: currentOptions[nextIndex], clamped };
   }, []);
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    // Prevent text selection and ensure we own the gesture; without setPointerCapture
-    // mobile browsers deliver the subsequent move to the scroll container instead of the track.
     event.preventDefault();
+    const { next, clamped } = computeNext(event.clientX);
+    setDragValue(next);
+    setDragFraction(clamped);
+    dragValueRef.current = next;
     draggingPointerIdRef.current = event.pointerId;
     try {
       (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-    } catch { /* ignored – setPointerCapture not supported in some test envs */ }
-    emitFromClientX(event.clientX);
+    } catch { /* ignored */ }
+    if (!onCommitRef.current && next !== valueRef.current) {
+      onChangeRef.current(next);
+    }
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
     if (draggingPointerIdRef.current !== event.pointerId) return;
-    // While dragging, continuously update the selected variant based on pointer position.
     event.preventDefault();
-    emitFromClientX(event.clientX);
+    const { next, clamped } = computeNext(event.clientX);
+    setDragFraction(clamped);
+    if (next === dragValueRef.current) return;
+    setDragValue(next);
+    dragValueRef.current = next;
+    if (!onCommitRef.current && next !== valueRef.current) {
+      onChangeRef.current(next);
+    }
   };
 
   const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
     if (draggingPointerIdRef.current !== event.pointerId) return;
+    const { next: computedNext, clamped } = computeNext(event.clientX);
+    const finalValue = dragValueRef.current ?? computedNext;
+    const finalFraction = dragFraction ?? clamped;
     draggingPointerIdRef.current = null;
     try {
       if ((event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId)) {
         (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
       }
     } catch { /* ignored */ }
+    if (onCommitRef.current) {
+      onCommitRef.current(finalValue);
+      setDragFraction(finalFraction);
+    } else if (finalValue !== valueRef.current) {
+      onChangeRef.current(finalValue);
+    }
+    if (!onCommitRef.current) {
+      setDragValue(null);
+      setDragFraction(null);
+    }
   };
 
   const handlePointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
     if (draggingPointerIdRef.current !== event.pointerId) return;
     draggingPointerIdRef.current = null;
+    setDragValue(null);
+    setDragFraction(null);
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -135,7 +175,9 @@ function ThinkingLevelSlider({
     if (event.key === 'End') nextIndex = maxIndex;
     if (nextIndex === null || nextIndex === selectedIndex) return;
     event.preventDefault();
-    onChange(options[nextIndex]);
+    const next = options[nextIndex];
+    if (onCommitRef.current) onCommitRef.current(next);
+    else onChange(next);
   };
 
   return (
@@ -148,6 +190,7 @@ function ThinkingLevelSlider({
       aria-valuemax={maxIndex}
       aria-valuenow={selectedIndex}
       aria-valuetext={valueText}
+      data-no-drawer-swipe="true"
       className="cursor-pointer touch-none select-none px-4 py-1 outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)] rounded-full"
       style={{ touchAction: 'none' }}
       onPointerDown={handlePointerDown}
@@ -162,7 +205,7 @@ function ThinkingLevelSlider({
         <div
           className="absolute left-0 top-1/2 h-5 -translate-y-1/2 rounded-full bg-primary"
           style={{
-            width: `calc(${TRACK_INSET_PX}px + (100% - ${TRACK_INSET_PX * 2}px) * ${fraction})`,
+            width: `calc(${TRACK_INSET_PX}px + (100% - ${TRACK_INSET_PX * 2}px) * ${displayFraction})`,
           }}
         />
         <div
@@ -188,7 +231,7 @@ function ThinkingLevelSlider({
           <div className="pointer-events-none absolute inset-x-0 top-1/2 h-0">
             <div
               className="w-full"
-              style={{ transform: `translateX(${tickPercent(selectedIndex, maxIndex)}%)` }}
+              style={{ transform: `translateX(${displayFraction * 100}%)` }}
             >
               <div className="absolute left-0 top-0 size-8 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground" />
             </div>
@@ -203,21 +246,24 @@ export function ThinkingLevelPicker({
   levels,
   value,
   onChange,
+  onCommit,
   allowUnset = true,
 }: {
   levels: readonly PiThinkingLevel[];
   value: PiThinkingLevel | undefined;
   onChange: (next: PiThinkingLevel | undefined) => void;
+  onCommit?: (next: PiThinkingLevel | undefined) => void;
   allowUnset?: boolean;
 }) {
   const options = thinkingOptions(levels, allowUnset);
 
   return (
-    <div className="w-full px-4 pt-3.5 pb-2">
+    <div className="w-full px-4 pt-3.5 pb-2" data-no-drawer-swipe="true">
       <ThinkingLevelSlider
         levels={levels}
         value={value}
         onChange={onChange}
+        onCommit={onCommit}
         allowUnset={allowUnset}
       />
       <div className="mt-1.5 flex justify-between px-4 typography-micro text-muted-foreground">
