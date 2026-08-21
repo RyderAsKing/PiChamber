@@ -1060,14 +1060,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             }
         }
 
-        try {
-            const expandText = useSnippetsStore.getState().expandText;
-            primaryText = await expandText(primaryText);
-            for (const part of additionalParts) {
-                if (!part.synthetic) part.text = await expandText(part.text);
+        if (inputMode !== 'shell') {
+            try {
+                const expandText = useSnippetsStore.getState().expandText;
+                primaryText = await expandText(primaryText);
+                for (const part of additionalParts) {
+                    if (!part.synthetic) part.text = await expandText(part.text);
+                }
+            } catch (error) {
+                console.warn('[ChatInput] Failed to expand snippets, sending original text:', error);
             }
-        } catch (error) {
-            console.warn('[ChatInput] Failed to expand snippets, sending original text:', error);
         }
 
         // Collect all attachments for error recovery
@@ -1746,7 +1748,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         const textBeforeCursor = message.substring(0, cursorPosition);
         const lastHashSymbol = textBeforeCursor.lastIndexOf('#');
         const startIndex = lastHashSymbol !== -1 ? lastHashSymbol : cursorPosition;
-        const newMessage = `${message.substring(0, startIndex)}/${trigger} ${message.substring(cursorPosition)}`;
+        const newMessage = `${message.substring(0, startIndex)}#${trigger} ${message.substring(cursorPosition)}`;
         setMessage(newMessage);
         const nextCursor = startIndex + trigger.length + 2;
         requestAnimationFrame(() => {

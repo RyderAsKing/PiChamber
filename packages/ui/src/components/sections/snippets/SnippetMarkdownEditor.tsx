@@ -20,7 +20,7 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
   value,
   onChange,
   readOnly = false,
-  placeholder = 'Enter the prompt template text... Use markdown to format your snippet. It will expand as /name in Pi.',
+  placeholder = 'Enter the prompt template text... Use markdown to format your snippet. It will expand as #name in the composer.',
   settingsItem,
   minHeight = 220,
 }) => {
@@ -110,7 +110,7 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
         <div className="flex items-center justify-between gap-2 border-t border-border/40 bg-muted/10 px-3 py-2 typography-micro text-muted-foreground">
           <span className="flex items-center gap-1.5">
             <Icon name="information" className="size-3.5 shrink-0 opacity-60" aria-hidden />
-            Expands as <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">/{'`{name}`'}</code> in Pi
+            Expands as <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">#{'`{name}`'}</code> in the composer
           </span>
           <span className="tabular-nums">{value.length} chars</span>
         </div>

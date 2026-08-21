@@ -44,7 +44,7 @@ export const SnippetCard: React.FC<SnippetCardProps> = ({ snippet, onSelect, sho
       ) : null}
 
       <div className="min-w-0 flex-1">
-        <div className="truncate typography-ui-label font-medium text-foreground">/{snippet.name}</div>
+        <div className="truncate typography-ui-label font-medium text-foreground">#{snippet.name}</div>
         <div className="mt-1 line-clamp-2 typography-micro text-muted-foreground">
           {description}
           {isPreviewTruncated ? '…' : null}

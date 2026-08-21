@@ -25,7 +25,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
-/** Native Pi prompt-template editor — grid browse plus full-page markdown detail. Templates expand as `/name` in Pi. */
+/** Snippet editor — grid browse plus full-page markdown detail. Templates expand as `#name` in the composer. */
 export const SnippetsPage: React.FC = () => {
   const { isMobile } = useDeviceInfo();
   const selectedName = useSnippetsStore((state) => state.selectedSnippetName);
@@ -248,7 +248,7 @@ export const SnippetsPage: React.FC = () => {
               >
                 <Icon name="arrow-left-s" className="size-4" />
               </Button>
-              <span className="truncate">{isNew ? 'New snippet' : `/${selected?.name ?? name}`}</span>
+              <span className="truncate">{isNew ? 'New snippet' : `#${selected?.name ?? name}`}</span>
             </span>
           }
           description={
@@ -279,7 +279,7 @@ export const SnippetsPage: React.FC = () => {
                   <div className="space-y-1.5">
                     <label className="typography-settings-field-label text-foreground">Name</label>
                     <div className="flex items-center gap-2">
-                      <span className="typography-ui-label text-muted-foreground">/</span>
+                      <span className="typography-ui-label text-muted-foreground">#</span>
                       <Input
                         value={name}
                         onChange={(event) => setName(event.target.value)}
@@ -290,7 +290,7 @@ export const SnippetsPage: React.FC = () => {
                       />
                     </div>
                     <p className="typography-micro text-muted-foreground">
-                      Used as <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">/{name.trim() || 'name'}</code> in chat. Letters, numbers, dashes and underscores only.
+                      Used as <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">#{name.trim() || 'name'}</code> in chat. Letters, numbers, dashes and underscores only.
                     </p>
                   </div>
                   <div className="space-y-1.5">
@@ -385,7 +385,7 @@ export const SnippetsPage: React.FC = () => {
               <div className="flex items-center justify-between gap-4 rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-3">
                 <div className="min-w-0">
                   <div className="typography-ui-label font-medium text-foreground">Delete snippet</div>
-                  <div className="typography-micro text-muted-foreground">Permanently remove /{selected.name}.</div>
+                  <div className="typography-micro text-muted-foreground">Permanently remove #{selected.name}.</div>
                 </div>
                 <Button variant="destructive" size="sm" onClick={() => setConfirmDeleteOpen(true)} disabled={deleting}>
                   <Icon name="delete-bin" className="size-4" />
@@ -400,7 +400,7 @@ export const SnippetsPage: React.FC = () => {
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>Delete snippet?</DialogTitle>
-              <DialogDescription>This will permanently delete /{selected?.name ?? ''}. This cannot be undone.</DialogDescription>
+              <DialogDescription>This will permanently delete #{selected?.name ?? ''}. This cannot be undone.</DialogDescription>
             </DialogHeader>
             <DialogFooter>
               <Button variant="ghost" size="sm" onClick={() => setConfirmDeleteOpen(false)} disabled={deleting}>
@@ -424,7 +424,7 @@ export const SnippetsPage: React.FC = () => {
         <ProjectTrustDialog onResolved={() => void loadSnippets()} />
         <SettingsPageLayout
           title={isMobile ? undefined : 'Snippets'}
-          description={isMobile ? undefined : 'Prompt templates that expand as /name in Pi. Create your own to reuse long prompts.'}
+          description={isMobile ? undefined : 'Prompt templates that expand as #name in the composer. Create your own to reuse long prompts.'}
           headerEnd={
             <div className="flex items-center gap-2">
               <Button variant="ghost" size="icon" onClick={() => void refreshSnippets()} disabled={refreshing} aria-label="Refresh snippets" title="Refresh snippets">
@@ -450,7 +450,7 @@ export const SnippetsPage: React.FC = () => {
       <ProjectTrustDialog onResolved={() => void loadSnippets()} />
       <SettingsPageLayout
         title={isMobile ? undefined : 'Snippets'}
-        description={isMobile ? undefined : 'Prompt templates that expand as /name in Pi. Create your own to reuse long prompts.'}
+        description={isMobile ? undefined : 'Prompt templates that expand as #name in the composer. Create your own to reuse long prompts.'}
         headerEnd={
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative">
@@ -489,7 +489,7 @@ export const SnippetsPage: React.FC = () => {
               <Icon name="file-text" className="size-8 text-muted-foreground/60" aria-hidden />
               <p className="typography-meta text-muted-foreground">No snippets yet</p>
               <p className="typography-micro max-w-sm text-muted-foreground">
-                Snippets are markdown prompt templates. Create one and use it in chat as <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">/my-snippet</code>.
+                Snippets are markdown prompt templates. Create one and use it in chat as <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">#my-snippet</code>.
               </p>
               <Button variant="outline" size="sm" onClick={() => void handleCreateNew()}>
                 <Icon name="add" className="size-4" />

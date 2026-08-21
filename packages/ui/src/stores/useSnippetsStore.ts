@@ -25,7 +25,7 @@ interface SnippetsStore {
   createSnippet: (name: string, content: string, options?: { description?: string; scope?: SnippetScope }) => Promise<boolean>;
   updateSnippet: (name: string, updates: { content?: string }) => Promise<boolean>;
   deleteSnippet: (name: string) => Promise<boolean>;
-  /** Pi expands `/template` itself when the prompt is sent. */
+  /** Replaces `#snippet` tokens with their content before sending. `#` is the only trigger for snippets. */
   expandText: (text: string) => Promise<string>;
   getSnippetByName: (name: string) => Snippet | undefined;
 }
@@ -146,11 +146,23 @@ export const useSnippetsStore = create<SnippetsStore>()(
         return false;
       }
     },
-    expandText: async (text) => text.replace(/(^|\s)#([a-z0-9_-]+)/gi, (match, prefix: string, name: string) => (
-      get().snippets.some((snippet) => snippet.name.toLowerCase() === name.toLowerCase())
-        ? `${prefix}/${name}`
-        : match
-    )),
+    expandText: async (text) => {
+      if (!text || !text.includes('#')) return text;
+      const contentByLower = new Map<string, string>();
+      for (const snippet of get().snippets) {
+        const lower = snippet.name.toLowerCase();
+        if (!contentByLower.has(lower)) contentByLower.set(lower, snippet.content);
+        for (const alias of snippet.aliases ?? []) {
+          const al = alias.toLowerCase();
+          if (!contentByLower.has(al)) contentByLower.set(al, snippet.content);
+        }
+      }
+      if (contentByLower.size === 0) return text;
+      return text.replace(/(^|\s)#([A-Za-z0-9][A-Za-z0-9_-]*)/g, (match, prefix: string, name: string) => {
+        const content = contentByLower.get(name.toLowerCase());
+        return content !== undefined ? `${prefix}${content}` : match;
+      });
+    },
     getSnippetByName: (name) => get().snippets.find((snippet) => snippet.name === name),
   }), { name: 'snippets-store' }),
 );
