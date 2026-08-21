@@ -16,7 +16,6 @@ import { RemoteInstancesPage } from '@/components/sections/remote-instances/Remo
 import { ProvidersPage } from '@/components/sections/providers/ProvidersPage';
 import { MagicPromptsSidebar } from '@/components/sections/magic-prompts/MagicPromptsSidebar';
 import { MagicPromptsPage } from '@/components/sections/magic-prompts/MagicPromptsPage';
-import { SnippetsSidebar } from '@/components/sections/snippets/SnippetsSidebar';
 import { SnippetsPage } from '@/components/sections/snippets/SnippetsPage';
 import { GitPage } from '@/components/sections/git-identities/GitPage';
 import type { PiChamberSection } from '@/components/sections/pichamber/types';
@@ -472,8 +471,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         return <ProjectsSidebar onItemSelect={opts.onItemSelect} />;
       case 'magic-prompts':
         return <MagicPromptsSidebar onItemSelect={opts.onItemSelect} />;
-      case 'snippets':
-        return <SnippetsSidebar onItemSelect={opts.onItemSelect} />;
       default:
         return null;
     }

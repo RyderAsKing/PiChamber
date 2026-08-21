@@ -138,7 +138,7 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
     slug: 'snippets',
     title: 'Snippets',
     group: 'agent',
-    kind: 'split',
+    kind: 'single',
     keywords: ['prompt', 'templates', 'multi-run', 'strategy', 'approach'],
   },
 
