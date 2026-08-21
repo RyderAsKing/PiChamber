@@ -37,6 +37,7 @@ export const ProvidersPage: React.FC = () => {
   const [providerConfig, setProviderConfig] = React.useState<Awaited<ReturnType<typeof piClient.getProviderConfig>>['config']>(null);
   const [busy, setBusy] = React.useState(false);
   const [failed, setFailed] = React.useState(false);
+  const [refreshingCatalog, setRefreshingCatalog] = React.useState(false);
 
   const refresh = React.useCallback(async () => {
     const { providers: result } = await piClient.listProviders(providerScope());
@@ -45,6 +46,24 @@ export const ProvidersPage: React.FC = () => {
     if (!selectedProviderId && result[0]) setSelectedProviderId(result[0].id);
     void useConfigStore.getState().loadProviders({ source: 'providersPage:refresh' });
   }, [selectedProviderId, setSelectedProviderId]);
+
+  const refreshCatalog = React.useCallback(async () => {
+    if (refreshingCatalog) return;
+    setRefreshingCatalog(true);
+    try {
+      const { providers: result } = await piClient.refreshProviders(providerScope());
+      setProviders(result);
+      setFailed(false);
+      if (!selectedProviderId && result[0]) setSelectedProviderId(result[0].id);
+      const configStore = useConfigStore.getState();
+      configStore.invalidateProviderCache();
+      void configStore.loadProviders({ source: 'providersPage:refreshCatalog' });
+    } catch {
+      setFailed(true);
+    } finally {
+      setRefreshingCatalog(false);
+    }
+  }, [refreshingCatalog, selectedProviderId, setSelectedProviderId]);
 
   React.useEffect(() => {
     let active = true;
@@ -66,6 +85,24 @@ export const ProvidersPage: React.FC = () => {
     }, 1_000);
     return () => { active = false; window.clearInterval(timer); };
   }, [login, refresh]);
+
+  React.useEffect(() => {
+    if (!login || login.state !== 'complete' || !providers) return;
+    const authed = providers.find((item) => item.id === login.providerId)?.authenticated === true;
+    if (authed) setLogin(null);
+  }, [login, providers]);
+
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as readonly PiProvider[] | undefined;
+      if (!Array.isArray(detail)) return;
+      setProviders(detail);
+      setFailed(false);
+      if (!selectedProviderId && detail[0]) setSelectedProviderId(detail[0].id);
+    };
+    window.addEventListener('pichamber:providers-refreshed', handler as EventListener);
+    return () => window.removeEventListener('pichamber:providers-refreshed', handler as EventListener);
+  }, [selectedProviderId, setSelectedProviderId]);
 
   const provider = providers?.find((item) => item.id === selectedProviderId) ?? null;
   const providerId = provider?.id;
@@ -186,7 +223,8 @@ export const ProvidersPage: React.FC = () => {
     return <div className="flex h-full items-center justify-center text-muted-foreground">{"No providers"}</div>;
   }
 
-  const isConnected = provider.authenticated || login?.state === 'complete';
+  const activeLogin = login?.providerId === provider.id ? login : null;
+  const isConnected = provider.authenticated || activeLogin?.state === 'complete';
   return (
     <SettingsPageLayout
       title={provider.label}
@@ -231,10 +269,10 @@ export const ProvidersPage: React.FC = () => {
             </Button>
           </div>
         )}
-        {login?.state === 'pending' ? (
-          <ProviderLoginFlow login={login} promptValue={promptValue} onPromptValueChange={setPromptValue} onSubmit={() => void submitPrompt()} busy={busy} />
+        {activeLogin?.state === 'pending' ? (
+          <ProviderLoginFlow login={activeLogin} promptValue={promptValue} onPromptValueChange={setPromptValue} onSubmit={() => void submitPrompt()} busy={busy} />
         ) : null}
-        {login?.state === 'failed' ? <p className="typography-meta text-[var(--status-error)]">{"Authorization was declined or did not complete."}</p> : null}
+        {activeLogin?.state === 'failed' ? <p className="typography-meta text-[var(--status-error)]">{"Authorization was declined or did not complete."}</p> : null}
       </SettingsSection>
 
       <SettingsSection
@@ -243,6 +281,9 @@ export const ProvidersPage: React.FC = () => {
         info={isConnected ? "Hidden models stay out of the composer and session default pickers." : undefined}
         headerAction={(
           <div className="flex items-center gap-1">
+            <Button variant="ghost" size="xs" onClick={() => void refreshCatalog()} disabled={refreshingCatalog || busy}>
+              {refreshingCatalog ? "Refreshing..." : "Refresh catalog"}
+            </Button>
             {isConnected ? (
               <>
                 <Button variant="ghost" size="xs" onClick={() => showAllModels(provider.id)}>

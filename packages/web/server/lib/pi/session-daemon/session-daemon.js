@@ -820,6 +820,84 @@ export function createSessionDaemon({
     return { providers: [...providers.values()] };
   };
 
+  let refreshProvidersInflight = null;
+  const refreshProviders = async (requestedDirectory) => {
+    if (refreshProvidersInflight) return refreshProvidersInflight;
+    const task = (async () => {
+      const signal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(15_000) : undefined;
+      const runtimes = new Set();
+      for (const services of servicesCache.values()) {
+        const mr = services?.modelRuntime;
+        if (mr) runtimes.add(mr);
+      }
+      if (runtime?.session?.modelRuntime) runtimes.add(runtime.session.modelRuntime);
+      if (runtime?.services?.modelRuntime) runtimes.add(runtime.services.modelRuntime);
+      if (runtimeRegistry?.listAll) {
+        try {
+          for (const tracked of runtimeRegistry.listAll()) {
+            const mr = tracked?.session?.modelRuntime ?? tracked?.services?.modelRuntime;
+            if (mr) runtimes.add(mr);
+          }
+        } catch {}
+      }
+      if (runtimes.size === 0) {
+        const active = await ensureRuntime(requestedDirectory ? await resolveDirectory(requestedDirectory) : undefined);
+        const mr = active?.session?.modelRuntime ?? active?.services?.modelRuntime;
+        if (mr) runtimes.add(mr);
+      }
+      const dummyMap = new Map();
+      for (const mr of runtimes) {
+        try {
+          const providers = typeof mr.getProviders === 'function' ? mr.getProviders() : [];
+          for (const provider of providers) {
+            const auth = mr.getProviderAuthStatus?.(provider.id);
+            if (auth?.configured === true) continue;
+            try {
+              await mr.setRuntimeApiKey(provider.id, 'pichamber-catalog-refresh');
+              let list = dummyMap.get(mr);
+              if (!list) { list = []; dummyMap.set(mr, list); }
+              list.push(provider.id);
+            } catch {}
+          }
+        } catch {}
+      }
+      const errors = new Map();
+      let aborted = false;
+      try {
+        await Promise.all([...runtimes].map(async (mr) => {
+          try {
+            const result = await mr.refresh({ allowNetwork: true, force: true, ...(signal ? { signal } : {}) });
+            if (result?.aborted) aborted = true;
+            if (result?.errors) {
+              for (const [providerId, err] of result.errors) errors.set(providerId, err);
+            }
+          } catch (error) {
+            if (error?.code === 'PI_MODEL_CONFIG_INVALID') throw error;
+            errors.set('_global', error);
+          }
+        }));
+      } finally {
+        for (const [mr, ids] of dummyMap.entries()) {
+          for (const id of ids) {
+            try { await mr.removeRuntimeApiKey(id); } catch {}
+          }
+        }
+      }
+      if (errors.has('_global') && runtimes.size > 0) {
+        const globalError = errors.get('_global');
+        if (globalError?.code === 'PI_MODEL_CONFIG_INVALID') {
+          throw new SessionDaemonProtocolError('PI_MODEL_CONFIG_INVALID', 'Pi models configuration is invalid.');
+        }
+      }
+      const catalog = await listProviders(requestedDirectory);
+      return catalog;
+    })().finally(() => {
+      refreshProvidersInflight = null;
+    });
+    refreshProvidersInflight = task;
+    return task;
+  };
+
   const getProviderConfiguration = async (providerId) => {
     if (typeof providerId !== 'string' || providerId.length === 0 || providerId.length > 256) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested provider is invalid.');
@@ -1684,7 +1762,7 @@ export function createSessionDaemon({
               'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.rename', 'sessions.delete',
               'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt',
               'sessions.steer', 'sessions.followUp', 'sessions.abort', 'sessions.setModel',
-              'sessions.setThinking', 'sessions.compact', 'providers.list', 'providers.config.get', 'providers.models.set', 'providers.status', 'providers.login',
+              'sessions.setThinking', 'sessions.compact', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.status', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.delete',
             ],
@@ -1713,6 +1791,11 @@ export function createSessionDaemon({
       }
       case 'providers.list': {
         const result = await listProviders(message.payload?.directory);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'providers.refresh': {
+        const result = await refreshProviders(message.payload?.directory);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }

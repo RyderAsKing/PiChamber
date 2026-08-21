@@ -433,6 +433,15 @@ export class PiService {
     return jsonRequest<undefined, PiProviderListResponse>('/api/pi/providers', { method: 'GET', ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) });
   }
 
+  async refreshProviders(scope?: PiClientScope): Promise<PiProviderListResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<{ directory?: string } | undefined, PiProviderListResponse>('/api/pi/providers/refresh', {
+      method: 'POST',
+      ...(scope?.directory ? { body: { directory: scope.directory } } : { body: undefined }),
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
   async getProviderStatus(providerId: string, scope?: PiClientScope): Promise<PiProviderStatusResponse> {
     assertRuntimeUnchanged(scope);
     return jsonRequest<undefined, PiProviderStatusResponse>(

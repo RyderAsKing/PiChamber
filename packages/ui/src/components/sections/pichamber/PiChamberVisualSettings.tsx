@@ -184,24 +184,6 @@ const USER_MESSAGE_RENDERING_OPTIONS: Option<'markdown' | 'plain'>[] = [
     },
 ];
 
-const MESSAGE_STREAM_TRANSPORT_OPTIONS: Option<'auto' | 'ws' | 'sse'>[] = [
-    {
-        id: 'auto',
-        label: "Auto",
-        description: "Prefer WebSocket and fall back to SSE if needed.",
-    },
-    {
-        id: 'ws',
-        label: "WebSocket",
-        description: "Use WebSocket for message streaming.",
-    },
-    {
-        id: 'sse',
-        label: "SSE",
-        description: "Use Server-Sent Events for message streaming.",
-    },
-];
-
 const TIME_FORMAT_OPTIONS: Option<'auto' | '12h' | '24h'>[] = [
     {
         id: 'auto',
@@ -251,7 +233,7 @@ const normalizeUserMessageRenderingMode = (mode: unknown): 'markdown' | 'plain' 
     return mode === 'markdown' ? 'markdown' : 'plain';
 };
 
-type VisibleSetting = 'theme' | 'windowControlsPosition' | 'pwaInstallName' | 'pwaOrientation' | 'mobileKeyboardMode' | 'timeFormat' | 'weekStart' | 'fontSize' | 'terminalFontSize' | 'terminalShell' | 'terminalLoginShell' | 'editorFontSize' | 'spacing' | 'inputBarOffset' | 'mermaidRendering' | 'userMessageRendering' | 'messageTransport' | 'collapsibleUserMessages' | 'stickyUserHeader' | 'promptNavigatorEnabled' | 'wideChatLayout' | 'codeBlockLineWrap' | 'splitAssistantMessageActions' | 'subagentReadOnlyBanner' | 'diffLayout' | 'mobileStatusBar' | 'dotfiles' | 'fileViewerPreview' | 'reasoning' | 'showToolFileIcons' | 'showTurnChangedFiles' | 'expandedTools' | 'followUpBehavior' | 'terminalQuickKeys' | 'fileEditorKeymap' | 'persistDraft' | 'inputSpellcheck' | 'reportUsage' | 'perfHud' | 'expandedEditorToolbar' | 'autoSaveEnabled';
+type VisibleSetting = 'theme' | 'windowControlsPosition' | 'pwaInstallName' | 'pwaOrientation' | 'mobileKeyboardMode' | 'timeFormat' | 'weekStart' | 'fontSize' | 'terminalFontSize' | 'terminalShell' | 'terminalLoginShell' | 'editorFontSize' | 'spacing' | 'inputBarOffset' | 'mermaidRendering' | 'userMessageRendering' | 'collapsibleUserMessages' | 'stickyUserHeader' | 'promptNavigatorEnabled' | 'wideChatLayout' | 'codeBlockLineWrap' | 'splitAssistantMessageActions' | 'subagentReadOnlyBanner' | 'diffLayout' | 'mobileStatusBar' | 'dotfiles' | 'fileViewerPreview' | 'reasoning' | 'showToolFileIcons' | 'showTurnChangedFiles' | 'expandedTools' | 'followUpBehavior' | 'terminalQuickKeys' | 'fileEditorKeymap' | 'persistDraft' | 'inputSpellcheck' | 'reportUsage' | 'perfHud' | 'expandedEditorToolbar' | 'autoSaveEnabled';
 
 const WINDOW_CONTROLS_POSITION_OPTIONS: Array<{ id: DesktopWindowControlsPosition; label: string }> = [
     { id: 'left', label: "Left" },
@@ -348,9 +330,6 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const setAllowPromptingSubagentSessions = useUIStore(state => state.setAllowPromptingSubagentSessions);
     const draftStartersVisible = useUIStore(state => state.draftStartersVisible);
     const setDraftStartersVisible = useUIStore(state => state.setDraftStartersVisible);
-    const messageStreamTransport = useConfigStore((state) => state.settingsMessageStreamTransport);
-    const setMessageStreamTransport = useConfigStore((state) => state.setSettingsMessageStreamTransport);
-    const effectiveMessageStreamTransport = messageStreamTransport;
     const settingsDefaultFileViewerPreview = useConfigStore((state) => state.settingsDefaultFileViewerPreview);
     const setSettingsDefaultFileViewerPreview = useConfigStore((state) => state.setSettingsDefaultFileViewerPreview);
     const {
@@ -462,11 +441,6 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
         void updateDesktopSettings({ inputSpellcheckEnabled: enabled });
     }, [setInputSpellcheckEnabled]);
 
-    const handleMessageStreamTransportChange = React.useCallback((mode: 'auto' | 'ws' | 'sse') => {
-        setMessageStreamTransport(mode);
-        void updateDesktopSettings({ messageStreamTransport: mode });
-    }, [setMessageStreamTransport]);
-
     const handleMermaidRenderingModeChange = React.useCallback((mode: 'svg' | 'ascii') => {
         setMermaidRenderingMode(mode);
         void updateDesktopSettings({ mermaidRenderingMode: mode });
@@ -551,7 +525,6 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const hasNavigationSettings = shouldShow('terminalQuickKeys') || ((shouldShow('terminalShell') || shouldShow('terminalLoginShell'))) || shouldShow('fileEditorKeymap') || shouldShow('autoSaveEnabled') || shouldShow('expandedEditorToolbar');
     const hasBehaviorSettings = shouldShow('mermaidRendering')
         || shouldShow('userMessageRendering')
-        || shouldShow('messageTransport')
         || shouldShow('collapsibleUserMessages')
         || shouldShow('stickyUserHeader')
         || shouldShow('promptNavigatorEnabled')
@@ -568,7 +541,6 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
         || shouldShow('showToolFileIcons')
         || shouldShow('expandedTools')
         || shouldShow('inputSpellcheck');
-    const showTransportSection = shouldShow('messageTransport');
     const showBehaviorMessageOptions = shouldShow('userMessageRendering')
         || shouldShow('mermaidRendering')
         || shouldShow('diffLayout')
@@ -1429,37 +1401,10 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
 
                 {hasBehaviorSettings && (
                     <>
-                        {showTransportSection && (
-                            <SettingsSection
-                                title={"Message Stream Transport"}
-                                divider={behaviorSectionDivider}
-                                settingsItem="chat.message-transport"
-                                contentClassName="space-y-2"
-                            >
-                                <SettingsChipGroup
-                                    value={effectiveMessageStreamTransport}
-                                    options={MESSAGE_STREAM_TRANSPORT_OPTIONS.map((option) => ({
-                                        value: option.id,
-                                        label: option.label,
-                                    }))}
-                                    onChange={handleMessageStreamTransportChange}
-                                    aria-label={"Message Stream Transport"}
-                                />
-                                {(() => {
-                                    const option = MESSAGE_STREAM_TRANSPORT_OPTIONS.find((item) => item.id === effectiveMessageStreamTransport);
-                                    return option?.description ? (
-                                        <span className="typography-meta text-muted-foreground">
-                                            {option.description}
-                                        </span>
-                                    ) : null;
-                                })()}
-                            </SettingsSection>
-                        )}
-
                         {showBehaviorMessageOptions && (
                             <SettingsSection
                                 title={"Message options"}
-                                divider={showTransportSection || behaviorSectionDivider}
+                                divider={behaviorSectionDivider}
                             >
                                 {/* Flat 2×2 grid so row headers share a baseline (not stacked columns). */}
                                 <SettingsTwoColumn className="lg:gap-y-6">
@@ -1538,7 +1483,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                 {shouldShow('expandedTools') && (
                                     <SettingsSection
                                         title={"Show tools opened by default"}
-                                        divider={showTransportSection || showBehaviorMessageOptions || behaviorSectionDivider}
+                                        divider={showBehaviorMessageOptions || behaviorSectionDivider}
                                         contentClassName={SETTINGS_OPTION_STACK_CLASS}
                                     >
                                         <SettingsCheckboxRow

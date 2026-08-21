@@ -85,7 +85,7 @@ const pageOrder: SettingsPageSlug[] = [
   'skills.installed',
 ];
 
-const NAV_GROUP_ORDER = ['general', 'projects', 'content'] as const;
+const NAV_GROUP_ORDER = ['general', 'projects', 'agent'] as const;
 
 
 function buildRuntimeContext(isDesktop: boolean, isMobile: boolean): SettingsRuntimeContext {
@@ -722,7 +722,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
                       groupIndex === 0 ? 'pt-1' : 'pt-4 sm:pt-3',
                     )}
                   >
-                    {group === 'general' ? 'PiChamber' : 'Workspace'}
+                    {group === 'general' ? 'PiChamber' : group === 'projects' ? 'Workspace' : 'Agent'}
                   </div>
                   {pages.map((page) => {
                     // On the mobile nav STAGE nothing is "current" — the user is
@@ -910,25 +910,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         </>
       )}
 
-      {!isMobile && (
-        <div className="flex shrink-0 items-center justify-between px-5 pb-3 pt-4">
-          <div className="flex items-center gap-2 typography-ui-header font-medium text-foreground">
-            <Icon name="settings-3" className="size-4 text-muted-foreground" />
-            <span>{"Settings"}</span>
-          </div>
-          {onClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label={"Close settings"}
-              title={`Close Settings (${shortcutKey}+,)`}
-              className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-            >
-              <Icon name="close" className="size-4" />
-            </button>
-          )}
-        </div>
-      )}
+
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {isMobile ? (

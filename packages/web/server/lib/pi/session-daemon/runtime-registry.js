@@ -140,6 +140,9 @@ export function createSessionRuntimeRegistry({ onSessionEvent = () => {} } = {})
     register,
     dispose,
     disposeAll,
+    listAll() {
+      return [...recordsByKey.values()].map((record) => record.runtime);
+    },
     get size() {
       return recordsByKey.size;
     },

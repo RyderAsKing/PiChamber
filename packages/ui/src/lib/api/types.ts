@@ -557,7 +557,6 @@ export interface SettingsPayload {
   showTurnChangedFiles?: boolean;
   showExpandedBashTools?: boolean;
   showExpandedEditTools?: boolean;
-  messageStreamTransport?: 'auto' | 'ws' | 'sse';
   mermaidRenderingMode?: 'svg' | 'ascii';
   showSplitAssistantMessageActions?: boolean;
   fontSize?: number;

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Dialog } from '@base-ui/react/dialog';
 import { cn } from '@/lib/utils';
+import { Icon } from '@/components/icon/Icon';
 import { SettingsView } from './SettingsView';
 
 interface SettingsWindowProps {
@@ -58,9 +59,16 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({ open, onOpenChan
               'data-[nested-dialog-open]:brightness-[0.55] dark:data-[nested-dialog-open]:brightness-[0.4]',
             )}
           >
+            <Dialog.Title className="sr-only">{"Settings"}</Dialog.Title>
             <Dialog.Description id={descriptionId} className="sr-only">
               {"PiChamber settings window."}
             </Dialog.Description>
+            <Dialog.Close
+              aria-label="Close settings"
+              className="absolute right-3 top-3 z-10 inline-flex size-8 items-center justify-center rounded-md bg-background/80 text-muted-foreground backdrop-blur-sm hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+            >
+              <Icon name="close" className="size-4" />
+            </Dialog.Close>
             <SettingsView onClose={() => onOpenChange(false)} isWindowed />
           </Dialog.Popup>
         </div>

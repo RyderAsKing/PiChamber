@@ -142,7 +142,6 @@ export type DesktopSettings = {
   showExpandedEditTools?: boolean;
   timeFormatPreference?: 'auto' | '12h' | '24h';
   weekStartPreference?: 'auto' | 'sunday' | 'monday';
-  messageStreamTransport?: 'auto' | 'ws' | 'sse';
   mermaidRenderingMode?: 'svg' | 'ascii';
   userMessageRenderingMode?: 'markdown' | 'plain';
   collapsibleUserMessages?: boolean;

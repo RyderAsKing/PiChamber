@@ -4,11 +4,13 @@ import { Icon } from '@/components/icon/Icon';
 import { SETTINGS_PANEL_TITLE_CLASS } from '@/components/sections/shared/SettingsSection';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
+import { Button } from '@/components/ui/button';
 import { piClient } from '@/lib/pi/client';
 import { PI_CUSTOM_PROVIDER_SELECTION, usePiProviderSelectionStore } from '@/lib/pi/provider-selection';
 import type { PiProvider } from '@/lib/pi/types';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { cn } from '@/lib/utils';
+import { useConfigStore } from '@/stores/useConfigStore';
 
 interface ProvidersSidebarProps {
   onItemSelect?: () => void;
@@ -21,6 +23,7 @@ export const ProvidersSidebar: React.FC<ProvidersSidebarProps> = ({ onItemSelect
   const setSelectedProviderId = usePiProviderSelectionStore((state) => state.setSelectedProviderId);
   const [providers, setProviders] = React.useState<readonly PiProvider[] | null>(null);
   const [failed, setFailed] = React.useState(false);
+  const [refreshing, setRefreshing] = React.useState(false);
 
   React.useEffect(() => {
     let active = true;
@@ -38,13 +41,40 @@ export const ProvidersSidebar: React.FC<ProvidersSidebarProps> = ({ onItemSelect
     return () => { active = false; };
   }, [selectedProviderId, setSelectedProviderId]);
 
+  const handleRefresh = React.useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    const runtimeKey = getRuntimeKey();
+    try {
+      const { providers: result } = await piClient.refreshProviders({ runtimeKey });
+      setProviders(result);
+      setFailed(false);
+      if (!selectedProviderId && result[0]) setSelectedProviderId(result[0].id);
+      const configStore = useConfigStore.getState();
+      configStore.invalidateProviderCache();
+      void configStore.loadProviders({ source: 'providersSidebar:refresh' });
+      window.dispatchEvent(new CustomEvent('pichamber:providers-refreshed', { detail: result }));
+    } catch {
+      setFailed(true);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshing, selectedProviderId, setSelectedProviderId]);
+
   return (
     <div className="flex h-full flex-col bg-background">
-      <div className="border-b px-3 pb-3 pt-4">
-        <h2 className={`${SETTINGS_PANEL_TITLE_CLASS} mb-3`}>{"Providers"}</h2>
-        <span className="typography-meta text-muted-foreground">
-          {providers ? `Total ${providers.length}` : "Loading..."}
-        </span>
+      <div className="flex items-center justify-between border-b px-3 pb-3 pt-4">
+        <h2 className={SETTINGS_PANEL_TITLE_CLASS}>{"Providers"}</h2>
+        <Button
+          variant="ghost"
+          size="xs"
+          onClick={handleRefresh}
+          disabled={refreshing}
+          aria-label="Refresh providers"
+          title="Refresh providers"
+        >
+          <Icon name="refresh" className={cn('size-4', refreshing && 'animate-spin')} />
+        </Button>
       </div>
       <ScrollableOverlay outerClassName="min-h-0 flex-1" className="space-y-1 overflow-x-hidden px-3 py-2">
         <button
