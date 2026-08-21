@@ -98,7 +98,7 @@ export const useDrawerSwipe = ({
         if (tracking || isDragging) cancelGesture();
         return;
       }
-      if (isSwipeExcludedTarget(event.target, drawer)) return;
+      if (isSwipeExcludedTarget(event.target, drawer, { excludeInteractive: false })) return;
       // If a second drag starts before the previous settle animation finishes,
       // interrupt that animation so the new gesture starts from the current visual state.
       // Clear any running transition so the drawer tracks the new finger immediately.
