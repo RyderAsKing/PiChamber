@@ -20,7 +20,12 @@ This directory owns the Pi-native runtime boundary. It defines:
 - Composer thinking apply/rollback (`apply-composer-thinking.ts`).
 
 The module uses native `Response` parsing through `runtimeFetch` so callers
-can distinguish failure from a successful empty result. `MainLayout` is the
+can distinguish failure from a successful empty result. Server-owned UI
+settings use a separate authenticated `/api/pi/ui-settings/events` SSE
+invalidation stream because daemon session sequence numbers do not own those
+writes. The stream publishes revision numbers only; clients refetch the
+settings document and retain a 10-second visible revision probe for missed
+notifications; an unchanged probe does not parse or apply the settings document. `MainLayout` is the
 mounted owner for web, desktop, mini-chat, and mobile chrome. Session truth
 lives in `PiSessionStore` via `PiSessionProvider`; chat leaves consume
 `pi-to-renderable` adapters rather than OpenCode SDK types.

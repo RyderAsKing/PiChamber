@@ -100,6 +100,54 @@ describe('Pi runtime route', () => {
     await expect((await fetch(`${base}/api/pi/update-check`)).json()).resolves.toEqual({ available: false, currentVersion: '1.0.0' });
   });
 
+  it('streams UI settings revision invalidations without settings values', async () => {
+    let revision = 0;
+    let settings = {};
+    let settingsReads = 0;
+    const listeners = new Set();
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, {
+      getPiSessionDaemonRuntime: () => null,
+      uiSettingsStore: {
+        read: async () => {
+          settingsReads += 1;
+          return settings;
+        },
+        write: async (changes) => {
+          settings = { ...settings, ...changes };
+          revision += 1;
+          for (const listener of listeners) listener(revision);
+          return settings;
+        },
+        getRevision: () => revision,
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      },
+    });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const events = await fetch(`${base}/api/pi/ui-settings/events`);
+    const reader = events.body.getReader();
+    const decoder = new TextDecoder();
+
+    const initial = decoder.decode((await reader.read()).value);
+    expect(initial).toContain('data: {"revision":0}');
+    await fetch(`${base}/api/pi/ui-settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projects: [{ id: 'private', path: '/private/path' }] }),
+    });
+    const changed = decoder.decode((await reader.read()).value);
+    expect(changed).toContain('data: {"revision":1}');
+    expect(changed).not.toContain('/private/path');
+    await expect((await fetch(`${base}/api/pi/ui-settings/revision`)).json()).resolves.toEqual({ revision: 1 });
+    expect(settingsReads).toBe(0);
+    await reader.cancel();
+  });
+
   it('lists and selects only daemon-owned projects', async () => {
     const calls = [];
     const runtime = {

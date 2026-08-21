@@ -291,7 +291,9 @@ const isWebSocketUpgrade = (req) => {
   return String(upgradeValue || '').toLowerCase() === 'websocket';
 };
 
-const isUrlAuthReadableHttpPath = (pathname) => pathname === '/api/pi/events';
+const isUrlAuthReadableHttpPath = (pathname) => (
+  pathname === '/api/pi/events' || pathname === '/api/pi/ui-settings/events'
+);
 
 const isUrlAuthWebSocketPath = () => false;
 

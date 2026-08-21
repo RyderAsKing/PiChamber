@@ -19,6 +19,10 @@ import { sanitizeStarterRefs } from '@/lib/draftStarters';
 import { normalizeMobileKeyboardMode, setStoredMobileKeyboardMode } from '@/lib/mobileKeyboardMode';
 import { PWA_NAME_STORAGE_KEY, normalizePwaName } from '@/lib/pwaKeys';
 import { runtimeFetch } from '@/lib/runtime-fetch';
+import { refreshRuntimeUrlAuthToken } from '@/lib/runtime-auth';
+import { getRuntimeUrlResolver } from '@/lib/runtime-url';
+import { isRelayModeActive } from '@/lib/relay/runtime-tunnel';
+import { isCapacitorApp } from '@/lib/platform';
 import { isTerminalShell } from '@/lib/terminalShell';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged, subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
 import { DEFAULT_DARK_THEME_ID, DEFAULT_LIGHT_THEME_ID } from '@/lib/theme/themes';
@@ -1449,8 +1453,16 @@ let _pendingSettingsContext: SettingsRuntimeContext | null = null;
 let _settingsFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let _settingsFlushWaiters: Array<() => void> = [];
 let _settingsLifecycleInitialized = false;
+let _settingsRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let _settingsRefreshInFlight = false;
+let _settingsRefreshPending = false;
+let _settingsEventsAbort: AbortController | null = null;
+let _settingsEventsGeneration = 0;
+let _settingsKnownRevision: { runtimeKey: string; revision: number } | null = null;
 const SETTINGS_CACHE_TTL = 2_000; // 2 seconds — covers the startup burst
 const SETTINGS_DEBOUNCE_MS = 200;
+const SETTINGS_REFRESH_INTERVAL_MS = 10_000;
+const SETTINGS_REFRESH_HIDDEN_INTERVAL_MS = 30_000;
 
 const captureSettingsRuntimeContext = (): SettingsRuntimeContext => ({
   runtimeKey: getRuntimeKey(),
@@ -1465,9 +1477,180 @@ const isSettingsRuntimeContextCurrent = (context: SettingsRuntimeContext): boole
   context.generation === _settingsRuntimeGeneration && context.runtimeKey === getRuntimeKey()
 );
 
+const refreshAuthoritativeSettings = (): void => {
+  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  _settingsCache = null;
+  if (_settingsRefreshInFlight) {
+    _settingsRefreshPending = true;
+    return;
+  }
+  _settingsRefreshInFlight = true;
+  void syncDesktopSettings().finally(() => {
+    _settingsRefreshInFlight = false;
+    if (_settingsRefreshPending) {
+      _settingsRefreshPending = false;
+      refreshAuthoritativeSettings();
+    }
+  });
+};
+
+const checkAuthoritativeSettingsRevision = async (): Promise<void> => {
+  const runtimeKey = getRuntimeKey();
+  try {
+    const response = await runtimeFetch('/api/pi/ui-settings/revision', {
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok || runtimeKey !== getRuntimeKey()) return;
+    const payload = (await response.json().catch(() => null)) as { revision?: unknown } | null;
+    if (!payload || !Number.isSafeInteger(payload.revision) || (payload.revision as number) < 0) return;
+    const revision = payload.revision as number;
+    if (_settingsKnownRevision?.runtimeKey === runtimeKey && _settingsKnownRevision.revision === revision) return;
+    _settingsKnownRevision = { runtimeKey, revision };
+    refreshAuthoritativeSettings();
+  } catch {
+    // The SSE stream and the next fallback check retain prior authoritative state.
+  }
+};
+
+const startSettingsEventStream = (): void => {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  _settingsEventsAbort?.abort();
+  const controller = new AbortController();
+  _settingsEventsAbort = controller;
+  const generation = ++_settingsEventsGeneration;
+  const runtimeKey = getRuntimeKey();
+  let failures = 0;
+  let lastRevision: number | null = null;
+
+  const current = () => (
+    !controller.signal.aborted
+    && generation === _settingsEventsGeneration
+    && runtimeKey === getRuntimeKey()
+  );
+  const reconnect = () => {
+    if (!current()) return;
+    failures += 1;
+    const hidden = typeof document !== 'undefined' && document.visibilityState !== 'visible';
+    const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+    const cap = hidden || offline ? 60_000 : 10_000;
+    const delay = Math.min(cap, 500 * 2 ** Math.min(failures, 6));
+    setTimeout(() => { if (current()) void connect(); }, delay);
+  };
+  const onRevision = (data: string) => {
+    if (!current()) return;
+    let revision: number;
+    try {
+      const parsed = JSON.parse(data) as { revision?: unknown };
+      if (!Number.isSafeInteger(parsed.revision) || (parsed.revision as number) < 0) return;
+      revision = parsed.revision as number;
+    } catch {
+      return;
+    }
+    failures = 0;
+    if (revision === lastRevision) return;
+    lastRevision = revision;
+    _settingsKnownRevision = { runtimeKey, revision };
+    refreshAuthoritativeSettings();
+  };
+
+  const connect = async (): Promise<void> => {
+    if (!current()) return;
+    // The first frame is a reconnect catch-up signal. Fetch even when the
+    // in-process revision reset after a server restart.
+    lastRevision = null;
+    if (isCapacitorApp() && !isRelayModeActive() && typeof EventSource !== 'undefined') {
+      try {
+        await refreshRuntimeUrlAuthToken();
+        if (!current()) return;
+        const source = new EventSource(getRuntimeUrlResolver().sse('/api/pi/ui-settings/events'));
+        const close = () => source.close();
+        controller.signal.addEventListener('abort', close, { once: true });
+        source.onopen = () => { failures = 0; };
+        source.onmessage = (event) => {
+          if (typeof event.data === 'string') onRevision(event.data);
+        };
+        source.onerror = () => {
+          controller.signal.removeEventListener('abort', close);
+          source.close();
+          reconnect();
+        };
+        return;
+      } catch {
+        reconnect();
+        return;
+      }
+    }
+
+    try {
+      const response = await runtimeFetch('/api/pi/ui-settings/events', {
+        headers: { Accept: 'text/event-stream' },
+        signal: controller.signal,
+      });
+      if (!response.ok || !response.body || !current()) {
+        reconnect();
+        return;
+      }
+      failures = 0;
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (current()) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let boundary = buffer.indexOf('\n\n');
+        while (boundary !== -1) {
+          const frame = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          const data = frame.split('\n')
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.slice(5).replace(/^ /, ''))
+            .join('\n');
+          if (data) onRevision(data);
+          boundary = buffer.indexOf('\n\n');
+        }
+      }
+      reconnect();
+    } catch {
+      if (current()) reconnect();
+    }
+  };
+
+  void connect();
+};
+
 const ensureSettingsRuntimeLifecycle = (): void => {
   if (_settingsLifecycleInitialized || typeof window === 'undefined') return;
   _settingsLifecycleInitialized = true;
+
+  const scheduleAuthoritativeRefresh = (): void => {
+    if (typeof document === 'undefined') return;
+    if (_settingsRefreshTimer) clearTimeout(_settingsRefreshTimer);
+    const visible = document.visibilityState === 'visible';
+    _settingsRefreshTimer = setTimeout(() => {
+      _settingsRefreshTimer = null;
+      if (document.visibilityState !== 'visible' || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+        scheduleAuthoritativeRefresh();
+        return;
+      }
+      void checkAuthoritativeSettingsRevision();
+      scheduleAuthoritativeRefresh();
+    }, visible ? SETTINGS_REFRESH_INTERVAL_MS : SETTINGS_REFRESH_HIDDEN_INTERVAL_MS);
+  };
+
+  const refreshAfterResume = (): void => {
+    refreshAuthoritativeSettings();
+    scheduleAuthoritativeRefresh();
+  };
+
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', refreshAfterResume);
+    window.addEventListener('focus', refreshAfterResume);
+    window.addEventListener('online', refreshAfterResume);
+    scheduleAuthoritativeRefresh();
+    startSettingsEventStream();
+  }
 
   subscribeRuntimeEndpointWillChange((detail) => {
     if (detail.runtimeKey === detail.previousRuntimeKey) return;
@@ -1479,6 +1662,8 @@ const ensureSettingsRuntimeLifecycle = (): void => {
     _settingsRuntimeGeneration += 1;
     _settingsCache = null;
     _settingsInflight = null;
+    _settingsKnownRevision = null;
+    startSettingsEventStream();
   });
 };
 

@@ -19,6 +19,14 @@ Caches and async work must be scoped to the active runtime. A failed authoritati
 
 `useProjectsStore.resetForRuntimeSwitch()` clears project paths until the new
 runtime's authenticated settings snapshot arrives; persisted paths from another
-host are not a valid bootstrap source.
+host are not a valid bootstrap source. While connected, the settings owner
+subscribes to the authenticated `/api/pi/ui-settings/events` SSE invalidation
+stream. Events carry only a monotonic revision, never settings values or paths;
+the client fetches the authoritative snapshot when that revision advances. A
+10-second visible fallback revision probe fetches the full document only when
+its tiny revision response changes. Focus, foreground, and network-resume
+refreshes recover missed events. A remote snapshot updates the shared
+project registry but preserves a still-valid local active project, because one
+device's folder navigation must not move another device's open workspace.
 
 When changing store shape, keep persisted state intentionally compatible or discard obsolete fields safely. Do not use persisted history to infer live Pi activity.

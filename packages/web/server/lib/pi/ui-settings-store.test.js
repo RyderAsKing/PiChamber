@@ -32,6 +32,20 @@ describe('Pi UI settings store', () => {
     expect(JSON.parse(await readFile(file, 'utf8'))).toMatchObject({ themeMode: 'dark' });
   });
 
+  it('publishes a monotonic revision after each committed write', async () => {
+    const { store } = await makeStore();
+    const revisions = [];
+    const unsubscribe = store.subscribe((revision) => revisions.push(revision));
+
+    await store.write({ projects: [{ id: 'one', path: '/one' }] });
+    await store.write({ themeMode: 'dark' });
+    unsubscribe();
+    await store.write({ themeMode: 'light' });
+
+    expect(revisions).toEqual([1, 2]);
+    expect(store.getRevision()).toBe(3);
+  });
+
   it('rejects prototype-polluting keys', async () => {
     const { store } = await makeStore();
     const changes = JSON.parse('{"__proto__":{"polluted":true}}');

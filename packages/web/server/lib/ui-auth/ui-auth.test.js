@@ -182,6 +182,14 @@ describe('ui auth client credential seam', () => {
     expect(await auth.ensureSessionToken(urlReq, urlRes)).toBe('client:device-1');
     expect(await auth.resolveAuthContext(urlReq, urlRes, { allowUrlToken: false })).toBe(null);
 
+    const settingsEventsReq = { method: 'GET', path: '/api/pi/ui-settings/events', url: `/api/pi/ui-settings/events?oc_url_token=${encodeURIComponent(urlToken)}`, headers: {} };
+    const settingsEventsRes = createResponse();
+    let settingsEventsCalled = false;
+    await auth.requireAuth(settingsEventsReq, settingsEventsRes, () => {
+      settingsEventsCalled = true;
+    });
+    expect(settingsEventsCalled).toBe(true);
+
     const arbitraryGetReq = { method: 'GET', path: '/api/config/settings', url: `/api/config/settings?oc_url_token=${encodeURIComponent(urlToken)}`, headers: { accept: 'application/json' } };
     const arbitraryGetRes = createResponse();
     let arbitraryGetCalled = false;

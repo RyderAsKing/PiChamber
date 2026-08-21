@@ -465,6 +465,38 @@ export const registerPiRuntimeRoutes = (app, {
     }
   });
 
+  app.get('/api/pi/ui-settings/revision', (_req, res) => {
+    res.json({ revision: typeof uiSettingsStore.getRevision === 'function' ? uiSettingsStore.getRevision() : 0 });
+  });
+
+  app.get('/api/pi/ui-settings/events', (req, res) => {
+    if (typeof uiSettingsStore.subscribe !== 'function') {
+      res.status(501).json({ error: 'UI settings events are unavailable' });
+      return;
+    }
+    res.status(200);
+    res.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    });
+    res.flushHeaders?.();
+
+    const sendRevision = (revision) => {
+      if (!res.writableEnded) res.write(`data: ${JSON.stringify({ revision })}\n\n`);
+    };
+    sendRevision(typeof uiSettingsStore.getRevision === 'function' ? uiSettingsStore.getRevision() : 0);
+    const unsubscribe = uiSettingsStore.subscribe(sendRevision);
+    const heartbeat = setInterval(() => {
+      if (!res.writableEnded) res.write(': heartbeat\n\n');
+    }, 15_000);
+    heartbeat.unref?.();
+    req.once('close', () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    });
+  });
+
   app.get('/api/pi/session-folders', async (_req, res) => {
     try {
       res.json(await sessionFoldersStore.read());

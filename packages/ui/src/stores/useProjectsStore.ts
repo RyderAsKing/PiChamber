@@ -634,22 +634,30 @@ export const useProjectsStore = create<ProjectsStore>()(
         : null;
 
       const current = get();
+      const incomingIds = new Set(incomingProjects.map((p) => p.id));
+      // Project registration is shared by the runtime, but navigation belongs
+      // to each connected browser. Keep a still-valid local selection so a
+      // phone changing folders cannot move an active desktop to that folder.
+      const nextActive = current.activeProjectId && incomingIds.has(current.activeProjectId)
+        ? current.activeProjectId
+        : incomingActive && incomingIds.has(incomingActive)
+          ? incomingActive
+          : incomingProjects[0]?.id ?? null;
 
       const projectsChanged = JSON.stringify(current.projects) !== JSON.stringify(incomingProjects);
-      const activeChanged = current.activeProjectId !== incomingActive;
+      const activeChanged = current.activeProjectId !== nextActive;
 
       if (!projectsChanged && !activeChanged) {
         return;
       }
 
-      const incomingIds = new Set(incomingProjects.map((p) => p.id));
       const cleanedOrder = get().manualProjectOrder.filter((id) => incomingIds.has(id));
-      set({ projects: incomingProjects, activeProjectId: incomingActive, manualProjectOrder: cleanedOrder });
-      cacheProjects(incomingProjects, incomingActive);
+      set({ projects: incomingProjects, activeProjectId: nextActive, manualProjectOrder: cleanedOrder });
+      cacheProjects(incomingProjects, nextActive);
       persistManualProjectOrder(cleanedOrder);
 
-      if (incomingActive) {
-        const activeProject = incomingProjects.find((project) => project.id === incomingActive);
+      if (activeChanged && nextActive) {
+        const activeProject = incomingProjects.find((project) => project.id === nextActive);
         if (activeProject) {
           opencodeClient.setDirectory(activeProject.path);
           useDirectoryStore.getState().setDirectory(activeProject.path, { showOverlay: false });

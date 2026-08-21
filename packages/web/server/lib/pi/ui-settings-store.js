@@ -32,6 +32,8 @@ export const createPiUiSettingsStore = ({
   fs = { chmod, mkdir, readFile, rename, writeFile },
 } = {}) => {
   let mutation = Promise.resolve();
+  let revision = 0;
+  const listeners = new Set();
 
   const read = async () => {
     try {
@@ -58,11 +60,25 @@ export const createPiUiSettingsStore = ({
       await fs.writeFile(temporary, serialized, { encoding: 'utf8', mode: 0o600 });
       await fs.rename(temporary, file);
       if (process.platform !== 'win32') await fs.chmod(file, 0o600);
+      revision += 1;
+      for (const listener of listeners) {
+        try {
+          listener(revision);
+        } catch {
+          // Notification failure cannot turn a committed settings write into
+          // an apparent write failure. The fallback refresh repairs misses.
+        }
+      }
       return next;
     });
     mutation = operation.catch(() => {});
     return operation;
   };
 
-  return { file, read, write };
+  const subscribe = (listener) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  };
+
+  return { file, read, write, getRevision: () => revision, subscribe };
 };
