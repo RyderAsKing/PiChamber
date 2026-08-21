@@ -32,12 +32,19 @@ interface SkillsStore {
 }
 
 const CACHE_TTL_MS = 5_000;
-let loadedAt = 0;
-let inFlight: Promise<boolean> | null = null;
+const loadedAtByKey = new Map<string, number>();
+const inFlightByKey = new Map<string, Promise<boolean>>();
 
 export const invalidateSkillsLoadCache = (_directory?: string | null) => {
   void _directory;
-  loadedAt = 0;
+  const key = getRuntimeKey();
+  loadedAtByKey.delete(key);
+  inFlightByKey.delete(key);
+  // Tests and callers that invalidate without a runtime context still need a global reset.
+  if (!key || key === 'local') {
+    loadedAtByKey.clear();
+    inFlightByKey.clear();
+  }
 };
 
 export const useSkillsStore = create<SkillsStore>()(
@@ -49,12 +56,16 @@ export const useSkillsStore = create<SkillsStore>()(
         isLoading: false,
         setSelectedSkill: (name) => set({ selectedSkillName: name }),
         loadSkills: async () => {
-          if (loadedAt > 0 && Date.now() - loadedAt < CACHE_TTL_MS) return true;
-          if (inFlight) return inFlight;
+          const runtimeKey = getRuntimeKey();
+          const now = Date.now();
+          const cachedAt = loadedAtByKey.get(runtimeKey) ?? 0;
+          if (cachedAt > 0 && now - cachedAt < CACHE_TTL_MS) return true;
+          const existing = inFlightByKey.get(runtimeKey);
+          if (existing) return existing;
           const request = (async () => {
             set({ isLoading: true });
             try {
-              const response = await piClient.listResources({ runtimeKey: getRuntimeKey() });
+              const response = await piClient.listResources({ runtimeKey });
               const skills = response.skills.map((skill) => ({
                 id: skill.id,
                 name: skill.name,
@@ -72,18 +83,18 @@ export const useSkillsStore = create<SkillsStore>()(
                   ? { selectedSkillName: null }
                   : {}),
               }));
-              loadedAt = Date.now();
+              loadedAtByKey.set(runtimeKey, Date.now());
               return true;
             } catch {
               set({ isLoading: false });
               return false;
             }
           })();
-          inFlight = request;
+          inFlightByKey.set(runtimeKey, request);
           try {
             return await request;
           } finally {
-            inFlight = null;
+            inFlightByKey.delete(runtimeKey);
           }
         },
         // Pi package/source mutation is intentionally not exposed by WS5.

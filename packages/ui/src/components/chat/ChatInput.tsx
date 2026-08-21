@@ -21,7 +21,7 @@ import { getInlineCommentDraftKey, useInlineCommentDraftStore, type InlineCommen
 import { useSnippetsStore } from '@/stores/useSnippetsStore';
 import { appendInlineComments } from '@/lib/messages/inlineComments';
 import { renderMagicPrompt } from '@/lib/magicPrompts';
-import { getRuntimeKey } from '@/lib/runtime-switch';
+import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import {
     createChatDraftIdentity,
     readChatDraft,
@@ -59,7 +59,7 @@ import { useChatSearchDirectory } from '@/hooks/useChatSearchDirectory';
 import { piClient } from '@/lib/pi/client';
 import { useGitStore, useIsGitRepo } from '@/stores/useGitStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useSkillsStore } from '@/stores/useSkillsStore';
+import { invalidateSkillsLoadCache, useSkillsStore } from '@/stores/useSkillsStore';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { extractGitChangedFiles } from './changedFiles';
@@ -166,11 +166,33 @@ const getFileMentionInputSourceForInsertedText = (insertedText: string): FileMen
 );
 
 /**
- * Skills the user named inline with `/name`. Matched against the registry's
- * exact casing, since the name is echoed back to the model as a skill to load.
+ * Skills the user named inline with `/name`. Mobile keyboards auto-capitalize
+ * and auto-correct the token after the slash ("/Skill"), so the match must be
+ * case-insensitive. The canonical registry name is returned so the synthetic
+ * instruction always names a real skill.
  */
-const collectInlineSkillMentions = (text: string, skillNames: Set<string>): string[] =>
-    collectKnownTokenNames(text, '/', skillNames, 'exact');
+const collectInlineSkillMentions = (text: string, skillNames: Set<string>): string[] => {
+    if (skillNames.size === 0) return [];
+    const lowerSet = new Set<string>();
+    const canonicalByLower = new Map<string, string>();
+    for (const name of skillNames) {
+        const lower = name.toLowerCase();
+        lowerSet.add(lower);
+        if (!canonicalByLower.has(lower)) canonicalByLower.set(lower, name);
+    }
+    const matched = collectKnownTokenNames(text, '/', lowerSet, 'case-insensitive');
+    const canonical = matched.map((name) => canonicalByLower.get(name.toLowerCase()) ?? name);
+    // De-duplicate case-variant repeats of the same skill ("/Skill /skill" → one entry).
+    const seen = new Set<string>();
+    const deduped: string[] = [];
+    for (const name of canonical) {
+        const lower = name.toLowerCase();
+        if (seen.has(lower)) continue;
+        seen.add(lower);
+        deduped.push(name);
+    }
+    return deduped;
+};
 
 const buildSkillMentionInstruction = (skillNames: string[]): string | null => {
     if (skillNames.length === 0) return null;
@@ -268,6 +290,24 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         React.useCallback((s) => currentSessionId ? s.getDirectoryForSession(currentSessionId) : null, [currentSessionId]),
     );
     const activeRuntimeKey = getRuntimeKey();
+
+    // Keep the skill catalog warm for the active runtime/directory. The store
+    // is not persisted and previously only filled on demand (autocomplete open
+    // or draft mount). On mobile the LAN/relay round-trip can still be in
+    // flight when the user hits send, so the synthetic "use the skill tool"
+    // hint was empty and the model ignored the slash invocation.
+    React.useEffect(() => {
+        invalidateSkillsLoadCache();
+        void useSkillsStore.getState().loadSkills();
+        // Runtime switches (mobile LAN ↔ relay) do not remount ChatInput, so
+        // also subscribe explicitly to endpoint changes.
+        const unsubscribe = subscribeRuntimeEndpointChanged(() => {
+            invalidateSkillsLoadCache();
+            void useSkillsStore.getState().loadSkills();
+        });
+        return unsubscribe;
+    }, [currentDirectory]);
+
     const chatDraftIdentity = React.useMemo(
         () => createChatDraftIdentity(
             activeRuntimeKey,
@@ -2305,8 +2345,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                             : (useCompactChatPlaceholder ? "Use @ / ! # for helpers" : "@ for files/agents; / for commands and skills; ! for shell; # for snippets")
                                     : "Select or create a session to start chatting"}
                                 editable={Boolean(currentSessionId || newSessionDraftOpen)}
-                                autoCorrect={isMobile}
-                                autoCapitalize={isMobile ? 'sentences' : 'none'}
+                                autoCorrect={false}
+                                autoCapitalize="none"
                                 spellCheck={isMobile || inputSpellcheckEnabled}
                                 fillContainer={isComposerExpanded}
                                 maxLines={isMobile ? MAX_MOBILE_COMPOSER_LINES : MAX_VISIBLE_COMPOSER_LINES}
