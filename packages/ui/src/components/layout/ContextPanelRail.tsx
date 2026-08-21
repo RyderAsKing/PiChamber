@@ -494,10 +494,10 @@ export const ContextPanelRail: React.FC = () => {
                 description={railSurface.description}
                 badgeCount={badgeCount}
                 badgeAriaLabel={badgeCount !== null
-                  ? (badgeCount === 1 ? "{label}, {count} changed file" : "{label}, {count} changed files")
+                  ? (badgeCount === 1 ? `${label}, ${badgeCount} changed file` : `${label}, ${badgeCount} changed files`)
                   : null}
                 badgeDescription={badgeCount !== null
-                  ? (badgeCount === 1 ? "{count} changed file" : "{count} changed files")
+                  ? (badgeCount === 1 ? `${badgeCount} changed file` : `${badgeCount} changed files`)
                   : null}
                 chartPercentage={isContextSurface ? railChartPercentage : undefined}
                 chartDetails={isContextSurface ? railChartDetails : undefined}
