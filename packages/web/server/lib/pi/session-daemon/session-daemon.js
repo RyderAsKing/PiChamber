@@ -1720,11 +1720,19 @@ export function createSessionDaemon({
         const finalMessage = event.messages?.at?.(-1);
         if (finalMessage?.role === 'assistant' && finalMessage.stopReason === 'aborted') {
           publish('session.interrupted', { reason: 'user-abort', streaming: false }, sessionId, directory);
-        } else if (finalMessage?.role === 'assistant' && typeof finalMessage.errorMessage === 'string') {
+        } else if (finalMessage?.role === 'assistant' && typeof finalMessage.errorMessage === 'string' && event.willRetry !== true) {
           publish('session.error', { code: 'ASSISTANT_ERROR', message: redactAttachmentPaths(finalMessage.errorMessage) }, sessionId, directory);
         }
         break;
       }
+      case 'auto_retry_start':
+        publish('session.lifecycle', {
+          state: 'retry',
+          attempt: event.attempt,
+          next: Date.now() + event.delayMs,
+          message: redactAttachmentPaths(event.errorMessage),
+        }, sessionId, directory);
+        break;
       case 'agent_settled':
         publish('session.lifecycle', { state: 'idle' }, sessionId, directory);
         scheduleIdleDisposal(sessionId);
