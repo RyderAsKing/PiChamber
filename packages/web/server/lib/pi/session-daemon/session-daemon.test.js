@@ -971,6 +971,28 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  it('keeps retryable provider failures in retry lifecycle until Pi exhausts retry', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-retry-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession('pi-session-retry');
+    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
+
+    const retryLifecycle = client.next((frame) => frame.event === 'session.lifecycle' && frame.payload.state === 'retry');
+    const prematureError = client.next((frame) => frame.event === 'session.error');
+    session.emit({ type: 'agent_end', willRetry: true, messages: [{ role: 'assistant', stopReason: 'error', errorMessage: 'Rate limit exceeded' }] });
+    session.emit({ type: 'auto_retry_start', attempt: 1, maxAttempts: 3, delayMs: 2_000, errorMessage: 'Rate limit exceeded' });
+
+    await expect(retryLifecycle).resolves.toMatchObject({
+      payload: { state: 'retry', attempt: 1, message: 'Rate limit exceeded' },
+    });
+    await expect(prematureError).rejects.toThrow(/Timed out/);
+    await client.close();
+  });
+
   it('preserves assistant messageId for tool executions occurring after message_end', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = testDaemonEndpoint(root);
