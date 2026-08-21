@@ -7,9 +7,15 @@ import { WindowsWindowControls } from '@/components/desktop/WindowsWindowControl
 import { formatShortcutForDisplay, getEffectiveShortcutCombo } from '@/lib/shortcuts';
 import { invokeDesktop } from '@/lib/desktop';
 import { useDesktopWindowControlsLayout } from '@/hooks/useDesktopWindowControlsLayout';
+import { useTabletLayout } from '@/lib/device';
 
 const ICON_BUTTON_CLASS =
   'app-region-no-drag inline-flex h-8 w-8 items-center justify-center gap-2 rounded-md typography-ui-label font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary hover:bg-interactive-hover transition-colors';
+
+// Tablet header buttons sit alongside h-9 workspace tabs; a 32px toggle would
+// look visibly smaller than its row-mates and offset the rest of the header.
+const TABLET_TOGGLE_BUTTON_CLASS =
+  'app-region-no-drag inline-flex h-9 w-9 items-center justify-center gap-2 p-2 rounded-md typography-ui-label font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50 hover:text-foreground hover:bg-interactive-hover transition-colors';
 
 /**
  * Persistent top-left titlebar controls (window chrome + collapsed-sidebar toggle).
@@ -35,14 +41,17 @@ export const TitlebarLeftControls: React.FC = () => {
 
   const toggleShortcut = formatShortcutForDisplay(getEffectiveShortcutCombo('toggle_sidebar', shortcutOverrides));
   const { usesFramelessChrome, side: windowControlsSide } = useDesktopWindowControlsLayout();
+  const { enabled: isTabletLayoutEnabled } = useTabletLayout();
 
   const showToggle = !isSidebarOpen;
   const showWindowControls = usesFramelessChrome && windowControlsSide === 'left';
   const showAppMenu = usesFramelessChrome;
   const showOverlay = showToggle || showWindowControls || showAppMenu;
-  // A toggle-only cluster is always a 2rem button. Measuring it on every
-  // sidebar toggle flushes the just-invalidated layout tree; only native
-  // window chrome can make this cluster's width variable.
+  // A toggle-only cluster is always a 2rem button on desktop. On tablet the
+  // toggle grows to h-9 (36px) to match the header's other row-mates — see
+  // TABLET_TOGGLE_BUTTON_CLASS. Measuring it on every sidebar toggle flushes
+  // the just-invalidated layout tree; only native window chrome can make this
+  // cluster's width variable.
   const hasVariableWidthControls = showWindowControls || showAppMenu;
 
   const handleOpenWindowsAppMenu = React.useCallback(() => {
@@ -143,9 +152,15 @@ export const TitlebarLeftControls: React.FC = () => {
                 type="button"
                 onClick={toggleSidebar}
                 aria-label={"Open sessions"}
-                className={cn(ICON_BUTTON_CLASS, 'shrink-0')}
+                className={cn(
+                  isTabletLayoutEnabled ? TABLET_TOGGLE_BUTTON_CLASS : ICON_BUTTON_CLASS,
+                  'shrink-0',
+                )}
               >
-                <Icon name="layout-left" className="h-[18px] w-[18px]" />
+                <Icon
+                  name="layout-left"
+                  className={isTabletLayoutEnabled ? 'h-5 w-5' : 'h-[18px] w-[18px]'}
+                />
               </button>
             </TooltipTrigger>
             <TooltipContent>

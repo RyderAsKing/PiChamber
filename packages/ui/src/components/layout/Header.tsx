@@ -1147,11 +1147,16 @@ export const Header: React.FC<HeaderProps> = ({
   // slides in/out in lockstep with the sidebar. When the sidebar is open the
   // overlay is over the sidebar, so the header only keeps normal content padding.
   const headerInsetSpacerWidth = isSidebarOpen ? '0.75rem' : 'var(--oc-titlebar-left-inset, 0.75rem)';
+  // Tablet overlay renders the toggle at h-9 (see TABLET_TOGGLE_BUTTON_CLASS
+  // in TitlebarLeftControls); phone/regular paths still use the 32px desktop
+  // toggle so the +0.5rem right margin matches in either case.
   const headerControlsSpacerWidth = isSidebarOpen
     ? '0px'
     : isDesktopApp && usesFramelessChrome
       ? 'calc(var(--oc-titlebar-controls-width, 5.5rem) + 0.5rem)'
-      : '2.5rem';
+      : isTabletLayoutEnabled
+        ? '2.75rem'
+        : '2.5rem';
 
   useEffect(() => {
     if (!isDesktopApp || !isMacPlatform) {
