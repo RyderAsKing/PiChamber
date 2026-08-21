@@ -28,7 +28,7 @@ export const SkillCard: React.FC<SkillCardProps> = ({ skill, onSelect, showLocat
       )}
     >
       {showLocationPill ? (
-        <div className="flex justify-end">
+        <div className="flex justify-start">
           <span
             className={cn(
               'inline-flex shrink-0 items-center rounded-full px-2 py-0.5 typography-micro font-medium capitalize',
@@ -61,7 +61,7 @@ export const SkillCardSkeleton: React.FC<SkillCardSkeletonProps> = ({ count = 6 
         key={index}
         className="flex min-h-[118px] flex-col gap-3 rounded-xl border border-border/60 bg-[var(--surface-elevated)] p-4"
       >
-        <div className="flex justify-end">
+        <div className="flex justify-start">
           <div className="h-5 w-16 animate-pulse rounded-full bg-muted" />
         </div>
         <div className="space-y-1.5">

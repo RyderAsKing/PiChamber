@@ -109,7 +109,6 @@ export const SkillsPage: React.FC = () => {
           <SettingsSection title="Details" divider={false} settingsItem="skills.discovery">
             <div className="flex flex-wrap gap-2 typography-micro">
               <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 font-medium capitalize text-muted-foreground">{locationLabel}</span>
-              <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 font-mono text-muted-foreground">{skill.id}</span>
             </div>
           </SettingsSection>
 

@@ -1179,9 +1179,21 @@ export function createSessionDaemon({
     if (!loader || typeof loader.getSkills !== 'function' || typeof loader.getPrompts !== 'function' || typeof loader.getAgentsFiles !== 'function') {
       throw new SessionDaemonProtocolError('DAEMON_REQUEST_FAILED', 'Pi resource discovery is unavailable.');
     }
-    const skills = loader.getSkills().skills.map((skill) => ({
-      id: resourceId('skill', skill.filePath),
-      kind: 'skill', name: skill.name, ...(skill.description ? { description: skill.description } : {}), location: resourceLocation(skill.sourceInfo), editable: false,
+    const skills = await Promise.all(loader.getSkills().skills.map(async (skill) => {
+      let content = '';
+      try {
+        content = await readFile(skill.filePath, 'utf8');
+      } catch {}
+      return {
+        id: resourceId('skill', skill.filePath),
+        kind: 'skill',
+        name: skill.name,
+        ...(skill.description ? { description: skill.description } : {}),
+        location: resourceLocation(skill.sourceInfo),
+        editable: false,
+        ...(content ? { content } : {}),
+        filePath: skill.filePath,
+      };
     }));
     const prompts = loader.getPrompts().prompts.map((prompt) => ({
       id: resourceId('prompt', prompt.filePath),
