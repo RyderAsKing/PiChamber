@@ -1,19 +1,14 @@
 import React from 'react';
-import { Button } from '@/components/ui/button';
-import { Icon } from '@/components/icon/Icon';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   SettingsSection,
   SettingsFieldRow,
   SettingsCheckboxRow,
   SettingsInset,
-  SettingsControlGroup,
   SETTINGS_SELECT_ROW_TRIGGER_CLASS,
   SETTINGS_SELECT_SIZE,
   SETTINGS_OPTION_STACK_CLASS,
   SETTINGS_FIELDS_STACK_CLASS,
-  SETTINGS_ICON_BUTTON_CLASS,
-  SETTINGS_CONTROL_CLUSTER_CLASS,
 } from '@/components/sections/shared/SettingsSection';
 import { SettingsModelPicker } from '@/components/sections/shared/SettingsModelPicker';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
@@ -22,16 +17,13 @@ import {
   formatPiModelRef,
   hasLegacyUiModelDefaultsPatch,
   legacyUiModelDefaultsPatch,
-  parsePiModelRef,
 } from '@/lib/pi/session-defaults';
 import {
   catalogThinkingLevels,
-  clampThinkingLevel,
   modelHasConfigurableThinking,
   PI_THINKING_LEVEL_LABELS,
   thinkingModelKey,
 } from '@/lib/pi/thinking';
-import { getModelDisplayName } from '@/lib/modelDisplay';
 import { reportSettingsSaveState, updateDesktopSettings } from '@/lib/persistence';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import type { PiChamberDefaultsUpdateInput, PiSettingsSnapshot } from '@/lib/pi/protocol';
@@ -153,13 +145,6 @@ export const DefaultsSettings: React.FC = () => {
     [modelsMetadata],
   );
 
-  const isThinkingModelAllowed = React.useCallback((providerId: string, modelId: string) => {
-    const key = `${providerId}/${modelId}`;
-    if (pichamber?.defaultThinkingByModel?.[key]) return false;
-    if (thinkingModelKey(pichamber?.defaultModel) === key) return false;
-    return modelHasConfigurableThinking(catalogThinkingLevels(findProviderModel(providerId, modelId)));
-  }, [findProviderModel, pichamber?.defaultModel, pichamber?.defaultThinkingByModel]);
-
   if (loadState === 'loading') {
     return null;
   }
@@ -181,9 +166,6 @@ export const DefaultsSettings: React.FC = () => {
   const defaultStoredThinking = defaultModelKey
     ? pichamber?.defaultThinkingByModel?.[defaultModelKey]
     : undefined;
-  const extraThinkingKeys = Object.keys(pichamber?.defaultThinkingByModel ?? {})
-    .filter((key) => key !== defaultModelKey)
-    .sort();
 
   return (
     <SettingsSection
@@ -221,7 +203,13 @@ export const DefaultsSettings: React.FC = () => {
               }}
             >
               <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS} aria-label="Default thinking">
-                <SelectValue />
+                <SelectValue>
+                  {(value) => {
+                    if (value === FALLBACK_THINKING) return "Default";
+                    if (value) return PI_THINKING_LEVEL_LABELS[value as PiThinkingLevel] ?? (value as string);
+                    return "";
+                  }}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={FALLBACK_THINKING}>{"Default"}</SelectItem>
@@ -259,72 +247,6 @@ export const DefaultsSettings: React.FC = () => {
             onChange={(model) => { void persist({ walkthroughModel: model }); }}
           />
         </SettingsFieldRow>
-
-        <SettingsControlGroup
-          settingsItem="sessions.thinking-defaults"
-          title="Thinking defaults"
-          info="Per-model thinking for new sessions and composer model changes. Models that only support Off are hidden."
-        >
-          <div className={SETTINGS_FIELDS_STACK_CLASS}>
-            {extraThinkingKeys.map((key) => {
-              const model = parsePiModelRef(key);
-              if (!model) return null;
-              const catalogModel = findProviderModel(model.providerId, model.modelId);
-              const levels = catalogThinkingLevels(catalogModel);
-              const stored = pichamber?.defaultThinkingByModel?.[key];
-              const label = getModelDisplayName(catalogModel, model.modelId);
-              return (
-                <SettingsFieldRow
-                  key={key}
-                  label={label}
-                  controlClassName={SETTINGS_CONTROL_CLUSTER_CLASS}
-                >
-                  <Select
-                    value={stored ?? levels[0] ?? 'off'}
-                    onValueChange={(value) => {
-                      persistThinkingForModel(model, value as PiThinkingLevel);
-                    }}
-                  >
-                    <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS} aria-label={`Thinking for ${label}`}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {thinkingSelectOptions(levels, stored).map((level) => (
-                        <SelectItem key={level} value={level}>{PI_THINKING_LEVEL_LABELS[level]}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className={SETTINGS_ICON_BUTTON_CLASS}
-                    aria-label={`Remove thinking default for ${label}`}
-                    onClick={() => { persistThinkingForModel(model, null); }}
-                  >
-                    <Icon name="delete-bin" className="size-4" />
-                  </Button>
-                </SettingsFieldRow>
-              );
-            })}
-            <SettingsFieldRow
-              label="Add model"
-              info="Pick a thinking-capable model to store a default level for it."
-            >
-              <SettingsModelPicker
-                value={null}
-                noneLabel="Add model"
-                ariaLabel="Add thinking default"
-                isModelAllowed={isThinkingModelAllowed}
-                onChange={(model) => {
-                  if (!model) return;
-                  const levels = catalogThinkingLevels(findProviderModel(model.providerId, model.modelId));
-                  persistThinkingForModel(model, clampThinkingLevel(levels, 'medium'));
-                }}
-              />
-            </SettingsFieldRow>
-          </div>
-        </SettingsControlGroup>
 
         <SettingsInset className={SETTINGS_OPTION_STACK_CLASS}>
           <SettingsCheckboxRow
