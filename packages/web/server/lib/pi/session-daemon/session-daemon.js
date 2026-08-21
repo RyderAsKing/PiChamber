@@ -631,7 +631,11 @@ export function createSessionDaemon({
   };
 
   const projectMessageEntries = (session, targetDir = activeDirectory || cwd) => {
-    const persisted = session?.sessionManager?.getEntries?.();
+    // Use the active branch, not the full file. `getEntries()` returns every
+    // entry ever written, so a bare `branch()`/`resetLeaf()` would appear to
+    // do nothing. `getBranch()` follows the current leaf and is what
+    // `navigateTree` and `buildSessionContext` use for the model context.
+    const persisted = session?.sessionManager?.getBranch?.() ?? session?.sessionManager?.getEntries?.();
     const entries = liveProjectionEntries(session, Array.isArray(persisted) ? persisted : []);
     if (entries.length === 0) return [];
     const streaming = session?.isStreaming === true;
@@ -1912,11 +1916,44 @@ export function createSessionDaemon({
       }
       case 'sessions.navigate': {
         const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
-        const messageId = message.payload?.messageId;
+        let messageId = message.payload?.messageId;
         if (typeof messageId !== 'string' || messageId.length === 0) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested tree entry is invalid.');
-        const result = await activeRuntime.session.navigateTree(messageId);
-        if (result.cancelled) throw new SessionDaemonProtocolError('SESSION_TREE_NOT_FOUND', 'Pi cancelled tree navigation.');
-        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: projectActiveSession(activeRuntime, activeRuntime.cwd) });
+        // UI may pass a part id like "c865141a:text:1" (e.g. from a tool block).
+        // Pi only knows entry ids, so strip the suffix and retry the entry lookup.
+        const tryIds = [messageId];
+        if (messageId.includes(':')) {
+          const entryId = messageId.split(':')[0];
+          if (entryId && entryId !== messageId) tryIds.unshift(entryId);
+        }
+        const previousLeafId = activeRuntime.session.sessionManager?.getLeafId?.() ?? null;
+        let result;
+        let lastError;
+        for (const tryId of tryIds) {
+          try {
+            result = await activeRuntime.session.navigateTree(tryId);
+            messageId = tryId;
+            lastError = undefined;
+            break;
+          } catch (error) {
+            lastError = error;
+            // Only retry on "Entry not found" with a stripped id; otherwise surface immediately.
+            const isEntryNotFound = String(error?.message ?? '').includes('not found');
+            if (!isEntryNotFound || tryId === tryIds[tryIds.length - 1]) {
+              console.error(`[pi:navigate] target=${tryId} leaf=${previousLeafId} branch=${activeRuntime.session.sessionManager?.getBranch?.()?.map((e) => e.id).join(',') ?? 'unknown'} error=${error?.message ?? String(error)}`);
+              throw error;
+            }
+          }
+        }
+        if (lastError) throw lastError;
+        if (result?.cancelled) throw new SessionDaemonProtocolError('SESSION_TREE_NOT_FOUND', 'Pi cancelled tree navigation.');
+        const newLeafId = activeRuntime.session.sessionManager?.getLeafId?.() ?? null;
+        const navigation = {
+          targetEntryId: messageId,
+          previousLeafId: typeof previousLeafId === 'string' ? previousLeafId : null,
+          newLeafId: typeof newLeafId === 'string' ? newLeafId : null,
+          ...(typeof result?.editorText === 'string' && result.editorText.length > 0 ? { editorText: result.editorText } : {}),
+        };
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: { ...projectActiveSession(activeRuntime, activeRuntime.cwd), navigation } });
         return;
       }
       case 'sessions.fork':

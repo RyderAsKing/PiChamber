@@ -39,6 +39,7 @@ import {
   type PiProjectSelectResponse,
   type PiSessionCreateInput,
   type PiSessionDetailResponse,
+  type PiSessionNavigateResponse,
   type PiSessionListResponse,
   type PiSessionTreeResponse,
   type PiAttachmentCreateInput,
@@ -335,9 +336,9 @@ export class PiService {
     sessionId: PiSessionId,
     messageId: string,
     scope?: PiClientScope,
-  ): Promise<PiSessionDetailResponse> {
+  ): Promise<PiSessionNavigateResponse> {
     assertRuntimeUnchanged(scope);
-    return jsonRequest<{ messageId: string }, PiSessionDetailResponse>(
+    return jsonRequest<{ messageId: string }, PiSessionNavigateResponse>(
       `/api/pi/sessions/${encodeURIComponent(sessionId)}/navigate`,
       { method: 'POST', body: { messageId }, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
     );

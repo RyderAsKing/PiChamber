@@ -328,6 +328,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const consumePendingInputText = useInputStore((s) => s.consumePendingInputText);
     const pendingPresetSubmit = useInputStore((s) => s.pendingPresetSubmit);
     const pendingInputText = useInputStore((s) => s.pendingInputText);
+    const pendingRevertText = useInputStore((s) => s.pendingRevertText);
+    const consumePendingRevertText = useInputStore((s) => s.consumePendingRevertText);
     const consumePendingSyntheticParts = useInputStore((s) => s.consumePendingSyntheticParts);
     const acknowledgeSessionAbort = useSessionUIStore((s) => s.acknowledgeSessionAbort);
     const abortCurrentOperation = React.useCallback(
@@ -746,6 +748,19 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             }
         }
     }, [pendingInputText, consumePendingInputText]);
+
+    // Consume pending revert text — only when composer is empty.
+    React.useEffect(() => {
+        if (pendingRevertText !== null) {
+            const text = consumePendingRevertText();
+            if (text && message.trim().length === 0) {
+                setMessage(text);
+                setTimeout(() => {
+                    composerRef.current?.focus();
+                }, 0);
+            }
+        }
+    }, [pendingRevertText, consumePendingRevertText, message]);
 
     const hasContent = message.trim().length > 0 || attachedFiles.length > 0 || hasDrafts;
     const hasQueuedMessages = queuedMessages.length > 0;

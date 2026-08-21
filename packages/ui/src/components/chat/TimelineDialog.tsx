@@ -13,6 +13,8 @@ import { useSessionMessageRecords } from '@/sync/sync-context';
 import { Icon } from "@/components/icon/Icon";
 import { getFullText, getMessagePreview } from './lib/messagePreview';
 import { cn } from '@/lib/utils';
+import { useDeviceInfo } from '@/lib/device';
+import { toast } from '@/components/ui';
 
 interface TimelineDialogProps {
     open: boolean;
@@ -23,6 +25,8 @@ interface TimelineDialogProps {
     canLoadEarlier?: boolean;
     isLoadingEarlier?: boolean;
     onLoadEarlier?: () => void;
+    onRevert?: (messageId: string) => Promise<void> | void;
+    onFork?: (messageId: string) => Promise<void> | void;
 }
 
 const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
@@ -34,9 +38,36 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
     canLoadEarlier = false,
     isLoadingEarlier = false,
     onLoadEarlier,
+    onRevert,
+    onFork,
 }) => {
-    
+    const { isMobile } = useDeviceInfo();
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
+    const [isStreaming, setIsStreaming] = React.useState(false);
+    React.useEffect(() => {
+        if (!currentSessionId) {
+            setIsStreaming(false);
+            return;
+        }
+        const update = () => {
+            // PiSessionStore is the source for streaming, not the legacy sync store.
+            // Dynamically import to avoid cycle in some test setups.
+            try {
+                const { getPiSessionStore } = require('@/apps/pi-session-store');
+                const rec = getPiSessionStore().getState().reducer.bySession.get(currentSessionId);
+                setIsStreaming(rec?.lifecycle === 'busy' || rec?.lifecycle === 'retry');
+            } catch {
+                setIsStreaming(false);
+            }
+        };
+        update();
+        try {
+            const { getPiSessionStore } = require('@/apps/pi-session-store');
+            return getPiSessionStore().subscribe(update, `session:${currentSessionId}`);
+        } catch {
+            return;
+        }
+    }, [currentSessionId]);
     const messages = useSessionMessageRecords(currentSessionId ?? '');
     const [searchQuery, setSearchQuery] = React.useState('');
     const [selectedIndex, setSelectedIndex] = React.useState(0);
@@ -200,32 +231,95 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
         }
     }, [filteredMessages, navigateToMessage, selectedIndex]);
 
+    const handleRevertSelected = React.useCallback(async () => {
+        const total = filteredMessages.length;
+        if (total === 0 || !onRevert || isStreaming) return;
+        const safeIndex = ((selectedIndex % total) + total) % total;
+        const selected = filteredMessages[safeIndex];
+        if (!selected) return;
+        try {
+            await onRevert(selected.message.info.id);
+            onOpenChange(false);
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'Failed to revert');
+        }
+    }, [filteredMessages, isStreaming, onRevert, onOpenChange, selectedIndex]);
+
+    const handleForkSelected = React.useCallback(async () => {
+        const total = filteredMessages.length;
+        if (total === 0 || !onFork || isStreaming) return;
+        const safeIndex = ((selectedIndex % total) + total) % total;
+        const selected = filteredMessages[safeIndex];
+        if (!selected) return;
+        try {
+            await onFork(selected.message.info.id);
+            onOpenChange(false);
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'Failed to fork');
+        }
+    }, [filteredMessages, isStreaming, onFork, onOpenChange, selectedIndex]);
+
+    const handleListKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+        const total = filteredMessages.length;
+        if (total === 0) return;
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            setSelectedIndex((current) => (current + 1) % total);
+            return;
+        }
+        if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            setSelectedIndex((current) => (current - 1 + total) % total);
+            return;
+        }
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            const safeIndex = ((selectedIndex % total) + total) % total;
+            const selected = filteredMessages[safeIndex];
+            if (selected) void navigateToMessage(selected.message.info.id);
+        }
+    }, [filteredMessages, navigateToMessage, selectedIndex]);
+
+    void onScrollByTurnOffset;
+    void onResumeToLatest;
+    // Auto-focus the list when dialog opens so arrow keys work immediately (desktop).
+    // On mobile, the search input autoFocus takes precedence.
+    React.useEffect(() => {
+        if (!open || isMobile) return;
+        // Focus the list container after the dialog animation.
+        const timer = window.setTimeout(() => listRef.current?.focus(), 100);
+        return () => window.clearTimeout(timer);
+    }, [open, isMobile]);
+
     if (!currentSessionId) return null;
+
+    const selectedMessage = filteredMessages[((selectedIndex % Math.max(1, filteredMessages.length)) + Math.max(1, filteredMessages.length)) % Math.max(1, filteredMessages.length)]?.message ?? null;
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-2xl max-h-[70vh] flex flex-col">
+            <DialogContent className={cn("flex flex-col", isMobile ? "max-w-full max-h-[85vh] rounded-t-2xl mt-auto" : "max-w-2xl max-h-[70vh]")}>
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Icon name="time" className="h-5 w-5" />
                         {"Conversation Timeline"}
                     </DialogTitle>
                     <DialogDescription>
-                        {"Navigate to any point in the conversation"}
+                        {isMobile ? "Tap a message, then Revert or Fork" : "Arrow keys to move • Enter to jump"}
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="relative mt-2">
-                    <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        autoFocus
-                        placeholder={"Search messages..."}
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        onKeyDown={handleSearchKeyDown}
-                        className="pl-9 w-full"
-                    />
-                </div>
+                {!isMobile && (
+                    <div className="relative mt-2">
+                        <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            placeholder={"Search messages..."}
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onKeyDown={handleSearchKeyDown}
+                            className="pl-9 w-full"
+                        />
+                    </div>
+                )}
 
                 {canLoadEarlier && onLoadEarlier && (
                     <div className="flex justify-center py-1">
@@ -245,7 +339,7 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
                     </div>
                 )}
 
-                <div ref={listRef} className="flex-1 overflow-y-auto">
+                <div ref={listRef} tabIndex={0} onKeyDown={handleListKeyDown} className="flex-1 overflow-y-auto outline-none focus-visible:ring-1 focus-visible:ring-ring rounded" aria-label="Message list">
                     {filteredMessages.length === 0 ? (
                         <div className="text-center text-muted-foreground py-8">
                             {searchQuery ? "No messages found" : "No messages in this session yet"}
@@ -311,45 +405,32 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
                     )}
                 </div>
 
-                <div className="mt-4 p-3 bg-muted/30 rounded-lg">
-                    <p className="typography-meta text-muted-foreground font-medium mb-2">{"Actions"}</p>
-                    <div className="mb-2 flex items-center gap-2">
-                        <button
+                {selectedMessage && (
+                    <div className={cn("flex gap-2 mt-3", isMobile ? "flex-col" : "flex-row")}> 
+                        <Button
                             type="button"
-                            className="text-[11px] uppercase tracking-wide text-muted-foreground/90 hover:text-foreground"
-                            onClick={() => {
-                                void onScrollByTurnOffset?.(-1);
-                                onOpenChange(false);
-                            }}
+                            variant={isMobile ? "default" : "outline"}
+                            size={isMobile ? "default" : "sm"}
+                            className={cn(isMobile && "w-full justify-center h-11 text-base")}
+                            disabled={isStreaming}
+                            onClick={() => void handleRevertSelected()}
                         >
-                            {"Previous turn"}
-                        </button>
-                        <span className="text-muted-foreground/50">/</span>
-                        <button
+                            <Icon name="history" className="h-4 w-4" />
+                            Revert
+                        </Button>
+                        <Button
                             type="button"
-                            className="text-[11px] uppercase tracking-wide text-muted-foreground/90 hover:text-foreground"
-                            onClick={() => {
-                                onResumeToLatest?.();
-                                onOpenChange(false);
-                            }}
+                            variant="outline"
+                            size={isMobile ? "default" : "sm"}
+                            className={cn(isMobile && "w-full justify-center h-11 text-base")}
+                            disabled={isStreaming}
+                            onClick={() => void handleForkSelected()}
                         >
-                            {"Latest"}
-                        </button>
+                            <Icon name="git-branch" className="h-4 w-4" />
+                            Fork
+                        </Button>
                     </div>
-                    <div className="flex flex-col gap-1.5 typography-meta text-muted-foreground">
-                        <div className="flex items-center gap-2">
-                            <span>{"Click on a message to scroll to it in the conversation"}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <Icon name="arrow-go-back" className="h-4 w-4 flex-shrink-0" />
-                            <span>{"Undo to this point (message text will populate input)"}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <Icon name="git-branch" className="h-4 w-4 flex-shrink-0" />
-                            <span>{"Create a new session starting from here"}</span>
-                        </div>
-                    </div>
-                </div>
+                )}
             </DialogContent>
         </Dialog>
     );

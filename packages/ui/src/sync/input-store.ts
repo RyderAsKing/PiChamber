@@ -53,6 +53,8 @@ export type SyntheticContextPart = {
 export type InputState = {
   pendingInputText: string | null
   pendingInputMode: "replace" | "append" | "append-inline"
+  /** Revert navigation text: only consumed if composer is currently empty. */
+  pendingRevertText: string | null
   pendingSyntheticParts: SyntheticContextPart[] | null
   /**
    * Text a draft preset chip asked to submit immediately. Set by surfaces that
@@ -64,6 +66,8 @@ export type InputState = {
 
   setPendingInputText: (text: string | null, mode?: "replace" | "append" | "append-inline") => void
   consumePendingInputText: () => { text: string; mode: "replace" | "append" | "append-inline" } | null
+  setPendingRevertText: (text: string | null) => void
+  consumePendingRevertText: () => string | null
   requestPresetSubmit: (text: string, type: "command" | "skill") => void
   consumePendingPresetSubmit: () => { text: string; type: "command" | "skill" } | null
   setPendingSyntheticParts: (parts: SyntheticContextPart[] | null) => void
@@ -79,6 +83,7 @@ export type InputState = {
 export const useInputStore = create<InputState>()((set, get) => ({
   pendingInputText: null,
   pendingInputMode: "replace",
+  pendingRevertText: null,
   pendingSyntheticParts: null,
   pendingPresetSubmit: null,
   attachedFiles: [],
@@ -91,6 +96,15 @@ export const useInputStore = create<InputState>()((set, get) => ({
     if (pendingInputText === null) return null
     set({ pendingInputText: null, pendingInputMode: "replace" })
     return { text: pendingInputText, mode: pendingInputMode }
+  },
+
+  setPendingRevertText: (text) => set({ pendingRevertText: text }),
+
+  consumePendingRevertText: () => {
+    const { pendingRevertText } = get()
+    if (pendingRevertText === null) return null
+    set({ pendingRevertText: null })
+    return pendingRevertText
   },
 
   requestPresetSubmit: (text, type) => set({ pendingPresetSubmit: { text, type } }),

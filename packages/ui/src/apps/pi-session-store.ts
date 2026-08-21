@@ -23,6 +23,7 @@ import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-sw
 import { observeSessionActivityTiming, removeSessionActivityTiming } from '@/sync/session-activity-timing';
 import { observeSessionActivityEvent, removeSessionOrdering } from '@/sync/session-ordering';
 import { notifySessionTurnComplete } from '@/sync/notification-store';
+import { clearAllRevertNavigations, clearRevertNavigation, getRevertNavigation, setRevertNavigation } from '@/sync/revert-navigation-store';
 import {
   applyArchiveChange,
   applyDirectoryListToCatalog,
@@ -255,6 +256,11 @@ export class PiSessionStore {
    *  ChatContainer `ensureHydrated`, and Strict Mode remounts share one
    *  request so overlapping opens cannot race the daemon runtime registry. */
   private hydrateInflightById = new Map<PiSessionId, Promise<void>>();
+  /** Per-session navigation generation. Bumped on every `navigate` so a stale
+   *  `hydrate` that started before the navigation cannot restore the old tail
+   *  after the authoritative truncation. */
+  private navigationGenerationById = new Map<PiSessionId, number>();
+  private navigationCounter = 0;
   private readonly cadence = new PiStreamCadence((events) => this.commitEvents(events));
   private unsubscribeRuntime = subscribeRuntimeEndpointChanged((detail) => {
     if (detail.runtimeKey === detail.previousRuntimeKey) {
@@ -313,6 +319,9 @@ export class PiSessionStore {
     this.stream?.dispose();
     this.stream = null;
     this.unsubscribeRuntime();
+    clearAllRevertNavigations();
+    this.navigationGenerationById.clear();
+    this.navigationCounter = 0;
     // Broadcast the reset so any mounted consumer sees the empty state
     // before the listener sets are torn down.
     this.state = initial();
@@ -375,6 +384,9 @@ export class PiSessionStore {
     this.cadence.dispose();
     this.stream?.dispose(); this.stream = null;
     this.state = { ...initial(), connection: 'ready' };
+    clearAllRevertNavigations();
+    this.navigationGenerationById.clear();
+    this.navigationCounter = 0;
     // Broadcast the empty state so mounted UI hears the reset; listener
     // sets stay intact so the cluster can be rebuilt without resubscribing.
     this.emitBroadcast();
@@ -1092,6 +1104,8 @@ export class PiSessionStore {
     if (expected !== this.runtimeGeneration) return;
     removeSessionActivityTiming(sessionId);
     removeSessionOrdering(sessionId);
+    clearRevertNavigation(sessionId);
+    this.navigationGenerationById.delete(sessionId);
     const sessions = this.state.sessions.filter((item) => item.session.id !== sessionId);
     const selectedSessionId = this.state.selectedSessionId === sessionId ? sessions.find((item) => !item.session.archived)?.session.id ?? null : this.state.selectedSessionId;
     const nextBySession = new Map(this.state.reducer.bySession);
@@ -1118,9 +1132,90 @@ export class PiSessionStore {
     this.emit(removeTopics);
     if (selectedSessionId && selectedSessionId !== this.state.selectedSessionId) await this.hydrate(selectedSessionId, expected);
   }
-  async fork(sessionId: string) { const detail = await piClient.forkSession({ sessionId }, this.scope()); this.upsertAndHydrate(detail); }
+  async fork(sessionId: string, messageId?: string) {
+    // Capture original title before fork so we can label the new branch.
+    const originalTitle =
+      this.state.sessions.find((item) => item.session.id === sessionId)?.session.title ??
+      this.state.catalog.byId.get(sessionId)?.title ??
+      '';
+    const detail = await piClient.forkSession({ sessionId, ...(messageId ? { messageId } : {}) }, this.scope());
+    this.upsertAndHydrate(detail);
+    // Make the fork obvious in the sidebar / header. Keep the original title
+    // and append " (Fork)" once — don't double-append on repeated forks.
+    const newTitleRaw = detail.session.title?.trim() || originalTitle.trim() || 'Untitled';
+    if (!newTitleRaw.includes('(Fork)')) {
+      const forkTitle = `${newTitleRaw} (Fork)`;
+      // Fire-and-forget rename; the detail is already shown optimistically.
+      void this.rename(detail.session.id, forkTitle).catch(() => {});
+    }
+  }
   async clone(sessionId: string) { const detail = await piClient.cloneSession({ sessionId }, this.scope()); this.upsertAndHydrate(detail); }
-  async navigate(sessionId: string, messageId: string) { const detail = await piClient.navigateSession(sessionId, messageId, this.scope()); await this.hydrate(sessionId, this.runtimeGeneration, detail); }
+  async navigate(sessionId: string, messageId: string) {
+    // Capture the pre-navigation active branch for the dock. Use the
+    // reducer's current messages so we preserve ordering without
+    // comparing entry IDs (which are random hex). Fetch failure must
+    // not synthesize an empty abandoned branch.
+    const previous = this.state.reducer.bySession.get(sessionId);
+    const previousMessages = previous ? [...previous.messages.values()] : [];
+    const previousPreviewById = new Map<string, string>();
+    for (const msg of previousMessages) {
+      const text = typeof (msg as { text?: string }).text === 'string' ? (msg as { text?: string }).text!.trim() : '';
+      if (text) previousPreviewById.set(msg.id, text);
+    }
+    const expected = this.runtimeGeneration;
+    // Bump per-session navigation generation so a stale hydrate that
+    // started before this navigate cannot restore the old tail afterwards.
+    const navGen = (this.navigationGenerationById.get(sessionId) ?? 0) + 1;
+    this.navigationGenerationById.set(sessionId, navGen);
+    this.navigationCounter = Math.max(this.navigationCounter, navGen);
+    // Invalidate any in-flight hydrate for this session — its fetched
+    // transcript is now stale (it was the pre-revert branch).
+    this.hydrateInflightById.delete(sessionId);
+    try {
+      const detail = await piClient.navigateSession(sessionId, messageId, this.scope());
+      // If another navigate raced and bumped the generation, or the
+      // runtime switched, this result is stale — discard it.
+      if ((this.navigationGenerationById.get(sessionId) ?? 0) !== navGen) return detail;
+      if (expected !== this.runtimeGeneration) return detail;
+      // Authoritative truncated commit — do not merge the old tail back in.
+      const hydrated = this.sessionFromDetail(detail);
+      this.commitNavigationSession(hydrated);
+      const navigation = (detail as unknown as { navigation?: { targetEntryId: string; previousLeafId: string | null; newLeafId: string | null; editorText?: string } }).navigation;
+      if (navigation && typeof navigation.targetEntryId === 'string') {
+        const newIds = new Set(detail.messages.map((entry) => entry.message.id));
+        const currentAbandoned = previousMessages
+          .filter((msg) => !newIds.has(msg.id))
+          .map((msg) => {
+            const preview = (previousPreviewById.get(msg.id) ?? '').replace(/\s+/g, ' ').slice(0, 120) || '[No text]';
+            const role = (msg as { role?: string }).role === 'assistant' ? 'assistant' as const : 'user' as const;
+            return { id: msg.id, role, preview };
+          });
+        // Accumulate with any previously abandoned tail so the dock shows the
+        // full discarded branch after successive reverts (e.g. revert to 6 then
+        // to 3 should show 3..10, not just 3..5). Order is preserved.
+        const oldNav = getRevertNavigation(sessionId);
+        const seen = new Set(currentAbandoned.map((entry) => entry.id));
+        const combined = [...currentAbandoned];
+        for (const entry of oldNav?.abandoned ?? []) {
+          if (!newIds.has(entry.id) && !seen.has(entry.id)) {
+            combined.push(entry);
+            seen.add(entry.id);
+          }
+        }
+        setRevertNavigation(sessionId, navigation, combined);
+      }
+      return detail;
+    } catch (error) {
+      // On failure, roll back the generation bump so a later hydrate
+      // is not incorrectly considered stale. Preserve existing state.
+      const current = this.navigationGenerationById.get(sessionId);
+      if (current === navGen) {
+        if (navGen <= 1) this.navigationGenerationById.delete(sessionId);
+        else this.navigationGenerationById.set(sessionId, navGen - 1);
+      }
+      throw error;
+    }
+  }
   async prompt(sessionId: string, text: string, delivery: 'prompt' | 'steer' | 'followUp', attachments?: Array<{ id: string }>) {
     const expected = this.runtimeGeneration;
     let existing = this.state.reducer.bySession.get(sessionId);
@@ -1174,9 +1269,14 @@ export class PiSessionStore {
     this.emit(promptTopics);
     const input = { sessionId, text, messageId: `msg_${crypto.randomUUID()}`, ...(attachments?.length ? { attachments } : {}) };
     try {
-      if (delivery === 'steer') return await piClient.sendSteer(input, this.scope());
-      if (delivery === 'followUp') return await piClient.sendFollowUp(input, this.scope());
-      return await piClient.sendPrompt(input, this.scope());
+      let result;
+      if (delivery === 'steer') result = await piClient.sendSteer(input, this.scope());
+      else if (delivery === 'followUp') result = await piClient.sendFollowUp(input, this.scope());
+      else result = await piClient.sendPrompt(input, this.scope());
+      // Sending on the new branch commits it — stale revert/redo becomes
+      // invalid. The old branch remains discoverable via GET /tree.
+      clearRevertNavigation(sessionId);
+      return result;
     } catch (error) {
       recordMobileDiagnosticError('prompt-send', error);
       if (this.promptGenerationById.get(sessionId) === generation) {
@@ -1299,6 +1399,63 @@ export class PiSessionStore {
     this.lastAccessById.set(sessionId, this.lastAccessClock);
   }
 
+  /**
+   * Authoritative commit for `sessions.navigate`. Unlike `commitHydratedSession`,
+   * the daemon's active branch is the truth and the old tail must be discarded.
+   * `mergeHydratedSession` deliberately preserves the tail for stale-hydrate
+   * safety, which would make revert appear not to delete messages.
+   */
+  private commitNavigationSession(hydratedSession: PiReducerSessionState) {
+    this.cadence.flush();
+    const existing = this.state.reducer.bySession.get(hydratedSession.sessionId);
+    // Keep model/thinking from existing if the detail didn't include them,
+    // and keep queue if it was pending. Do not keep old messages/parts.
+    const session: PiReducerSessionState = existing
+      ? {
+          ...hydratedSession,
+          lastSequence: Math.max(hydratedSession.lastSequence, existing.lastSequence),
+          ...(existing.model && !hydratedSession.model ? { model: existing.model } : {}),
+          ...(existing.thinking && !hydratedSession.thinking ? { thinking: existing.thinking } : {}),
+          queue: existing.queue.steering > 0 || existing.queue.followUp > 0 ? existing.queue : hydratedSession.queue,
+        }
+      : hydratedSession;
+    let reducer: PiReducerState = {
+      bySession: new Map(this.state.reducer.bySession),
+      lastSequence: new Map(this.state.reducer.lastSequence),
+    };
+    reducer.bySession.set(session.sessionId, session);
+    reducer.lastSequence.set(session.sessionId, session.lastSequence);
+    this.hydratedSessionIds.add(session.sessionId);
+    this.touchLastAccess(session.sessionId);
+    const isSelectedHydrated = this.state.selectedSessionId === session.sessionId;
+    const nextFocusPending = isSelectedHydrated
+      ? false
+      : this.state.focusPending && !this.hydratedSessionIds.has(this.state.selectedSessionId ?? '');
+    let nextLoadErrors = this.state.sessionLoadErrorById;
+    if (nextLoadErrors.has(session.sessionId)) {
+      const updated = new Map(nextLoadErrors);
+      updated.delete(session.sessionId);
+      nextLoadErrors = updated;
+    }
+    let nextCatalog = applyHydratedChange(this.state.catalog, session.sessionId, true);
+    const catalogLifecycle = catalogLifecycleFromReducer(session.lifecycle);
+    nextCatalog = applyLifecycleChange(nextCatalog, session.sessionId, catalogLifecycle);
+    const catalogChanged = nextCatalog !== this.state.catalog;
+    this.state = {
+      ...this.state,
+      reducer,
+      error: null,
+      focusPending: nextFocusPending,
+      hydratedSessionIds: new Set(this.hydratedSessionIds),
+      sessionLoadErrorById: nextLoadErrors,
+      catalog: nextCatalog,
+    };
+    const topics: string[] = [`session:${session.sessionId}`, TOPIC_CHROME];
+    if (catalogChanged) topics.push(TOPIC_CATALOG);
+    this.emit(topics);
+    this.scheduleIdleEviction();
+  }
+
   private commitHydratedSession(hydratedSession: PiReducerSessionState, buffered: readonly PiSessionEvent[] = []) {
     this.cadence.flush();
     const existingSession = this.state.reducer.bySession.get(hydratedSession.sessionId);
@@ -1399,6 +1556,7 @@ export class PiSessionStore {
     const runtimeKey = getRuntimeKey();
     const resident = this.state.reducer.bySession.get(sessionId);
     const residentHasTranscript = Boolean(resident && resident.messages.size > 0);
+    const navGenAtStart = this.navigationGenerationById.get(sessionId) ?? 0;
     if (
       !options?.force
       && this.stream
@@ -1418,6 +1576,7 @@ export class PiSessionStore {
         const detail = known ?? await piClient.getSession(sessionId, { directory, runtimeKey });
         if (expected !== this.runtimeGeneration) return;
         if (detail.session.id !== sessionId) return;
+        if ((this.navigationGenerationById.get(sessionId) ?? 0) !== navGenAtStart) return;
         this.commitHydratedSession(this.sessionFromDetail(detail));
         return;
       }
@@ -1470,6 +1629,10 @@ export class PiSessionStore {
         bootstrap.stream?.dispose();
         return;
       }
+      if ((this.navigationGenerationById.get(sessionId) ?? 0) !== navGenAtStart) {
+        bootstrap.stream?.dispose();
+        return;
+      }
       this.stream = bootstrap.stream;
       this.commitHydratedSession(hydratedSession, buffered);
       ready = true;
@@ -1484,6 +1647,7 @@ export class PiSessionStore {
           const detail = await piClient.getSession(sessionId, { directory, runtimeKey });
           if (expected !== this.runtimeGeneration) return;
           if (detail.session.id !== sessionId) return;
+          if ((this.navigationGenerationById.get(sessionId) ?? 0) !== navGenAtStart) return;
           this.commitHydratedSession(this.sessionFromDetail(detail));
         } catch (retryError) {
           if (expected !== this.runtimeGeneration) return;
@@ -1902,6 +2066,9 @@ export class PiSessionStore {
     this.stream?.dispose();
     this.stream = null;
     this.state = initial();
+    clearAllRevertNavigations();
+    this.navigationGenerationById.clear();
+    this.navigationCounter = 0;
     // Broadcast so every subscriber sees the runtime switch before the
     // cluster rebuilds; listener sets stay intact for the new runtime.
     this.emitBroadcast();

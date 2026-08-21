@@ -96,7 +96,6 @@ export function PromptNavigatorRail({
     isLoadingOlder,
     onLoadEarlier,
 }: PromptNavigatorRailProps) {
-    
     const isKeyboardNavOpen = useUIStore((state) => state.isPromptNavigatorPanelOpen);
     const setPromptNavigatorPanelOpen = useUIStore((state) => state.setPromptNavigatorPanelOpen);
     const gutterRef = React.useRef<HTMLDivElement | null>(null);
@@ -422,13 +421,14 @@ export function PromptNavigatorRail({
             handleSelect(current);
             return;
         }
+
         if (event.key === 'Escape') {
             event.preventDefault();
             setHighlightedIndex(null);
             closeKeyboardNav();
             gutterRef.current?.blur();
         }
-    }, [activeIndex, closeKeyboardNav, ensureWindowContains, handleSelect, highlightedIndex, prompts.length]);
+    }, [activeIndex, closeKeyboardNav, ensureWindowContains, handleSelect, highlightedIndex, prompts]);
 
     const handleBlur = React.useCallback(() => {
         stopCarousel();
