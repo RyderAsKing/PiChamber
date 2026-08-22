@@ -7,6 +7,8 @@ Trusted-device access has one durable credential model: a remote client bearer t
 
 Pairing v2 is implemented by `packages/web/server/lib/client-auth/pairing.js`. It stores short-lived one-time pairing sessions with hashed secrets, exposes create/cancel/redeem routes under `/api/client-auth/pairing/*`, and redeems a valid pairing secret into the same remote client token used by password/passkey trusted-device flows.
 
+Browser WebSocket clients mint a 60-second `oc_url_token` through the authenticated `/auth/url-token` route because the WebSocket constructor cannot attach an Authorization header. The token is accepted only for the explicit WebSocket allowlist, currently `/api/terminal/ws`; ordinary API routes and unknown upgrade paths reject it. The token resolves to the UI session or remote-client identity that minted it.
+
 ## Entrypoints and structure
 - `packages/web/server/lib/ui-auth/ui-auth.js`: UI auth controller runtime, cookie/session issuance, rate limiting, and auth route handlers.
 - `packages/web/server/lib/ui-auth/ui-passkeys.js`: passkey store and WebAuthn registration/authentication verification helpers.

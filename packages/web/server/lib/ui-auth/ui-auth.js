@@ -293,7 +293,11 @@ const isWebSocketUpgrade = (req) => {
 
 const isUrlAuthReadableHttpPath = (pathname) => pathname === '/api/pi/events';
 
-const isUrlAuthWebSocketPath = () => false;
+const URL_AUTH_WEBSOCKET_PATHS = new Set([
+  '/api/terminal/ws',
+]);
+
+const isUrlAuthWebSocketPath = (pathname) => URL_AUTH_WEBSOCKET_PATHS.has(pathname);
 
 const canUseUrlAuthTokenForRequest = (req) => {
   const method = typeof req?.method === 'string' ? req.method.toUpperCase() : 'GET';
