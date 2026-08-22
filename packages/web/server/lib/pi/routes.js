@@ -219,6 +219,8 @@ const projectSessionDetail = (value) => {
     isStreaming,
     lifecycle,
     ...(retry ? { retry } : {}),
+    ...(Number.isFinite(value.runStartedAt) ? { runStartedAt: Math.floor(value.runStartedAt) } : {}),
+    ...(Number.isFinite(value.serverNow) ? { serverNow: Math.floor(value.serverNow) } : {}),
   };
 };
 
@@ -380,12 +382,14 @@ const projectEventFrame = (frame) => {
         ...(typeof snapshot.thinking === 'string' ? { thinking: snapshot.thinking } : {}),
         ...(typeof snapshot.lastText === 'string' ? { lastText: snapshot.lastText } : {}),
         ...(typeof snapshot.lastThinking === 'string' ? { lastThinking: snapshot.lastThinking } : {}),
+        ...(Number.isFinite(snapshot.runStartedAt) ? { runStartedAt: Math.floor(snapshot.runStartedAt) } : {}),
+        ...(Number.isFinite(snapshot.serverNow) ? { serverNow: Math.floor(snapshot.serverNow) } : {}),
         lastSequence: Number.isSafeInteger(snapshot.lastSequence) ? snapshot.lastSequence : frame.sequence,
       } } };
     }
     case 'session.lifecycle': {
       const retry = frame.payload.state === 'retry' ? projectRetryInfo(frame.payload) : null;
-      return { ...common, payload: { state: frame.payload.state, ...(retry ?? {}) } };
+      return { ...common, payload: { state: frame.payload.state, ...(retry ?? {}), ...(Number.isFinite(frame.payload.runStartedAt) ? { runStartedAt: Math.floor(frame.payload.runStartedAt) } : {}), ...(Number.isFinite(frame.payload.serverNow) ? { serverNow: Math.floor(frame.payload.serverNow) } : {}) } };
     }
     case 'session.updated': {
       if (typeof frame.payload.title !== 'string') return null;

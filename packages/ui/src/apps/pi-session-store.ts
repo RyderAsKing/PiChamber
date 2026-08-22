@@ -21,7 +21,7 @@ import { resolveCreateThinking } from '@/lib/pi/thinking';
 import { deriveSessionTitle } from '@/lib/chat/deriveSessionTitle';
 import { normalizePath } from '@/lib/pathNormalization';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
-import { observeSessionActivityTiming, removeSessionActivityTiming } from '@/sync/session-activity-timing';
+import { adoptServerRunTiming, observeSessionActivityTiming, removeSessionActivityTiming } from '@/sync/session-activity-timing';
 import { observeSessionActivityEvent, removeSessionOrdering } from '@/sync/session-ordering';
 import { notifySessionTurnComplete } from '@/sync/notification-store';
 import { clearAllRevertNavigations, clearRevertNavigation, getRevertNavigation, setRevertNavigation } from '@/sync/revert-navigation-store';
@@ -1656,6 +1656,9 @@ export class PiSessionStore {
         if (expected !== this.runtimeGeneration) return;
         if (detail.session.id !== sessionId) return;
         if ((this.navigationGenerationById.get(sessionId) ?? 0) !== navGenAtStart) return;
+        if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof (detail as { runStartedAt?: number }).runStartedAt === 'number') {
+          adoptServerRunTiming(detail.session.id, (detail as { runStartedAt: number }).runStartedAt, (detail as { serverNow?: number }).serverNow);
+        }
         this.commitHydratedSession(this.sessionFromDetail(detail));
         return;
       }
@@ -1685,12 +1688,19 @@ export class PiSessionStore {
       let hydratedSession = known
         ? this.sessionFromDetail(known)
         : bootstrap.reducerState.bySession.get(sessionId);
+      // Adopt server authoritative timing when the known detail carries it.
+      if (known && (known.lifecycle === 'busy' || known.lifecycle === 'retry') && typeof (known as { runStartedAt?: number }).runStartedAt === 'number') {
+        adoptServerRunTiming(known.session.id, (known as { runStartedAt: number }).runStartedAt, (known as { serverNow?: number }).serverNow);
+      }
       if (!hydratedSession) {
         try {
           const detail = known ?? await piClient.getSession(sessionId, { directory, runtimeKey });
           if (expected !== this.runtimeGeneration) {
             bootstrap.stream?.dispose();
             return;
+          }
+          if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof (detail as { runStartedAt?: number }).runStartedAt === 'number') {
+            adoptServerRunTiming(detail.session.id, (detail as { runStartedAt: number }).runStartedAt, (detail as { serverNow?: number }).serverNow);
           }
           hydratedSession = this.sessionFromDetail(detail);
         } catch (error) {
@@ -1730,6 +1740,9 @@ export class PiSessionStore {
           if (expected !== this.runtimeGeneration) return;
           if (detail.session.id !== sessionId) return;
           if ((this.navigationGenerationById.get(sessionId) ?? 0) !== navGenAtStart) return;
+          if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof (detail as { runStartedAt?: number }).runStartedAt === 'number') {
+            adoptServerRunTiming(detail.session.id, (detail as { runStartedAt: number }).runStartedAt, (detail as { serverNow?: number }).serverNow);
+          }
           this.commitHydratedSession(this.sessionFromDetail(detail));
         } catch (retryError) {
           if (expected !== this.runtimeGeneration) return;
@@ -1842,9 +1855,20 @@ export class PiSessionStore {
   private observeActivity(event: PiSessionEvent) {
     if (event.name === 'session.lifecycle') {
       const isRunning = event.payload.state === 'busy' || event.payload.state === 'retry';
+      if (isRunning && typeof (event.payload as { runStartedAt?: number }).runStartedAt === 'number') {
+        adoptServerRunTiming(
+          event.sessionId,
+          (event.payload as { runStartedAt: number }).runStartedAt,
+          (event.payload as { serverNow?: number }).serverNow,
+        );
+      }
       this.promoteSession(event.sessionId, isRunning ? 'active' : 'settled', { notifyIfSettled: true });
     } else if (event.name === 'session.snapshot') {
-      const isRunning = Boolean(event.payload.snapshot.isStreaming);
+      const snapshot = event.payload.snapshot as { isStreaming?: boolean; runStartedAt?: number; serverNow?: number };
+      const isRunning = Boolean(snapshot.isStreaming);
+      if (isRunning && typeof snapshot.runStartedAt === 'number') {
+        adoptServerRunTiming(event.sessionId, snapshot.runStartedAt, snapshot.serverNow);
+      }
       this.promoteSession(event.sessionId, isRunning ? 'active' : 'settled');
     } else if (event.name === 'assistant.message.start') {
       this.promoteSession(event.sessionId, 'active');

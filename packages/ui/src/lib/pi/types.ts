@@ -257,6 +257,10 @@ export interface PiSessionSnapshot {
   lifecycle: PiSessionLifecycleState;
   /** Retry countdown/error context while `lifecycle` is `retry`. */
   retry?: PiRetryInfo;
+  /** Server authoritative run start for an active turn. */
+  runStartedAt?: number;
+  /** Server wall clock at snapshot time. */
+  serverNow?: number;
 }
 
 export type PiSessionLifecycleState =

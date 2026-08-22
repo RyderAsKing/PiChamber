@@ -145,6 +145,10 @@ export interface PiSessionDetailResponse {
   lifecycle: PiSessionLifecycleState;
   /** Retry countdown/error context while `lifecycle` is `retry`. */
   retry?: PiRetryInfo;
+  /** Server authoritative run start for an active turn. Present only while busy/retry. */
+  runStartedAt?: number;
+  /** Server wall clock at the time the response was generated. */
+  serverNow?: number;
 }
 
 /** Metadata returned after a successful tree navigation. */
@@ -469,7 +473,7 @@ export type PiSessionSnapshotEvent = PiEventEnvelope<
 
 export type PiSessionLifecycleEvent = PiEventEnvelope<
   'session.lifecycle',
-  { state: PiSessionLifecycleState } & PiRetryInfo
+  { state: PiSessionLifecycleState; runStartedAt?: number; serverNow?: number } & PiRetryInfo
 >;
 
 /** Catalog metadata from another client: create, first-prompt title, or rename. */

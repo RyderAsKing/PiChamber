@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { getSafeStorage } from '@/stores/utils/safeStorage';
 import { applyGlobalSessionStatusSnapshot } from './global-session-status';
 import {
+  adoptServerRunTiming,
   observeSessionActivityTiming,
   reconcileSessionActivityTiming,
   removeSessionActivityTiming,
@@ -306,5 +307,45 @@ describe('session activity timing', () => {
     const after = useSessionActivityTimingStore.getState();
     expect(after.startedAt).toBe(before.startedAt);
     expect(after.settledMs).toBe(before.settledMs);
+  });
+
+  test('adopting server run timing yields identical elapsed across clients with different clocks', () => {
+    const serverRunStartedAt = Date.now() - 42_000;
+    const serverNow = Date.now();
+    adoptServerRunTiming('ses_a', serverRunStartedAt, serverNow);
+    const firstStart = startedAt('ses_a') as number;
+    const firstElapsed = Date.now() - firstStart;
+    // Simulate second client with clock skewed by +5s: serverNow offset should compensate.
+    const skewedNow = Date.now() + 5_000;
+    const originalNow = Date.now;
+    try {
+      // @ts-expect-error overwrite for skew simulation
+      Date.now = () => skewedNow;
+      resetSessionActivityTiming();
+      adoptServerRunTiming('ses_a', serverRunStartedAt, serverNow);
+      const secondStart = startedAt('ses_a') as number;
+      const secondElapsed = Date.now() - secondStart;
+      // Both clients should report ~42s elapsed (allow 200ms tolerance for call overhead).
+      expect(Math.abs(firstElapsed - 42_000)).toBeLessThan(500);
+      expect(Math.abs(secondElapsed - 42_000)).toBeLessThan(500);
+      expect(Math.abs(firstElapsed - secondElapsed)).toBeLessThan(200);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+
+  test('a reload that re-adopts the same server start does not reset the counter', () => {
+    const serverRunStartedAt = Date.now() - 15_000;
+    const serverNow = Date.now();
+    adoptServerRunTiming('ses_a', serverRunStartedAt, serverNow);
+    const first = startedAt('ses_a');
+    // Simulate reload: clear in-memory but keep server values available via snapshot.
+    const before = Date.now();
+    resetSessionActivityTiming();
+    adoptServerRunTiming('ses_a', serverRunStartedAt, serverNow);
+    expect(startedAt('ses_a')).toBeGreaterThanOrEqual(before - 15_500);
+    expect(startedAt('ses_a')).toBeLessThanOrEqual(before);
+    // Must still be considered the same logical start, not a fresh local start.
+    expect(Math.abs((startedAt('ses_a') as number) - (first as number))).toBeLessThan(600);
   });
 });

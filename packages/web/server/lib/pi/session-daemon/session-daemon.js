@@ -138,6 +138,7 @@ export function createSessionDaemon({
   const toolStartedAt = new Map();
   const latestUserMessageIds = new Map();
   const retryStateBySession = new Map();
+  const activeRunStartedAt = new Map();
   const sendGenerationBySession = new Map();
   const streamingRedactionBuffers = new Map();
   const loginAttempts = new Map();
@@ -266,6 +267,8 @@ export function createSessionDaemon({
         ...(activeSession?.thinkingLevel ? { thinking: activeSession.thinkingLevel } : {}),
         ...(typeof lastAssistant?.text === 'string' ? { lastText: lastAssistant.text } : {}),
         ...(typeof lastAssistant?.thinking === 'string' ? { lastThinking: lastAssistant.thinking } : {}),
+        ...(session.sessionId && activeRunStartedAt.has(session.sessionId) ? { runStartedAt: activeRunStartedAt.get(session.sessionId) } : {}),
+        serverNow: Date.now(),
         lastSequence: snapshotSequence,
       },
     });
@@ -746,6 +749,8 @@ export function createSessionDaemon({
       isStreaming,
       lifecycle: retry ? 'retry' : isStreaming ? 'busy' : 'idle',
       ...(retry ? { retry } : {}),
+      ...(activeRunStartedAt.has(session.sessionId) ? { runStartedAt: activeRunStartedAt.get(session.sessionId) } : {}),
+      serverNow: Date.now(),
     };
   };
 
@@ -1672,9 +1677,10 @@ export function createSessionDaemon({
     }
     messageEntryAliases.clearSession({ cwd: active?.cwd || targetDir, sessionId });
     retryStateBySession.delete(sessionId);
+    activeRunStartedAt.delete(sessionId);
     latestUserMessageIds.delete(sessionId);
     latestAssistantMessageIds.delete(sessionId);
-    publish('session.lifecycle', { state: 'idle', deleted: true }, sessionId, targetDir);
+    publish('session.lifecycle', { state: 'idle', deleted: true, serverNow: Date.now() }, sessionId, targetDir);
   };
 
   const publishSessionEvent = (sessionId, event, directory = activeDirectory || cwd) => {
@@ -1817,7 +1823,8 @@ export function createSessionDaemon({
       case 'agent_start':
         clearIdleDisposal(sessionId);
         retryStateBySession.delete(sessionId);
-        publish('session.lifecycle', { state: 'busy' }, sessionId, directory);
+        if (!activeRunStartedAt.has(sessionId)) activeRunStartedAt.set(sessionId, Date.now());
+        publish('session.lifecycle', { state: 'busy', runStartedAt: activeRunStartedAt.get(sessionId), serverNow: Date.now() }, sessionId, directory);
         break;
       case 'agent_end': {
         const finalMessage = event.messages?.at?.(-1);
@@ -1835,7 +1842,8 @@ export function createSessionDaemon({
           message: redactAttachmentPaths(event.errorMessage),
         };
         retryStateBySession.set(sessionId, retry);
-        publish('session.lifecycle', { state: 'retry', ...retry }, sessionId, directory);
+        if (!activeRunStartedAt.has(sessionId)) activeRunStartedAt.set(sessionId, Date.now());
+        publish('session.lifecycle', { state: 'retry', ...retry, runStartedAt: activeRunStartedAt.get(sessionId), serverNow: Date.now() }, sessionId, directory);
         break;
       }
       case 'auto_retry_end':
@@ -1843,9 +1851,10 @@ export function createSessionDaemon({
         break;
       case 'agent_settled':
         retryStateBySession.delete(sessionId);
+        activeRunStartedAt.delete(sessionId);
         latestUserMessageIds.delete(sessionId);
         latestAssistantMessageIds.delete(sessionId);
-        publish('session.lifecycle', { state: 'idle' }, sessionId, directory);
+        publish('session.lifecycle', { state: 'idle', serverNow: Date.now() }, sessionId, directory);
         scheduleIdleDisposal(sessionId);
         break;
       case 'thinking_level_changed':
@@ -2235,6 +2244,7 @@ export function createSessionDaemon({
       }
       loginAttempts.clear();
       retryStateBySession.clear();
+      activeRunStartedAt.clear();
       latestUserMessageIds.clear();
       latestAssistantMessageIds.clear();
       for (const client of clients) client.destroy();

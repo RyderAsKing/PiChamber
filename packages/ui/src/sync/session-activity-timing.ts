@@ -363,6 +363,36 @@ export const observeSessionActivityTiming = (
 };
 
 /**
+ * Server authoritative start for an active turn. Uses the server's
+ * `runStartedAt` plus the server-now offset so every client, regardless of
+ * local clock, shows the same elapsed time. Falls back to the raw server
+ * timestamp when no serverNow is available.
+ */
+export const adoptServerRunTiming = (
+  sessionId: string,
+  runStartedAt: number,
+  serverNow?: number,
+): void => {
+  if (!Number.isFinite(runStartedAt)) return;
+  const now = Date.now();
+  const offset = Number.isFinite(serverNow) ? (serverNow as number) - now : 0;
+  const clientStartedAt = runStartedAt - offset;
+  // Adopt only if the adjusted start is recent enough to be a live turn.
+  if (now - clientStartedAt > MAX_TURN_AGE_MS || clientStartedAt > now + 60_000) return;
+  const state = useSessionActivityTimingStore.getState();
+  const existing = state.startedAt.get(sessionId);
+  if (existing === clientStartedAt) return;
+  const nextStarted = new Map(state.startedAt);
+  nextStarted.set(sessionId, clientStartedAt);
+  const nextSettled = new Map(state.settledMs);
+  nextSettled.delete(sessionId);
+  liveSeen.set(sessionId, now);
+  useSessionActivityTimingStore.setState({ startedAt: nextStarted, settledMs: nextSettled });
+  ensureLivenessStampOnHide();
+  persistStarts(nextStarted, now);
+};
+
+/**
  * Authoritative path: a `/session/status` snapshot for one directory. Sessions
  * the snapshot covers but does not report active stop their live counters —
  * that is what recovers a turn whose end event this client missed — but their
