@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { Message, Part } from '@/lib/chat/types';
+import { applyRetryOverlay } from './applyRetryOverlay';
 import { projectTurnRecords } from './projectTurnRecords';
 import type { ChatMessageEntry } from './types';
 
@@ -24,6 +25,40 @@ function createMessageEntry({
         parts: [] as Part[],
     };
 }
+
+describe('applyRetryOverlay', () => {
+    test('replaces a terminal assistant error with live retry information', () => {
+        const user = createMessageEntry({ id: 'u1', role: 'user', createdAt: 1 });
+        const assistant = {
+            ...createMessageEntry({ id: 'a1', role: 'assistant', parentID: 'u1', createdAt: 2 }),
+            info: {
+                ...createMessageEntry({ id: 'a1', role: 'assistant', parentID: 'u1', createdAt: 2 }).info,
+                error: { name: 'ASSISTANT_ERROR', message: 'provider failed' },
+            } as Message,
+        };
+
+        const overlaid = applyRetryOverlay([user, assistant], {
+            sessionId: 'ses_1',
+            message: 'Retrying provider request',
+            fallbackTimestamp: 3,
+        });
+
+        expect((overlaid[1]?.info.error as { name?: string; message?: string }).name).toBe('SessionRetry');
+        expect((overlaid[1]?.info.error as { name?: string; message?: string }).message).toBe('Retrying provider request');
+    });
+
+    test('attaches a synthetic retry notice to the latest user turn', () => {
+        const user = createMessageEntry({ id: 'u1', role: 'user', createdAt: 1 });
+        const overlaid = applyRetryOverlay([user], {
+            sessionId: 'ses_1',
+            message: 'Retrying provider request',
+            fallbackTimestamp: 3,
+        });
+
+        expect((overlaid[1]?.info as Message).parentID).toBe('u1');
+        expect(projectTurnRecords(overlaid).turns[0]?.assistantMessageIds).toEqual(['synthetic_retry_notice_ses_1']);
+    });
+});
 
 describe('projectTurnRecords', () => {
     test('groups assistant replies under their parent user turn', () => {

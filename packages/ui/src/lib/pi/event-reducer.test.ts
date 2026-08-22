@@ -8,6 +8,11 @@ import {
   type PiReducerSessionState,
 } from "./event-reducer"
 import type { PiSessionEvent } from "./protocol"
+import { piProjectedToRecords } from "@/lib/chat/pi-to-renderable"
+import { applyRetryOverlay } from "@/components/chat/lib/turns/applyRetryOverlay"
+import { projectTurnRecords } from "@/components/chat/lib/turns/projectTurnRecords"
+import { isTurnAssistantWorking } from "@/components/chat/lib/turns/assistantWorkingState"
+import { selectStreamingAssistantMessageId } from "@/sync/suspend-live-tail-records"
 
 const baseEvent = <T extends PiSessionEvent["name"]>(
   name: T,
@@ -55,6 +60,54 @@ describe("applyPiEvent", () => {
   test("preserves the user-message parent for an assistant turn", () => {
     const state = applyPiEvent(createReducerState(), assistantStart()).state
     expect(state.bySession.get("sess-1")?.messages.get("m1")?.parentId).toBe("u1")
+  })
+
+  test("keeps retry metadata visible and resumes the recovered stream in the same turn", () => {
+    let state = applyPiEvent(createReducerState(), baseEvent("assistant.message.start", 1, {
+      messageId: "u1", role: "user", text: "recover", startedAt: 1_000,
+    })).state
+    state = applyPiEvent(state, baseEvent("assistant.message.start", 2, {
+      messageId: "a-failed", role: "assistant", parentId: "u1", startedAt: 1_100,
+    })).state
+    state = applyPiEvent(state, baseEvent("assistant.message.delta", 3, {
+      messageId: "a-failed", contentIndex: 0, delta: "partial",
+    })).state
+    state = applyPiEvent(state, baseEvent("assistant.message.end", 4, {
+      messageId: "a-failed", text: "partial", error: { code: "ASSISTANT_ERROR", message: "Rate limit exceeded" },
+    })).state
+    state = applyPiEvent(state, baseEvent("session.lifecycle", 5, {
+      state: "retry", attempt: 1, next: 5_000, message: "Rate limit exceeded",
+    })).state
+
+    const retrying = state.bySession.get("sess-1") as PiReducerSessionState
+    expect(retrying.retry).toEqual({ attempt: 1, next: 5_000, message: "Rate limit exceeded" })
+    const retryRecords = applyRetryOverlay(piProjectedToRecords(projectSession(retrying)), {
+      sessionId: "sess-1",
+      message: retrying.retry?.message ?? "",
+      fallbackTimestamp: 2_000,
+    })
+    const retryAssistant = retryRecords.find((record) => record.info.id === "a-failed")
+    expect((retryAssistant?.info.error as { name?: string } | undefined)?.name).toBe("SessionRetry")
+    expect(isTurnAssistantWorking({
+      messageId: "a-failed",
+      activeStreamingMessageId: null,
+      isRetrying: true,
+    })).toBe(true)
+
+    state = applyPiEvent(state, baseEvent("session.lifecycle", 6, { state: "busy" })).state
+    state = applyPiEvent(state, baseEvent("assistant.message.start", 7, {
+      messageId: "a-recovered", role: "assistant", parentId: "u1", startedAt: 2_100,
+    })).state
+    state = applyPiEvent(state, baseEvent("assistant.message.delta", 8, {
+      messageId: "a-recovered", partId: "a-recovered:text:0", contentIndex: 0, delta: "Recovered",
+    })).state
+
+    const recovered = state.bySession.get("sess-1") as PiReducerSessionState
+    const turns = projectTurnRecords(piProjectedToRecords(projectSession(recovered)))
+    expect(recovered.retry).toBe(undefined)
+    expect(selectStreamingAssistantMessageId(recovered)).toBe("a-recovered")
+    expect(recovered.parts.get("a-recovered:text:0")?.text).toBe("Recovered")
+    expect(turns.turns[0]?.assistantMessageIds).toEqual(["a-failed", "a-recovered"])
   })
 
   test("assembles canonical assistant message and thinking deltas", () => {
@@ -162,8 +215,9 @@ describe("applyPiEvent", () => {
   test("tracks tool execution started after assistant.message.end", () => {
     let state = applyPiEvent(createReducerState(), assistantStart()).state
     state = applyPiEvent(state, baseEvent("assistant.message.end", 2, {
-      messageId: "m1", text: "Running tool", thinking: "need to run tool",
+      messageId: "m1", text: "Running tool", thinking: "need to run tool", continuing: true,
     })).state
+    expect(state.bySession.get("sess-1")?.streamingMessages.has("m1")).toBe(true)
     state = applyPiEvent(state, baseEvent("session.tool.start", 3, {
       toolCallId: "t1", partId: "m1:tool:t1", messageId: "m1", name: "bash", state: "running",
       input: { cmd: "pwd" }, startedAt: 1_000,
@@ -323,6 +377,20 @@ describe("hydrateSessionFromDetail", () => {
     })
     const session = state.bySession.get("sess-1") as PiReducerSessionState
     expect(session.parts.get("p1")?.tool?.state).toBe("completed")
+  })
+
+  test("restores retry metadata from an in-flight getSession", () => {
+    const { session } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 11,
+      isStreaming: true,
+      lifecycle: "retry",
+      retry: { attempt: 2, next: 8_000, message: "provider unavailable" },
+      messages: [],
+    })
+
+    expect(session.lifecycle).toBe("retry")
+    expect(session.retry).toEqual({ attempt: 2, next: 8_000, message: "provider unavailable" })
   })
 
   test("restores live streaming UI from an in-flight getSession", () => {

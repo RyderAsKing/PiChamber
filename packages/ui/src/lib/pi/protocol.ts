@@ -25,6 +25,7 @@ import type {
   PiModelRef,
   PiProvider,
   PiResource,
+  PiRetryInfo,
   PiSession,
   PiSessionId,
   PiSessionLifecycleState,
@@ -142,6 +143,8 @@ export interface PiSessionDetailResponse {
   isStreaming: boolean;
   /** Authoritative lifecycle at getSession time. Idle is not proof the stream is dead. */
   lifecycle: PiSessionLifecycleState;
+  /** Retry countdown/error context while `lifecycle` is `retry`. */
+  retry?: PiRetryInfo;
 }
 
 /** Metadata returned after a successful tree navigation. */
@@ -466,12 +469,7 @@ export type PiSessionSnapshotEvent = PiEventEnvelope<
 
 export type PiSessionLifecycleEvent = PiEventEnvelope<
   'session.lifecycle',
-  {
-    state: PiSessionLifecycleState;
-    attempt?: number;
-    next?: number;
-    message?: string;
-  }
+  { state: PiSessionLifecycleState } & PiRetryInfo
 >;
 
 /** Catalog metadata from another client: create, first-prompt title, or rename. */
@@ -502,6 +500,8 @@ export interface PiMessageEndPayload {
   /** Final thinking level the daemon persisted. */
   thinkingLevel?: PiThinkingLevel;
   durationMs?: number;
+  /** True when Pi is about to execute tool calls from this assistant message. */
+  continuing?: boolean;
   error?: PiError;
   /**
    * Pi-native usage for the turn that just ended. The daemon sanitizes the

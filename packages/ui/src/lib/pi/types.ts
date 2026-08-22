@@ -227,6 +227,12 @@ export interface PiAttachmentPart extends PiPartBase {
  * are the reconnect baseline: a client connects, receives a `session.snapshot`
  * event, and resumes deltas after the snapshot's `lastSequence`.
  */
+export interface PiRetryInfo {
+  attempt?: number;
+  next?: number;
+  message?: string;
+}
+
 export interface PiSessionSnapshot {
   sessionId: PiSessionId;
   directory: PiDirectory;
@@ -249,6 +255,8 @@ export interface PiSessionSnapshot {
   lastToolPart?: PiToolPart;
   /** The current session lifecycle phase. */
   lifecycle: PiSessionLifecycleState;
+  /** Retry countdown/error context while `lifecycle` is `retry`. */
+  retry?: PiRetryInfo;
 }
 
 export type PiSessionLifecycleState =

@@ -658,7 +658,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         }
         if (errorName === 'SessionRetry') {
             return {
-                text: `Failed to send message. Retry attempt info: \n\`${detail}\``,
+                text: `Retrying after an error:\n\`${detail}\``,
                 variant: 'info' as const,
             };
         }

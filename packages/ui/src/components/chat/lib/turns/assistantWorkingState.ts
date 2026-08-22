@@ -40,5 +40,7 @@ export const resolveTurnStreamingAssistantId = (options: {
 export const isTurnAssistantWorking = (options: {
     messageId: string;
     activeStreamingMessageId: string | null | undefined;
+    isRetrying?: boolean;
 }): boolean =>
-    Boolean(options.activeStreamingMessageId) && options.messageId === options.activeStreamingMessageId;
+    options.isRetrying === true
+    || (Boolean(options.activeStreamingMessageId) && options.messageId === options.activeStreamingMessageId);

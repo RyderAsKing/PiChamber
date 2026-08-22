@@ -93,7 +93,10 @@ chunk in that block; reducers apply those chunks with `applyAssistantTextDelta`
 use event sequence for deduplication. Cadence folding uses the same merge so
 a frame of cumulative chunks cannot concatenate into stuttering markdown.
 `assistant.message.end` writes the canonical `text`/`thinking` onto the
-rendered parts; message-level fields alone are not what the chat paints.
+rendered parts; message-level fields alone are not what the chat paints. When
+that assistant produced tool calls, the end frame carries `continuing: true`,
+so the reducer keeps the turn's live message ownership across the
+message-end/tool-start boundary and does not flash a settled footer.
 Thinking parts also clear `streaming` as soon as a later text or tool part
 on the same message starts, so the thinking block can collapse at handoff
 instead of waiting for message-end.

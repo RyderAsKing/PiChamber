@@ -41,6 +41,7 @@ import type {
   PiAssistantMessage,
   PiAttachment,
   PiModelRef,
+  PiRetryInfo,
   PiSessionLifecycleState,
   PiSessionId,
   PiThinkingLevel,
@@ -117,6 +118,8 @@ export interface PiReducerSessionState {
   lastSequence: number;
   /** Authoritative lifecycle phase. */
   lifecycle: PiSessionLifecycleState;
+  /** Retry countdown/error context while `lifecycle` is `retry`. */
+  retry?: PiRetryInfo;
   /** Active model/thinking the session is using. */
   model?: PiModelRef;
   thinking?: PiThinkingLevel;
@@ -127,7 +130,7 @@ export interface PiReducerSessionState {
   parts: PiReducerPartMap;
   /** Pending tool calls (toolCallId → messageId) so an end event can find its parent. */
   toolsByCallId: Map<string, string>;
-  /** Assistant messages whose `streaming` flag is still true. */
+  /** Assistant messages that still own live token or tool-continuation work. */
   streamingMessages: Set<string>;
   /** Queue depths at the time of the last `session.queue` event. */
   queue: { steering: number; followUp: number };
@@ -387,14 +390,17 @@ const finalizeAssembledParts = (
 
 const reduceLifecycle = (
   session: PiReducerSessionState,
-  state: PiSessionLifecycleState,
-  attempt?: number,
+  payload: { state: PiSessionLifecycleState } & PiRetryInfo,
 ): void => {
-  session.lifecycle = state;
-  if (attempt !== undefined) {
-    // Retry metadata is surfaced to consumers through `lifecycle: 'retry'`.
-  }
-  if (state === 'busy' || state === 'retry') return;
+  session.lifecycle = payload.state;
+  session.retry = payload.state === 'retry'
+    ? {
+        ...(payload.attempt !== undefined ? { attempt: payload.attempt } : {}),
+        ...(payload.next !== undefined ? { next: payload.next } : {}),
+        ...(payload.message !== undefined ? { message: payload.message } : {}),
+      }
+    : undefined;
+  if (payload.state === 'busy' || payload.state === 'retry') return;
   session.streamingMessages = new Set();
   session.messages = new Map(session.messages);
   for (const [messageId, message] of session.messages) {
@@ -535,8 +541,10 @@ const reduceMessageEnd = (
   if (payload.thinkingLevel) message.thinkingLevel = payload.thinkingLevel;
   if (payload.error) message.error = payload.error;
   if (payload.usage) message.usage = payload.usage;
-  session.streamingMessages.delete(message.id);
-  session.streamingMessages.delete(payload.messageId);
+  if (payload.continuing !== true) {
+    session.streamingMessages.delete(message.id);
+    session.streamingMessages.delete(payload.messageId);
+  }
 };
 
 const reduceTool = (
@@ -632,6 +640,7 @@ const reduceTool = (
 
 const reduceInterrupted = (session: PiReducerSessionState, streaming: boolean): void => {
   session.lifecycle = 'interrupted';
+  session.retry = undefined;
   if (!streaming) return;
   for (const messageId of session.streamingMessages) {
     const message = session.messages.get(messageId);
@@ -644,6 +653,7 @@ const reduceInterrupted = (session: PiReducerSessionState, streaming: boolean): 
 
 const reduceError = (session: PiReducerSessionState, code: string, message?: string): void => {
   session.lifecycle = 'error';
+  session.retry = undefined;
   const now = Date.now();
   session.parts = session.parts.fork();
   session.partOrder = new Map(session.partOrder);
@@ -728,24 +738,27 @@ export const applyPiEvent = (
     case 'session.snapshot':
       if (event.payload?.snapshot) {
         session.lifecycle = event.payload.snapshot.lifecycle ?? (event.payload.snapshot.isStreaming ? 'busy' : 'idle');
+        session.retry = session.lifecycle === 'retry' ? event.payload.snapshot.retry : undefined;
         if (event.payload.snapshot.model) session.model = event.payload.snapshot.model;
         if (event.payload.snapshot.thinking) session.thinking = event.payload.snapshot.thinking;
         if (event.payload.snapshot.queue) session.queue = { ...event.payload.snapshot.queue };
         markHydratedLiveActivity(session, {
           isStreaming: event.payload.snapshot.isStreaming,
           lifecycle: session.lifecycle,
+          ...(event.payload.snapshot.retry ? { retry: event.payload.snapshot.retry } : {}),
           settleWhenIdle: true,
         });
       }
       break;
     case 'session.lifecycle':
-      reduceLifecycle(session, event.payload.state, event.payload.attempt);
+      reduceLifecycle(session, event.payload);
       break;
     case 'assistant.message.start':
       // A message start is live turn evidence even when the lifecycle frame
       // was missed or has not arrived yet. This also protects that event from
       // a same-cursor history restore whose transcript projection lagged it.
       session.lifecycle = 'busy';
+      session.retry = undefined;
       session.messages = new Map(session.messages);
       session.streamingMessages = new Set(session.streamingMessages);
       reduceMessageStart(session, event.directory, event.payload);
@@ -1052,6 +1065,7 @@ const markHydratedLiveActivity = (
     lifecycle?: PiSessionLifecycleState;
     inferFromRunningTools?: boolean;
     settleWhenIdle?: boolean;
+    retry?: PiRetryInfo;
   },
 ): void => {
   const runningMessageIds: string[] = [];
@@ -1069,6 +1083,7 @@ const markHydratedLiveActivity = (
     || options?.lifecycle === 'retry'
     || (options?.inferFromRunningTools === true && runningMessageIds.length > 0);
   if (!live) {
+    session.retry = undefined;
     if (options?.settleWhenIdle) {
       session.streamingMessages = new Set();
       session.messages = new Map(session.messages);
@@ -1080,6 +1095,7 @@ const markHydratedLiveActivity = (
   }
 
   session.lifecycle = options?.lifecycle === 'retry' ? 'retry' : 'busy';
+  session.retry = session.lifecycle === 'retry' ? options?.retry : undefined;
   session.streamingMessages = new Set(session.streamingMessages);
   for (const partId of runningPartIds) {
     const part = session.parts.get(partId);
@@ -1119,6 +1135,7 @@ export const hydrateSessionFromDetail = (
     lastSequence: number;
     isStreaming?: boolean;
     lifecycle?: PiSessionLifecycleState;
+    retry?: PiRetryInfo;
     messages: Array<{
       message: PiUserMessage | PiAssistantMessage;
       parts: Array<{
@@ -1212,6 +1229,7 @@ export const hydrateSessionFromDetail = (
   markHydratedLiveActivity(session, {
     ...(detail.isStreaming !== undefined ? { isStreaming: detail.isStreaming } : {}),
     ...(detail.lifecycle ? { lifecycle: detail.lifecycle } : {}),
+    ...(detail.retry ? { retry: detail.retry } : {}),
     inferFromRunningTools: true,
   });
 

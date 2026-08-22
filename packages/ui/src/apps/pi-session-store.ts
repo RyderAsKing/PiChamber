@@ -1441,9 +1441,13 @@ export class PiSessionStore {
       updated.delete(session.sessionId);
       nextLoadErrors = updated;
     }
-    let nextCatalog = applyHydratedChange(this.state.catalog, session.sessionId, true);
     const catalogLifecycle = catalogLifecycleFromReducer(session.lifecycle);
-    nextCatalog = applyLifecycleChange(nextCatalog, session.sessionId, catalogLifecycle);
+    let nextCatalog = this.state.catalog;
+    if (!nextCatalog.byId.has(session.sessionId)) {
+      nextCatalog = upsertStubRecord(nextCatalog, session.sessionId, session.directory, catalogLifecycle);
+    }
+    nextCatalog = applyHydratedChange(nextCatalog, session.sessionId, true);
+    nextCatalog = applyLifecycleChange(nextCatalog, session.sessionId, catalogLifecycle, session.retry);
     const catalogChanged = nextCatalog !== this.state.catalog;
     this.state = {
       ...this.state,
@@ -1499,11 +1503,15 @@ export class PiSessionStore {
     // merged reducer now holds. A buffered-event batch is folded into the
     // catalog via the same `applyCatalogFromEvents` path the SSE uses.
     let nextCatalog = this.applyCatalogFromEvents(buffered, reducer);
-    nextCatalog = applyHydratedChange(nextCatalog, session.sessionId, true);
-    const reducerLifecycle = reducer.bySession.get(session.sessionId)?.lifecycle;
+    const reducerSession = reducer.bySession.get(session.sessionId);
+    const reducerLifecycle = reducerSession?.lifecycle;
     const catalogLifecycle = reducerLifecycle ? catalogLifecycleFromReducer(reducerLifecycle) : undefined;
+    if (!nextCatalog.byId.has(session.sessionId)) {
+      nextCatalog = upsertStubRecord(nextCatalog, session.sessionId, session.directory, catalogLifecycle ?? 'idle');
+    }
+    nextCatalog = applyHydratedChange(nextCatalog, session.sessionId, true);
     if (catalogLifecycle !== undefined) {
-      nextCatalog = applyLifecycleChange(nextCatalog, session.sessionId, catalogLifecycle);
+      nextCatalog = applyLifecycleChange(nextCatalog, session.sessionId, catalogLifecycle, reducerSession?.retry);
     }
     const catalogChanged = nextCatalog !== this.state.catalog;
     this.state = {
@@ -1910,7 +1918,12 @@ export class PiSessionStore {
         catalog = upsertStubRecord(catalog, event.sessionId, event.directory, stubLifecycle);
       }
       if (reducerLifecycle !== undefined) {
-        catalog = applyLifecycleChange(catalog, event.sessionId, catalogLifecycleFromReducer(reducerLifecycle));
+        catalog = applyLifecycleChange(
+          catalog,
+          event.sessionId,
+          catalogLifecycleFromReducer(reducerLifecycle),
+          reducerSession?.retry,
+        );
       }
       if (event.name === 'session.updated') {
         const title = typeof event.payload.title === 'string' ? event.payload.title.trim() : '';

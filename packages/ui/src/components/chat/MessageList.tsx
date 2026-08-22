@@ -158,6 +158,11 @@ const resolveMessageRole = (message: ChatMessageEntry): string | null => {
         ?? null;
 };
 
+const isSessionRetryMessage = (message: ChatMessageEntry): boolean => {
+    const error = (message.info as { error?: { name?: unknown } }).error;
+    return error?.name === 'SessionRetry';
+};
+
 const getPartText = (part: Part): string => {
     const text = (part as { text?: unknown }).text;
     if (typeof text === 'string') {
@@ -602,6 +607,7 @@ const TurnBlock = React.memo(({
                     isWorking: isTurnAssistantWorking({
                         messageId: message.info.id,
                         activeStreamingMessageId,
+                        isRetrying: isSessionRetryMessage(message),
                     }),
                     hasTools: turn.hasTools,
                     hasReasoning: turn.hasReasoning,
