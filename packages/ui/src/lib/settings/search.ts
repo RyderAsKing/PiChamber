@@ -305,6 +305,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['thinking', 'reasoning', 'variant', 'new sessions', 'per model'],
   },
   {
+    id: 'sessions.default-retry-limit',
+    page: 'sessions',
+    title: "Default retry limit",
+    description: "How many times Pi automatically retries a failed agent turn for new sessions.",
+    keywords: ['retry', 'retries', 'retry limit', 'auto retry', 'max retries', 'agent run'],
+  },
+  {
     id: 'sessions.thinking-defaults',
     page: 'sessions',
     title: "Thinking defaults",

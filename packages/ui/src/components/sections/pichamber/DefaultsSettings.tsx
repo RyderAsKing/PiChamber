@@ -1,5 +1,7 @@
 import React from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { NumberInput } from '@/components/ui/number-input';
 import {
   SettingsSection,
   SettingsFieldRow,
@@ -9,6 +11,9 @@ import {
   SETTINGS_SELECT_SIZE,
   SETTINGS_OPTION_STACK_CLASS,
   SETTINGS_FIELDS_STACK_CLASS,
+  SETTINGS_NUMBER_STEPPER_ROW_CLASS,
+  SETTINGS_NUMBER_UNIT_CLASS,
+  SETTINGS_CONTROL_CLUSTER_CLASS,
 } from '@/components/sections/shared/SettingsSection';
 import { SettingsModelPicker } from '@/components/sections/shared/SettingsModelPicker';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
@@ -246,6 +251,30 @@ export const DefaultsSettings: React.FC = () => {
             isModelAllowed={isStructuredOutputCapable}
             onChange={(model) => { void persist({ walkthroughModel: model }); }}
           />
+        </SettingsFieldRow>
+
+        <SettingsFieldRow
+          settingsItem="sessions.default-retry-limit"
+          label="Default retry limit"
+          info="How many times Pi automatically retries a failed agent turn before stopping. Applies to new sessions when no per-run limit is set. Set to 0 to disable automatic retries. Existing sessions keep their own limit until you change it."
+        >
+          <div className={SETTINGS_CONTROL_CLUSTER_CLASS}>
+            <div className={SETTINGS_NUMBER_STEPPER_ROW_CLASS}>
+              <NumberInput
+                value={pichamber?.defaultRetryLimit ?? 3}
+                min={0}
+                max={10}
+                step={1}
+                aria-label="Default retry limit"
+                onValueChange={(value) => {
+                  if (!Number.isFinite(value)) return;
+                  const clamped = Math.max(0, Math.min(10, Math.round(value)));
+                  void persist({ defaultRetryLimit: clamped });
+                }}
+              />
+              <span className={SETTINGS_NUMBER_UNIT_CLASS}>retries</span>
+            </div>
+          </div>
         </SettingsFieldRow>
 
         <SettingsInset className={SETTINGS_OPTION_STACK_CLASS}>

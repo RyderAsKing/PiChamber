@@ -27,6 +27,7 @@ import {
   validatePiSessionJsonlDirectory,
   validatePiSessionJsonlFile,
 } from './session-jsonl.js';
+import { resolvePiChamberDataDir } from '../pichamber-data-dir.js';
 
 const PROTOCOL_VERSION = 1;
 const MAX_FRAME_BYTES = 16 * 1024 * 1024;
@@ -755,6 +756,10 @@ export function createSessionDaemon({
   };
 
   const createSession = async (payload) => {
+    const explicitRetryLimit = payload && typeof payload === 'object' ? (payload.maxRetries ?? payload.retryLimit ?? payload.defaultRetryLimit) : undefined;
+    if (explicitRetryLimit !== undefined && (!Number.isInteger(explicitRetryLimit) || explicitRetryLimit < 0 || explicitRetryLimit > 10)) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The retry limit must be an integer between 0 and 10.');
+    }
     if (!payload || typeof payload !== 'object'
       || (payload.cwd !== undefined && (typeof payload.cwd !== 'string' || payload.cwd.length === 0))
       || (payload.title !== undefined && (typeof payload.title !== 'string' || payload.title.trim().length === 0 || payload.title.length > 256))
@@ -776,6 +781,32 @@ export function createSessionDaemon({
       ...(parent ? { sessionFile: parent.path } : {}),
     });
     if (!newRuntime.cwd) newRuntime.cwd = targetCwd;
+    // Apply default retry limit for new sessions. Explicit per-run overrides win.
+    try {
+      const settingsManager = newRuntime.services?.settingsManager;
+      if (settingsManager && typeof settingsManager.getRetrySettings === 'function') {
+        let effective = explicitRetryLimit;
+        if (effective === undefined) {
+          try {
+            const raw = await readFile(join(resolvePiChamberDataDir(), 'pi', 'settings.json'), 'utf8');
+            const parsed = JSON.parse(raw);
+            if (Number.isInteger(parsed?.defaultRetryLimit)) effective = parsed.defaultRetryLimit;
+          } catch {}
+          if (effective === undefined) effective = 3;
+        }
+        if (Number.isInteger(effective) && effective >= 0 && effective <= 10) {
+          const current = settingsManager.getRetrySettings().maxRetries;
+          if (current !== effective) {
+            if (typeof settingsManager.applyOverrides === 'function') {
+              settingsManager.applyOverrides({ retry: { maxRetries: effective } });
+              if (explicitRetryLimit === undefined) await settingsManager.flush().catch(() => {});
+            } else if (settingsManager.globalSettings) {
+              settingsManager.globalSettings.retry = { ...(settingsManager.globalSettings.retry ?? {}), maxRetries: effective };
+            }
+          }
+        }
+      }
+    } catch {}
     let result = { cancelled: false };
     if (typeof newRuntime.newSession === 'function') {
       result = await newRuntime.newSession({

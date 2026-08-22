@@ -372,6 +372,7 @@ export interface PiSettingsSnapshot {
     defaultThinkingByModel?: Record<string, PiThinkingLevel>;
     smallModel?: PiModelRef;
     walkthroughModel?: PiModelRef;
+    defaultRetryLimit?: number;
   };
 }
 
@@ -389,6 +390,7 @@ export interface PiChamberDefaultsUpdateInput {
   defaultThinkingByModel?: Record<string, PiThinkingLevel | null> | null;
   smallModel?: PiModelRef | null;
   walkthroughModel?: PiModelRef | null;
+  defaultRetryLimit?: number | null;
 }
 
 // ---------------------------------------------------------------------------
