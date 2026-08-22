@@ -43,5 +43,3 @@ export const getForkFamilyIdForSession = (
   }
   return root;
 };
-
-export const FORK_PALETTE_FOR_TESTS = [...FORK_PALETTE];
