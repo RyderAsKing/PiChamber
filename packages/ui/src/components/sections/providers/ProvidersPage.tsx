@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
+import { toast } from '@/components/ui';
 import { CustomProviderForm } from '@/components/sections/providers/CustomProviderForm';
 import { ProviderCard, ProviderCardSkeleton } from '@/components/sections/providers/ProviderCard';
 import {
@@ -32,6 +33,7 @@ import {
   thinkingModelKey,
 } from '@/lib/pi/thinking';
 import { useDeviceInfo } from '@/lib/device';
+import { isHiddenModelRef } from '@/lib/pi/hidden-models';
 
 const providerScope = () => ({ runtimeKey: getRuntimeKey() });
 
@@ -133,8 +135,8 @@ export const ProvidersPage: React.FC = () => {
   const { isMobile } = useDeviceInfo();
   const selectedProviderId = usePiProviderSelectionStore((state) => state.selectedProviderId);
   const setSelectedProviderId = usePiProviderSelectionStore((state) => state.setSelectedProviderId);
+  const hiddenModels = useUIStore((state) => state.hiddenModels);
   const toggleHiddenModel = useUIStore((state) => state.toggleHiddenModel);
-  const isHiddenModel = useUIStore((state) => state.isHiddenModel);
   const hideAllModels = useUIStore((state) => state.hideAllModels);
   const showAllModels = useUIStore((state) => state.showAllModels);
   const settingsDefaultThinkingByModel = useConfigStore((state) => state.settingsDefaultThinkingByModel);
@@ -150,6 +152,7 @@ export const ProvidersPage: React.FC = () => {
   const [failed, setFailed] = React.useState(false);
   const [refreshing, setRefreshing] = React.useState(false);
   const [refreshingCatalog, setRefreshingCatalog] = React.useState(false);
+  const [catalogRefreshFeedback, setCatalogRefreshFeedback] = React.useState<'success' | 'error' | null>(null);
   const [thinkingBusyKeys, setThinkingBusyKeys] = React.useState<Set<string>>(new Set());
   const [providerQuery, setProviderQuery] = React.useState('');
   const [visibleCap, setVisibleCap] = React.useState(80);
@@ -182,16 +185,21 @@ export const ProvidersPage: React.FC = () => {
   const refreshCatalog = React.useCallback(async () => {
     if (refreshingCatalog) return;
     setRefreshingCatalog(true);
+    setCatalogRefreshFeedback(null);
     try {
       const { providers: result } = await piClient.refreshProviders(providerScope());
       setProviders(result);
       setFailed(false);
+      setCatalogRefreshFeedback('success');
       const configStore = useConfigStore.getState();
       configStore.invalidateProviderCache();
       void configStore.loadProviders({ source: 'providersPage:refreshCatalog' });
       window.dispatchEvent(new CustomEvent('pichamber:providers-refreshed', { detail: result }));
+      toast.success('Model catalog refreshed');
     } catch {
       setFailed(true);
+      setCatalogRefreshFeedback('error');
+      toast.error('Could not refresh model catalog');
     } finally {
       setRefreshingCatalog(false);
     }
@@ -590,8 +598,15 @@ export const ProvidersPage: React.FC = () => {
           info="Hidden models stay out of the composer and session default pickers. Thinking defaults apply to new sessions and composer model changes."
           headerAction={
             <div className="flex items-center gap-1">
-              <Button variant="ghost" size="xs" onClick={() => void refreshCatalog()} disabled={refreshingCatalog || busy}>
-                {refreshingCatalog ? 'Refreshing...' : 'Refresh catalog'}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => void refreshCatalog()}
+                disabled={refreshingCatalog || busy}
+                aria-label="Refresh model catalog"
+                title="Refresh model catalog"
+              >
+                <Icon name="refresh" className={cn('size-4', refreshingCatalog && 'animate-spin')} />
               </Button>
               {isConnected ? (
                 <>
@@ -611,12 +626,21 @@ export const ProvidersPage: React.FC = () => {
             </div>
           }
         >
+          <div aria-live="polite" className="sr-only">
+            {refreshingCatalog
+              ? 'Refreshing model catalog'
+              : catalogRefreshFeedback === 'success'
+                ? 'Model catalog refreshed'
+                : catalogRefreshFeedback === 'error'
+                  ? 'Could not refresh model catalog'
+                  : ''}
+          </div>
           <div className="divide-y divide-[var(--surface-subtle)]">
             {provider.models.length === 0 ? (
               <p className="py-3 typography-meta text-muted-foreground">No models available.</p>
             ) : (
               displayModels.map((model) => {
-                const hidden = isHiddenModel(provider.id, model.id);
+                const hidden = isHiddenModelRef(hiddenModels, provider.id, model.id);
                 const key = thinkingModelKey({ providerId: provider.id, modelId: model.id }) ?? `${provider.id}/${model.id}`;
                 const raw = settingsDefaultThinkingByModel[key];
                 const storedLevel = isPiThinkingLevel(raw) ? raw : undefined;

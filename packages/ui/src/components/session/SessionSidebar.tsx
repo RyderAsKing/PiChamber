@@ -27,6 +27,7 @@ import { useGroupOrdering } from './sidebar/hooks/useGroupOrdering';
 import { useSessionSidebarSections } from './sidebar/hooks/useSessionSidebarSections';
 import { ProjectSessionSelectionEffect } from './sidebar/hooks/useProjectSessionSelection';
 import { useSessionGrouping } from './sidebar/hooks/useSessionGrouping';
+import { canShowQuickArchiveAction } from './sidebar/sessionQuickActions';
 import { useSessionSearchEffects } from './sidebar/hooks/useSessionSearchEffects';
 import { useSessionActions } from './sidebar/hooks/useSessionActions';
 import { useSidebarPersistence } from './sidebar/hooks/useSidebarPersistence';
@@ -466,6 +467,10 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
   const { isTablet } = useDeviceInfo();
   const alwaysShowSidebarActions = mobileVariant || isTablet;
+  // Touch/tablet rows expose management through the always-visible menu and
+  // its press-and-hold context menu. Only a pointer-oriented desktop gets the
+  // one-click archive action that replaces the row timestamp on hover.
+  const allowQuickArchiveAction = canShowQuickArchiveAction({ mobileVariant, isTablet });
 
   const {
     buildGroupSearchText,
@@ -1126,6 +1131,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         handleRestoreSession={stableHandleRestoreSession}
         mobileVariant={mobileVariant}
         alwaysShowActions={alwaysShowSidebarActions}
+        allowQuickArchiveAction={allowQuickArchiveAction}
         renderSessionNode={renderSessionNode}
         secondaryMeta={secondaryMeta}
         renderContext={renderContext}

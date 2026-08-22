@@ -1843,8 +1843,8 @@ export const useUIStore = create<UIStore>()(
         hideAllModels: (providerID, modelIDs) => {
           set((state) => {
             const current = state.hiddenModels.filter((item) => item.providerID !== providerID);
-            const additions = modelIDs
-              .filter((modelID) => typeof modelID === 'string' && modelID.length > 0)
+            const additions = [...new Set(modelIDs
+              .filter((modelID) => typeof modelID === 'string' && modelID.length > 0))]
               .map((modelID) => ({ providerID, modelID }));
             return { hiddenModels: [...additions, ...current] };
           });

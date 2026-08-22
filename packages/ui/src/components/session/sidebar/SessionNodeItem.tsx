@@ -95,6 +95,7 @@ type Props = {
   handleRestoreSession: (session: Session) => void;
   mobileVariant: boolean;
   alwaysShowActions: boolean;
+  allowQuickArchiveAction: boolean;
   renderSessionNode: (
     node: SessionNode,
     depth?: number,
@@ -290,6 +291,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     handleRestoreSession,
     mobileVariant,
     alwaysShowActions,
+    allowQuickArchiveAction,
     renderSessionNode,
     secondaryMeta,
     renderContext = 'project',
@@ -299,7 +301,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   } = props;
 
   const isElectron = React.useMemo(() => canUseElectronDesktopIPC(), []);
-  const showQuickArchiveAction = !archivedBucket && !mobileVariant;
+  const showQuickArchiveAction = !archivedBucket && allowQuickArchiveAction;
   const suppressNextSelectRef = React.useRef(false);
   const editingIdRef = React.useRef(editingId);
   editingIdRef.current = editingId;
@@ -1253,6 +1255,7 @@ const areSessionNodeItemPropsEqual = (prev: Props, next: Props): boolean => {
   if ((prev.renderContext ?? 'project') !== (next.renderContext ?? 'project')) return false;
   if (prev.mobileVariant !== next.mobileVariant) return false;
   if (prev.alwaysShowActions !== next.alwaysShowActions) return false;
+  if (prev.allowQuickArchiveAction !== next.allowQuickArchiveAction) return false;
   if (prev.hasSessionSearchQuery !== next.hasSessionSearchQuery) return false;
   if (prev.normalizedSessionSearchQuery !== next.normalizedSessionSearchQuery) return false;
   if (prev.notifyOnSubtasks !== next.notifyOnSubtasks) return false;
