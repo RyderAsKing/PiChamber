@@ -243,5 +243,3 @@ export const ExtensionMessageCard: React.FC<ExtensionMessageCardProps> = ({
         </div>
     );
 };
-
-export default ExtensionMessageCard;

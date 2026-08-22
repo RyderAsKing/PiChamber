@@ -3,7 +3,7 @@ import type { Part } from '@/lib/chat/types';
 import { elementScroll, useVirtualizer as useTanstackVirtualizer, type ReactVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 
 import ChatMessage from './ChatMessage';
-import ExtensionMessageCard from './message/parts/extension/ExtensionMessageCard';
+import { ExtensionMessageCard } from './message/parts/extension/ExtensionMessageCard';
 import { areOptionalNeighborMessagesEqual, areRelevantTurnGroupingContextsEqual, areRenderRelevantMessagesEqual } from './message/renderCompare';
 import TurnItem from './components/TurnItem';
 import FoldedHistoryGate from './components/FoldedHistoryGate';

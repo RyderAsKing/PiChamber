@@ -5,12 +5,13 @@
 This directory owns the Pi-native runtime boundary. It defines:
 
 - The Pi session / message / part data shapes (`types.ts`).
-- The public `/api/pi/` IPC envelope (`protocol.ts`).
+- The public `/api/pi/` IPC envelope (`protocol.ts`), including the `extension.*` events that project pi extension UI (blocking dialogs, notifications, statuses, widgets, custom entries/messages, runtime errors) onto the public stream.
+- The PiChamber extension GUI parser (`extension-ui.ts`). It validates `pichamber.ui` descriptors from extension custom entries/messages into render-ready components (markdown, kv, list, table, progress, badges, code) plus action buttons; unknown content degrades to a generic card instead of being dropped.
 - The browser-side transport for `/api/pi/events` (`transport.ts`), using authenticated SSE by default and one active connection per stream generation. Explicit WebSocket mode remains only for runtimes that provide a matching upgrade endpoint; fetch-based SSE comment heartbeats count as liveness.
 - Stream cadence (`stream-cadence.ts`): adjacent same-part token deltas fold, then flush on `requestAnimationFrame` together with live `session.tool.update` frames; boundary events flush pending stream frames first.
 - The service facade that wraps every `/api/pi/*` call (`client.ts`).
 - The snapshot reducer helpers (`snapshot.ts`).
-- The event reducer helpers (`event-reducer.ts`). `projectSession` is incremental: pass the previous session and projection so unchanged historical messages and parts keep their object identity, and a no-op live-tail remap returns the previous projection object. Ordered message lists are cached on the reducer `messages` Map; projected parts are cached on reducer part identity. `parts` is a copy-on-write map (`CowMap`): token/tool deltas `fork()` a snapshot-private overlay instead of cloning every historical part, and flatten after a bounded depth. Each applied event records `lastMutatedMessageId` / `lastMutationKind` so live-tail freeze can skip an O(session) part walk.
+- The event reducer helpers (`event-reducer.ts`). `projectSession` is incremental: pass the previous session and projection so unchanged historical messages and parts keep their object identity, and a no-op live-tail remap returns the previous projection object. Ordered message lists are cached on the reducer `messages` Map; projected parts are cached on reducer part identity. `parts` is a copy-on-write map (`CowMap`): token/tool deltas `fork()` a snapshot-private overlay instead of cloning every historical part, and flatten after a bounded depth. Each applied event records `lastMutatedMessageId` / `lastMutationKind` so live-tail freeze can skip an O(session) part walk. Extension events append extension-role transcript items, maintain live status/widget maps and the blocking-dialog queue, and keep bounded notice/error feeds; `dismissExtensionDialog` removes answered requests without touching sequence bookkeeping.
 - The bootstrap owner (`bootstrap.ts`).
 - The reconnect owner (`reconnect.ts`).
 - The attachment helpers (`attachments.ts`).

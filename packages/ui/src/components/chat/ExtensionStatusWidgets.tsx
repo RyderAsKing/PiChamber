@@ -3,6 +3,7 @@ import * as React from 'react';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { cn } from '@/lib/utils';
 import { Icon } from '@/components/icon/Icon';
+import { toast } from '@/components/ui';
 
 /**
  * Live pi extension surfaces for the selected session: footer-style status
@@ -38,6 +39,42 @@ export const ExtensionStatusStrip: React.FC<{ sessionId?: string | null }> = ({ 
       ))}
     </div>
   );
+};
+
+/** Fire-and-forget ctx.ui.notify calls surface as transient toasts. */
+export const ExtensionNoticeToasts: React.FC<{ sessionId?: string | null }> = ({ sessionId }) => {
+  const selectedSessionId = usePiSessionSnapshot((state) => state.selectedSessionId);
+  const activeSessionId = sessionId ?? selectedSessionId;
+
+  const notices = usePiSessionSnapshot(
+    (state) => {
+      const session = activeSessionId ? state.reducer.bySession.get(activeSessionId) : undefined;
+      return session?.extensionNotices ?? [];
+    },
+    (a, b) => a.length === b.length && a.every((notice, index) => notice.id === b[index]?.id),
+    `session:${activeSessionId ?? ''}`,
+  );
+
+  const shownIds = React.useRef<Set<string>>(new Set());
+
+  // Seed the ref with what is already present on first sight of a session so
+  // reconnect replays do not re-toast historical notices.
+  if (shownIds.current.size === 0) {
+    for (const notice of notices) shownIds.current.add(notice.id);
+  }
+
+  React.useEffect(() => {
+    for (const notice of notices) {
+      if (shownIds.current.has(notice.id)) continue;
+      shownIds.current.add(notice.id);
+      const message = notice.message || 'Extension notification';
+      if (notice.level === 'error') toast.error(message);
+      else if (notice.level === 'warning') toast.warning(message);
+      else toast.info(message);
+    }
+  }, [notices]);
+
+  return null;
 };
 
 export const ExtensionWidgetStrip: React.FC<{

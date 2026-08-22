@@ -6,8 +6,8 @@ import type { PermissionRequest } from '@/types/permission';
 import type { QuestionRequest } from '@/types/question';
 
 import { ChatInput } from './ChatInput';
-import ExtensionDialogOverlay from './ExtensionDialogOverlay';
-import { ExtensionStatusStrip, ExtensionWidgetStrip } from './ExtensionStatusWidgets';
+import { ExtensionDialogOverlay } from './ExtensionDialogOverlay';
+import { ExtensionStatusStrip, ExtensionNoticeToasts, ExtensionWidgetStrip } from './ExtensionStatusWidgets';
 import { DraftPresetChips } from './DraftPresetChips';
 import { useInputStore } from '@/sync/input-store';
 import { useUIStore } from '@/stores/useUIStore';
@@ -1166,6 +1166,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
             </div>
 
             {currentSessionId ? <ExtensionDialogOverlay sessionId={currentSessionId} /> : null}
+            <ExtensionNoticeToasts sessionId={currentSessionId} />
 
             <TimelineDialog
                 open={isTimelineDialogOpen}

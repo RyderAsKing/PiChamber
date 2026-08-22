@@ -178,5 +178,3 @@ export const ExtensionDialogOverlay: React.FC<ExtensionDialogOverlayProps> = ({ 
     </DialogFrame>
   );
 };
-
-export default ExtensionDialogOverlay;
