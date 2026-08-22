@@ -452,6 +452,7 @@ function disableStartupService() {
 
 
 export {
+  getStartupServicePaths,
   getStartupStatus,
   enableStartupService,
   disableStartupService,
