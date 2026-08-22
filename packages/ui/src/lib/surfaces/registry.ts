@@ -8,8 +8,7 @@ export type ContextSurfaceId =
   | 'notes'
   | 'context'
   | 'browser'
-  | 'preview'
-  | 'chat';
+  | 'preview';
 
 export type ContextSurfaceDescriptor = {
   id: ContextSurfaceId;
@@ -87,14 +86,6 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
     mode: 'preview',
     icon: 'window',
     label: "Preview",
-    availability: 'has-content',
-  },
-  {
-    id: 'chat',
-    description: "Session opened side by side",
-    mode: 'chat',
-    icon: 'chat-4',
-    label: "Chat",
     availability: 'has-content',
   },
 ];

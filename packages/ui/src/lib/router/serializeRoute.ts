@@ -1,5 +1,4 @@
 import type { MainTab } from '@/stores/useUIStore';
-import { isEmbeddedSessionChat } from '@/components/layout/contextPanelEmbeddedChat';
 import { ROUTE_PARAMS } from './types';
 
 /**
@@ -108,8 +107,7 @@ function routeMatchesURL(state: AppRouteState): boolean {
 
 /**
  * Update the browser URL using pushState or replaceState.
- * Does nothing if URL already matches, or in the embedded session-chat
- * iframe (whose URL identity is fixed at mount).
+ * Does nothing if the URL already matches.
  */
 export function updateBrowserURL(
   state: AppRouteState,
@@ -119,12 +117,6 @@ export function updateBrowserURL(
     return;
   }
 
-  // Embedded session-chat iframes carry session identity outside the route
-  // params (`?ocPanel=…`). Rebuilding the URL here would strip those params,
-  // so skip entirely.
-  if (isEmbeddedSessionChat()) {
-    return;
-  }
 
   // Skip if URL already matches (unless forced)
   if (!options.force && routeMatchesURL(state)) {

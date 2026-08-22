@@ -47,7 +47,6 @@ import {
 import { useSync } from '@/sync/use-sync';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 
-import { getEmbeddedSessionChatOriginSessionId } from '@/components/layout/contextPanelEmbeddedChat';
 import { isFullySyntheticMessage } from '@/lib/messages/synthetic';
 import { normalizeUserDisplayParts } from './message/normalizeUserDisplayParts';
 import { findShellCommandForMessage, isUserShellMarkerMessage } from './lib/shellBridge';
@@ -697,22 +696,13 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     const currentSession = useSession(currentSessionId, effectiveSessionDirectory);
     const parentSession = useParentSession(currentSessionId, effectiveSessionDirectory);
 
-    // In the embedded session-chat iframe, hide "Return to parent" when
-    // viewing the panel's anchor session (the one recorded in the URL). Going
-    // up from the anchor would show the primary session that's already in the
-    // main chat. Drilling into a deeper subtask (currentSessionId ≠ anchor)
-    // re-enables the button to navigate back to the embedded session.
-    const embeddedPanelAnchorSessionId = getEmbeddedSessionChatOriginSessionId();
-    const hideReturnToParent =
-        embeddedPanelAnchorSessionId !== null && currentSessionId === embeddedPanelAnchorSessionId;
-
     const handleReturnToParentSession = React.useCallback(() => {
         if (!parentSession) return;
         const parentDirectory = (parentSession as Session & { directory?: string | null }).directory ?? null;
         setCurrentSession(parentSession.id, parentDirectory);
     }, [parentSession, setCurrentSession]);
 
-    const returnToParentButton = parentSession && !hideReturnToParent ? (
+    const returnToParentButton = parentSession ? (
         <Button
             type="button"
             variant="outline"

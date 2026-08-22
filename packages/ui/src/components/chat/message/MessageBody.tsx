@@ -34,9 +34,7 @@ import { StaticToolRow } from './parts/ProgressiveGroup';
 import { isExpandableTool } from './parts/toolRenderUtils';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { extractLoopbackUrls } from '@/lib/url';
-import { useDeviceInfo } from '@/lib/device';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
-import { isEmbeddedSessionChat } from '@/components/layout/contextPanelEmbeddedChat';
 import { useProviderLogo } from '@/hooks/useProviderLogo';
 import { getAgentColor } from '@/lib/agentColors';
 
@@ -175,9 +173,7 @@ const normalizeSubtaskModel = (model: SubtaskPartLike['model']): string | null =
 const UserSubtaskPart: React.FC<{ part: SubtaskPartLike }> = ({ part }) => {
     const [expanded, setExpanded] = React.useState(false);
     const effectiveDirectory = useEffectiveDirectory();
-    const { isMobile } = useDeviceInfo();
     const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
-    const openContextPanelTab = useUIStore((state) => state.openContextPanelTab);
 
     const description = typeof part.description === 'string' ? part.description.trim() : '';
     const command = typeof part.command === 'string' ? part.command.trim() : '';
@@ -237,21 +233,7 @@ const UserSubtaskPart: React.FC<{ part: SubtaskPartLike }> = ({ part }) => {
                         className="typography-meta text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
                         onClick={() => {
                             if (!effectiveDirectory) return;
-                            // In contexts with no ContextPanel (embedded
-                            // session-chat iframe) or single-surface layouts
-                            // (mobile), navigate in place. Otherwise open a
-                            // new side-panel tab.
-                            if (isEmbeddedSessionChat() || isMobile) {
-                                setCurrentSession(taskSessionID, effectiveDirectory);
-                                return;
-                            }
-
-                            openContextPanelTab(effectiveDirectory, {
-                                mode: 'chat',
-                                dedupeKey: `session:${taskSessionID}`,
-                                label: description || agent || "Chat",
-                                readOnly: true,
-                            });
+                            setCurrentSession(taskSessionID, effectiveDirectory);
                         }}
                     >
                         {"Open subtask session"}

@@ -11,9 +11,8 @@ edge (`components/layout/ContextPanelRail.tsx`) and rendered by
 
 - A surface maps 1:1 to a `ContextPanelMode` tab mode in `useUIStore`.
 - `availability: 'always'` surfaces are always present on the rail.
-  `availability: 'has-content'` surfaces (preview, chat) are hidden from the
-  rail until a tab of their mode exists, and stay visible for as long as one
-  does — they must not disappear while in use.
+  `availability: 'has-content'` surfaces, currently Preview, are hidden until
+  a tab of their mode exists, and stay visible while in use.
 - `CONTEXT_SURFACE_DEFAULT_WIDTH_FRACTION` is the panel width as a fraction of
   the content area for every surface. A user resize is stored once per
   directory (`contextPanelByDirectory[dir].width`) and applies to every rail
@@ -47,9 +46,9 @@ the `openContext*` actions in `useUIStore`.
 
 - Opening a surface must never require a control outside the rail, the
   command palette, or an in-content link.
-- Multi-instance and session-holding surfaces (file/editor, chat, browser,
-  terminal) are keep-alive panes in `ContextPanel.tsx`: switching surfaces
-  must not reset their state (open tabs, xterm session, scroll positions).
+- Multi-instance and stateful surfaces (file/editor, browser, terminal) are
+  keep-alive panes in `ContextPanel.tsx`: switching surfaces must not reset
+  their state (open tabs, xterm session, scroll positions).
   Singleton surfaces (git, notes, context) and preview tabs intentionally
   remount on switch and must restore themselves from their stores/snapshots
   instead. Git embeds a stacked diff list of changed files, collapsed until

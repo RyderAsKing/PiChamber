@@ -61,7 +61,6 @@ import {
     getPrimaryToolPath,
     type DiffPatchEntry,
 } from './toolDiffUtils';
-import { isEmbeddedSessionChat } from '@/components/layout/contextPanelEmbeddedChat';
 import { useStreamingTextThrottle } from '../../hooks/useStreamingTextThrottle';
 import { getStreamingOutputAppend, getToolOutput, lastOutputLines, STREAM_OUTPUT_MAX_LINES } from './toolOutput';
 import { toAbsoluteFilePath } from '@/lib/path-utils';
@@ -994,7 +993,6 @@ const TaskToolSummary: React.FC<{
 }> = ({ entries, isExpanded, isMobile, output, sessionId, onShowPopup, input, animateTailText = true, isActive = false }) => {
     const currentDirectory = useEffectiveDirectory();
     const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
-    const openContextPanelTab = useUIStore((state) => state.openContextPanelTab);
     const showToolFileIcons = useUIStore((state) => state.showToolFileIcons);
     const trimmedOutput = typeof output === 'string'
         ? stripTaskMetadataFromOutput(output)
@@ -1005,20 +1003,7 @@ const TaskToolSummary: React.FC<{
     const handleOpenSession = (event: React.MouseEvent) => {
         event.stopPropagation();
         if (sessionId && currentDirectory) {
-            // In contexts with no ContextPanel (embedded session-chat iframe)
-            // or single-surface layouts (mobile), navigate in place. Otherwise
-            // open a new side-panel tab.
-            if (isEmbeddedSessionChat() || isMobile) {
-                setCurrentSession(sessionId, currentDirectory);
-                return;
-            }
-
-            openContextPanelTab(currentDirectory, {
-                mode: 'chat',
-                dedupeKey: `session:${sessionId}`,
-                label: agentType.charAt(0).toUpperCase() + agentType.slice(1),
-                readOnly: true,
-            });
+            setCurrentSession(sessionId, currentDirectory);
         }
     };
 

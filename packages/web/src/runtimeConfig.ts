@@ -3,7 +3,7 @@ import { installRuntimeFetchBridge } from '@pichamber/ui/lib/runtime-fetch';
 import { initializeRuntimeEndpoint, switchRuntimeEndpoint } from '@pichamber/ui/lib/runtime-switch';
 import { restoreDesktopRelayRuntime } from '@pichamber/ui/lib/desktopRelayRestore';
 import { configureRuntimeUrlResolver } from '@pichamber/ui/lib/runtime-url';
-import type { EmbeddedSessionRuntimeBootstrap } from '@pichamber/ui/components/layout/contextPanelEmbeddedChat';
+import type { RelayRuntimeDescriptor } from '@pichamber/ui/lib/relay/runtime-tunnel';
 import { createWebAPIs } from './api';
 
 const sameOrigin = (left: string, right: string): boolean => {
@@ -13,6 +13,15 @@ const sameOrigin = (left: string, right: string): boolean => {
   } catch {
     return false;
   }
+};
+
+type RuntimeBootstrapConfig = {
+  apiBaseUrl: string;
+  clientToken: string;
+  localOrigin: string;
+  runtimeHeaders?: Record<string, string>;
+  relayHostId: string;
+  relay?: Omit<RelayRuntimeDescriptor, 'grant'>;
 };
 
 declare global {
@@ -25,7 +34,7 @@ declare global {
   }
 }
 
-export const readRuntimeBootstrapConfig = (): EmbeddedSessionRuntimeBootstrap => {
+export const readRuntimeBootstrapConfig = (): RuntimeBootstrapConfig => {
   const readString = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
 
   return {
@@ -42,7 +51,7 @@ export const readRuntimeBootstrapConfig = (): EmbeddedSessionRuntimeBootstrap =>
 let desktopRelayRestoreReady: Promise<void> = Promise.resolve();
 export const getDesktopRelayRestoreReady = (): Promise<void> => desktopRelayRestoreReady;
 
-export const createConfiguredWebAPIs = (bootstrap?: EmbeddedSessionRuntimeBootstrap | null) => {
+export const createConfiguredWebAPIs = (bootstrap?: RuntimeBootstrapConfig | null) => {
   const { apiBaseUrl, clientToken, localOrigin, runtimeHeaders, relayHostId, relay } = bootstrap ?? readRuntimeBootstrapConfig();
 
   const urls = configureRuntimeUrlResolver({

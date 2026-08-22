@@ -77,7 +77,7 @@ describe('readRuntimeBootstrapConfig', () => {
     const parent = makeWindow();
     parent.__PICHAMBER_API_BASE_URL__ = 'https://remote.example.com';
     parent.__PICHAMBER_CLIENT_TOKEN__ = 'remote-token';
-    const child = makeWindow('?ocPanel=session-chat&sessionId=ses_child');
+    const child = makeWindow('?session=ses_child');
     child.parent = parent;
     installWindow(child);
 
@@ -93,7 +93,7 @@ describe('readRuntimeBootstrapConfig', () => {
 });
 
 describe('createConfiguredWebAPIs', () => {
-  test('applies an embedded handshake before restoring its relay host', () => {
+  test('applies an explicit runtime bootstrap before restoring its relay host', () => {
     const bootstrap = {
       apiBaseUrl: 'https://remote.example.com',
       clientToken: 'client-token',
@@ -113,7 +113,7 @@ describe('createConfiguredWebAPIs', () => {
     expect(restoreDesktopRelayRuntime).toHaveBeenCalledWith(bootstrap.relayHostId);
   });
 
-  test('activates an embedded relay without relying on Electron preload IPC', () => {
+  test('activates an injected relay without relying on Electron preload IPC', () => {
     const relay = {
       relayUrl: 'wss://relay.example.com',
       serverId: 'server-1',
