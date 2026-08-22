@@ -27,7 +27,7 @@ import {
   validatePiSessionJsonlDirectory,
   validatePiSessionJsonlFile,
 } from './session-jsonl.js';
-import { resolvePiChamberDataDir } from '../pichamber-data-dir.js';
+import { resolvePiChamberDataDir } from '../../pichamber-data-dir.js';
 
 const PROTOCOL_VERSION = 1;
 const MAX_FRAME_BYTES = 16 * 1024 * 1024;
