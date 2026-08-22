@@ -1315,27 +1315,6 @@ export const registerFsRoutes = (app, dependencies) => {
 
       execJobs.set(jobId, job);
 
-      const isBackground = false;
-      if (isBackground) {
-        void runExecJob(job).catch((error) => {
-          job.status = 'done';
-          job.success = false;
-          job.results = Array.isArray(job.results) ? job.results : [];
-          job.results.push({
-            command: '',
-            success: false,
-            error: (error && error.message) || 'Command execution failed',
-          });
-          job.finishedAt = Date.now();
-          job.updatedAt = Date.now();
-        });
-
-        return res.status(202).json({
-          jobId,
-          status: 'running',
-        });
-      }
-
       await runExecJob(job);
       return res.json({
         jobId,

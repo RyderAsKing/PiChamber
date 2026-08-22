@@ -291,7 +291,7 @@ export const SortableTabsStrip: React.FC<SortableTabsStripProps> = ({
     updateActivePillRect();
   });
 
-  const itemOrderKey = itemIDs.join(' ');
+  const itemOrderKey = itemIDs.join('\x00');
 
   React.useLayoutEffect(() => {
     if (!usesIndicator) {

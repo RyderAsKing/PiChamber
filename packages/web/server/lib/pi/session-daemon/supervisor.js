@@ -26,6 +26,9 @@ const delay = (milliseconds) => new Promise((resolveDelay) => setTimeout(resolve
 
 const rejectAfter = (promise, timeoutMs, code) => new Promise((resolvePromise, rejectPromise) => {
   const timer = setTimeout(() => rejectPromise(new SessionDaemonClientError(code)), timeoutMs);
+  // The wrapped request owns its own timeout lifecycle; never hold process
+  // shutdown on this outer deadline.
+  timer.unref?.();
   promise.then(
     (value) => {
       clearTimeout(timer);
