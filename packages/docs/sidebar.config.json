@@ -13,6 +13,7 @@
       "items": [
         { "label": "Connect devices", "link": "/connect-devices/" },
         { "label": "Environment", "link": "/environment/" },
+        { "label": "Pi extensions", "link": "/extensions/" },
         { "label": "Security", "link": "/security/" },
         { "label": "Troubleshooting", "link": "/troubleshooting/" }
       ]

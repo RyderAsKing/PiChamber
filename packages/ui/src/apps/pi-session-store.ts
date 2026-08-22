@@ -1315,6 +1315,7 @@ export class PiSessionStore {
     const nextReducer = dismissExtensionDialog(this.state.reducer, sessionId, requestId);
     if (nextReducer === this.state.reducer) return;
     this.state = { ...this.state, reducer: nextReducer };
+    this.emit([`session:${sessionId}`]);
   }
 
   private sessionFromDetail(detail: Awaited<ReturnType<typeof piClient.getSession>>) {

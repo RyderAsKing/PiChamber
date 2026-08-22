@@ -1,0 +1,105 @@
+---
+title: Pi extensions in PiChamber
+---
+
+# Pi extensions in PiChamber
+
+PiChamber runs your existing [pi extensions](https://pi.dev/docs/latest/extensions/) inside every session. Extensions load from the same locations as the pi CLI — `~/.pi/agent/extensions/` (global) and `.pi/extensions/` (project-local, after project trust) — and keep their tools, commands, events, and session state.
+
+On top of that compatibility layer, extensions can render rich UI directly inside PiChamber's chat with a small declarative protocol.
+
+## What works out of the box
+
+| Extension capability | Behavior in PiChamber |
+| --- | --- |
+| `pi.registerTool()` | Tools are callable by the model; results render as tool cards |
+| `pi.registerCommand()` | Invokable from the composer as `/command args` |
+| Lifecycle + agent events | Fully supported (`tool_call`, `before_agent_start`, compaction, …) |
+| `ctx.ui.select / confirm / input / editor` | Rendered as a blocking dialog in the chat; the extension waits for your answer |
+| `ctx.ui.notify` | Shown as a notification |
+| `ctx.ui.setStatus(key, text)` | Shown above the composer until cleared |
+| `ctx.ui.setWidget(key, lines)` | Lines shown above (or below) the composer |
+| `pi.appendEntry()` / `pi.sendMessage()` | Visible in the chat transcript (see below) |
+| TUI-only surfaces (`custom()`, custom editors, footers, themes) | Intentionally no-ops; use the GUI protocol instead |
+
+Extension errors don't abort your session — they surface as an error entry so you can see what failed.
+
+## The PiChamber GUI protocol
+
+Any extension can emit a UI card by appending a custom entry or sending a custom message whose type is `pichamber.ui`:
+
+```ts
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+export default function (pi: ExtensionAPI) {
+  pi.registerCommand("explore-status", {
+    description: "Show explore progress",
+    handler: async () => {
+      // Chat transcript card with a live progress bar and action button
+      pi.appendEntry("pichamber.ui", {
+        title: "Explore",
+        component: "progress",
+        props: { label: "Files indexed", value: 40, max: 200 },
+        actions: [
+          { label: "Focus src", command: "explore-focus", args: "src" },
+        ],
+      });
+    },
+  });
+}
+```
+
+The payload is plain JSON — no markup, no scripts — so it is safe to render:
+
+- `component`: one of `markdown`, `kv`, `list`, `table`, `progress`, `badges`, `code`
+- `props`: component properties (validated; unknown components degrade to a generic card)
+- `actions`: up to 8 buttons. Each invokes a registered extension command through the normal prompt path, so the handler receives the arguments and can drive the agent
+- `title`: optional card heading
+
+### Component reference
+
+```ts
+// markdown
+{ component: "markdown", props: { body: "**Indexed** 12 files" } }
+
+// key-value rows
+{ component: "kv", props: { rows: [{ label: "Files", value: "12", tone: "info" }] } }
+
+// list
+{ component: "list", props: { items: [{ label: "src/", value: "42 files" }] } }
+
+// table
+{ component: "table", props: { columns: ["File", "Status"], rows: [["a.ts", "done"]] } }
+
+// progress bar (value/max)
+{ component: "progress", props: { label: "Indexing", value: 40, max: 100 } }
+
+// badges
+{ component: "badges", props: { items: [{ label: "passing", tone: "success" }, "3 skipped"] } }
+
+// code block
+{ component: "code", props: { language: "ts", code: "const x = 1;" } }
+```
+
+Tones: `info`, `success`, `warning`, `error`, `neutral`.
+
+### Actions invoke your commands
+
+Action buttons send `/<command> <args>` through PiChamber's prompt path. Register matching commands with `pi.registerCommand()`:
+
+```ts
+pi.registerCommand("explore-focus", {
+  description: "Focus exploration on a directory",
+  handler: async (args, ctx) => {
+    ctx.ui.notify(`Exploring ${args || "."}`, "info");
+  },
+});
+```
+
+### Anything else falls back gracefully
+
+Custom entries or messages that don't carry a `pichamber.ui` descriptor still appear in the chat as a collapsed card showing their content — internal state entries stay visible but never break rendering.
+
+## Notes for project-local extensions
+
+Project-local extensions participate in pi's standard trust flow. When PiChamber opens a project that hasn't been trusted yet, pi resolves trust exactly as it does on the CLI.
