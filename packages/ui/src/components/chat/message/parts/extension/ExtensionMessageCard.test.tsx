@@ -50,7 +50,6 @@ describe('ExtensionMessageCard', () => {
             },
         });
         expect(markup).toContain('Reindex');
-        expect(markup).toContain('Reindex');
     });
 
     test('falls back to a preformatted card for non-GUI extension content', () => {
