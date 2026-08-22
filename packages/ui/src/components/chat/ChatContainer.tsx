@@ -6,6 +6,8 @@ import type { PermissionRequest } from '@/types/permission';
 import type { QuestionRequest } from '@/types/question';
 
 import { ChatInput } from './ChatInput';
+import ExtensionDialogOverlay from './ExtensionDialogOverlay';
+import { ExtensionStatusStrip, ExtensionWidgetStrip } from './ExtensionStatusWidgets';
 import { DraftPresetChips } from './DraftPresetChips';
 import { useInputStore } from '@/sync/input-store';
 import { useUIStore } from '@/stores/useUIStore';
@@ -1157,8 +1159,13 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                         onClick={navigation.resumeToLatest}
                     />
                 )}
+                <ExtensionWidgetStrip sessionId={currentSessionId} placement="aboveEditor" />
                 {promptReadOnly ? <ReadOnlyPromptBanner /> : <ChatInput scrollToBottom={scrollToBottomOnSend} />}
+                <ExtensionWidgetStrip sessionId={currentSessionId} placement="belowEditor" />
+                <ExtensionStatusStrip sessionId={currentSessionId} />
             </div>
+
+            {currentSessionId ? <ExtensionDialogOverlay sessionId={currentSessionId} /> : null}
 
             <TimelineDialog
                 open={isTimelineDialogOpen}

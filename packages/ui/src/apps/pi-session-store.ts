@@ -1,6 +1,7 @@
 import {
   applyPiEvent,
   createReducerState,
+  dismissExtensionDialog,
   hydrateSessionFromDetail,
   projectSession,
   aliasSyntheticUserIfPersisted,
@@ -1308,6 +1309,13 @@ export class PiSessionStore {
   providers = () => piClient.listProviders({ runtimeKey: getRuntimeKey() });
   upload = (input: { filename: string; mime: string; base64: string }) => piClient.createAttachment(input, this.scope());
   selected(): PiProjectedSession | null { const id = this.state.selectedSessionId; const session = id ? this.state.reducer.bySession.get(id) : undefined; return session ? projectSession(session) : null; }
+
+  /** Remove an answered extension dialog from the pending queue (no-op if absent). */
+  dismissExtensionDialog(sessionId: PiSessionId, requestId: string): void {
+    const nextReducer = dismissExtensionDialog(this.state.reducer, sessionId, requestId);
+    if (nextReducer === this.state.reducer) return;
+    this.state = { ...this.state, reducer: nextReducer };
+  }
 
   private sessionFromDetail(detail: Awaited<ReturnType<typeof piClient.getSession>>) {
     return hydrateSessionFromDetail({

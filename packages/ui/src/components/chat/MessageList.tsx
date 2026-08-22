@@ -3,6 +3,7 @@ import type { Part } from '@/lib/chat/types';
 import { elementScroll, useVirtualizer as useTanstackVirtualizer, type ReactVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 
 import ChatMessage from './ChatMessage';
+import ExtensionMessageCard from './message/parts/extension/ExtensionMessageCard';
 import { areOptionalNeighborMessagesEqual, areRelevantTurnGroupingContextsEqual, areRenderRelevantMessagesEqual } from './message/renderCompare';
 import TurnItem from './components/TurnItem';
 import FoldedHistoryGate from './components/FoldedHistoryGate';
@@ -427,6 +428,23 @@ const MessageRow = React.memo<MessageRowProps>(({
     animationHandlers,
     scrollToBottom,
 }) => {
+    const info = message.info as { role?: string; sessionID?: string; customType?: string; data?: unknown; details?: unknown; text?: string };
+
+    // Extension-authored content renders through the extension card instead of
+    // the user/assistant turn pipeline.
+    if (info.role === 'extension') {
+        return (
+            <ExtensionMessageCard
+                sessionId={info.sessionID}
+                messageId={message.info.id}
+                customType={info.customType}
+                text={typeof info.text === 'string' ? info.text : undefined}
+                data={info.data}
+                details={info.details}
+            />
+        );
+    }
+
     return (
         <ChatMessage
             message={message}
