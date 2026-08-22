@@ -65,38 +65,54 @@ export const useSessionGrouping = (args: Args) => {
         .sort((a, b) => compareSessionsByLifecycleOrder(a, b, args.pinnedSessionIds, args.sessionOrderRanks));
 
       const sessionMap = new Map(sortedProjectSessions.map((session) => [session.id, session]));
-      const childrenMap = new Map<string, Session[]>();
+      const parentById = new Map<string, string | null>();
+      const childrenCountById = new Map<string, number>();
       sortedProjectSessions.forEach((session) => {
-        const parentID = (session as Session & { parentID?: string | null }).parentID;
-        if (!parentID) return;
-        const parentSession = sessionMap.get(parentID);
-        if (!parentSession || isArchivedSession(parentSession) !== isArchivedSession(session)) {
-          return;
+        const parentID = (session as Session & { parentID?: string | null }).parentID ?? null;
+        parentById.set(session.id, parentID);
+        if (parentID) {
+          const parentSession = sessionMap.get(parentID);
+          if (parentSession && isArchivedSession(parentSession) === isArchivedSession(session)) {
+            childrenCountById.set(parentID, (childrenCountById.get(parentID) ?? 0) + 1);
+          }
         }
-        const collection = childrenMap.get(parentID) ?? [];
-        collection.push(session);
-        childrenMap.set(parentID, collection);
       });
-      childrenMap.forEach((list) => list.sort((a, b) => compareSessionsByLifecycleOrder(a, b, args.pinnedSessionIds, args.sessionOrderRanks)));
-
-      const buildProjectNode = (session: Session): SessionNode => {
-        const children = childrenMap.get(session.id) ?? [];
-        return { session, children: children.map((child) => buildProjectNode(child)), worktree: null };
+      const getFamilyId = (sessionId: string): string | null => {
+        let current: string | null | undefined = sessionId;
+        const visited = new Set<string>();
+        let root: string | null = null;
+        while (current) {
+          if (visited.has(current)) break;
+          visited.add(current);
+          const parentIdForCurrent: string | null = parentById.get(current) ?? null;
+          if (!parentIdForCurrent) {
+            root = current;
+            break;
+          }
+          const parentSession = sessionMap.get(parentIdForCurrent);
+          const currentSession = sessionMap.get(current);
+          if (!parentSession || !currentSession || isArchivedSession(parentSession) !== isArchivedSession(currentSession)) {
+            root = current;
+            break;
+          }
+          current = parentIdForCurrent;
+        }
+        return root;
       };
-
-      const roots = sortedProjectSessions.filter((session) => {
-        const parentID = (session as Session & { parentID?: string | null }).parentID;
-        if (!parentID) return true;
-        const parentSession = sessionMap.get(parentID);
-        if (!parentSession) return true;
-        return isArchivedSession(parentSession) !== isArchivedSession(session);
-      });
+      const toFlatNode = (session: Session): SessionNode => {
+        const parentID = (session as Session & { parentID?: string | null }).parentID ?? null;
+        const hasParent = Boolean(parentID && sessionMap.has(parentID) && isArchivedSession(sessionMap.get(parentID)!) === isArchivedSession(session));
+        const hasChildren = (childrenCountById.get(session.id) ?? 0) > 0;
+        const participates = hasParent || hasChildren;
+        const familyId = participates ? getFamilyId(session.id) : null;
+        return { session, children: [], worktree: null, forkFamilyId: familyId };
+      };
 
       const activeNodes: SessionNode[] = [];
       const archivedNodes: SessionNode[] = [];
 
-      roots.forEach((session) => {
-        const node = buildProjectNode(session);
+      sortedProjectSessions.forEach((session) => {
+        const node = toFlatNode(session);
         if (session.time?.archived) {
           archivedNodes.push(node);
         } else {

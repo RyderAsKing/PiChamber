@@ -479,6 +479,38 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
     }
   };
 
+  const runWithPairingCreateAuth = async (req, res, next, handler) => {
+    try {
+      if (typeof uiAuthController.resolveAuthContext === 'function') {
+        const context = await uiAuthController.resolveAuthContext(req, res, {
+          allowClientAuth: true,
+          allowUrlToken: false,
+        });
+        if (context?.type === 'session') {
+          await handler(context);
+          return;
+        }
+        if (context?.type === 'client') {
+          const client = await clientRecordFromAuthContext(context);
+          // Trusted desktop clients (local or remote) may create short-lived
+          // pairing tickets scoped to this server/user. Mobile or other
+          // client kinds remain prohibited from creating pairing sessions.
+          if (client?.clientKind === 'desktop-local' || client?.clientKind === 'desktop') {
+            await handler({ ...context, client });
+            return;
+          }
+          return res.status(403).json({ error: 'Client tokens cannot create pairing sessions' });
+        }
+      }
+
+      await runWithUiAuth(req, res, next, async () => {
+        await handler({ type: 'session' });
+      }, { sessionOnly: true });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   const clientIdFromAuthContext = (context) => {
     const raw = context?.client?.id || context?.clientId;
     return typeof raw === 'string' && raw.length > 0 ? raw : null;
@@ -811,7 +843,7 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
   });
 
   app.post('/api/client-auth/pairing/sessions', express.json({ limit: '64kb' }), async (req, res, next) => {
-    await runWithClientCreateAuth(req, res, next, async (authContext) => {
+    await runWithPairingCreateAuth(req, res, next, async (authContext) => {
       const candidates = await pairingServerCandidates(req, {
         preferredServerUrl: req.body?.serverUrl,
         includeRelay: typeof req.body?.includeRelay === 'boolean' ? req.body.includeRelay : undefined,
@@ -877,7 +909,7 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
 
   // Direct transports the server can be reached on (for the create-device dialog).
   app.get('/api/client-auth/pairing/transports', async (req, res, next) => {
-    await runWithClientCreateAuth(req, res, next, async () => {
+    await runWithPairingCreateAuth(req, res, next, async () => {
       res.setHeader('Cache-Control', 'no-store');
       res.json(getPairingTransports(req));
     });
@@ -886,7 +918,7 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
   // Pending pairing sessions (link created, device not yet connected) for the
   // "pending devices" list. Secrets are never included.
   app.get('/api/client-auth/pairing/sessions', async (req, res, next) => {
-    await runWithClientCreateAuth(req, res, next, async () => {
+    await runWithPairingCreateAuth(req, res, next, async () => {
       const pending = await clientPairingRuntime.listPendingSessions();
       res.setHeader('Cache-Control', 'no-store');
       res.json({ pending });
@@ -894,7 +926,7 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
   });
 
   app.delete('/api/client-auth/pairing/sessions/:id', async (req, res, next) => {
-    await runWithClientCreateAuth(req, res, next, async () => {
+    await runWithPairingCreateAuth(req, res, next, async () => {
       const result = await clientPairingRuntime.cancelPairingSession(req.params?.id);
       if (!result.cancelled) {
         return res.status(404).json({ cancelled: false, error: 'Pairing session not found' });
