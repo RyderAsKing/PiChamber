@@ -165,7 +165,12 @@ const markMutation = (
   kind: PiReducerMutationKind,
 ): void => {
   if (!messageId) return;
-  session.lastMutatedMessageId = messageId;
+  // Resumed events can address a hydrated Pi entry through the daemon's
+  // synthetic live id. The reducer keeps that alias as a Map key, but the
+  // rendered message retains its canonical entry id. Mutation metadata must
+  // use the canonical id so live-tail suspension and overlays target the same
+  // message identity.
+  session.lastMutatedMessageId = session.messages.get(messageId)?.id ?? messageId;
   session.lastMutationKind = kind;
 };
 
@@ -279,7 +284,21 @@ export const aliasSyntheticUserIfPersisted = (
 
 const resolveParentId = (session: PiReducerSessionState, parentId?: string): string | undefined => {
   if (!parentId) return undefined;
-  return session.messages.get(parentId)?.id ?? parentId;
+  const direct = session.messages.get(parentId)?.id;
+  if (direct) return direct;
+  if (isSyntheticUserMessageId(parentId, session.sessionId)) {
+    // A joining tab can hydrate the current user under its persisted Pi entry
+    // id after that user's synthetic start event has already passed. Resumed
+    // assistant starts still name the synthetic parent. The latest user on the
+    // authoritative hydrated branch is that turn owner, including retry
+    // attempts that follow one or more failed assistants.
+    const messages = uniqueSessionMessages(session);
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const candidate = messages[index];
+      if (candidate?.role === 'user') return candidate.id;
+    }
+  }
+  return parentId;
 };
 
 const ensureMessage = (
@@ -392,15 +411,25 @@ const reduceLifecycle = (
   session: PiReducerSessionState,
   payload: { state: PiSessionLifecycleState } & PiRetryInfo,
 ): void => {
+  if (payload.state === 'retry') {
+    session.lifecycle = 'retry';
+    session.retry = {
+      ...(payload.attempt !== undefined ? { attempt: payload.attempt } : {}),
+      ...(payload.next !== undefined ? { next: payload.next } : {}),
+      ...(payload.message !== undefined ? { message: payload.message } : {}),
+    };
+    return;
+  }
+  if (payload.state === 'busy' && session.retry) {
+    // Pi publishes `busy` when it begins preparing the retry, before the
+    // provider has produced a token. Keep the retry notice authoritative
+    // until a text/thinking/tool event proves that the next attempt started.
+    session.lifecycle = 'retry';
+    return;
+  }
   session.lifecycle = payload.state;
-  session.retry = payload.state === 'retry'
-    ? {
-        ...(payload.attempt !== undefined ? { attempt: payload.attempt } : {}),
-        ...(payload.next !== undefined ? { next: payload.next } : {}),
-        ...(payload.message !== undefined ? { message: payload.message } : {}),
-      }
-    : undefined;
-  if (payload.state === 'busy' || payload.state === 'retry') return;
+  session.retry = undefined;
+  if (payload.state === 'busy') return;
   session.streamingMessages = new Set();
   session.messages = new Map(session.messages);
   for (const [messageId, message] of session.messages) {
@@ -466,9 +495,9 @@ const reduceAssistantDelta = (
   session: PiReducerSessionState,
   payload: PiAssistantMessageDeltaPayload | PiAssistantThinkingDeltaPayload,
   type: 'text' | 'thinking',
-): void => {
+): boolean => {
   const message = resolveAssistantMessage(session, payload.messageId);
-  if (!message) return;
+  if (!message) return false;
   message.streaming = true;
   session.streamingMessages.add(message.id);
   session.streamingMessages.add(payload.messageId);
@@ -505,7 +534,7 @@ const reduceAssistantDelta = (
     }
   }
   if (existing) {
-    if (existing.type !== type) return;
+    if (existing.type !== type) return false;
     const updated = {
       ...existing,
       text: applyAssistantTextDelta(existing.text, payload.delta),
@@ -515,10 +544,11 @@ const reduceAssistantDelta = (
     if (partId !== existing.id) {
       session.parts.set(partId, updated);
     }
-    return;
+    return true;
   }
   const part = ensureTextPart(session, message, type, partId);
   session.parts.set(part.id, { ...part, text: payload.delta, streaming: true });
+  return true;
 };
 
 const reduceMessageEnd = (
@@ -541,7 +571,7 @@ const reduceMessageEnd = (
   if (payload.thinkingLevel) message.thinkingLevel = payload.thinkingLevel;
   if (payload.error) message.error = payload.error;
   if (payload.usage) message.usage = payload.usage;
-  if (payload.continuing !== true) {
+  if (payload.continuing !== true && !payload.error) {
     session.streamingMessages.delete(message.id);
     session.streamingMessages.delete(payload.messageId);
   }
@@ -551,12 +581,12 @@ const reduceTool = (
   session: PiReducerSessionState,
   phase: 'start' | 'update' | 'end',
   payload: PiToolUpdatePayload,
-): void => {
+): boolean => {
   // Look up the existing part by toolCallId when the start event already
   // produced it.
   const rawMessageId = session.toolsByCallId.get(payload.toolCallId) ?? payload.messageId;
   const message = resolveAssistantMessage(session, rawMessageId);
-  if (!message) return;
+  if (!message) return false;
   settleThinkingParts(session, message.id);
   if (phase !== 'end') {
     message.streaming = true;
@@ -589,9 +619,9 @@ const reduceTool = (
     order.push(synthetic.id);
     session.partOrder.set(message.id, order);
     session.toolsByCallId.set(payload.toolCallId, message.id);
-    return;
+    return true;
   }
-  if (!part || part.type !== 'tool') return;
+  if (!part || part.type !== 'tool') return false;
   const nextPart = { ...part };
   const previous = part.tool;
   nextPart.tool = {
@@ -636,6 +666,7 @@ const reduceTool = (
   };
   if (phase === 'end') nextPart.streaming = false;
   session.parts.set(nextPart.id, nextPart);
+  return true;
 };
 
 const reduceInterrupted = (session: PiReducerSessionState, streaming: boolean): void => {
@@ -755,10 +786,10 @@ export const applyPiEvent = (
       break;
     case 'assistant.message.start':
       // A message start is live turn evidence even when the lifecycle frame
-      // was missed or has not arrived yet. This also protects that event from
-      // a same-cursor history restore whose transcript projection lagged it.
-      session.lifecycle = 'busy';
-      session.retry = undefined;
+      // was missed or has not arrived yet. During an automatic retry it only
+      // means the request started; keep the retry notice until actual output
+      // arrives.
+      session.lifecycle = session.retry ? 'retry' : 'busy';
       session.messages = new Map(session.messages);
       session.streamingMessages = new Set(session.streamingMessages);
       reduceMessageStart(session, event.directory, event.payload);
@@ -767,7 +798,10 @@ export const applyPiEvent = (
       break;
     case 'assistant.message.delta':
       forkPartsForWrite(session);
-      reduceAssistantDelta(session, event.payload, 'text');
+      if (reduceAssistantDelta(session, event.payload, 'text')) {
+        session.lifecycle = 'busy';
+        session.retry = undefined;
+      }
       markMutation(session, event.payload.messageId, 'part');
       break;
     case 'assistant.message.end':
@@ -780,24 +814,36 @@ export const applyPiEvent = (
       break;
     case 'assistant.thinking.delta':
       forkPartsForWrite(session);
-      reduceAssistantDelta(session, event.payload, 'thinking');
+      if (reduceAssistantDelta(session, event.payload, 'thinking')) {
+        session.lifecycle = 'busy';
+        session.retry = undefined;
+      }
       markMutation(session, event.payload.messageId, 'part');
       break;
     case 'session.tool.start':
       forkPartsForWrite(session);
       session.partOrder = new Map(session.partOrder);
       session.toolsByCallId = new Map(session.toolsByCallId);
-      reduceTool(session, 'start', event.payload);
+      if (reduceTool(session, 'start', event.payload)) {
+        session.lifecycle = 'busy';
+        session.retry = undefined;
+      }
       markMutation(session, event.payload.messageId, 'part');
       break;
     case 'session.tool.update':
       forkPartsForWrite(session);
-      reduceTool(session, 'update', event.payload);
+      if (reduceTool(session, 'update', event.payload)) {
+        session.lifecycle = 'busy';
+        session.retry = undefined;
+      }
       markMutation(session, event.payload.messageId, 'part');
       break;
     case 'session.tool.end':
       forkPartsForWrite(session);
-      reduceTool(session, 'end', event.payload);
+      if (reduceTool(session, 'end', event.payload)) {
+        session.lifecycle = 'busy';
+        session.retry = undefined;
+      }
       markMutation(session, event.payload.messageId, 'part');
       break;
     case 'session.queue':

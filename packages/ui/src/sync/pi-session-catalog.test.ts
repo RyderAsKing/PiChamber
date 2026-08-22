@@ -515,8 +515,36 @@ describe('PiSessionStore catalog', () => {
       });
       expect(catalog.byId.get('a-1')).toBe(aRowBefore);
 
+      // Pi emits a preparatory busy frame before the retried provider request
+      // produces output. Keep the retry notice through that frame.
       internal.commitEvents([lifecycleEvent('b-1', '/repo-b', 'busy', 7)]);
       await tickMicrotasks();
+      expect(store.getState().catalog.byId.get('b-1')?.lifecycle).toBe('retry');
+      expect(store.getState().catalog.byId.get('b-1')?.retry).toEqual({
+        attempt: 2,
+        next: 5_000,
+        message: 'provider unavailable',
+      });
+
+      internal.commitEvents([{
+        protocolVersion: 1,
+        kind: 'event',
+        name: 'assistant.message.start',
+        sequence: 8,
+        sessionId: 'b-1',
+        directory: '/repo-b',
+        payload: { messageId: 'assistant-b-1-8', role: 'assistant', startedAt: 6_000 },
+      }, {
+        protocolVersion: 1,
+        kind: 'event',
+        name: 'assistant.message.delta',
+        sequence: 9,
+        sessionId: 'b-1',
+        directory: '/repo-b',
+        payload: { messageId: 'assistant-b-1-8', contentIndex: 0, delta: 'recovered' },
+      }]);
+      await tickMicrotasks();
+      expect(store.getState().catalog.byId.get('b-1')?.lifecycle).toBe('busy');
       expect(store.getState().catalog.byId.get('b-1')?.retry).toBe(undefined);
     } finally {
       stubs.restore();

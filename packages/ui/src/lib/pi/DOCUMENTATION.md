@@ -71,7 +71,10 @@ in-flight turn into
 `getSession` while `isStreaming` is true (live `session.messages` plus running
 tools, plus `lifecycle: 'busy'`), and `hydrateSessionFromDetail` restores
 `streamingMessages` and part streaming flags from that payload so a restarted
-chat shows the working/tooling state immediately. Sending a prompt on an already-open session
+chat shows the working/tooling state immediately. When resumed events use the
+daemon's synthetic live id for an assistant already hydrated under its Pi entry
+id, reducer aliases remain valid lookup keys but live-tail selectors and mutation
+metadata resolve to the canonical message id used by rendered records. If a resumed assistant references a synthetic user id from before this client's cursor, the latest hydrated user on the authoritative branch owns that assistant and prevents turn projection from dropping it as an orphan. Sending a prompt on an already-open session
 must not install an empty `bySession` row: live events only carry the new
 turn, so a blank placeholder would make prior history disappear. If the
 resident transcript is missing or empty, `prompt()` re-hydrates from the
@@ -96,7 +99,11 @@ a frame of cumulative chunks cannot concatenate into stuttering markdown.
 rendered parts; message-level fields alone are not what the chat paints. When
 that assistant produced tool calls, the end frame carries `continuing: true`,
 so the reducer keeps the turn's live message ownership across the
-message-end/tool-start boundary and does not flash a settled footer.
+message-end/tool-start boundary and does not flash a settled footer. An errored
+message end also keeps that ownership until Pi publishes retry or a terminal
+lifecycle. Retry metadata survives Pi's preparatory `busy` frame and the next
+assistant start, then clears only when text, thinking, or tool output proves the
+new attempt is streaming.
 Thinking parts also clear `streaming` as soon as a later text or tool part
 on the same message starts, so the thinking block can collapse at handoff
 instead of waiting for message-end.
