@@ -137,6 +137,7 @@ export function createSessionDaemon({
   const messageStartedAt = new Map();
   const toolStartedAt = new Map();
   const latestUserMessageIds = new Map();
+  const retryStateBySession = new Map();
   const sendGenerationBySession = new Map();
   const streamingRedactionBuffers = new Map();
   const loginAttempts = new Map();
@@ -240,6 +241,7 @@ export function createSessionDaemon({
       : getSessionState();
     if (requestedSessionId && requestedSessionId !== session.sessionId) return;
     const activeSession = targetRuntime?.session || runtime?.session;
+    const retry = session.sessionId ? retryStateBySession.get(session.sessionId) : undefined;
     const targetDirectory = targetRuntime?.cwd || activeDirectory || cwd;
     const messages = activeSession ? projectMessageEntries(activeSession, targetDirectory) : [];
     const lastAssistant = [...messages].reverse().find((entry) => entry.message.role === 'assistant')?.message;
@@ -254,7 +256,8 @@ export function createSessionDaemon({
         ...(session.sessionId ? { sessionId: session.sessionId } : {}),
         directory: targetDirectory,
         isStreaming: session.isStreaming ?? false,
-        lifecycle: session.isStreaming ? 'busy' : 'idle',
+        lifecycle: retry ? 'retry' : session.isStreaming ? 'busy' : 'idle',
+        ...(retry ? { retry } : {}),
         queue: activeSession ? {
           steering: activeSession.getSteeringMessages?.().length ?? 0,
           followUp: activeSession.getFollowUpMessages?.().length ?? 0,
@@ -729,6 +732,7 @@ export function createSessionDaemon({
       ?? (model?.provider && model?.id ? { providerId: model.provider, modelId: model.id } : undefined);
     const sessionThinking = lastAssistant?.thinkingLevel || session.thinkingLevel;
     const isStreaming = session.isStreaming === true;
+    const retry = retryStateBySession.get(session.sessionId);
     return {
       session: {
         id: session.sessionId, directory: targetDir, createdAt, updatedAt: createdAt,
@@ -740,7 +744,8 @@ export function createSessionDaemon({
       messages,
       lastSequence: sequence,
       isStreaming,
-      lifecycle: isStreaming ? 'busy' : 'idle',
+      lifecycle: retry ? 'retry' : isStreaming ? 'busy' : 'idle',
+      ...(retry ? { retry } : {}),
     };
   };
 
@@ -1605,6 +1610,9 @@ export function createSessionDaemon({
       await rm(target.path, { force: false });
     }
     messageEntryAliases.clearSession({ cwd: active?.cwd || targetDir, sessionId });
+    retryStateBySession.delete(sessionId);
+    latestUserMessageIds.delete(sessionId);
+    latestAssistantMessageIds.delete(sessionId);
     publish('session.lifecycle', { state: 'idle', deleted: true }, sessionId, targetDir);
   };
 
@@ -1677,6 +1685,7 @@ export function createSessionDaemon({
             text: redactAttachmentPaths(content.filter((part) => part?.type === 'text').map((part) => part.text).join('')),
             thinking: redactAttachmentPaths(content.filter((part) => part?.type === 'thinking').map((part) => part.thinking).join('')),
             durationMs,
+            ...(content.some((part) => part?.type === 'toolCall') ? { continuing: true } : {}),
             ...(event.message.errorMessage ? { error: { code: 'ASSISTANT_ERROR', message: redactAttachmentPaths(event.message.errorMessage) } } : {}),
             ...(usage ? { usage } : {}),
           }, sessionId, directory);
@@ -1740,11 +1749,10 @@ export function createSessionDaemon({
         break;
       case 'agent_start':
         clearIdleDisposal(sessionId);
+        retryStateBySession.delete(sessionId);
         publish('session.lifecycle', { state: 'busy' }, sessionId, directory);
         break;
       case 'agent_end': {
-        latestUserMessageIds.delete(sessionId);
-        latestAssistantMessageIds.delete(sessionId);
         const finalMessage = event.messages?.at?.(-1);
         if (finalMessage?.role === 'assistant' && finalMessage.stopReason === 'aborted') {
           publish('session.interrupted', { reason: 'user-abort', streaming: false }, sessionId, directory);
@@ -1753,15 +1761,23 @@ export function createSessionDaemon({
         }
         break;
       }
-      case 'auto_retry_start':
-        publish('session.lifecycle', {
-          state: 'retry',
+      case 'auto_retry_start': {
+        const retry = {
           attempt: event.attempt,
           next: Date.now() + event.delayMs,
           message: redactAttachmentPaths(event.errorMessage),
-        }, sessionId, directory);
+        };
+        retryStateBySession.set(sessionId, retry);
+        publish('session.lifecycle', { state: 'retry', ...retry }, sessionId, directory);
+        break;
+      }
+      case 'auto_retry_end':
+        retryStateBySession.delete(sessionId);
         break;
       case 'agent_settled':
+        retryStateBySession.delete(sessionId);
+        latestUserMessageIds.delete(sessionId);
+        latestAssistantMessageIds.delete(sessionId);
         publish('session.lifecycle', { state: 'idle' }, sessionId, directory);
         scheduleIdleDisposal(sessionId);
         break;
@@ -2151,6 +2167,9 @@ export function createSessionDaemon({
         clearTimeout(attempt.expiry);
       }
       loginAttempts.clear();
+      retryStateBySession.clear();
+      latestUserMessageIds.clear();
+      latestAssistantMessageIds.clear();
       for (const client of clients) client.destroy();
       clients.clear();
       messageEntryAliases.clear();

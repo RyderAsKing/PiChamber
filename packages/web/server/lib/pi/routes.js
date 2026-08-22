@@ -135,6 +135,15 @@ const projectUsage = (raw) => {
   };
 };
 
+const projectRetryInfo = (value) => {
+  if (!value || typeof value !== 'object') return null;
+  return {
+    ...(Number.isSafeInteger(value.attempt) && value.attempt > 0 ? { attempt: value.attempt } : {}),
+    ...(Number.isFinite(value.next) && value.next >= 0 ? { next: value.next } : {}),
+    ...(typeof value.message === 'string' ? { message: value.message } : {}),
+  };
+};
+
 const sanitizeNavigation = (value) => {
   if (!value || typeof value !== 'object' || typeof value.targetEntryId !== 'string' || value.targetEntryId.length === 0) return null;
   const previousLeafId = value.previousLeafId === null ? null : (typeof value.previousLeafId === 'string' ? value.previousLeafId : null);
@@ -202,12 +211,14 @@ const projectSessionDetail = (value) => {
   const lifecycle = ['idle', 'busy', 'retry', 'error', 'interrupted'].includes(value.lifecycle)
     ? value.lifecycle
     : (isStreaming ? 'busy' : 'idle');
+  const retry = lifecycle === 'retry' ? projectRetryInfo(value.retry) : null;
   return {
     session: projectSession(value.session),
     messages,
     lastSequence: value.lastSequence,
     isStreaming,
     lifecycle,
+    ...(retry ? { retry } : {}),
   };
 };
 
@@ -358,9 +369,12 @@ const projectEventFrame = (frame) => {
   switch (frame.event) {
     case 'session.snapshot': {
       const snapshot = frame.payload;
+      const lifecycle = ['idle', 'busy', 'retry', 'error', 'interrupted'].includes(snapshot.lifecycle) ? snapshot.lifecycle : 'idle';
+      const retry = lifecycle === 'retry' ? projectRetryInfo(snapshot.retry) : null;
       return { ...common, payload: { snapshot: {
         sessionId, directory, isStreaming: snapshot.isStreaming === true,
-        lifecycle: ['idle', 'busy', 'retry', 'error', 'interrupted'].includes(snapshot.lifecycle) ? snapshot.lifecycle : 'idle',
+        lifecycle,
+        ...(retry ? { retry } : {}),
         queue: { steering: Number.isSafeInteger(snapshot.queue?.steering) ? snapshot.queue.steering : 0, followUp: Number.isSafeInteger(snapshot.queue?.followUp) ? snapshot.queue.followUp : 0 },
         ...(snapshot.model && typeof snapshot.model.providerId === 'string' && typeof snapshot.model.modelId === 'string' ? { model: { providerId: snapshot.model.providerId, modelId: snapshot.model.modelId } } : {}),
         ...(typeof snapshot.thinking === 'string' ? { thinking: snapshot.thinking } : {}),
@@ -369,7 +383,10 @@ const projectEventFrame = (frame) => {
         lastSequence: Number.isSafeInteger(snapshot.lastSequence) ? snapshot.lastSequence : frame.sequence,
       } } };
     }
-    case 'session.lifecycle': return { ...common, payload: { state: frame.payload.state } };
+    case 'session.lifecycle': {
+      const retry = frame.payload.state === 'retry' ? projectRetryInfo(frame.payload) : null;
+      return { ...common, payload: { state: frame.payload.state, ...(retry ?? {}) } };
+    }
     case 'session.updated': {
       if (typeof frame.payload.title !== 'string') return null;
       const title = frame.payload.title.trim();
@@ -386,6 +403,7 @@ const projectEventFrame = (frame) => {
         ...(typeof frame.payload.text === 'string' ? { text: frame.payload.text } : {}),
         ...(typeof frame.payload.thinking === 'string' ? { thinking: frame.payload.thinking } : {}),
         ...(Number.isFinite(frame.payload.durationMs) ? { durationMs: frame.payload.durationMs } : {}),
+        ...(frame.payload.continuing === true ? { continuing: true } : {}),
         ...(frame.payload.error && typeof frame.payload.error.code === 'string'
           ? {
               error: {

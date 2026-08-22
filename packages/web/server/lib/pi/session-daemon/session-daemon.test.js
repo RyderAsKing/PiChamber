@@ -1191,7 +1191,7 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
-  it('keeps retryable provider failures in retry lifecycle until Pi exhausts retry', async () => {
+  it('keeps retry attempts attached to the original user turn until Pi settles', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-retry-'));
     const endpoint = testDaemonEndpoint(root);
     const session = new FakeSession('pi-session-retry');
@@ -1201,6 +1201,15 @@ describe('Pi session daemon spike', () => {
     await client.authenticate();
     await client.request('sessions.create', { cwd: root });
 
+    const userStartPromise = client.next((frame) => frame.event === 'assistant.message.start' && frame.payload?.role === 'user');
+    session.emit({ type: 'message_start', message: { role: 'user', content: 'recover this turn', timestamp: 1_000 } });
+    const userStart = await userStartPromise;
+
+    const failedStartPromise = client.next((frame) => frame.event === 'assistant.message.start' && frame.payload?.role === 'assistant');
+    session.emit({ type: 'message_start', message: { role: 'assistant', content: [], timestamp: 1_100 } });
+    const failedStart = await failedStartPromise;
+    session.emit({ type: 'message_end', message: { role: 'assistant', content: [], stopReason: 'error', errorMessage: 'Rate limit exceeded' } });
+
     const retryLifecycle = client.next((frame) => frame.event === 'session.lifecycle' && frame.payload.state === 'retry');
     const prematureError = client.next((frame) => frame.event === 'session.error');
     session.emit({ type: 'agent_end', willRetry: true, messages: [{ role: 'assistant', stopReason: 'error', errorMessage: 'Rate limit exceeded' }] });
@@ -1209,11 +1218,35 @@ describe('Pi session daemon spike', () => {
     await expect(retryLifecycle).resolves.toMatchObject({
       payload: { state: 'retry', attempt: 1, message: 'Rate limit exceeded' },
     });
+
+    const retryObserver = connectClient(endpoint);
+    const retrySnapshot = await retryObserver.authenticate();
+    expect(retrySnapshot.payload).toMatchObject({
+      lifecycle: 'retry',
+      retry: { attempt: 1, message: 'Rate limit exceeded' },
+    });
+
+    session.emit({ type: 'agent_start' });
+    const recoveredStartPromise = client.next((frame) => frame.event === 'assistant.message.start'
+      && frame.payload?.role === 'assistant'
+      && frame.payload.messageId !== failedStart.payload.messageId);
+    session.emit({ type: 'message_start', message: { role: 'assistant', content: [], timestamp: 1_200 } });
+    const recoveredStart = await recoveredStartPromise;
+    const recoveredDeltaPromise = client.next((frame) => frame.event === 'assistant.message.delta'
+      && frame.payload?.messageId === recoveredStart.payload.messageId);
+    session.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'Recovered' } });
+
+    await expect(recoveredDeltaPromise).resolves.toMatchObject({ payload: { delta: 'Recovered' } });
+    expect(failedStart.payload.parentId).toBe(userStart.payload.messageId);
+    expect(recoveredStart.payload.parentId).toBe(userStart.payload.messageId);
     await expect(prematureError).rejects.toThrow(/Timed out/);
+
+    session.emit({ type: 'agent_settled' });
+    await retryObserver.close();
     await client.close();
   });
 
-  it('preserves assistant messageId for tool executions occurring after message_end', async () => {
+  it('keeps ordinary tool errors live and resumes the next assistant in the same user turn', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = testDaemonEndpoint(root);
     const session = new FakeSession('pi-session-tool-seq');
@@ -1223,16 +1256,28 @@ describe('Pi session daemon spike', () => {
     await client.authenticate();
     await client.request('sessions.create', { cwd: root });
 
-    const messageStartPromise = client.next((frame) => frame.event === 'assistant.message.start');
+    const userStartPromise = client.next((frame) => frame.event === 'assistant.message.start' && frame.payload?.role === 'user');
+    const messageStartPromise = client.next((frame) => frame.event === 'assistant.message.start' && frame.payload?.role === 'assistant');
     const messageEndPromise = client.next((frame) => frame.event === 'assistant.message.end');
     const toolStartPromise = client.next((frame) => frame.event === 'session.tool.start');
     const toolEndPromise = client.next((frame) => frame.event === 'session.tool.end');
 
+    session.emit({ type: 'message_start', message: { role: 'user', content: 'run the command', timestamp: 0 } });
     session.emit({ type: 'message_start', message: { role: 'assistant', timestamp: 1 } });
-    session.emit({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'Calling tool' }] } });
+    session.emit({
+      type: 'message_end',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Calling tool' },
+          { type: 'toolCall', id: 'tool-call-1', name: 'bash', arguments: { command: 'echo hi' } },
+        ],
+      },
+    });
     session.emit({ type: 'tool_execution_start', toolCallId: 'tool-call-1', toolName: 'bash', args: { command: 'echo hi' } });
-    session.emit({ type: 'tool_execution_end', toolCallId: 'tool-call-1', toolName: 'bash', result: { content: [{ type: 'text', text: 'hi' }] }, isError: false });
+    session.emit({ type: 'tool_execution_end', toolCallId: 'tool-call-1', toolName: 'bash', result: { content: [{ type: 'text', text: 'command failed' }] }, isError: true });
 
+    const userStart = await userStartPromise;
     const messageStart = await messageStartPromise;
     const messageEnd = await messageEndPromise;
     const toolStart = await toolStartPromise;
@@ -1240,11 +1285,26 @@ describe('Pi session daemon spike', () => {
 
     expect(messageStart.payload.messageId).toMatch(/^assistant-pi-session-tool-seq-\d+$/);
     expect(messageEnd.payload.messageId).toBe(messageStart.payload.messageId);
+    expect(messageEnd.payload.continuing).toBe(true);
     expect(toolStart.payload.messageId).toBe(messageStart.payload.messageId);
     expect(toolStart.payload.partId).toBe(`${messageStart.payload.messageId}:tool:tool-call-1`);
     expect(toolEnd.payload.messageId).toBe(messageStart.payload.messageId);
     expect(toolEnd.payload.partId).toBe(`${messageStart.payload.messageId}:tool:tool-call-1`);
+    expect(toolEnd.payload).toMatchObject({ state: 'error', isError: true, error: 'command failed' });
 
+    const recoveredStartPromise = client.next((frame) => frame.event === 'assistant.message.start'
+      && frame.payload?.role === 'assistant'
+      && frame.payload.messageId !== messageStart.payload.messageId);
+    session.emit({ type: 'message_start', message: { role: 'assistant', timestamp: 2 } });
+    const recoveredStart = await recoveredStartPromise;
+    const recoveredDeltaPromise = client.next((frame) => frame.event === 'assistant.message.delta'
+      && frame.payload?.messageId === recoveredStart.payload.messageId);
+    session.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'Recovered from tool failure' } });
+
+    await expect(recoveredDeltaPromise).resolves.toMatchObject({ payload: { delta: 'Recovered from tool failure' } });
+    expect(messageStart.payload.parentId).toBe(userStart.payload.messageId);
+    expect(recoveredStart.payload.parentId).toBe(userStart.payload.messageId);
+    session.emit({ type: 'agent_settled' });
     await client.close();
   });
 
