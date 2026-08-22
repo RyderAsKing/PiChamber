@@ -232,10 +232,67 @@ mock.module('@/lib/configSync', () => ({
   }),
 }));
 
+// In-memory sync-refs pub/sub so `emitSyncConfigChanged` reaches the store's
+// `subscribeToSyncConfigChanges` listener and `getSyncConfig` reflects the
+// directory refs captured by `setSyncRefs`.
+//
+// This mock is registered WITHOUT importing the real module first: the real
+// module's import graph evaluates useConfigStore, whose module-level
+// subscription would otherwise bind to the real no-op stub before this mock
+// exists. The remaining exports mirror the real stub's surface so unrelated
+// importers keep working.
+type SyncConfigListener = (directory: string, config: Record<string, unknown>) => void;
+let syncConfigListeners: SyncConfigListener[] = [];
+let syncDirectoryRefs: { getState: (directory?: string) => { config?: Record<string, unknown> } | undefined } | null = null;
+
+mock.module('@/sync/sync-refs', () => ({
+  setSyncRefs: (_state: unknown, childStores: { getState: (directory?: string) => { config?: Record<string, unknown> } | undefined }) => {
+    syncDirectoryRefs = childStores;
+  },
+  getSyncConfig: (directory?: string) => {
+    const config = syncDirectoryRefs?.getState?.(directory)?.config;
+    return config && typeof config === 'object' ? config : undefined;
+  },
+  getDirectoryState: () => undefined,
+  subscribeToSyncConfigChanges: (listener: SyncConfigListener) => {
+    syncConfigListeners.push(listener);
+    return () => {
+      syncConfigListeners = syncConfigListeners.filter((entry) => entry !== listener);
+    };
+  },
+  emitSyncConfigChanged: (directory: string, config: Record<string, unknown>) => {
+    for (const listener of [...syncConfigListeners]) listener(directory, config);
+  },
+  mapPiSessionList: () => [],
+  getSyncSessions: () => [],
+  getAllSyncSessions: () => [],
+  getAllSyncSessionMap: () => new Map(),
+  getSyncSessionDirectory: () => null,
+  getSyncMessages: () => [],
+  getSyncSessionMaterializationStatus: () => 'ready',
+  getSyncParts: () => [],
+  resolveSessionDirectory: () => null,
+  resolveSessionDirectoryFromSources: () => null,
+  refetchSessionMessages: async () => {},
+  unrevertSessionAction: async () => {},
+  forkFromMessageAction: async () => {},
+}));
+
 const { useConfigStore } = await import('./useConfigStore');
 const { emitSyncConfigChanged, setSyncRefs } = await import('@/sync/sync-refs');
 const { useSelectionStore } = await import('@/sync/selection-store');
 const { useSessionUIStore } = await import('@/sync/session-ui-store');
+const { getRuntimeKey } = await import('@/lib/runtime-switch');
+
+// Write the current v2 worktree-project envelope (the legacy key is consumed
+// once and then removed by the store's migration path).
+const setWorktreeProjectMap = (entries: Record<string, string>): void => {
+  storage.set('oc.worktreeProjectMap.v2', JSON.stringify({
+    version: 2,
+    legacyClaimed: true,
+    runtimes: { [getRuntimeKey() || 'default']: { updatedAt: Date.now(), entries } },
+  }));
+};
 
 describe('useConfigStore provider persistence', () => {
   beforeEach(() => {
@@ -254,6 +311,8 @@ describe('useConfigStore provider persistence', () => {
     listAgentsImpl = null;
     withDirectoryCalls = [];
     currentFetchDirectory = DIRECTORY;
+    // Note: syncConfigListeners intentionally persists across tests — the
+    // store subscribes once at module load and must stay subscribed.
     setSyncRefs({} as never, { children: new Map(), getState: () => undefined } as never, DIRECTORY);
     useSelectionStore.setState({
       sessionModelSelections: new Map(),
@@ -680,7 +739,7 @@ describe('useConfigStore provider persistence', () => {
 
   test('worktree sync config applies to the project-scoped snapshot', () => {
     const worktree = '/workspace/project-worktree';
-    storage.set('oc.worktreeProjectMap', JSON.stringify({ [worktree]: DIRECTORY }));
+    setWorktreeProjectMap({ [worktree]: DIRECTORY });
     useConfigStore.setState({
       activeDirectoryKey: DIRECTORY,
       providers: [provider('openai', 'gpt-5.5')],
@@ -795,7 +854,7 @@ describe('useConfigStore provider persistence', () => {
 
   test('project loadAgents preserves defaults previously applied from a worktree config event', async () => {
     const worktree = '/workspace/project-worktree';
-    storage.set('oc.worktreeProjectMap', JSON.stringify({ [worktree]: DIRECTORY }));
+    setWorktreeProjectMap({ [worktree]: DIRECTORY });
     useConfigStore.setState({
       activeDirectoryKey: DIRECTORY,
       providers: [provider('openai', 'gpt-5.5')],

@@ -100,6 +100,7 @@ Pure code-reading or explanation does not require implementation skills unless n
 
 - Use `package.json` scripts as the command source of truth.
 - Prefer focused tests and package-scoped type-check/lint for executable source changes.
+- `bun run test` runs every unit suite (web, ui, electron) and must pass before handoff. UI tests run one file per process via `packages/ui/scripts/run-tests-isolated.mjs`: bun's `mock.module()` is process-global and cannot be un-registered, so single-process full-suite runs leak mocks across files. Keep new UI test files runnable in isolation and avoid partial mocks of shared modules.
 - Use workspace-wide checks for cross-workspace contracts, root tooling, dependencies, or shared generated assets.
 - Run `bun run dead-code` when source files are added/deleted/renamed or exports, types, entrypoints, or import shape change; inspect its report because it is non-blocking.
 - Do not assume TypeScript/lint covers server JS, CLI JS, Electron helpers, or native behavior; run focused tests, syntax checks, builds, or runtime validation for the touched surface.

@@ -16,7 +16,7 @@ describe('terminal touch selection', () => {
   test('selects the non-whitespace token around a long press', () => {
     expect(getTerminalWordRange(Array.from('  /projects/pichamber  '), 10)).toEqual({
       startColumn: 2,
-      endColumn: 22,
+      endColumn: 20,
     });
     expect(getTerminalWordRange(Array.from('foo bar'), 3)).toEqual({ startColumn: 3, endColumn: 3 });
   });

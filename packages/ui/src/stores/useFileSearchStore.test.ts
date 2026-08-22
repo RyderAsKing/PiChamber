@@ -25,10 +25,10 @@ const searchFilesMock = mock(() => {
   return request.promise;
 });
 
-mock.module('@/lib/pi/legacy-ui-client', () => ({
-  opencodeClient: {
-    searchFiles: searchFilesMock,
-  },
+// The store consumes `searchFiles` from `@/lib/fsApi`; mocking that seam
+// keeps the deferred-request assertions independent of the transport.
+mock.module('@/lib/fsApi', () => ({
+  searchFiles: searchFilesMock,
 }));
 mock.module('@/lib/runtime-switch', () => ({ getRuntimeKey: () => runtimeKey }));
 

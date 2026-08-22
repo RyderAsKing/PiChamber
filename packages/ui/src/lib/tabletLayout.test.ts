@@ -11,16 +11,21 @@ const deviceSource = readFileSync(join(__dirname, 'device.ts'), 'utf8');
 // No module mocking here on purpose: mock.module is process-global and would
 // leak into every other test file. Outside a Capacitor shell isIPadApp() is
 // already false, so a bare viewport stub isolates the geometry rules.
-const originalWindow = globalThis.window;
+const originalWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
 
 const setViewport = (width: number, height: number) => {
-  (globalThis as { window?: unknown }).window = {
-    innerWidth: width,
-    innerHeight: height,
-    // isIPadApp() reaches for the Capacitor markers; a plain web location
-    // keeps it on its `false` path without mocking the module.
-    location: { protocol: 'https:', search: '' },
-  };
+  // Bun exposes `window` as a non-writable global; (re)define it explicitly.
+  Object.defineProperty(globalThis, 'window', {
+    value: {
+      innerWidth: width,
+      innerHeight: height,
+      // isIPadApp() reaches for the Capacitor markers; a plain web location
+      // keeps it on its `false` path without mocking the module.
+      location: { protocol: 'https:', search: '' },
+    },
+    configurable: true,
+    writable: true,
+  });
 };
 
 const withViewport = (width: number, height: number): TabletLayout => {
@@ -29,7 +34,11 @@ const withViewport = (width: number, height: number): TabletLayout => {
 };
 
 afterEach(() => {
-  (globalThis as { window?: unknown }).window = originalWindow;
+  if (originalWindowDescriptor) {
+    Object.defineProperty(globalThis, 'window', originalWindowDescriptor);
+  } else {
+    Reflect.deleteProperty(globalThis, 'window');
+  }
 });
 
 describe('readTabletLayout', () => {

@@ -8,7 +8,8 @@
     "dev": "tsc --noEmit --watch",
     "build": "tsc --noEmit --incremental",
     "type-check": "tsc --noEmit",
-    "lint": "eslint \"./src/**/*.{ts,tsx}\" --config ../../eslint.config.js"
+    "lint": "eslint \"./src/**/*.{ts,tsx}\" --config ../../eslint.config.js",
+    "test": "node ./scripts/run-tests-isolated.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-secure-storage": "^8.0.0",
