@@ -19,6 +19,7 @@ import {
 import { createPiModelConfigStore } from '../model-config-store.js';
 import { clampThinkingLevel, getSupportedThinkingLevels, isPiThinkingLevel } from '../thinking-levels.js';
 import { createMessageEntryAliases } from './message-entry-aliases.js';
+import { resolveEffectiveRetryLimitFromDataDir as resolveEffectiveRetryLimit } from './session-retry-limits.js';
 import { createSessionRuntimeRegistry } from './runtime-registry.js';
 import {
   findPiSessionJsonlById,
@@ -782,24 +783,21 @@ export function createSessionDaemon({
     });
     if (!newRuntime.cwd) newRuntime.cwd = targetCwd;
     // Apply default retry limit for new sessions. Explicit per-run overrides win.
+    // With no PiChamber override configured, Pi's own retry settings stay
+    // authoritative — the runtime default (3) already matches, so nothing is
+    // applied and a user's Pi-native maxRetries value is never stomped.
     try {
       const settingsManager = newRuntime.services?.settingsManager;
       if (settingsManager && typeof settingsManager.getRetrySettings === 'function') {
-        let effective = explicitRetryLimit;
-        if (effective === undefined) {
-          try {
-            const raw = await readFile(join(resolvePiChamberDataDir(), 'pi', 'settings.json'), 'utf8');
-            const parsed = JSON.parse(raw);
-            if (Number.isInteger(parsed?.defaultRetryLimit)) effective = parsed.defaultRetryLimit;
-          } catch {}
-          if (effective === undefined) effective = 3;
-        }
-        if (Number.isInteger(effective) && effective >= 0 && effective <= 10) {
+        const effective = await resolveEffectiveRetryLimit({ payloadRetryLimit: explicitRetryLimit, dataDir: resolvePiChamberDataDir() });
+        if (effective !== undefined) {
           const current = settingsManager.getRetrySettings().maxRetries;
           if (current !== effective) {
             if (typeof settingsManager.applyOverrides === 'function') {
+              // In-memory only: applyOverrides never queues a write, so this
+              // scopes the limit to sessions created on this runtime without
+              // touching Pi's own settings files.
               settingsManager.applyOverrides({ retry: { maxRetries: effective } });
-              if (explicitRetryLimit === undefined) await settingsManager.flush().catch(() => {});
             } else if (settingsManager.globalSettings) {
               settingsManager.globalSettings.retry = { ...(settingsManager.globalSettings.retry ?? {}), maxRetries: effective };
             }
