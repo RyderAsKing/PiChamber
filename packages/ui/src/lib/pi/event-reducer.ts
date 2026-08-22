@@ -742,6 +742,10 @@ export const applyPiEvent = (
       reduceLifecycle(session, event.payload.state, event.payload.attempt);
       break;
     case 'assistant.message.start':
+      // A message start is live turn evidence even when the lifecycle frame
+      // was missed or has not arrived yet. This also protects that event from
+      // a same-cursor history restore whose transcript projection lagged it.
+      session.lifecycle = 'busy';
       session.messages = new Map(session.messages);
       session.streamingMessages = new Set(session.streamingMessages);
       reduceMessageStart(session, event.directory, event.payload);

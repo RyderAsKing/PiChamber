@@ -75,6 +75,39 @@ describe("createPiEventStream", () => {
     handle.dispose()
   })
 
+  test("fresh browser SSE joins at its hydrated cursor and reconnects from the last accepted event", async () => {
+    const encoder = new TextEncoder()
+    const controllers: ReadableStreamDefaultController<Uint8Array>[] = []
+    runtimeFetch.mockImplementation(async (_path: string, init?: RequestInit) => new Response(new ReadableStream({
+      start(controller) {
+        controllers.push(controller)
+        init?.signal?.addEventListener("abort", () => controller.close(), { once: true })
+      },
+    })))
+
+    const received: number[] = []
+    const { createPiEventStream } = await import("./transport")
+    const handle = createPiEventStream({
+      onEvent: (frame) => received.push(frame.sequence),
+    }, { sessionId: "session-1", fromSequence: 7, reconnectDelayMs: 0 })
+
+    await flush()
+    controllers[0]?.enqueue(encoder.encode(`data: ${JSON.stringify(event(8))}\n\n`))
+    await flush()
+    expect(received).toEqual([8])
+
+    handle.reconnect()
+    await flush()
+    await flush()
+    expect(runtimeFetch.mock.calls.length).toBe(2)
+    expect(streamUrls.some((entry) => entry.transport === "sse" && entry.query.fromSequence === "8")).toBe(true)
+
+    controllers[1]?.enqueue(encoder.encode(`data: ${JSON.stringify(event(9))}\n\n`))
+    await flush()
+    expect(received).toEqual([8, 9])
+    handle.dispose()
+  })
+
   test("resumes a manually reconnected WebSocket from the last accepted sequence", async () => {
     const sockets: Array<Record<string, ((event?: { data?: string; code?: number }) => void) | undefined>> = []
     refreshRuntimeUrlAuthToken.mockResolvedValue(undefined)
@@ -93,6 +126,76 @@ describe("createPiEventStream", () => {
     await flush()
     expect(streamUrls.some((entry) => entry.transport === "ws" && entry.query.sessionId === "session-1" && entry.query.fromSequence === "6")).toBe(true)
     handle.dispose()
+  })
+
+  test("reconnects a silent native EventSource after the app resumes", async () => {
+    const originalEventSource = (globalThis as { EventSource?: unknown }).EventSource
+    const originalWindow = (globalThis as { window?: unknown }).window
+    const received: number[] = []
+    const disconnects: string[] = []
+    const sources: Array<{
+      url: string
+      closed: boolean
+      onopen?: () => void
+      onmessage?: (event: { data?: string }) => void
+      onerror?: () => void
+      close: () => void
+    }> = []
+    class FakeEventSource {
+      url: string
+      closed = false
+      onopen?: () => void
+      onmessage?: (event: { data?: string }) => void
+      onerror?: () => void
+      constructor(url: string) {
+        this.url = url
+        sources.push(this)
+      }
+      close() { this.closed = true }
+    }
+    Object.defineProperty(globalThis, "EventSource", { configurable: true, value: FakeEventSource })
+    Object.defineProperty(globalThis, "window", { configurable: true, value: new EventTarget() })
+    capacitor = true
+    refreshRuntimeUrlAuthToken.mockResolvedValue(undefined)
+
+    try {
+      const { createPiEventStream } = await import("./transport")
+      const handle = createPiEventStream({
+        onEvent: (frame) => received.push(frame.sequence),
+        onDisconnect: (reason) => disconnects.push(reason),
+      }, { sessionId: "session-1", fromSequence: 7, reconnectDelayMs: 0 })
+
+      await flush()
+      sources[0]?.onopen?.()
+      sources[0]?.onmessage?.({ data: JSON.stringify(event(8)) })
+      expect(received).toEqual([8])
+
+      window.dispatchEvent(new Event("pichamber:system-resume"))
+      await flush()
+      await flush()
+
+      expect(sources[0]?.closed).toBe(true)
+      expect(disconnects).toEqual([])
+      expect(sources).toHaveLength(2)
+      expect(streamUrls.some((entry) => entry.transport === "sse" && entry.query.fromSequence === "8")).toBe(true)
+      sources[1]?.onopen?.()
+      sources[1]?.onmessage?.({ data: JSON.stringify(event(9)) })
+      expect(received).toEqual([8, 9])
+      handle.dispose()
+      window.dispatchEvent(new Event("pichamber:system-resume"))
+      await flush()
+      expect(sources).toHaveLength(2)
+    } finally {
+      capacitor = false
+      Object.defineProperty(globalThis, "EventSource", {
+        configurable: true,
+        value: originalEventSource,
+      })
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: originalWindow,
+      })
+    }
   })
 
   test("uses EventSource on direct Capacitor runtimes instead of buffered fetch", async () => {

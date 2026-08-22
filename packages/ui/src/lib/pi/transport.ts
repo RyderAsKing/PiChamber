@@ -415,10 +415,10 @@ export const createPiEventStream = (
       : base + Math.floor(Math.random() * 100);
   };
 
-  const scheduleReconnect = (reason: string) => {
+  const scheduleReconnect = (reason: string, notifyDisconnect = true) => {
     if (disposed || signal.aborted || reconnectTimer) return;
     recordMobileDiagnostic('stream-reconnect', { code: reason });
-    handlers.onDisconnect?.(reason);
+    if (notifyDisconnect) handlers.onDisconnect?.(reason);
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       attempt += 1;
@@ -513,12 +513,31 @@ export const createPiEventStream = (
         }), signal, onReady, () => resetHeartbeat(connectionId), onEvent, onDisconnect);
   };
 
+  const handleSystemResume = () => {
+    if (!shouldUseCapacitorEventSource() || disposed || signal.aborted) return;
+    clearTimers();
+    invalidateConnection();
+    healthyConnection = false;
+    // WKWebView can preserve a dead EventSource across suspension without
+    // firing `error`. Replace it locally instead of reporting a daemon
+    // disconnect: the app may still be waiting for its network resume probe,
+    // and the resumed stream already replays from `lastSequence` (or receives
+    // a snapshot when the replay window has expired).
+    scheduleReconnect('system-resume', false);
+  };
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pichamber:system-resume', handleSystemResume);
+  }
+
   void connect();
 
   return {
     dispose: () => {
       if (disposed) return;
       disposed = true;
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('pichamber:system-resume', handleSystemResume);
+      }
       clearTimers();
       invalidateConnection();
       internalController.abort();

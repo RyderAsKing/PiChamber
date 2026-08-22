@@ -315,6 +315,59 @@ describe('Pi session daemon spike', () => {
     await stale.close();
   });
 
+  it('keeps existing and late-joining device streams independent during one turn', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-multi-client-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession();
+    session.isStreaming = true;
+    session.messages = [{
+      role: 'assistant',
+      content: [{ type: 'text', text: 'half' }],
+      provider: 'test',
+      model: 'model',
+      timestamp: 1_000,
+    }];
+    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
+    await daemon.start();
+
+    const first = connectClient(endpoint);
+    await first.authenticate();
+    await first.request('sessions.create', { cwd: root });
+    const detail = await first.request('sessions.open', { sessionId: 'pi-session-1', cwd: root });
+    expect(detail.result).toMatchObject({
+      isStreaming: true,
+      lifecycle: 'busy',
+      lastSequence: expect.any(Number),
+      messages: [expect.objectContaining({ parts: [expect.objectContaining({ text: 'half' })] })],
+    });
+
+    const late = connectClient(endpoint);
+    await late.authenticate(credential, {
+      sessionId: 'pi-session-1',
+      fromSequence: detail.result.lastSequence,
+    });
+    const firstDelta = first.next((frame) => frame.event === 'assistant.message.delta');
+    const lateDelta = late.next((frame) => frame.event === 'assistant.message.delta');
+    session.emit({
+      type: 'message_update',
+      assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: ' plus the rest' },
+    });
+    const [firstDeltaFrame, lateDeltaFrame] = await Promise.all([firstDelta, lateDelta]);
+    expect(firstDeltaFrame.sequence).toBe(lateDeltaFrame.sequence);
+    expect(lateDeltaFrame.payload.delta).toBe(' plus the rest');
+
+    const firstIdle = first.next((frame) => frame.event === 'session.lifecycle' && frame.payload?.state === 'idle');
+    const lateIdle = late.next((frame) => frame.event === 'session.lifecycle' && frame.payload?.state === 'idle');
+    session.isStreaming = false;
+    session.emit({ type: 'agent_settled' });
+    const [firstIdleFrame, lateIdleFrame] = await Promise.all([firstIdle, lateIdle]);
+    expect(firstIdleFrame.sequence).toBe(lateIdleFrame.sequence);
+    expect(firstIdleFrame.sequence).toBeGreaterThan(firstDeltaFrame.sequence);
+
+    await late.close();
+    await first.close();
+  });
+
   it('lists only validated cwd-scoped sessions without exposing Pi JSONL paths', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = testDaemonEndpoint(root);

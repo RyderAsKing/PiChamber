@@ -1353,35 +1353,39 @@ export class PiSessionStore {
     if (!existing) return fetched;
     if (existing.sessionId !== fetched.sessionId) return fetched;
     const liveTurn = existing.lifecycle === 'busy' || existing.lifecycle === 'retry';
-    if (existing.messages.size === 0 && !liveTurn) return fetched;
+    const preserveExisting = liveTurn || existing.lastSequence > fetched.lastSequence;
+    if (existing.messages.size === 0 && !preserveExisting) return fetched;
 
-    // Fetched fills in history the live reducer does not have. Existing wins on
-    // overlapping ids so a stale or folded getSession cannot blank a transcript
-    // the user is already looking at — including when they send mid-hydrate.
+    // A live turn or a sequence-newer resident reducer may contain events that
+    // the request did not observe, so it overlays the fetched history. Once the
+    // resident turn has settled and the fetch is at least as new, the fetched
+    // transcript is authoritative for overlapping messages and parts. Always
+    // preferring resident objects left restarted clients permanently stuck on
+    // the partial text they had before snapshot recovery.
     const session: PiReducerSessionState = {
       ...fetched,
-      lifecycle: liveTurn ? existing.lifecycle : fetched.lifecycle,
+      lifecycle: preserveExisting ? existing.lifecycle : fetched.lifecycle,
       lastSequence: Math.max(fetched.lastSequence, existing.lastSequence),
       messages: new Map(fetched.messages),
       partOrder: new Map(fetched.partOrder),
       parts: createReducerPartMap(fetched.parts),
       toolsByCallId: new Map(fetched.toolsByCallId),
-      streamingMessages: new Set(liveTurn ? existing.streamingMessages : fetched.streamingMessages),
+      streamingMessages: new Set(preserveExisting ? existing.streamingMessages : fetched.streamingMessages),
       queue: existing.queue.steering > 0 || existing.queue.followUp > 0 ? existing.queue : fetched.queue,
-      ...(existing.model ? { model: existing.model } : {}),
-      ...(existing.thinking ? { thinking: existing.thinking } : {}),
+      ...(existing.model && (preserveExisting || !fetched.model) ? { model: existing.model } : {}),
+      ...(existing.thinking && (preserveExisting || !fetched.thinking) ? { thinking: existing.thinking } : {}),
     };
-    for (const [id, message] of existing.messages) {
-      aliasSyntheticUserIfPersisted(session, id, message);
-    }
-    for (const [id, order] of existing.partOrder) {
-      session.partOrder.set(id, order);
-      for (const partId of order) {
-        const part = existing.parts.get(partId);
-        if (part) session.parts.set(partId, part);
+    if (preserveExisting) {
+      for (const [id, message] of existing.messages) {
+        aliasSyntheticUserIfPersisted(session, id, message);
       }
-    }
-    if (liveTurn) {
+      for (const [id, order] of existing.partOrder) {
+        session.partOrder.set(id, order);
+        for (const partId of order) {
+          const part = existing.parts.get(partId);
+          if (part) session.parts.set(partId, part);
+        }
+      }
       for (const [callId, messageId] of existing.toolsByCallId) session.toolsByCallId.set(callId, messageId);
     }
     return session;

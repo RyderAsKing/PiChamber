@@ -649,6 +649,116 @@ describe('PiSessionStore hydrate/overlay reconciliation', () => {
     store.dispose();
   });
 
+  test('force-hydrates after a replay-window snapshot so a restarted client converges', async () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    const partialAssistant = reducerMessage({
+      id: 'a1',
+      role: 'assistant',
+      text: 'half',
+      streaming: true,
+      createdAt: 2,
+      parentId: 'u1',
+    });
+    const partial = reducerSession({
+      sessionId: 's1',
+      lifecycle: 'busy',
+      lastSequence: 4,
+      messages: new Map([['a1', partialAssistant]]),
+      partOrder: new Map([['a1', ['p1']]]),
+      parts: createReducerPartMap([['p1', { id: 'p1', index: 0, type: 'text', text: 'half', streaming: true }]]),
+      streamingMessages: new Set(['a1']),
+    });
+    internal.stream = { dispose: () => undefined };
+    internal.hydratedSessionIds = new Set(['s1']);
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      connection: 'ready',
+      selectedSessionId: 's1',
+      reducer: { bySession: new Map([['s1', partial]]), lastSequence: new Map([['s1', 4]]) },
+    };
+
+    const stubs = stubDaemons({
+      getSession: async () => ({
+        session: { id: 's1', directory: '/repo', createdAt: 1, updatedAt: 3 },
+        lastSequence: 12,
+        isStreaming: false,
+        lifecycle: 'idle',
+        messages: [{
+          message: reducerMessage({ id: 'a1', role: 'assistant', text: 'half plus the rest', createdAt: 2 }),
+          parts: [{ id: 'p1', index: 0, type: 'text', text: 'half plus the rest' }],
+        }],
+      }),
+    });
+    try {
+      internal.commitEvents([{
+        protocolVersion: 1,
+        kind: 'event',
+        name: 'session.snapshot',
+        sequence: 10,
+        sessionId: 's1',
+        directory: '/repo',
+        payload: {
+          snapshot: {
+            sessionId: 's1',
+            directory: '/repo',
+            isStreaming: false,
+            lifecycle: 'idle',
+            queue: { steering: 0, followUp: 0 },
+            lastSequence: 10,
+          },
+        },
+      }]);
+      await tickMicrotasks();
+
+      const committed = store.getState().reducer.bySession.get('s1');
+      expect(stubs.calls.getSession).toBe(1);
+      expect(committed?.parts.get('p1')?.text).toBe('half plus the rest');
+      expect(committed?.lifecycle).toBe('idle');
+      expect(committed?.lastSequence).toBe(12);
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('keeps sequence-newer settled content when an older fetch completes late', () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    const resident = reducerSession({
+      sessionId: 's1',
+      lifecycle: 'idle',
+      lastSequence: 12,
+      messages: new Map([['a1', reducerMessage({ id: 'a1', role: 'assistant', text: 'final' })]]),
+      partOrder: new Map([['a1', ['p1']]]),
+      parts: createReducerPartMap([['p1', { id: 'p1', index: 0, type: 'text', text: 'final', streaming: false }]]),
+    });
+    const staleFetch = reducerSession({
+      sessionId: 's1',
+      lifecycle: 'busy',
+      lastSequence: 10,
+      messages: new Map([['a1', reducerMessage({ id: 'a1', role: 'assistant', text: 'half', streaming: true })]]),
+      partOrder: new Map([['a1', ['p1']]]),
+      parts: createReducerPartMap([['p1', { id: 'p1', index: 0, type: 'text', text: 'half', streaming: true }]]),
+      streamingMessages: new Set(['a1']),
+    });
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      connection: 'ready',
+      reducer: { bySession: new Map([['s1', resident]]), lastSequence: new Map([['s1', 12]]) },
+    };
+
+    internal.commitHydratedSession(staleFetch);
+
+    const committed = store.getState().reducer.bySession.get('s1');
+    expect(committed?.parts.get('p1')?.text).toBe('final');
+    expect(committed?.lifecycle).toBe('idle');
+    expect(committed?.lastSequence).toBe(12);
+    store.dispose();
+  });
+
   test('aliases a synthetic stream user onto the persisted user so the prompt is not shown twice', () => {
     const store = new PiSessionStore();
     const internal = asInternal(store);

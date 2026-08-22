@@ -27,8 +27,11 @@ lives in `PiSessionStore` via `PiSessionProvider`; chat leaves consume
 
 Capacitor's native HTTP fetch adapter buffers long responses, so direct native
 mobile clients use URL-authenticated `EventSource` for `/api/pi/events`.
-Relay-backed mobile clients continue through `runtimeFetch` and the encrypted
-tunnel, where browser `EventSource` cannot address the virtual endpoint.
+WKWebView can preserve a dead `EventSource` across suspension without firing an
+error, so the native system-resume signal replaces that connection and resumes
+from its last accepted sequence. Relay-backed mobile clients continue through
+`runtimeFetch` and the encrypted tunnel, where browser `EventSource` cannot
+address the virtual endpoint.
 
 ## Public types vs. private runtime
 
@@ -57,8 +60,14 @@ Every event the public stream publishes carries a monotonically increasing
 accepted sequence per session id and rejects any event for that session whose
 sequence is `<=` the last accepted value. `getSession` reports that same global
 cursor, not proof that the returned transcript contains every locally applied
-delta, so hydration overlays an in-flight busy/retry turn onto the fetched
-history instead of replacing it. The daemon projects that in-flight turn into
+delta, so hydration overlays an in-flight busy/retry turn, or a resident reducer
+with a newer sequence, onto the fetched history instead of replacing it. Once
+the resident turn has settled and the fetched cursor is at least as new, the
+fetch is authoritative for overlapping messages and parts; otherwise snapshot
+recovery can succeed while stale partial text remains visible. A message-start
+event is itself live-turn evidence, so the reducer marks the session busy even
+when its lifecycle frame was missed or arrives later. The daemon projects that
+in-flight turn into
 `getSession` while `isStreaming` is true (live `session.messages` plus running
 tools, plus `lifecycle: 'busy'`), and `hydrateSessionFromDetail` restores
 `streamingMessages` and part streaming flags from that payload so a restarted

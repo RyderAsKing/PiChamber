@@ -49,6 +49,7 @@ describe("applyPiEvent", () => {
     expect(message?.role).toBe("user")
     expect(message?.text).toBe("hello Pi")
     expect(message?.streaming).toBe(false)
+    expect(state.bySession.get("sess-1")?.lifecycle).toBe("busy")
   })
 
   test("preserves the user-message parent for an assistant turn", () => {
