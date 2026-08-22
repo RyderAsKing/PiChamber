@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-08-22
+
+Hotfix for the 0.3.2 desktop startup crash.
+
+- **Fixes immediate Electron crash on every platform.** 0.3.2 shipped a regression in the retry-limit feature: the session daemon imported the PiChamber data-root from `../pichamber-data-dir.js` instead of `../../pichamber-data-dir.js`, so the Electron main process (and the web server) failed at startup with `ERR_MODULE_NOT_FOUND`. The import is now correctly resolved and the desktop app again starts and serves the Pi session daemon (`session-daemon`). Re-bundle the Electron main (`bundle:main`) after this change; installed 0.3.2 users should update to 0.3.3 via `pichamber update` or the auto-updater.
+
 ## [0.3.2] - 2026-08-22
 
 Remote access and consistency release: remote terminal works over LAN/tunnel again, agent run duration is identical on every device, desktop clients can pair new devices, and Cloudflare Tunnel external access ships end to end.
