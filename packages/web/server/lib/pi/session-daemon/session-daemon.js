@@ -18,6 +18,7 @@ import {
 
 import { createPiModelConfigStore } from '../model-config-store.js';
 import { clampThinkingLevel, getSupportedThinkingLevels, isPiThinkingLevel } from '../thinking-levels.js';
+import { createMessageEntryAliases } from './message-entry-aliases.js';
 import { createSessionRuntimeRegistry } from './runtime-registry.js';
 import {
   findPiSessionJsonlById,
@@ -139,6 +140,7 @@ export function createSessionDaemon({
   const sendGenerationBySession = new Map();
   const streamingRedactionBuffers = new Map();
   const loginAttempts = new Map();
+  const messageEntryAliases = createMessageEntryAliases();
   const MAX_REPLAY_EVENTS = 1_024;
 
   const validateDirectoryPath = async (dir) => {
@@ -1602,6 +1604,7 @@ export function createSessionDaemon({
       targetDir = directory;
       await rm(target.path, { force: false });
     }
+    messageEntryAliases.clearSession({ cwd: active?.cwd || targetDir, sessionId });
     publish('session.lifecycle', { state: 'idle', deleted: true }, sessionId, targetDir);
   };
 
@@ -1616,6 +1619,7 @@ export function createSessionDaemon({
               ? content.filter((part) => part?.type === 'text').map((part) => part.text).join('')
               : '');
           const messageId = `user-${sessionId}-${sequence + 1}`;
+          messageEntryAliases.retain({ cwd: directory, sessionId, syntheticMessageId: messageId, message: event.message });
           latestUserMessageIds.set(sessionId, messageId);
           publish('assistant.message.start', {
             messageId,
@@ -1625,6 +1629,7 @@ export function createSessionDaemon({
           }, sessionId, directory);
         } else if (event.message?.role === 'assistant') {
           const messageId = `assistant-${sessionId}-${sequence + 1}`;
+          messageEntryAliases.retain({ cwd: directory, sessionId, syntheticMessageId: messageId, message: event.message });
           clearStreamingRedactionBuffers(sessionId);
           streamingMessageIds.set(sessionId, messageId);
           latestAssistantMessageIds.set(sessionId, messageId);
@@ -1653,6 +1658,13 @@ export function createSessionDaemon({
         break;
       }
       case 'message_end': {
+        const eventRuntime = runtimeRegistry?.get({ cwd: directory, sessionId });
+        messageEntryAliases.observeMessageEnd({
+          cwd: directory,
+          sessionId,
+          message: event.message,
+          sessionManager: eventRuntime?.session?.sessionManager,
+        });
         if (event.message?.role === 'assistant') {
           const content = Array.isArray(event.message.content) ? event.message.content : [];
           const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
@@ -1924,35 +1936,16 @@ export function createSessionDaemon({
       }
       case 'sessions.navigate': {
         const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
-        let messageId = message.payload?.messageId;
-        if (typeof messageId !== 'string' || messageId.length === 0) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested tree entry is invalid.');
-        // UI may pass a part id like "c865141a:text:1" (e.g. from a tool block).
-        // Pi only knows entry ids, so strip the suffix and retry the entry lookup.
-        const tryIds = [messageId];
-        if (messageId.includes(':')) {
-          const entryId = messageId.split(':')[0];
-          if (entryId && entryId !== messageId) tryIds.unshift(entryId);
-        }
+        const requestedId = message.payload?.messageId;
+        if (typeof requestedId !== 'string' || requestedId.length === 0) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested tree entry is invalid.');
+        const messageId = messageEntryAliases.resolve({
+          cwd: activeRuntime.cwd,
+          sessionId: message.payload.sessionId,
+          requestedId,
+          sessionManager: activeRuntime.session.sessionManager,
+        });
         const previousLeafId = activeRuntime.session.sessionManager?.getLeafId?.() ?? null;
-        let result;
-        let lastError;
-        for (const tryId of tryIds) {
-          try {
-            result = await activeRuntime.session.navigateTree(tryId);
-            messageId = tryId;
-            lastError = undefined;
-            break;
-          } catch (error) {
-            lastError = error;
-            // Only retry on "Entry not found" with a stripped id; otherwise surface immediately.
-            const isEntryNotFound = String(error?.message ?? '').includes('not found');
-            if (!isEntryNotFound || tryId === tryIds[tryIds.length - 1]) {
-              console.error(`[pi:navigate] target=${tryId} leaf=${previousLeafId} branch=${activeRuntime.session.sessionManager?.getBranch?.()?.map((e) => e.id).join(',') ?? 'unknown'} error=${error?.message ?? String(error)}`);
-              throw error;
-            }
-          }
-        }
-        if (lastError) throw lastError;
+        const result = await activeRuntime.session.navigateTree(messageId);
         if (result?.cancelled) throw new SessionDaemonProtocolError('SESSION_TREE_NOT_FOUND', 'Pi cancelled tree navigation.');
         const newLeafId = activeRuntime.session.sessionManager?.getLeafId?.() ?? null;
         const navigation = {
@@ -1967,8 +1960,16 @@ export function createSessionDaemon({
       case 'sessions.fork':
       case 'sessions.clone': {
         const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
-        const entryId = message.command === 'sessions.fork' ? message.payload?.messageId : activeRuntime.session.sessionManager?.getLeafId?.();
-        if (typeof entryId !== 'string' || entryId.length === 0) throw new SessionDaemonProtocolError('SESSION_TREE_NOT_FOUND', 'The Pi session has no fork point.');
+        const requestedId = message.command === 'sessions.fork' ? message.payload?.messageId : activeRuntime.session.sessionManager?.getLeafId?.();
+        if (typeof requestedId !== 'string' || requestedId.length === 0) throw new SessionDaemonProtocolError('SESSION_TREE_NOT_FOUND', 'The Pi session has no fork point.');
+        const entryId = message.command === 'sessions.fork'
+          ? messageEntryAliases.resolve({
+            cwd: activeRuntime.cwd,
+            sessionId: message.payload.sessionId,
+            requestedId,
+            sessionManager: activeRuntime.session.sessionManager,
+          })
+          : requestedId;
         const result = await activeRuntime.fork(entryId, { position: 'at' });
         if (result.cancelled) throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled session creation.');
         rememberRuntimeSession();
@@ -2136,6 +2137,7 @@ export function createSessionDaemon({
         if (platform !== 'win32') await chmod(endpoint, 0o600);
         started = true;
       } catch (error) {
+        messageEntryAliases.clear();
         await disposeRuntime();
         server = undefined;
         throw error;
@@ -2151,6 +2153,7 @@ export function createSessionDaemon({
       loginAttempts.clear();
       for (const client of clients) client.destroy();
       clients.clear();
+      messageEntryAliases.clear();
       await new Promise((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());
       });

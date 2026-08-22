@@ -76,11 +76,15 @@ The shared client exposes `navigateSession()` (`packages/ui/src/lib/pi/client.ts
 
 The tree read path also exists, ending at `PiSessionStore.tree()` (`packages/ui/src/apps/pi-session-store.ts:1202`). No current component consumes it.
 
-### IDs already line up
+### Hydrated IDs line up, live IDs need aliases
 
-Daemon transcript projection uses each Pi message entry's `entry.id` as the browser message ID (`packages/web/server/lib/pi/session-daemon/session-daemon.js:633-710`). Tree projection exposes the same value as `entryId` (`packages/web/server/lib/pi/session-daemon/session-daemon.js:1571-1592`). No message-to-entry lookup layer is needed.
+Hydrated transcript projection uses each Pi message entry's `entry.id` as the browser message ID. Tree projection exposes the same value as `entryId`, so messages returned by `sessions.open`, navigation, or another authoritative hydrate already carry the correct tree ID.
 
-Pi's IDs are generated opaque 8-character hex values. They do not encode time. Existing UI code in `session-ui-store.ts` and `revertedMessageDockState.ts` uses `<` and `>` comparisons on IDs to find earlier or later messages. That cannot represent tree or transcript order reliably.
+Live `message_start` events are different. They arrive before Pi calls `SessionManager.appendMessage()`, so the daemon publishes a synthetic browser ID such as `user-<session>-<sequence>` or `assistant-<session>-<sequence>`. A message created after the last hydrate can therefore remain synthetic in the UI. Revert makes this repeatable because replacement-branch messages arrive through live events.
+
+The daemon now keeps a cwd-and-session-scoped alias from each synthetic ID to the later Pi entry ID. It matches the `message_start`/`message_end` object to the persisted entry by object identity after Pi appends it. Navigation and fork resolve that alias before calling Pi. The mapping survives idle runtime disposal because a browser may retain live IDs while the daemon reopens the session, and it clears on session deletion or daemon shutdown.
+
+Pi's entry IDs are opaque and do not encode time. UI branch behavior must use transcript or tree order rather than lexical ID comparison.
 
 ### Why users do not have a usable revert feature
 
@@ -99,7 +103,7 @@ This is partly a leftover contract from the pre-Pi sync model. The backend primi
 
 ### 1. Keep the existing server operation
 
-Do not add `sessions.revert` or `/revert` just to alias navigation. The current route already calls Pi with the correct user entry ID. Calling `navigateTree()` with the parent instead would duplicate Pi's target logic and lose its `editorText` behavior.
+Do not add `sessions.revert` or `/revert` just to alias navigation. The current route already owns navigation and resolves live browser IDs to Pi entry IDs before calling `navigateTree()`. Calling `navigateTree()` with the parent instead would duplicate Pi's target logic and lose its `editorText` behavior.
 
 Extend the navigation response with optional metadata instead:
 
@@ -169,7 +173,7 @@ Backend tests:
 
 Shared client and store tests:
 
-- message IDs are sent unchanged as tree entry IDs
+- hydrated message IDs pass through unchanged, while live synthetic IDs resolve to Pi entry IDs in the daemon
 - navigation hydrates the returned active branch
 - a failed navigation preserves the existing transcript and dock state
 - composer text is restored only when the composer is empty

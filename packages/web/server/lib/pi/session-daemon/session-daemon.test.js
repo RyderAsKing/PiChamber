@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
+import { createMessageEntryAliases } from './message-entry-aliases.js';
 import { createSessionDaemon, isLocalSessionDaemonEndpoint } from './session-daemon.js';
 
 const credential = 'a-private-daemon-credential';
@@ -42,6 +43,7 @@ class FakeSession {
       getSessionFile: () => sessionFile,
       getHeader: () => ({ timestamp: '2026-01-01T00:00:00.000Z' }),
       getEntries: () => this.entries,
+      getEntry: (id) => this.entries.find((entry) => entry.id === id),
       getLeafId: () => 'fake-entry',
       getTree: () => [{ entry: { id: 'fake-entry', parentId: undefined, timestamp: '2026-01-01T00:00:00.000Z' }, children: [] }],
       appendSessionInfo: (name) => this.names.push(name),
@@ -662,6 +664,171 @@ describe('Pi session daemon spike', () => {
       result: { session: { id: 'pi-session-new', directory: root } },
     });
     await client.close();
+  });
+
+  it('resolves live message ids to Pi entry ids for navigation and forking', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-message-alias-'));
+    const endpoint = testDaemonEndpoint(root);
+    const sessionFile = join(root, 'fixture.jsonl');
+    await writeFile(sessionFile, `${JSON.stringify({ type: 'session', id: 'fixture-session', cwd: root, timestamp: '2026-01-01T00:00:00.000Z' })}\n`);
+    const session = new FakeSession('fixture-session', sessionFile);
+    const hydratedMessage = { role: 'user', timestamp: 1, content: 'm3' };
+    session.entries.push({ type: 'message', id: 'm3-entry', parentId: null, timestamp: '2026-01-01T00:00:01.000Z', message: hydratedMessage });
+    const navigated = [];
+    session.navigateTree = async (entryId) => {
+      if (!session.sessionManager.getEntry(entryId)) throw new Error(`Entry ${entryId} not found`);
+      navigated.push(entryId);
+      return { cancelled: false };
+    };
+    const forked = [];
+    const runtime = new FakeRuntime({ cwd: root, session });
+    runtime.fork = async (entryId) => {
+      if (!session.sessionManager.getEntry(entryId)) throw new Error('Invalid entry ID for forking');
+      forked.push(entryId);
+      return { cancelled: false };
+    };
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => runtime,
+      listSessions: async () => [{ path: sessionFile, id: 'fixture-session', cwd: root }],
+    });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.open', { sessionId: 'fixture-session', directory: root });
+
+    await expect(client.request('sessions.navigate', { sessionId: 'fixture-session', directory: root, messageId: 'm3-entry' })).resolves.toMatchObject({
+      result: { navigation: { targetEntryId: 'm3-entry' } },
+    });
+
+    const replacementUser = { role: 'user', timestamp: 2, content: 'm4 replacement' };
+    const userStartPromise = client.next((frame) => frame.event === 'assistant.message.start' && frame.payload?.role === 'user' && frame.payload?.text === 'm4 replacement');
+    session.emit({ type: 'message_start', message: replacementUser });
+    session.emit({ type: 'message_end', message: replacementUser });
+    session.entries.push({ type: 'message', id: 'm4-rev-entry', parentId: 'm3-entry', timestamp: '2026-01-01T00:00:02.000Z', message: replacementUser });
+    const publishedUserId = (await userStartPromise).payload.messageId;
+    await Promise.resolve();
+
+    await expect(client.request('sessions.navigate', { sessionId: 'fixture-session', directory: root, messageId: publishedUserId })).resolves.toMatchObject({
+      result: { navigation: { targetEntryId: 'm4-rev-entry' } },
+    });
+    await expect(client.request('sessions.fork', { sessionId: 'fixture-session', directory: root, messageId: publishedUserId })).resolves.toMatchObject({ result: expect.any(Object) });
+
+    const replacementAssistant = { role: 'assistant', timestamp: 3, provider: 'test', model: 'model', content: [{ type: 'text', text: 'replacement answer' }] };
+    const assistantStartPromise = client.next((frame) => frame.event === 'assistant.message.start' && frame.payload?.role === 'assistant');
+    session.emit({ type: 'message_start', message: replacementAssistant });
+    session.emit({ type: 'message_end', message: replacementAssistant });
+    session.entries.push({ type: 'message', id: 'm4-assistant-entry', parentId: 'm4-rev-entry', timestamp: '2026-01-01T00:00:03.000Z', message: replacementAssistant });
+    const publishedAssistantId = (await assistantStartPromise).payload.messageId;
+    await Promise.resolve();
+
+    await expect(client.request('sessions.navigate', {
+      sessionId: 'fixture-session',
+      directory: root,
+      messageId: `${publishedAssistantId}:text:0`,
+    })).resolves.toMatchObject({ result: { navigation: { targetEntryId: 'm4-assistant-entry' } } });
+    await expect(client.request('sessions.fork', {
+      sessionId: 'fixture-session',
+      directory: root,
+      messageId: `${publishedAssistantId}:text:0`,
+    })).resolves.toMatchObject({ result: expect.any(Object) });
+
+    expect(navigated).toEqual(['m3-entry', 'm4-rev-entry', 'm4-assistant-entry']);
+    expect(forked).toEqual(['m4-rev-entry', 'm4-assistant-entry']);
+    await expect(client.request('sessions.fork', {
+      sessionId: 'fixture-session',
+      directory: root,
+      messageId: 'user-fixture-session-unknown',
+    })).rejects.toThrow('Daemon connection closed');
+
+    const navigationClient = connectClient(endpoint);
+    await navigationClient.authenticate();
+    await expect(navigationClient.request('sessions.navigate', {
+      sessionId: 'fixture-session',
+      directory: root,
+      messageId: 'user-fixture-session-unknown',
+    })).rejects.toThrow('Daemon connection closed');
+  });
+
+  it('keeps live message aliases across idle disposal and runtime reopening', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-message-alias-idle-'));
+    const endpoint = testDaemonEndpoint(root);
+    const sessionFile = join(root, 'fixture.jsonl');
+    await writeFile(sessionFile, `${JSON.stringify({ type: 'session', id: 'fixture-session', cwd: root, timestamp: '2026-01-01T00:00:00.000Z' })}\n`);
+    const liveMessage = { role: 'user', timestamp: 1, content: 'persist me' };
+    const persistedEntry = { type: 'message', id: 'persisted-entry', parentId: null, timestamp: '2026-01-01T00:00:01.000Z', message: liveMessage };
+    const firstSession = new FakeSession('fixture-session', sessionFile);
+    const firstRuntime = new FakeRuntime({ cwd: root, session: firstSession });
+    const reopenedSession = new FakeSession('fixture-session', sessionFile);
+    reopenedSession.entries.push({ ...persistedEntry, message: { ...liveMessage } });
+    reopenedSession.navigateTree = async (entryId) => {
+      if (!reopenedSession.sessionManager.getEntry(entryId)) throw new Error(`Entry ${entryId} not found`);
+      reopenedSession.navigatedTo = entryId;
+      return { cancelled: false };
+    };
+    const reopenedRuntime = new FakeRuntime({ cwd: root, session: reopenedSession });
+    let runtimeCount = 0;
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      idleTimeoutMs: 10,
+      listSessions: async () => [{ path: sessionFile, id: 'fixture-session', cwd: root }],
+      createRuntime: async () => (++runtimeCount === 1 ? firstRuntime : reopenedRuntime),
+    });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.open', { sessionId: 'fixture-session', directory: root });
+    const userStartPromise = client.next((frame) => frame.event === 'assistant.message.start' && frame.payload?.role === 'user');
+    firstSession.emit({ type: 'message_start', message: liveMessage });
+    firstSession.emit({ type: 'message_end', message: liveMessage });
+    firstSession.entries.push(persistedEntry);
+    const publishedId = (await userStartPromise).payload.messageId;
+    await Promise.resolve();
+    firstSession.emit({ type: 'agent_settled' });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(firstRuntime.disposed).toBe(true);
+
+    await expect(client.request('sessions.navigate', {
+      sessionId: 'fixture-session',
+      directory: root,
+      messageId: publishedId,
+    })).resolves.toMatchObject({ result: { navigation: { targetEntryId: 'persisted-entry' } } });
+    expect(reopenedSession.navigatedTo).toBe('persisted-entry');
+    await client.close();
+  });
+
+  it('scopes live message aliases by directory and session id', () => {
+    const aliases = createMessageEntryAliases({ scheduleMicrotask: (callback) => callback() });
+    const messageA = { role: 'user', content: 'same' };
+    const messageB = { role: 'user', content: 'same' };
+    const managerA = {
+      getEntry: () => undefined,
+      getEntries: () => [{ type: 'message', id: 'entry-a', message: messageA }],
+    };
+    const managerB = {
+      getEntry: () => undefined,
+      getEntries: () => [{ type: 'message', id: 'entry-b', message: messageB }],
+    };
+    aliases.retain({ cwd: '/project-a', sessionId: 'same-session', syntheticMessageId: 'user-same-session-1', message: messageA });
+    aliases.retain({ cwd: '/project-b', sessionId: 'same-session', syntheticMessageId: 'user-same-session-1', message: messageB });
+    aliases.observeMessageEnd({ cwd: '/project-a', sessionId: 'same-session', message: messageA, sessionManager: managerA });
+    aliases.observeMessageEnd({ cwd: '/project-b', sessionId: 'same-session', message: messageB, sessionManager: managerB });
+
+    expect(aliases.resolve({ cwd: '/project-a', sessionId: 'same-session', requestedId: 'user-same-session-1', sessionManager: managerA })).toBe('entry-a');
+    expect(aliases.resolve({ cwd: '/project-b', sessionId: 'same-session', requestedId: 'user-same-session-1:text:0', sessionManager: managerB })).toBe('entry-b');
+    expect(aliases.resolve({ cwd: '/project-a', sessionId: 'same-session', requestedId: 'user-same-session-unknown', sessionManager: managerA })).toBe('user-same-session-unknown');
+
+    aliases.clearSession({ cwd: '/project-a', sessionId: 'same-session' });
+    expect(aliases.resolve({ cwd: '/project-a', sessionId: 'same-session', requestedId: 'user-same-session-1', sessionManager: managerA })).toBe('user-same-session-1');
+    expect(aliases.resolve({ cwd: '/project-b', sessionId: 'same-session', requestedId: 'user-same-session-1', sessionManager: managerB })).toBe('entry-b');
+    aliases.clear();
+    expect(aliases.resolve({ cwd: '/project-b', sessionId: 'same-session', requestedId: 'user-same-session-1:text:0', sessionManager: managerB })).toBe('user-same-session-1');
   });
 
   it('disposes an idle runtime without deleting its Pi JSONL and restores it on demand', async () => {

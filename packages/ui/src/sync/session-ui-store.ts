@@ -1182,23 +1182,10 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   },
 
   // ---------------------------------------------------------------------------
-  // forkFromMessage — delegates to session-actions (handles text + sidebar)
+  // forkFromMessage — delegates to session-actions; callers own presentation
   // ---------------------------------------------------------------------------
   forkFromMessage: async (sessionId, messageId) => {
-    const sessions = getSyncSessions()
-    const existingSession = sessions.find((s) => s.id === sessionId)
-    if (!existingSession) return
-
-    try {
-      await forkFromMessageAction(sessionId, messageId)
-
-      const { toast } = await import("sonner")
-      toast.success(`Forked from ${existingSession.title}`)
-    } catch (error) {
-      console.error("Failed to fork session:", error)
-      const { toast } = await import("sonner")
-      toast.error("Failed to fork session")
-    }
+    await forkFromMessageAction(sessionId, messageId)
   },
 
   // ---------------------------------------------------------------------------

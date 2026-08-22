@@ -11,6 +11,7 @@ import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
+import { toast } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useRevertNavigation } from '@/sync/revert-navigation-store';
@@ -70,6 +71,8 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
         setForkingId(messageId);
         try {
             await forkFromMessage(sessionId, messageId);
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'Failed to fork session');
         } finally {
             setForkingId(null);
         }

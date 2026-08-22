@@ -10,6 +10,7 @@ const originals = {
   prompt: store.prompt,
   setModel: store.setModel,
   setThinking: store.setThinking,
+  fork: store.fork,
 };
 
 afterEach(() => {
@@ -17,6 +18,7 @@ afterEach(() => {
   store.prompt = originals.prompt;
   store.setModel = originals.setModel;
   store.setThinking = originals.setThinking;
+  store.fork = originals.fork;
 });
 
 describe('routeMessage', () => {
@@ -72,6 +74,34 @@ describe('routeMessage', () => {
 
     expect(uploads).toEqual([]);
     expect(prompts).toEqual([['session-2', 'How hard will it be for us to update @PiChamber/ entirely with this kind of UI: https://github.com/zeronsh/comet', 'prompt', undefined]]);
+  });
+
+  test('forkFromMessage calls the backend even when the session catalog has no row and waits for it to resolve', async () => {
+    const calls: Array<[string, string | undefined]> = [];
+    let resolveFork!: () => void;
+    store.fork = (async (sessionId: string, messageId?: string) => {
+      calls.push([sessionId, messageId]);
+      await new Promise<void>((resolve) => { resolveFork = resolve; });
+    }) as typeof store.fork;
+
+    let settled = false;
+    const pending = useSessionUIStore.getState().forkFromMessage('temporarily-absent-session', 'live-message-id');
+    void pending.then(() => { settled = true; });
+    await Promise.resolve();
+
+    expect(calls).toEqual([['temporarily-absent-session', 'live-message-id']]);
+    expect(settled).toBe(false);
+
+    resolveFork();
+    await pending;
+    expect(settled).toBe(true);
+  });
+
+  test('forkFromMessage rejects when the backend rejects', async () => {
+    const failure = new Error('Invalid entry ID for forking');
+    store.fork = (async () => { throw failure; }) as typeof store.fork;
+
+    await expect(useSessionUIStore.getState().forkFromMessage('session-1', 'live-message-id')).rejects.toThrow(failure.message);
   });
 
   test('setNewSessionDraftTarget preserves draft open state and updates target project/directory', () => {
