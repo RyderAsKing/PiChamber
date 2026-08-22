@@ -349,7 +349,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const reorderProjects = useProjectsStore((state) => state.reorderProjects);
 
   const setActiveMainTab = useUIStore((state) => state.setActiveMainTab);
-  const openContextPanelTab = useUIStore((state) => state.openContextPanelTab);
   const setSettingsDialogOpen = useUIStore((state) => state.setSettingsDialogOpen);
   const setSettingsPage = useUIStore((state) => state.setSettingsPage);
   const toggleHelpDialog = useUIStore((state) => state.toggleHelpDialog);
@@ -1126,7 +1125,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         removeSessionFromFolder={removeSessionFromFolder}
         addSessionToFolder={addSessionToFolder}
         createFolderAndStartRename={stableCreateFolderAndStartRename}
-        openContextPanelTab={openContextPanelTab}
         handleDeleteSession={stableHandleDeleteSession}
         handleRestoreSession={stableHandleRestoreSession}
         mobileVariant={mobileVariant}

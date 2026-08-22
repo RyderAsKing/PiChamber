@@ -319,8 +319,7 @@ describe('session activity timing', () => {
     const skewedNow = Date.now() + 5_000;
     const originalNow = Date.now;
     try {
-      // @ts-expect-error overwrite for skew simulation
-      Date.now = () => skewedNow;
+      (Date as unknown as { now: () => number }).now = () => skewedNow;
       resetSessionActivityTiming();
       adoptServerRunTiming('ses_a', serverRunStartedAt, serverNow);
       const secondStart = startedAt('ses_a') as number;
@@ -343,8 +342,8 @@ describe('session activity timing', () => {
     const before = Date.now();
     resetSessionActivityTiming();
     adoptServerRunTiming('ses_a', serverRunStartedAt, serverNow);
-    expect(startedAt('ses_a')).toBeGreaterThanOrEqual(before - 15_500);
-    expect(startedAt('ses_a')).toBeLessThanOrEqual(before);
+    expect((startedAt('ses_a') as number) >= before - 15_500).toBe(true);
+    expect((startedAt('ses_a') as number) <= before).toBe(true);
     // Must still be considered the same logical start, not a fresh local start.
     expect(Math.abs((startedAt('ses_a') as number) - (first as number))).toBeLessThan(600);
   });

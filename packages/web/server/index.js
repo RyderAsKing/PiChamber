@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { createClientPairingRuntime } from './lib/client-auth/pairing.js';
 import { createRemoteClientAuthRuntime } from './lib/client-auth/remote-clients.js';
 import { resolvePiChamberDataDir } from './lib/pichamber-data-dir.js';
+import { createTunnelService } from './lib/server/tunnel-service.js';
 import { registerPiRuntimeRoutes } from './lib/pi/routes.js';
 import { registerWorkspaceIntegrations } from './lib/workspace/host.js';
 import { createPiSessionDaemonSupervisor } from './lib/pi/session-daemon/supervisor.js';
@@ -114,6 +115,15 @@ export async function startWebUiServer(options = {}) {
   const tunnelAuthController = createTunnelAuth();
   const uiAuthController = createUiAuth({ password: uiPassword, readSettingsFromDiskMigrated: async () => ({}) , clientAuthController: remoteClientAuthRuntime });
   const piSessionDaemonRuntime = createPiSessionDaemonSupervisor({ dataDir: PICHAMBER_DATA_DIR });
+  const tunnelService = createTunnelService({
+    dataDir: PICHAMBER_DATA_DIR,
+    getPort: () => {
+      const address = server.address();
+      return typeof address === 'object' && address ? address.port : null;
+    },
+    tunnelAuthController,
+    getServerLabel: () => os.hostname() || 'PiChamber',
+  });
   let stopped = false;
 
   app.set('trust proxy', true);
@@ -157,6 +167,29 @@ export async function startWebUiServer(options = {}) {
     getServerLabel: () => os.hostname() || 'PiChamber',
   });
   registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => piSessionDaemonRuntime });
+  // Cloudflare Tunnel external access (manual token + quick modes).
+  const requireTunnelAuth = (req, res, next) => uiAuthController.requireAuth(req, res, next);
+  app.get('/api/pichamber/tunnel/status', requireTunnelAuth, async (_req, res) => {
+    try { res.json(await tunnelService.getStatus()); } catch (error) { res.status(500).json({ error: error?.message || 'Failed to get tunnel status' }); }
+  });
+  app.get('/api/pichamber/tunnel/check', requireTunnelAuth, async (req, res) => {
+    try { res.json(await tunnelService.check(req.query?.provider)); } catch (error) { res.status(500).json({ error: error?.message || 'Tunnel check failed' }); }
+  });
+  app.get('/api/pichamber/tunnel/providers', requireTunnelAuth, async (_req, res) => {
+    res.json({ providers: [{ provider: 'cloudflare', modes: [{ key: 'quick' }, { key: 'managed-remote' }, { key: 'managed-local' }] }] });
+  });
+  app.post('/api/pichamber/tunnel/start', express.json({ limit: '64kb' }), requireTunnelAuth, async (req, res) => {
+    try { const result = await tunnelService.start(req.body ?? {}); res.json(result); } catch (error) { const code = error?.code === 'missing_dependency' ? 400 : error?.code === 'validation_error' ? 422 : 500; res.status(code).json({ ok: false, error: error?.message || 'Failed to start tunnel', code: error?.code }); }
+  });
+  app.post('/api/pichamber/tunnel/stop', requireTunnelAuth, async (_req, res) => {
+    try { res.json(await tunnelService.stop()); } catch (error) { res.status(500).json({ error: error?.message || 'Failed to stop tunnel' }); }
+  });
+  app.put('/api/pichamber/tunnel/managed-remote-token', express.json({ limit: '64kb' }), requireTunnelAuth, async (req, res) => {
+    try { res.json(await tunnelService.saveManagedRemoteToken(req.body ?? {})); } catch (error) { const code = error?.code === 'validation_error' ? 400 : 500; res.status(code).json({ ok: false, error: error?.message || 'Failed to save token' }); }
+  });
+  app.get('/api/pichamber/tunnel/doctor', requireTunnelAuth, async (req, res) => {
+    try { const status = await tunnelService.getStatus(); const checkResult = await tunnelService.check(); res.json({ ok: true, status, check: checkResult, query: req.query }); } catch (error) { res.status(500).json({ ok: false, error: error?.message || 'Doctor failed' }); }
+  });
   registerWorkspaceIntegrations({ app, server, express, uiAuthController });
   registerStaticRoutes(app, { apiOnly });
 
