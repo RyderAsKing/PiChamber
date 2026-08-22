@@ -23,6 +23,39 @@ export const getForkFamilyColor = (familyId: string | null | undefined): string 
   return FORK_PALETTE[index];
 };
 
+export const hexToRgba = (hex: string, alpha: number): string => {
+  const clean = hex.replace('#', '');
+  const normalized = clean.length === 3
+    ? clean.split('').map((ch) => ch + ch).join('')
+    : clean;
+  const value = Number.parseInt(normalized, 16);
+  const r = (value >> 16) & 255;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+const FORK_BACKGROUND_ALPHA = 0.11;
+const FORK_BACKGROUND_ACTIVE_ALPHA = 0.2;
+
+export const getForkFamilyBackgroundColor = (
+  familyId: string | null | undefined,
+  opts?: { active?: boolean },
+): string | null => {
+  const solid = getForkFamilyColor(familyId);
+  if (!solid) return null;
+  const useActive = Boolean(opts?.active);
+  // Prefer color-mix for a theme-aware translucent wash when available.
+  // color-mix(in srgb, <solid> 13%, transparent) keeps the tint subtle
+  // and works in both light/dark without hard-coded alpha shifts.
+  if (typeof CSS !== 'undefined' && typeof CSS.supports === 'function'
+    && CSS.supports('color', 'color-mix(in srgb, red 50%, blue)')) {
+    if (useActive) return `color-mix(in srgb, ${solid} 26%, var(--interactive-selection))`;
+    return `color-mix(in srgb, ${solid} 13%, transparent)`;
+  }
+  return hexToRgba(solid, useActive ? FORK_BACKGROUND_ACTIVE_ALPHA : FORK_BACKGROUND_ALPHA);
+};
+
 export const getForkFamilyIdForSession = (
   sessionId: string,
   parentById: ReadonlyMap<string, string | null>,

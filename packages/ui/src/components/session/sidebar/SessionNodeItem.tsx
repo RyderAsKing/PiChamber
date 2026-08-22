@@ -47,7 +47,7 @@ import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { getForkFamilyColor } from './forkFamilyColor';
+import { getForkFamilyBackgroundColor, getForkFamilyColor } from './forkFamilyColor';
 
 type Folder = { id: string; name: string; sessionIds: string[] };
 
@@ -447,7 +447,8 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   const [isContextMenuOpen, setIsContextMenuOpen] = React.useState(false);
   const isSessionMenuOpen = isMenuOpen || isContextMenuOpen;
 
-  const forkColor = React.useMemo(() => getForkFamilyColor((node as SessionNode & { forkFamilyId?: string | null }).forkFamilyId), [node]);
+  const forkSolid = React.useMemo(() => getForkFamilyColor((node as SessionNode & { forkFamilyId?: string | null }).forkFamilyId), [node]);
+  const forkBackground = React.useMemo(() => getForkFamilyBackgroundColor((node as SessionNode & { forkFamilyId?: string | null }).forkFamilyId, { active: isActive || isRowSelected }), [node, isActive, isRowSelected]);
   const descendantCount = React.useMemo(() => collectNodeDescendantIds(node).length, [collectNodeDescendantIds, node]);
 
   const collectChildExports = React.useCallback(async (children: SessionNode[]): Promise<{ children: ChildSessionExport[]; skipped: number }> => {
@@ -878,20 +879,21 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                 data-session-row={session.id}
                 data-session-scope={selectionScopeKey ?? ''}
                 data-session-archived={archivedBucket ? '1' : '0'}
-                data-fork-family={forkColor ? (node as SessionNode & { forkFamilyId?: string | null }).forkFamilyId : undefined}
+                data-fork-family={forkSolid ? (node as SessionNode & { forkFamilyId?: string | null }).forkFamilyId : undefined}
                 onClick={handleRowBackgroundClick}
                 style={{
                   ...(depth > 0 ? { marginLeft: `${depth * 14}px` } : undefined),
-                  ...(forkColor ? { borderLeft: `3px solid ${forkColor}`, paddingLeft: '9px' } : undefined),
+                  ...(forkBackground ? { backgroundColor: forkBackground } : undefined),
                 }}
                 className={cn(
                   'group relative my-0.5 flex cursor-pointer items-center rounded-xl px-3 py-2 transition-colors',
-                  depth > 0
+                  !forkBackground && depth > 0
                     ? 'bg-secondary/30 hover:bg-interactive-hover'
-                    : 'hover:bg-interactive-hover',
-                  isActive && !isRowSelected && 'bg-interactive-selection',
-                  isRowSelected && 'bg-interactive-selection',
-                  forkColor && 'overflow-hidden',
+                    : !forkBackground
+                      ? 'hover:bg-interactive-hover'
+                      : 'hover:brightness-[1.07] dark:hover:brightness-[1.18]',
+                  !forkBackground && isActive && !isRowSelected && 'bg-interactive-selection',
+                  !forkBackground && isRowSelected && 'bg-interactive-selection',
                 )}
               />
             }
