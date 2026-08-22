@@ -1016,6 +1016,81 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  it('projects large tool payloads without blocking attachment redaction', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-large-payload-'));
+    const endpoint = testDaemonEndpoint(root);
+    const persistedSessionFile = join(root, 'persisted.jsonl');
+    await writeFile(persistedSessionFile, `{"type":"session","id":"pi-session-large","cwd":"${root}"}\n`);
+    const session = new FakeSession('pi-session-large', persistedSessionFile);
+    const largeEncodedValue = 'A'.repeat(80_000);
+    session.entries = [{
+      type: 'message',
+      id: 'assistant-large-tool',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      message: {
+        role: 'assistant',
+        provider: 'test',
+        model: 'model',
+        content: [{ type: 'toolCall', id: 'large-tool', name: 'read', arguments: { encoded: largeEncodedValue } }],
+      },
+    }, {
+      type: 'message',
+      id: 'large-tool-result',
+      timestamp: '2026-01-01T00:00:03.000Z',
+      message: {
+        role: 'toolResult',
+        toolCallId: 'large-tool',
+        toolName: 'read',
+        content: [{ type: 'text', text: largeEncodedValue }],
+        details: {
+          encoded: largeEncodedValue,
+          windowsPath: 'C:\\Temp\\pi-clipboard-7f7ec702-256a-4783-855c-df34e3ecedab.png',
+          bracketed: '[Attachment report.png is available at /tmp/pi-clipboard-7f7ec702-256a-4783-855c-df34e3ecedab.png]',
+          punctuated: 'before,/tmp/pi-clipboard-7f7ec702-256a-4783-855c-df34e3ecedab.png;after',
+          unicodePrefix: 'İ /tmp/pi-clipboard-7f7ec702-256a-4783-855c-df34e3ecedab.png',
+        },
+        isError: false,
+      },
+    }];
+    const runtime = new FakeRuntime({ cwd: root, session });
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => runtime,
+      listSessions: async () => [{
+        path: persistedSessionFile,
+        id: 'pi-session-large',
+        cwd: root,
+        created: new Date('2026-01-01T00:00:00.000Z'),
+        modified: new Date('2026-01-01T00:00:01.000Z'),
+        messageCount: 2,
+      }],
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+
+    const startedAt = performance.now();
+    const opened = await client.request('sessions.open', { sessionId: 'pi-session-large', directory: root });
+    const elapsedMs = performance.now() - startedAt;
+
+    expect(elapsedMs).toBeLessThan(900);
+    expect(opened.result.messages[0].parts[0]).toMatchObject({
+      input: { encoded: largeEncodedValue },
+      output: largeEncodedValue,
+      metadata: {
+        encoded: largeEncodedValue,
+        windowsPath: '[attachment]',
+        bracketed: '[attachment]',
+        punctuated: 'before,[attachment];after',
+        unicodePrefix: 'İ [attachment]',
+      },
+    });
+    expect(JSON.stringify(opened.result)).not.toContain('pi-clipboard-');
+    await client.close();
+  }, 2_000);
+
   it('keeps Pi global/project defaults and trust decisions authoritative', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-settings-'));
     const cwd = join(root, 'project');

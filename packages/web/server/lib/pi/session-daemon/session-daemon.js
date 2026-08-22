@@ -1356,11 +1356,72 @@ export function createSessionDaemon({
     }
   };
 
-  const redactAttachmentPaths = (text) => typeof text === 'string'
-    ? text
-      .replace(/\[Attachment[^\]\r\n]*pi-clipboard-[0-9a-f-]{36}[^\]\r\n]*\]/gi, '[attachment]')
-      .replace(/(?:[A-Za-z]:)?[^\s[\](){}"'`]*pi-clipboard-[0-9a-f-]{36}(?:\.[^\s\])}\]"'`,;]+)?/gi, '[attachment]')
-    : '';
+  const attachmentMarkerPattern = /pi-clipboard-/i;
+  const attachmentMarkerSearchPattern = /pi-clipboard-/gi;
+  const attachmentIdPattern = /^[0-9a-f-]{36}$/i;
+  const attachmentBracketStartPattern = /\[Attachment/gi;
+  const attachmentTokenPattern = /pi-clipboard-[0-9a-f-]{36}/i;
+  const isAttachmentPathDelimiter = (character) => /[\s[\](){}"'`,;]/u.test(character);
+
+  const redactAttachmentBrackets = (text) => {
+    let cursor = 0;
+    let output = '';
+    while (cursor < text.length) {
+      attachmentBracketStartPattern.lastIndex = cursor;
+      const bracketStart = attachmentBracketStartPattern.exec(text);
+      if (!bracketStart) {
+        output += text.slice(cursor);
+        break;
+      }
+
+      output += text.slice(cursor, bracketStart.index);
+      let bracketEnd = bracketStart.index + bracketStart[0].length;
+      while (bracketEnd < text.length && text[bracketEnd] !== ']' && text[bracketEnd] !== '\r' && text[bracketEnd] !== '\n') bracketEnd += 1;
+      if (text[bracketEnd] === ']') {
+        const candidate = text.slice(bracketStart.index, bracketEnd + 1);
+        output += attachmentTokenPattern.test(candidate) ? '[attachment]' : candidate;
+        cursor = bracketEnd + 1;
+      } else {
+        output += text.slice(bracketStart.index, bracketEnd);
+        cursor = bracketEnd;
+      }
+    }
+    return output;
+  };
+
+  const redactAttachmentPaths = (text) => {
+    if (typeof text !== 'string') return '';
+
+    if (!attachmentMarkerPattern.test(text)) return text;
+    const bracketRedacted = redactAttachmentBrackets(text);
+    let cursor = 0;
+    let output = '';
+    while (cursor < bracketRedacted.length) {
+      attachmentMarkerSearchPattern.lastIndex = cursor;
+      const markerMatch = attachmentMarkerSearchPattern.exec(bracketRedacted);
+      if (!markerMatch) {
+        output += bracketRedacted.slice(cursor);
+        break;
+      }
+
+      const markerIndex = markerMatch.index;
+      const idStart = markerIndex + markerMatch[0].length;
+      const idEnd = idStart + 36;
+      if (!attachmentIdPattern.test(bracketRedacted.slice(idStart, idEnd))) {
+        output += bracketRedacted.slice(cursor, idStart);
+        cursor = idStart;
+        continue;
+      }
+
+      let tokenStart = markerIndex;
+      while (tokenStart > cursor && !isAttachmentPathDelimiter(bracketRedacted[tokenStart - 1])) tokenStart -= 1;
+      let tokenEnd = idEnd;
+      while (tokenEnd < bracketRedacted.length && !isAttachmentPathDelimiter(bracketRedacted[tokenEnd])) tokenEnd += 1;
+      output += `${bracketRedacted.slice(cursor, tokenStart)}[attachment]`;
+      cursor = tokenEnd;
+    }
+    return output;
+  };
 
   const redactAttachmentValues = (value) => {
     if (typeof value === 'string') return redactAttachmentPaths(value);
