@@ -30,6 +30,7 @@ import { CowMap } from './cow-map';
 import type {
   PiAssistantMessageDeltaPayload,
   PiAssistantThinkingDeltaPayload,
+  PiExtensionDialogPayload,
   PiMessageStartPayload,
   PiMessageEndPayload,
   PiSessionEvent,
@@ -83,7 +84,13 @@ export interface PiReducerMessage {
   id: string;
   sessionId: PiSessionId;
   directory: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'extension';
+  /** Extension-role only: the pi customType that authored this item. */
+  customType?: string;
+  /** Extension-role only: payload of a custom entry (`appendEntry`). */
+  data?: unknown;
+  /** Extension-role only: details payload of a custom message (`sendMessage`). */
+  details?: unknown;
   /** User message that owns this assistant turn. */
   parentId?: string;
   /** Created-at (ms epoch) the reducer keeps for ordering. */
@@ -131,6 +138,16 @@ export interface PiReducerSessionState {
   streamingMessages: Set<string>;
   /** Queue depths at the time of the last `session.queue` event. */
   queue: { steering: number; followUp: number };
+  /** Live extension status texts (`ctx.ui.setStatus`). Key → text. */
+  extensionStatuses: Map<string, string>;
+  /** Live extension widgets (`ctx.ui.setWidget`). Key → lines + placement. */
+  extensionWidgets: Map<string, { lines: string[]; placement: 'aboveEditor' | 'belowEditor' }>;
+  /** Blocking extension dialogs awaiting a user answer, in arrival order. */
+  extensionDialogs: PiExtensionDialogPayload[];
+  /** Bounded feed of fire-and-forget extension notifications. */
+  extensionNotices: Array<{ id: string; message: string; level: 'info' | 'warning' | 'error'; createdAt: number }>;
+  /** Bounded feed of extension runtime errors. */
+  extensionErrors: Array<{ id: string; source: string; event?: string; message: string; createdAt: number }>;
   /**
    * Last message a part-level or structural write touched. Live-tail freeze
    * uses this instead of walking every historical part on each token.
@@ -155,6 +172,17 @@ export const createReducerState = (): PiReducerState => ({
 // ---------------------------------------------------------------------------
 
 const emptySessionParts = (): PiReducerPartMap => createReducerPartMap();
+
+/** Upper bound for bounded extension feeds; oldest entries drop first. */
+const MAX_EXTENSION_FEED_ITEMS = 10;
+
+let extensionFeedCounter = 0;
+const nextExtensionFeedId = (): string => `ext-${Date.now().toString(36)}-${(extensionFeedCounter += 1)}`;
+
+const appendBoundedFeed = <T>(feed: T[], item: T): T[] => {
+  const next = [...feed, item];
+  return next.length > MAX_EXTENSION_FEED_ITEMS ? next.slice(next.length - MAX_EXTENSION_FEED_ITEMS) : next;
+};
 
 const markMutation = (
   session: PiReducerSessionState,
@@ -188,6 +216,11 @@ const getOrCreateSession = (
     toolsByCallId: new Map(),
     streamingMessages: new Set(),
     queue: { steering: 0, followUp: 0 },
+    extensionStatuses: new Map(),
+    extensionWidgets: new Map(),
+    extensionDialogs: [],
+    extensionNotices: [],
+    extensionErrors: [],
   };
   state.bySession.set(sessionId, fresh);
   return fresh;
@@ -722,6 +755,11 @@ export const applyPiEvent = (
         toolsByCallId: new Map(),
         streamingMessages: new Set(),
         queue: { steering: 0, followUp: 0 },
+        extensionStatuses: new Map(),
+        extensionWidgets: new Map(),
+        extensionDialogs: [],
+        extensionNotices: [],
+        extensionErrors: [],
       };
 
   switch (event.name) {
@@ -820,6 +858,91 @@ export const applyPiEvent = (
       }
       reduceInterrupted(session, event.payload.streaming);
       break;
+    case 'extension.entry': {
+      const payload = event.payload;
+      if (!payload.customType) break;
+      const extensionMessage: PiReducerMessage = {
+        id: payload.id,
+        sessionId: event.sessionId,
+        directory: event.directory,
+        role: 'extension',
+        customType: payload.customType,
+        ...(payload.data !== undefined ? { data: payload.data } : {}),
+        createdAt: payload.createdAt,
+        text: '',
+        thinking: '',
+        streaming: false,
+      };
+      session.messages = new Map(session.messages);
+      session.messages.set(extensionMessage.id, extensionMessage);
+      markMutation(session, extensionMessage.id, 'structure');
+      break;
+    }
+    case 'extension.message': {
+      const payload = event.payload;
+      if (!payload.customType) break;
+      const extensionMessage: PiReducerMessage = {
+        id: payload.id,
+        sessionId: event.sessionId,
+        directory: event.directory,
+        role: 'extension',
+        customType: payload.customType,
+        ...(payload.details !== undefined ? { details: payload.details } : {}),
+        createdAt: payload.createdAt,
+        text: payload.text ?? '',
+        thinking: '',
+        streaming: false,
+      };
+      session.messages = new Map(session.messages);
+      session.messages.set(extensionMessage.id, extensionMessage);
+      markMutation(session, extensionMessage.id, 'structure');
+      break;
+    }
+    case 'extension.notify':
+      session.extensionNotices = appendBoundedFeed(session.extensionNotices, {
+        id: nextExtensionFeedId(),
+        message: event.payload.message,
+        level: event.payload.level,
+        createdAt: Date.now(),
+      });
+      break;
+    case 'extension.status': {
+      session.extensionStatuses = new Map(session.extensionStatuses);
+      if (typeof event.payload.text === 'string' && event.payload.text.length > 0) {
+        session.extensionStatuses.set(event.payload.key, event.payload.text);
+      } else {
+        session.extensionStatuses.delete(event.payload.key);
+      }
+      break;
+    }
+    case 'extension.widget': {
+      session.extensionWidgets = new Map(session.extensionWidgets);
+      if (Array.isArray(event.payload.lines) && event.payload.lines.length > 0) {
+        session.extensionWidgets.set(event.payload.key, {
+          lines: event.payload.lines,
+          placement: event.payload.placement === 'belowEditor' ? 'belowEditor' : 'aboveEditor',
+        });
+      } else {
+        session.extensionWidgets.delete(event.payload.key);
+      }
+      break;
+    }
+    case 'extension.dialog': {
+      // Dialogs are a queue keyed by requestId; duplicates (replay after
+      // reconnect) must not stack.
+      if (session.extensionDialogs.some((dialog) => dialog.requestId === event.payload.requestId)) break;
+      session.extensionDialogs = [...session.extensionDialogs, event.payload];
+      break;
+    }
+    case 'extension.error':
+      session.extensionErrors = appendBoundedFeed(session.extensionErrors, {
+        id: nextExtensionFeedId(),
+        source: event.payload.source,
+        ...(event.payload.event !== undefined ? { event: event.payload.event } : {}),
+        message: event.payload.message,
+        createdAt: Date.now(),
+      });
+      break;
     default: {
       // Exhaustiveness check: unknown event names are silently ignored
       // (they would have failed `isPiEvent` upstream anyway).
@@ -835,6 +958,30 @@ export const applyPiEvent = (
   next.bySession.set(event.sessionId, session);
   next.lastSequence.set(event.sessionId, event.sequence);
   return { state: next, didApply: true, sessionId: event.sessionId };
+};
+
+/**
+ * Remove an extension dialog from a session's pending queue after the client
+ * successfully answered it. Returns the original state when the dialog is
+ * absent so callers can skip store writes.
+ */
+export const dismissExtensionDialog = (
+  state: PiReducerState,
+  sessionId: PiSessionId,
+  requestId: string,
+): PiReducerState => {
+  const session = state.bySession.get(sessionId);
+  if (!session) return state;
+  const index = session.extensionDialogs.findIndex((dialog) => dialog.requestId === requestId);
+  if (index === -1) return state;
+  const nextSession: PiReducerSessionState = {
+    ...session,
+    extensionDialogs: session.extensionDialogs.filter((dialog) => dialog.requestId !== requestId),
+  };
+  return {
+    bySession: new Map(state.bySession).set(sessionId, nextSession),
+    lastSequence: new Map(state.lastSequence),
+  };
 };
 
 /**
@@ -873,8 +1020,14 @@ export interface PiProjectedMessagePart {
 
 export interface PiProjectedMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'extension';
   parentId?: string;
+  /** Extension-role only: pi customType that authored this item. */
+  customType?: string;
+  /** Extension-role only: custom entry payload. */
+  data?: unknown;
+  /** Extension-role only: custom message details payload. */
+  details?: unknown;
   text: string;
   thinking: string;
   streaming: boolean;
@@ -980,6 +1133,9 @@ const projectReducerMessage = (
     id: message.id,
     role: message.role,
     ...(parentId ? { parentId } : {}),
+    ...(message.customType !== undefined ? { customType: message.customType } : {}),
+    ...(message.data !== undefined ? { data: message.data } : {}),
+    ...(message.details !== undefined ? { details: message.details } : {}),
     text: message.text,
     thinking: message.thinking,
     streaming: message.streaming,
@@ -1116,7 +1272,16 @@ export const hydrateSessionFromDetail = (
     isStreaming?: boolean;
     lifecycle?: PiSessionLifecycleState;
     messages: Array<{
-      message: PiUserMessage | PiAssistantMessage;
+      message: PiUserMessage | PiAssistantMessage | {
+        id: string;
+        role: 'extension';
+        createdAt: number;
+        customType: string;
+        parentId?: string;
+        text?: string;
+        data?: unknown;
+        details?: unknown;
+      };
       parts: Array<{
         id: string;
         index: number;
@@ -1142,11 +1307,15 @@ export const hydrateSessionFromDetail = (
   session.lastSequence = detail.lastSequence;
 
   for (const { message, parts } of detail.messages) {
+    const isExtension = message.role === 'extension';
     const reducerMessage: PiReducerMessage = {
       id: message.id,
       sessionId: detail.session.id,
       directory: detail.session.directory,
       role: message.role,
+      ...(isExtension && message.customType ? { customType: message.customType } : {}),
+      ...(isExtension && message.data !== undefined ? { data: message.data } : {}),
+      ...(isExtension && message.details !== undefined ? { details: message.details } : {}),
       ...(message.parentId ? { parentId: message.parentId } : {}),
       createdAt: message.createdAt,
       text: message.text ?? '',

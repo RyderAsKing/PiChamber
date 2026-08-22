@@ -70,7 +70,7 @@ export interface PiModelRef {
 export type PiThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /** Common message envelope. Use a discriminant in UI code that switches on role. */
-export type PiMessage = PiUserMessage | PiAssistantMessage;
+export type PiMessage = PiUserMessage | PiAssistantMessage | PiExtensionMessage;
 
 interface PiMessageBase {
   id: string;
@@ -120,6 +120,24 @@ export interface PiAssistantMessage extends PiMessageBase {
    * thinking is a content block, so any "reasoning" token tile stays `—`.
    */
   usage?: PiUsage;
+}
+
+/**
+ * Content authored by a pi extension: either an appended custom entry
+ * (`pi.appendEntry`, projected with its `data`) or a custom message
+ * (`pi.sendMessage`, projected with `text` and optional `details`). Rendered
+ * by the extension UI renderer registry; never sent to the model by PiChamber.
+ */
+export interface PiExtensionMessage extends PiMessageBase {
+  role: 'extension';
+  /** The pi customType that authored this item (e.g. `pichamber.ui`). */
+  customType: string;
+  /** Text content for custom messages. Absent for custom entries. */
+  text?: string;
+  /** Arbitrary payload for custom entries (`entry.data`). */
+  data?: unknown;
+  /** Arbitrary details payload for custom messages (`message.details`). */
+  details?: unknown;
 }
 
 /**

@@ -55,6 +55,8 @@ import {
   type PiDeleteInput,
   type PiArchiveInput,
   type PiAbortInput,
+  type PiExtensionListResponse,
+  type PiExtensionDialogResponseInput,
 } from './protocol';
 import type {
   PiAttachment,
@@ -565,6 +567,26 @@ export class PiService {
       { method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
     );
     return response.attachment;
+  }
+
+  // ----- Extensions -------------------------------------------------------
+
+  /** List pi extensions loaded for a directory and the commands they register. */
+  async listExtensions(directory?: string, scope?: PiClientScope): Promise<PiExtensionListResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiExtensionListResponse>('/api/pi/extensions', {
+      method: 'GET',
+      ...(directory ? { query: { directory } } : {}),
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  /** Answer a blocking extension dialog. Omit all answer fields to cancel. */
+  async respondToExtensionDialog(input: PiExtensionDialogResponseInput, scope?: PiClientScope): Promise<void> {
+    assertRuntimeUnchanged(scope);
+    await jsonRequest<PiExtensionDialogResponseInput, undefined>('/api/pi/extensions/respond', {
+      method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
   }
 }
 

@@ -36,6 +36,11 @@ const reducerSession = (
   parts: createReducerPartMap(),
   toolsByCallId: new Map(),
   streamingMessages: new Set(),
+      extensionStatuses: new Map(),
+      extensionWidgets: new Map(),
+      extensionDialogs: [],
+      extensionNotices: [],
+      extensionErrors: [],
   queue: { steering: 0, followUp: 0 },
   ...overrides,
 });
@@ -189,6 +194,11 @@ describe('PiSessionStore runtime-scoped sessions', () => {
       parts: createReducerPartMap(),
       toolsByCallId: new Map(),
       streamingMessages: new Set(),
+      extensionStatuses: new Map(),
+      extensionWidgets: new Map(),
+      extensionDialogs: [],
+      extensionNotices: [],
+      extensionErrors: [],
       queue: { steering: 0, followUp: 0 },
     };
     internal.stream = stream;

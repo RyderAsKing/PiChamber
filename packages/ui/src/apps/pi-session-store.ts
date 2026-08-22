@@ -1243,6 +1243,11 @@ export class PiSessionStore {
           toolsByCallId: new Map(),
           streamingMessages: new Set(),
           queue: { steering: 0, followUp: 0 },
+          extensionStatuses: new Map(),
+          extensionWidgets: new Map(),
+          extensionDialogs: [],
+          extensionNotices: [],
+          extensionErrors: [],
         };
     const nextBySession = new Map(this.state.reducer.bySession);
     nextBySession.set(sessionId, nextSession);
