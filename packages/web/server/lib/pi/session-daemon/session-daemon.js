@@ -50,7 +50,7 @@ export function isLocalSessionDaemonEndpoint(endpoint, platform = process.platfo
 // Hooks let the daemon thread extension bindings into every Pi runtime
 // creation (initial, new/resume/fork replacement) without coupling this
 // factory to daemon socket state.
-async function createPiSessionRuntime({ cwd, agentDir = getAgentDir(), sessionFile }, hooks) {
+export async function createPiSessionRuntime({ cwd, agentDir = getAgentDir(), sessionFile }, hooks) {
   const createRuntime = async ({ cwd: runtimeCwd, agentDir: runtimeAgentDir, sessionManager, sessionStartEvent }) => {
     const services = await createAgentSessionServices({
       cwd: runtimeCwd,
@@ -409,7 +409,8 @@ export function createSessionDaemon({
 
   // Thread extension hooks through our own default factory. Injected test or
   // host factories keep their single-argument contract and ignore the hooks.
-  const baseCreateRuntime = injectCreateRuntime ?? ((runtimeOptions) => createPiSessionRuntime(runtimeOptions));
+  const baseCreateRuntime = injectCreateRuntime
+    ?? ((runtimeOptions, runtimeHooks) => createPiSessionRuntime(runtimeOptions, runtimeHooks));
   const createRuntime = (runtimeOptions) => baseCreateRuntime(runtimeOptions, {
     createExtensionBindings: buildExtensionBindings,
   });
@@ -1818,9 +1819,16 @@ export function createSessionDaemon({
     // report asynchronous failure through the existing session event channel.
     const generation = (sendGenerationBySession.get(payload.sessionId) ?? 0) + 1;
     sendGenerationBySession.set(payload.sessionId, generation);
-    Promise.resolve(
-      activeRuntime.session.sendUserMessage(content, deliverAs ? { deliverAs } : undefined),
-    ).catch((error) => {
+    // Slash-prefixed input dispatches extension commands and skill/template
+    // expansion exactly like the pi CLI and RPC modes; plain text keeps the
+    // sendUserMessage path so it is never expanded.
+    const sendCall = content.startsWith('/')
+      ? activeRuntime.session.prompt(content, {
+          source: 'rpc',
+          ...(deliverAs ? { streamingBehavior: deliverAs } : {}),
+        })
+      : activeRuntime.session.sendUserMessage(content, deliverAs ? { deliverAs } : undefined);
+    Promise.resolve(sendCall).catch((error) => {
       if (sendGenerationBySession.get(payload.sessionId) !== generation) return;
       publish('session.error', {
         code: 'ASSISTANT_ERROR',
@@ -2200,29 +2208,29 @@ export function createSessionDaemon({
         const extensionPaths = typeof extensionSession?.extensionRunner?.getExtensionPaths === 'function'
           ? extensionSession.extensionRunner.getExtensionPaths()
           : [];
-        const extensionCommands = typeof extensionSession?.getCommands === 'function' ? extensionSession.getCommands() : [];
+        const registeredCommands = typeof extensionSession?.extensionRunner?.getRegisteredCommands === 'function'
+          ? extensionSession.extensionRunner.getRegisteredCommands()
+          : [];
         writeFrame(socket, {
           protocolVersion: PROTOCOL_VERSION,
           kind: 'response',
           requestId: message.requestId,
           result: {
             directory: activeRuntime.cwd,
-            extensions: extensionPaths
+            extensions: (Array.isArray(extensionPaths) ? extensionPaths : [])
               .filter((extensionPath) => typeof extensionPath === 'string' && extensionPath.length > 0)
               .map((extensionPath) => ({
                 path: extensionPath,
                 name: basename(extensionPath).replace(/\.(ts|js)$/, ''),
               })),
-            commands: Array.isArray(extensionCommands)
-              ? extensionCommands
-                .filter((command) => command && typeof command.name === 'string')
-                .map((command) => ({
-                  name: command.name,
-                  ...(typeof command.description === 'string' ? { description: command.description } : {}),
-                  ...(typeof command.source === 'string' ? { source: command.source } : {}),
-                  ...(typeof command.sourceInfo?.scope === 'string' ? { scope: command.sourceInfo.scope } : {}),
-                }))
-              : [],
+            commands: (Array.isArray(registeredCommands) ? registeredCommands : [])
+              .filter((command) => command && typeof command.invocationName === 'string')
+              .map((command) => ({
+                name: command.invocationName,
+                ...(typeof command.description === 'string' ? { description: command.description } : {}),
+                source: 'extension',
+                ...(typeof command.sourceInfo?.scope === 'string' ? { scope: command.sourceInfo.scope } : {}),
+              })),
           },
         });
         return;
