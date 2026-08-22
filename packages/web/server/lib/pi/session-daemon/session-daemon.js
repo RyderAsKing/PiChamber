@@ -47,18 +47,18 @@ export function isLocalSessionDaemonEndpoint(endpoint, platform = process.platfo
   return isAbsolute(endpoint);
 }
 
-async function createPiSessionRuntime({ cwd, agentDir = getAgentDir(), sessionFile }) {
+// Hooks let the daemon thread extension bindings into every Pi runtime
+// creation (initial, new/resume/fork replacement) without coupling this
+// factory to daemon socket state.
+async function createPiSessionRuntime({ cwd, agentDir = getAgentDir(), sessionFile }, hooks) {
   const createRuntime = async ({ cwd: runtimeCwd, agentDir: runtimeAgentDir, sessionManager, sessionStartEvent }) => {
     const services = await createAgentSessionServices({
       cwd: runtimeCwd,
       agentDir: runtimeAgentDir,
-      resourceLoaderOptions: {
-        // Third-party native extensions are intentionally disabled for the Pi core milestone.
-        noExtensions: true,
-      },
+      resourceLoaderOptions: {},
     });
 
-    return {
+    const result = {
       ...(await createAgentSessionFromServices({
         services,
         sessionManager,
@@ -67,6 +67,12 @@ async function createPiSessionRuntime({ cwd, agentDir = getAgentDir(), sessionFi
       services,
       diagnostics: services.diagnostics,
     };
+
+    if (hooks?.createExtensionBindings && typeof result.session?.bindExtensions === 'function') {
+      await result.session.bindExtensions(hooks.createExtensionBindings(result.session));
+    }
+
+    return result;
   };
 
   return createAgentSessionRuntime(createRuntime, {
@@ -83,7 +89,7 @@ export function createSessionDaemon({
   credential,
   cwd,
   agentDir = getAgentDir(),
-  createRuntime = createPiSessionRuntime,
+  createRuntime: injectCreateRuntime,
   healthMetadata = {},
   idleTimeoutMs = 5 * 60 * 1_000,
   listSessions = ({ cwd: sessionCwd, agentDir: sessionAgentDir = agentDir }) => listPiSessionJsonlDirectory({
@@ -193,7 +199,7 @@ export function createSessionDaemon({
     const services = await createAgentSessionServices({
       cwd: targetCwd,
       agentDir,
-      resourceLoaderOptions: { noExtensions: true },
+      resourceLoaderOptions: {},
     });
     servicesCache.set(targetCwd, services);
     return services;
@@ -216,6 +222,224 @@ export function createSessionDaemon({
     eventLog.push(message);
     if (eventLog.length > MAX_REPLAY_EVENTS) eventLog.shift();
     for (const client of clients) writeFrame(client, message);
+  };
+
+  // --- Extension bridging -------------------------------------------------
+  // Pi extensions run inside each session runtime. Their user-interaction
+  // surface (dialogs, notifications, statuses, widgets) is translated here
+  // into public stream events; blocking dialogs are resolved by the
+  // `extensions.respond` daemon command.
+  const pendingExtensionDialogs = new Map();
+
+  const cancelPendingExtensionDialogs = (sessionId, reason = 'cancelled') => {
+    for (const [requestId, pending] of pendingExtensionDialogs) {
+      if (sessionId !== undefined && pending.sessionId !== sessionId) continue;
+      clearTimeout(pending.timer);
+      pendingExtensionDialogs.delete(requestId);
+      pending.settle({});
+    }
+  };
+
+  const createExtensionUIContext = (sessionId) => {
+    const dialog = (method, fields, opts, defaultValue, parseResponse) => {
+      const requestId = randomUUID();
+      return new Promise((resolve) => {
+        const settle = (response) => {
+          clearTimeout(timer);
+          signal?.removeEventListener('abort', onAbort);
+          if (pendingExtensionDialogs.get(requestId)?.settle === settle) pendingExtensionDialogs.delete(requestId);
+          resolve(parseResponse(response));
+        };
+        const onAbort = () => settle({});
+        const timer = opts?.timeout
+          ? setTimeout(() => settle({}), opts.timeout)
+          : undefined;
+        const signal = opts?.signal;
+        signal?.addEventListener('abort', onAbort, { once: true });
+        pendingExtensionDialogs.set(requestId, { sessionId, settle, timer });
+        publish('extension.dialog', {
+          requestId,
+          method,
+          ...fields,
+          ...(Number.isFinite(opts?.timeout) ? { timeoutMs: opts.timeout } : {}),
+        }, sessionId);
+      });
+    };
+
+    return {
+      select: (title, options, opts) => dialog(
+        'select',
+        { title, options: options.map((option) => String(option)) },
+        opts,
+        undefined,
+        (response) => (typeof response?.value === 'string' ? response.value : undefined),
+      ),
+      confirm: (title, message, opts) => dialog(
+        'confirm',
+        { title, message },
+        opts,
+        false,
+        (response) => response?.confirmed === true,
+      ),
+      input: (title, placeholder, opts) => dialog(
+        'input',
+        { title, ...(typeof placeholder === 'string' ? { placeholder } : {}) },
+        opts,
+        undefined,
+        (response) => (typeof response?.value === 'string' ? response.value : undefined),
+      ),
+      editor: async (title, prefill) => {
+        const requestId = randomUUID();
+        return new Promise((resolve) => {
+          const settle = (response) => {
+            if (pendingExtensionDialogs.get(requestId)?.settle === settle) pendingExtensionDialogs.delete(requestId);
+            resolve(typeof response?.value === 'string' ? response.value : undefined);
+          };
+          pendingExtensionDialogs.set(requestId, { sessionId, settle });
+          publish('extension.dialog', {
+            requestId,
+            method: 'editor',
+            title,
+            ...(typeof prefill === 'string' ? { prefill } : {}),
+          }, sessionId);
+        });
+      },
+      notify: (message, level) => {
+        publish('extension.notify', {
+          message: String(message ?? ''),
+          ...(level === 'warning' || level === 'error' ? { level } : { level: 'info' }),
+        }, sessionId);
+      },
+      setStatus: (key, text) => {
+        if (typeof key !== 'string' || key.length === 0) return;
+        publish('extension.status', {
+          key,
+          ...(typeof text === 'string' && text.length > 0 ? { text } : {}),
+        }, sessionId);
+      },
+      setWidget: (key, content, options) => {
+        if (typeof key !== 'string' || key.length === 0) return;
+        // Only string-array widgets are representable over the wire.
+        if (content !== undefined && !Array.isArray(content)) return;
+        publish('extension.widget', {
+          key,
+          ...(Array.isArray(content) ? { lines: content.map((line) => String(line)) } : {}),
+          ...(options?.placement === 'belowEditor' ? { placement: 'belowEditor' } : {}),
+        }, sessionId);
+      },
+      // Terminal-only surfaces have no PiChamber equivalent yet.
+      onTerminalInput: () => () => {},
+      setWorkingMessage: () => {},
+      setWorkingVisible: () => {},
+      setWorkingIndicator: () => {},
+      setHiddenThinkingLabel: () => {},
+      setFooter: () => {},
+      setHeader: () => {},
+      setTitle: () => {},
+      custom: async () => undefined,
+      pasteToEditor: () => {},
+      setEditorText: () => {},
+      getEditorText: () => '',
+      addAutocompleteProvider: () => {},
+      setEditorComponent: () => {},
+      getEditorComponent: () => undefined,
+      getAllThemes: () => [],
+      getTheme: () => undefined,
+      setTheme: () => ({ success: false, error: 'Theme switching is not supported in PiChamber sessions.' }),
+      getToolsExpanded: () => false,
+      setToolsExpanded: () => {},
+      // Extensions may style status/widget strings with theme helpers; those
+      // strings are rendered as plain text in PiChamber, so pass them through.
+      get theme() {
+        return identityTheme;
+      },
+    };
+  };
+
+  const identityTheme = {
+    fg: (_color, text) => text,
+    bg: (_color, text) => text,
+    bold: (text) => text,
+    italic: (text) => text,
+    strikethrough: (text) => text,
+  };
+
+  const findRuntimeBySessionId = (sessionId) => runtimeRegistry?.findBySessionId(sessionId)
+    || (runtime?.session?.sessionId === sessionId ? runtime : undefined);
+
+  const buildExtensionBindings = (session) => ({
+    uiContext: createExtensionUIContext(session.sessionId),
+    mode: 'rpc',
+    commandContextActions: {
+      waitForIdle: () => session.waitForIdle(),
+      newSession: async (options) => {
+        const owner = findRuntimeBySessionId(session.sessionId);
+        if (!owner) throw new Error('Session runtime is no longer available.');
+        return owner.newSession(options);
+      },
+      fork: async (entryId, forkOptions) => {
+        const owner = findRuntimeBySessionId(session.sessionId);
+        if (!owner) throw new Error('Session runtime is no longer available.');
+        const result = await owner.fork(entryId, forkOptions);
+        return { cancelled: result.cancelled };
+      },
+      navigateTree: async (targetId, navigateOptions) => {
+        const result = await session.navigateTree(targetId, {
+          summarize: navigateOptions?.summarize,
+          customInstructions: navigateOptions?.customInstructions,
+          replaceInstructions: navigateOptions?.replaceInstructions,
+          label: navigateOptions?.label,
+        });
+        return { cancelled: result.cancelled };
+      },
+      switchSession: async (sessionPath, switchOptions) => {
+        const owner = findRuntimeBySessionId(session.sessionId);
+        if (!owner) throw new Error('Session runtime is no longer available.');
+        return owner.switchSession(sessionPath, switchOptions);
+      },
+    },
+    onError: (error) => {
+      publish('extension.error', {
+        source: typeof error?.extensionPath === 'string' ? error.extensionPath : 'unknown',
+        ...(typeof error?.event === 'string' ? { event: error.event } : {}),
+        message: String(error?.error ?? 'Unknown extension error.'),
+      }, session.sessionId);
+    },
+  });
+
+  // Thread extension hooks through our own default factory. Injected test or
+  // host factories keep their single-argument contract and ignore the hooks.
+  const baseCreateRuntime = injectCreateRuntime ?? ((runtimeOptions) => createPiSessionRuntime(runtimeOptions));
+  const createRuntime = (runtimeOptions) => baseCreateRuntime(runtimeOptions, {
+    createExtensionBindings: buildExtensionBindings,
+  });
+
+  // Resolves a pending extension dialog. Unknown or already-settled request
+  // ids resolve to `{ resolved: false }` instead of throwing: a stale client
+  // retry must never tear down the shared daemon socket.
+  const resolveExtensionDialog = async (payload) => {
+    if (!payload || typeof payload.requestId !== 'string' || payload.requestId.length === 0) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The extension dialog response is invalid.');
+    }
+    const pending = pendingExtensionDialogs.get(payload.requestId);
+    if (!pending) {
+      return { resolved: false };
+    }
+    if (payload.directory !== undefined) await resolveDirectory(payload.directory);
+    clearTimeout(pending.timer);
+    pendingExtensionDialogs.delete(payload.requestId);
+    if (payload.cancelled === true) {
+      // Dialog closures derive their typed result (undefined/false) from an
+      // empty response, which mirrors a timeout or explicit cancellation.
+      pending.settle({});
+    } else if (payload.confirmed === true) {
+      pending.settle({ confirmed: true });
+    } else if (typeof payload.value === 'string') {
+      pending.settle({ value: payload.value });
+    } else {
+      pending.settle({});
+    }
+    return { resolved: true };
   };
 
   const getSessionState = () => runtime
@@ -281,6 +505,7 @@ export function createSessionDaemon({
 
   const disposeRuntime = async () => {
     clearIdleDisposal();
+    cancelPendingExtensionDialogs(undefined, 'daemon-stopped');
     if (runtimeRegistry) {
       const hadTrackedRuntime = runtimeRegistry.size > 0;
       await runtimeRegistry.disposeAll();
@@ -330,6 +555,7 @@ export function createSessionDaemon({
         if (targetRuntime === runtime) {
           rememberRuntimeSession();
         }
+        cancelPendingExtensionDialogs(sessionId, 'session-disposed');
         await runtimeRegistry.dispose(targetRuntime);
         if (targetRuntime === runtime) {
           runtime = undefined;
@@ -650,6 +876,42 @@ export function createSessionDaemon({
     }
     let latestUserMessageId;
     return entries.flatMap((entry) => {
+      // Extension-authored content: custom entries (`appendEntry`) and custom
+      // messages (`sendMessage`) both surface as extension-role items so the
+      // UI can render them through its extension renderer registry.
+      if (entry?.type === 'custom') {
+        if (typeof entry.customType !== 'string' || entry.customType.length === 0 || typeof entry.id !== 'string') return [];
+        const timestamp = Date.parse(entry.timestamp);
+        return [{
+          message: {
+            id: entry.id, sessionId: session.sessionId, directory: targetDir, role: 'extension',
+            customType: entry.customType,
+            createdAt: Number.isFinite(timestamp) ? timestamp : 0,
+            ...(entry.data !== undefined ? { data: redactAttachmentValues(entry.data) } : {}),
+          },
+          parts: [],
+        }];
+      }
+      if (entry?.type === 'custom_message') {
+        if (typeof entry.customType !== 'string' || entry.customType.length === 0 || typeof entry.id !== 'string') return [];
+        if (entry.display === false) return [];
+        const timestamp = Date.parse(entry.timestamp);
+        const text = typeof entry.content === 'string'
+          ? entry.content
+          : Array.isArray(entry.content)
+            ? entry.content.filter((part) => part?.type === 'text').map((part) => part.text).join('')
+            : '';
+        return [{
+          message: {
+            id: entry.id, sessionId: session.sessionId, directory: targetDir, role: 'extension',
+            customType: entry.customType,
+            text: redactAttachmentPaths(text),
+            createdAt: Number.isFinite(timestamp) ? timestamp : 0,
+            ...(entry.details !== undefined ? { details: redactAttachmentValues(entry.details) } : {}),
+          },
+          parts: [],
+        }];
+      }
       if (entry?.type !== 'message' || !entry.message || typeof entry.id !== 'string') return [];
       const timestamp = Date.parse(entry.timestamp);
       const createdAt = Number.isFinite(timestamp) ? timestamp : 0;
@@ -1605,6 +1867,25 @@ export function createSessionDaemon({
     publish('session.lifecycle', { state: 'idle', deleted: true }, sessionId, targetDir);
   };
 
+  const publishExtensionCustomMessage = (sessionId, message, directory = activeDirectory || cwd) => {
+    if (typeof message.customType !== 'string' || message.customType.length === 0) return;
+    // Context-only custom messages (display: false) are not user-visible content.
+    if (message.display === false) return;
+    const text = typeof message.content === 'string'
+      ? message.content
+      : Array.isArray(message.content)
+        ? message.content.filter((part) => part?.type === 'text').map((part) => part.text).join('')
+        : '';
+    const timestamp = Number.isFinite(message.timestamp) ? message.timestamp : Date.now();
+    publish('extension.message', {
+      id: `custom-${sessionId}-${sequence + 1}`,
+      customType: message.customType,
+      text: redactAttachmentPaths(text),
+      ...(message.details !== undefined ? { details: redactAttachmentValues(message.details) } : {}),
+      createdAt: timestamp,
+    }, sessionId, directory);
+  };
+
   const publishSessionEvent = (sessionId, event, directory = activeDirectory || cwd) => {
     switch (event.type) {
       case 'message_start': {
@@ -1670,7 +1951,21 @@ export function createSessionDaemon({
           }, sessionId, directory);
           streamingMessageIds.delete(sessionId);
           clearStreamingRedactionBuffers(sessionId);
+        } else if (event.message?.role === 'custom') {
+          publishExtensionCustomMessage(sessionId, event.message, directory);
         }
+        break;
+      }
+      case 'entry_appended': {
+        const entry = event.entry;
+        if (entry?.type !== 'custom' || typeof entry.customType !== 'string') break;
+        const timestamp = Date.parse(entry.timestamp);
+        publish('extension.entry', {
+          id: typeof entry.id === 'string' ? entry.id : `ext-${sessionId}-${sequence + 1}`,
+          customType: entry.customType,
+          ...(entry.data !== undefined ? { data: redactAttachmentValues(entry.data) } : {}),
+          createdAt: Number.isFinite(timestamp) ? timestamp : Date.now(),
+        }, sessionId, directory);
         break;
       }
       case 'tool_execution_start': {
@@ -1789,6 +2084,7 @@ export function createSessionDaemon({
               'sessions.setThinking', 'sessions.compact', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.status', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.delete',
+              'extensions.list', 'extensions.respond',
             ],
             ...(Number.isInteger(healthMetadata.daemonPid) ? { daemonPid: healthMetadata.daemonPid } : {}),
           },
@@ -1890,6 +2186,45 @@ export function createSessionDaemon({
       case 'resources.prompts.delete': {
         const result = await deletePrompt(message.payload);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'extensions.respond': {
+        const resolution = await resolveExtensionDialog(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: resolution });
+        return;
+      }
+      case 'extensions.list': {
+        const requestedExtensionsDir = message.payload?.directory || message.payload?.cwd;
+        const activeRuntime = await ensureRuntime(requestedExtensionsDir ? await resolveDirectory(requestedExtensionsDir) : undefined);
+        const extensionSession = activeRuntime.session;
+        const extensionPaths = typeof extensionSession?.extensionRunner?.getExtensionPaths === 'function'
+          ? extensionSession.extensionRunner.getExtensionPaths()
+          : [];
+        const extensionCommands = typeof extensionSession?.getCommands === 'function' ? extensionSession.getCommands() : [];
+        writeFrame(socket, {
+          protocolVersion: PROTOCOL_VERSION,
+          kind: 'response',
+          requestId: message.requestId,
+          result: {
+            directory: activeRuntime.cwd,
+            extensions: extensionPaths
+              .filter((extensionPath) => typeof extensionPath === 'string' && extensionPath.length > 0)
+              .map((extensionPath) => ({
+                path: extensionPath,
+                name: basename(extensionPath).replace(/\.(ts|js)$/, ''),
+              })),
+            commands: Array.isArray(extensionCommands)
+              ? extensionCommands
+                .filter((command) => command && typeof command.name === 'string')
+                .map((command) => ({
+                  name: command.name,
+                  ...(typeof command.description === 'string' ? { description: command.description } : {}),
+                  ...(typeof command.source === 'string' ? { source: command.source } : {}),
+                  ...(typeof command.sourceInfo?.scope === 'string' ? { scope: command.sourceInfo.scope } : {}),
+                }))
+              : [],
+          },
+        });
         return;
       }
       case 'sessions.list': {

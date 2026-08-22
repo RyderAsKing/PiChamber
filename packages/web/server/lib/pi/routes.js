@@ -158,7 +158,7 @@ const projectSessionDetail = (value) => {
     if (!item || typeof item !== 'object' || !item.message || !Array.isArray(item.parts)) throw protocolMismatch();
     const message = item.message;
     if (typeof message.id !== 'string' || typeof message.sessionId !== 'string' || typeof message.directory !== 'string'
-      || !Number.isFinite(message.createdAt) || (message.role !== 'user' && message.role !== 'assistant')) throw protocolMismatch();
+      || !Number.isFinite(message.createdAt) || (message.role !== 'user' && message.role !== 'assistant' && message.role !== 'extension')) throw protocolMismatch();
     const projected = {
       id: message.id, sessionId: message.sessionId, directory: message.directory, role: message.role, createdAt: message.createdAt,
       ...(typeof message.parentId === 'string' ? { parentId: message.parentId } : {}),
@@ -174,6 +174,9 @@ const projectSessionDetail = (value) => {
           }
         : {}),
       ...(message.role === 'assistant' && message.usage && projectUsage(message.usage) ? { usage: projectUsage(message.usage) } : {}),
+      ...(message.role === 'extension' && typeof message.customType === 'string' ? { customType: message.customType } : {}),
+      ...(message.role === 'extension' && message.data !== undefined ? { data: message.data } : {}),
+      ...(message.role === 'extension' && message.details !== undefined ? { details: message.details } : {}),
     };
     const parts = item.parts.map((part) => {
       if (!part || typeof part !== 'object' || typeof part.type !== 'string' || typeof part.id !== 'string' || !Number.isSafeInteger(part.index)) throw protocolMismatch();
@@ -904,6 +907,56 @@ export const registerPiRuntimeRoutes = (app, {
         throw error;
       }
       await archiveStore.set(sessionId, archived);
+      res.status(204).end();
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.get('/api/pi/extensions', async (req, res) => {
+    const directory = req.query?.directory;
+    if (directory !== undefined && typeof directory !== 'string') {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('extensions.list', {
+        ...(typeof directory === 'string' && directory.length > 0 ? { directory } : {}),
+      });
+      if (!result || typeof result !== 'object' || !Array.isArray(result.extensions) || !Array.isArray(result.commands)) {
+        writeDaemonError(res, protocolMismatch());
+        return;
+      }
+      res.json({
+        directory: result.directory,
+        extensions: result.extensions,
+        commands: result.commands,
+      });
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.post('/api/pi/extensions/respond', async (req, res) => {
+    const body = req.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+      || typeof body.requestId !== 'string' || body.requestId.length === 0
+      || (body.directory !== undefined && typeof body.directory !== 'string')) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('extensions.respond', {
+        requestId: body.requestId,
+        ...(typeof body.directory === 'string' && body.directory.length > 0 ? { directory: body.directory } : {}),
+        ...(body.cancelled === true ? { cancelled: true } : {}),
+        ...(body.confirmed === true ? { confirmed: true } : {}),
+        ...(typeof body.value === 'string' ? { value: body.value } : {}),
+      });
+      if (!result || typeof result !== 'object' || result.resolved !== true) {
+        res.status(404).json({ error: { code: 'EXTENSION_DIALOG_NOT_PENDING' } });
+        return;
+      }
       res.status(204).end();
     } catch (error) {
       writeDaemonError(res, error);
