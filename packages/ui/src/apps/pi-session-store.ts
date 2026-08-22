@@ -14,6 +14,7 @@ import { recordMobileDiagnosticError } from '@/lib/mobile-error-log';
 import { PiRequestError, piClient, type PiClientScope } from '@/lib/pi/client';
 import { reconnectPiSession } from '@/lib/pi/reconnect';
 import { PiStreamCadence } from '@/lib/pi/stream-cadence';
+import { createPiEventStream, type PiStreamHandle } from '@/lib/pi/transport';
 import type { PiSessionEvent, PiSessionListItem } from '@/lib/pi/protocol';
 import type { PiSession, PiSessionId, PiSessionLifecycleState, PiThinkingLevel } from '@/lib/pi/types';
 import { resolveCreateThinking } from '@/lib/pi/thinking';
@@ -153,6 +154,13 @@ export const PI_TRANSCRIPT_EVICTION_SOFT_CAP = 16;
  *  do not pile onto a 5xx storm. */
 const FOCUS_RETRY_DELAY_MS = 300;
 
+const RECOVERABLE_CONNECTION_CODES = new Set([
+  'DAEMON_UNAVAILABLE',
+  'DAEMON_TIMEOUT',
+  'DAEMON_START_TIMEOUT',
+  'DAEMON_REQUEST_FAILED',
+]);
+
 const initial = (): PiSessionStoreState => ({
   directory: null,
   sessions: [],
@@ -216,6 +224,12 @@ export class PiSessionStore {
   private state = initial();
   private listenersByTopic = new Map<string, Set<Listener>>();
   private stream: { dispose: () => void } | null = null;
+  /** Identifies the currently owned stream so callbacks from a replaced
+   *  connection cannot change connection chrome. */
+  private streamGeneration = 0;
+  /** Advances when the owned transport reconnects while an explicit
+   *  snapshot recovery may still be in flight. */
+  private streamReadyRevision = 0;
   /** Advances only on bootstrap / reconnect / runtime switch / dispose —
    *  guards every async completion that may still be in flight when the
    *  cluster is torn down or restarted. */
@@ -318,6 +332,8 @@ export class PiSessionStore {
     this.cadence.dispose();
     this.stream?.dispose();
     this.stream = null;
+    this.streamGeneration += 1;
+    this.streamReadyRevision += 1;
     this.unsubscribeRuntime();
     clearAllRevertNavigations();
     this.navigationGenerationById.clear();
@@ -339,9 +355,50 @@ export class PiSessionStore {
     this.emitChrome();
   };
   reportError = (error: unknown) => {
-    this.state = { ...this.state, error: asError(error), connection: 'error' };
+    const reported = asError(error);
+    this.state = { ...this.state, error: reported, connection: 'error' };
     this.emitChrome();
+    this.ensureConnectionRecovery(reported);
   };
+  /**
+   * Keep a transport-owned backoff loop alive even when the first runtime
+   * probe failed before the cluster could attach its normal event stream.
+   * Once the SSE endpoint accepts a connection, restart authoritative
+   * bootstrap instead of treating the stream itself as session state.
+   */
+  private ensureConnectionRecovery(error: PiRequestError) {
+    if (this.stream || !RECOVERABLE_CONNECTION_CODES.has(error.code)) return;
+    const expected = this.runtimeGeneration;
+    const runtimeKey = getRuntimeKey();
+    const streamGeneration = this.streamGeneration + 1;
+    this.streamGeneration = streamGeneration;
+    const fromSequence = this.streamCursor();
+    let recoveryStream: PiStreamHandle | null = null;
+    recoveryStream = createPiEventStream({
+      onEvent: () => {},
+      onReconnect: () => {
+        if (
+          expected !== this.runtimeGeneration
+          || runtimeKey !== getRuntimeKey()
+          || streamGeneration !== this.streamGeneration
+          || this.stream !== recoveryStream
+        ) return;
+        recoveryStream?.dispose();
+        this.stream = null;
+        this.streamGeneration += 1;
+        this.streamReadyRevision += 1;
+        const { directory, selectedSessionId } = this.state;
+        void this.start({
+          ...(directory ? { directory } : {}),
+          ...(selectedSessionId ? { sessionId: selectedSessionId } : {}),
+        });
+      },
+    }, {
+      ...(fromSequence !== undefined ? { fromSequence } : {}),
+      runtimeKey,
+    });
+    this.stream = recoveryStream;
+  }
   /**
    * A single session could not be hydrated. The cluster stays `ready` so
    * other chats keep working; `focusPending` clears so AppEffects can
@@ -383,6 +440,8 @@ export class PiSessionStore {
     this.hydrateInflightById.clear();
     this.cadence.dispose();
     this.stream?.dispose(); this.stream = null;
+    this.streamGeneration += 1;
+    this.streamReadyRevision += 1;
     this.state = { ...initial(), connection: 'ready' };
     clearAllRevertNavigations();
     this.navigationGenerationById.clear();
@@ -1607,6 +1666,8 @@ export class PiSessionStore {
         if (!ready) buffered.push(event);
         else this.apply(event);
       };
+      const streamGeneration = this.streamGeneration + 1;
+      this.streamGeneration = streamGeneration;
       const bootstrap = await bootstrapPiDirectory({
         directory,
         selectedSessionId: sessionId,
@@ -1615,6 +1676,7 @@ export class PiSessionStore {
         ...(options?.initialSessions ? { initialSessions: options.initialSessions } : {}),
         onEvent,
         onStreamDisconnect: () => void this.reconnect(this.state.selectedSessionId ?? sessionId, expected, runtimeKey),
+        onStreamReconnect: () => this.markStreamReconnected(expected, runtimeKey, streamGeneration),
       });
       if (expected !== this.runtimeGeneration) {
         bootstrap.stream?.dispose();
@@ -1679,8 +1741,25 @@ export class PiSessionStore {
     }
   }
 
+  private markStreamReconnected(expected: number, runtimeKey: string, streamGeneration: number) {
+    if (
+      expected !== this.runtimeGeneration
+      || runtimeKey !== getRuntimeKey()
+      || streamGeneration !== this.streamGeneration
+    ) return;
+    this.streamReadyRevision += 1;
+    if (this.state.connection === 'ready' && !this.state.error) return;
+    this.state = { ...this.state, connection: 'ready', error: null };
+    this.emitChrome();
+  }
+
   private async reconnect(sessionId: string, expected: number, runtimeKey: string) {
-    if (this.recovering || expected !== this.runtimeGeneration) return; this.recovering = true; this.cadence.flush(); this.stream?.dispose(); this.stream = null;
+    if (this.recovering || expected !== this.runtimeGeneration) return;
+    this.recovering = true;
+    this.cadence.flush();
+    const disconnectedStream = this.stream;
+    const readyRevision = this.streamReadyRevision;
+    const replacementStreamGeneration = this.streamGeneration + 1;
     const cursorAtReconnect = this.streamCursor();
     try {
       const result = await reconnectPiSession({
@@ -1690,9 +1769,19 @@ export class PiSessionStore {
         lastKnownSequence: cursorAtReconnect,
         onEvent: (event) => this.apply(event),
         onStreamDisconnect: () => void this.reconnect(this.state.selectedSessionId ?? sessionId, expected, runtimeKey),
+        onStreamReconnect: () => this.markStreamReconnected(expected, runtimeKey, replacementStreamGeneration),
       });
-      if (expected !== this.runtimeGeneration) { result.stream?.dispose(); return; }
+      if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) {
+        result.stream?.dispose();
+        return;
+      }
+      if (readyRevision !== this.streamReadyRevision) {
+        result.stream?.dispose();
+        return;
+      }
       if (result.phase === 'ready') {
+        disconnectedStream?.dispose();
+        this.streamGeneration = replacementStreamGeneration;
         this.stream = result.stream;
         const reducer: PiReducerState = {
           bySession: new Map(this.state.reducer.bySession),
@@ -2090,6 +2179,8 @@ export class PiSessionStore {
     this.cadence.dispose();
     this.stream?.dispose();
     this.stream = null;
+    this.streamGeneration += 1;
+    this.streamReadyRevision += 1;
     this.state = initial();
     clearAllRevertNavigations();
     this.navigationGenerationById.clear();

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { PI_TRANSCRIPT_EVICTION_SOFT_CAP, PiSessionStore } from '@/apps/pi-session-store';
 import { PiRequestError, piClient } from '@/lib/pi/client';
 import type { PiReducerMessage, PiReducerSessionState } from '@/lib/pi/event-reducer';
+import { getRuntimeKey } from '@/lib/runtime-switch';
 import { createReducerPartMap } from '@/lib/pi/event-reducer';
 import type { PiSessionEvent } from '@/lib/pi/protocol';
 import type { PiSessionId } from '@/lib/pi/types';
@@ -46,6 +47,7 @@ interface StoreInternal {
   runtimeGeneration: number;
   focusGeneration: number;
   stream: { dispose: () => void } | null;
+  streamGeneration: number;
   hydratedSessionIds: Set<string>;
   pendingPromptById: Set<string>;
   activityPhaseById: Map<string, 'active' | 'settled'>;
@@ -64,6 +66,7 @@ interface StoreInternal {
   evictIdleTranscripts: () => void;
   hydrate: (sessionId: string, runtimeGeneration: number, known?: unknown, options?: { force?: boolean }) => Promise<void>;
   reconnect: (sessionId: string, expected: number, runtimeKey: string) => Promise<void>;
+  markStreamReconnected: (expected: number, runtimeKey: string, streamGeneration: number) => void;
 }
 
 const asInternal = (store: PiSessionStore): StoreInternal => store as unknown as StoreInternal;
@@ -514,6 +517,69 @@ describe('PiSessionStore runtime-scoped sessions', () => {
     const finalSize = store.getState().reducer.bySession.size;
     expect(finalSize <= PI_TRANSCRIPT_EVICTION_SOFT_CAP + 1).toBe(true); // +1 for 'current'
     store.dispose();
+  });
+
+  test('an initial daemon failure reconnects through a background recovery stream', async () => {
+    const originalFetch = globalThis.fetch;
+    const encoder = new TextEncoder();
+    globalThis.fetch = (async () => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(': recovery-ready\n\n'));
+        controller.close();
+      },
+    }), { status: 200, headers: { 'content-type': 'text/event-stream' } })) as typeof fetch;
+    const stubs = stubDaemons({
+      listProjects: async () => ({ projects: [] }),
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+    });
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+
+    try {
+      store.reportError(new PiRequestError('DAEMON_UNAVAILABLE'));
+      expect(store.getState().connection).toBe('error');
+      expect(internal.stream).not.toBeNull();
+
+      await tickMicrotasks(16);
+      expect(store.getState().connection).toBe('ready');
+      expect(store.getState().error).toBeNull();
+    } finally {
+      globalThis.fetch = originalFetch;
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('a failed reconnect keeps the stream retry loop alive and clears the error when it reconnects', async () => {
+    const originalFetch = globalThis.fetch;
+    let disposed = false;
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      protocolVersion: 1,
+      state: 'unavailable',
+      error: { code: 'DAEMON_UNAVAILABLE' },
+    }), { status: 503, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    internal.stream = { dispose: () => { disposed = true; } };
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      selectedSessionId: 'connected',
+      connection: 'ready',
+    };
+
+    try {
+      await internal.reconnect('connected', internal.runtimeGeneration, getRuntimeKey());
+      expect(disposed).toBe(false);
+      expect(store.getState().connection).toBe('error');
+
+      internal.markStreamReconnected(internal.runtimeGeneration, getRuntimeKey(), internal.streamGeneration);
+      expect(store.getState().connection).toBe('ready');
+      expect(store.getState().error).toBeNull();
+    } finally {
+      globalThis.fetch = originalFetch;
+      store.dispose();
+    }
   });
 
   test('reconnect keeps resident transcripts and resumes max cursor without dropping the cluster', () => {

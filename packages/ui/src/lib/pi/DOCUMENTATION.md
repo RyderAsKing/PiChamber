@@ -233,7 +233,18 @@ entries schedules one scan, not one per entry.
 
 ### Reconnect catch-up
 
-`reconnect()` merges the snapshot into the existing cluster (no disposals)
+`reconnect()` keeps the disconnected stream handle alive while it probes and
+fetches a replacement snapshot. If that explicit recovery fails, the stream's
+indefinite backoff loop remains the recovery owner instead of being disposed
+with its next retry already scheduled. A later healthy transport connection
+clears the connection error. If explicit recovery succeeds first, it disposes
+the old handle and installs the replacement stream. If the first runtime probe
+fails before any normal stream exists, the store attaches a payload-free
+recovery stream solely to reuse the transport's online/visibility-aware
+backoff. Once that endpoint connects, the store disposes it and reruns the
+authoritative bootstrap.
+
+A successful explicit reconnect merges the snapshot into the existing cluster
 and then iterates any hydrated resident whose `lastSequence` is behind the
 resumed cursor, issuing a `getSession` and `commitHydratedSession` for each.
 A quiet background turn does not lose the disconnect gap. Accepted

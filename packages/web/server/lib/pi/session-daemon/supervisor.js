@@ -24,6 +24,20 @@ class PiSessionDaemonUnavailableError extends Error {
 
 const delay = (milliseconds) => new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 
+const rejectAfter = (promise, timeoutMs, code) => new Promise((resolvePromise, rejectPromise) => {
+  const timer = setTimeout(() => rejectPromise(new SessionDaemonClientError(code)), timeoutMs);
+  promise.then(
+    (value) => {
+      clearTimeout(timer);
+      resolvePromise(value);
+    },
+    (error) => {
+      clearTimeout(timer);
+      rejectPromise(error);
+    },
+  );
+});
+
 const getWindowsOwnerKey = () => {
   try {
     return createHash('sha256').update(userInfo().username).digest('hex').slice(0, 16);
@@ -253,7 +267,12 @@ export const createPiSessionDaemonSupervisor = ({
       throw new PiSessionDaemonUnavailableError('DAEMON_UNAVAILABLE');
     }
     try {
-      const health = await request({ endpoint: paths.endpoint, credential, command: 'runtime.health' });
+      const health = await rejectAfter(request({
+        endpoint: paths.endpoint,
+        credential,
+        command: 'runtime.health',
+        timeoutMs: startupTimeoutMs,
+      }), startupTimeoutMs, 'DAEMON_UNAVAILABLE');
       if (health?.state !== 'ready' || health.daemonPid !== state.pid) {
         throw new PiSessionDaemonUnavailableError('DAEMON_IDENTITY_MISMATCH');
       }
