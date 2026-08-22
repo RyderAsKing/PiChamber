@@ -717,9 +717,12 @@ describe('Pi session daemon spike', () => {
     });
     await expect(client.request('sessions.fork', { sessionId: 'fixture-session', directory: root, messageId: publishedUserId })).resolves.toMatchObject({ result: expect.any(Object) });
 
+    // Pi agent-core shallow-copies the streaming start; message_end carries
+    // the distinct finalized object that SessionManager persists.
+    const assistantStartMessage = { role: 'assistant', timestamp: 3, provider: 'test', model: 'model', content: [] };
     const replacementAssistant = { role: 'assistant', timestamp: 3, provider: 'test', model: 'model', content: [{ type: 'text', text: 'replacement answer' }] };
     const assistantStartPromise = client.next((frame) => frame.event === 'assistant.message.start' && frame.payload?.role === 'assistant');
-    session.emit({ type: 'message_start', message: replacementAssistant });
+    session.emit({ type: 'message_start', message: assistantStartMessage });
     session.emit({ type: 'message_end', message: replacementAssistant });
     session.entries.push({ type: 'message', id: 'm4-assistant-entry', parentId: 'm4-rev-entry', timestamp: '2026-01-01T00:00:03.000Z', message: replacementAssistant });
     const publishedAssistantId = (await assistantStartPromise).payload.messageId;
@@ -817,8 +820,8 @@ describe('Pi session daemon spike', () => {
     };
     aliases.retain({ cwd: '/project-a', sessionId: 'same-session', syntheticMessageId: 'user-same-session-1', message: messageA });
     aliases.retain({ cwd: '/project-b', sessionId: 'same-session', syntheticMessageId: 'user-same-session-1', message: messageB });
-    aliases.observeMessageEnd({ cwd: '/project-a', sessionId: 'same-session', message: messageA, sessionManager: managerA });
-    aliases.observeMessageEnd({ cwd: '/project-b', sessionId: 'same-session', message: messageB, sessionManager: managerB });
+    aliases.observeMessageEnd({ cwd: '/project-a', sessionId: 'same-session', syntheticMessageId: 'user-same-session-1', message: messageA, sessionManager: managerA });
+    aliases.observeMessageEnd({ cwd: '/project-b', sessionId: 'same-session', syntheticMessageId: 'user-same-session-1', message: messageB, sessionManager: managerB });
 
     expect(aliases.resolve({ cwd: '/project-a', sessionId: 'same-session', requestedId: 'user-same-session-1', sessionManager: managerA })).toBe('entry-a');
     expect(aliases.resolve({ cwd: '/project-b', sessionId: 'same-session', requestedId: 'user-same-session-1:text:0', sessionManager: managerB })).toBe('entry-b');

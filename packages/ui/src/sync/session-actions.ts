@@ -102,25 +102,17 @@ export async function revertToMessage(sessionId: string, messageId: string): Pro
   }
 }
 
+export async function restoreRevertedMessage(sessionId: string, messageId: string): Promise<void> {
+  const { getRevertNavigation } = await import('@/sync/revert-navigation-store');
+  if (!getRevertNavigation(sessionId)) throw new Error('No reverted conversation is available to restore.');
+  await store().navigate(sessionId, messageId);
+}
+
 export async function unrevertSession(sessionId: string): Promise<void> {
-  try {
-    const { getRevertNavigation } = await import('@/sync/revert-navigation-store');
-    const entry = getRevertNavigation(sessionId);
-    const target = entry?.previousLeafId;
-    if (!target) return;
-    const detail = await store().navigate(sessionId, target) as unknown as { navigation?: { editorText?: string } } | undefined;
-    const editorText = detail?.navigation?.editorText;
-    if (typeof editorText === 'string' && editorText.length > 0) {
-      try {
-        const { useInputStore } = await import('@/sync/input-store');
-        useInputStore.getState().setPendingRevertText(editorText);
-      } catch {
-        // ignore: input store may be unavailable during hydration
-      }
-    }
-  } catch {
-    // ignore: navigation state may be unavailable
-  }
+  const { getRevertNavigation } = await import('@/sync/revert-navigation-store');
+  const target = getRevertNavigation(sessionId)?.previousLeafId;
+  if (!target) throw new Error('No reverted conversation is available to restore.');
+  await store().navigate(sessionId, target);
 }
 
 export async function forkFromMessage(sessionId: string, messageId?: string): Promise<void> {

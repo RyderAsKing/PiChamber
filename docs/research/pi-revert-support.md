@@ -82,7 +82,7 @@ Hydrated transcript projection uses each Pi message entry's `entry.id` as the br
 
 Live `message_start` events are different. They arrive before Pi calls `SessionManager.appendMessage()`, so the daemon publishes a synthetic browser ID such as `user-<session>-<sequence>` or `assistant-<session>-<sequence>`. A message created after the last hydrate can therefore remain synthetic in the UI. Revert makes this repeatable because replacement-branch messages arrive through live events.
 
-The daemon now keeps a cwd-and-session-scoped alias from each synthetic ID to the later Pi entry ID. It matches the `message_start`/`message_end` object to the persisted entry by object identity after Pi appends it. Navigation and fork resolve that alias before calling Pi. The mapping survives idle runtime disposal because a browser may retain live IDs while the daemon reopens the session, and it clears on session deletion or daemon shutdown.
+The daemon now keeps a cwd-and-session-scoped alias from each synthetic ID to the later Pi entry ID. Pi agent-core emits a streaming assistant `message_start` with a shallow copy of its partial message, while `message_end` carries the finalized object that `SessionManager.appendMessage()` persists. The alias must therefore rebind to the finalized `message_end` object before matching the appended entry by identity in a microtask. Navigation and fork resolve that alias before calling Pi. The mapping survives idle runtime disposal because a browser may retain live IDs while the daemon reopens the session, and it clears on session deletion or daemon shutdown.
 
 Pi's entry IDs are opaque and do not encode time. UI branch behavior must use transcript or tree order rather than lexical ID comparison.
 
@@ -145,7 +145,7 @@ A fetch failure must leave the last known transcript and navigation state intact
 
 ### 3. Add one visible action
 
-Start with a per-user-message action named "Revert conversation to here". Disable it while that session is streaming. On success:
+Start with a per-user-message action named "Revert conversation to here". Disable it while that session is streaming. Do not render it on the newest message because navigating to the current message state cannot rewind the conversation. On success:
 
 - hydrate the returned active branch
 - put `editorText` in the composer if the composer is empty
@@ -156,7 +156,7 @@ The first user message is a required test case. Its new leaf is `null`, and the 
 
 ### 4. Treat redo as tree navigation
 
-Redo should navigate to the saved former leaf, not call the current no-op `unrevertSession()`. If the process restarts before a new append, Pi reopens at the file tail, which may already look like a full redo. The client must reconcile against the authoritative active branch instead of blindly replaying a stale marker.
+Redo should navigate to the saved former leaf, not call the current no-op `unrevertSession()`. Partial restores must retain that original former leaf; Pi reports the shortened current leaf as `previousLeafId` on each later navigation, and replacing the saved value would make the next restore move backward. Once authoritative navigation restores every abandoned message, the client clears the temporary revert state. If the process restarts before a new append, Pi reopens at the file tail, which may already look like a full redo. The client must reconcile against the authoritative active branch instead of blindly replaying a stale marker.
 
 A full tree UI can later replace the temporary abandoned-branch list. The API does not need to change for that step.
 
@@ -181,7 +181,7 @@ Shared client and store tests:
 
 UI tests:
 
-- the action appears only on eligible user messages and is disabled while streaming
+- the action appears only on eligible non-latest messages and is disabled while streaming
 - first-message revert renders an empty active transcript without treating it as a failed fetch
 - the dock uses branch order, not lexical ID order
 - redo navigates to the saved former leaf

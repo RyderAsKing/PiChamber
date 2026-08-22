@@ -34,7 +34,7 @@ export function createMessageEntryAliases({ scheduleMicrotask = queueMicrotask }
       || !message || typeof message !== 'object') return;
     const alias = { message };
     getScope(cwd, sessionId, true).set(syntheticMessageId, alias);
-    pendingByMessage.set(message, { cwd, sessionId, alias });
+    pendingByMessage.set(message, { alias });
   };
 
   const releasePersisted = (pending, sessionManager) => {
@@ -49,10 +49,14 @@ export function createMessageEntryAliases({ scheduleMicrotask = queueMicrotask }
   return {
     retain,
 
-    observeMessageEnd({ cwd, sessionId, message, sessionManager }) {
-      if (!message || typeof message !== 'object') return;
-      const pending = pendingByMessage.get(message);
-      if (!pending || pending.cwd !== cwd || pending.sessionId !== sessionId) return;
+    observeMessageEnd({ cwd, sessionId, syntheticMessageId, message, sessionManager }) {
+      if (typeof syntheticMessageId !== 'string' || !message || typeof message !== 'object') return;
+      const alias = getScope(cwd, sessionId)?.get(syntheticMessageId);
+      if (!alias) return;
+      if (alias.message && alias.message !== message) pendingByMessage.delete(alias.message);
+      alias.message = message;
+      const pending = { alias };
+      pendingByMessage.set(message, pending);
       scheduleMicrotask(() => {
         releasePersisted(pending, sessionManager);
       });

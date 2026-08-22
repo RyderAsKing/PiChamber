@@ -7,6 +7,7 @@ import { createReducerPartMap } from '@/lib/pi/event-reducer';
 import type { PiSessionEvent } from '@/lib/pi/protocol';
 import type { PiSessionId } from '@/lib/pi/types';
 import { useNotificationStore } from '@/sync/notification-store';
+import { clearAllRevertNavigations, getRevertNavigation } from '@/sync/revert-navigation-store';
 import { resetSessionOrdering, useSessionOrderingStore } from '@/sync/session-ordering';
 
 // ---------------------------------------------------------------------------
@@ -94,6 +95,7 @@ interface StubOptions {
   listSessions?: (scope: { directory?: string }) => Promise<{ sessions: SessionListEntry[] }>;
   getSession?: (id: string) => Promise<unknown>;
   health?: () => Promise<unknown>;
+  navigateSession?: (sessionId: string, messageId: string) => Promise<unknown>;
 }
 
 const stubDaemons = (options: StubOptions = {}) => {
@@ -103,8 +105,9 @@ const stubDaemons = (options: StubOptions = {}) => {
     listSessions: piClient.listSessions.bind(piClient),
     getSession: piClient.getSession.bind(piClient),
     health: piClient.health.bind(piClient),
+    navigateSession: piClient.navigateSession.bind(piClient),
   };
-  const calls = { selectProject: 0, listSessions: 0, getSession: 0 };
+  const calls = { selectProject: 0, listSessions: 0, getSession: 0, navigateSession: 0 };
   piClient.selectProject = (async (dir: string) => {
     calls.selectProject += 1;
     if (options.selectProject) return options.selectProject(dir);
@@ -132,6 +135,11 @@ const stubDaemons = (options: StubOptions = {}) => {
     if (options.health) return options.health() as never;
     return { state: 'ready', protocolVersion: 1, capabilities: [] } as never;
   }) as typeof piClient.health;
+  piClient.navigateSession = (async (sessionId: string, messageId: string) => {
+    calls.navigateSession += 1;
+    if (options.navigateSession) return options.navigateSession(sessionId, messageId) as never;
+    throw new Error('Unexpected navigateSession call');
+  }) as typeof piClient.navigateSession;
   return {
     calls,
     restore: () => {
@@ -140,6 +148,7 @@ const stubDaemons = (options: StubOptions = {}) => {
       piClient.listSessions = originals.listSessions;
       piClient.getSession = originals.getSession;
       piClient.health = originals.health;
+      piClient.navigateSession = originals.navigateSession;
     },
   };
 };
@@ -1359,6 +1368,67 @@ describe('PiSessionStore behaviour parity', () => {
       stubs.restore();
     }
     store.dispose();
+  });
+
+  test('preserves the original leaf through partial restores and clears navigation after full restore', async () => {
+    clearAllRevertNavigations();
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    const allMessages = [
+      reducerMessage({ id: 'u1', role: 'user', text: 'one', createdAt: 1 }),
+      reducerMessage({ id: 'a1', role: 'assistant', text: 'one answer', createdAt: 2 }),
+      reducerMessage({ id: 'u2', role: 'user', text: 'two', createdAt: 3 }),
+      reducerMessage({ id: 'a2', role: 'assistant', text: 'two answer', createdAt: 4 }),
+      reducerMessage({ id: 'u3', role: 'user', text: 'three', createdAt: 5 }),
+      reducerMessage({ id: 'a3', role: 'assistant', text: 'three answer', createdAt: 6 }),
+    ];
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      connection: 'ready',
+      selectedSessionId: 's1',
+      reducer: {
+        bySession: new Map([['s1', reducerSession({
+          sessionId: 's1',
+          messages: new Map(allMessages.map((message) => [message.id, message])),
+        })]]),
+        lastSequence: new Map([['s1', 1]]),
+      },
+    };
+    internal.hydratedSessionIds.add('s1');
+
+    const detail = (messageIds: string[], navigation: { targetEntryId: string; previousLeafId: string; newLeafId: string }) => ({
+      session: { id: 's1', directory: '/repo', createdAt: 1, updatedAt: 6, messageCount: messageIds.length },
+      lastSequence: 1,
+      isStreaming: false,
+      lifecycle: 'idle',
+      messages: messageIds.map((id) => ({ message: allMessages.find((message) => message.id === id), parts: [] })),
+      navigation,
+    });
+    const stubs = stubDaemons({
+      navigateSession: async (_sessionId, messageId) => {
+        if (messageId === 'u2') return detail(['u1', 'a1'], { targetEntryId: 'u2', previousLeafId: 'a3', newLeafId: 'a1' });
+        if (messageId === 'u3') return detail(['u1', 'a1', 'u2', 'a2'], { targetEntryId: 'u3', previousLeafId: 'a1', newLeafId: 'a2' });
+        if (messageId === 'a3') return detail(['u1', 'a1', 'u2', 'a2', 'u3', 'a3'], { targetEntryId: 'a3', previousLeafId: 'a2', newLeafId: 'a3' });
+        throw new Error(`Unexpected navigation target ${messageId}`);
+      },
+    });
+
+    try {
+      await store.navigate('s1', 'u2');
+      expect(getRevertNavigation('s1')?.previousLeafId).toBe('a3');
+
+      await store.navigate('s1', 'u3');
+      expect(getRevertNavigation('s1')?.previousLeafId).toBe('a3');
+      expect(getRevertNavigation('s1')?.abandoned.map((message) => message.id)).toEqual(['u3', 'a3']);
+
+      await store.navigate('s1', 'a3');
+      expect(getRevertNavigation('s1')).toBe(undefined);
+    } finally {
+      stubs.restore();
+      clearAllRevertNavigations();
+      store.dispose();
+    }
   });
 
   test('a missing selected session fails that chat without taking the cluster down', async () => {

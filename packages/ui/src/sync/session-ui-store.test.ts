@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { routeMessage, useSessionUIStore } from './session-ui-store';
+import { clearAllRevertNavigations, setRevertNavigation } from './revert-navigation-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 
 const store = getPiSessionStore();
@@ -11,6 +12,7 @@ const originals = {
   setModel: store.setModel,
   setThinking: store.setThinking,
   fork: store.fork,
+  navigate: store.navigate,
 };
 
 afterEach(() => {
@@ -19,6 +21,8 @@ afterEach(() => {
   store.setModel = originals.setModel;
   store.setThinking = originals.setThinking;
   store.fork = originals.fork;
+  store.navigate = originals.navigate;
+  clearAllRevertNavigations();
 });
 
 describe('routeMessage', () => {
@@ -102,6 +106,18 @@ describe('routeMessage', () => {
     store.fork = (async () => { throw failure; }) as typeof store.fork;
 
     await expect(useSessionUIStore.getState().forkFromMessage('session-1', 'live-message-id')).rejects.toThrow(failure.message);
+  });
+
+  test('restore rejects when Pi cannot navigate to the original leaf', async () => {
+    setRevertNavigation('session-1', {
+      targetEntryId: 'reverted-entry',
+      previousLeafId: 'original-leaf',
+      newLeafId: 'short-leaf',
+    }, []);
+    const failure = new Error('Restore target not found');
+    store.navigate = (async () => { throw failure; }) as typeof store.navigate;
+
+    await expect(useSessionUIStore.getState().handleSlashRedo('session-1')).rejects.toThrow(failure.message);
   });
 
   test('setNewSessionDraftTarget preserves draft open state and updates target project/directory', () => {

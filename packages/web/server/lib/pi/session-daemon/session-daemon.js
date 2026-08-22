@@ -1667,9 +1667,15 @@ export function createSessionDaemon({
       }
       case 'message_end': {
         const eventRuntime = runtimeRegistry?.get({ cwd: directory, sessionId });
+        const syntheticMessageId = event.message?.role === 'assistant'
+          ? streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId)
+          : event.message?.role === 'user'
+            ? latestUserMessageIds.get(sessionId)
+            : undefined;
         messageEntryAliases.observeMessageEnd({
           cwd: directory,
           sessionId,
+          syntheticMessageId,
           message: event.message,
           sessionManager: eventRuntime?.session?.sessionManager,
         });

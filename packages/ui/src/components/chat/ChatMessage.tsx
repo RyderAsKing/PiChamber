@@ -1025,6 +1025,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                                 agentMention={agentMention}
                                                 errorMessage={assistantErrorText}
                                                 errorVariant={assistantErrorVariant}
+                                                isLatestMessage={!nextMessage}
                                                 userActionsMode={useExternalUserActionsRow ? 'external-content' : 'inline'}
                                                 stickyUserHeaderEnabled={stickyUserHeader}
                                             />
@@ -1058,6 +1059,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                                 agentMention={agentMention}
                                                 errorMessage={assistantErrorText}
                                                 errorVariant={assistantErrorVariant}
+                                                isLatestMessage={!nextMessage}
                                                 userActionsMode="external-actions"
                                                 stickyUserHeaderEnabled={stickyUserHeader}
                                             />
@@ -1074,6 +1076,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                 parts={visibleParts}
                                 isUser={isUser}
                                 isMessageCompleted={isMessageCompleted}
+                                isLatestMessage={!nextMessage}
                                 messageFinish={messageFinish}
                                 messageCompletedAt={messageCompletedAt ?? undefined}
                                 messageCreatedAt={messageCreatedAt ?? undefined}

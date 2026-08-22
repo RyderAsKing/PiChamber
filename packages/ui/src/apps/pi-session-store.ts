@@ -1202,7 +1202,15 @@ export class PiSessionStore {
             seen.add(entry.id);
           }
         }
-        setRevertNavigation(sessionId, navigation, combined);
+        if (combined.length === 0) {
+          clearRevertNavigation(sessionId);
+        } else {
+          setRevertNavigation(
+            sessionId,
+            oldNav ? { ...navigation, previousLeafId: oldNav.previousLeafId } : navigation,
+            combined,
+          );
+        }
       }
       return detail;
     } catch (error) {

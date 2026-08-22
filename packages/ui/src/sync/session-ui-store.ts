@@ -63,6 +63,7 @@ import {
   optimisticSend,
   refetchSessionMessages,
   revertToMessage as revertToMessageAction,
+  restoreRevertedMessage as restoreRevertedMessageAction,
   unrevertSession as unrevertSessionAction,
   forkFromMessage as forkFromMessageAction,
   fetchMessagesForSession,
@@ -259,9 +260,10 @@ type SessionUIState = {
   shareSession: (sessionId: string) => Promise<Session | null>
   unshareSession: (sessionId: string) => Promise<Session | null>
   revertToMessage: (sessionId: string, messageId: string, options?: { skipRedoPush?: boolean }) => Promise<void>
+  restoreToMessage: (sessionId: string, messageId: string) => Promise<void>
   forkFromMessage: (sessionId: string, messageId: string) => Promise<void>
   handleSlashUndo: (sessionId: string) => Promise<void>
-  handleSlashRedo: (sessionId: string, options?: { fullUnrevert?: boolean }) => Promise<void>
+  handleSlashRedo: (sessionId: string) => Promise<void>
   createSessionFromAssistantMessage: (sourceMessageId: string, execution: AssistantMessageSessionExecution) => Promise<void>
 
   // Data access helpers (read from sync)
@@ -1144,6 +1146,13 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   },
 
   // ---------------------------------------------------------------------------
+  // restoreToMessage — advances within the abandoned branch without editing
+  // ---------------------------------------------------------------------------
+  restoreToMessage: async (sessionId, messageId) => {
+    await restoreRevertedMessageAction(sessionId, messageId)
+  },
+
+  // ---------------------------------------------------------------------------
   // handleSlashUndo — Pi-native: revert to previous user message
   // ---------------------------------------------------------------------------
   handleSlashUndo: async (sessionId) => {
@@ -1163,20 +1172,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   // ---------------------------------------------------------------------------
   // handleSlashRedo — Pi-native: navigate to saved previous leaf
   // ---------------------------------------------------------------------------
-  handleSlashRedo: async (sessionId, options) => {
-    const { getRevertNavigation } = await import("./revert-navigation-store");
-    const entry = getRevertNavigation(sessionId);
-    if (!entry?.previousLeafId) {
-      if (options?.fullUnrevert) {
-        const { unrevertSession } = await import("./session-actions");
-        await unrevertSession(sessionId);
-        const { toast } = await import("sonner");
-        toast.success("Restored all messages");
-      }
-      return;
-    }
-    const { unrevertSession } = await import("./session-actions");
-    await unrevertSession(sessionId);
+  handleSlashRedo: async (sessionId) => {
+    await unrevertSessionAction(sessionId)
     const { toast } = await import("sonner");
     toast.success("Restored all messages");
   },

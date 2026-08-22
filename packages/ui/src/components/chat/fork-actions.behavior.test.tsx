@@ -4,6 +4,7 @@ type ElementNode = { type: unknown; props: Record<string, unknown> };
 type ForkAction = (sessionId: string, messageId: string) => Promise<void>;
 
 let forkAction: ForkAction = async () => undefined;
+let restoreAction: ForkAction = async () => undefined;
 const successes: string[] = [];
 const errors: string[] = [];
 
@@ -75,6 +76,7 @@ mock.module('@/sync/session-ui-store', () => {
     currentSessionId: 'session-1',
     forkFromMessage: (sessionId: string, messageId: string) => forkAction(sessionId, messageId),
     revertToMessage: async () => undefined,
+    restoreToMessage: (sessionId: string, messageId: string) => restoreAction(sessionId, messageId),
     handleSlashRedo: async () => undefined,
   };
   const useSessionUIStore = (selector: (value: typeof state) => unknown) => selector(state);
@@ -90,7 +92,10 @@ mock.module('@/sync/sync-context', () => ({
 mock.module('@/sync/revert-navigation-store', () => ({
   useRevertNavigation: () => ({
     targetEntryId: 'reverted-entry',
-    abandoned: [{ id: 'reverted-entry', role: 'user', preview: 'Reverted prompt' }],
+    abandoned: [
+      { id: 'reverted-entry', role: 'user', preview: 'Reverted prompt' },
+      { id: 'later-entry', role: 'user', preview: 'Later prompt' },
+    ],
   }),
 }));
 mock.module('./lib/messagePreview', () => ({
@@ -100,6 +105,7 @@ mock.module('./lib/messagePreview', () => ({
 
 import { TimelineDialog } from './TimelineDialog';
 import { MessageForkAction } from './message/MessageForkAction';
+import { MessageRevertAction } from './message/MessageRevertAction';
 import { RevertedMessageDock } from './composer/ui/RevertedMessageDock';
 
 const walk = (value: unknown, visit: (node: ElementNode) => boolean): ElementNode | undefined => {
@@ -137,11 +143,21 @@ const renderComponent = (component: unknown, props: Record<string, unknown>): un
 
 beforeEach(() => {
   forkAction = async () => undefined;
+  restoreAction = async () => undefined;
   successes.length = 0;
   errors.length = 0;
 });
 
-describe('fork action feedback', () => {
+describe('message branch action feedback', () => {
+  test('newest message does not render a revert action', () => {
+    const tree = renderComponent(MessageRevertAction, {
+      sessionId: 'session-1',
+      messageId: 'latest-message-id',
+      isLatestMessage: true,
+    });
+    expect(tree).toBeNull();
+  });
+
   test('message action shows success only after the fork resolves', async () => {
     let resolveFork!: () => void;
     forkAction = () => new Promise<void>((resolve) => { resolveFork = resolve; });
@@ -177,6 +193,18 @@ describe('fork action feedback', () => {
     await flushPromises();
     expect(openChanges).toEqual([]);
     expect(errors).toEqual(['Fork target not found']);
+  });
+
+  test('reverted-message dock reports a rejected restore', async () => {
+    restoreAction = async () => { throw new Error('Restore target not found'); };
+    const tree = renderComponent(RevertedMessageDock, { sessionId: 'session-1' });
+    const restoreButton = walk(tree, (node) => node.type === 'button' && textContent(node.props.children).trim() === 'Restore');
+    expect(restoreButton).toBeDefined();
+
+    (restoreButton?.props.onClick as () => void)();
+    await flushPromises();
+    expect(errors).toEqual(['Restore target not found']);
+    expect(successes).toEqual([]);
   });
 
   test('reverted-message dock reports a rejected fork', async () => {
