@@ -125,6 +125,9 @@ import { MobilePillComposer } from './composer/ui/MobilePillComposer';
 import { ComposerContextChips } from './composer/ui/ComposerContextChips';
 import { LinkedReferenceRow } from './composer/ui/LinkedReferenceRow';
 import { RevertedMessageDock } from './composer/ui/RevertedMessageDock';
+import { ComposerVoiceButton } from './composer/ui/ComposerVoiceButton';
+import { ComposerVoiceActions, ComposerVoiceInput } from './composer/ui/ComposerVoiceInput';
+import { useComposerDictation } from '@/lib/dictation/use-composer-dictation';
 
 // Lazy like in ChatMessage: a static import would pull the @pierre/diffs and
 // Shiki stacks into the eager startup graph for a dialog opened on demand.
@@ -352,6 +355,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const getVisibleAgents = useConfigStore((state) => state.getVisibleAgents);
     const agents = getVisibleAgents();
     const isMobile = useUIStore((state) => state.isMobile);
+    const dictation = useComposerDictation();
+    const dictationSelectionRef = React.useRef({ start: 0, end: 0 });
+    const dictationErrorRef = React.useRef<string | null>(null);
+    const dictationActive = dictation.state === 'requesting-permission'
+        || dictation.state === 'recording'
+        || dictation.state === 'reconnecting'
+        || dictation.state === 'transcribing';
     const chatSurfaceMode = useChatSurfaceMode();
     const isMiniChatSurface = chatSurfaceMode === 'mini-chat';
     const hasHardwareKeyboard = useHardwareKeyboard();
@@ -1486,6 +1496,39 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         updateAutocompleteState(nextValue, cursorPosition, inputSource, text);
     }, [message, updateAutocompleteState]);
 
+    const handleStartDictation = React.useCallback(() => {
+        const fallback = messageRef.current.length;
+        dictationSelectionRef.current = composerRef.current?.getSelection() ?? { start: fallback, end: fallback };
+        closeAutocomplete();
+        void dictation.start().catch(() => {});
+    }, [closeAutocomplete, dictation]);
+
+    const handleFinishDictation = React.useCallback(() => {
+        void dictation.finish().then((transcript) => {
+            const current = messageRef.current;
+            const snapshot = dictationSelectionRef.current;
+            const start = Math.min(Math.max(0, snapshot.start), current.length);
+            const end = Math.min(Math.max(start, snapshot.end), current.length);
+            const insertion = withInlineInsertionBoundaries(transcript.trim(), current.slice(0, start), current.slice(end));
+            if (!insertion) return;
+            const editor = composerRef.current;
+            if (editor) {
+                editor.replaceRange(start, end, insertion, start + insertion.length);
+                editor.focus({ preventScroll: true });
+            } else {
+                const next = `${current.slice(0, start)}${insertion}${current.slice(end)}`;
+                setMessage(next);
+                updateAutocompleteState(next, start + insertion.length, 'manual', insertion);
+            }
+        }).catch(() => {});
+    }, [dictation, updateAutocompleteState]);
+
+    React.useEffect(() => {
+        if (dictation.state !== 'error' || !dictation.error || dictationErrorRef.current === dictation.error) return;
+        dictationErrorRef.current = dictation.error;
+        toast.error(dictation.error);
+    }, [dictation.error, dictation.state]);
+
     const clearFileMentionPasteSuppression = React.useCallback(() => {
         suppressNextFileMentionPasteRef.current = false;
         if (suppressNextFileMentionPasteTimeoutRef.current) {
@@ -2305,6 +2348,25 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                 onMobilePanelChange={isMobile ? setMobileControlsPanel : undefined}
                             />
                         ) : null}
+                        trailingExtra={dictationActive ? null : (
+                            <ComposerVoiceButton
+                                available={dictation.available}
+                                disabled={!currentSessionId && !newSessionDraftOpen}
+                                className={footerIconButtonClass}
+                                iconClassName={iconSizeClass}
+                                onStart={handleStartDictation}
+                            />
+                        )}
+                        actionsOverride={dictationActive ? (
+                            <ComposerVoiceActions
+                                state={dictation.state}
+                                elapsedSeconds={dictation.elapsedSeconds}
+                                buttonClassName={footerIconButtonClass}
+                                iconClassName={iconSizeClass}
+                                onCancel={dictation.cancel}
+                                onDone={handleFinishDictation}
+                            />
+                        ) : undefined}
                         radius={chatInputRadius}
                         footerPaddingClass={footerPaddingClass}
                         footerGapClass={footerGapClass}
@@ -2324,6 +2386,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         onQueueMessage={handleQueueMessage}
                         onAbort={handleAbort}
                     >
+                    {dictationActive ? (
+                        <ComposerVoiceInput
+                            state={dictation.state}
+                            subscribeLevel={dictation.subscribeLevel}
+                        />
+                    ) : (
                     <div className={cn("overflow-hidden", isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
                         <div className={cn('relative z-10 flex flex-wrap items-center gap-1', isInlineComposer ? 'px-0' : 'px-3 pt-1')}>
                             <AttachedFilesList onShowPopup={handleShowAttachmentPreview} />
@@ -2389,6 +2457,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                             />
                         </div>
                     </div>
+                    )}
                     </ComposerFooter>
 
                 </div>

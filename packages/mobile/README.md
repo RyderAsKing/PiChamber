@@ -14,6 +14,7 @@ The mobile package reuses the web build, then rewrites `mobile.html` to `index.h
 - The tablet layout is a live size class (`useTabletLayout`), not a device check: any surface whose short side is at least 600px gets it, and the workspace only becomes a side panel where the width can host the sidebar, the panel and a readable chat at once. Book foldables therefore pick it up when unfolded, keep the portrait layout in both orientations (their long side is barely wider than a tablet's short one), and drop back to the phone layout when folded shut. The Android activity declares the matching `configChanges`, so folding resizes the WebView instead of recreating it.
 - Password-protected PiChamber servers can be unlocked from the mobile app. The app stores the issued client token with the saved connection.
 - The Terminal workspace surface runs its PTY on the active PiChamber server over the shared authenticated runtime transport; it never opens a local shell on the phone or tablet. Closing the surface detaches the renderer while the server session remains available for reattachment. On touch devices, dragging scrolls the buffer while long-pressing and dragging selects terminal text.
+- Composer dictation captures microphone audio in the WebView and streams binary PCM through the active authenticated runtime transport. Local speech models run on the connected PiChamber server, not on the phone. iOS and Android declare microphone usage and runtime permissions in their native projects.
 
 ## Commands
 

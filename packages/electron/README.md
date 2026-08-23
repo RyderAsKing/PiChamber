@@ -23,7 +23,7 @@ bun run --cwd packages/electron test:architecture
 bun run electron:build
 ```
 
-Packaging builds web assets, bundles the Electron main process, rebuilds native modules, and runs electron-builder. It stages only the web UI and native desktop resources; Pi sessions are served by the in-process PiChamber server.
+Packaging builds web assets, bundles the Electron main process, rebuilds native modules, and runs electron-builder. It stages only the web UI and native desktop resources; Pi sessions are served by the in-process PiChamber server. Local dictation uses the same in-process server and loads the packaged `sherpa-onnx` addon only in its forked STT worker.
 
 Windows desktop uses the same Pi SDK as the [Pi CLI](https://pi.dev/docs/latest): sessions live under `%USERPROFILE%\.pi\agent`, private IPC is a named pipe, and the bash tool needs Git for Windows (or another `bash.exe` on PATH), matching [Pi's SDK](https://pi.dev/docs/latest/sdk).
 

@@ -20,6 +20,7 @@ collapse the editor or the in-card footer.
 | `attachments/` | Files: paths, drop payloads |
 | `ui/` | Presentation. Desktop (except mini-chat) uses a stacked card with `1.5rem` corners: editor on top, in-card toolbar with attachments + model picker (name kept visible) + thinking slider after the model name (when the model has levels besides `off`) + send. Dedicated mobile keeps that same stacked composer up at rest (no collapsed pill and no tap-to-grow); the + attach control is omitted so model and variant controls stay in the footer with their names always visible. New-session drafts show folder and branch pickers above plus starter chips below. An existing session shows only the branch picker, with git workspace status on the right of that row (`justify-between`); if there is no branch picker, git status stays on the row above the composer. Changing branch on a session opens a new-session draft in that target instead of rewriting the current session directory. Mini-chat keeps a one-line pill with the model picker under the composer. Folder icons in the picker use the sidebar muted grey. Composer thinking is Pi `thinkingLevels`, not OpenCode `model.variants`. Opening an existing session locks the composer to that Pi session's last used model and thinking variant so prompt cache identity stays with the transcript; the user can still change them manually. The chrome-less control after the model name opens a compact slider popover above the thinking trigger (centered on it, not flipped below the composer). The card contains the large discrete slider and a min/max legend; the current level stays on the trigger below. The trigger and hover tooltip reserve width for the longest level label so the popover does not drift when the current label changes. Choosing a level writes the composer override and, for an open session, live `sessions.setThinking`. Unset/Default does not invent a level. Keyboard `mod+shift+t` and picker `←→` cycle Default plus the model's levels. |
 | `text.ts` | How inserted text meets the text already there |
+| `../../../../lib/dictation/` | Microphone capture, 16 kHz PCM streaming, reconnect/replay, and the final-only dictation state machine |
 
 ## The prompt language
 
@@ -108,6 +109,12 @@ and the send path reading the same grammar.
   previous `selectedProjectId` stuck. On an existing session only the branch
   picker is shown; it reflects that session's directory, and choosing a
   different branch opens a new draft there rather than mutating the live session.
+
+## Dictation
+
+`ChatInput.tsx` captures the editor selection before recording and replaces only the editor area with the full-width recording controls. The footer stays mounted: icon-only Cancel and Done controls replace the microphone and send actions in the trailing action slot while dictation is active, with elapsed time beside them. The recorder area has one fixed height across permission, recording, reconnecting, and transcribing states, so status text cannot resize the composer. Audio levels stay outside React state. `ComposerVoiceVisualizer` coalesces them through `requestAnimationFrame` on a single canvas. Each frame shifts the existing bitmap left and paints one new level at the right edge, so older history moves left without rewriting a row of DOM nodes. Canvas dimensions update only through `ResizeObserver`, device-pixel ratio is capped at 2, and the resize history is bounded to 512 levels.
+
+The server returns one authoritative transcript after Done. `ChatInput` pads it through `withInlineInsertionBoundaries`, inserts it at the captured range in one CodeMirror transaction, restores focus, and leaves sending to the user. Cancel, permission denial, disconnect, empty audio, model download, and transcription failure leave the draft and attachments unchanged.
 
 ## Mobile
 

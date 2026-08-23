@@ -12,6 +12,7 @@ export type SettingsPageSlug =
   | 'git'
   | 'appearance'
   | 'chat'
+  | 'dictation'
   | 'shortcuts'
   | 'sessions'
   | 'magic-prompts'
@@ -114,6 +115,14 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
     keywords: ['tools', 'diff', 'reasoning', 'dotfiles', 'draft', 'queue', 'output', 'copy', 'image', 'split messages', 'message actions'],
   },
   {
+    slug: 'dictation',
+    title: 'Dictation',
+    group: 'general',
+    kind: 'single',
+    description: 'Record speech and insert a final transcript into the composer.',
+    keywords: ['voice', 'speech', 'microphone', 'transcription', 'stt', 'whisper', 'parakeet'],
+  },
+  {
     slug: 'shortcuts',
     title: 'Shortcuts',
     group: 'general',
@@ -195,6 +204,8 @@ export function getSettingsNavIcon(slug: SettingsPageSlug): IconName | null {
       return 'palette';
     case 'chat':
       return 'chat-ai-3';
+    case 'dictation':
+      return 'mic';
     case 'magic-prompts':
       return 'ai-generate-2';
     case 'snippets':
