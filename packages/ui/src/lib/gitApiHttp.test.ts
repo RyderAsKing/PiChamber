@@ -4,6 +4,8 @@ import {
   getGitBranches,
   getGitStatus,
   gitFetch,
+  listGitWorktrees,
+  createGitWorktree,
   stageGitFile,
   stageGitFiles,
   unstageGitFile,
@@ -114,6 +116,34 @@ describe('gitApiHttp index mutations', () => {
       expect(unstageError).toBeInstanceOf(Error);
       expect((unstageError as Error).message).toBe('path is required to unstage git changes');
       expect(calls).toHaveLength(0);
+    } finally {
+      restoreMocks();
+    }
+  });
+});
+
+describe('gitApiHttp worktrees', () => {
+  test('lists and creates worktrees with directory-scoped routes', async () => {
+    installWindowMock();
+    const calls: FetchCall[] = [];
+    globalThis.fetch = (async (input, init) => {
+      calls.push({ input, init });
+      const isCreate = init?.method === 'POST';
+      return new Response(JSON.stringify(isCreate
+        ? { head: '', name: 'task', branch: 'pichamber/task', path: '/worktrees/task', bootstrapStatus: { status: 'pending', phase: 'directory-created' } }
+        : { worktrees: [] }), {
+        status: isCreate ? 201 : 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch;
+    try {
+      expect(await listGitWorktrees('/repo')).toEqual([]);
+      await createGitWorktree('/repo', { mode: 'new', startRef: 'main', worktreeName: 'task', returnAfterDirectoryCreated: true });
+      expect(String(calls[0].input)).toBe('/api/git/worktrees?directory=%2Frepo');
+      expect(String(calls[1].input)).toBe('/api/git/worktrees?directory=%2Frepo');
+      expect(JSON.parse(String(calls[1].init?.body))).toEqual({
+        mode: 'new', startRef: 'main', worktreeName: 'task', returnAfterDirectoryCreated: true,
+      });
     } finally {
       restoreMocks();
     }

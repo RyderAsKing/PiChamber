@@ -5,6 +5,7 @@ import { useSessions } from '@/sync/sync-context';
 import { useInputStore } from '@/sync/input-store';
 import { useUIStore } from '@/stores/useUIStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { buildAvailableWorktreesByProject, useWorktreeStore } from '@/stores/useWorktreeStore';
 import { cn } from '@/lib/utils';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { toast } from '@/components/ui';
@@ -342,14 +343,19 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
     return sessions.find((session) => session.id === currentSessionId) ?? null;
   }, [currentSessionId, sessions]);
 
-  const currentProjectRef = React.useMemo(() => {
+  const resolveCurrentProjectRef = React.useCallback(() => {
     const directory = effectiveDirectory
       ?? (typeof currentSession?.directory === 'string' ? currentSession.directory : '');
-    const resolved = resolveProjectForSessionDirectory(projects, directory);
+    const resolved = resolveProjectForSessionDirectory(
+      projects,
+      buildAvailableWorktreesByProject(projects, useWorktreeStore.getState()),
+      directory,
+    );
     return resolved ? { id: resolved.id, path: resolved.path } : null;
   }, [currentSession?.directory, effectiveDirectory, projects]);
 
   const handleAddToNotes = React.useCallback(async () => {
+    const currentProjectRef = resolveCurrentProjectRef();
     if (!selectedText || !currentProjectRef) {
       if (!currentProjectRef) {
         toast.error("No project found for this session");
@@ -384,7 +390,7 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
     } finally {
       setIsAddingToNotes(false);
     }
-  }, [currentProjectRef, currentSessionId, hideMenu, selectedText, selectedTextMarkdown]);
+  }, [currentSessionId, hideMenu, resolveCurrentProjectRef, selectedText, selectedTextMarkdown]);
 
   if (!position.show) return null;
 

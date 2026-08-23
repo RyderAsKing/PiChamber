@@ -14,6 +14,7 @@ import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry";
 import { updateDesktopSettings } from "@/lib/persistence";
 import { useDirectoryStore } from "@/stores/useDirectoryStore";
 import { useProjectsStore } from "@/stores/useProjectsStore";
+import { buildAvailableWorktreesByProject, useWorktreeStore } from "@/stores/useWorktreeStore";
 import { resolveProjectForSessionDirectory } from "@/lib/projectResolution";
 import { streamDebugEnabled } from "@/stores/utils/streamDebug";
 import { parseModelIdentifier } from "@/lib/modelIdentifier";
@@ -717,8 +718,8 @@ const resolveInitialDirectoryKey = (): string => {
     return toConfigDirectoryKey(directory);
 };
 
-// Persisted worktree→project mapping. The runtime worktree map
-// (availableWorktreesByProject) is populated by async git discovery and isn't
+// Persisted worktree→project mapping. The runtime `useWorktreeStore` topology
+// is populated by async Git discovery and isn't
 // ready when initializeApp runs on startup — so without this, a worktree's first
 // config load can't resolve to its project and duplicates the project's load.
 // We cache resolved mappings to localStorage so subsequent launches resolve the
@@ -840,9 +841,10 @@ const resolveConfigDirectory = (directory: string | null | undefined): string | 
     if (cached) return cached;
     // 2. Live resolution via projects + discovered worktree map; cache the hit.
     try {
+        const registeredProjects = useProjectsStore.getState().projects;
         const project = resolveProjectForSessionDirectory(
-            useProjectsStore.getState().projects,
-            null,
+            registeredProjects,
+            buildAvailableWorktreesByProject(registeredProjects, useWorktreeStore.getState()),
             dir,
         );
         const projectPath = normalizeConfigPath(project?.path ?? null);

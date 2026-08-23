@@ -1,9 +1,10 @@
+import type { GitWorktree } from '@/lib/api/types';
 import type { Session } from '@/lib/chat/types';
 
 export type SessionNode = {
   session: Session;
   children: SessionNode[];
-  worktree?: null;
+  worktree?: GitWorktree | null;
   /** Session id used to assign a stable color; null when unrelated to a fork. */
   forkColorId?: string | null;
 };
@@ -20,7 +21,7 @@ export type SessionGroup = {
   description: string | null;
   isMain: boolean;
   isArchivedBucket?: boolean;
-  worktree?: null;
+  worktree?: GitWorktree | null;
   directory: string | null;
   folderScopeKey?: string | null;
   folderScopes?: SessionGroupFolderScope[];

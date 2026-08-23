@@ -393,6 +393,47 @@ export interface GeneratedPullRequestDescription {
   body: string;
 }
 
+export interface GitWorktree {
+  head: string;
+  name: string;
+  branch: string | null;
+  path: string;
+  isPrimary: boolean;
+  detached: boolean;
+  locked: boolean;
+  prunable: boolean;
+}
+
+export interface GitWorktreeCreateInput {
+  mode: 'new';
+  startRef: string;
+  worktreeName?: string;
+  branchName?: string;
+  returnAfterDirectoryCreated?: boolean;
+}
+
+export interface GitWorktreeBootstrapStatus {
+  status: 'pending' | 'ready' | 'failed';
+  phase: 'directory-created' | 'git-ready' | 'setup-ready';
+  error?: string | null;
+  updatedAt?: number;
+}
+
+export interface GitWorktreeCreateResult {
+  head: string;
+  name: string;
+  branch: string;
+  path: string;
+  directoryCreated?: boolean;
+  bootstrapStatus: GitWorktreeBootstrapStatus;
+}
+
+export interface GitWorktreeValidationResult {
+  ok: boolean;
+  errors: Array<{ code: string; message: string }>;
+  resolved?: { mode: 'new' | 'existing'; localBranch: string | null };
+}
+
 export interface GitAPI {
   checkIsGitRepository(directory: string): Promise<boolean>;
   getGitStatus(directory: string, options?: { mode?: 'light' }): Promise<GitStatus>;
@@ -408,6 +449,10 @@ export interface GitAPI {
   unstageGitHunk?(directory: string, filePath: string, patch: string): Promise<void>;
   revertGitHunk?(directory: string, filePath: string, patch: string): Promise<void>;
   getGitBranches(directory: string): Promise<GitBranch>;
+  listGitWorktrees?(directory: string): Promise<GitWorktree[]>;
+  validateGitWorktree?(directory: string, input: GitWorktreeCreateInput): Promise<GitWorktreeValidationResult>;
+  createGitWorktree?(directory: string, input: GitWorktreeCreateInput): Promise<GitWorktreeCreateResult>;
+  getGitWorktreeBootstrapStatus?(directory: string): Promise<GitWorktreeBootstrapStatus>;
   deleteGitBranch(directory: string, payload: GitDeleteBranchPayload): Promise<{ success: boolean }>;
   deleteRemoteBranch(directory: string, payload: GitDeleteRemoteBranchPayload): Promise<{ success: boolean }>;
   removeRemote(directory: string, payload: GitRemoveRemotePayload): Promise<{ success: boolean }>;
