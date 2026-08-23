@@ -449,11 +449,8 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
 
   const forkSolid = React.useMemo(() => getForkColor(node.forkColorId), [node.forkColorId]);
   const forkBackground = React.useMemo(
-    () => getForkBackgroundColor(
-      node.forkColorId,
-      { active: isActive || isRowSelected, isMobile: mobileVariant },
-    ),
-    [node.forkColorId, isActive, isRowSelected, mobileVariant],
+    () => getForkBackgroundColor(node.forkColorId, { active: isActive || isRowSelected }),
+    [node.forkColorId, isActive, isRowSelected],
   );
   const descendantCount = React.useMemo(() => collectNodeDescendantIds(node).length, [collectNodeDescendantIds, node]);
 
@@ -890,7 +887,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                 style={{
                   ...(depth > 0 ? { marginLeft: `${depth * 14}px` } : undefined),
                   ...(forkBackground ? { backgroundColor: forkBackground } : undefined),
-                  ...(mobileVariant && forkSolid ? { borderLeft: `3px solid ${forkSolid}`, paddingLeft: '9px' } : undefined),
                 }}
                 className={cn(
                   'group relative my-0.5 flex cursor-pointer items-center rounded-xl px-3 py-2 transition-colors',

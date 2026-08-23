@@ -31,11 +31,10 @@ export const getForkColor = (sessionId: string | null | undefined): string | nul
 
 export const getForkBackgroundColor = (
   sessionId: string | null | undefined,
-  opts?: { active?: boolean; isMobile?: boolean },
+  opts?: { active?: boolean },
 ): string | null => {
   const solid = getForkColor(sessionId);
   if (!solid) return null;
-  if (opts?.isMobile) return null;
   if (opts?.active) {
     return `color-mix(in srgb, ${solid} 30%, var(--interactive-selection))`;
   }

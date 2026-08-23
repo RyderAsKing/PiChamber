@@ -42,12 +42,13 @@ describe('fork color', () => {
     expect(getForkColor(null)).toBeNull();
   });
 
-  test('mobile uses the solid color as a left border', () => {
-    expect(getForkBackgroundColor('ses_mobile', { isMobile: true })).toBeNull();
-    expect(getForkBackgroundColor('ses_mobile', { isMobile: true, active: true })).toBeNull();
-  });
-
-  test('desktop uses a theme-aware tint', () => {
-    expect(getForkBackgroundColor('ses_desktop')).toContain('var(--chart-');
+  test('uses theme-aware background tints', () => {
+    const solid = getForkColor('ses_fork');
+    expect(getForkBackgroundColor('ses_fork')).toBe(
+      `color-mix(in srgb, ${solid} 18%, transparent)`,
+    );
+    expect(getForkBackgroundColor('ses_fork', { active: true })).toBe(
+      `color-mix(in srgb, ${solid} 30%, var(--interactive-selection))`,
+    );
   });
 });
