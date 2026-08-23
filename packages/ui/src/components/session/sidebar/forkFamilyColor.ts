@@ -40,10 +40,16 @@ const FORK_BACKGROUND_ACTIVE_ALPHA = 0.2;
 
 export const getForkFamilyBackgroundColor = (
   familyId: string | null | undefined,
-  opts?: { active?: boolean },
+  opts?: { active?: boolean; isMobile?: boolean },
 ): string | null => {
   const solid = getForkFamilyColor(familyId);
   if (!solid) return null;
+  // On mobile surfaces the translucent wash (≈11% alpha) is barely visible
+  // against `bg-sidebar`, so callers should paint a left-border instead. We
+  // return null and let SessionNodeItem swap in `borderLeft` for the same
+  // family id — keeps one source of truth for the color while letting the
+  // row decide the visual treatment per surface.
+  if (opts?.isMobile) return null;
   const useActive = Boolean(opts?.active);
   // Prefer color-mix for a theme-aware translucent wash when available.
   // color-mix(in srgb, <solid> 13%, transparent) keeps the tint subtle

@@ -14,6 +14,14 @@ export type MobileAppActions = {
   instanceLabel?: string | null;
   /** Hosted mobile: open the pending server-update surface. */
   openUpdate?: () => void;
+  /**
+   * Close any open drawer layer (sessions sheet, workspace drawer) so a
+   * navigation gesture — like opening a subtask session — can settle the
+   * chat surface without the user having to dismiss the drawer manually.
+   * No-op when no drawer is open or when not running inside the dedicated
+   * mobile shell (the desktop MainLayout has no phone drawer to close).
+   */
+  closeDrawers?: () => void;
 };
 
 const DedicatedMobileAppContext = React.createContext<MobileAppActions | null>(null);

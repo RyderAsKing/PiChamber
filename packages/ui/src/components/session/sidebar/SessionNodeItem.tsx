@@ -448,7 +448,17 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   const isSessionMenuOpen = isMenuOpen || isContextMenuOpen;
 
   const forkSolid = React.useMemo(() => getForkFamilyColor((node as SessionNode & { forkFamilyId?: string | null }).forkFamilyId), [node]);
-  const forkBackground = React.useMemo(() => getForkFamilyBackgroundColor((node as SessionNode & { forkFamilyId?: string | null }).forkFamilyId, { active: isActive || isRowSelected }), [node, isActive, isRowSelected]);
+  // On mobile surfaces we paint a `borderLeft` instead of the translucent
+  // wash (≈11% alpha is invisible against bg-sidebar at 72% width).
+  // `forkBackground` is null in that case so the row style drops the wash
+  // and the row chrome falls back to the usual hover/selection treatment.
+  const forkBackground = React.useMemo(
+    () => getForkFamilyBackgroundColor(
+      (node as SessionNode & { forkFamilyId?: string | null }).forkFamilyId,
+      { active: isActive || isRowSelected, isMobile: mobileVariant },
+    ),
+    [node, isActive, isRowSelected, mobileVariant],
+  );
   const descendantCount = React.useMemo(() => collectNodeDescendantIds(node).length, [collectNodeDescendantIds, node]);
 
   const collectChildExports = React.useCallback(async (children: SessionNode[]): Promise<{ children: ChildSessionExport[]; skipped: number }> => {
@@ -884,6 +894,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                 style={{
                   ...(depth > 0 ? { marginLeft: `${depth * 14}px` } : undefined),
                   ...(forkBackground ? { backgroundColor: forkBackground } : undefined),
+                  ...(mobileVariant && forkSolid ? { borderLeft: `3px solid ${forkSolid}`, paddingLeft: '9px' } : undefined),
                 }}
                 className={cn(
                   'group relative my-0.5 flex cursor-pointer items-center rounded-xl px-3 py-2 transition-colors',

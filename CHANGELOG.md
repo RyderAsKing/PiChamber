@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Mobile parity fixes for v0.3.2 / v0.3.3
+
+Targets the three remaining phone/tablet gaps from the v0.3.2 (forked sessions, retry limit, side-panel removal) and v0.3.3 (hotfix) cycle.
+
+- **Subtask "Open subtask session" closes mobile drawers.** The user-subtask part on dedicated mobile now closes the sessions sheet and workspace drawer after switching to the subtask session, so the new chat lands in view instead of under an open drawer. Shared component, no-op on web/desktop (`MobileApp`, `mobileAppContext`, `MessageBody`).
+- **Fork-family color is visible on phone/tablet sidebar.** The v0.3.2 fork accent was painted as a ~11% `color-mix` wash that reads as "no color" against `bg-sidebar` on the 72%-width phone drawer. Mobile surfaces now paint a 3px solid `borderLeft` with the same deterministic per-family color, while the desktop wash is unchanged (`forkFamilyColor`, `SessionNodeItem`).
+- **Persisted UI store re-sanitizes side-panel tabs.** Bumped persisted `ui-store` version 16 → 17 with a one-shot migration that re-runs `sanitizeContextPanelByDirectory` and strips `chat` from `contextRailOrder`. Devices with stale chat-mode tabs persisted (e.g. hosted-mobile tablet-width users on the desktop fallback) self-heal on first load without clearing site data (`useUIStore`).
+- **Provider refresh buttons meet the phone touch target.** Four `Refresh catalog` / `Refresh providers` icon buttons now use `size="sm"` on dedicated mobile instead of `size="icon"`, hitting the shared 36px touch affordance while staying compact on desktop (`ProvidersPage`).
+
 ## [0.3.3] - 2026-08-22
 
 Hotfix for the 0.3.2 desktop startup crash.
