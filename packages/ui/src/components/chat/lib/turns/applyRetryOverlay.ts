@@ -51,12 +51,6 @@ export const applyRetryOverlay = (
     }
 
     if (targetAssistantIndex >= 0) {
-        const existing = messages[targetAssistantIndex];
-        const existingInfo = existing.info as { error?: unknown };
-        if (existingInfo.error) {
-            return messages;
-        }
-
         return messages.map((message, index) => {
             if (index !== targetAssistantIndex) {
                 return message;
@@ -78,6 +72,7 @@ export const applyRetryOverlay = (
             id: syntheticId,
             sessionID: input.sessionId,
             role: 'assistant',
+            parentID: messages[lastUserIndex].info.id,
             time: { created: eventTime, completed: eventTime },
             finish: 'stop',
             error: retryError,

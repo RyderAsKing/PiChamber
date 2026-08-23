@@ -176,7 +176,9 @@ describe('PiSessionStore topic-isolated notifiers', () => {
 
     expect(bCounter.count).toBe(1);
     expect(aCounter.count).toBe(0);
-    expect(catalogCounter.count).toBe(0);
+    // Session B's catalog row flips idle → busy when its turn starts, which
+    // intentionally notifies catalog (sidebar busy state) exactly once.
+    expect(catalogCounter.count).toBe(1);
     expect(chromeCounter.count).toBe(0);
 
     // Visible session's reducer record still gets a new reference so

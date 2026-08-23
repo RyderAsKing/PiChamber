@@ -9,6 +9,8 @@ import { assertAuthenticatedNetworkExposure, hasUiPasswordConfigured, resolveSer
 
 const STARTUP_SERVICE_ID = 'dev.pichamber.web';
 
+const isRootUser = () => typeof process.getuid === 'function' && process.getuid() === 0;
+
 function getStartupServicePaths() {
   if (process.platform === 'darwin') {
     return {
@@ -17,9 +19,17 @@ function getStartupServicePaths() {
     };
   }
   if (process.platform === 'linux') {
+    if (isRootUser()) {
+      return {
+        platform: 'linux',
+        servicePath: '/etc/systemd/system/pichamber.service',
+        scope: 'system',
+      };
+    }
     return {
       platform: 'linux',
       servicePath: path.join(os.homedir(), '.config', 'systemd', 'user', 'pichamber.service'),
+      scope: 'user',
     };
   }
   if (process.platform === 'win32') {
@@ -169,13 +179,22 @@ function resolveCliEntrypoint() {
 
 function isUserStartupServiceActive() {
   if (process.platform !== 'linux') return false;
+  if (isRootUser()) {
+    const result = runStartupCommand('systemctl', ['is-active', 'pichamber.service'], { allowFailure: true });
+    return (result.stdout || '').trim() === 'active';
+  }
   const result = runStartupCommand('systemctl', ['--user', 'is-active', 'pichamber.service'], { allowFailure: true });
   return (result.stdout || '').trim() === 'active';
 }
 
 function restartUserStartupService() {
   if (process.platform !== 'linux') {
-    throw new Error('Startup service restart is only supported on Linux systemd user units.');
+    throw new Error('Startup service restart is only supported on Linux systemd units.');
+  }
+  if (isRootUser()) {
+    runStartupCommand('systemctl', ['daemon-reload']);
+    runStartupCommand('systemctl', ['restart', 'pichamber.service']);
+    return;
   }
   runStartupCommand('systemctl', ['--user', 'daemon-reload']);
   runStartupCommand('systemctl', ['--user', 'restart', 'pichamber.service']);
@@ -258,6 +277,9 @@ ${envXml}  <key>ProcessType</key>
 function buildSystemdUserService(options = {}) {
   const args = buildStartupArgs(options).map((arg) => `"${systemdEscapeArg(arg)}"`).join(' ');
   const envFilePath = getStartupEnvFilePath();
+  const isRoot = isRootUser();
+  const wantedBy = isRoot ? 'multi-user.target' : 'default.target';
+  const workingDir = isRoot ? systemdUnitPath('/root') : systemdUnitPath(os.homedir());
   return `[Unit]
 Description=PiChamber web server
 After=network-online.target
@@ -266,13 +288,17 @@ After=network-online.target
 Type=simple
 EnvironmentFile=-${systemdEscapeArg(envFilePath)}
 ExecStart="${systemdEscapeArg(process.execPath)}" ${args}
-WorkingDirectory=${systemdUnitPath(os.homedir())}
+WorkingDirectory=${workingDir}
 Restart=always
 RestartSec=5
 
 [Install]
-WantedBy=default.target
+WantedBy=${wantedBy}
 `;
+}
+
+function buildSystemdService(options = {}) {
+  return buildSystemdUserService(options);
 }
 
 function runStartupCommand(command, args, options = {}) {
@@ -301,8 +327,11 @@ function getStartupStatus() {
     return { supported: true, platform: paths.platform, enabled: result.status === 0, active: null, servicePath: paths.servicePath };
   }
   if (paths.platform === 'linux') {
-    const enabledResult = runStartupCommand('systemctl', ['--user', 'is-enabled', 'pichamber.service'], { allowFailure: true });
-    const activeResult = runStartupCommand('systemctl', ['--user', 'is-active', 'pichamber.service'], { allowFailure: true });
+    const isRoot = isRootUser();
+    const enabledArgs = isRoot ? ['is-enabled', 'pichamber.service'] : ['--user', 'is-enabled', 'pichamber.service'];
+    const activeArgs = isRoot ? ['is-active', 'pichamber.service'] : ['--user', 'is-active', 'pichamber.service'];
+    const enabledResult = runStartupCommand('systemctl', enabledArgs, { allowFailure: true });
+    const activeResult = runStartupCommand('systemctl', activeArgs, { allowFailure: true });
     const activeState = (activeResult.stdout || '').trim() || 'inactive';
     return {
       supported: true,
@@ -311,6 +340,7 @@ function getStartupStatus() {
       active: activeState === 'active',
       activeState,
       servicePath: paths.servicePath,
+      scope: isRoot ? 'system' : 'user',
     };
   }
   return {
@@ -355,11 +385,17 @@ function enableStartupService(options = {}) {
   }
 
   if (paths.platform === 'linux') {
+    const isRoot = isRootUser();
     writeStartupEnvFile(serveOptions, { quoteValue: systemdEnvFileQuote });
     fs.mkdirSync(path.dirname(paths.servicePath), { recursive: true, mode: 0o700 });
     fs.writeFileSync(paths.servicePath, buildSystemdUserService(serveOptions), { mode: 0o600 });
-    runStartupCommand('systemctl', ['--user', 'daemon-reload']);
-    runStartupCommand('systemctl', ['--user', 'enable', '--now', 'pichamber.service']);
+    if (isRoot) {
+      runStartupCommand('systemctl', ['daemon-reload']);
+      runStartupCommand('systemctl', ['enable', '--now', 'pichamber.service']);
+    } else {
+      runStartupCommand('systemctl', ['--user', 'daemon-reload']);
+      runStartupCommand('systemctl', ['--user', 'enable', '--now', 'pichamber.service']);
+    }
     return finish(getStartupStatus());
   }
 
@@ -396,9 +432,16 @@ function disableStartupService() {
   }
 
   if (paths.platform === 'linux') {
-    runStartupCommand('systemctl', ['--user', 'disable', '--now', 'pichamber.service'], { allowFailure: true });
-    try { fs.unlinkSync(paths.servicePath); } catch {}
-    runStartupCommand('systemctl', ['--user', 'daemon-reload'], { allowFailure: true });
+    const isRoot = isRootUser();
+    if (isRoot) {
+      runStartupCommand('systemctl', ['disable', '--now', 'pichamber.service'], { allowFailure: true });
+      try { fs.unlinkSync(paths.servicePath); } catch {}
+      runStartupCommand('systemctl', ['daemon-reload'], { allowFailure: true });
+    } else {
+      runStartupCommand('systemctl', ['--user', 'disable', '--now', 'pichamber.service'], { allowFailure: true });
+      try { fs.unlinkSync(paths.servicePath); } catch {}
+      runStartupCommand('systemctl', ['--user', 'daemon-reload'], { allowFailure: true });
+    }
     return getStartupStatus();
   }
 
@@ -409,6 +452,7 @@ function disableStartupService() {
 
 
 export {
+  getStartupServicePaths,
   getStartupStatus,
   enableStartupService,
   disableStartupService,

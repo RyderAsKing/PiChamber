@@ -62,6 +62,9 @@ describe("PiService", () => {
       if (url.pathname === "/api/pi/sessions/s1" && call.init?.method === "DELETE") {
         return new Response(null, { status: 204 })
       }
+      if (url.pathname === "/api/pi/sessions/s1/compact" && call.init?.method === "POST") {
+        return jsonResponse({ accepted: true }, { status: 202 })
+      }
       return jsonResponse({ error: { code: "DAEMON_REQUEST_FAILED" } }, { status: 500 })
     })
   })
@@ -83,6 +86,18 @@ describe("PiService", () => {
     expect(call.url).toBe("/api/pi/projects/select")
     expect(call.init?.method).toBe("POST")
     expect(JSON.parse(call.init?.body as string)).toEqual({ directory: "/chosen" })
+  })
+
+  test("compactSession acknowledges asynchronous compaction and forwards instructions", async () => {
+    const client = new PiService()
+    await client.compactSession({ sessionId: "s1", customInstructions: "Keep open test failures" })
+    const call = recordedCalls()[0]
+    expect(call.url).toBe("/api/pi/sessions/s1/compact")
+    expect(call.init?.method).toBe("POST")
+    expect(JSON.parse(call.init?.body as string)).toEqual({
+      sessionId: "s1",
+      customInstructions: "Keep open test failures",
+    })
   })
 
   test("createSession POSTs to /api/pi/sessions", async () => {

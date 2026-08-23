@@ -4,6 +4,9 @@
     "packages/mobile/android/app/src/main/assets/public/**",
     "packages/mobile/ios/App/App/public/**"
   ],
+  "ignoreIssues": {
+    "packages/ui/src/components/session/sidebar/utils.ts": ["duplicates"]
+  },
   "workspaces": {
     ".": {
       "entry": [

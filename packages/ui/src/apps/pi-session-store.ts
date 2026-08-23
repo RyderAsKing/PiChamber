@@ -15,13 +15,14 @@ import { recordMobileDiagnosticError } from '@/lib/mobile-error-log';
 import { PiRequestError, piClient, type PiClientScope } from '@/lib/pi/client';
 import { reconnectPiSession } from '@/lib/pi/reconnect';
 import { PiStreamCadence } from '@/lib/pi/stream-cadence';
+import { createPiEventStream, type PiStreamHandle } from '@/lib/pi/transport';
 import type { PiSessionEvent, PiSessionListItem } from '@/lib/pi/protocol';
 import type { PiSession, PiSessionId, PiSessionLifecycleState, PiThinkingLevel } from '@/lib/pi/types';
 import { resolveCreateThinking } from '@/lib/pi/thinking';
 import { deriveSessionTitle } from '@/lib/chat/deriveSessionTitle';
 import { normalizePath } from '@/lib/pathNormalization';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
-import { observeSessionActivityTiming, removeSessionActivityTiming } from '@/sync/session-activity-timing';
+import { adoptServerRunTiming, observeSessionActivityTiming, removeSessionActivityTiming } from '@/sync/session-activity-timing';
 import { observeSessionActivityEvent, removeSessionOrdering } from '@/sync/session-ordering';
 import { notifySessionTurnComplete } from '@/sync/notification-store';
 import { clearAllRevertNavigations, clearRevertNavigation, getRevertNavigation, setRevertNavigation } from '@/sync/revert-navigation-store';
@@ -154,6 +155,13 @@ export const PI_TRANSCRIPT_EVICTION_SOFT_CAP = 16;
  *  do not pile onto a 5xx storm. */
 const FOCUS_RETRY_DELAY_MS = 300;
 
+const RECOVERABLE_CONNECTION_CODES = new Set([
+  'DAEMON_UNAVAILABLE',
+  'DAEMON_TIMEOUT',
+  'DAEMON_START_TIMEOUT',
+  'DAEMON_REQUEST_FAILED',
+]);
+
 const initial = (): PiSessionStoreState => ({
   directory: null,
   sessions: [],
@@ -217,6 +225,12 @@ export class PiSessionStore {
   private state = initial();
   private listenersByTopic = new Map<string, Set<Listener>>();
   private stream: { dispose: () => void } | null = null;
+  /** Identifies the currently owned stream so callbacks from a replaced
+   *  connection cannot change connection chrome. */
+  private streamGeneration = 0;
+  /** Advances when the owned transport reconnects while an explicit
+   *  snapshot recovery may still be in flight. */
+  private streamReadyRevision = 0;
   /** Advances only on bootstrap / reconnect / runtime switch / dispose —
    *  guards every async completion that may still be in flight when the
    *  cluster is torn down or restarted. */
@@ -319,6 +333,8 @@ export class PiSessionStore {
     this.cadence.dispose();
     this.stream?.dispose();
     this.stream = null;
+    this.streamGeneration += 1;
+    this.streamReadyRevision += 1;
     this.unsubscribeRuntime();
     clearAllRevertNavigations();
     this.navigationGenerationById.clear();
@@ -340,9 +356,50 @@ export class PiSessionStore {
     this.emitChrome();
   };
   reportError = (error: unknown) => {
-    this.state = { ...this.state, error: asError(error), connection: 'error' };
+    const reported = asError(error);
+    this.state = { ...this.state, error: reported, connection: 'error' };
     this.emitChrome();
+    this.ensureConnectionRecovery(reported);
   };
+  /**
+   * Keep a transport-owned backoff loop alive even when the first runtime
+   * probe failed before the cluster could attach its normal event stream.
+   * Once the SSE endpoint accepts a connection, restart authoritative
+   * bootstrap instead of treating the stream itself as session state.
+   */
+  private ensureConnectionRecovery(error: PiRequestError) {
+    if (this.stream || !RECOVERABLE_CONNECTION_CODES.has(error.code)) return;
+    const expected = this.runtimeGeneration;
+    const runtimeKey = getRuntimeKey();
+    const streamGeneration = this.streamGeneration + 1;
+    this.streamGeneration = streamGeneration;
+    const fromSequence = this.streamCursor();
+    let recoveryStream: PiStreamHandle | null = null;
+    recoveryStream = createPiEventStream({
+      onEvent: () => {},
+      onReconnect: () => {
+        if (
+          expected !== this.runtimeGeneration
+          || runtimeKey !== getRuntimeKey()
+          || streamGeneration !== this.streamGeneration
+          || this.stream !== recoveryStream
+        ) return;
+        recoveryStream?.dispose();
+        this.stream = null;
+        this.streamGeneration += 1;
+        this.streamReadyRevision += 1;
+        const { directory, selectedSessionId } = this.state;
+        void this.start({
+          ...(directory ? { directory } : {}),
+          ...(selectedSessionId ? { sessionId: selectedSessionId } : {}),
+        });
+      },
+    }, {
+      ...(fromSequence !== undefined ? { fromSequence } : {}),
+      runtimeKey,
+    });
+    this.stream = recoveryStream;
+  }
   /**
    * A single session could not be hydrated. The cluster stays `ready` so
    * other chats keep working; `focusPending` clears so AppEffects can
@@ -384,6 +441,8 @@ export class PiSessionStore {
     this.hydrateInflightById.clear();
     this.cadence.dispose();
     this.stream?.dispose(); this.stream = null;
+    this.streamGeneration += 1;
+    this.streamReadyRevision += 1;
     this.state = { ...initial(), connection: 'ready' };
     clearAllRevertNavigations();
     this.navigationGenerationById.clear();
@@ -1203,7 +1262,15 @@ export class PiSessionStore {
             seen.add(entry.id);
           }
         }
-        setRevertNavigation(sessionId, navigation, combined);
+        if (combined.length === 0) {
+          clearRevertNavigation(sessionId);
+        } else {
+          setRevertNavigation(
+            sessionId,
+            oldNav ? { ...navigation, previousLeafId: oldNav.previousLeafId } : navigation,
+            combined,
+          );
+        }
       }
       return detail;
     } catch (error) {
@@ -1304,7 +1371,10 @@ export class PiSessionStore {
     }
   }
   abort = (sessionId: string) => piClient.abortSession({ sessionId }, this.scope());
-  compact = (sessionId: string) => piClient.compactSession({ sessionId }, this.scope());
+  compact = (sessionId: string, customInstructions?: string) => piClient.compactSession({
+    sessionId,
+    ...(customInstructions ? { customInstructions } : {}),
+  }, this.scope());
   setModel = (sessionId: string, providerId: string, modelId: string) => piClient.setSessionModel({ sessionId, model: { providerId, modelId } }, this.scope());
   setThinking = (sessionId: string, thinking: PiThinkingLevel) => piClient.setSessionThinking({ sessionId, thinking }, this.scope());
   tree = (sessionId: string) => piClient.getSessionTree(sessionId, this.scope());
@@ -1326,6 +1396,8 @@ export class PiSessionStore {
       lastSequence: detail.lastSequence,
       ...(detail.isStreaming !== undefined ? { isStreaming: detail.isStreaming } : {}),
       ...(detail.lifecycle ? { lifecycle: detail.lifecycle } : {}),
+      ...(detail.retry ? { retry: detail.retry } : {}),
+      ...(detail.compaction ? { compaction: detail.compaction } : {}),
       messages: detail.messages,
     }).session;
   }
@@ -1369,35 +1441,39 @@ export class PiSessionStore {
     if (!existing) return fetched;
     if (existing.sessionId !== fetched.sessionId) return fetched;
     const liveTurn = existing.lifecycle === 'busy' || existing.lifecycle === 'retry';
-    if (existing.messages.size === 0 && !liveTurn) return fetched;
+    const preserveExisting = liveTurn || existing.lastSequence > fetched.lastSequence;
+    if (existing.messages.size === 0 && !preserveExisting) return fetched;
 
-    // Fetched fills in history the live reducer does not have. Existing wins on
-    // overlapping ids so a stale or folded getSession cannot blank a transcript
-    // the user is already looking at — including when they send mid-hydrate.
+    // A live turn or a sequence-newer resident reducer may contain events that
+    // the request did not observe, so it overlays the fetched history. Once the
+    // resident turn has settled and the fetch is at least as new, the fetched
+    // transcript is authoritative for overlapping messages and parts. Always
+    // preferring resident objects left restarted clients permanently stuck on
+    // the partial text they had before snapshot recovery.
     const session: PiReducerSessionState = {
       ...fetched,
-      lifecycle: liveTurn ? existing.lifecycle : fetched.lifecycle,
+      lifecycle: preserveExisting ? existing.lifecycle : fetched.lifecycle,
       lastSequence: Math.max(fetched.lastSequence, existing.lastSequence),
       messages: new Map(fetched.messages),
       partOrder: new Map(fetched.partOrder),
       parts: createReducerPartMap(fetched.parts),
       toolsByCallId: new Map(fetched.toolsByCallId),
-      streamingMessages: new Set(liveTurn ? existing.streamingMessages : fetched.streamingMessages),
+      streamingMessages: new Set(preserveExisting ? existing.streamingMessages : fetched.streamingMessages),
       queue: existing.queue.steering > 0 || existing.queue.followUp > 0 ? existing.queue : fetched.queue,
-      ...(existing.model ? { model: existing.model } : {}),
-      ...(existing.thinking ? { thinking: existing.thinking } : {}),
+      ...(existing.model && (preserveExisting || !fetched.model) ? { model: existing.model } : {}),
+      ...(existing.thinking && (preserveExisting || !fetched.thinking) ? { thinking: existing.thinking } : {}),
     };
-    for (const [id, message] of existing.messages) {
-      aliasSyntheticUserIfPersisted(session, id, message);
-    }
-    for (const [id, order] of existing.partOrder) {
-      session.partOrder.set(id, order);
-      for (const partId of order) {
-        const part = existing.parts.get(partId);
-        if (part) session.parts.set(partId, part);
+    if (preserveExisting) {
+      for (const [id, message] of existing.messages) {
+        aliasSyntheticUserIfPersisted(session, id, message);
       }
-    }
-    if (liveTurn) {
+      for (const [id, order] of existing.partOrder) {
+        session.partOrder.set(id, order);
+        for (const partId of order) {
+          const part = existing.parts.get(partId);
+          if (part) session.parts.set(partId, part);
+        }
+      }
       for (const [callId, messageId] of existing.toolsByCallId) session.toolsByCallId.set(callId, messageId);
     }
     return session;
@@ -1453,9 +1529,13 @@ export class PiSessionStore {
       updated.delete(session.sessionId);
       nextLoadErrors = updated;
     }
-    let nextCatalog = applyHydratedChange(this.state.catalog, session.sessionId, true);
     const catalogLifecycle = catalogLifecycleFromReducer(session.lifecycle);
-    nextCatalog = applyLifecycleChange(nextCatalog, session.sessionId, catalogLifecycle);
+    let nextCatalog = this.state.catalog;
+    if (!nextCatalog.byId.has(session.sessionId)) {
+      nextCatalog = upsertStubRecord(nextCatalog, session.sessionId, session.directory, catalogLifecycle);
+    }
+    nextCatalog = applyHydratedChange(nextCatalog, session.sessionId, true);
+    nextCatalog = applyLifecycleChange(nextCatalog, session.sessionId, catalogLifecycle, session.retry);
     const catalogChanged = nextCatalog !== this.state.catalog;
     this.state = {
       ...this.state,
@@ -1511,11 +1591,15 @@ export class PiSessionStore {
     // merged reducer now holds. A buffered-event batch is folded into the
     // catalog via the same `applyCatalogFromEvents` path the SSE uses.
     let nextCatalog = this.applyCatalogFromEvents(buffered, reducer);
-    nextCatalog = applyHydratedChange(nextCatalog, session.sessionId, true);
-    const reducerLifecycle = reducer.bySession.get(session.sessionId)?.lifecycle;
+    const reducerSession = reducer.bySession.get(session.sessionId);
+    const reducerLifecycle = reducerSession?.lifecycle;
     const catalogLifecycle = reducerLifecycle ? catalogLifecycleFromReducer(reducerLifecycle) : undefined;
+    if (!nextCatalog.byId.has(session.sessionId)) {
+      nextCatalog = upsertStubRecord(nextCatalog, session.sessionId, session.directory, catalogLifecycle ?? 'idle');
+    }
+    nextCatalog = applyHydratedChange(nextCatalog, session.sessionId, true);
     if (catalogLifecycle !== undefined) {
-      nextCatalog = applyLifecycleChange(nextCatalog, session.sessionId, catalogLifecycle);
+      nextCatalog = applyLifecycleChange(nextCatalog, session.sessionId, catalogLifecycle, reducerSession?.retry);
     }
     const catalogChanged = nextCatalog !== this.state.catalog;
     this.state = {
@@ -1593,6 +1677,9 @@ export class PiSessionStore {
         if (expected !== this.runtimeGeneration) return;
         if (detail.session.id !== sessionId) return;
         if ((this.navigationGenerationById.get(sessionId) ?? 0) !== navGenAtStart) return;
+        if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof (detail as { runStartedAt?: number }).runStartedAt === 'number') {
+          adoptServerRunTiming(detail.session.id, (detail as { runStartedAt: number }).runStartedAt, (detail as { serverNow?: number }).serverNow);
+        }
         this.commitHydratedSession(this.sessionFromDetail(detail));
         return;
       }
@@ -1603,6 +1690,8 @@ export class PiSessionStore {
         if (!ready) buffered.push(event);
         else this.apply(event);
       };
+      const streamGeneration = this.streamGeneration + 1;
+      this.streamGeneration = streamGeneration;
       const bootstrap = await bootstrapPiDirectory({
         directory,
         selectedSessionId: sessionId,
@@ -1611,6 +1700,7 @@ export class PiSessionStore {
         ...(options?.initialSessions ? { initialSessions: options.initialSessions } : {}),
         onEvent,
         onStreamDisconnect: () => void this.reconnect(this.state.selectedSessionId ?? sessionId, expected, runtimeKey),
+        onStreamReconnect: () => this.markStreamReconnected(expected, runtimeKey, streamGeneration),
       });
       if (expected !== this.runtimeGeneration) {
         bootstrap.stream?.dispose();
@@ -1619,12 +1709,19 @@ export class PiSessionStore {
       let hydratedSession = known
         ? this.sessionFromDetail(known)
         : bootstrap.reducerState.bySession.get(sessionId);
+      // Adopt server authoritative timing when the known detail carries it.
+      if (known && (known.lifecycle === 'busy' || known.lifecycle === 'retry') && typeof (known as { runStartedAt?: number }).runStartedAt === 'number') {
+        adoptServerRunTiming(known.session.id, (known as { runStartedAt: number }).runStartedAt, (known as { serverNow?: number }).serverNow);
+      }
       if (!hydratedSession) {
         try {
           const detail = known ?? await piClient.getSession(sessionId, { directory, runtimeKey });
           if (expected !== this.runtimeGeneration) {
             bootstrap.stream?.dispose();
             return;
+          }
+          if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof (detail as { runStartedAt?: number }).runStartedAt === 'number') {
+            adoptServerRunTiming(detail.session.id, (detail as { runStartedAt: number }).runStartedAt, (detail as { serverNow?: number }).serverNow);
           }
           hydratedSession = this.sessionFromDetail(detail);
         } catch (error) {
@@ -1664,6 +1761,9 @@ export class PiSessionStore {
           if (expected !== this.runtimeGeneration) return;
           if (detail.session.id !== sessionId) return;
           if ((this.navigationGenerationById.get(sessionId) ?? 0) !== navGenAtStart) return;
+          if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof (detail as { runStartedAt?: number }).runStartedAt === 'number') {
+            adoptServerRunTiming(detail.session.id, (detail as { runStartedAt: number }).runStartedAt, (detail as { serverNow?: number }).serverNow);
+          }
           this.commitHydratedSession(this.sessionFromDetail(detail));
         } catch (retryError) {
           if (expected !== this.runtimeGeneration) return;
@@ -1675,8 +1775,25 @@ export class PiSessionStore {
     }
   }
 
+  private markStreamReconnected(expected: number, runtimeKey: string, streamGeneration: number) {
+    if (
+      expected !== this.runtimeGeneration
+      || runtimeKey !== getRuntimeKey()
+      || streamGeneration !== this.streamGeneration
+    ) return;
+    this.streamReadyRevision += 1;
+    if (this.state.connection === 'ready' && !this.state.error) return;
+    this.state = { ...this.state, connection: 'ready', error: null };
+    this.emitChrome();
+  }
+
   private async reconnect(sessionId: string, expected: number, runtimeKey: string) {
-    if (this.recovering || expected !== this.runtimeGeneration) return; this.recovering = true; this.cadence.flush(); this.stream?.dispose(); this.stream = null;
+    if (this.recovering || expected !== this.runtimeGeneration) return;
+    this.recovering = true;
+    this.cadence.flush();
+    const disconnectedStream = this.stream;
+    const readyRevision = this.streamReadyRevision;
+    const replacementStreamGeneration = this.streamGeneration + 1;
     const cursorAtReconnect = this.streamCursor();
     try {
       const result = await reconnectPiSession({
@@ -1686,9 +1803,19 @@ export class PiSessionStore {
         lastKnownSequence: cursorAtReconnect,
         onEvent: (event) => this.apply(event),
         onStreamDisconnect: () => void this.reconnect(this.state.selectedSessionId ?? sessionId, expected, runtimeKey),
+        onStreamReconnect: () => this.markStreamReconnected(expected, runtimeKey, replacementStreamGeneration),
       });
-      if (expected !== this.runtimeGeneration) { result.stream?.dispose(); return; }
+      if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) {
+        result.stream?.dispose();
+        return;
+      }
+      if (readyRevision !== this.streamReadyRevision) {
+        result.stream?.dispose();
+        return;
+      }
       if (result.phase === 'ready') {
+        disconnectedStream?.dispose();
+        this.streamGeneration = replacementStreamGeneration;
         this.stream = result.stream;
         const reducer: PiReducerState = {
           bySession: new Map(this.state.reducer.bySession),
@@ -1749,9 +1876,20 @@ export class PiSessionStore {
   private observeActivity(event: PiSessionEvent) {
     if (event.name === 'session.lifecycle') {
       const isRunning = event.payload.state === 'busy' || event.payload.state === 'retry';
+      if (isRunning && typeof (event.payload as { runStartedAt?: number }).runStartedAt === 'number') {
+        adoptServerRunTiming(
+          event.sessionId,
+          (event.payload as { runStartedAt: number }).runStartedAt,
+          (event.payload as { serverNow?: number }).serverNow,
+        );
+      }
       this.promoteSession(event.sessionId, isRunning ? 'active' : 'settled', { notifyIfSettled: true });
     } else if (event.name === 'session.snapshot') {
-      const isRunning = Boolean(event.payload.snapshot.isStreaming);
+      const snapshot = event.payload.snapshot as { isStreaming?: boolean; runStartedAt?: number; serverNow?: number };
+      const isRunning = Boolean(snapshot.isStreaming);
+      if (isRunning && typeof snapshot.runStartedAt === 'number') {
+        adoptServerRunTiming(event.sessionId, snapshot.runStartedAt, snapshot.serverNow);
+      }
       this.promoteSession(event.sessionId, isRunning ? 'active' : 'settled');
     } else if (event.name === 'assistant.message.start') {
       this.promoteSession(event.sessionId, 'active');
@@ -1922,7 +2060,12 @@ export class PiSessionStore {
         catalog = upsertStubRecord(catalog, event.sessionId, event.directory, stubLifecycle);
       }
       if (reducerLifecycle !== undefined) {
-        catalog = applyLifecycleChange(catalog, event.sessionId, catalogLifecycleFromReducer(reducerLifecycle));
+        catalog = applyLifecycleChange(
+          catalog,
+          event.sessionId,
+          catalogLifecycleFromReducer(reducerLifecycle),
+          reducerSession?.retry,
+        );
       }
       if (event.name === 'session.updated') {
         const title = typeof event.payload.title === 'string' ? event.payload.title.trim() : '';
@@ -2081,6 +2224,8 @@ export class PiSessionStore {
     this.cadence.dispose();
     this.stream?.dispose();
     this.stream = null;
+    this.streamGeneration += 1;
+    this.streamReadyRevision += 1;
     this.state = initial();
     clearAllRevertNavigations();
     this.navigationGenerationById.clear();

@@ -182,6 +182,31 @@ describe('ui auth client credential seam', () => {
     expect(await auth.ensureSessionToken(urlReq, urlRes)).toBe('client:device-1');
     expect(await auth.resolveAuthContext(urlReq, urlRes, { allowUrlToken: false })).toBe(null);
 
+    const terminalWsReq = {
+      method: 'GET',
+      path: '/api/terminal/ws',
+      url: `/api/terminal/ws?oc_url_token=${encodeURIComponent(urlToken)}`,
+      headers: { connection: 'Upgrade', upgrade: 'websocket' },
+    };
+    const terminalWsRes = createResponse();
+    expect(await auth.ensureSessionToken(terminalWsReq, terminalWsRes)).toBe('client:device-1');
+
+    const sttWsReq = {
+      method: 'GET',
+      path: '/api/stt/ws',
+      url: `/api/stt/ws?oc_url_token=${encodeURIComponent(urlToken)}`,
+      headers: { connection: 'Upgrade', upgrade: 'websocket' },
+    };
+    expect(await auth.ensureSessionToken(sttWsReq, createResponse())).toBe('client:device-1');
+
+    const arbitraryWsReq = {
+      method: 'GET',
+      path: '/api/not-allowed/ws',
+      url: `/api/not-allowed/ws?oc_url_token=${encodeURIComponent(urlToken)}`,
+      headers: { connection: 'Upgrade', upgrade: 'websocket' },
+    };
+    expect(await auth.ensureSessionToken(arbitraryWsReq, createResponse())).toBe(null);
+
     const arbitraryGetReq = { method: 'GET', path: '/api/config/settings', url: `/api/config/settings?oc_url_token=${encodeURIComponent(urlToken)}`, headers: { accept: 'application/json' } };
     const arbitraryGetRes = createResponse();
     let arbitraryGetCalled = false;

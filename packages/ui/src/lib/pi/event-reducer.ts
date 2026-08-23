@@ -43,7 +43,9 @@ import { resolveExistingSessionComposerSelection } from './thinking';
 import type {
   PiAssistantMessage,
   PiAttachment,
+  PiCompactionInfo,
   PiModelRef,
+  PiRetryInfo,
   PiSessionLifecycleState,
   PiSessionId,
   PiThinkingLevel,
@@ -126,6 +128,10 @@ export interface PiReducerSessionState {
   lastSequence: number;
   /** Authoritative lifecycle phase. */
   lifecycle: PiSessionLifecycleState;
+  /** Retry countdown/error context while `lifecycle` is `retry`. */
+  retry?: PiRetryInfo;
+  /** Latest authoritative compaction progress or outcome. */
+  compaction?: PiCompactionInfo;
   /** Active model/thinking the session is using. */
   model?: PiModelRef;
   thinking?: PiThinkingLevel;
@@ -136,7 +142,7 @@ export interface PiReducerSessionState {
   parts: PiReducerPartMap;
   /** Pending tool calls (toolCallId → messageId) so an end event can find its parent. */
   toolsByCallId: Map<string, string>;
-  /** Assistant messages whose `streaming` flag is still true. */
+  /** Assistant messages that still own live token or tool-continuation work. */
   streamingMessages: Set<string>;
   /** Queue depths at the time of the last `session.queue` event. */
   queue: { steering: number; followUp: number };
@@ -196,7 +202,12 @@ const markMutation = (
   kind: PiReducerMutationKind,
 ): void => {
   if (!messageId) return;
-  session.lastMutatedMessageId = messageId;
+  // Resumed events can address a hydrated Pi entry through the daemon's
+  // synthetic live id. The reducer keeps that alias as a Map key, but the
+  // rendered message retains its canonical entry id. Mutation metadata must
+  // use the canonical id so live-tail suspension and overlays target the same
+  // message identity.
+  session.lastMutatedMessageId = session.messages.get(messageId)?.id ?? messageId;
   session.lastMutationKind = kind;
 };
 
@@ -317,7 +328,21 @@ export const aliasSyntheticUserIfPersisted = (
 
 const resolveParentId = (session: PiReducerSessionState, parentId?: string): string | undefined => {
   if (!parentId) return undefined;
-  return session.messages.get(parentId)?.id ?? parentId;
+  const direct = session.messages.get(parentId)?.id;
+  if (direct) return direct;
+  if (isSyntheticUserMessageId(parentId, session.sessionId)) {
+    // A joining tab can hydrate the current user under its persisted Pi entry
+    // id after that user's synthetic start event has already passed. Resumed
+    // assistant starts still name the synthetic parent. The latest user on the
+    // authoritative hydrated branch is that turn owner, including retry
+    // attempts that follow one or more failed assistants.
+    const messages = uniqueSessionMessages(session);
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const candidate = messages[index];
+      if (candidate?.role === 'user') return candidate.id;
+    }
+  }
+  return parentId;
 };
 
 const ensureMessage = (
@@ -428,14 +453,27 @@ const finalizeAssembledParts = (
 
 const reduceLifecycle = (
   session: PiReducerSessionState,
-  state: PiSessionLifecycleState,
-  attempt?: number,
+  payload: { state: PiSessionLifecycleState } & PiRetryInfo,
 ): void => {
-  session.lifecycle = state;
-  if (attempt !== undefined) {
-    // Retry metadata is surfaced to consumers through `lifecycle: 'retry'`.
+  if (payload.state === 'retry') {
+    session.lifecycle = 'retry';
+    session.retry = {
+      ...(payload.attempt !== undefined ? { attempt: payload.attempt } : {}),
+      ...(payload.next !== undefined ? { next: payload.next } : {}),
+      ...(payload.message !== undefined ? { message: payload.message } : {}),
+    };
+    return;
   }
-  if (state === 'busy' || state === 'retry') return;
+  if (payload.state === 'busy' && session.retry) {
+    // Pi publishes `busy` when it begins preparing the retry, before the
+    // provider has produced a token. Keep the retry notice authoritative
+    // until a text/thinking/tool event proves that the next attempt started.
+    session.lifecycle = 'retry';
+    return;
+  }
+  session.lifecycle = payload.state;
+  session.retry = undefined;
+  if (payload.state === 'busy') return;
   session.streamingMessages = new Set();
   session.messages = new Map(session.messages);
   for (const [messageId, message] of session.messages) {
@@ -501,9 +539,9 @@ const reduceAssistantDelta = (
   session: PiReducerSessionState,
   payload: PiAssistantMessageDeltaPayload | PiAssistantThinkingDeltaPayload,
   type: 'text' | 'thinking',
-): void => {
+): boolean => {
   const message = resolveAssistantMessage(session, payload.messageId);
-  if (!message) return;
+  if (!message) return false;
   message.streaming = true;
   session.streamingMessages.add(message.id);
   session.streamingMessages.add(payload.messageId);
@@ -540,7 +578,7 @@ const reduceAssistantDelta = (
     }
   }
   if (existing) {
-    if (existing.type !== type) return;
+    if (existing.type !== type) return false;
     const updated = {
       ...existing,
       text: applyAssistantTextDelta(existing.text, payload.delta),
@@ -550,10 +588,11 @@ const reduceAssistantDelta = (
     if (partId !== existing.id) {
       session.parts.set(partId, updated);
     }
-    return;
+    return true;
   }
   const part = ensureTextPart(session, message, type, partId);
   session.parts.set(part.id, { ...part, text: payload.delta, streaming: true });
+  return true;
 };
 
 const reduceMessageEnd = (
@@ -576,20 +615,22 @@ const reduceMessageEnd = (
   if (payload.thinkingLevel) message.thinkingLevel = payload.thinkingLevel;
   if (payload.error) message.error = payload.error;
   if (payload.usage) message.usage = payload.usage;
-  session.streamingMessages.delete(message.id);
-  session.streamingMessages.delete(payload.messageId);
+  if (payload.continuing !== true && !payload.error) {
+    session.streamingMessages.delete(message.id);
+    session.streamingMessages.delete(payload.messageId);
+  }
 };
 
 const reduceTool = (
   session: PiReducerSessionState,
   phase: 'start' | 'update' | 'end',
   payload: PiToolUpdatePayload,
-): void => {
+): boolean => {
   // Look up the existing part by toolCallId when the start event already
   // produced it.
   const rawMessageId = session.toolsByCallId.get(payload.toolCallId) ?? payload.messageId;
   const message = resolveAssistantMessage(session, rawMessageId);
-  if (!message) return;
+  if (!message) return false;
   settleThinkingParts(session, message.id);
   if (phase !== 'end') {
     message.streaming = true;
@@ -622,9 +663,9 @@ const reduceTool = (
     order.push(synthetic.id);
     session.partOrder.set(message.id, order);
     session.toolsByCallId.set(payload.toolCallId, message.id);
-    return;
+    return true;
   }
-  if (!part || part.type !== 'tool') return;
+  if (!part || part.type !== 'tool') return false;
   const nextPart = { ...part };
   const previous = part.tool;
   nextPart.tool = {
@@ -669,10 +710,12 @@ const reduceTool = (
   };
   if (phase === 'end') nextPart.streaming = false;
   session.parts.set(nextPart.id, nextPart);
+  return true;
 };
 
 const reduceInterrupted = (session: PiReducerSessionState, streaming: boolean): void => {
   session.lifecycle = 'interrupted';
+  session.retry = undefined;
   if (!streaming) return;
   for (const messageId of session.streamingMessages) {
     const message = session.messages.get(messageId);
@@ -685,6 +728,7 @@ const reduceInterrupted = (session: PiReducerSessionState, streaming: boolean): 
 
 const reduceError = (session: PiReducerSessionState, code: string, message?: string): void => {
   session.lifecycle = 'error';
+  session.retry = undefined;
   const now = Date.now();
   session.parts = session.parts.fork();
   session.partOrder = new Map(session.partOrder);
@@ -775,6 +819,8 @@ export const applyPiEvent = (
     case 'session.snapshot':
       if (event.payload?.snapshot) {
         session.lifecycle = event.payload.snapshot.lifecycle ?? (event.payload.snapshot.isStreaming ? 'busy' : 'idle');
+        session.retry = session.lifecycle === 'retry' ? event.payload.snapshot.retry : undefined;
+        session.compaction = event.payload.snapshot.compaction;
         if (event.payload.snapshot.model) session.model = event.payload.snapshot.model;
         if (event.payload.snapshot.thinking) session.thinking = event.payload.snapshot.thinking;
         if (event.payload.snapshot.queue) session.queue = { ...event.payload.snapshot.queue };
@@ -816,14 +862,20 @@ export const applyPiEvent = (
         markHydratedLiveActivity(session, {
           isStreaming: event.payload.snapshot.isStreaming,
           lifecycle: session.lifecycle,
+          ...(event.payload.snapshot.retry ? { retry: event.payload.snapshot.retry } : {}),
           settleWhenIdle: true,
         });
       }
       break;
     case 'session.lifecycle':
-      reduceLifecycle(session, event.payload.state, event.payload.attempt);
+      reduceLifecycle(session, event.payload);
       break;
     case 'assistant.message.start':
+      // A message start is live turn evidence even when the lifecycle frame
+      // was missed or has not arrived yet. During an automatic retry it only
+      // means the request started; keep the retry notice until actual output
+      // arrives.
+      session.lifecycle = session.retry ? 'retry' : 'busy';
       session.messages = new Map(session.messages);
       session.streamingMessages = new Set(session.streamingMessages);
       reduceMessageStart(session, event.directory, event.payload);
@@ -832,7 +884,10 @@ export const applyPiEvent = (
       break;
     case 'assistant.message.delta':
       forkPartsForWrite(session);
-      reduceAssistantDelta(session, event.payload, 'text');
+      if (reduceAssistantDelta(session, event.payload, 'text')) {
+        session.lifecycle = 'busy';
+        session.retry = undefined;
+      }
       markMutation(session, event.payload.messageId, 'part');
       break;
     case 'assistant.message.end':
@@ -845,24 +900,36 @@ export const applyPiEvent = (
       break;
     case 'assistant.thinking.delta':
       forkPartsForWrite(session);
-      reduceAssistantDelta(session, event.payload, 'thinking');
+      if (reduceAssistantDelta(session, event.payload, 'thinking')) {
+        session.lifecycle = 'busy';
+        session.retry = undefined;
+      }
       markMutation(session, event.payload.messageId, 'part');
       break;
     case 'session.tool.start':
       forkPartsForWrite(session);
       session.partOrder = new Map(session.partOrder);
       session.toolsByCallId = new Map(session.toolsByCallId);
-      reduceTool(session, 'start', event.payload);
+      if (reduceTool(session, 'start', event.payload)) {
+        session.lifecycle = 'busy';
+        session.retry = undefined;
+      }
       markMutation(session, event.payload.messageId, 'part');
       break;
     case 'session.tool.update':
       forkPartsForWrite(session);
-      reduceTool(session, 'update', event.payload);
+      if (reduceTool(session, 'update', event.payload)) {
+        session.lifecycle = 'busy';
+        session.retry = undefined;
+      }
       markMutation(session, event.payload.messageId, 'part');
       break;
     case 'session.tool.end':
       forkPartsForWrite(session);
-      reduceTool(session, 'end', event.payload);
+      if (reduceTool(session, 'end', event.payload)) {
+        session.lifecycle = 'busy';
+        session.retry = undefined;
+      }
       markMutation(session, event.payload.messageId, 'part');
       break;
     case 'session.queue':
@@ -878,8 +945,7 @@ export const applyPiEvent = (
       session.thinking = event.payload.thinking;
       break;
     case 'session.compaction':
-      // Compaction does not change the reducer state directly; consumers
-      // observe the event name through their own subscription.
+      session.compaction = { ...event.payload };
       break;
     case 'session.updated':
       // Title/metadata lives in the live catalog, not the transcript reducer.
@@ -1271,6 +1337,7 @@ const markHydratedLiveActivity = (
     lifecycle?: PiSessionLifecycleState;
     inferFromRunningTools?: boolean;
     settleWhenIdle?: boolean;
+    retry?: PiRetryInfo;
   },
 ): void => {
   const runningMessageIds: string[] = [];
@@ -1288,6 +1355,7 @@ const markHydratedLiveActivity = (
     || options?.lifecycle === 'retry'
     || (options?.inferFromRunningTools === true && runningMessageIds.length > 0);
   if (!live) {
+    session.retry = undefined;
     if (options?.settleWhenIdle) {
       session.streamingMessages = new Set();
       session.messages = new Map(session.messages);
@@ -1299,6 +1367,7 @@ const markHydratedLiveActivity = (
   }
 
   session.lifecycle = options?.lifecycle === 'retry' ? 'retry' : 'busy';
+  session.retry = session.lifecycle === 'retry' ? options?.retry : undefined;
   session.streamingMessages = new Set(session.streamingMessages);
   for (const partId of runningPartIds) {
     const part = session.parts.get(partId);
@@ -1338,6 +1407,8 @@ export const hydrateSessionFromDetail = (
     lastSequence: number;
     isStreaming?: boolean;
     lifecycle?: PiSessionLifecycleState;
+    retry?: PiRetryInfo;
+    compaction?: PiCompactionInfo;
     messages: Array<{
       message: PiUserMessage | PiAssistantMessage | {
         id: string;
@@ -1441,9 +1512,11 @@ export const hydrateSessionFromDetail = (
   });
   if (resolved.model) session.model = resolved.model;
   if (resolved.thinking) session.thinking = resolved.thinking;
+  session.compaction = detail.compaction;
   markHydratedLiveActivity(session, {
     ...(detail.isStreaming !== undefined ? { isStreaming: detail.isStreaming } : {}),
     ...(detail.lifecycle ? { lifecycle: detail.lifecycle } : {}),
+    ...(detail.retry ? { retry: detail.retry } : {}),
     inferFromRunningTools: true,
   });
 

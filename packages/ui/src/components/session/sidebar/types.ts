@@ -4,6 +4,8 @@ export type SessionNode = {
   session: Session;
   children: SessionNode[];
   worktree?: null;
+  /** Session id used to assign a stable color; null when unrelated to a fork. */
+  forkColorId?: string | null;
 };
 
 export type SessionGroupFolderScope = {

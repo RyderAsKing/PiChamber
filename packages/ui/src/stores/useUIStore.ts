@@ -14,7 +14,7 @@ import { useFilesViewTabsStore } from './useFilesViewTabsStore';
 
 export type MainTab = 'chat' | 'git' | 'diff' | 'terminal' | 'files' | 'context' | 'diagram';
 export type PendingDiffScope = 'all' | 'working' | 'staged' | 'turn' | 'branch';
-export type ContextPanelMode = 'diff' | 'file' | 'context' | 'chat' | 'preview' | 'browser' | 'git' | 'notes' | 'terminal';
+export type ContextPanelMode = 'diff' | 'file' | 'context' | 'preview' | 'browser' | 'git' | 'notes' | 'terminal';
 type MermaidRenderingMode = 'svg' | 'ascii';
 type UserMessageRenderingMode = 'markdown' | 'plain';
 type SessionRetentionAction = 'archive' | 'delete';
@@ -158,7 +158,7 @@ const clampContextPanelWidth = (width: number): number => {
 };
 
 const CONTEXT_PANEL_SHARED_WIDTH_FALLBACK_MODES: ContextPanelMode[] = [
-  'git', 'file', 'diff', 'context', 'terminal', 'browser', 'notes', 'chat', 'preview',
+  'git', 'file', 'diff', 'context', 'terminal', 'browser', 'notes', 'preview',
 ];
 
 const resolveSharedContextPanelWidth = (candidate: { width?: unknown; widthByMode?: unknown }): number | undefined => {
@@ -314,7 +314,7 @@ const sanitizeContextPanelTabs = (tabs: unknown): ContextPanelTab[] => {
       touchedAt?: unknown;
     };
 
-    if (candidate.mode !== 'diff' && candidate.mode !== 'file' && candidate.mode !== 'context' && candidate.mode !== 'chat' && candidate.mode !== 'preview' && candidate.mode !== 'browser' && candidate.mode !== 'git' && candidate.mode !== 'notes' && candidate.mode !== 'terminal') {
+    if (candidate.mode !== 'diff' && candidate.mode !== 'file' && candidate.mode !== 'context' && candidate.mode !== 'preview' && candidate.mode !== 'browser' && candidate.mode !== 'git' && candidate.mode !== 'notes' && candidate.mode !== 'terminal') {
       continue;
     }
 
@@ -548,7 +548,7 @@ const sanitizeContextPanelByDirectory = (
     let tabs = collapseDiffTabsToGit(sanitizeContextPanelTabs(candidate.tabs));
     let activeTabId = typeof candidate.activeTabId === 'string' ? candidate.activeTabId : null;
 
-    if (tabs.length === 0 && (candidate.mode === 'diff' || candidate.mode === 'file' || candidate.mode === 'context' || candidate.mode === 'chat')) {
+    if (tabs.length === 0 && (candidate.mode === 'diff' || candidate.mode === 'file' || candidate.mode === 'context')) {
       tabs = [createContextPanelTab({
         mode: candidate.mode,
         targetPath: typeof candidate.targetPath === 'string' ? candidate.targetPath : null,
@@ -723,7 +723,6 @@ interface UIStore {
   promptNavigatorEnabled: boolean;
   expandedEditorToolbar: boolean;
   showSplitAssistantMessageActions: boolean;
-  allowPromptingSubagentSessions: boolean;
   isExpandedInput: boolean;
   shortcutOverrides: Record<string, ShortcutCombo>;
   commandTriggers: CommandTrigger[];
@@ -870,7 +869,6 @@ interface UIStore {
   setPromptNavigatorEnabled: (value: boolean) => void;
   setExpandedEditorToolbar: (value: boolean) => void;
   setShowSplitAssistantMessageActions: (value: boolean) => void;
-  setAllowPromptingSubagentSessions: (value: boolean) => void;
   viewPagerPage: 'left' | 'center' | 'right';
   setViewPagerPage: (page: 'left' | 'center' | 'right') => void;
   toggleExpandedInput: () => void;
@@ -1001,7 +999,6 @@ export const useUIStore = create<UIStore>()(
         promptNavigatorEnabled: true,
         expandedEditorToolbar: false,
         showSplitAssistantMessageActions: false,
-        allowPromptingSubagentSessions: false,
         draftStartersVisible: true,
         isExpandedInput: false,
         shortcutOverrides: {},
@@ -1105,7 +1102,7 @@ export const useUIStore = create<UIStore>()(
           // Content-driven modes need a payload (a preview URL or session);
           // the rail renders them disabled until content exists. 'file' opens
           // an empty editor whose embedded tree picks the first file.
-          if (requestedMode === 'preview' || requestedMode === 'chat') {
+          if (requestedMode === 'preview') {
             return;
           }
 
@@ -1846,8 +1843,8 @@ export const useUIStore = create<UIStore>()(
         hideAllModels: (providerID, modelIDs) => {
           set((state) => {
             const current = state.hiddenModels.filter((item) => item.providerID !== providerID);
-            const additions = modelIDs
-              .filter((modelID) => typeof modelID === 'string' && modelID.length > 0)
+            const additions = [...new Set(modelIDs
+              .filter((modelID) => typeof modelID === 'string' && modelID.length > 0))]
               .map((modelID) => ({ providerID, modelID }));
             return { hiddenModels: [...additions, ...current] };
           });
@@ -2087,9 +2084,6 @@ export const useUIStore = create<UIStore>()(
         setShowSplitAssistantMessageActions: (value) => {
           set({ showSplitAssistantMessageActions: value });
         },
-        setAllowPromptingSubagentSessions: (value) => {
-          set({ allowPromptingSubagentSessions: value });
-        },
         viewPagerPage: 'center',
         setViewPagerPage: (page: 'left' | 'center' | 'right') => {
           set({ viewPagerPage: page });
@@ -2132,12 +2126,35 @@ export const useUIStore = create<UIStore>()(
       {
         name: 'ui-store',
         storage: createDeferredSafeJSONStorage(),
-        version: 15,
+        version: 17,
         migrate: (persistedState, version) => {
           if (!persistedState || typeof persistedState !== 'object') {
             return persistedState;
           }
           const state = persistedState as Record<string, unknown>;
+
+          // v16 -> v17: re-sanitize persisted context-panel state.
+          // The v15→v16 migration stripped the chat-mode tabs from
+          // `contextPanelByDirectory`, but devices that already shipped at
+          // v16 (e.g. hosted-mobile tablet-width users browsing the desktop
+          // fallback) still hold those tabs on disk because the migration
+          // only runs on the v15→v16 transition. Bumping to v17 forces a
+          // one-shot re-sanitize so the deprecated chat rail + tabs disappear
+          // on next load without the user having to clear site data.
+          if (version < 17) {
+            state.contextPanelByDirectory = sanitizeContextPanelByDirectory(state.contextPanelByDirectory);
+            if (Array.isArray(state.contextRailOrder)) {
+              state.contextRailOrder = (state.contextRailOrder as unknown[]).filter((id) => id !== 'chat');
+            }
+          }
+
+          // v15 -> v16: remove the session-chat side-panel surface and tabs.
+          if (version < 16) {
+            state.contextPanelByDirectory = sanitizeContextPanelByDirectory(state.contextPanelByDirectory);
+            if (Array.isArray(state.contextRailOrder)) {
+              state.contextRailOrder = (state.contextRailOrder as unknown[]).filter((id) => id !== 'chat');
+            }
+          }
 
           // v14 -> v15: drop the unsupported Pull Request rail and any PR tabs.
           if (version < 15) {
@@ -2281,7 +2298,7 @@ export const useUIStore = create<UIStore>()(
           }
 
           state.contextRailOrder = Array.isArray(state.contextRailOrder)
-            ? (state.contextRailOrder as unknown[]).filter((id): id is string => typeof id === 'string' && id.trim() !== '' && id !== 'pr' && id !== 'diff')
+            ? (state.contextRailOrder as unknown[]).filter((id): id is string => typeof id === 'string' && id.trim() !== '' && id !== 'pr' && id !== 'diff' && id !== 'chat')
             : [];
 
           return state;
@@ -2368,7 +2385,6 @@ export const useUIStore = create<UIStore>()(
           promptNavigatorEnabled: state.promptNavigatorEnabled,
           expandedEditorToolbar: state.expandedEditorToolbar,
           showSplitAssistantMessageActions: state.showSplitAssistantMessageActions,
-          allowPromptingSubagentSessions: state.allowPromptingSubagentSessions,
           draftStartersVisible: state.draftStartersVisible,
           shortcutOverrides: state.shortcutOverrides,
           fileEditorKeymap: state.fileEditorKeymap,

@@ -10,6 +10,7 @@ import { createPreviewProxyRuntime } from '../preview/proxy-runtime.js';
 import { createRequestSecurityRuntime } from '../security/request-security.js';
 import { mergePathValues } from '../server/path-utils.js';
 import { createTerminalRuntime } from '../terminal/runtime.js';
+import { createSttRuntime } from '../stt/runtime.js';
 import { getExecutableSearchDirectories } from '../tunnels/executable-search.js';
 
 const normalizeDirectoryPath = (value) => (typeof value === 'string' ? path.resolve(value.trim()) : '');
@@ -48,7 +49,7 @@ const resolveProjectDirectory = async (req) => {
   }
 };
 
-export const registerWorkspaceIntegrations = ({ app, server, express, uiAuthController }) => {
+export const registerWorkspaceIntegrations = ({ app, server, express, uiAuthController, dataDir }) => {
   const security = createRequestSecurityRuntime({ readSettingsFromDiskMigrated: async () => ({}) });
   registerGitRoutes(app);
   registerFsRoutes(app, {
@@ -63,7 +64,7 @@ export const registerWorkspaceIntegrations = ({ app, server, express, uiAuthCont
     resolveGitBinaryForSpawn: () => searchPathFor(process.platform === 'win32' ? 'git.exe' : 'git'),
     pichamberUserConfigRoot: path.join(os.homedir(), '.config'),
   });
-  createTerminalRuntime({
+  const terminalRuntime = createTerminalRuntime({
     app,
     server,
     express,
@@ -75,6 +76,16 @@ export const registerWorkspaceIntegrations = ({ app, server, express, uiAuthCont
     isExecutable,
     isRequestOriginAllowed: security.isRequestOriginAllowed,
     rejectWebSocketUpgrade: security.rejectWebSocketUpgrade,
+  });
+  const sttRuntime = createSttRuntime({
+    app,
+    server,
+    express,
+    uiAuthController,
+    isRequestOriginAllowed: security.isRequestOriginAllowed,
+    rejectWebSocketUpgrade: security.rejectWebSocketUpgrade,
+    modelsDir: path.join(dataDir, 'speech-models'),
+    configFile: path.join(dataDir, 'stt', 'config.json'),
   });
   createPreviewProxyRuntime({
     crypto,
@@ -88,4 +99,9 @@ export const registerWorkspaceIntegrations = ({ app, server, express, uiAuthCont
     isRequestOriginAllowed: security.isRequestOriginAllowed,
     rejectWebSocketUpgrade: security.rejectWebSocketUpgrade,
   });
+  return {
+    shutdown: async () => {
+      await Promise.allSettled([terminalRuntime.shutdown(), sttRuntime.shutdown()]);
+    },
+  };
 };

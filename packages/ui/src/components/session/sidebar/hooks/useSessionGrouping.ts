@@ -8,6 +8,7 @@ import {
 } from '../utils';
 import { compareSessionsByLifecycleOrder } from '@/sync/session-ordering';
 import { formatPathForDisplay } from '@/lib/utils';
+import { getForkColorIdForSession } from '../forkColor';
 
 type Args = {
   homeDirectory: string | null;
@@ -65,38 +66,29 @@ export const useSessionGrouping = (args: Args) => {
         .sort((a, b) => compareSessionsByLifecycleOrder(a, b, args.pinnedSessionIds, args.sessionOrderRanks));
 
       const sessionMap = new Map(sortedProjectSessions.map((session) => [session.id, session]));
-      const childrenMap = new Map<string, Session[]>();
+      const parentById = new Map<string, string | null>();
+      const childrenCountById = new Map<string, number>();
       sortedProjectSessions.forEach((session) => {
-        const parentID = (session as Session & { parentID?: string | null }).parentID;
-        if (!parentID) return;
-        const parentSession = sessionMap.get(parentID);
-        if (!parentSession || isArchivedSession(parentSession) !== isArchivedSession(session)) {
-          return;
+        const parentID = (session as Session & { parentID?: string | null }).parentID ?? null;
+        const parentSession = parentID ? sessionMap.get(parentID) : null;
+        const validParentID = parentSession && isArchivedSession(parentSession) === isArchivedSession(session)
+          ? parentID
+          : null;
+        parentById.set(session.id, validParentID);
+        if (validParentID) {
+          childrenCountById.set(validParentID, (childrenCountById.get(validParentID) ?? 0) + 1);
         }
-        const collection = childrenMap.get(parentID) ?? [];
-        collection.push(session);
-        childrenMap.set(parentID, collection);
       });
-      childrenMap.forEach((list) => list.sort((a, b) => compareSessionsByLifecycleOrder(a, b, args.pinnedSessionIds, args.sessionOrderRanks)));
-
-      const buildProjectNode = (session: Session): SessionNode => {
-        const children = childrenMap.get(session.id) ?? [];
-        return { session, children: children.map((child) => buildProjectNode(child)), worktree: null };
+      const toFlatNode = (session: Session): SessionNode => {
+        const forkColorId = getForkColorIdForSession(session.id, parentById, childrenCountById);
+        return { session, children: [], worktree: null, forkColorId };
       };
-
-      const roots = sortedProjectSessions.filter((session) => {
-        const parentID = (session as Session & { parentID?: string | null }).parentID;
-        if (!parentID) return true;
-        const parentSession = sessionMap.get(parentID);
-        if (!parentSession) return true;
-        return isArchivedSession(parentSession) !== isArchivedSession(session);
-      });
 
       const activeNodes: SessionNode[] = [];
       const archivedNodes: SessionNode[] = [];
 
-      roots.forEach((session) => {
-        const node = buildProjectNode(session);
+      sortedProjectSessions.forEach((session) => {
+        const node = toFlatNode(session);
         if (session.time?.archived) {
           archivedNodes.push(node);
         } else {

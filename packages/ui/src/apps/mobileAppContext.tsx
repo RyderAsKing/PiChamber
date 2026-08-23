@@ -6,14 +6,22 @@ export type MobileAppActions = {
   openChanges: (options?: { diffPath?: string | null; staged?: boolean }) => void;
   /** Open the Files surface as a modal. */
   openFiles: () => void;
-  /** Open the Settings surface as a modal. */
-  openSettings: () => void;
+  /** Open the Settings surface as a modal, optionally at a specific page. */
+  openSettings: (section?: string) => void;
   /** Capacitor-only: open the saved-instances manager. */
   openInstances?: () => void;
   /** Capacitor-only: label of the connected instance. */
   instanceLabel?: string | null;
   /** Hosted mobile: open the pending server-update surface. */
   openUpdate?: () => void;
+  /**
+   * Close any open drawer layer (sessions sheet, workspace drawer) so a
+   * navigation gesture — like opening a subtask session — can settle the
+   * chat surface without the user having to dismiss the drawer manually.
+   * No-op when no drawer is open or when not running inside the dedicated
+   * mobile shell (the desktop MainLayout has no phone drawer to close).
+   */
+  closeDrawers?: () => void;
 };
 
 const DedicatedMobileAppContext = React.createContext<MobileAppActions | null>(null);

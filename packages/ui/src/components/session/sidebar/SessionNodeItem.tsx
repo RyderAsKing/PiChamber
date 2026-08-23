@@ -47,6 +47,7 @@ import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { getForkBackgroundColor, getForkColor } from './forkColor';
 
 type Folder = { id: string; name: string; sessionIds: string[] };
 
@@ -90,11 +91,11 @@ type Props = {
   removeSessionFromFolder: (scopeKey: string, sessionId: string) => void;
   addSessionToFolder: (scopeKey: string, folderId: string, sessionId: string) => void;
   createFolderAndStartRename: (scopeKey: string, parentId?: string | null) => { id: string } | null;
-  openContextPanelTab: (directory: string, options: { mode: 'chat'; dedupeKey: string; label: string; sessionTitleFallback?: string; readOnly?: boolean }) => void;
   handleDeleteSession: (session: Session, source?: { archivedBucket?: boolean; hardDelete?: boolean; skipConfirm?: boolean }) => void;
   handleRestoreSession: (session: Session) => void;
   mobileVariant: boolean;
   alwaysShowActions: boolean;
+  allowQuickArchiveAction: boolean;
   renderSessionNode: (
     node: SessionNode,
     depth?: number,
@@ -285,11 +286,11 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     removeSessionFromFolder,
     addSessionToFolder,
     createFolderAndStartRename,
-    openContextPanelTab,
     handleDeleteSession,
     handleRestoreSession,
     mobileVariant,
     alwaysShowActions,
+    allowQuickArchiveAction,
     renderSessionNode,
     secondaryMeta,
     renderContext = 'project',
@@ -299,7 +300,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   } = props;
 
   const isElectron = React.useMemo(() => canUseElectronDesktopIPC(), []);
-  const showQuickArchiveAction = !archivedBucket && !mobileVariant;
+  const showQuickArchiveAction = !archivedBucket && allowQuickArchiveAction;
   const suppressNextSelectRef = React.useRef(false);
   const editingIdRef = React.useRef(editingId);
   editingIdRef.current = editingId;
@@ -446,6 +447,11 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   const [isContextMenuOpen, setIsContextMenuOpen] = React.useState(false);
   const isSessionMenuOpen = isMenuOpen || isContextMenuOpen;
 
+  const forkSolid = React.useMemo(() => getForkColor(node.forkColorId), [node.forkColorId]);
+  const forkBackground = React.useMemo(
+    () => getForkBackgroundColor(node.forkColorId, { active: isActive || isRowSelected }),
+    [node.forkColorId, isActive, isRowSelected],
+  );
   const descendantCount = React.useMemo(() => collectNodeDescendantIds(node).length, [collectNodeDescendantIds, node]);
 
   const collectChildExports = React.useCallback(async (children: SessionNode[]): Promise<{ children: ChildSessionExport[]; skipped: number }> => {
@@ -774,23 +780,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
         {"Export Markdown"}
       </Item>
 
-      <Item
-        disabled={!sessionDirectory}
-        onClick={() => {
-          if (!sessionDirectory) return;
-          openContextPanelTab(sessionDirectory, {
-              mode: 'chat',
-              dedupeKey: `session:${session.id}`,
-              label: sessionTitle,
-              sessionTitleFallback: sessionTitle,
-            });
-          }}
-          className="[&>svg]:mr-1"
-        >
-          <Icon name="chat-4" className="mr-1 h-4 w-4" />
-          <span className="truncate">{"Open in Side Panel"}</span>
-          <span className="shrink-0 typography-micro px-1 rounded leading-none pb-px text-[var(--status-warning)] bg-[var(--status-warning)]/10">{"beta"}</span>
-        </Item>
 
       {isElectron ? (
         <Item
@@ -893,15 +882,21 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                 data-session-row={session.id}
                 data-session-scope={selectionScopeKey ?? ''}
                 data-session-archived={archivedBucket ? '1' : '0'}
+                data-fork-color={forkSolid ? node.forkColorId : undefined}
                 onClick={handleRowBackgroundClick}
-                style={depth > 0 ? { marginLeft: `${depth * 14}px` } : undefined}
+                style={{
+                  ...(depth > 0 ? { marginLeft: `${depth * 14}px` } : undefined),
+                  ...(forkBackground ? { backgroundColor: forkBackground } : undefined),
+                }}
                 className={cn(
                   'group relative my-0.5 flex cursor-pointer items-center rounded-xl px-3 py-2 transition-colors',
-                  depth > 0
+                  !forkBackground && depth > 0
                     ? 'bg-secondary/30 hover:bg-interactive-hover'
-                    : 'hover:bg-interactive-hover',
-                  isActive && !isRowSelected && 'bg-interactive-selection',
-                  isRowSelected && 'bg-interactive-selection',
+                    : !forkBackground
+                      ? 'hover:bg-interactive-hover'
+                      : 'hover:brightness-[1.07] dark:hover:brightness-[1.18]',
+                  !forkBackground && isActive && !isRowSelected && 'bg-interactive-selection',
+                  !forkBackground && isRowSelected && 'bg-interactive-selection',
                 )}
               />
             }
@@ -1253,6 +1248,7 @@ const areSessionNodeItemPropsEqual = (prev: Props, next: Props): boolean => {
   if ((prev.renderContext ?? 'project') !== (next.renderContext ?? 'project')) return false;
   if (prev.mobileVariant !== next.mobileVariant) return false;
   if (prev.alwaysShowActions !== next.alwaysShowActions) return false;
+  if (prev.allowQuickArchiveAction !== next.allowQuickArchiveAction) return false;
   if (prev.hasSessionSearchQuery !== next.hasSessionSearchQuery) return false;
   if (prev.normalizedSessionSearchQuery !== next.normalizedSessionSearchQuery) return false;
   if (prev.notifyOnSubtasks !== next.notifyOnSubtasks) return false;
@@ -1334,7 +1330,6 @@ const areSessionNodeItemPropsEqual = (prev: Props, next: Props): boolean => {
     && prev.removeSessionFromFolder === next.removeSessionFromFolder
     && prev.addSessionToFolder === next.addSessionToFolder
     && prev.createFolderAndStartRename === next.createFolderAndStartRename
-    && prev.openContextPanelTab === next.openContextPanelTab
     && prev.handleDeleteSession === next.handleDeleteSession
     && prev.handleRestoreSession === next.handleRestoreSession
     && prev.renderSessionNode === next.renderSessionNode;

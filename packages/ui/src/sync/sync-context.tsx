@@ -4,6 +4,7 @@ import { getPiSessionStore, type PiSessionStoreState } from '@/apps/pi-session-s
 import { piProjectedToRecords, mapPart } from '@/lib/chat/pi-to-renderable';
 import type { Message, Part, PermissionRequest, QuestionRequest, Session, SessionStatus } from '@/lib/chat/types';
 import { projectSession, type PiReducerMessage, type PiReducerMessagePart, type PiReducerSessionState } from '@/lib/pi/event-reducer';
+import type { PiCompactionInfo, PiRetryInfo } from '@/lib/pi/types';
 import { usePiSessionSnapshot, usePiSessionStore } from './pi-session-context';
 import { mapPiSessionList } from './sync-refs';
 import {
@@ -19,6 +20,7 @@ import { INITIAL_STATE, type State } from './types';
 const IDLE: SessionStatus = { type: 'idle' };
 const BUSY: SessionStatus = { type: 'busy' };
 const RETRY: SessionStatus = { type: 'retry' };
+const retryStatusByInfo = new WeakMap<PiRetryInfo, SessionStatus>();
 const EMPTY_PERMISSIONS: PermissionRequest[] = [];
 const EMPTY_QUESTIONS: QuestionRequest[] = [];
 const EMPTY_USER_HISTORY: string[] = [];
@@ -38,18 +40,18 @@ const directoryStateFromPi = (state: PiSessionStoreState): State => ({
   sessionTotal: state.sessions.length,
 });
 
-const sessionStatusFromLifecycle = (lifecycle: LiveSessionLifecycle | undefined): SessionStatus => {
+const sessionStatusFromLifecycle = (
+  lifecycle: LiveSessionLifecycle | undefined,
+  retry?: PiRetryInfo,
+): SessionStatus => {
   if (lifecycle === 'busy') return BUSY;
-  if (lifecycle === 'retry') return RETRY;
-  return IDLE;
-};
-
-const sessionStatusFromReducer = (session: PiReducerSessionState | undefined): SessionStatus => {
-  if (!session) return IDLE;
-  if (session.lifecycle === 'busy' || session.lifecycle === 'retry') {
-    return session.lifecycle === 'retry' ? RETRY : BUSY;
-  }
-  return IDLE;
+  if (lifecycle !== 'retry') return IDLE;
+  if (!retry) return RETRY;
+  const cached = retryStatusByInfo.get(retry);
+  if (cached) return cached;
+  const status: SessionStatus = { type: 'retry', ...retry };
+  retryStatusByInfo.set(retry, status);
+  return status;
 };
 
 export function useCatalogUiSessions(options?: { archived?: boolean; directory?: string | null }): Session[] {
@@ -204,12 +206,18 @@ export function useSessionParts(
 }
 
 export function useSessionStatus(sessionID: string, _directory?: string): SessionStatus {
-  return usePiSessionSnapshot((state) => {
-    if (!sessionID) return IDLE;
-    const record = state.catalog.byId.get(sessionID);
-    if (record) return sessionStatusFromLifecycle(record.lifecycle);
-    return sessionStatusFromReducer(state.reducer.bySession.get(sessionID));
-  }, undefined, TOPIC_CATALOG);
+  const catalogById = usePiSessionSnapshot((state) => state.catalog.byId, undefined, TOPIC_CATALOG);
+  if (!sessionID) return IDLE;
+  const record = catalogById.get(sessionID);
+  return sessionStatusFromLifecycle(record?.lifecycle, record?.retry);
+}
+
+export function useSessionCompaction(sessionID: string): PiCompactionInfo | null {
+  return usePiSessionSnapshot(
+    (state) => (sessionID ? state.reducer.bySession.get(sessionID)?.compaction ?? null : null),
+    undefined,
+    sessionID ? sessionTopic(sessionID) : '*',
+  );
 }
 
 export function useSessionPermissions(_sessionID: string, _directory?: string): PermissionRequest[] {

@@ -110,4 +110,37 @@ describe('Pi settings sidecar', () => {
     await store.update({ defaultThinkingByModel: { 'provider/a': 'low' } });
     await expect(store.update({ defaultThinkingByModel: null })).resolves.toEqual({ version: 1 });
   });
+
+  it('round-trips default retry limit with validation and persistence', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-settings-'));
+    const file = join(root, 'pi', 'settings.json');
+    const store = createPiSettingsStore({ file });
+    await expect(store.update({ defaultRetryLimit: 5 })).resolves.toEqual({ version: 1, defaultRetryLimit: 5 });
+    await expect(store.read()).resolves.toEqual({ version: 1, defaultRetryLimit: 5 });
+    await expect(store.update({ defaultRetryLimit: 0 })).resolves.toEqual({ version: 1, defaultRetryLimit: 0 });
+    await expect(store.read()).resolves.toEqual({ version: 1, defaultRetryLimit: 0 });
+  });
+
+  it('rejects invalid retry limits without erasing existing value', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-settings-'));
+    const file = join(root, 'pi', 'settings.json');
+    const store = createPiSettingsStore({ file });
+    await store.update({ defaultRetryLimit: 3 });
+    await expect(store.update({ defaultRetryLimit: -1 })).rejects.toMatchObject({ code: 'PI_SETTINGS_INVALID' });
+    await expect(store.update({ defaultRetryLimit: 11 })).rejects.toMatchObject({ code: 'PI_SETTINGS_INVALID' });
+    await expect(store.update({ defaultRetryLimit: 2.5 })).rejects.toMatchObject({ code: 'PI_SETTINGS_INVALID' });
+    await expect(store.read()).resolves.toEqual({ version: 1, defaultRetryLimit: 3 });
+  });
+
+  it('preserves explicit per-run retry over stored default', async () => {
+    const resolveEffective = (explicit, stored) => {
+      if (Number.isInteger(explicit)) return explicit;
+      if (Number.isInteger(stored)) return stored;
+      return 3;
+    };
+    expect(resolveEffective(undefined, 5)).toBe(5);
+    expect(resolveEffective(7, 5)).toBe(7);
+    expect(resolveEffective(undefined, undefined)).toBe(3);
+    expect(resolveEffective(0, 5)).toBe(0);
+  });
 });

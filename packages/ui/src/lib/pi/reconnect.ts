@@ -141,6 +141,8 @@ export const reconnectPiSession = async (
       lastSequence: detail.lastSequence,
       ...(detail.isStreaming !== undefined ? { isStreaming: detail.isStreaming } : {}),
       ...(detail.lifecycle ? { lifecycle: detail.lifecycle } : {}),
+      ...(detail.retry ? { retry: detail.retry } : {}),
+      ...(detail.compaction ? { compaction: detail.compaction } : {}),
       messages: detail.messages.map((entry) => ({
         message: entry.message,
         parts: entry.parts.map((part) => ({
@@ -183,6 +185,8 @@ export const reconnectPiSession = async (
           isStreaming: detail.isStreaming === true,
           queue: { steering: 0, followUp: 0 },
           lifecycle: detail.lifecycle ?? (detail.isStreaming ? 'busy' : 'idle'),
+          ...(detail.retry ? { retry: detail.retry } : {}),
+          ...(detail.compaction ? { compaction: detail.compaction } : {}),
           ...(detail.session.model ? { model: detail.session.model } : {}),
           ...(detail.session.thinking ? { thinking: detail.session.thinking } : {}),
         },

@@ -47,6 +47,9 @@ const createAttachedPreviewRuntime = () => {
         randomByte += 1;
         return Buffer.alloc(size, randomByte);
       },
+      timingSafeEqual(a, b) {
+        return Buffer.compare(a, b) === 0;
+      },
     },
     URL,
     createProxyMiddleware(options) {

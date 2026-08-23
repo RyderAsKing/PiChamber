@@ -3,10 +3,12 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { PI_TRANSCRIPT_EVICTION_SOFT_CAP, PiSessionStore } from '@/apps/pi-session-store';
 import { PiRequestError, piClient } from '@/lib/pi/client';
 import type { PiReducerMessage, PiReducerSessionState } from '@/lib/pi/event-reducer';
+import { getRuntimeKey } from '@/lib/runtime-switch';
 import { createReducerPartMap } from '@/lib/pi/event-reducer';
 import type { PiSessionEvent } from '@/lib/pi/protocol';
 import type { PiSessionId } from '@/lib/pi/types';
 import { useNotificationStore } from '@/sync/notification-store';
+import { clearAllRevertNavigations, getRevertNavigation } from '@/sync/revert-navigation-store';
 import { resetSessionOrdering, useSessionOrderingStore } from '@/sync/session-ordering';
 
 // ---------------------------------------------------------------------------
@@ -52,6 +54,7 @@ interface StoreInternal {
   runtimeGeneration: number;
   focusGeneration: number;
   stream: { dispose: () => void } | null;
+  streamGeneration: number;
   hydratedSessionIds: Set<string>;
   pendingPromptById: Set<string>;
   activityPhaseById: Map<string, 'active' | 'settled'>;
@@ -70,6 +73,7 @@ interface StoreInternal {
   evictIdleTranscripts: () => void;
   hydrate: (sessionId: string, runtimeGeneration: number, known?: unknown, options?: { force?: boolean }) => Promise<void>;
   reconnect: (sessionId: string, expected: number, runtimeKey: string) => Promise<void>;
+  markStreamReconnected: (expected: number, runtimeKey: string, streamGeneration: number) => void;
 }
 
 const asInternal = (store: PiSessionStore): StoreInternal => store as unknown as StoreInternal;
@@ -101,6 +105,7 @@ interface StubOptions {
   listSessions?: (scope: { directory?: string }) => Promise<{ sessions: SessionListEntry[] }>;
   getSession?: (id: string) => Promise<unknown>;
   health?: () => Promise<unknown>;
+  navigateSession?: (sessionId: string, messageId: string) => Promise<unknown>;
 }
 
 const stubDaemons = (options: StubOptions = {}) => {
@@ -110,8 +115,9 @@ const stubDaemons = (options: StubOptions = {}) => {
     listSessions: piClient.listSessions.bind(piClient),
     getSession: piClient.getSession.bind(piClient),
     health: piClient.health.bind(piClient),
+    navigateSession: piClient.navigateSession.bind(piClient),
   };
-  const calls = { selectProject: 0, listSessions: 0, getSession: 0 };
+  const calls = { selectProject: 0, listSessions: 0, getSession: 0, navigateSession: 0 };
   piClient.selectProject = (async (dir: string) => {
     calls.selectProject += 1;
     if (options.selectProject) return options.selectProject(dir);
@@ -139,6 +145,11 @@ const stubDaemons = (options: StubOptions = {}) => {
     if (options.health) return options.health() as never;
     return { state: 'ready', protocolVersion: 1, capabilities: [] } as never;
   }) as typeof piClient.health;
+  piClient.navigateSession = (async (sessionId: string, messageId: string) => {
+    calls.navigateSession += 1;
+    if (options.navigateSession) return options.navigateSession(sessionId, messageId) as never;
+    throw new Error('Unexpected navigateSession call');
+  }) as typeof piClient.navigateSession;
   return {
     calls,
     restore: () => {
@@ -147,6 +158,7 @@ const stubDaemons = (options: StubOptions = {}) => {
       piClient.listSessions = originals.listSessions;
       piClient.getSession = originals.getSession;
       piClient.health = originals.health;
+      piClient.navigateSession = originals.navigateSession;
     },
   };
 };
@@ -521,6 +533,69 @@ describe('PiSessionStore runtime-scoped sessions', () => {
     store.dispose();
   });
 
+  test('an initial daemon failure reconnects through a background recovery stream', async () => {
+    const originalFetch = globalThis.fetch;
+    const encoder = new TextEncoder();
+    globalThis.fetch = (async () => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(': recovery-ready\n\n'));
+        controller.close();
+      },
+    }), { status: 200, headers: { 'content-type': 'text/event-stream' } })) as typeof fetch;
+    const stubs = stubDaemons({
+      listProjects: async () => ({ projects: [] }),
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+    });
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+
+    try {
+      store.reportError(new PiRequestError('DAEMON_UNAVAILABLE'));
+      expect(store.getState().connection).toBe('error');
+      expect(internal.stream).not.toBeNull();
+
+      await tickMicrotasks(16);
+      expect(store.getState().connection).toBe('ready');
+      expect(store.getState().error).toBeNull();
+    } finally {
+      globalThis.fetch = originalFetch;
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('a failed reconnect keeps the stream retry loop alive and clears the error when it reconnects', async () => {
+    const originalFetch = globalThis.fetch;
+    let disposed = false;
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      protocolVersion: 1,
+      state: 'unavailable',
+      error: { code: 'DAEMON_UNAVAILABLE' },
+    }), { status: 503, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    internal.stream = { dispose: () => { disposed = true; } };
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      selectedSessionId: 'connected',
+      connection: 'ready',
+    };
+
+    try {
+      await internal.reconnect('connected', internal.runtimeGeneration, getRuntimeKey());
+      expect(disposed).toBe(false);
+      expect(store.getState().connection).toBe('error');
+
+      internal.markStreamReconnected(internal.runtimeGeneration, getRuntimeKey(), internal.streamGeneration);
+      expect(store.getState().connection).toBe('ready');
+      expect(store.getState().error).toBeNull();
+    } finally {
+      globalThis.fetch = originalFetch;
+      store.dispose();
+    }
+  });
+
   test('reconnect keeps resident transcripts and resumes max cursor without dropping the cluster', () => {
     const store = new PiSessionStore();
     const internal = asInternal(store);
@@ -659,6 +734,116 @@ describe('PiSessionStore hydrate/overlay reconciliation', () => {
     expect(committed?.messages.get('old')?.text).toBe('prior');
     expect(committed?.messages.get('a1')?.text).toBe('hello');
     expect(committed?.streamingMessages.has('a1')).toBe(true);
+    expect(committed?.lastSequence).toBe(12);
+    store.dispose();
+  });
+
+  test('force-hydrates after a replay-window snapshot so a restarted client converges', async () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    const partialAssistant = reducerMessage({
+      id: 'a1',
+      role: 'assistant',
+      text: 'half',
+      streaming: true,
+      createdAt: 2,
+      parentId: 'u1',
+    });
+    const partial = reducerSession({
+      sessionId: 's1',
+      lifecycle: 'busy',
+      lastSequence: 4,
+      messages: new Map([['a1', partialAssistant]]),
+      partOrder: new Map([['a1', ['p1']]]),
+      parts: createReducerPartMap([['p1', { id: 'p1', index: 0, type: 'text', text: 'half', streaming: true }]]),
+      streamingMessages: new Set(['a1']),
+    });
+    internal.stream = { dispose: () => undefined };
+    internal.hydratedSessionIds = new Set(['s1']);
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      connection: 'ready',
+      selectedSessionId: 's1',
+      reducer: { bySession: new Map([['s1', partial]]), lastSequence: new Map([['s1', 4]]) },
+    };
+
+    const stubs = stubDaemons({
+      getSession: async () => ({
+        session: { id: 's1', directory: '/repo', createdAt: 1, updatedAt: 3 },
+        lastSequence: 12,
+        isStreaming: false,
+        lifecycle: 'idle',
+        messages: [{
+          message: reducerMessage({ id: 'a1', role: 'assistant', text: 'half plus the rest', createdAt: 2 }),
+          parts: [{ id: 'p1', index: 0, type: 'text', text: 'half plus the rest' }],
+        }],
+      }),
+    });
+    try {
+      internal.commitEvents([{
+        protocolVersion: 1,
+        kind: 'event',
+        name: 'session.snapshot',
+        sequence: 10,
+        sessionId: 's1',
+        directory: '/repo',
+        payload: {
+          snapshot: {
+            sessionId: 's1',
+            directory: '/repo',
+            isStreaming: false,
+            lifecycle: 'idle',
+            queue: { steering: 0, followUp: 0 },
+            lastSequence: 10,
+          },
+        },
+      }]);
+      await tickMicrotasks();
+
+      const committed = store.getState().reducer.bySession.get('s1');
+      expect(stubs.calls.getSession).toBe(1);
+      expect(committed?.parts.get('p1')?.text).toBe('half plus the rest');
+      expect(committed?.lifecycle).toBe('idle');
+      expect(committed?.lastSequence).toBe(12);
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('keeps sequence-newer settled content when an older fetch completes late', () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    const resident = reducerSession({
+      sessionId: 's1',
+      lifecycle: 'idle',
+      lastSequence: 12,
+      messages: new Map([['a1', reducerMessage({ id: 'a1', role: 'assistant', text: 'final' })]]),
+      partOrder: new Map([['a1', ['p1']]]),
+      parts: createReducerPartMap([['p1', { id: 'p1', index: 0, type: 'text', text: 'final', streaming: false }]]),
+    });
+    const staleFetch = reducerSession({
+      sessionId: 's1',
+      lifecycle: 'busy',
+      lastSequence: 10,
+      messages: new Map([['a1', reducerMessage({ id: 'a1', role: 'assistant', text: 'half', streaming: true })]]),
+      partOrder: new Map([['a1', ['p1']]]),
+      parts: createReducerPartMap([['p1', { id: 'p1', index: 0, type: 'text', text: 'half', streaming: true }]]),
+      streamingMessages: new Set(['a1']),
+    });
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      connection: 'ready',
+      reducer: { bySession: new Map([['s1', resident]]), lastSequence: new Map([['s1', 12]]) },
+    };
+
+    internal.commitHydratedSession(staleFetch);
+
+    const committed = store.getState().reducer.bySession.get('s1');
+    expect(committed?.parts.get('p1')?.text).toBe('final');
+    expect(committed?.lifecycle).toBe('idle');
     expect(committed?.lastSequence).toBe(12);
     store.dispose();
   });
@@ -1263,6 +1448,67 @@ describe('PiSessionStore behaviour parity', () => {
       stubs.restore();
     }
     store.dispose();
+  });
+
+  test('preserves the original leaf through partial restores and clears navigation after full restore', async () => {
+    clearAllRevertNavigations();
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    const allMessages = [
+      reducerMessage({ id: 'u1', role: 'user', text: 'one', createdAt: 1 }),
+      reducerMessage({ id: 'a1', role: 'assistant', text: 'one answer', createdAt: 2 }),
+      reducerMessage({ id: 'u2', role: 'user', text: 'two', createdAt: 3 }),
+      reducerMessage({ id: 'a2', role: 'assistant', text: 'two answer', createdAt: 4 }),
+      reducerMessage({ id: 'u3', role: 'user', text: 'three', createdAt: 5 }),
+      reducerMessage({ id: 'a3', role: 'assistant', text: 'three answer', createdAt: 6 }),
+    ];
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      connection: 'ready',
+      selectedSessionId: 's1',
+      reducer: {
+        bySession: new Map([['s1', reducerSession({
+          sessionId: 's1',
+          messages: new Map(allMessages.map((message) => [message.id, message])),
+        })]]),
+        lastSequence: new Map([['s1', 1]]),
+      },
+    };
+    internal.hydratedSessionIds.add('s1');
+
+    const detail = (messageIds: string[], navigation: { targetEntryId: string; previousLeafId: string; newLeafId: string }) => ({
+      session: { id: 's1', directory: '/repo', createdAt: 1, updatedAt: 6, messageCount: messageIds.length },
+      lastSequence: 1,
+      isStreaming: false,
+      lifecycle: 'idle',
+      messages: messageIds.map((id) => ({ message: allMessages.find((message) => message.id === id), parts: [] })),
+      navigation,
+    });
+    const stubs = stubDaemons({
+      navigateSession: async (_sessionId, messageId) => {
+        if (messageId === 'u2') return detail(['u1', 'a1'], { targetEntryId: 'u2', previousLeafId: 'a3', newLeafId: 'a1' });
+        if (messageId === 'u3') return detail(['u1', 'a1', 'u2', 'a2'], { targetEntryId: 'u3', previousLeafId: 'a1', newLeafId: 'a2' });
+        if (messageId === 'a3') return detail(['u1', 'a1', 'u2', 'a2', 'u3', 'a3'], { targetEntryId: 'a3', previousLeafId: 'a2', newLeafId: 'a3' });
+        throw new Error(`Unexpected navigation target ${messageId}`);
+      },
+    });
+
+    try {
+      await store.navigate('s1', 'u2');
+      expect(getRevertNavigation('s1')?.previousLeafId).toBe('a3');
+
+      await store.navigate('s1', 'u3');
+      expect(getRevertNavigation('s1')?.previousLeafId).toBe('a3');
+      expect(getRevertNavigation('s1')?.abandoned.map((message) => message.id)).toEqual(['u3', 'a3']);
+
+      await store.navigate('s1', 'a3');
+      expect(getRevertNavigation('s1')).toBe(undefined);
+    } finally {
+      stubs.restore();
+      clearAllRevertNavigations();
+      store.dispose();
+    }
   });
 
   test('a missing selected session fails that chat without taking the cluster down', async () => {

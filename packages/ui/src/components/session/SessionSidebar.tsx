@@ -3,7 +3,6 @@ import React from 'react';
 import type { Session } from '@/lib/chat/types';
 import { toast } from '@/components/ui';
 import { useDeviceInfo } from '@/lib/device';
-import { isDesktopShell } from '@/lib/desktop';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { formatDirectoryName, cn } from '@/lib/utils';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -27,6 +26,7 @@ import { useGroupOrdering } from './sidebar/hooks/useGroupOrdering';
 import { useSessionSidebarSections } from './sidebar/hooks/useSessionSidebarSections';
 import { ProjectSessionSelectionEffect } from './sidebar/hooks/useProjectSessionSelection';
 import { useSessionGrouping } from './sidebar/hooks/useSessionGrouping';
+import { canShowQuickArchiveAction } from './sidebar/sessionQuickActions';
 import { useSessionSearchEffects } from './sidebar/hooks/useSessionSearchEffects';
 import { useSessionActions } from './sidebar/hooks/useSessionActions';
 import { useSidebarPersistence } from './sidebar/hooks/useSidebarPersistence';
@@ -34,7 +34,6 @@ import { useProjectRepoStatus } from './sidebar/hooks/useProjectRepoStatus';
 import { useProjectSessionLists } from './sidebar/hooks/useProjectSessionLists';
 import { useAuthoritativeSessionCleanup } from './sidebar/hooks/useAuthoritativeSessionCleanup';
 import { createSessionOwnershipIndex } from './sidebar/sessionOwnership';
-import { useStickyProjectHeaders } from './sidebar/hooks/useStickyProjectHeaders';
 import { ProjectEditDialog } from '@/components/layout/ProjectEditDialog';
 import { UpdateDialog } from '@/components/ui/UpdateDialog';
 import { SessionGroupSection } from './sidebar/SessionGroupSection';
@@ -334,7 +333,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   }, [safeStorage]);
 
   const [projectRootBranches, setProjectRootBranches] = React.useState<Map<string, string>>(new Map());
-  const projectHeaderSentinelRefs = React.useRef<Map<string, HTMLDivElement | null>>(new Map());
   const ignoreIntersectionUntil = React.useRef<number>(0);
 
   const homeDirectory = useDirectoryStore((state) => state.homeDirectory);
@@ -348,7 +346,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const reorderProjects = useProjectsStore((state) => state.reorderProjects);
 
   const setActiveMainTab = useUIStore((state) => state.setActiveMainTab);
-  const openContextPanelTab = useUIStore((state) => state.openContextPanelTab);
   const setSettingsDialogOpen = useUIStore((state) => state.setSettingsDialogOpen);
   const setSettingsPage = useUIStore((state) => state.setSettingsPage);
   const toggleHelpDialog = useUIStore((state) => state.toggleHelpDialog);
@@ -462,10 +459,12 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const isWorktreeTopologyLoading = resolvedWorktreeTopologyKey !== projectWorktreeDiscoveryKey;
   const [unresolvedWorktreeProjectPaths, setUnresolvedWorktreeProjectPaths] = React.useState<ReadonlySet<string>>(new Set());
 
-  const isDesktopShellRuntime = React.useMemo(() => isDesktopShell(), []);
-
   const { isTablet } = useDeviceInfo();
   const alwaysShowSidebarActions = mobileVariant || isTablet;
+  // Touch/tablet rows expose management through the always-visible menu and
+  // its press-and-hold context menu. Only a pointer-oriented desktop gets the
+  // one-click archive action that replaces the row timestamp on hover.
+  const allowQuickArchiveAction = canShowQuickArchiveAction({ mobileVariant, isTablet });
 
   const {
     buildGroupSearchText,
@@ -824,7 +823,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   }
 
   const showArchivedSessions = useSessionDisplayStore((state) => state.showArchivedSessions);
-  const stickyZoneHeaders = useSessionDisplayStore((state) => state.stickyZoneHeaders);
   const manualProjectOrder = useProjectsStore((state) => state.manualProjectOrder);
   const projectExpandedParentsRef = React.useRef<Set<string>>(new Set());
   const projectExpandedParents = selectExpandedParentKeysForContext(
@@ -1069,12 +1067,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     'flex size-9 shrink-0 items-center justify-center rounded-full leading-none text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed';
   const headerActionButtonClass = mobileVariant ? mobileHeaderActionButtonClass : desktopHeaderActionButtonClass;
   const headerActionIconClass = mobileVariant ? 'size-4' : 'h-4.5 w-4.5';
-  const stuckProjectHeaders = useStickyProjectHeaders({
-    enabled: isVisible && stickyZoneHeaders,
-    isDesktopShellRuntime,
-    projectSections,
-    projectHeaderSentinelRefs,
-  });
 
   const renderSessionNode = useStableRenderCallback(
     (
@@ -1121,11 +1113,11 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         removeSessionFromFolder={removeSessionFromFolder}
         addSessionToFolder={addSessionToFolder}
         createFolderAndStartRename={stableCreateFolderAndStartRename}
-        openContextPanelTab={openContextPanelTab}
         handleDeleteSession={stableHandleDeleteSession}
         handleRestoreSession={stableHandleRestoreSession}
         mobileVariant={mobileVariant}
         alwaysShowActions={alwaysShowSidebarActions}
+        allowQuickArchiveAction={allowQuickArchiveAction}
         renderSessionNode={renderSessionNode}
         secondaryMeta={secondaryMeta}
         renderContext={renderContext}
@@ -1423,9 +1415,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         collapsedProjects={collapsedProjects}
         hideDirectoryControls={hideDirectoryControls}
         projectRepoStatus={projectRepoStatus}
-        isDesktopShellRuntime={isDesktopShellRuntime}
-        stickyZoneHeaders={stickyZoneHeaders}
-        stuckProjectHeaders={stuckProjectHeaders}
         mobileVariant={mobileVariant}
         alwaysShowActions={alwaysShowSidebarActions}
         toggleProject={toggleProject}
@@ -1435,7 +1424,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         openNewSessionDraft={openNewSessionDraftFromTree}
         openProjectEditDialog={setEditingProjectDialogId}
         removeProject={removeProject}
-        projectHeaderSentinelRefs={projectHeaderSentinelRefs}
         reorderProjects={reorderProjects}
         getOrderedGroups={getOrderedGroups}
         setGroupOrderByProject={setGroupOrderByProject}

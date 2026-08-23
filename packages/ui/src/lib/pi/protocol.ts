@@ -21,10 +21,12 @@
 import type {
   PiAttachment,
   PiAssistantMessage,
+  PiCompactionInfo,
   PiModel,
   PiModelRef,
   PiProvider,
   PiResource,
+  PiRetryInfo,
   PiSession,
   PiSessionId,
   PiSessionLifecycleState,
@@ -142,6 +144,14 @@ export interface PiSessionDetailResponse {
   isStreaming: boolean;
   /** Authoritative lifecycle at getSession time. Idle is not proof the stream is dead. */
   lifecycle: PiSessionLifecycleState;
+  /** Retry countdown/error context while `lifecycle` is `retry`. */
+  retry?: PiRetryInfo;
+  /** Latest active or completed compaction state. */
+  compaction?: PiCompactionInfo;
+  /** Server authoritative run start for an active turn. Present only while busy/retry. */
+  runStartedAt?: number;
+  /** Server wall clock at the time the response was generated. */
+  serverNow?: number;
 }
 
 /** Metadata returned after a successful tree navigation. */
@@ -234,6 +244,8 @@ export interface PiSetThinkingInput {
 
 export interface PiCompactInput {
   sessionId: PiSessionId;
+  /** Optional instructions for the compaction summary. */
+  customInstructions?: string;
   /** Optional model override for the compacting turn. */
   model?: PiModelRef;
   thinking?: PiThinkingLevel;
@@ -365,6 +377,7 @@ export interface PiSettingsSnapshot {
     defaultThinkingByModel?: Record<string, PiThinkingLevel>;
     smallModel?: PiModelRef;
     walkthroughModel?: PiModelRef;
+    defaultRetryLimit?: number;
   };
 }
 
@@ -382,6 +395,7 @@ export interface PiChamberDefaultsUpdateInput {
   defaultThinkingByModel?: Record<string, PiThinkingLevel | null> | null;
   smallModel?: PiModelRef | null;
   walkthroughModel?: PiModelRef | null;
+  defaultRetryLimit?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -475,12 +489,7 @@ export type PiSessionSnapshotEvent = PiEventEnvelope<
 
 export type PiSessionLifecycleEvent = PiEventEnvelope<
   'session.lifecycle',
-  {
-    state: PiSessionLifecycleState;
-    attempt?: number;
-    next?: number;
-    message?: string;
-  }
+  { state: PiSessionLifecycleState; runStartedAt?: number; serverNow?: number } & PiRetryInfo
 >;
 
 /** Catalog metadata from another client: create, first-prompt title, or rename. */
@@ -511,6 +520,8 @@ export interface PiMessageEndPayload {
   /** Final thinking level the daemon persisted. */
   thinkingLevel?: PiThinkingLevel;
   durationMs?: number;
+  /** True when Pi is about to execute tool calls from this assistant message. */
+  continuing?: boolean;
   error?: PiError;
   /**
    * Pi-native usage for the turn that just ended. The daemon sanitizes the
@@ -615,10 +626,7 @@ export type PiSessionThinkingEvent = PiEventEnvelope<
 
 export type PiSessionCompactionEvent = PiEventEnvelope<
   'session.compaction',
-  {
-    /** True when the compaction is starting; false when it has completed. */
-    running: boolean;
-  }
+  PiCompactionInfo
 >;
 
 export type PiSessionErrorEvent = PiEventEnvelope<

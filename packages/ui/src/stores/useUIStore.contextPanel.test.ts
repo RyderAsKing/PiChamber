@@ -6,30 +6,6 @@ beforeEach(() => {
   useUIStore.setState({ contextPanelByDirectory: {}, contextRailOrder: [] });
 });
 
-describe('useUIStore context panel tabs', () => {
-  test('updates readOnly when an existing chat tab is reopened', () => {
-    const directory = '/repo';
-
-    useUIStore.getState().openContextPanelTab(directory, {
-      mode: 'chat',
-      dedupeKey: 'session:ses_1',
-      label: 'Session',
-      readOnly: true,
-    });
-
-    useUIStore.getState().openContextPanelTab(directory, {
-      mode: 'chat',
-      dedupeKey: 'session:ses_1',
-      label: 'Session',
-      readOnly: false,
-    });
-
-    const tabs = useUIStore.getState().contextPanelByDirectory[directory]?.tabs ?? [];
-    expect(tabs).toHaveLength(1);
-    expect(tabs[0]?.readOnly).toBe(false);
-  });
-});
-
 describe('useUIStore openContextSurface', () => {
   const directory = '/repo';
 
@@ -64,7 +40,6 @@ describe('useUIStore openContextSurface', () => {
 
   test('does nothing for content-driven modes without existing content', () => {
     useUIStore.getState().openContextSurface(directory, 'preview');
-    useUIStore.getState().openContextSurface(directory, 'chat');
 
     expect(useUIStore.getState().contextPanelByDirectory[directory]).toBe(undefined);
   });

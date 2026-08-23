@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   applyPiEvent,
   createReducerState,
+  hydrateSessionFromDetail,
   type PiReducerSessionState,
 } from '@/lib/pi/event-reducer';
 import type { PiSessionEvent } from '@/lib/pi/protocol';
@@ -152,6 +153,65 @@ describe('shouldReuseSuspendedRecords', () => {
       text: 'working',
     })).state;
     expect(selectStreamingAssistantMessageId(sessionOf(state))).toBeNull();
+  });
+
+  test('keeps the canonical hydrated assistant id when resumed events use a live alias', () => {
+    const directory = '/work';
+    const hydrated = hydrateSessionFromDetail({
+      session: { id: 'sess-1', directory },
+      lastSequence: 9,
+      isStreaming: true,
+      lifecycle: 'busy',
+      messages: [{
+        message: {
+          id: 'persisted-assistant',
+          sessionId: 'sess-1',
+          directory,
+          role: 'assistant',
+          text: 'before',
+          thinking: '',
+          createdAt: 1,
+          model: { providerId: 'test', modelId: 'model' },
+        },
+        parts: [{ id: 'persisted-assistant:text:0', index: 0, type: 'text', text: 'before' }],
+      }],
+    }).state;
+    const before = sessionOf(hydrated);
+
+    const afterThinkingState = applyPiEvent(hydrated, baseEvent('assistant.thinking.delta', 10, {
+      messageId: 'assistant-sess-1-8',
+      partId: 'assistant-sess-1-8:thinking:0',
+      contentIndex: 0,
+      delta: 'considering',
+    })).state;
+    const afterThinking = sessionOf(afterThinkingState);
+    expect(afterThinking.messages.get('assistant-sess-1-8')?.id).toBe('persisted-assistant');
+    expect(selectStreamingAssistantMessageId(afterThinking)).toBe('persisted-assistant');
+    expect(afterThinking.lastMutatedMessageId).toBe('persisted-assistant');
+    expect(shouldReuseSuspendedRecords(before, afterThinking, 'persisted-assistant')).toBe(true);
+
+    const afterTextState = applyPiEvent(afterThinkingState, baseEvent('assistant.message.delta', 11, {
+      messageId: 'assistant-sess-1-8',
+      partId: 'assistant-sess-1-8:text:0',
+      contentIndex: 0,
+      delta: ' after',
+    })).state;
+    const afterText = sessionOf(afterTextState);
+    expect(selectStreamingAssistantMessageId(afterText)).toBe('persisted-assistant');
+    expect(afterText.lastMutatedMessageId).toBe('persisted-assistant');
+    expect(shouldReuseSuspendedRecords(afterThinking, afterText, 'persisted-assistant')).toBe(true);
+
+    const afterToolState = applyPiEvent(afterTextState, baseEvent('session.tool.start', 12, {
+      messageId: 'assistant-sess-1-8',
+      partId: 'assistant-sess-1-8:tool:call-1',
+      toolCallId: 'call-1',
+      name: 'read',
+      state: 'running',
+    })).state;
+    const afterTool = sessionOf(afterToolState);
+    expect(selectStreamingAssistantMessageId(afterTool)).toBe('persisted-assistant');
+    expect(afterTool.lastMutatedMessageId).toBe('persisted-assistant');
+    expect(shouldReuseSuspendedRecords(afterText, afterTool, 'persisted-assistant')).toBe(true);
   });
 
   test('reuses user history across assistant token deltas', () => {

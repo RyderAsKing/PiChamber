@@ -19,7 +19,6 @@ import {
   normalizeCombo,
 } from '@/lib/shortcuts';
 import { getVisibleContextRailSurfaces } from '@/lib/surfaces/registry';
-import { readEmbeddedThemeSearchParams } from '@/contexts/theme-embedded-bootstrap';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
@@ -319,10 +318,6 @@ export const useKeyboardShortcuts = () => {
 
       if (eventMatchesShortcut(e, combo('cycle_theme'))) {
         e.preventDefault();
-        if (readEmbeddedThemeSearchParams() !== null && window.parent && window.parent !== window) {
-          window.parent.postMessage({ type: 'pichamber:cycle-theme-request' }, window.location.origin);
-          return;
-        }
         const modes: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system'];
         const activeElement = document.activeElement as HTMLElement | null;
         const currentIndex = modes.indexOf(themeModeRef.current);

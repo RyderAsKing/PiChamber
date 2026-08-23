@@ -1,6 +1,6 @@
 {
   "name": "pichamber-monorepo",
-  "version": "0.3.0",
+  "version": "0.3.3",
   "description": "PiChamber monorepo workspace for web, ui, and desktop runtimes",
   "private": true,
   "type": "module",
@@ -73,6 +73,10 @@
     "mobile:open:android": "bun run --cwd packages/mobile open:android",
     "docs:validate": "node scripts/docs/validate-docs.mjs",
     "dead-code": "bunx knip@5.80.0 --no-exit-code --include files,exports,nsExports,types,nsTypes,enumMembers,duplicates",
+    "test": "bun run --filter '*' test",
+    "test:ui": "bun run --cwd packages/ui test",
+    "test:web": "bun run --cwd packages/web test",
+    "test:electron": "bun run --cwd packages/electron test:architecture && bun run --cwd packages/electron test:updater",
     "doctor": "node scripts/react-doctor.mjs",
     "profile:browser": "node scripts/profile-browser.mjs",
     "icons:sprite": "node scripts/generate-file-type-sprite.mjs",
@@ -85,7 +89,8 @@
     "release:test:arm": "./scripts/test-release-build.sh aarch64",
     "profile:idle": "node scripts/profile-idle.mjs",
     "profile:session": "node scripts/profile-session.mjs",
-    "profile:animation": "node scripts/profile-animation.mjs"
+    "profile:animation": "node scripts/profile-animation.mjs",
+    "benchmark:stt": "node scripts/stt/benchmark.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",
@@ -122,7 +127,6 @@
     "@radix-ui/react-slot": "^1.2.3",
     "@radix-ui/react-toggle": "^1.1.10",
     "@radix-ui/react-tooltip": "^1.2.8",
-    "@xenova/transformers": "^2.17.2",
     "@zumer/snapdom": "^2.12.8",
     "bun-pty": "^0.4.5",
     "class-variance-authority": "^0.7.1",

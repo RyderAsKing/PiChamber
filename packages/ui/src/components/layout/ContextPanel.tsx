@@ -27,26 +27,16 @@ import { useIsGitRepo } from '@/stores/useGitStore';
 import { useInlineCommentDraftStore } from '@/stores/useInlineCommentDraftStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useInputStore } from '@/sync/input-store';
-import { markSessionViewed } from '@/sync/notification-store';
-import { setExternallyViewedSession, useDirectoryStore } from '@/sync/sync-context';
 import { ContextPanelContent } from './ContextSidebarTab';
 import { toast } from '@/components/ui';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { getRuntimeBearerTokenSync, getRuntimeExtraHeadersSync, refreshRuntimeUrlAuthToken } from '@/lib/runtime-auth';
+import { refreshRuntimeUrlAuthToken } from '@/lib/runtime-auth';
 import { getRuntimeUrlResolver } from '@/lib/runtime-url';
-import { getRuntimeApiBaseUrl, getRuntimeKey } from '@/lib/runtime-switch';
-import { getActiveRelayDescriptor } from '@/lib/relay/runtime-tunnel';
+import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
 import { getPreviewTargetRecoveryAction } from '@/lib/preview/proxy-response';
 import { Icon } from "@/components/icon/Icon";
 import { PiChamberLogo } from "@/components/ui/PiChamberLogo";
 import { invokeDesktopCommand } from '@/lib/desktopNative';
-import {
-  EMBEDDED_RUNTIME_BOOTSTRAP_REQUEST,
-  EMBEDDED_RUNTIME_BOOTSTRAP_RESPONSE,
-  getOrCreateEmbeddedSessionChatURL,
-  type EmbeddedSessionChatURLCacheEntry,
-  type EmbeddedSessionRuntimeBootstrap,
-} from './contextPanelEmbeddedChat';
 import { CONTEXT_SURFACE_DEFAULT_WIDTH_FRACTION } from '@/lib/surfaces/registry';
 import { isTerminalEventTarget } from '@/lib/terminalFocus';
 import {
@@ -65,8 +55,6 @@ const CONTEXT_PANEL_MAX_WIDTH = 1400;
 const CONTEXT_PANEL_DEFAULT_WIDTH = 600;
 const RESIZE_FOLLOW_INTERVAL_MS = 100;
 const CONTEXT_TAB_LABEL_MAX_CHARS = 24;
-
-const EMPTY_SESSION_TITLE_MAP = new Map<string, string>();
 
 type PreviewConsoleEvent = {
   id: number;
@@ -158,7 +146,6 @@ const getRelativePathLabel = (filePath: string | null, directory: string): strin
 };
 
 const getModeLabel = (mode: ContextPanelMode, isGitRepo: boolean | null = null): string => {
-  if (mode === 'chat') return "Chat";
   if (mode === 'file') return "Files";
   if (mode === 'diff') return "Changes";
   if (mode === 'preview') return "Preview";
@@ -188,26 +175,9 @@ const getFileNameFromPath = (path: string | null): string | null => {
 };
 
 const getTabLabel = (
-  tab: { mode: ContextPanelMode; label: string | null; targetPath: string | null; dedupeKey?: string; sessionTitleFallback?: string | null; stagedDiff?: boolean },
-  sessionTitleById: ReadonlyMap<string, string>,
+  tab: { mode: ContextPanelMode; label: string | null; targetPath: string | null; stagedDiff?: boolean },
   isGitRepo: boolean | null = null,
 ): string => {
-  if (tab.mode === 'chat') {
-    const sessionID = getSessionIDFromDedupeKey(tab.dedupeKey);
-    if (sessionID) {
-      const sessionTitle = sessionTitleById.get(sessionID)?.trim();
-      if (sessionTitle) {
-        return sessionTitle;
-      }
-    }
-
-    const sessionTitleFallback = tab.sessionTitleFallback?.trim();
-    if (sessionTitleFallback) {
-      return sessionTitleFallback;
-    }
-
-    return "Chat";
-  }
 
   if (tab.label) {
     return tab.label;
@@ -262,10 +232,6 @@ const getTabIcon = (tab: { mode: ContextPanelMode; targetPath: string | null }, 
 
   if (tab.mode === 'context') {
     return <Icon name="donut-chart-fill" className="h-3.5 w-3.5" />;
-  }
-
-  if (tab.mode === 'chat') {
-    return <Icon name="chat-4" className="h-3.5 w-3.5" />;
   }
 
   if (tab.mode === 'preview') {
@@ -399,56 +365,6 @@ const EditorTreeColumn: React.FC<{ visible: boolean }> = ({ visible }) => {
         <SidebarFilesTree />
       </div>
     </div>
-  );
-};
-
-const getSessionIDFromDedupeKey = (dedupeKey: string | undefined): string | null => {
-  if (!dedupeKey || !dedupeKey.startsWith('session:')) {
-    return null;
-  }
-
-  const sessionID = dedupeKey.slice('session:'.length).trim();
-  return sessionID || null;
-};
-
-const areTitleMapsEqual = (a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>): boolean => {
-  if (a.size !== b.size) return false;
-  for (const [key, value] of a) {
-    if (b.get(key) !== value) return false;
-  }
-  return true;
-};
-
-const buildSessionTitleMap = (sessions: Array<{ id: string; title?: string | null }>, sessionIDs: readonly string[]): Map<string, string> => {
-  if (sessionIDs.length === 0) return EMPTY_SESSION_TITLE_MAP;
-  const wanted = new Set(sessionIDs);
-  const next = new Map<string, string>();
-  for (const session of sessions) {
-    if (!wanted.has(session.id)) continue;
-    const title = session.title?.trim();
-    if (title) next.set(session.id, title);
-  }
-  return next.size === 0 ? EMPTY_SESSION_TITLE_MAP : next;
-};
-
-const useSessionTitleMap = (directory: string | undefined, sessionIDs: readonly string[]): ReadonlyMap<string, string> => {
-  const store = useDirectoryStore(directory);
-  const snapshotRef = React.useRef<ReadonlyMap<string, string>>(EMPTY_SESSION_TITLE_MAP);
-  const sessionIDsRef = React.useRef<readonly string[]>(sessionIDs);
-
-  sessionIDsRef.current = sessionIDs;
-
-  return React.useSyncExternalStore(
-    store.subscribe,
-    React.useCallback(() => {
-      const next = buildSessionTitleMap(store.getState().session, sessionIDsRef.current);
-      if (areTitleMapsEqual(snapshotRef.current, next)) {
-        return snapshotRef.current;
-      }
-      snapshotRef.current = next;
-      return next;
-    }, [store]),
-    () => EMPTY_SESSION_TITLE_MAP,
   );
 };
 
@@ -2227,8 +2143,6 @@ export const ContextPanel: React.FC = () => {
   const openContextPreview = useUIStore((state) => state.openContextPreview);
   const contextEditorTreeVisible = useUIStore((state) => state.contextEditorTreeVisible);
   const toggleContextEditorTree = useUIStore((state) => state.toggleContextEditorTree);
-  const allowPromptingSubagentSessions = useUIStore((state) => state.allowPromptingSubagentSessions);
-  const { themeMode, setThemeMode, lightThemeId, darkThemeId, currentTheme } = useThemeSystem();
 
   const tabs = React.useMemo(() => panelState?.tabs ?? [], [panelState?.tabs]);
   const activeTab = tabs.find((tab) => tab.id === panelState?.activeTabId) ?? tabs[tabs.length - 1] ?? null;
@@ -2240,16 +2154,6 @@ export const ContextPanel: React.FC = () => {
   const widthFallbackBase = availablePanelAreaWidth
     ?? (typeof window !== 'undefined' ? window.innerWidth : CONTEXT_PANEL_DEFAULT_WIDTH * 2);
   const width = clampWidth(manualWidth ?? Math.round(widthFraction * widthFallbackBase));
-  const chatSessionIDs = React.useMemo(() => {
-    const ids: string[] = [];
-    for (const tab of tabs) {
-      if (tab.mode !== 'chat') continue;
-      const sessionID = getSessionIDFromDedupeKey(tab.dedupeKey);
-      if (sessionID && !ids.includes(sessionID)) ids.push(sessionID);
-    }
-    return ids;
-  }, [tabs]);
-  const sessionTitleById = useSessionTitleMap(directoryKey || undefined, chatSessionIDs);
   const isGitRepo = useIsGitRepo(directoryKey || null);
 
   const [isResizing, setIsResizing] = React.useState(false);
@@ -2258,8 +2162,6 @@ export const ContextPanel: React.FC = () => {
   const resizingWidthRef = React.useRef<number | null>(null);
   const activeResizePointerIDRef = React.useRef<number | null>(null);
   const panelRef = React.useRef<HTMLElement | null>(null);
-  const chatFrameRefs = React.useRef<Map<string, HTMLIFrameElement>>(new Map());
-  const chatFrameSrcByTabIDRef = React.useRef<Map<string, EmbeddedSessionChatURLCacheEntry>>(new Map());
   const wasOpenRef = React.useRef(false);
 
   // Tracks the panel area width so fraction-based surface defaults stay
@@ -2293,8 +2195,8 @@ export const ContextPanel: React.FC = () => {
     return () => window.cancelAnimationFrame(frame);
   }, [isOpen]);
 
-  // Deferred resize: reflowing the chat column and the active surface (xterm,
-  // editor, embedded chat iframes) on every drag frame is unavoidably janky,
+  // Deferred resize: reflowing the chat column and the active surface on every
+  // drag frame is unavoidably janky,
   // so during the drag only a ghost guide line follows the pointer and the
   // real width is applied once on release (riding the width transition).
   const resizeAvailableWidthRef = React.useRef<number | null>(null);
@@ -2456,57 +2358,6 @@ export const ContextPanel: React.FC = () => {
 
   }, [activeTab, directoryKey, setSelectedFilePath]);
 
-  const activeChatTabID = activeTab?.mode === 'chat' ? activeTab.id : null;
-  const activeChatSessionID = activeTab?.mode === 'chat' ? getSessionIDFromDedupeKey(activeTab.dedupeKey) : null;
-
-  React.useEffect(() => {
-    if (!isOpen || !directoryKey || !activeChatSessionID || typeof window === 'undefined') {
-      return;
-    }
-
-    const markActiveChatViewed = () => {
-      if (document.visibilityState === 'hidden' || !document.hasFocus()) {
-        setExternallyViewedSession(directoryKey, activeChatSessionID, false);
-        return;
-      }
-
-      markSessionViewed(activeChatSessionID);
-      setExternallyViewedSession(directoryKey, activeChatSessionID, true);
-    };
-
-    markActiveChatViewed();
-    const interval = window.setInterval(markActiveChatViewed, 10_000);
-    window.addEventListener('focus', markActiveChatViewed);
-    window.addEventListener('blur', markActiveChatViewed);
-    document.addEventListener('visibilitychange', markActiveChatViewed);
-
-    return () => {
-      window.clearInterval(interval);
-      window.removeEventListener('focus', markActiveChatViewed);
-      window.removeEventListener('blur', markActiveChatViewed);
-      document.removeEventListener('visibilitychange', markActiveChatViewed);
-      setExternallyViewedSession(directoryKey, activeChatSessionID, false);
-    };
-  }, [activeChatSessionID, directoryKey, isOpen]);
-
-  const getEmbeddedChatSrc = React.useCallback((tabID: string, sessionID: string, readOnly: boolean): string => {
-    return getOrCreateEmbeddedSessionChatURL(chatFrameSrcByTabIDRef.current, tabID, sessionID, directoryKey || null, readOnly, {
-      mode: themeMode,
-      lightThemeId,
-      darkThemeId,
-      currentTheme,
-    });
-  }, [currentTheme, darkThemeId, directoryKey, lightThemeId, themeMode]);
-
-  React.useEffect(() => {
-    const liveTabIDs = new Set(tabs.map((tab) => tab.id));
-    for (const tabID of chatFrameSrcByTabIDRef.current.keys()) {
-      if (!liveTabIDs.has(tabID)) {
-        chatFrameSrcByTabIDRef.current.delete(tabID);
-      }
-    }
-  }, [tabs]);
-
   const handleDiffScopeChange = React.useCallback((nextScope: PendingDiffScope) => {
     if (!directoryKey || activeTab?.mode !== 'diff') {
       return;
@@ -2520,149 +2371,16 @@ export const ContextPanel: React.FC = () => {
     });
   }, [activeTab, directoryKey, openContextPanelTab]);
 
-  const postThemeSyncToEmbeddedChat = React.useCallback(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    const payload = {
-      themeMode,
-      lightThemeId,
-      darkThemeId,
-      currentTheme,
-    };
-
-    for (const frame of chatFrameRefs.current.values()) {
-      const frameWindow = frame.contentWindow;
-      if (!frameWindow) {
-        continue;
-      }
-
-      frameWindow.postMessage(
-        {
-          type: 'pichamber:theme-sync',
-          payload,
-        },
-        window.location.origin,
-      );
-    }
-  }, [currentTheme, darkThemeId, lightThemeId, themeMode]);
-
-  const postChatSettingsSyncToEmbeddedChat = React.useCallback(() => {
-    if (typeof window === 'undefined') return;
-
-    const payload = { allowPromptingSubagentSessions };
-    for (const frame of chatFrameRefs.current.values()) {
-      const frameWindow = frame.contentWindow;
-      if (!frameWindow) continue;
-
-      frameWindow.postMessage({ type: 'pichamber:chat-settings-sync', payload }, window.location.origin);
-    }
-  }, [allowPromptingSubagentSessions]);
-
-  const postEmbeddedVisibilityToChats = React.useCallback(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    for (const [tabID, frame] of chatFrameRefs.current.entries()) {
-      const frameWindow = frame.contentWindow;
-      if (!frameWindow) {
-        continue;
-      }
-
-      const payload = { visible: activeChatTabID === tabID };
-      frameWindow.postMessage(
-        {
-          type: 'pichamber:embedded-visibility',
-          payload,
-        },
-        window.location.origin,
-      );
-    }
-  }, [activeChatTabID]);
-
-  React.useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    const handleMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) {
-        return;
-      }
-
-      const isKnownChatFrame = Array.from(chatFrameRefs.current.values())
-        .some((frame) => frame.contentWindow === event.source);
-      if (!isKnownChatFrame) {
-        return;
-      }
-
-      const data = event.data as { type?: unknown; requestId?: unknown };
-      if (data?.type === EMBEDDED_RUNTIME_BOOTSTRAP_REQUEST) {
-        if (typeof data.requestId !== 'string' || !data.requestId) return;
-        const runtimeKey = getRuntimeKey();
-        const payload: EmbeddedSessionRuntimeBootstrap = {
-          apiBaseUrl: getRuntimeApiBaseUrl(),
-          clientToken: getRuntimeBearerTokenSync(),
-          localOrigin: typeof window.__PICHAMBER_LOCAL_ORIGIN__ === 'string'
-            ? window.__PICHAMBER_LOCAL_ORIGIN__
-            : '',
-          runtimeHeaders: getRuntimeExtraHeadersSync(),
-          relayHostId: runtimeKey.startsWith('host:') ? runtimeKey.slice('host:'.length) : '',
-          relay: getActiveRelayDescriptor() ?? undefined,
-        };
-        (event.source as WindowProxy | null)?.postMessage({
-          type: EMBEDDED_RUNTIME_BOOTSTRAP_RESPONSE,
-          requestId: data.requestId,
-          payload,
-        }, event.origin);
-        return;
-      }
-      if (data?.type === 'pichamber:theme-sync-request') {
-        postThemeSyncToEmbeddedChat();
-        return;
-      }
-      if (data?.type === 'pichamber:chat-settings-request') {
-        postChatSettingsSyncToEmbeddedChat();
-        return;
-      }
-      if (data?.type !== 'pichamber:cycle-theme-request') {
-        return;
-      }
-
-      const modes: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system'];
-      const currentIndex = modes.indexOf(themeMode);
-      const nextIndex = (currentIndex + 1) % modes.length;
-      setThemeMode(modes[nextIndex]);
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [postChatSettingsSyncToEmbeddedChat, postThemeSyncToEmbeddedChat, setThemeMode, themeMode]);
-
-  React.useLayoutEffect(() => {
-    const hasAnyChatTab = tabs.some((tab) => tab.mode === 'chat');
-    if (!hasAnyChatTab) {
-      return;
-    }
-
-    postThemeSyncToEmbeddedChat();
-    postChatSettingsSyncToEmbeddedChat();
-    postEmbeddedVisibilityToChats();
-  }, [darkThemeId, lightThemeId, postChatSettingsSyncToEmbeddedChat, postEmbeddedVisibilityToChats, postThemeSyncToEmbeddedChat, tabs, themeMode]);
-
-  // The rail switches between surfaces (modes); the in-panel strip only lists
-  // instances of the active multi-instance surface (open files, split chats,
-  // preview targets).
-  const isMultiInstanceMode = activeTab?.mode === 'file' || activeTab?.mode === 'chat' || activeTab?.mode === 'preview';
+  // The rail switches between surfaces. The in-panel strip lists instances of
+  // the active multi-instance surface, such as open files and preview targets.
+  const isMultiInstanceMode = activeTab?.mode === 'file' || activeTab?.mode === 'preview';
   const activeModeTabs = React.useMemo(
     () => (activeTab ? tabs.filter((tab) => tab.mode === activeTab.mode) : []),
     [activeTab, tabs],
   );
 
   const tabItems = React.useMemo(() => activeModeTabs.map((tab) => {
-    const rawLabel = getTabLabel(tab, sessionTitleById, isGitRepo);
+    const rawLabel = getTabLabel(tab, isGitRepo);
     const label = truncateTabLabel(rawLabel, CONTEXT_TAB_LABEL_MAX_CHARS);
     const tabPathLabel = getRelativePathLabel(tab.targetPath, effectiveDirectory);
     return {
@@ -2672,9 +2390,9 @@ export const ContextPanel: React.FC = () => {
       title: tabPathLabel ? `${rawLabel}: ${tabPathLabel}` : rawLabel,
       closeLabel: `Close ${label} tab`,
     };
-  }), [activeModeTabs, effectiveDirectory, isGitRepo, sessionTitleById]);
+  }), [activeModeTabs, effectiveDirectory, isGitRepo]);
 
-  const activeNonChatContent = activeTab?.mode === 'context'
+  const activeContent = activeTab?.mode === 'context'
         ? <ContextPanelContent />
         : activeTab?.mode === 'git'
             ? <React.Suspense fallback={null}><GitView isActive={isOpen} /></React.Suspense>
@@ -2690,10 +2408,6 @@ export const ContextPanel: React.FC = () => {
                   </div>
                 );
 
-  const chatTabs = React.useMemo(
-    () => tabs.filter((tab) => tab.mode === 'chat'),
-    [tabs],
-  );
   const browserTabs = React.useMemo(
     () => tabs.filter((tab) => tab.mode === 'browser'),
     [tabs],
@@ -2897,41 +2611,6 @@ export const ContextPanel: React.FC = () => {
             <EditorTreeColumn visible={contextEditorTreeVisible} />
           </div>
         ) : null}
-        {chatTabs.map((tab) => {
-          const sessionID = getSessionIDFromDedupeKey(tab.dedupeKey);
-          if (!sessionID) {
-            return null;
-          }
-
-          const src = getEmbeddedChatSrc(tab.id, sessionID, tab.readOnly);
-          if (!src) {
-            return null;
-          }
-
-          return (
-            <iframe
-              key={tab.id}
-              ref={(node) => {
-                if (!node) {
-                  chatFrameRefs.current.delete(tab.id);
-                  return;
-                }
-                chatFrameRefs.current.set(tab.id, node);
-              }}
-              src={src}
-              title={`Session chat ${sessionID}`}
-              className={cn(
-                'absolute inset-0 h-full w-full border-0 bg-background',
-                activeChatTabID === tab.id ? 'block' : 'hidden'
-              )}
-              onLoad={() => {
-                postThemeSyncToEmbeddedChat();
-                postChatSettingsSyncToEmbeddedChat();
-                postEmbeddedVisibilityToChats();
-              }}
-            />
-          );
-        })}
         {browserTabs.map((tab) => (
           <div
             key={tab.id}
@@ -2967,7 +2646,7 @@ export const ContextPanel: React.FC = () => {
             <TerminalView visible={isOpen && activeTab?.mode === 'terminal'} />
           </div>
         ) : null}
-        {isOpen && activeTab?.mode !== 'chat' && !isFileTabActive && activeTab?.mode !== 'browser' && activeTab?.mode !== 'diff' && activeTab?.mode !== 'terminal' ? activeNonChatContent : null}
+        {isOpen && !isFileTabActive && activeTab?.mode !== 'browser' && activeTab?.mode !== 'diff' && activeTab?.mode !== 'terminal' ? activeContent : null}
       </div>
       </div>
     </aside>

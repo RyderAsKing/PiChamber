@@ -42,8 +42,6 @@ describe('MainLayout mobile SessionSidebar mount (issue #1695 regression guard)'
         expect(sessionSidebarSource).toContain('useGitAllBranches(isVisible)');
         expect(sessionSidebarSource).toContain('useGitRepoStatusMap(isVisible ? normalizedProjectPaths : EMPTY_STRING_ARRAY)');
         expect(sessionSidebarSource).toContain('enabled: isVisible,\n    isSessionSearchOpen');
-        expect(sessionSidebarSource).toContain('enabled: isVisible && stickyZoneHeaders,');
-        expect(sessionSidebarSource).toContain('isDesktopShellRuntime');
         expect(sessionSidebarSource).toContain('EMPTY_STRING_ARRAY');
     });
 });

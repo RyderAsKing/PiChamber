@@ -1,8 +1,15 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import { getPiSessionStore } from '@/apps/pi-session-store';
-import { routeMessage, useSessionUIStore } from './session-ui-store';
+import {
+  draftBranchCheckoutReceiptMatches,
+  materializeOpenDraftSession,
+  routeMessage,
+  useSessionUIStore,
+} from './session-ui-store';
+import { clearAllRevertNavigations, setRevertNavigation } from './revert-navigation-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { getRuntimeKey } from '@/lib/runtime-switch';
 
 const store = getPiSessionStore();
 const originals = {
@@ -10,6 +17,8 @@ const originals = {
   prompt: store.prompt,
   setModel: store.setModel,
   setThinking: store.setThinking,
+  fork: store.fork,
+  navigate: store.navigate,
 };
 
 afterEach(() => {
@@ -17,6 +26,9 @@ afterEach(() => {
   store.prompt = originals.prompt;
   store.setModel = originals.setModel;
   store.setThinking = originals.setThinking;
+  store.fork = originals.fork;
+  store.navigate = originals.navigate;
+  clearAllRevertNavigations();
 });
 
 describe('routeMessage', () => {
@@ -74,6 +86,56 @@ describe('routeMessage', () => {
     expect(prompts).toEqual([['session-2', 'How hard will it be for us to update @PiChamber/ entirely with this kind of UI: https://github.com/zeronsh/comet', 'prompt', undefined]]);
   });
 
+  test('forkFromMessage calls the backend even when the session catalog has no row and waits for it to resolve', async () => {
+    const calls: Array<[string, string | undefined]> = [];
+    let resolveFork!: () => void;
+    store.fork = (async (sessionId: string, messageId?: string) => {
+      calls.push([sessionId, messageId]);
+      await new Promise<void>((resolve) => { resolveFork = resolve; });
+    }) as typeof store.fork;
+
+    let settled = false;
+    const pending = useSessionUIStore.getState().forkFromMessage('temporarily-absent-session', 'live-message-id');
+    void pending.then(() => { settled = true; });
+    await Promise.resolve();
+
+    expect(calls).toEqual([['temporarily-absent-session', 'live-message-id']]);
+    expect(settled).toBe(false);
+
+    resolveFork();
+    await pending;
+    expect(settled).toBe(true);
+  });
+
+  test('forkFromMessage rejects when the backend rejects', async () => {
+    const failure = new Error('Invalid entry ID for forking');
+    store.fork = (async () => { throw failure; }) as typeof store.fork;
+
+    await expect(useSessionUIStore.getState().forkFromMessage('session-1', 'live-message-id')).rejects.toThrow(failure.message);
+  });
+
+  test('restore rejects when Pi cannot navigate to the original leaf', async () => {
+    setRevertNavigation('session-1', {
+      targetEntryId: 'reverted-entry',
+      previousLeafId: 'original-leaf',
+      newLeafId: 'short-leaf',
+    }, []);
+    const failure = new Error('Restore target not found');
+    store.navigate = (async () => { throw failure; }) as typeof store.navigate;
+
+    await expect(useSessionUIStore.getState().handleSlashRedo('session-1')).rejects.toThrow(failure.message);
+  });
+
+  test('matches branch checkout receipts only to the exact runtime, directory, and branch', () => {
+    const intent = { runtimeKey: 'runtime-a', directory: '/workspace/project', branch: 'feature/a' };
+
+    expect(draftBranchCheckoutReceiptMatches(intent, { ...intent })).toBe(true);
+    expect(draftBranchCheckoutReceiptMatches(intent, { ...intent, runtimeKey: 'runtime-b' })).toBe(false);
+    expect(draftBranchCheckoutReceiptMatches(intent, { ...intent, directory: '/workspace/other' })).toBe(false);
+    expect(draftBranchCheckoutReceiptMatches(intent, { ...intent, branch: 'main' })).toBe(false);
+    expect(draftBranchCheckoutReceiptMatches(intent, null)).toBe(false);
+  });
+
   test('setNewSessionDraftTarget preserves draft open state and updates target project/directory', () => {
     useProjectsStore.setState({
       projects: [
@@ -104,5 +166,50 @@ describe('routeMessage', () => {
     expect(stateAfterTargetChange.newSessionDraft.selectedProjectId).toBe('proj-2');
     expect(stateAfterTargetChange.newSessionDraft.directoryOverride).toBe('/workspace/proj-2');
     expect(stateAfterTargetChange.currentSessionId).toBe(null);
+  });
+
+  test('refuses to materialize a draft with an unconfirmed branch intent', async () => {
+    const { openNewSessionDraft } = useSessionUIStore.getState();
+    openNewSessionDraft({
+      selectedProjectId: 'proj-1',
+      directoryOverride: '/workspace/proj-1',
+      branchIntent: {
+        runtimeKey: getRuntimeKey(),
+        directory: '/workspace/proj-1',
+        branch: 'feature/a',
+      },
+    });
+
+    await expect(materializeOpenDraftSession({
+      providerID: 'provider',
+      modelID: 'model',
+    })).rejects.toThrow('Confirm the selected branch');
+  });
+
+  test('stores a branch intent and clears it when the draft directory changes', () => {
+    const { openNewSessionDraft, setNewSessionDraftTarget } = useSessionUIStore.getState();
+    openNewSessionDraft({
+      selectedProjectId: 'proj-1',
+      directoryOverride: '/workspace/proj-1',
+    });
+
+    setNewSessionDraftTarget({
+      branchIntent: {
+        runtimeKey: getRuntimeKey(),
+        directory: '/workspace/proj-1',
+        branch: 'feature/a',
+      },
+    });
+    const draftWithBranch = useSessionUIStore.getState().newSessionDraft;
+    expect(draftWithBranch.open).toBe(true);
+    expect(draftWithBranch.branchIntent).toEqual({
+      runtimeKey: getRuntimeKey(),
+      directory: '/workspace/proj-1',
+      branch: 'feature/a',
+    });
+
+    setNewSessionDraftTarget({ directoryOverride: '/workspace/proj-2' });
+    expect(useSessionUIStore.getState().newSessionDraft.open).toBe(true);
+    expect(useSessionUIStore.getState().newSessionDraft.branchIntent).toBeNull();
   });
 });

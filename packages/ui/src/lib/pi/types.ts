@@ -245,6 +245,29 @@ export interface PiAttachmentPart extends PiPartBase {
  * are the reconnect baseline: a client connects, receives a `session.snapshot`
  * event, and resumes deltas after the snapshot's `lastSequence`.
  */
+export interface PiRetryInfo {
+  attempt?: number;
+  next?: number;
+  message?: string;
+}
+
+export type PiCompactionReason = 'manual' | 'threshold' | 'overflow';
+export type PiCompactionPhase = 'running' | 'retrying' | 'completed' | 'failed' | 'aborted';
+
+export interface PiCompactionInfo {
+  phase: PiCompactionPhase;
+  reason?: PiCompactionReason;
+  startedAt?: number;
+  completedAt?: number;
+  attempt?: number;
+  maxAttempts?: number;
+  next?: number;
+  tokensBefore?: number;
+  estimatedTokensAfter?: number;
+  willRetry?: boolean;
+  message?: string;
+}
+
 export interface PiSessionSnapshot {
   sessionId: PiSessionId;
   directory: PiDirectory;
@@ -277,6 +300,14 @@ export interface PiSessionSnapshot {
   extensionPanels?: Array<import('./protocol').PiExtensionPanelPayload>;
   /** Registered sandboxed extension app surfaces at snapshot time. */
   extensionApps?: Array<import('./protocol').PiExtensionAppPayload>;
+  /** Retry countdown/error context while `lifecycle` is `retry`. */
+  retry?: PiRetryInfo;
+  /** Latest active or completed compaction state. */
+  compaction?: PiCompactionInfo;
+  /** Server authoritative run start for an active turn. */
+  runStartedAt?: number;
+  /** Server wall clock at snapshot time. */
+  serverNow?: number;
 }
 
 export type PiSessionLifecycleState =

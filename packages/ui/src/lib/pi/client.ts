@@ -423,10 +423,11 @@ export class PiService {
 
   async compactSession(input: PiCompactInput, scope?: PiClientScope): Promise<void> {
     assertRuntimeUnchanged(scope);
-    await jsonRequest<PiCompactInput, undefined>(
+    const result = await jsonRequest<PiCompactInput, { accepted: true }>(
       `/api/pi/sessions/${encodeURIComponent(input.sessionId)}/compact`,
       { method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
     );
+    if (result.accepted !== true) throw new PiRequestError('DAEMON_PROTOCOL_MISMATCH');
   }
 
   // ----- Providers --------------------------------------------------------

@@ -157,6 +157,37 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['terminal', 'keyboard', 'esc', 'ctrl', 'arrows'],
   },
   {
+    id: 'dictation.enabled',
+    page: 'dictation',
+    title: "Enable dictation",
+    description: "Record speech and insert the final transcript at the composer caret.",
+    keywords: ['voice', 'speech', 'microphone', 'stt'],
+  },
+  {
+    id: 'dictation.provider',
+    page: 'dictation',
+    title: "Transcription provider",
+    keywords: ['local', 'remote', 'openai', 'whisper', 'parakeet'],
+  },
+  {
+    id: 'dictation.language',
+    page: 'dictation',
+    title: "Dictation language",
+    keywords: ['language', 'locale', 'auto-detect'],
+  },
+  {
+    id: 'dictation.models',
+    page: 'dictation',
+    title: "Local speech models",
+    keywords: ['download', 'delete', 'whisper', 'parakeet'],
+  },
+  {
+    id: 'dictation.remote',
+    page: 'dictation',
+    title: "OpenAI-compatible transcription",
+    keywords: ['api key', 'server url', 'audio transcriptions'],
+  },
+  {
     id: 'general.performance-overlay',
     page: 'general',
     title: "Performance overlay",
@@ -238,12 +269,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['starter', 'starters', 'new session', 'welcome', 'suggestions'],
   },
   {
-    id: 'chat.subagent-read-only-banner',
-    page: 'chat',
-    title: "Allow Prompting Subagent Sessions",
-    keywords: ['subagent', 'read only', 'prompt', 'banner'],
-  },
-  {
     id: 'chat.tool-file-icons',
     page: 'chat',
     title: "Show Tool File Icons",
@@ -303,6 +328,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'sessions',
     title: "Default Thinking",
     keywords: ['thinking', 'reasoning', 'variant', 'new sessions', 'per model'],
+  },
+  {
+    id: 'sessions.default-retry-limit',
+    page: 'sessions',
+    title: "Default retry limit",
+    description: "How many times Pi automatically retries a failed agent turn for new sessions.",
+    keywords: ['retry', 'retries', 'retry limit', 'auto retry', 'max retries', 'agent run'],
   },
   {
     id: 'sessions.thinking-defaults',

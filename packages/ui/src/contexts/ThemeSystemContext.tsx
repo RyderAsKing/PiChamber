@@ -5,7 +5,6 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { flushSync } from 'react-dom';
 import type { Theme, ThemeMode } from '@/types/theme';
 import type { DesktopSettings } from '@/lib/desktop';
 import { isDesktopLocalOriginActive, isDesktopShell as detectDesktopShell } from '@/lib/desktop';
@@ -22,14 +21,7 @@ import {
 import { withPrColors } from '@/lib/theme/themes/prColors';
 import { ThemeSystemContext, type ThemeContextValue } from './theme-system-context';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import {
-  getInitialSystemPreference,
-  publishEmbeddedThemeBootstrap,
-  readEmbeddedThemeBootstrap,
-  readEmbeddedThemeSearchParams,
-} from './theme-embedded-bootstrap';
 import { isValidTheme } from './theme-validation';
-import { getSyncedThemeFromPayload, getSyncedThemeVariant } from './theme-sync-payload';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 
 type ThemePreferences = {
@@ -38,19 +30,8 @@ type ThemePreferences = {
   darkThemeId: string;
 };
 
-type ThemeSyncPayload = {
-  themeMode?: unknown;
-  lightThemeId?: unknown;
-  darkThemeId?: unknown;
-  currentTheme?: unknown;
-};
-
 const DEFAULT_LIGHT_ID = DEFAULT_LIGHT_THEME_ID;
 const DEFAULT_DARK_ID = DEFAULT_DARK_THEME_ID;
-
-const readEmbeddedCurrentTheme = (): Theme | null => {
-  return readEmbeddedThemeBootstrap();
-};
 
 const fallbackThemeForVariant = (variant: 'light' | 'dark'): Theme =>
   getDefaultTheme(variant === 'dark');
@@ -83,10 +64,6 @@ const buildInitialPreferences = (defaultThemeId?: string): ThemePreferences => {
   let themeMode: ThemeMode = 'system';
 
   if (typeof window !== 'undefined') {
-    const embeddedParams = readEmbeddedThemeSearchParams();
-    const embeddedMode = embeddedParams?.get('themeMode');
-    const embeddedLightId = embeddedParams?.get('lightThemeId');
-    const embeddedDarkId = embeddedParams?.get('darkThemeId');
     const storedMode = localStorage.getItem('themeMode');
     const storedLightId = localStorage.getItem('lightThemeId');
     const storedDarkId = localStorage.getItem('darkThemeId');
@@ -94,9 +71,7 @@ const buildInitialPreferences = (defaultThemeId?: string): ThemePreferences => {
     const legacyThemeId = localStorage.getItem('selectedThemeId');
     const legacyVariant = localStorage.getItem('selectedThemeVariant');
 
-    if (embeddedMode === 'light' || embeddedMode === 'dark' || embeddedMode === 'system') {
-      themeMode = embeddedMode;
-    } else if (storedMode === 'light' || storedMode === 'dark' || storedMode === 'system') {
+    if (storedMode === 'light' || storedMode === 'dark' || storedMode === 'system') {
       themeMode = storedMode;
     } else if (legacyUseSystem !== null) {
       const useSystem = legacyUseSystem === 'true';
@@ -117,15 +92,11 @@ const buildInitialPreferences = (defaultThemeId?: string): ThemePreferences => {
       themeMode = legacyVariant;
     }
 
-    if (typeof embeddedLightId === 'string' && embeddedLightId.trim().length > 0) {
-      lightThemeId = embeddedLightId.trim();
-    } else if (typeof storedLightId === 'string' && storedLightId.trim().length > 0) {
+    if (typeof storedLightId === 'string' && storedLightId.trim().length > 0) {
       lightThemeId = storedLightId.trim();
     }
 
-    if (typeof embeddedDarkId === 'string' && embeddedDarkId.trim().length > 0) {
-      darkThemeId = embeddedDarkId.trim();
-    } else if (typeof storedDarkId === 'string' && storedDarkId.trim().length > 0) {
+    if (typeof storedDarkId === 'string' && storedDarkId.trim().length > 0) {
       darkThemeId = storedDarkId.trim();
     }
   }
@@ -156,21 +127,14 @@ interface ThemeSystemProviderProps {
 export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemProviderProps) {
   const cssGenerator = useMemo(() => new CSSVariableGenerator(), []);
   const [preferences, setPreferences] = useState<ThemePreferences>(() => buildInitialPreferences(defaultThemeId));
-  const [systemPrefersDark, setSystemPrefersDark] = useState<boolean>(() => getInitialSystemPreference());
+  const [systemPrefersDark, setSystemPrefersDark] = useState<boolean>(() => (
+    typeof window === 'undefined' ? true : window.matchMedia('(prefers-color-scheme: dark)').matches
+  ));
   const [customThemes, setCustomThemes] = useState<Theme[]>([]);
   const [developmentThemes, setDevelopmentThemes] = useState<Theme[]>([]);
-  const [embeddedBootstrapTheme] = useState<Theme | null>(() => readEmbeddedCurrentTheme());
-  const [embeddedSyncedTheme, setEmbeddedSyncedTheme] = useState<Theme | null>(null);
   const [customThemesLoading, setCustomThemesLoading] = useState(false);
   const isDesktopShell = useMemo(() => detectDesktopShell(), []);
   const customThemesRequestRef = useRef(0);
-  const receivesParentThemeSync = useMemo(() => {
-    if (typeof window === 'undefined') {
-      return false;
-    }
-    return readEmbeddedThemeSearchParams() !== null;
-  }, []);
-
   const availableThemes = useMemo(() => {
     const merged: Theme[] = [];
     const seen = new Set<string>();
@@ -182,14 +146,6 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
       merged.push(theme);
     };
 
-    if (embeddedSyncedTheme) {
-      add(embeddedSyncedTheme);
-    }
-
-    if (embeddedBootstrapTheme) {
-      add(embeddedBootstrapTheme);
-    }
-
     // Custom themes first so they can override built-ins with the same id.
     customThemes.forEach(add);
     // Vite publishes valid built-in JSON edits through this development-only
@@ -198,7 +154,7 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
     themes.forEach(add);
 
     return merged;
-  }, [customThemes, developmentThemes, embeddedBootstrapTheme, embeddedSyncedTheme]);
+  }, [customThemes, developmentThemes]);
 
   useEffect(() => {
     const handleThemeHmr = (event: Event) => {
@@ -339,9 +295,6 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
     }
     const restoreTransitions = suppressTransitionsForThemeSwitch();
     cssGenerator.apply(currentTheme);
-    if (!receivesParentThemeSync) {
-      publishEmbeddedThemeBootstrap(currentTheme);
-    }
     updateBrowserChrome(currentTheme);
 
     const root = document.documentElement;
@@ -356,10 +309,6 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
       return;
     }
 
-    if (receivesParentThemeSync) {
-      return;
-    }
-
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleChange = (event: MediaQueryListEvent) => {
       setSystemPrefersDark(event.matches);
@@ -368,10 +317,10 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
     setSystemPrefersDark(mediaQuery.matches);
     mediaQuery.addEventListener('change', handleChange);
     return () => mediaQuery.removeEventListener('change', handleChange);
-  }, [preferences.themeMode, receivesParentThemeSync]);
+  }, [preferences.themeMode]);
 
   useEffect(() => {
-    if (receivesParentThemeSync || typeof window === 'undefined') {
+    if (typeof window === 'undefined') {
       return;
     }
 
@@ -394,14 +343,10 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
     localStorage.setItem('splashFgLight', lightTheme.colors.surface.foreground);
     localStorage.setItem('splashBgDark', darkTheme.colors.surface.background);
     localStorage.setItem('splashFgDark', darkTheme.colors.surface.foreground);
-  }, [preferences, currentTheme, ensureThemeById, receivesParentThemeSync]);
+  }, [preferences, currentTheme, ensureThemeById]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
-      return;
-    }
-
-    if (receivesParentThemeSync) {
       return;
     }
 
@@ -445,102 +390,9 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
 
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);
-  }, [receivesParentThemeSync]);
-
-  const applyIncomingThemeSync = useCallback((payload: ThemeSyncPayload) => {
-    const mode = payload.themeMode;
-    const light = payload.lightThemeId;
-    const dark = payload.darkThemeId;
-    const syncedVariant = getSyncedThemeVariant(payload);
-    const syncedTheme = getSyncedThemeFromPayload(payload);
-
-    if ((mode !== 'light' && mode !== 'dark' && mode !== 'system') || typeof light !== 'string' || typeof dark !== 'string') {
-      return;
-    }
-
-    const normalizedLight = light.trim();
-    const normalizedDark = dark.trim();
-    if (!normalizedLight || !normalizedDark) {
-      return;
-    }
-
-    suppressTransitionsForThemeSwitch();
-    flushSync(() => {
-      if (receivesParentThemeSync && syncedTheme) {
-        setEmbeddedSyncedTheme(syncedTheme);
-      }
-
-      if (mode === 'system' && syncedVariant) {
-        setSystemPrefersDark(syncedVariant === 'dark');
-      }
-
-      setPreferences((prev) => {
-        if (prev.themeMode === mode && prev.lightThemeId === normalizedLight && prev.darkThemeId === normalizedDark) {
-          return prev;
-        }
-
-        return {
-          themeMode: mode,
-          lightThemeId: normalizedLight,
-          darkThemeId: normalizedDark,
-        };
-      });
-    });
-  }, [receivesParentThemeSync]);
+  }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    const scopedWindow = window as unknown as {
-      __pichamberApplyThemeSync?: (payload: ThemeSyncPayload) => void;
-    };
-
-    scopedWindow.__pichamberApplyThemeSync = applyIncomingThemeSync;
-
-    if (receivesParentThemeSync && window.parent !== window) {
-      window.parent.postMessage({ type: 'pichamber:theme-sync-request' }, window.location.origin);
-    }
-
-    return () => {
-      if (scopedWindow.__pichamberApplyThemeSync === applyIncomingThemeSync) {
-        delete scopedWindow.__pichamberApplyThemeSync;
-      }
-    };
-  }, [applyIncomingThemeSync, receivesParentThemeSync]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    const handleMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) {
-        return;
-      }
-
-      const data = event.data as {
-        type?: unknown;
-        payload?: ThemeSyncPayload;
-      };
-
-      if (data?.type !== 'pichamber:theme-sync' || !data.payload) {
-        return;
-      }
-
-      applyIncomingThemeSync(data.payload);
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [applyIncomingThemeSync]);
-
-  useEffect(() => {
-    if (receivesParentThemeSync) {
-      return;
-    }
-
     const lightTheme = ensureThemeById(preferences.lightThemeId, 'light');
     const darkTheme = ensureThemeById(preferences.darkThemeId, 'dark');
 
@@ -555,20 +407,20 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
       splashBgDark: darkTheme.colors.surface.background,
       splashFgDark: darkTheme.colors.surface.foreground,
     });
-  }, [currentTheme.metadata.id, currentTheme.metadata.variant, ensureThemeById, preferences.themeMode, preferences.lightThemeId, preferences.darkThemeId, receivesParentThemeSync]);
+  }, [currentTheme.metadata.id, currentTheme.metadata.variant, ensureThemeById, preferences.themeMode, preferences.lightThemeId, preferences.darkThemeId]);
 
   useEffect(() => {
-    if (receivesParentThemeSync || !isDesktopShell) {
+    if (!isDesktopShell) {
       return;
     }
 
     void (async () => {
       await setDesktopWindowTheme(preferences.themeMode, currentTheme.metadata.variant);
     })();
-  }, [currentTheme.metadata.variant, isDesktopShell, preferences.themeMode, receivesParentThemeSync]);
+  }, [currentTheme.metadata.variant, isDesktopShell, preferences.themeMode]);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || receivesParentThemeSync) {
+    if (typeof window === 'undefined') {
       return;
     }
     const handleSettingsSynced = (event: Event) => {
@@ -616,7 +468,7 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
 
     window.addEventListener('pichamber:settings-synced', handleSettingsSynced);
     return () => window.removeEventListener('pichamber:settings-synced', handleSettingsSynced);
-  }, [receivesParentThemeSync]);
+  }, []);
 
   const setTheme = useCallback(
     (themeId: string) => {
@@ -661,13 +513,11 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
       themeMode: mode,
     }));
 
-    if (!receivesParentThemeSync) {
-      void updateDesktopSettings({
-        themeVariant: mode === 'system' ? currentTheme.metadata.variant : mode,
-        useSystemTheme: mode === 'system',
-      });
-    }
-  }, [currentTheme.metadata.variant, preferences.themeMode, receivesParentThemeSync]);
+    void updateDesktopSettings({
+      themeVariant: mode === 'system' ? currentTheme.metadata.variant : mode,
+      useSystemTheme: mode === 'system',
+    });
+  }, [currentTheme.metadata.variant, preferences.themeMode]);
 
   const setSystemPreferenceHandler = useCallback(
     (use: boolean) => {

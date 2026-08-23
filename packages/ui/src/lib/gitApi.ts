@@ -484,6 +484,9 @@ async function resolveGenerationSessionContext(): Promise<SessionGenerationConte
   if (!draft?.open) {
     throw new Error('Select existing session for generation');
   }
+  if (draft.branchIntent) {
+    throw new Error('Send a message and confirm the selected branch before using Git generation.');
+  }
 
   const config = useConfigStore.getState();
   if (!config.currentProviderId || !config.currentModelId) {
@@ -693,10 +696,14 @@ export async function dropGitStash(directory: string, options: { ref: string }):
   return gitHttp.dropGitStash(directory, options);
 }
 
-export async function checkoutBranch(directory: string, branch: string): Promise<{ success: boolean; branch: string }> {
+export async function checkoutBranch(
+  directory: string,
+  branch: string,
+  options?: import('./api/types').CheckoutBranchOptions,
+): Promise<import('./api/types').CheckoutBranchResponse> {
   const runtime = getRuntimeGit();
-  if (runtime) return runtime.checkoutBranch(directory, branch);
-  return gitHttp.checkoutBranch(directory, branch);
+  if (runtime) return runtime.checkoutBranch(directory, branch, options);
+  return gitHttp.checkoutBranch(directory, branch, options);
 }
 
 export async function createBranch(

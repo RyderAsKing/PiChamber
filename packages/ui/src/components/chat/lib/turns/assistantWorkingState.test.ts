@@ -54,6 +54,16 @@ describe('assistantWorkingState', () => {
         ).toBeNull();
     });
 
+    test('keeps a retry notice working while no token stream is active', () => {
+        expect(
+            isTurnAssistantWorking({
+                messageId: 'a1',
+                activeStreamingMessageId: null,
+                isRetrying: true,
+            }),
+        ).toBe(true);
+    });
+
     test('does not keep a completed last assistant working after the live stream ends', () => {
         const lastId = 'a1';
         expect(

@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { createClientPairingRuntime } from './lib/client-auth/pairing.js';
 import { createRemoteClientAuthRuntime } from './lib/client-auth/remote-clients.js';
 import { resolvePiChamberDataDir } from './lib/pichamber-data-dir.js';
+import { createTunnelService } from './lib/server/tunnel-service.js';
 import { registerPiRuntimeRoutes } from './lib/pi/routes.js';
 import { registerWorkspaceIntegrations } from './lib/workspace/host.js';
 import { createPiSessionDaemonSupervisor } from './lib/pi/session-daemon/supervisor.js';
@@ -46,6 +47,17 @@ let activeController = null;
 let signalsAttached = false;
 
 const isEnvFlagEnabled = (value) => value === true || value === 1 || (typeof value === 'string' && ['1', 'true'].includes(value.trim().toLowerCase()));
+
+// Serve-time tunnel startup was removed with the OpenChamber migration; the
+// standalone `pichamber tunnel` command still manages cloudflared. Options
+// parsed for the removed integration must fail loudly instead of being
+// silently ignored — a user passing --tunnel expects an exposed URL.
+const IGNORED_TUNNEL_OPTION_NAMES = ['tryCfTunnel', 'tunnelProvider', 'tunnelMode', 'tunnelConfigPath', 'tunnelToken', 'tunnelHostname'];
+const warnIgnoredTunnelOptions = (options) => {
+  const ignored = IGNORED_TUNNEL_OPTION_NAMES.filter((name) => options[name] !== undefined && options[name] !== false && options[name] !== null && options[name] !== '');
+  if (ignored.length === 0) return;
+  console.warn(`[pichamber] Ignoring unsupported serve option(s): ${ignored.join(', ')}. This server does not start a tunnel; use the \`pichamber tunnel\` command to manage cloudflared.`);
+};
 
 const resolveDistPath = () => {
   const configured = typeof process.env.PICHAMBER_DIST_DIR === 'string' ? process.env.PICHAMBER_DIST_DIR.trim() : '';
@@ -91,13 +103,14 @@ export async function gracefulShutdown({ exitProcess = false } = {}) {
 }
 
 export async function startWebUiServer(options = {}) {
+  warnIgnoredTunnelOptions(options);
   const port = Number.isInteger(options.port) && options.port >= 0 ? options.port : DEFAULT_PORT;
-  const host = typeof options.host === 'string' && options.host.trim() ? options.host.trim() : (process.env.PICHAMBER_HOST || process.env.PICHAMBER_HOST || '127.0.0.1');
-  const uiPassword = typeof options.uiPassword === 'string' ? options.uiPassword : (process.env.PICHAMBER_UI_PASSWORD || process.env.PICHAMBER_UI_PASSWORD || null);
+  const host = typeof options.host === 'string' && options.host.trim() ? options.host.trim() : (process.env.PICHAMBER_HOST || '127.0.0.1');
+  const uiPassword = typeof options.uiPassword === 'string' ? options.uiPassword : (process.env.PICHAMBER_UI_PASSWORD || null);
   if (isNetworkExposedBindHost(host) && !uiPassword?.trim() && !isUnsafeUnauthenticatedLanAllowed(process.env)) {
     throw new Error(getUnauthenticatedLanErrorMessage(host));
   }
-  const apiOnly = options.apiOnly === true || isEnvFlagEnabled(process.env.PICHAMBER_API_ONLY ?? process.env.PICHAMBER_API_ONLY);
+  const apiOnly = options.apiOnly === true || isEnvFlagEnabled(process.env.PICHAMBER_API_ONLY);
   const app = express();
   const server = http.createServer(app);
   const pairingTransports = createPairingTransportResolvers({
@@ -114,8 +127,27 @@ export async function startWebUiServer(options = {}) {
   const tunnelAuthController = createTunnelAuth();
   const uiAuthController = createUiAuth({ password: uiPassword, readSettingsFromDiskMigrated: async () => ({}) , clientAuthController: remoteClientAuthRuntime });
   const piSessionDaemonRuntime = createPiSessionDaemonSupervisor({ dataDir: PICHAMBER_DATA_DIR });
+  const tunnelService = createTunnelService({
+    dataDir: PICHAMBER_DATA_DIR,
+    getPort: () => {
+      const address = server.address();
+      return typeof address === 'object' && address ? address.port : null;
+    },
+    tunnelAuthController,
+    getServerLabel: () => os.hostname() || 'PiChamber',
+  });
   let stopped = false;
 
+  // trust proxy = true is intentional for PiChamber's deployment model:
+  // - In production the server sits behind the user's reverse proxy / tunnel
+  //   (Caddy, Nginx, Cloudflare Tunnel) which terminates TLS and sets
+  //   X-Forwarded-* . Client IP rate-limiting and secure-cookie detection
+  //   (`isSecureRequest` checks X-Forwarded-Proto) depend on this.
+  // - For direct LAN access without a proxy, Express correctly ignores the
+  //   header when none is present. Changing to 'loopback' or false would break
+  //   `getClientIp` and `isSecureRequest` behind a tunnel; see
+  //   `security/bind-host.js` and `ui-auth.js` . Do not change without a
+  //   deployment-wide review.
   app.set('trust proxy', true);
   app.use((_req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); next(); });
   app.get('/robots.txt', (_req, res) => res.type('text/plain').send('User-agent: *\nDisallow: /\n'));
@@ -157,7 +189,30 @@ export async function startWebUiServer(options = {}) {
     getServerLabel: () => os.hostname() || 'PiChamber',
   });
   registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => piSessionDaemonRuntime });
-  registerWorkspaceIntegrations({ app, server, express, uiAuthController });
+  // Cloudflare Tunnel external access (manual token + quick modes).
+  const requireTunnelAuth = (req, res, next) => uiAuthController.requireAuth(req, res, next);
+  app.get('/api/pichamber/tunnel/status', requireTunnelAuth, async (_req, res) => {
+    try { res.json(await tunnelService.getStatus()); } catch (error) { res.status(500).json({ error: error?.message || 'Failed to get tunnel status' }); }
+  });
+  app.get('/api/pichamber/tunnel/check', requireTunnelAuth, async (req, res) => {
+    try { res.json(await tunnelService.check(req.query?.provider)); } catch (error) { res.status(500).json({ error: error?.message || 'Tunnel check failed' }); }
+  });
+  app.get('/api/pichamber/tunnel/providers', requireTunnelAuth, async (_req, res) => {
+    res.json({ providers: [{ provider: 'cloudflare', modes: [{ key: 'quick' }, { key: 'managed-remote' }, { key: 'managed-local' }] }] });
+  });
+  app.post('/api/pichamber/tunnel/start', express.json({ limit: '64kb' }), requireTunnelAuth, async (req, res) => {
+    try { const result = await tunnelService.start(req.body ?? {}); res.json(result); } catch (error) { const code = error?.code === 'missing_dependency' ? 400 : error?.code === 'validation_error' ? 422 : 500; res.status(code).json({ ok: false, error: error?.message || 'Failed to start tunnel', code: error?.code }); }
+  });
+  app.post('/api/pichamber/tunnel/stop', requireTunnelAuth, async (_req, res) => {
+    try { res.json(await tunnelService.stop()); } catch (error) { res.status(500).json({ error: error?.message || 'Failed to stop tunnel' }); }
+  });
+  app.put('/api/pichamber/tunnel/managed-remote-token', express.json({ limit: '64kb' }), requireTunnelAuth, async (req, res) => {
+    try { res.json(await tunnelService.saveManagedRemoteToken(req.body ?? {})); } catch (error) { const code = error?.code === 'validation_error' ? 400 : 500; res.status(code).json({ ok: false, error: error?.message || 'Failed to save token' }); }
+  });
+  app.get('/api/pichamber/tunnel/doctor', requireTunnelAuth, async (req, res) => {
+    try { const status = await tunnelService.getStatus(); const checkResult = await tunnelService.check(); res.json({ ok: true, status, check: checkResult, query: req.query }); } catch (error) { res.status(500).json({ ok: false, error: error?.message || 'Doctor failed' }); }
+  });
+  const workspaceRuntime = registerWorkspaceIntegrations({ app, server, express, uiAuthController, dataDir: PICHAMBER_DATA_DIR });
   registerStaticRoutes(app, { apiOnly });
 
   await listen(server, port, host);
@@ -183,7 +238,7 @@ export async function startWebUiServer(options = {}) {
       if (stopped) return;
       stopped = true;
       if (activeController === controller) activeController = null;
-      await Promise.allSettled([piSessionDaemonRuntime.stop(), close(server)]);
+      await Promise.allSettled([workspaceRuntime.shutdown(), piSessionDaemonRuntime.stop(), close(server)]);
       uiAuthController.dispose?.();
       if (exitProcess) process.exit(0);
     },

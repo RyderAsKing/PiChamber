@@ -1190,6 +1190,16 @@ export const createPreviewProxyRuntime = ({
   createProxyMiddleware,
   responseInterceptor,
 }) => {
+  // Preview tokens gate arbitrary loopback proxying, so compare in constant time.
+  // Length mismatch returns false without comparing (timingSafeEqual throws).
+  const tokensMatch = (provided, expected) => {
+    if (typeof provided !== 'string' || provided.length === 0) return false;
+    const a = Buffer.from(provided);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  };
+
   const targets = new Map();
   let sweepTimer = null;
 
@@ -1247,7 +1257,7 @@ export const createPreviewProxyRuntime = ({
 
     const cookies = parseCookieHeader(req.headers?.cookie);
     const token = parsed.searchParams.get(TOKEN_QUERY_PARAM) || cookies.get(TOKEN_COOKIE_NAME) || '';
-    if (!token || token !== entry.token) {
+    if (!token || !tokensMatch(token, entry.token)) {
       return { ok: false, status: 403, code: 'invalid-token', error: 'Preview token missing' };
     }
 

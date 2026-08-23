@@ -6,7 +6,6 @@ import { formatProjectLabel } from './utils';
 import { SidebarSessionLikeButton } from './sidebarRowChrome';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import type { SortableDragHandleProps } from './sortableItems';
-import { ProjectHeaderIdentity } from './sortableItems';
 import type { MainTab } from '@/stores/useUIStore';
 
 type ProjectSection = {
@@ -21,10 +20,6 @@ type ProjectSection = {
   };
   groups: SessionGroup[];
 };
-
-const TOP_FADE_MAX_SIZE = 48;
-const TOP_FADE_MIN_SIZE = 32;
-const TOP_FADE_CLEAR_MAX_SIZE = 24;
 
 const getProjectLabel = (project: ProjectSection['project'], homeDirectory: string | null): string => (
   formatProjectLabel(
@@ -72,9 +67,6 @@ type Props = {
   collapsedProjects: Set<string>;
   hideDirectoryControls: boolean;
   projectRepoStatus: Map<string, boolean | null>;
-  isDesktopShellRuntime: boolean;
-  stickyZoneHeaders: boolean;
-  stuckProjectHeaders: Set<string>;
   mobileVariant: boolean;
   alwaysShowActions: boolean;
   toggleProject: (id: string) => void;
@@ -84,7 +76,6 @@ type Props = {
   openNewSessionDraft: (options?: { selectedProjectId?: string | null; directoryOverride?: string | null }) => void;
   openProjectEditDialog: (id: string) => void;
   removeProject: (id: string) => void;
-  projectHeaderSentinelRefs: React.MutableRefObject<Map<string, HTMLDivElement | null>>;
   reorderProjects: (fromIndex: number, toIndex: number) => void;
   openSidebarMenuKey: string | null;
   setOpenSidebarMenuKey: (key: string | null) => void;
@@ -94,8 +85,6 @@ type Props = {
 function SidebarProjectsListComponent(props: Props): React.ReactNode {
   streamPerfCount('ui.sidebar_projects_list.render');
   
-  const enableStickyFade = props.isDesktopShellRuntime && props.stickyZoneHeaders;
-
   // Memoize getOrderedGroups per project so downstream consumers see a stable
   // array reference while inputs are unchanged (avoids O(P) fresh arrays per
   // list render invalidating the memoized group subtrees).
@@ -124,53 +113,6 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
   // can resolve the scrolling ancestor synchronously (no getComputedStyle
   // walk) and skip the cost of a style recalc on every render.
   const scrollContainerRef = React.useRef<HTMLElement | null>(null);
-  // Keep per-scroll measurements out of React state so the interaction guard
-  // can read the current fade boundary without rerendering the sidebar.
-  const topFadeSizeRef = React.useRef(0);
-  // Update the compositor-owned mask on every scroll, but cross the React
-  // render boundary only when the sticky identity overlay appears or hides.
-  const syncTopFade = React.useCallback((scroller: HTMLElement) => {
-    const hasTopScroll = scroller.scrollTop > 1;
-    const topFadeSize = hasTopScroll
-      ? Math.min(TOP_FADE_MIN_SIZE + scroller.scrollTop, TOP_FADE_MAX_SIZE)
-      : 0;
-    topFadeSizeRef.current = topFadeSize;
-    scroller.style.setProperty('--scroll-shadow-top-size', `${topFadeSize}px`);
-    scroller.style.setProperty(
-      '--scroll-shadow-top-clear-size',
-      `${Math.min(Math.max(topFadeSize - 8, 0), TOP_FADE_CLEAR_MAX_SIZE)}px`,
-    );
-  }, []);
-  const blockObscuredInteraction = React.useCallback((
-    event: React.MouseEvent<HTMLDivElement> | React.PointerEvent<HTMLDivElement>,
-  ) => {
-    if ((event.target as Element).closest('[data-overlay-scrollbar-thumb], [data-sidebar-sticky-header]')) return;
-    const eventY = event.clientY - event.currentTarget.getBoundingClientRect().top;
-    if (eventY >= topFadeSizeRef.current) return;
-    event.preventDefault();
-    event.stopPropagation();
-  }, []);
-  const hasProjectScroller = props.projectSections.length > 0 && props.sectionsForRender.length > 0;
-  React.useLayoutEffect(() => {
-    if (enableStickyFade && hasProjectScroller && scrollContainerRef.current) {
-      syncTopFade(scrollContainerRef.current);
-    }
-  }, [enableStickyFade, hasProjectScroller, syncTopFade]);
-  let stuckProject: ProjectSection['project'] | null = null;
-  for (const section of props.projectSections) {
-    if (props.stuckProjectHeaders.has(section.project.id)) {
-      stuckProject = section.project;
-    }
-  }
-  // The IntersectionObserver reports the stuck header asynchronously, a frame or
-  // two after the (synchronous) mask has already hidden the real header — which
-  // otherwise leaves a one-frame gap where the title blinks out with no crisp
-  // replacement. Seed the overlay with the topmost rendered project so it is
-  // ready in the same frame; the observer then corrects it. When shared sessions
-  // lead the list, the Recent fallback below owns the top instead of a project.
-  const leadingProject =
-    stuckProject ?? (props.hasSharedSessions ? null : props.sectionsForRender[0]?.project ?? null);
-  const leadingProjectLabel = leadingProject ? getProjectLabel(leadingProject, props.homeDirectory) : null;
 
   const allFolderSessions = React.useMemo(() => {
     if (!props.isAllFoldersView) return [];
@@ -245,21 +187,14 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
     // button) and holds it in place, which makes newly revealed sessions look
     // like they insert upward. With anchoring off, scrollTop stays put and new
     // rows appear below naturally.
-    <div
-      className="oc-sticky-fade-root relative flex min-h-0 flex-1"
-      onPointerDownCapture={enableStickyFade ? blockObscuredInteraction : undefined}
-      onClickCapture={enableStickyFade ? blockObscuredInteraction : undefined}
-      onContextMenuCapture={enableStickyFade ? blockObscuredInteraction : undefined}
-    >
+    <div className="relative flex min-h-0 flex-1">
     <ScrollableOverlay
       ref={scrollContainerRef}
       useScrollShadow
-      hideTopScrollShadow={!enableStickyFade}
+      hideTopScrollShadow
       scrollShadowSize={96}
       outerClassName="flex-1 min-h-0"
-      className={cn('oc-sidebar-scroller oc-sticky-fade-scroller pt-2 pb-1 [overflow-anchor:none]', props.mobileVariant && 'pb-20')}
-      style={enableStickyFade ? { '--scroll-shadow-top-size': '0px' } as React.CSSProperties : undefined}
-      onScroll={enableStickyFade ? (event) => syncTopFade(event.currentTarget) : undefined}
+      className={cn('oc-sidebar-scroller pt-2 pb-1 [overflow-anchor:none]', props.mobileVariant && 'pb-20')}
     >
       <div className="space-y-1 px-3">
       {props.topContent}
@@ -376,18 +311,6 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
       )}
       </div>
     </ScrollableOverlay>
-      {enableStickyFade && leadingProject && leadingProjectLabel ? (
-        <div
-          className="oc-sticky-fade-overlay pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center gap-1.5 py-1 px-3"
-          aria-hidden="true"
-        >
-          <ProjectHeaderIdentity
-            id={leadingProject.id}
-            projectLabel={leadingProjectLabel}
-            mobileVariant={props.mobileVariant}
-          />
-        </div>
-      ) : null}
     </div>
   );
 }

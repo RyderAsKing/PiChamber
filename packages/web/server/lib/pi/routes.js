@@ -135,6 +135,32 @@ const projectUsage = (raw) => {
   };
 };
 
+const projectRetryInfo = (value) => {
+  if (!value || typeof value !== 'object') return null;
+  return {
+    ...(Number.isSafeInteger(value.attempt) && value.attempt > 0 ? { attempt: value.attempt } : {}),
+    ...(Number.isFinite(value.next) && value.next >= 0 ? { next: value.next } : {}),
+    ...(typeof value.message === 'string' ? { message: value.message } : {}),
+  };
+};
+
+const projectCompactionInfo = (value) => {
+  if (!value || typeof value !== 'object' || !['running', 'retrying', 'completed', 'failed', 'aborted'].includes(value.phase)) return null;
+  return {
+    phase: value.phase,
+    ...(['manual', 'threshold', 'overflow'].includes(value.reason) ? { reason: value.reason } : {}),
+    ...(Number.isFinite(value.startedAt) && value.startedAt >= 0 ? { startedAt: Math.floor(value.startedAt) } : {}),
+    ...(Number.isFinite(value.completedAt) && value.completedAt >= 0 ? { completedAt: Math.floor(value.completedAt) } : {}),
+    ...(Number.isSafeInteger(value.attempt) && value.attempt > 0 ? { attempt: value.attempt } : {}),
+    ...(Number.isSafeInteger(value.maxAttempts) && value.maxAttempts > 0 ? { maxAttempts: value.maxAttempts } : {}),
+    ...(Number.isFinite(value.next) && value.next >= 0 ? { next: Math.floor(value.next) } : {}),
+    ...(Number.isFinite(value.tokensBefore) && value.tokensBefore >= 0 ? { tokensBefore: Math.floor(value.tokensBefore) } : {}),
+    ...(Number.isFinite(value.estimatedTokensAfter) && value.estimatedTokensAfter >= 0 ? { estimatedTokensAfter: Math.floor(value.estimatedTokensAfter) } : {}),
+    ...(typeof value.willRetry === 'boolean' ? { willRetry: value.willRetry } : {}),
+    ...(typeof value.message === 'string' ? { message: value.message } : {}),
+  };
+};
+
 const sanitizeNavigation = (value) => {
   if (!value || typeof value !== 'object' || typeof value.targetEntryId !== 'string' || value.targetEntryId.length === 0) return null;
   const previousLeafId = value.previousLeafId === null ? null : (typeof value.previousLeafId === 'string' ? value.previousLeafId : null);
@@ -205,12 +231,18 @@ const projectSessionDetail = (value) => {
   const lifecycle = ['idle', 'busy', 'retry', 'error', 'interrupted'].includes(value.lifecycle)
     ? value.lifecycle
     : (isStreaming ? 'busy' : 'idle');
+  const retry = lifecycle === 'retry' ? projectRetryInfo(value.retry) : null;
+  const compaction = projectCompactionInfo(value.compaction);
   return {
     session: projectSession(value.session),
     messages,
     lastSequence: value.lastSequence,
     isStreaming,
     lifecycle,
+    ...(retry ? { retry } : {}),
+    ...(compaction ? { compaction } : {}),
+    ...(Number.isFinite(value.runStartedAt) ? { runStartedAt: Math.floor(value.runStartedAt) } : {}),
+    ...(Number.isFinite(value.serverNow) ? { serverNow: Math.floor(value.serverNow) } : {}),
   };
 };
 
@@ -428,14 +460,21 @@ export const projectEventFrame = (frame) => {
       const snapshotExtensionApps = Array.isArray(snapshot.extensionApps)
         ? snapshot.extensionApps.filter((entry) => entry && typeof entry.appId === 'string' && entry.appId.length > 0 && typeof entry.html === 'string' && entry.html.length > 0).slice(0, 8).map(projectExtensionAppPayload)
         : undefined;
+      const lifecycle = ['idle', 'busy', 'retry', 'error', 'interrupted'].includes(snapshot.lifecycle) ? snapshot.lifecycle : 'idle';
+      const retry = lifecycle === 'retry' ? projectRetryInfo(snapshot.retry) : null;
+      const compaction = projectCompactionInfo(snapshot.compaction);
       return { ...common, payload: { snapshot: {
         sessionId, directory, isStreaming: snapshot.isStreaming === true,
-        lifecycle: ['idle', 'busy', 'retry', 'error', 'interrupted'].includes(snapshot.lifecycle) ? snapshot.lifecycle : 'idle',
+        lifecycle,
+        ...(retry ? { retry } : {}),
+        ...(compaction ? { compaction } : {}),
         queue: { steering: Number.isSafeInteger(snapshot.queue?.steering) ? snapshot.queue.steering : 0, followUp: Number.isSafeInteger(snapshot.queue?.followUp) ? snapshot.queue.followUp : 0 },
         ...(snapshot.model && typeof snapshot.model.providerId === 'string' && typeof snapshot.model.modelId === 'string' ? { model: { providerId: snapshot.model.providerId, modelId: snapshot.model.modelId } } : {}),
         ...(typeof snapshot.thinking === 'string' ? { thinking: snapshot.thinking } : {}),
         ...(typeof snapshot.lastText === 'string' ? { lastText: snapshot.lastText } : {}),
         ...(typeof snapshot.lastThinking === 'string' ? { lastThinking: snapshot.lastThinking } : {}),
+        ...(Number.isFinite(snapshot.runStartedAt) ? { runStartedAt: Math.floor(snapshot.runStartedAt) } : {}),
+        ...(Number.isFinite(snapshot.serverNow) ? { serverNow: Math.floor(snapshot.serverNow) } : {}),
         lastSequence: Number.isSafeInteger(snapshot.lastSequence) ? snapshot.lastSequence : frame.sequence,
         ...(snapshotExtensionStatuses ? { extensionStatuses: snapshotExtensionStatuses } : {}),
         ...(snapshotExtensionWidgets ? { extensionWidgets: snapshotExtensionWidgets } : {}),
@@ -444,7 +483,10 @@ export const projectEventFrame = (frame) => {
         ...(snapshotExtensionApps ? { extensionApps: snapshotExtensionApps } : {}),
       } } };
     }
-    case 'session.lifecycle': return { ...common, payload: { state: frame.payload.state } };
+    case 'session.lifecycle': {
+      const retry = frame.payload.state === 'retry' ? projectRetryInfo(frame.payload) : null;
+      return { ...common, payload: { state: frame.payload.state, ...(retry ?? {}), ...(Number.isFinite(frame.payload.runStartedAt) ? { runStartedAt: Math.floor(frame.payload.runStartedAt) } : {}), ...(Number.isFinite(frame.payload.serverNow) ? { serverNow: Math.floor(frame.payload.serverNow) } : {}) } };
+    }
     case 'session.updated': {
       if (typeof frame.payload.title !== 'string') return null;
       const title = frame.payload.title.trim();
@@ -461,6 +503,7 @@ export const projectEventFrame = (frame) => {
         ...(typeof frame.payload.text === 'string' ? { text: frame.payload.text } : {}),
         ...(typeof frame.payload.thinking === 'string' ? { thinking: frame.payload.thinking } : {}),
         ...(Number.isFinite(frame.payload.durationMs) ? { durationMs: frame.payload.durationMs } : {}),
+        ...(frame.payload.continuing === true ? { continuing: true } : {}),
         ...(frame.payload.error && typeof frame.payload.error.code === 'string'
           ? {
               error: {
@@ -475,7 +518,10 @@ export const projectEventFrame = (frame) => {
     case 'session.queue': return { ...common, payload: { steering: frame.payload.steering, followUp: frame.payload.followUp } };
     case 'session.model': return { ...common, payload: { model: frame.payload.model } };
     case 'session.thinking': return { ...common, payload: { thinking: frame.payload.thinking } };
-    case 'session.compaction': return { ...common, payload: { running: frame.payload.running === true } };
+    case 'session.compaction': {
+      const compaction = projectCompactionInfo(frame.payload);
+      return compaction ? { ...common, payload: compaction } : null;
+    }
     case 'session.error': return {
       ...common,
       payload: {
@@ -1187,12 +1233,22 @@ export const registerPiRuntimeRoutes = (app, {
     });
   }
 
-  for (const [suffix, command] of [['abort', 'sessions.abort'], ['model', 'sessions.setModel'], ['thinking', 'sessions.setThinking'], ['compact', 'sessions.compact']]) {
+  for (const [suffix, command] of [['abort', 'sessions.abort'], ['model', 'sessions.setModel'], ['thinking', 'sessions.setThinking']]) {
     app.post(`/api/pi/sessions/:sessionId/${suffix}`, async (req, res) => {
       const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, command, req.body && typeof req.body === 'object' ? req.body : {});
       if (result !== undefined) res.status(204).end();
     });
   }
+
+  app.post('/api/pi/sessions/:sessionId/compact', async (req, res) => {
+    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.compact', req.body && typeof req.body === 'object' ? req.body : {});
+    if (result === undefined) return;
+    if (!result || result.accepted !== true) {
+      writeDaemonError(res, protocolMismatch());
+      return;
+    }
+    res.status(202).json({ accepted: true });
+  });
 
   app.post('/api/pi/attachments', async (req, res) => {
     try {

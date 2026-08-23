@@ -925,16 +925,36 @@ export function registerGitRoutes(app) {
         return res.status(400).json({ error: 'directory parameter is required' });
       }
 
-      const { branch } = req.body;
-      if (!branch) {
+      const { branch, expectedCurrent, localOnly } = req.body;
+      if (typeof branch !== 'string' || !branch.trim()) {
         return res.status(400).json({ error: 'branch is required' });
       }
+      if (
+        Object.prototype.hasOwnProperty.call(req.body, 'expectedCurrent')
+        && expectedCurrent !== null
+        && typeof expectedCurrent !== 'string'
+      ) {
+        return res.status(400).json({ error: 'expectedCurrent must be a branch name or null' });
+      }
+      if (localOnly !== undefined && typeof localOnly !== 'boolean') {
+        return res.status(400).json({ error: 'localOnly must be a boolean' });
+      }
 
-      const result = await checkoutBranch(directory, branch);
+      const options = {
+        ...(Object.prototype.hasOwnProperty.call(req.body, 'expectedCurrent') ? { expectedCurrent } : {}),
+        ...(localOnly === true ? { localOnly: true } : {}),
+      };
+      const result = await checkoutBranch(directory, branch, options);
       res.json(result);
     } catch (error) {
       console.error('Failed to checkout branch:', error);
-      res.status(500).json({ error: error.message || 'Failed to checkout branch' });
+      res.status(error.statusCode || 500).json({
+        error: error.message || 'Failed to checkout branch',
+        ...(typeof error.code === 'string' ? { code: error.code } : {}),
+        ...(typeof error.currentBranch === 'string' || error.currentBranch === null
+          ? { currentBranch: error.currentBranch }
+          : {}),
+      });
     }
   });
 

@@ -126,6 +126,10 @@ export default defineConfig({
       '/api': {
         target: `http://127.0.0.1:${process.env.PICHAMBER_PORT || 3001}`,
         changeOrigin: true,
+        // The development proxy changes the upstream Host to the loopback API
+        // target. Rewrite WebSocket Origin to the same target so authenticated
+        // upgrade checks do not reject HMR clients running on a different port.
+        rewriteWsOrigin: true,
         ws: true,
       },
     },

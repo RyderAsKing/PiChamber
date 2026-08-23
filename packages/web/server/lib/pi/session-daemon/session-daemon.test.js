@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
+import { createMessageEntryAliases } from './message-entry-aliases.js';
 import { createSessionDaemon, isLocalSessionDaemonEndpoint } from './session-daemon.js';
 
 const credential = 'a-private-daemon-credential';
@@ -42,6 +43,7 @@ class FakeSession {
       getSessionFile: () => sessionFile,
       getHeader: () => ({ timestamp: '2026-01-01T00:00:00.000Z' }),
       getEntries: () => this.entries,
+      getEntry: (id) => this.entries.find((entry) => entry.id === id),
       getLeafId: () => 'fake-entry',
       getTree: () => [{ entry: { id: 'fake-entry', parentId: undefined, timestamp: '2026-01-01T00:00:00.000Z' }, children: [] }],
       appendSessionInfo: (name) => this.names.push(name),
@@ -313,6 +315,59 @@ describe('Pi session daemon spike', () => {
     await stale.authenticate(credential, { sessionId: 'pi-session-1', fromSequence: 0 });
     await expect(stale.next((frame) => frame.event === 'session.snapshot')).resolves.toMatchObject({ payload: { lastSequence: expect.any(Number) } });
     await stale.close();
+  });
+
+  it('keeps existing and late-joining device streams independent during one turn', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-multi-client-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession();
+    session.isStreaming = true;
+    session.messages = [{
+      role: 'assistant',
+      content: [{ type: 'text', text: 'half' }],
+      provider: 'test',
+      model: 'model',
+      timestamp: 1_000,
+    }];
+    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
+    await daemon.start();
+
+    const first = connectClient(endpoint);
+    await first.authenticate();
+    await first.request('sessions.create', { cwd: root });
+    const detail = await first.request('sessions.open', { sessionId: 'pi-session-1', cwd: root });
+    expect(detail.result).toMatchObject({
+      isStreaming: true,
+      lifecycle: 'busy',
+      lastSequence: expect.any(Number),
+      messages: [expect.objectContaining({ parts: [expect.objectContaining({ text: 'half' })] })],
+    });
+
+    const late = connectClient(endpoint);
+    await late.authenticate(credential, {
+      sessionId: 'pi-session-1',
+      fromSequence: detail.result.lastSequence,
+    });
+    const firstDelta = first.next((frame) => frame.event === 'assistant.message.delta');
+    const lateDelta = late.next((frame) => frame.event === 'assistant.message.delta');
+    session.emit({
+      type: 'message_update',
+      assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: ' plus the rest' },
+    });
+    const [firstDeltaFrame, lateDeltaFrame] = await Promise.all([firstDelta, lateDelta]);
+    expect(firstDeltaFrame.sequence).toBe(lateDeltaFrame.sequence);
+    expect(lateDeltaFrame.payload.delta).toBe(' plus the rest');
+
+    const firstIdle = first.next((frame) => frame.event === 'session.lifecycle' && frame.payload?.state === 'idle');
+    const lateIdle = late.next((frame) => frame.event === 'session.lifecycle' && frame.payload?.state === 'idle');
+    session.isStreaming = false;
+    session.emit({ type: 'agent_settled' });
+    const [firstIdleFrame, lateIdleFrame] = await Promise.all([firstIdle, lateIdle]);
+    expect(firstIdleFrame.sequence).toBe(lateIdleFrame.sequence);
+    expect(firstIdleFrame.sequence).toBeGreaterThan(firstDeltaFrame.sequence);
+
+    await late.close();
+    await first.close();
   });
 
   it('lists only validated cwd-scoped sessions without exposing Pi JSONL paths', async () => {
@@ -611,6 +666,174 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  it('resolves live message ids to Pi entry ids for navigation and forking', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-message-alias-'));
+    const endpoint = testDaemonEndpoint(root);
+    const sessionFile = join(root, 'fixture.jsonl');
+    await writeFile(sessionFile, `${JSON.stringify({ type: 'session', id: 'fixture-session', cwd: root, timestamp: '2026-01-01T00:00:00.000Z' })}\n`);
+    const session = new FakeSession('fixture-session', sessionFile);
+    const hydratedMessage = { role: 'user', timestamp: 1, content: 'm3' };
+    session.entries.push({ type: 'message', id: 'm3-entry', parentId: null, timestamp: '2026-01-01T00:00:01.000Z', message: hydratedMessage });
+    const navigated = [];
+    session.navigateTree = async (entryId) => {
+      if (!session.sessionManager.getEntry(entryId)) throw new Error(`Entry ${entryId} not found`);
+      navigated.push(entryId);
+      return { cancelled: false };
+    };
+    const forked = [];
+    const runtime = new FakeRuntime({ cwd: root, session });
+    runtime.fork = async (entryId) => {
+      if (!session.sessionManager.getEntry(entryId)) throw new Error('Invalid entry ID for forking');
+      forked.push(entryId);
+      return { cancelled: false };
+    };
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => runtime,
+      listSessions: async () => [{ path: sessionFile, id: 'fixture-session', cwd: root }],
+    });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.open', { sessionId: 'fixture-session', directory: root });
+
+    await expect(client.request('sessions.navigate', { sessionId: 'fixture-session', directory: root, messageId: 'm3-entry' })).resolves.toMatchObject({
+      result: { navigation: { targetEntryId: 'm3-entry' } },
+    });
+
+    const replacementUser = { role: 'user', timestamp: 2, content: 'm4 replacement' };
+    const userStartPromise = client.next((frame) => frame.event === 'assistant.message.start' && frame.payload?.role === 'user' && frame.payload?.text === 'm4 replacement');
+    session.emit({ type: 'message_start', message: replacementUser });
+    session.emit({ type: 'message_end', message: replacementUser });
+    session.entries.push({ type: 'message', id: 'm4-rev-entry', parentId: 'm3-entry', timestamp: '2026-01-01T00:00:02.000Z', message: replacementUser });
+    const publishedUserId = (await userStartPromise).payload.messageId;
+    await Promise.resolve();
+
+    await expect(client.request('sessions.navigate', { sessionId: 'fixture-session', directory: root, messageId: publishedUserId })).resolves.toMatchObject({
+      result: { navigation: { targetEntryId: 'm4-rev-entry' } },
+    });
+    await expect(client.request('sessions.fork', { sessionId: 'fixture-session', directory: root, messageId: publishedUserId })).resolves.toMatchObject({ result: expect.any(Object) });
+
+    // Pi agent-core shallow-copies the streaming start; message_end carries
+    // the distinct finalized object that SessionManager persists.
+    const assistantStartMessage = { role: 'assistant', timestamp: 3, provider: 'test', model: 'model', content: [] };
+    const replacementAssistant = { role: 'assistant', timestamp: 3, provider: 'test', model: 'model', content: [{ type: 'text', text: 'replacement answer' }] };
+    const assistantStartPromise = client.next((frame) => frame.event === 'assistant.message.start' && frame.payload?.role === 'assistant');
+    session.emit({ type: 'message_start', message: assistantStartMessage });
+    session.emit({ type: 'message_end', message: replacementAssistant });
+    session.entries.push({ type: 'message', id: 'm4-assistant-entry', parentId: 'm4-rev-entry', timestamp: '2026-01-01T00:00:03.000Z', message: replacementAssistant });
+    const publishedAssistantId = (await assistantStartPromise).payload.messageId;
+    await Promise.resolve();
+
+    await expect(client.request('sessions.navigate', {
+      sessionId: 'fixture-session',
+      directory: root,
+      messageId: `${publishedAssistantId}:text:0`,
+    })).resolves.toMatchObject({ result: { navigation: { targetEntryId: 'm4-assistant-entry' } } });
+    await expect(client.request('sessions.fork', {
+      sessionId: 'fixture-session',
+      directory: root,
+      messageId: `${publishedAssistantId}:text:0`,
+    })).resolves.toMatchObject({ result: expect.any(Object) });
+
+    expect(navigated).toEqual(['m3-entry', 'm4-rev-entry', 'm4-assistant-entry']);
+    expect(forked).toEqual(['m4-rev-entry', 'm4-assistant-entry']);
+    await expect(client.request('sessions.fork', {
+      sessionId: 'fixture-session',
+      directory: root,
+      messageId: 'user-fixture-session-unknown',
+    })).rejects.toThrow('Daemon connection closed');
+
+    const navigationClient = connectClient(endpoint);
+    await navigationClient.authenticate();
+    await expect(navigationClient.request('sessions.navigate', {
+      sessionId: 'fixture-session',
+      directory: root,
+      messageId: 'user-fixture-session-unknown',
+    })).rejects.toThrow('Daemon connection closed');
+  });
+
+  it('keeps live message aliases across idle disposal and runtime reopening', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-message-alias-idle-'));
+    const endpoint = testDaemonEndpoint(root);
+    const sessionFile = join(root, 'fixture.jsonl');
+    await writeFile(sessionFile, `${JSON.stringify({ type: 'session', id: 'fixture-session', cwd: root, timestamp: '2026-01-01T00:00:00.000Z' })}\n`);
+    const liveMessage = { role: 'user', timestamp: 1, content: 'persist me' };
+    const persistedEntry = { type: 'message', id: 'persisted-entry', parentId: null, timestamp: '2026-01-01T00:00:01.000Z', message: liveMessage };
+    const firstSession = new FakeSession('fixture-session', sessionFile);
+    const firstRuntime = new FakeRuntime({ cwd: root, session: firstSession });
+    const reopenedSession = new FakeSession('fixture-session', sessionFile);
+    reopenedSession.entries.push({ ...persistedEntry, message: { ...liveMessage } });
+    reopenedSession.navigateTree = async (entryId) => {
+      if (!reopenedSession.sessionManager.getEntry(entryId)) throw new Error(`Entry ${entryId} not found`);
+      reopenedSession.navigatedTo = entryId;
+      return { cancelled: false };
+    };
+    const reopenedRuntime = new FakeRuntime({ cwd: root, session: reopenedSession });
+    let runtimeCount = 0;
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      idleTimeoutMs: 10,
+      listSessions: async () => [{ path: sessionFile, id: 'fixture-session', cwd: root }],
+      createRuntime: async () => (++runtimeCount === 1 ? firstRuntime : reopenedRuntime),
+    });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.open', { sessionId: 'fixture-session', directory: root });
+    const userStartPromise = client.next((frame) => frame.event === 'assistant.message.start' && frame.payload?.role === 'user');
+    firstSession.emit({ type: 'message_start', message: liveMessage });
+    firstSession.emit({ type: 'message_end', message: liveMessage });
+    firstSession.entries.push(persistedEntry);
+    const publishedId = (await userStartPromise).payload.messageId;
+    await Promise.resolve();
+    firstSession.emit({ type: 'agent_settled' });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(firstRuntime.disposed).toBe(true);
+
+    await expect(client.request('sessions.navigate', {
+      sessionId: 'fixture-session',
+      directory: root,
+      messageId: publishedId,
+    })).resolves.toMatchObject({ result: { navigation: { targetEntryId: 'persisted-entry' } } });
+    expect(reopenedSession.navigatedTo).toBe('persisted-entry');
+    await client.close();
+  });
+
+  it('scopes live message aliases by directory and session id', () => {
+    const aliases = createMessageEntryAliases({ scheduleMicrotask: (callback) => callback() });
+    const messageA = { role: 'user', content: 'same' };
+    const messageB = { role: 'user', content: 'same' };
+    const managerA = {
+      getEntry: () => undefined,
+      getEntries: () => [{ type: 'message', id: 'entry-a', message: messageA }],
+    };
+    const managerB = {
+      getEntry: () => undefined,
+      getEntries: () => [{ type: 'message', id: 'entry-b', message: messageB }],
+    };
+    aliases.retain({ cwd: '/project-a', sessionId: 'same-session', syntheticMessageId: 'user-same-session-1', message: messageA });
+    aliases.retain({ cwd: '/project-b', sessionId: 'same-session', syntheticMessageId: 'user-same-session-1', message: messageB });
+    aliases.observeMessageEnd({ cwd: '/project-a', sessionId: 'same-session', syntheticMessageId: 'user-same-session-1', message: messageA, sessionManager: managerA });
+    aliases.observeMessageEnd({ cwd: '/project-b', sessionId: 'same-session', syntheticMessageId: 'user-same-session-1', message: messageB, sessionManager: managerB });
+
+    expect(aliases.resolve({ cwd: '/project-a', sessionId: 'same-session', requestedId: 'user-same-session-1', sessionManager: managerA })).toBe('entry-a');
+    expect(aliases.resolve({ cwd: '/project-b', sessionId: 'same-session', requestedId: 'user-same-session-1:text:0', sessionManager: managerB })).toBe('entry-b');
+    expect(aliases.resolve({ cwd: '/project-a', sessionId: 'same-session', requestedId: 'user-same-session-unknown', sessionManager: managerA })).toBe('user-same-session-unknown');
+
+    aliases.clearSession({ cwd: '/project-a', sessionId: 'same-session' });
+    expect(aliases.resolve({ cwd: '/project-a', sessionId: 'same-session', requestedId: 'user-same-session-1', sessionManager: managerA })).toBe('user-same-session-1');
+    expect(aliases.resolve({ cwd: '/project-b', sessionId: 'same-session', requestedId: 'user-same-session-1', sessionManager: managerB })).toBe('entry-b');
+    aliases.clear();
+    expect(aliases.resolve({ cwd: '/project-b', sessionId: 'same-session', requestedId: 'user-same-session-1:text:0', sessionManager: managerB })).toBe('user-same-session-1');
+  });
+
   it('disposes an idle runtime without deleting its Pi JSONL and restores it on demand', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = testDaemonEndpoint(root);
@@ -773,7 +996,7 @@ describe('Pi session daemon spike', () => {
     const thinkingEvent = client.next((frame) => frame.event === 'session.thinking');
     await expect(client.request('sessions.setThinking', { sessionId: 'pi-session-forked', thinking: 'minimal' })).resolves.toMatchObject({ result: {} });
     await expect(thinkingEvent).resolves.toMatchObject({ payload: { thinking: 'minimal' } });
-    await expect(client.request('sessions.compact', { sessionId: 'pi-session-forked', thinking: 'medium' })).resolves.toMatchObject({ result: {} });
+    await expect(client.request('sessions.compact', { sessionId: 'pi-session-forked', thinking: 'medium' })).resolves.toMatchObject({ result: { accepted: true } });
     expect(runtime.session.compacted).toBe(1);
     await expect(client.request('sessions.prompt', { sessionId: 'pi-session-forked', text: 'prompt' })).resolves.toMatchObject({ result: { accepted: true, messageId: 'fake-entry' } });
     expect(runtime.session.sent).toEqual([{ text: 'prompt', options: undefined }]);
@@ -792,6 +1015,81 @@ describe('Pi session daemon spike', () => {
     await expect(client.request('sessions.delete', { sessionId: 'pi-session-forked' })).resolves.toMatchObject({ result: {} });
     await client.close();
   });
+
+  it('projects large tool payloads without blocking attachment redaction', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-large-payload-'));
+    const endpoint = testDaemonEndpoint(root);
+    const persistedSessionFile = join(root, 'persisted.jsonl');
+    await writeFile(persistedSessionFile, `{"type":"session","id":"pi-session-large","cwd":"${root}"}\n`);
+    const session = new FakeSession('pi-session-large', persistedSessionFile);
+    const largeEncodedValue = 'A'.repeat(80_000);
+    session.entries = [{
+      type: 'message',
+      id: 'assistant-large-tool',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      message: {
+        role: 'assistant',
+        provider: 'test',
+        model: 'model',
+        content: [{ type: 'toolCall', id: 'large-tool', name: 'read', arguments: { encoded: largeEncodedValue } }],
+      },
+    }, {
+      type: 'message',
+      id: 'large-tool-result',
+      timestamp: '2026-01-01T00:00:03.000Z',
+      message: {
+        role: 'toolResult',
+        toolCallId: 'large-tool',
+        toolName: 'read',
+        content: [{ type: 'text', text: largeEncodedValue }],
+        details: {
+          encoded: largeEncodedValue,
+          windowsPath: 'C:\\Temp\\pi-clipboard-7f7ec702-256a-4783-855c-df34e3ecedab.png',
+          bracketed: '[Attachment report.png is available at /tmp/pi-clipboard-7f7ec702-256a-4783-855c-df34e3ecedab.png]',
+          punctuated: 'before,/tmp/pi-clipboard-7f7ec702-256a-4783-855c-df34e3ecedab.png;after',
+          unicodePrefix: 'İ /tmp/pi-clipboard-7f7ec702-256a-4783-855c-df34e3ecedab.png',
+        },
+        isError: false,
+      },
+    }];
+    const runtime = new FakeRuntime({ cwd: root, session });
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => runtime,
+      listSessions: async () => [{
+        path: persistedSessionFile,
+        id: 'pi-session-large',
+        cwd: root,
+        created: new Date('2026-01-01T00:00:00.000Z'),
+        modified: new Date('2026-01-01T00:00:01.000Z'),
+        messageCount: 2,
+      }],
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+
+    const startedAt = performance.now();
+    const opened = await client.request('sessions.open', { sessionId: 'pi-session-large', directory: root });
+    const elapsedMs = performance.now() - startedAt;
+
+    expect(elapsedMs).toBeLessThan(900);
+    expect(opened.result.messages[0].parts[0]).toMatchObject({
+      input: { encoded: largeEncodedValue },
+      output: largeEncodedValue,
+      metadata: {
+        encoded: largeEncodedValue,
+        windowsPath: '[attachment]',
+        bracketed: '[attachment]',
+        punctuated: 'before,[attachment];after',
+        unicodePrefix: 'İ [attachment]',
+      },
+    });
+    expect(JSON.stringify(opened.result)).not.toContain('pi-clipboard-');
+    await client.close();
+  }, 2_000);
 
   it('keeps Pi global/project defaults and trust decisions authoritative', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-settings-'));
@@ -824,14 +1122,16 @@ describe('Pi session daemon spike', () => {
     const agentDir = join(root, 'agent');
     const endpoint = testDaemonEndpoint(root);
     await Promise.all([mkdir(cwd), mkdir(agentDir)]);
+    const skillPath = join(agentDir, 'skills', 'directory-name', 'SKILL.md');
     const loader = {
-      getSkills: () => ({ skills: [{ name: 'review', description: 'Review changes', filePath: join(agentDir, 'skills', 'review', 'SKILL.md'), sourceInfo: { scope: 'user', origin: 'top-level' } }] }),
+      getSkills: () => ({ skills: [{ name: 'review', description: 'Review changes', filePath: skillPath, sourceInfo: { scope: 'user', origin: 'top-level' } }] }),
       getPrompts: () => ({ prompts: [] }),
       getAgentsFiles: () => ({ agentsFiles: [] }),
     };
+    const session = new FakeSession();
     daemon = createSessionDaemon({
       endpoint, credential, cwd, agentDir,
-      createRuntime: async () => ({ session: new FakeSession(), services: { resourceLoader: loader }, async dispose() {} }),
+      createRuntime: async () => ({ cwd, session, services: { resourceLoader: loader }, async dispose() {} }),
     });
     await daemon.start();
     const client = connectClient(endpoint);
@@ -841,6 +1141,48 @@ describe('Pi session daemon spike', () => {
     const globalAgents = listed.result.agents.find((resource) => resource.location === 'global');
     expect(globalAgents).toMatchObject({ kind: 'agents', name: 'AGENTS.md', editable: true });
     expect(JSON.stringify(listed.result)).not.toContain(agentDir);
+
+    const skillToolStart = client.next((frame) => frame.event === 'session.tool.start' && frame.payload?.toolCallId === 'skill-read');
+    session.emit({ type: 'tool_execution_start', toolCallId: 'skill-read', toolName: 'read', args: { path: skillPath } });
+    await expect(skillToolStart).resolves.toMatchObject({
+      payload: { metadata: { pichamber: { skill: { name: 'review' } } } },
+    });
+    const skillToolEnd = client.next((frame) => frame.event === 'session.tool.end' && frame.payload?.toolCallId === 'skill-read');
+    session.emit({
+      type: 'tool_execution_end', toolCallId: 'skill-read', toolName: 'read',
+      result: { content: [{ type: 'text', text: 'skill content' }], details: { truncation: { truncated: false } } },
+      isError: false,
+    });
+    await expect(skillToolEnd).resolves.toMatchObject({
+      payload: {
+        metadata: {
+          truncation: { truncated: false },
+          pichamber: { skill: { name: 'review' } },
+        },
+      },
+    });
+
+    session.entries = [{
+      type: 'message',
+      id: 'assistant-skill-read',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      message: {
+        role: 'assistant', provider: 'test', model: 'model',
+        content: [{ type: 'toolCall', id: 'persisted-skill-read', name: 'read', arguments: { path: skillPath } }],
+      },
+    }, {
+      type: 'message',
+      id: 'skill-read-result',
+      timestamp: '2026-01-01T00:00:03.000Z',
+      message: {
+        role: 'toolResult', toolCallId: 'persisted-skill-read', toolName: 'read',
+        content: [{ type: 'text', text: 'skill content' }], isError: false,
+      },
+    }];
+    await expect(client.request('sessions.open', { sessionId: session.sessionId, directory: cwd })).resolves.toMatchObject({
+      result: { messages: [{ parts: [expect.objectContaining({ metadata: { pichamber: { skill: { name: 'review' } } } })] }] },
+    });
+
     await expect(client.request('resources.update', { resourceId: globalAgents.id, content: '# Global instructions\n' })).resolves.toMatchObject({ result: { agents: expect.any(Array) } });
     await expect(readFile(join(agentDir, 'AGENTS.md'), 'utf8')).resolves.toBe('# Global instructions\n');
     await client.close();
@@ -900,6 +1242,82 @@ describe('Pi session daemon spike', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(session.lastOAuthCode).toBe('manual-code');
     await expect(client.request('providers.logout', { providerId: 'test' })).resolves.toMatchObject({ result: { authenticated: false } });
+    await client.close();
+  });
+
+  it('acknowledges manual compaction before summarization completes and publishes its outcome', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-compact-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession('pi-session-compact');
+    let finishCompaction;
+    session.compact = async (customInstructions) => {
+      session.compacted += 1;
+      session.compactionInstructions = customInstructions;
+      session.emit({ type: 'compaction_start', reason: 'manual' });
+      await new Promise((resolve) => { finishCompaction = resolve; });
+      session.emit({
+        type: 'compaction_end',
+        reason: 'manual',
+        result: { tokensBefore: 120_000, estimatedTokensAfter: 24_000 },
+        aborted: false,
+        willRetry: false,
+      });
+    };
+    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
+
+    const started = client.next((frame) => frame.event === 'session.compaction' && frame.payload.phase === 'running');
+    const completed = client.next((frame) => frame.event === 'session.compaction' && frame.payload.phase === 'completed');
+    await expect(client.request('sessions.compact', {
+      sessionId: 'pi-session-compact',
+      customInstructions: 'Keep the unresolved test failures',
+    })).resolves.toMatchObject({ result: { accepted: true } });
+    expect(session.compacted).toBe(1);
+    expect(session.compactionInstructions).toBe('Keep the unresolved test failures');
+    await expect(started).resolves.toMatchObject({ payload: { phase: 'running', reason: 'manual' } });
+
+    const observer = connectClient(endpoint);
+    const snapshot = await observer.authenticate();
+    expect(snapshot.payload.compaction).toMatchObject({ phase: 'running', reason: 'manual' });
+    await observer.close();
+
+    const retrying = client.next((frame) => frame.event === 'session.compaction' && frame.payload.phase === 'retrying');
+    session.emit({ type: 'summarization_retry_scheduled', attempt: 1, maxAttempts: 3, delayMs: 2_000, errorMessage: 'temporary provider failure' });
+    await expect(retrying).resolves.toMatchObject({
+      payload: { phase: 'retrying', attempt: 1, maxAttempts: 3, message: 'temporary provider failure' },
+    });
+
+    finishCompaction();
+    await expect(completed).resolves.toMatchObject({
+      payload: {
+        phase: 'completed',
+        reason: 'manual',
+        tokensBefore: 120_000,
+        estimatedTokensAfter: 24_000,
+      },
+    });
+    await client.close();
+  });
+
+  it('publishes a terminal compaction failure when the SDK rejects without an end event', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-compact-failure-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession('pi-session-compact-failure');
+    session.compact = async () => { throw new Error('summary provider unavailable'); };
+    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
+
+    const failed = client.next((frame) => frame.event === 'session.compaction' && frame.payload.phase === 'failed');
+    await expect(client.request('sessions.compact', { sessionId: session.sessionId })).resolves.toMatchObject({ result: { accepted: true } });
+    await expect(failed).resolves.toMatchObject({
+      payload: { phase: 'failed', reason: 'manual', message: 'summary provider unavailable', willRetry: false },
+    });
     await client.close();
   });
 
@@ -971,7 +1389,7 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
-  it('keeps retryable provider failures in retry lifecycle until Pi exhausts retry', async () => {
+  it('keeps retry attempts attached to the original user turn until Pi settles', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-retry-'));
     const endpoint = testDaemonEndpoint(root);
     const session = new FakeSession('pi-session-retry');
@@ -981,6 +1399,15 @@ describe('Pi session daemon spike', () => {
     await client.authenticate();
     await client.request('sessions.create', { cwd: root });
 
+    const userStartPromise = client.next((frame) => frame.event === 'assistant.message.start' && frame.payload?.role === 'user');
+    session.emit({ type: 'message_start', message: { role: 'user', content: 'recover this turn', timestamp: 1_000 } });
+    const userStart = await userStartPromise;
+
+    const failedStartPromise = client.next((frame) => frame.event === 'assistant.message.start' && frame.payload?.role === 'assistant');
+    session.emit({ type: 'message_start', message: { role: 'assistant', content: [], timestamp: 1_100 } });
+    const failedStart = await failedStartPromise;
+    session.emit({ type: 'message_end', message: { role: 'assistant', content: [], stopReason: 'error', errorMessage: 'Rate limit exceeded' } });
+
     const retryLifecycle = client.next((frame) => frame.event === 'session.lifecycle' && frame.payload.state === 'retry');
     const prematureError = client.next((frame) => frame.event === 'session.error');
     session.emit({ type: 'agent_end', willRetry: true, messages: [{ role: 'assistant', stopReason: 'error', errorMessage: 'Rate limit exceeded' }] });
@@ -989,11 +1416,35 @@ describe('Pi session daemon spike', () => {
     await expect(retryLifecycle).resolves.toMatchObject({
       payload: { state: 'retry', attempt: 1, message: 'Rate limit exceeded' },
     });
+
+    const retryObserver = connectClient(endpoint);
+    const retrySnapshot = await retryObserver.authenticate();
+    expect(retrySnapshot.payload).toMatchObject({
+      lifecycle: 'retry',
+      retry: { attempt: 1, message: 'Rate limit exceeded' },
+    });
+
+    session.emit({ type: 'agent_start' });
+    const recoveredStartPromise = client.next((frame) => frame.event === 'assistant.message.start'
+      && frame.payload?.role === 'assistant'
+      && frame.payload.messageId !== failedStart.payload.messageId);
+    session.emit({ type: 'message_start', message: { role: 'assistant', content: [], timestamp: 1_200 } });
+    const recoveredStart = await recoveredStartPromise;
+    const recoveredDeltaPromise = client.next((frame) => frame.event === 'assistant.message.delta'
+      && frame.payload?.messageId === recoveredStart.payload.messageId);
+    session.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'Recovered' } });
+
+    await expect(recoveredDeltaPromise).resolves.toMatchObject({ payload: { delta: 'Recovered' } });
+    expect(failedStart.payload.parentId).toBe(userStart.payload.messageId);
+    expect(recoveredStart.payload.parentId).toBe(userStart.payload.messageId);
     await expect(prematureError).rejects.toThrow(/Timed out/);
+
+    session.emit({ type: 'agent_settled' });
+    await retryObserver.close();
     await client.close();
   });
 
-  it('preserves assistant messageId for tool executions occurring after message_end', async () => {
+  it('keeps ordinary tool errors live and resumes the next assistant in the same user turn', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = testDaemonEndpoint(root);
     const session = new FakeSession('pi-session-tool-seq');
@@ -1003,16 +1454,28 @@ describe('Pi session daemon spike', () => {
     await client.authenticate();
     await client.request('sessions.create', { cwd: root });
 
-    const messageStartPromise = client.next((frame) => frame.event === 'assistant.message.start');
+    const userStartPromise = client.next((frame) => frame.event === 'assistant.message.start' && frame.payload?.role === 'user');
+    const messageStartPromise = client.next((frame) => frame.event === 'assistant.message.start' && frame.payload?.role === 'assistant');
     const messageEndPromise = client.next((frame) => frame.event === 'assistant.message.end');
     const toolStartPromise = client.next((frame) => frame.event === 'session.tool.start');
     const toolEndPromise = client.next((frame) => frame.event === 'session.tool.end');
 
+    session.emit({ type: 'message_start', message: { role: 'user', content: 'run the command', timestamp: 0 } });
     session.emit({ type: 'message_start', message: { role: 'assistant', timestamp: 1 } });
-    session.emit({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'Calling tool' }] } });
+    session.emit({
+      type: 'message_end',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Calling tool' },
+          { type: 'toolCall', id: 'tool-call-1', name: 'bash', arguments: { command: 'echo hi' } },
+        ],
+      },
+    });
     session.emit({ type: 'tool_execution_start', toolCallId: 'tool-call-1', toolName: 'bash', args: { command: 'echo hi' } });
-    session.emit({ type: 'tool_execution_end', toolCallId: 'tool-call-1', toolName: 'bash', result: { content: [{ type: 'text', text: 'hi' }] }, isError: false });
+    session.emit({ type: 'tool_execution_end', toolCallId: 'tool-call-1', toolName: 'bash', result: { content: [{ type: 'text', text: 'command failed' }] }, isError: true });
 
+    const userStart = await userStartPromise;
     const messageStart = await messageStartPromise;
     const messageEnd = await messageEndPromise;
     const toolStart = await toolStartPromise;
@@ -1020,11 +1483,26 @@ describe('Pi session daemon spike', () => {
 
     expect(messageStart.payload.messageId).toMatch(/^assistant-pi-session-tool-seq-\d+$/);
     expect(messageEnd.payload.messageId).toBe(messageStart.payload.messageId);
+    expect(messageEnd.payload.continuing).toBe(true);
     expect(toolStart.payload.messageId).toBe(messageStart.payload.messageId);
     expect(toolStart.payload.partId).toBe(`${messageStart.payload.messageId}:tool:tool-call-1`);
     expect(toolEnd.payload.messageId).toBe(messageStart.payload.messageId);
     expect(toolEnd.payload.partId).toBe(`${messageStart.payload.messageId}:tool:tool-call-1`);
+    expect(toolEnd.payload).toMatchObject({ state: 'error', isError: true, error: 'command failed' });
 
+    const recoveredStartPromise = client.next((frame) => frame.event === 'assistant.message.start'
+      && frame.payload?.role === 'assistant'
+      && frame.payload.messageId !== messageStart.payload.messageId);
+    session.emit({ type: 'message_start', message: { role: 'assistant', timestamp: 2 } });
+    const recoveredStart = await recoveredStartPromise;
+    const recoveredDeltaPromise = client.next((frame) => frame.event === 'assistant.message.delta'
+      && frame.payload?.messageId === recoveredStart.payload.messageId);
+    session.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'Recovered from tool failure' } });
+
+    await expect(recoveredDeltaPromise).resolves.toMatchObject({ payload: { delta: 'Recovered from tool failure' } });
+    expect(messageStart.payload.parentId).toBe(userStart.payload.messageId);
+    expect(recoveredStart.payload.parentId).toBe(userStart.payload.messageId);
+    session.emit({ type: 'agent_settled' });
     await client.close();
   });
 

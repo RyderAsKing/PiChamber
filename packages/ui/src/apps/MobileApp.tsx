@@ -278,18 +278,27 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     return () => root.classList.remove('oc-keep-draft-starters');
   }, [hasHardwareKeyboard, isTabletLayout, isPortrait]);
 
+  const closeAllDrawers = React.useCallback(() => {
+    setSessionsSheetOpenSafely(false);
+    setWorkspaceOpenSafely(false);
+  }, [setSessionsSheetOpenSafely, setWorkspaceOpenSafely]);
+
   const mobileActions = React.useMemo<MobileAppActions>(
     () => ({
       openChanges: ({ diffPath, staged } = {}) => {
         openChangesSurface(diffPath ? { path: diffPath, staged: staged === true } : null);
       },
       openFiles: () => openFilesSurface(),
-      openSettings: () => openSettingsSurface('nav'),
+      openSettings: (section?: string) => {
+        if (section) setSettingsPage(section as Parameters<typeof setSettingsPage>[0]);
+        openSettingsSurface(section ? 'page-content' : 'nav');
+      },
       openInstances: showCapacitorOnlyFeatures ? () => openSurface('instances') : undefined,
       instanceLabel: showCapacitorOnlyFeatures ? getAutoConnectTargetLabel() : null,
       openUpdate: showUpdateItem ? () => openSurface('update') : undefined,
+      closeDrawers: closeAllDrawers,
     }),
-    [openChangesSurface, openFilesSurface, openSettingsSurface, openSurface, showCapacitorOnlyFeatures, showUpdateItem],
+    [closeAllDrawers, openChangesSurface, openFilesSurface, openSettingsSurface, openSurface, setSettingsPage, showCapacitorOnlyFeatures, showUpdateItem],
   );
 
   // Expose the shell's panel-opening actions to the deep-link layer so pichamber:// URLs

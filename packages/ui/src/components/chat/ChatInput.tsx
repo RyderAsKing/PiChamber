@@ -56,7 +56,6 @@ import { GitHubPrPickerDialog } from '@/components/session/GitHubPrPickerDialog'
 import { Icon } from "@/components/icon/Icon";
 import { DraftPresetChips } from './DraftPresetChips';
 import { useChatSearchDirectory } from '@/hooks/useChatSearchDirectory';
-import { piClient } from '@/lib/pi/client';
 import { useGitStore, useIsGitRepo } from '@/stores/useGitStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { invalidateSkillsLoadCache, useSkillsStore } from '@/stores/useSkillsStore';
@@ -113,6 +112,7 @@ import { useAutocompletePosition } from './composer/state/useAutocompletePositio
 import { useMessageHistory } from './composer/state/useMessageHistory';
 import { useComposerDraft } from './composer/state/useComposerDraft';
 import { useDraftTarget } from './composer/state/useDraftTarget';
+import { useDraftBranchCheckout } from './composer/state/useDraftBranchCheckout';
 import { useMobileComposerShell } from './composer/state/useMobileComposerShell';
 import { useMobileViewportPin } from './composer/state/useMobileViewportPin';
 import {
@@ -120,12 +120,16 @@ import {
     MobileDraftTargetSheets,
     MobileDraftTargetTriggers,
 } from './composer/ui/DraftTargetSelectors';
+import { DraftBranchCheckoutDialog } from './composer/ui/DraftBranchCheckoutDialog';
 import { ComposerAutocompletePopups } from './composer/ui/ComposerAutocompletePopups';
 import { ComposerFooter } from './composer/ui/ComposerFooter';
 import { MobilePillComposer } from './composer/ui/MobilePillComposer';
 import { ComposerContextChips } from './composer/ui/ComposerContextChips';
 import { LinkedReferenceRow } from './composer/ui/LinkedReferenceRow';
 import { RevertedMessageDock } from './composer/ui/RevertedMessageDock';
+import { ComposerVoiceButton } from './composer/ui/ComposerVoiceButton';
+import { ComposerVoiceActions, ComposerVoiceInput } from './composer/ui/ComposerVoiceInput';
+import { useComposerDictation } from '@/lib/dictation/use-composer-dictation';
 
 // Lazy like in ChatMessage: a static import would pull the @pierre/diffs and
 // Shiki stacks into the eager startup graph for a dialog opened on demand.
@@ -150,6 +154,15 @@ const MOBILE_COMPOSER_BOUND_GAP_PX = 4;
 const EMPTY_QUEUE: QueuedMessage[] = [];
 const EMPTY_SENDING_IDS: string[] = [];
 const COMPACT_CHAT_PLACEHOLDER_MAX_WIDTH = 560;
+
+type SubmitOptions = {
+    queuedOnly?: boolean;
+    queuedMessageId?: string;
+    delivery?: 'steer';
+    /** Submit this text instead of the composer input. */
+    presetText?: string;
+};
+
 const renameFileForAttachmentCitation = (file: File, filename: string): File => {
     if (file.name === filename) {
         return file;
@@ -318,7 +331,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     );
     const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
     const newSessionDraftOpen = Boolean(newSessionDraft?.open);
-    const setNewSessionDraftTarget = useSessionUIStore((s) => s.setNewSessionDraftTarget);
     const openNewSessionDraft = useSessionUIStore((s) => s.openNewSessionDraft);
     const abortPromptSessionId = useSessionUIStore((s) => s.abortPromptSessionId);
     const clearAbortPrompt = useSessionUIStore((s) => s.clearAbortPrompt);
@@ -353,6 +365,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const getVisibleAgents = useConfigStore((state) => state.getVisibleAgents);
     const agents = getVisibleAgents();
     const isMobile = useUIStore((state) => state.isMobile);
+    const dictation = useComposerDictation();
+    const dictationSelectionRef = React.useRef({ start: 0, end: 0 });
+    const dictationErrorRef = React.useRef<string | null>(null);
+    const dictationActive = dictation.state === 'requesting-permission'
+        || dictation.state === 'recording'
+        || dictation.state === 'reconnecting'
+        || dictation.state === 'transcribing';
     const chatSurfaceMode = useChatSurfaceMode();
     const isMiniChatSurface = chatSurfaceMode === 'mini-chat';
     const hasHardwareKeyboard = useHardwareKeyboard();
@@ -376,6 +395,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const fetchGitStatus = useGitStore((state) => state.fetchStatus);
     const clearGitDiffCache = useGitStore((state) => state.clearDiffCache);
     const [showAbortStatus, setShowAbortStatus] = React.useState(false);
+    const handleSubmitRef = React.useRef<(options?: SubmitOptions) => Promise<void>>(async () => {});
+    const draftBranchCheckout = useDraftBranchCheckout<SubmitOptions | undefined>({
+        activeRuntimeKey,
+        intent: newSessionDraft?.branchIntent,
+        onReady: (continuation) => {
+            void handleSubmitRef.current(continuation);
+        },
+    });
     const [isNarrowComposer, setIsNarrowComposer] = React.useState(false);
     const [attachmentPreview, setAttachmentPreview] = React.useState<ToolPopupContent>({
         open: false,
@@ -777,18 +804,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         };
     }, [attachedFiles.length, hasDrafts, message]);
 
-    // Keep a ref to handleSubmit so callbacks don't depend on it.
-    type SubmitOptions = {
-        queuedOnly?: boolean;
-        queuedMessageId?: string;
-        delivery?: 'steer';
-        /** Submit this text instead of the composer input. Used by preset
-            starter chips: on mobile the collapsed pill has no mounted textarea,
-            so the DOM-first input snapshot would read empty content. */
-        presetText?: string;
-    };
-    const handleSubmitRef = React.useRef<(options?: SubmitOptions) => Promise<void>>(async () => {});
-
     // Add message to queue instead of sending
     const handleQueueMessage = React.useCallback(() => {
         const inputSnapshot = getCurrentInputSnapshot();
@@ -894,6 +909,26 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             return;
         }
 
+        const draftAtSend = useSessionUIStore.getState().newSessionDraft;
+        const draftCommand = inputMode === 'normal' ? parseSlashCommand(inputSnapshot.message) : null;
+        const commandStopsBeforeMaterialization = draftCommand?.name === 'compact';
+        const branchIntent = !capturedTarget
+            && !options?.queuedOnly
+            && !options?.queuedMessageId
+            && draftAtSend?.open
+            && !commandStopsBeforeMaterialization
+                ? draftAtSend.branchIntent
+                : null;
+        if (branchIntent && !draftBranchCheckout.getReceipt(branchIntent)) {
+            if (draftBranchCheckout.dialogState) return;
+            await draftBranchCheckout.request({
+                intent: branchIntent,
+                projectId: draftAtSend.selectedProjectId,
+                continuation: options,
+            });
+            return;
+        }
+
         if (currentSessionId && !queuedOnly) {
             // Sending is authoritative for blocking prompts: deny pending
             // permissions and dismiss open questions for the session subtree,
@@ -914,9 +949,15 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             }
         }
 
+        const branchCheckoutReceipt = draftBranchCheckout.getReceipt(branchIntent);
         const sendMessageOptions = capturedTarget
             ? { target: capturedTarget, ...(delivery ? { delivery } : {}) }
-            : delivery ? { delivery } : undefined;
+            : delivery || branchCheckoutReceipt
+                ? {
+                    ...(delivery ? { delivery } : {}),
+                    ...(branchCheckoutReceipt ? { branchCheckoutReceipt } : {}),
+                }
+                : undefined;
 
         // Inline review comments and synthetic context are consumed before
         // assembly so a failed send can restore exactly what it took.
@@ -1005,10 +1046,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 setTimelineDialogOpen(true);
                 return;
             }
-            if (commandName === 'compact' && currentSessionId) {
+            if (commandName === 'compact') {
+                if (!currentSessionId) {
+                    toast.error('Open a session before compacting.');
+                    return;
+                }
                 try {
                     await sessionActions.waitForConnectionOrThrow();
-                    await piClient.compactSession({ sessionId: currentSessionId });
+                    await sessionActions.compactSession(currentSessionId, argument.trim() || undefined);
                 } catch (error) {
                     toast.error(getSubmitErrorMessage(error, "Failed to compact session"));
                 }
@@ -1028,7 +1073,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     await sessionActions.waitForConnectionOrThrow();
                     const visibleText = await renderMagicPrompt(command.visiblePrompt, variables.visible);
                     const instructionsText = await renderMagicPrompt(command.instructionsPrompt, variables.instructions);
-                    await sendMessage(
+                    const commandSendPromise = sendMessage(
                         visibleText,
                         providerIdToSend,
                         modelIdToSend,
@@ -1040,6 +1085,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         inputMode,
                         sendMessageOptions,
                     );
+                    draftBranchCheckout.clearReceipt();
+                    await commandSendPromise;
                     scrollToBottom?.();
                 } catch (error) {
                     toast.error(getSubmitErrorMessage(error, command.errorToastKey));
@@ -1090,6 +1137,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             inputMode,
             sendMessageOptions,
         );
+        draftBranchCheckout.clearReceipt();
         const restoreConsumedDrafts = () => {
             if (consumedDraftTarget && drafts.length > 0) {
                 useInlineCommentDraftStore.getState().restoreDrafts(consumedDraftTarget, drafts);
@@ -1482,6 +1530,39 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         editor.insertText(text);
         updateAutocompleteState(nextValue, cursorPosition, inputSource, text);
     }, [message, updateAutocompleteState]);
+
+    const handleStartDictation = React.useCallback(() => {
+        const fallback = messageRef.current.length;
+        dictationSelectionRef.current = composerRef.current?.getSelection() ?? { start: fallback, end: fallback };
+        closeAutocomplete();
+        void dictation.start().catch(() => {});
+    }, [closeAutocomplete, dictation]);
+
+    const handleFinishDictation = React.useCallback(() => {
+        void dictation.finish().then((transcript) => {
+            const current = messageRef.current;
+            const snapshot = dictationSelectionRef.current;
+            const start = Math.min(Math.max(0, snapshot.start), current.length);
+            const end = Math.min(Math.max(start, snapshot.end), current.length);
+            const insertion = withInlineInsertionBoundaries(transcript.trim(), current.slice(0, start), current.slice(end));
+            if (!insertion) return;
+            const editor = composerRef.current;
+            if (editor) {
+                editor.replaceRange(start, end, insertion, start + insertion.length);
+                editor.focus({ preventScroll: true });
+            } else {
+                const next = `${current.slice(0, start)}${insertion}${current.slice(end)}`;
+                setMessage(next);
+                updateAutocompleteState(next, start + insertion.length, 'manual', insertion);
+            }
+        }).catch(() => {});
+    }, [dictation, updateAutocompleteState]);
+
+    React.useEffect(() => {
+        if (dictation.state !== 'error' || !dictation.error || dictationErrorRef.current === dictation.error) return;
+        dictationErrorRef.current = dictation.error;
+        toast.error(dictation.error);
+    }, [dictation.error, dictation.state]);
 
     const clearFileMentionPasteSuppression = React.useCallback(() => {
         suppressNextFileMentionPasteRef.current = false;
@@ -1958,14 +2039,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const {
         projects: draftProjects,
         selectedDraftProject,
-        selectedDraftDirectory,
         selectedDraftBranchLabel,
-        selectedDraftBranchIsKnown,
-        projectRootBranchOption,
+        selectedBranchName,
         draftBranchItems,
+        isDiscoveringDraftBranches,
         shouldShowDraftBranchSelector,
         handleDraftProjectChange,
-        handleDraftDirectoryChange,
+        handleDraftBranchChange,
     } = useDraftTarget(showDraftTargetSelectors);
 
     const showComposerTargetRow = Boolean(
@@ -1983,24 +2063,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const pendingChangesBar = composerStatusExtrasEnabled && hasPendingChanges
         ? <PendingChangesBar align={showComposerTargetRow ? 'end' : 'start'} />
         : null;
-
-
-    React.useEffect(() => {
-        if (!showDraftTargetSelectors || !newSessionDraftOpen || !selectedDraftProject || !selectedDraftDirectory) {
-            return;
-        }
-        if (newSessionDraft?.preserveDirectoryOverride) {
-            return;
-        }
-        const valid = draftBranchItems.some((option) => option.value === selectedDraftDirectory);
-        if (valid) {
-            return;
-        }
-        setNewSessionDraftTarget({
-            projectId: selectedDraftProject.id,
-            directoryOverride: selectedDraftProject.path,
-        });
-    }, [draftBranchItems, newSessionDraft?.preserveDirectoryOverride, selectedDraftDirectory, selectedDraftProject, setNewSessionDraftTarget, showDraftTargetSelectors]);
 
 
     // Mobile pill composer: the collapse/expand state machine and the
@@ -2173,16 +2235,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     <DraftTargetSelectors
                         projects={draftProjects}
                         selectedProject={selectedDraftProject}
-                        selectedDirectory={selectedDraftDirectory}
+                        selectedBranchName={selectedBranchName}
                         selectedBranchLabel={selectedDraftBranchLabel}
-                        selectedBranchIsKnown={selectedDraftBranchIsKnown}
-                        projectRootBranchOption={projectRootBranchOption}
-                        branchItems={draftBranchItems}
+                        branchOptions={draftBranchItems}
+                        branchInteractive={newSessionDraftOpen}
+                        branchLoading={isDiscoveringDraftBranches}
                         showBranchSelector={shouldShowDraftBranchSelector}
                         showProjectSelector={newSessionDraftOpen}
                         endAccessory={pendingChangesBar}
                         onProjectChange={handleDraftProjectChange}
-                        onDirectoryChange={handleDraftDirectoryChange}
+                        onBranchChange={handleDraftBranchChange}
                         theme={currentTheme}
                     />
                 ) : null}
@@ -2190,6 +2252,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     <MobileDraftTargetTriggers
                         selectedProject={selectedDraftProject}
                         selectedBranchLabel={selectedDraftBranchLabel}
+                        branchInteractive={newSessionDraftOpen}
                         showBranchSelector={shouldShowDraftBranchSelector}
                         showProjectSelector={newSessionDraftOpen}
                         endAccessory={pendingChangesBar}
@@ -2302,6 +2365,25 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                 onMobilePanelChange={isMobile ? setMobileControlsPanel : undefined}
                             />
                         ) : null}
+                        trailingExtra={dictationActive ? null : (
+                            <ComposerVoiceButton
+                                available={dictation.available}
+                                disabled={!currentSessionId && !newSessionDraftOpen}
+                                className={footerIconButtonClass}
+                                iconClassName={iconSizeClass}
+                                onStart={handleStartDictation}
+                            />
+                        )}
+                        actionsOverride={dictationActive ? (
+                            <ComposerVoiceActions
+                                state={dictation.state}
+                                elapsedSeconds={dictation.elapsedSeconds}
+                                buttonClassName={footerIconButtonClass}
+                                iconClassName={iconSizeClass}
+                                onCancel={dictation.cancel}
+                                onDone={handleFinishDictation}
+                            />
+                        ) : undefined}
                         radius={chatInputRadius}
                         footerPaddingClass={footerPaddingClass}
                         footerGapClass={footerGapClass}
@@ -2321,6 +2403,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         onQueueMessage={handleQueueMessage}
                         onAbort={handleAbort}
                     >
+                    {dictationActive ? (
+                        <ComposerVoiceInput
+                            state={dictation.state}
+                            subscribeLevel={dictation.subscribeLevel}
+                        />
+                    ) : (
                     <div className={cn("overflow-hidden", isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
                         <div className={cn('relative z-10 flex flex-wrap items-center gap-1', isInlineComposer ? 'px-0' : 'px-3 pt-1')}>
                             <AttachedFilesList onShowPopup={handleShowAttachmentPreview} />
@@ -2386,6 +2474,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                             />
                         </div>
                     </div>
+                    )}
                     </ComposerFooter>
 
                 </div>
@@ -2502,21 +2591,27 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             </MobileOverlayPanel>
         ) : null}
 
+        <DraftBranchCheckoutDialog
+            state={draftBranchCheckout.dialogState}
+            onCancel={draftBranchCheckout.cancel}
+            onConfirm={() => { void draftBranchCheckout.confirm(); }}
+        />
+
         {/* Mobile draft target pickers: bottom sheets replacing the inline
             project/branch Selects (which desktop keeps). */}
         {isMobileForDraft && showDraftTargetSelectors && selectedDraftProject ? (
             <MobileDraftTargetSheets
                 projects={draftProjects}
                 selectedProject={selectedDraftProject}
-                selectedDirectory={selectedDraftDirectory}
+                selectedBranchName={selectedBranchName}
                 selectedBranchLabel={selectedDraftBranchLabel}
-                selectedBranchIsKnown={selectedDraftBranchIsKnown}
-                projectRootBranchOption={projectRootBranchOption}
-                branchItems={draftBranchItems}
+                branchOptions={draftBranchItems}
+                branchInteractive={newSessionDraftOpen}
+                branchLoading={isDiscoveringDraftBranches}
                 showBranchSelector={shouldShowDraftBranchSelector}
                 showProjectSelector={newSessionDraftOpen}
                 onProjectChange={handleDraftProjectChange}
-                onDirectoryChange={handleDraftDirectoryChange}
+                onBranchChange={handleDraftBranchChange}
                 theme={currentTheme}
                 openPicker={mobileDraftPicker}
                 onOpenPickerChange={setMobileDraftPicker}

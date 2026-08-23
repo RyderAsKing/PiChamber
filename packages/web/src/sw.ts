@@ -65,7 +65,21 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   const data = (event.notification.data ?? null) as { url?: string } | null;
-  const url = data?.url ?? '/';
+  const rawUrl = typeof data?.url === 'string' ? data.url : '';
+  // Only same-origin relative paths and http(s) URLs may be opened. Push
+  // payloads must not be able to aim the OS handler at other schemes.
+  const isRelative = rawUrl.startsWith('/') && !rawUrl.startsWith('//');
+  let url = '/';
+  if (isRelative) {
+    url = rawUrl;
+  } else {
+    try {
+      const parsed = new URL(rawUrl);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') url = rawUrl;
+    } catch {
+      // Malformed URLs fall back to '/'.
+    }
+  }
 
   event.waitUntil(self.clients.openWindow(url));
 });

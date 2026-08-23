@@ -55,7 +55,7 @@ Use this doc when you ask an agent to change tool/header/description behavior.
   HTML is sanitized as defense in depth, with script and style elements
   forbidden, so message content cannot inject active DOM or application-wide
   CSS into any runtime surface.
-- `read` and `skill` are **static navigation tools** and render via `StaticToolRow`.
+- `read` and the legacy explicit `skill` tool are **static navigation tools** and render via `StaticToolRow`. Pi loads skills through `read`; when the daemon attaches authoritative `metadata.pichamber.skill`, that read renders as a one-line Skill row and opens the discovered skill in Settings instead of opening `SKILL.md` as a file.
 - Every other tool, including search/fetch, OpenCode built-ins, custom tools, plugins, and MCP tools, is **expandable** and renders through `ToolPart`.
 - The managed `pichamber` plugin tool uses the expandable path and hides its broad protocol input. The plugin supplies the selected action's human description as the native tool title; the UI renders that metadata without owning an action map. The full versioned result envelope renders through the same neutral JSON summary/tree/raw views as other tools, without a tool-specific output card.
 - `ToolPart` defers expanded content after a user toggle, preventing large tool input/output payloads from mounting during the initial chat render. Settled historical tools whose output or patch exceeds the render-record budget arrive as `state.deferredBody` stubs; expanding hydrates the canonical reducer part through `useSessionReducerPart` instead of keeping full bodies in every transcript record. Task child transcripts are requested only while the Task is active or expanded; a settled collapsed Task uses its persisted metadata/output and does no child-session work.
@@ -64,7 +64,7 @@ Use this doc when you ask an agent to change tool/header/description behavior.
 - The rich tool diff preview lives in `ToolPartDiffPreview.tsx` and is lazy-loaded from `ToolPart`. It is the only tool-card piece that imports the `@pierre/diffs` + Shiki rendering stack, keeping that stack out of the eager chat startup graph. While its chunk loads (first rendered diff only) the plain-text patch from `PlainDiffFallback.tsx` renders as the Suspense fallback, mirroring the preview's error fallback. `ToolPart` itself must not statically import `@pierre/diffs` runtime modules or `@/lib/shiki/appThemeRegistry`.
 - Running bash output falls back to `state.metadata.output` until canonical `state.output` arrives. Live output keeps at most 16 lines in the DOM (DeepSeek's terminal card cap) inside a compact viewport; it follows new output until the user scrolls up, then resumes following when the user returns to the bottom. Live output appends or replaces rewritten snapshots as plain text without worker highlighting; finalized output normalizes ANSI terminal controls with a bounded synthetic-cell budget, bypasses the throttle, and receives the normal one-time highlighted rendering.
 - Thinking and justification blocks show duration when timing is available (`ReasoningPart.tsx` + `JustificationBlock.tsx`).
-- The last assistant message in a settled turn renders a footer in `MessageBody.tsx` (model name, optional thinking variant, duration, timestamp). It stays hidden only while that assistant is in the live reducer `streamingMessages` set. Catalog or session `busy` after the stream ends must not keep the last-turn footer unmounted; older turns already skipped that heuristic because they are not the latest turn.
+- The last assistant message in a settled turn renders a footer in `MessageBody.tsx` (model name, optional thinking variant, duration, timestamp). It stays hidden while that assistant is in the live reducer `streamingMessages` set or while an explicit `SessionRetry` notice represents the active retry. Catalog or generic session `busy` after the stream ends must not keep the last-turn footer unmounted; older turns already skipped that heuristic because they are not the latest turn.
 - Thinking blocks auto-expand while their own part is streaming, inside a `max-h-80` pane that scrolls internally (plain text, not markdown). They collapse as soon as that part's `streaming` flag clears (the next text or tool part starts). **Collapsed by Default** off keeps a one-line header during stream and after unless the user expands it. Markdown mounts only after the part settles.
 
 ## "I want to change description for Perplexity" (example recipe)
@@ -72,7 +72,7 @@ Use this doc when you ask an agent to change tool/header/description behavior.
 If task is: "change text shown near Read or Skill in compact mode":
 
 1. Edit `ProgressiveGroup.tsx` -> `getToolShortDescription(activity)`.
-2. Update the branch that handles `read` or `skill` in `StaticToolRow`.
+2. Update the branch that handles file reads or classified skill reads in `StaticToolRow`.
 3. Keep all other tool header/output behavior in `ToolPart.tsx`.
 4. Keep icon changes (if any) in `toolPresentation.tsx`.
 

@@ -21,6 +21,7 @@ import { GitPage } from '@/components/sections/git-identities/GitPage';
 import type { PiChamberSection } from '@/components/sections/pichamber/types';
 import { PiChamberPage } from '@/components/sections/pichamber/PiChamberPage';
 import { AboutSettings } from '@/components/sections/pichamber/AboutSettings';
+import { DictationSettings } from '@/components/sections/pichamber/DictationSettings';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
 import { useMobileAppActions } from '@/apps/mobileAppContext';
 import {
@@ -69,6 +70,7 @@ const pageOrder: SettingsPageSlug[] = [
   'general',
   'appearance',
   'chat',
+  'dictation',
   'notifications',
   'sessions',
   'shortcuts',
@@ -287,6 +289,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         return "Appearance";
       case 'chat':
         return "Chat";
+      case 'dictation':
+        return "Dictation";
       case 'shortcuts':
         return "Shortcuts";
       case 'sessions':
@@ -505,6 +509,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         return <MagicPromptsPage />;
       case 'snippets':
         return <SnippetsPage />;
+      case 'dictation':
+        return <DictationSettings />;
       case 'git':
         return <GitPage />;
       case 'general':

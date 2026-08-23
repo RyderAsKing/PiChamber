@@ -194,6 +194,49 @@ describe('Pi session daemon supervisor', () => {
     expect(windowsSupervisor.paths.endpoint).toMatch(/^\\\\\.\\pipe\\pichamber-pi-session-daemon-[0-9a-f]{16}$/);
   });
 
+  it('bounds an unresponsive Windows daemon probe by the supervisor operation timeout', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-supervisor-hung-win-'));
+    const dataDir = join(root, 'data');
+    const piDataDir = join(dataDir, 'pi');
+    await mkdir(piDataDir, { recursive: true });
+    const daemonPid = 7_331;
+    const processLike = {
+      pid: 4_242,
+      execPath: process.execPath,
+      versions: { electron: '41.2.1' },
+      kill(pid, signal) {
+        if (pid === daemonPid && signal === 0) return;
+        const error = new Error('ESRCH');
+        error.code = 'ESRCH';
+        throw error;
+      },
+    };
+    const probeTimeoutMs = 20;
+    const windowsSupervisor = createPiSessionDaemonSupervisor({
+      env: { PICHAMBER_DATA_DIR: dataDir },
+      cwd: root,
+      dataDir,
+      platform: 'win32',
+      processLike,
+      startupTimeoutMs: probeTimeoutMs,
+      request: () => new Promise(() => {}),
+    });
+    await writeFile(windowsSupervisor.paths.credentialFile, `${'a'.repeat(64)}\n`);
+    await writeFile(windowsSupervisor.paths.stateFile, JSON.stringify({
+      protocolVersion: 1,
+      pid: daemonPid,
+      endpoint: windowsSupervisor.paths.endpoint,
+      startedAt: new Date().toISOString(),
+    }));
+
+    const startedAt = Date.now();
+    await expect(windowsSupervisor.health()).resolves.toMatchObject({
+      state: 'unavailable',
+      error: { code: 'DAEMON_UNAVAILABLE' },
+    });
+    expect(Date.now() - startedAt).toBeLessThan(probeTimeoutMs * 5);
+  });
+
   it('recovers from a leftover empty daemon lock instead of failing as unavailable', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-supervisor-empty-lock-'));
     const cwd = join(root, 'project');

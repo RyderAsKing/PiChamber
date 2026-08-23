@@ -11,8 +11,13 @@ export const selectStreamingAssistantMessageId = (
   if (!session || session.streamingMessages.size === 0) return null;
   let streamingId: string | null = null;
   for (const messageId of session.streamingMessages) {
-    if (session.messages.get(messageId)?.role === 'assistant') {
-      streamingId = messageId;
+    const message = session.messages.get(messageId);
+    if (message?.role === 'assistant') {
+      // A second tab can hydrate the persisted Pi entry id, then resume SSE
+      // frames that address the same assistant through a synthetic live id.
+      // The Map contains both keys, but rendered records keep `message.id`.
+      // Return that canonical id so the live-parts overlay can match them.
+      streamingId = message.id;
     }
   }
   return streamingId;

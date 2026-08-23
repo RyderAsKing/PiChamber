@@ -25,6 +25,8 @@ export interface ComposerFooterProps {
     messageLength: number;
     children?: React.ReactNode;
     leadingExtra?: React.ReactNode;
+    trailingExtra?: React.ReactNode;
+    actionsOverride?: React.ReactNode;
 
     radius: string;
     footerPaddingClass: string;
@@ -57,6 +59,8 @@ export function ComposerFooter(props: ComposerFooterProps) {
         newSessionDraftOpen,
         children,
         leadingExtra,
+        trailingExtra,
+        actionsOverride,
         footerPaddingClass,
         footerGapClass,
         footerIconButtonClass,
@@ -89,7 +93,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
         />
     );
 
-    const actions = (
+    const actions = actionsOverride ?? (
         <ComposerActionButtons
             isMobile={isMobile}
             footerIconButtonClass={footerIconButtonClass}
@@ -124,6 +128,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             ) : null}
                         </div>
                         <div className="flex min-w-0 shrink-0 items-center justify-end gap-x-1">
+                            {trailingExtra}
                             {actions}
                         </div>
                     </div>
@@ -148,6 +153,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                 </div>
                 <div className="min-w-0">{children}</div>
                 <div className={cn('flex min-w-0 items-center justify-end', footerGapClass, toolAlign)}>
+                    {trailingExtra}
                     {actions}
                 </div>
             </div>
@@ -174,6 +180,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                     ) : null}
                 </div>
                 <div className={cn('flex flex-shrink-0 items-center', footerGapClass)}>
+                    {trailingExtra}
                     {actions}
                 </div>
             </div>

@@ -63,6 +63,16 @@ const mergeThinkingByModel = (current, incoming) => {
   return next;
 };
 
+const DEFAULT_RETRY_LIMIT = 3;
+const MIN_RETRY_LIMIT = 0;
+const MAX_RETRY_LIMIT = 10;
+
+const normalizeRetryLimit = (value) => {
+  if (value === undefined || value === null) return undefined;
+  if (!Number.isInteger(value) || value < MIN_RETRY_LIMIT || value > MAX_RETRY_LIMIT) throw invalidSettings();
+  return value;
+};
+
 const normalize = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalidSettings();
   const model = normalizeModel(value.defaultModel);
@@ -77,6 +87,7 @@ const normalize = (value) => {
     if (!thinkingByModel[key]) thinkingByModel[key] = fallbackThinking;
     fallbackThinking = undefined;
   }
+  const retryLimit = normalizeRetryLimit(value.defaultRetryLimit);
   return {
     version: 1,
     ...(model ? { defaultModel: model } : {}),
@@ -84,6 +95,7 @@ const normalize = (value) => {
     ...(walkthroughModel ? { walkthroughModel } : {}),
     ...(Object.keys(thinkingByModel).length > 0 ? { defaultThinkingByModel: thinkingByModel } : {}),
     ...(fallbackThinking ? { defaultThinking: fallbackThinking } : {}),
+    ...(retryLimit !== undefined ? { defaultRetryLimit: retryLimit } : {}),
   };
 };
 
@@ -92,6 +104,10 @@ const normalize = (value) => {
  * Pi's settings.json: Pi remains authoritative when no PiChamber override is
  * configured, and credentials never enter this sidecar.
  */
+export const PI_DEFAULT_RETRY_LIMIT = DEFAULT_RETRY_LIMIT;
+export const PI_MIN_RETRY_LIMIT = MIN_RETRY_LIMIT;
+export const PI_MAX_RETRY_LIMIT = MAX_RETRY_LIMIT;
+
 export const createPiSettingsStore = ({ file = join(resolvePiChamberDataDir(), 'pi', 'settings.json') } = {}) => {
   let writeChain = Promise.resolve();
 
@@ -115,6 +131,7 @@ export const createPiSettingsStore = ({ file = join(resolvePiChamberDataDir(), '
         ...(Object.hasOwn(patch, 'defaultThinking') ? { defaultThinking: patch.defaultThinking } : {}),
         ...(Object.hasOwn(patch, 'smallModel') ? { smallModel: patch.smallModel } : {}),
         ...(Object.hasOwn(patch, 'walkthroughModel') ? { walkthroughModel: patch.walkthroughModel } : {}),
+        ...(Object.hasOwn(patch, 'defaultRetryLimit') ? { defaultRetryLimit: patch.defaultRetryLimit } : {}),
         defaultThinkingByModel: Object.hasOwn(patch, 'defaultThinkingByModel')
           ? mergeThinkingByModel(current.defaultThinkingByModel ?? {}, patch.defaultThinkingByModel)
           : (current.defaultThinkingByModel ?? {}),

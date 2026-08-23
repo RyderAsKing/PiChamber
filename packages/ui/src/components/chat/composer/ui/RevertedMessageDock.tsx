@@ -11,6 +11,7 @@ import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
+import { toast } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useRevertNavigation } from '@/sync/revert-navigation-store';
@@ -22,7 +23,7 @@ type RevertedMessageDockProps = {
 
 export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.memo(({ sessionId }) => {
     
-    const revertToMessage = useSessionUIStore((s) => s.revertToMessage);
+    const restoreToMessage = useSessionUIStore((s) => s.restoreToMessage);
     const forkFromMessage = useSessionUIStore((s) => s.forkFromMessage);
     const handleSlashRedo = useSessionUIStore((s) => s.handleSlashRedo);
     const [restoringId, setRestoringId] = React.useState<string | null>(null);
@@ -56,20 +57,25 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
             const index = abandonedUser.findIndex((entry) => entry.id === messageId);
             const next = index >= 0 ? abandonedUser[index + 1] : undefined;
             if (next) {
-                await revertToMessage(sessionId, next.id);
+                await restoreToMessage(sessionId, next.id);
+                toast.success('Restored messages through this point');
             } else {
-                await handleSlashRedo(sessionId, { fullUnrevert: true });
+                await handleSlashRedo(sessionId);
             }
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'Failed to restore messages');
         } finally {
             setRestoringId(null);
         }
-    }, [abandonedUser, handleSlashRedo, revertToMessage, restoringId, sessionId]);
+    }, [abandonedUser, handleSlashRedo, restoreToMessage, restoringId, sessionId]);
 
     const handleFork = React.useCallback(async (messageId: string) => {
         if (!sessionId || forkingId) return;
         setForkingId(messageId);
         try {
             await forkFromMessage(sessionId, messageId);
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'Failed to fork session');
         } finally {
             setForkingId(null);
         }

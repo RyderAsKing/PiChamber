@@ -9,6 +9,7 @@ import {
   applyDirectoryListToCatalog,
   applyLifecycleChange,
   initialCatalog,
+  listLiveSessionRecordsFromCatalog,
   listUiSessionsFromCatalog,
   liveSessionRecordToUiSession,
   mapDirectoriesWithRefreshSlot,
@@ -66,7 +67,7 @@ const listItem = (id: string, directory: string, overrides?: {
   ...(overrides?.preview !== undefined ? { preview: overrides.preview } : {}),
 });
 
-const lifecycleEvent = (sessionId: string, directory: string, state: 'idle' | 'busy' | 'retry' | 'error', sequence = 1): PiSessionEvent => ({
+const lifecycleEvent = (sessionId: string, directory: string, state: 'idle' | 'busy' | 'retry' | 'error', sequence = 1): Extract<PiSessionEvent, { name: 'session.lifecycle' }> => ({
   protocolVersion: 1,
   kind: 'event',
   name: 'session.lifecycle',
@@ -267,6 +268,35 @@ describe('pi-session-catalog helpers', () => {
     expect(flipped.byId.get('s')?.lifecycle).toBe('busy');
     // Other entries keep their reference.
     expect(flipped.byId.get('s')).not.toBe(seeded.byId.get('s'));
+  });
+
+  test('lists only catalog sessions with a live lifecycle', () => {
+    let catalog = applyDirectoryListToCatalog(initialCatalog(), '/repo-a', [
+      listItem('idle', '/repo-a'),
+      listItem('busy', '/repo-a'),
+      listItem('retry', '/repo-a'),
+    ], 100);
+    catalog = applyLifecycleChange(catalog, 'busy', 'busy');
+    catalog = applyLifecycleChange(catalog, 'retry', 'retry');
+
+    expect(listLiveSessionRecordsFromCatalog(catalog).map((record) => record.id)).toEqual([
+      'busy',
+      'retry',
+    ]);
+  });
+
+  test('retains retry metadata until the lifecycle leaves retry', () => {
+    const seeded = applyDirectoryListToCatalog(initialCatalog(), '/repo-a', [listItem('s', '/repo-a')], 100);
+    const retry = { attempt: 2, next: 5_000, message: 'provider unavailable' };
+    const retrying = applyLifecycleChange(seeded, 's', 'retry', retry);
+    expect(retrying.byId.get('s')?.retry).toBe(retry);
+    expect(applyLifecycleChange(retrying, 's', 'retry', retry)).toBe(retrying);
+
+    const relisted = applyDirectoryListToCatalog(retrying, '/repo-a', [listItem('s', '/repo-a')], 200);
+    expect(relisted.byId.get('s')?.retry).toBe(retry);
+
+    const busy = applyLifecycleChange(retrying, 's', 'busy');
+    expect(busy.byId.get('s')?.retry).toBe(undefined);
   });
 
   test('removeRecord drops both byId and byDirectory membership', () => {
@@ -483,10 +513,55 @@ describe('PiSessionStore catalog', () => {
       internal.commitEvents([lifecycleEvent('b-1', '/repo-b', 'busy', 5)]);
       await tickMicrotasks();
 
-      const catalog = store.getState().catalog;
+      let catalog = store.getState().catalog;
       expect(catalog.byId.get('b-1')?.lifecycle).toBe('busy');
       // A's catalog record reference is unchanged \u2014 narrow no-op.
       expect(catalog.byId.get('a-1')).toBe(aRowBefore);
+
+      internal.commitEvents([{
+        ...lifecycleEvent('b-1', '/repo-b', 'retry', 6),
+        payload: { state: 'retry', attempt: 2, next: 5_000, message: 'provider unavailable' },
+      }]);
+      await tickMicrotasks();
+      catalog = store.getState().catalog;
+      expect(catalog.byId.get('b-1')?.retry).toEqual({
+        attempt: 2,
+        next: 5_000,
+        message: 'provider unavailable',
+      });
+      expect(catalog.byId.get('a-1')).toBe(aRowBefore);
+
+      // Pi emits a preparatory busy frame before the retried provider request
+      // produces output. Keep the retry notice through that frame.
+      internal.commitEvents([lifecycleEvent('b-1', '/repo-b', 'busy', 7)]);
+      await tickMicrotasks();
+      expect(store.getState().catalog.byId.get('b-1')?.lifecycle).toBe('retry');
+      expect(store.getState().catalog.byId.get('b-1')?.retry).toEqual({
+        attempt: 2,
+        next: 5_000,
+        message: 'provider unavailable',
+      });
+
+      internal.commitEvents([{
+        protocolVersion: 1,
+        kind: 'event',
+        name: 'assistant.message.start',
+        sequence: 8,
+        sessionId: 'b-1',
+        directory: '/repo-b',
+        payload: { messageId: 'assistant-b-1-8', role: 'assistant', startedAt: 6_000 },
+      }, {
+        protocolVersion: 1,
+        kind: 'event',
+        name: 'assistant.message.delta',
+        sequence: 9,
+        sessionId: 'b-1',
+        directory: '/repo-b',
+        payload: { messageId: 'assistant-b-1-8', contentIndex: 0, delta: 'recovered' },
+      }]);
+      await tickMicrotasks();
+      expect(store.getState().catalog.byId.get('b-1')?.lifecycle).toBe('busy');
+      expect(store.getState().catalog.byId.get('b-1')?.retry).toBe(undefined);
     } finally {
       stubs.restore();
       store.dispose();

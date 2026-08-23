@@ -233,7 +233,7 @@ const normalizeUserMessageRenderingMode = (mode: unknown): 'markdown' | 'plain' 
     return mode === 'markdown' ? 'markdown' : 'plain';
 };
 
-type VisibleSetting = 'theme' | 'windowControlsPosition' | 'pwaInstallName' | 'pwaOrientation' | 'mobileKeyboardMode' | 'timeFormat' | 'weekStart' | 'fontSize' | 'terminalFontSize' | 'terminalShell' | 'terminalLoginShell' | 'editorFontSize' | 'spacing' | 'inputBarOffset' | 'mermaidRendering' | 'userMessageRendering' | 'collapsibleUserMessages' | 'stickyUserHeader' | 'promptNavigatorEnabled' | 'wideChatLayout' | 'codeBlockLineWrap' | 'splitAssistantMessageActions' | 'subagentReadOnlyBanner' | 'diffLayout' | 'mobileStatusBar' | 'dotfiles' | 'fileViewerPreview' | 'reasoning' | 'showToolFileIcons' | 'showTurnChangedFiles' | 'expandedTools' | 'followUpBehavior' | 'terminalQuickKeys' | 'fileEditorKeymap' | 'persistDraft' | 'inputSpellcheck' | 'reportUsage' | 'perfHud' | 'expandedEditorToolbar' | 'autoSaveEnabled';
+type VisibleSetting = 'theme' | 'windowControlsPosition' | 'pwaInstallName' | 'pwaOrientation' | 'mobileKeyboardMode' | 'timeFormat' | 'weekStart' | 'fontSize' | 'terminalFontSize' | 'terminalShell' | 'terminalLoginShell' | 'editorFontSize' | 'spacing' | 'inputBarOffset' | 'mermaidRendering' | 'userMessageRendering' | 'collapsibleUserMessages' | 'stickyUserHeader' | 'promptNavigatorEnabled' | 'wideChatLayout' | 'codeBlockLineWrap' | 'splitAssistantMessageActions' | 'diffLayout' | 'mobileStatusBar' | 'dotfiles' | 'fileViewerPreview' | 'reasoning' | 'showToolFileIcons' | 'showTurnChangedFiles' | 'expandedTools' | 'followUpBehavior' | 'terminalQuickKeys' | 'fileEditorKeymap' | 'persistDraft' | 'inputSpellcheck' | 'reportUsage' | 'perfHud' | 'expandedEditorToolbar' | 'autoSaveEnabled';
 
 const WINDOW_CONTROLS_POSITION_OPTIONS: Array<{ id: DesktopWindowControlsPosition; label: string }> = [
     { id: 'left', label: "Left" },
@@ -326,8 +326,6 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const setWeekStartPreference = useUIStore(state => state.setWeekStartPreference);
     const showSplitAssistantMessageActions = useUIStore(state => state.showSplitAssistantMessageActions);
     const setShowSplitAssistantMessageActions = useUIStore(state => state.setShowSplitAssistantMessageActions);
-    const allowPromptingSubagentSessions = useUIStore(state => state.allowPromptingSubagentSessions);
-    const setAllowPromptingSubagentSessions = useUIStore(state => state.setAllowPromptingSubagentSessions);
     const draftStartersVisible = useUIStore(state => state.draftStartersVisible);
     const setDraftStartersVisible = useUIStore(state => state.setDraftStartersVisible);
     const settingsDefaultFileViewerPreview = useConfigStore((state) => state.settingsDefaultFileViewerPreview);
@@ -523,7 +521,6 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
         || shouldShow('wideChatLayout')
         || shouldShow('codeBlockLineWrap')
         || shouldShow('splitAssistantMessageActions')
-        || shouldShow('subagentReadOnlyBanner')
         || shouldShow('diffLayout')
         || shouldShow('dotfiles')
         || shouldShow('fileViewerPreview')
@@ -537,8 +534,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
         || shouldShow('mermaidRendering')
         || shouldShow('diffLayout')
         || shouldShow('followUpBehavior');
-    const showBehaviorFeatureCheckboxes = shouldShow('subagentReadOnlyBanner')
-        || shouldShow('collapsibleUserMessages')
+    const showBehaviorFeatureCheckboxes = shouldShow('collapsibleUserMessages')
         || shouldShow('stickyUserHeader')
         || shouldShow('promptNavigatorEnabled')
         || shouldShow('wideChatLayout')
@@ -1503,15 +1499,6 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                                         ariaLabel={"Show starters on the new session screen"}
                                         settingsItem="chat.draft-starters-visible"
                                     />
-                                    {shouldShow('subagentReadOnlyBanner') && (
-                                        <SettingsCheckboxRow
-                                            checked={allowPromptingSubagentSessions}
-                                            onChange={setAllowPromptingSubagentSessions}
-                                            label={"Allow Prompting Subagent Sessions"}
-                                            ariaLabel={"Allow prompting subagent sessions"}
-                                            settingsItem="chat.subagent-read-only-banner"
-                                        />
-                                    )}
                                 </SettingsSection>
                                 {shouldShow('reasoning') && (
                                     <SettingsSection

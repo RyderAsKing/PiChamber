@@ -29,7 +29,7 @@ import { mapWithConcurrency } from '@/lib/concurrency';
 import { normalizePath } from '@/lib/pathNormalization';
 import type { Session } from '@/lib/chat/types';
 import type { PiSessionListItem } from '@/lib/pi/protocol';
-import type { PiSessionId } from '@/lib/pi/types';
+import type { PiRetryInfo, PiSessionId } from '@/lib/pi/types';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -73,6 +73,8 @@ export interface LiveSessionRecord {
   messageCount?: number;
   /** Live lifecycle mirror — see `LiveSessionLifecycle`. */
   lifecycle: LiveSessionLifecycle;
+  /** Retry countdown/error context while `lifecycle` is `retry`. */
+  retry?: PiRetryInfo;
   /** True iff the session's transcript currently lives in `reducer.bySession`. */
   hydrated: boolean;
 }
@@ -155,6 +157,7 @@ const recordsStructurallyEqual = (left: LiveSessionRecord, right: LiveSessionRec
   && left.preview === right.preview
   && left.messageCount === right.messageCount
   && left.lifecycle === right.lifecycle
+  && left.retry === right.retry
   && left.hydrated === right.hydrated
 );
 
@@ -233,6 +236,7 @@ export const applyDirectoryListToCatalog = (
       // Listings do not carry lifecycle; preserve whatever the catalog
       // already had for this session (event-driven mirror), default to idle.
       lifecycle: existing?.lifecycle ?? 'idle',
+      ...(existing?.retry ? { retry: existing.retry } : {}),
       hydrated: existing?.hydrated ?? false,
     };
     if (existing && recordsStructurallyEqual(existing, nextRecord)) {
@@ -327,12 +331,14 @@ export const applyLifecycleChange = (
   state: PiSessionCatalogState,
   sessionId: PiSessionId,
   lifecycle: LiveSessionLifecycle,
+  retry?: PiRetryInfo,
 ): PiSessionCatalogState => {
   const existing = state.byId.get(sessionId);
   if (!existing) return state;
-  if (existing.lifecycle === lifecycle) return state;
+  const nextRetry = lifecycle === 'retry' ? retry : undefined;
+  if (existing.lifecycle === lifecycle && existing.retry === nextRetry) return state;
   const nextById = new Map(state.byId);
-  nextById.set(sessionId, { ...existing, lifecycle });
+  nextById.set(sessionId, { ...existing, lifecycle, retry: nextRetry });
   return { ...state, byId: nextById };
 };
 
@@ -548,6 +554,16 @@ export const listUiSessionsFromCatalog = (
     sessions.push(liveSessionRecordToUiSession(record));
   }
   return sessions.length === 0 ? EMPTY_UI_SESSIONS : sessions;
+};
+
+export const listLiveSessionRecordsFromCatalog = (
+  catalog: PiSessionCatalogState,
+): LiveSessionRecord[] => {
+  const records: LiveSessionRecord[] = [];
+  for (const record of catalog.byId.values()) {
+    if (record.lifecycle === 'busy' || record.lifecycle === 'retry') records.push(record);
+  }
+  return records;
 };
 
 export const catalogLiveSessionIdsKey = (catalog: PiSessionCatalogState): string => {

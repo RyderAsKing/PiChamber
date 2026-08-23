@@ -28,8 +28,11 @@ lives in `PiSessionStore` via `PiSessionProvider`; chat leaves consume
 
 Capacitor's native HTTP fetch adapter buffers long responses, so direct native
 mobile clients use URL-authenticated `EventSource` for `/api/pi/events`.
-Relay-backed mobile clients continue through `runtimeFetch` and the encrypted
-tunnel, where browser `EventSource` cannot address the virtual endpoint.
+WKWebView can preserve a dead `EventSource` across suspension without firing an
+error, so the native system-resume signal replaces that connection and resumes
+from its last accepted sequence. Relay-backed mobile clients continue through
+`runtimeFetch` and the encrypted tunnel, where browser `EventSource` cannot
+address the virtual endpoint.
 
 ## Public types vs. private runtime
 
@@ -58,12 +61,21 @@ Every event the public stream publishes carries a monotonically increasing
 accepted sequence per session id and rejects any event for that session whose
 sequence is `<=` the last accepted value. `getSession` reports that same global
 cursor, not proof that the returned transcript contains every locally applied
-delta, so hydration overlays an in-flight busy/retry turn onto the fetched
-history instead of replacing it. The daemon projects that in-flight turn into
+delta, so hydration overlays an in-flight busy/retry turn, or a resident reducer
+with a newer sequence, onto the fetched history instead of replacing it. Once
+the resident turn has settled and the fetched cursor is at least as new, the
+fetch is authoritative for overlapping messages and parts; otherwise snapshot
+recovery can succeed while stale partial text remains visible. A message-start
+event is itself live-turn evidence, so the reducer marks the session busy even
+when its lifecycle frame was missed or arrives later. The daemon projects that
+in-flight turn into
 `getSession` while `isStreaming` is true (live `session.messages` plus running
 tools, plus `lifecycle: 'busy'`), and `hydrateSessionFromDetail` restores
 `streamingMessages` and part streaming flags from that payload so a restarted
-chat shows the working/tooling state immediately. Sending a prompt on an already-open session
+chat shows the working/tooling state immediately. When resumed events use the
+daemon's synthetic live id for an assistant already hydrated under its Pi entry
+id, reducer aliases remain valid lookup keys but live-tail selectors and mutation
+metadata resolve to the canonical message id used by rendered records. If a resumed assistant references a synthetic user id from before this client's cursor, the latest hydrated user on the authoritative branch owns that assistant and prevents turn projection from dropping it as an orphan. Sending a prompt on an already-open session
 must not install an empty `bySession` row: live events only carry the new
 turn, so a blank placeholder would make prior history disappear. If the
 resident transcript is missing or empty, `prompt()` re-hydrates from the
@@ -85,7 +97,22 @@ chunk in that block; reducers apply those chunks with `applyAssistantTextDelta`
 use event sequence for deduplication. Cadence folding uses the same merge so
 a frame of cumulative chunks cannot concatenate into stuttering markdown.
 `assistant.message.end` writes the canonical `text`/`thinking` onto the
-rendered parts; message-level fields alone are not what the chat paints.
+rendered parts; message-level fields alone are not what the chat paints. When
+that assistant produced tool calls, the end frame carries `continuing: true`,
+so the reducer keeps the turn's live message ownership across the
+message-end/tool-start boundary and does not flash a settled footer. An errored
+message end also keeps that ownership until Pi publishes retry or a terminal
+lifecycle. Retry metadata survives Pi's preparatory `busy` frame and the next
+assistant start, then clears only when text, thinking, or tool output proves the
+new attempt is streaming. Compaction is separate authoritative per-session
+state, not a `busy` heuristic. `session.compaction` and reconnect/getSession
+snapshots preserve manual/threshold/overflow reason, active/retrying/terminal
+phase, retry timing, redacted failure, compact-and-retry intent, and available
+pre/post token estimates. The chat overlays that notice on the turn whose
+timestamp precedes the compaction boundary, so a completed historical notice
+does not move onto a later turn. Manual `/compact` is acknowledged
+asynchronously and optional command text is forwarded as Pi custom compaction
+instructions.
 Thinking parts also clear `streaming` as soon as a later text or tool part
 on the same message starts, so the thinking block can collapse at handoff
 instead of waiting for message-end.
@@ -222,7 +249,18 @@ entries schedules one scan, not one per entry.
 
 ### Reconnect catch-up
 
-`reconnect()` merges the snapshot into the existing cluster (no disposals)
+`reconnect()` keeps the disconnected stream handle alive while it probes and
+fetches a replacement snapshot. If that explicit recovery fails, the stream's
+indefinite backoff loop remains the recovery owner instead of being disposed
+with its next retry already scheduled. A later healthy transport connection
+clears the connection error. If explicit recovery succeeds first, it disposes
+the old handle and installs the replacement stream. If the first runtime probe
+fails before any normal stream exists, the store attaches a payload-free
+recovery stream solely to reuse the transport's online/visibility-aware
+backoff. Once that endpoint connects, the store disposes it and reruns the
+authoritative bootstrap.
+
+A successful explicit reconnect merges the snapshot into the existing cluster
 and then iterates any hydrated resident whose `lastSequence` is behind the
 resumed cursor, issuing a `getSession` and `commitHydratedSession` for each.
 A quiet background turn does not lose the disconnect gap. Accepted

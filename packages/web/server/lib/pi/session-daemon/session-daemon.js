@@ -19,6 +19,9 @@ import {
 
 import { createPiModelConfigStore } from '../model-config-store.js';
 import { clampThinkingLevel, getSupportedThinkingLevels, isPiThinkingLevel } from '../thinking-levels.js';
+import { createMessageEntryAliases } from './message-entry-aliases.js';
+import { resolveEffectiveRetryLimitFromDataDir as resolveEffectiveRetryLimit } from './session-retry-limits.js';
+import { createSkillReadClassifier } from './skill-read-classifier.js';
 import { createSessionRuntimeRegistry } from './runtime-registry.js';
 import {
   findPiSessionJsonlById,
@@ -27,6 +30,7 @@ import {
   validatePiSessionJsonlDirectory,
   validatePiSessionJsonlFile,
 } from './session-jsonl.js';
+import { resolvePiChamberDataDir } from '../../pichamber-data-dir.js';
 
 const PROTOCOL_VERSION = 1;
 
@@ -181,7 +185,11 @@ export function createSessionDaemon({
   const latestAssistantMessageIds = new Map();
   const messageStartedAt = new Map();
   const toolStartedAt = new Map();
+  const toolInputBySession = new Map();
   const latestUserMessageIds = new Map();
+  const retryStateBySession = new Map();
+  const compactionStateBySession = new Map();
+  const activeRunStartedAt = new Map();
   const sendGenerationBySession = new Map();
   const streamingRedactionBuffers = new Map();
   const loginAttempts = new Map();
@@ -196,7 +204,55 @@ export function createSessionDaemon({
   const MAX_EXTENSION_APPS_PER_SESSION = 8;
   const MAX_EXTENSION_PANEL_ACTIONS = 8;
   const MAX_EXTENSION_APP_HTML_CHARS = 200_000;
+  const messageEntryAliases = createMessageEntryAliases();
+  const skillReadClassifierByRuntime = new WeakMap();
   const MAX_REPLAY_EVENTS = 1_024;
+
+  const skillReadClassifierFor = (activeRuntime, directory) => {
+    if (!activeRuntime || typeof activeRuntime !== 'object') return undefined;
+    const classifierCwd = activeRuntime.cwd || directory || activeDirectory || cwd;
+    const cached = skillReadClassifierByRuntime.get(activeRuntime);
+    if (cached?.cwd === classifierCwd) return cached.classifier;
+    const loader = activeRuntime.services?.resourceLoader;
+    const discovered = loader?.getSkills?.();
+    const classifier = createSkillReadClassifier({
+      cwd: classifierCwd,
+      skills: discovered?.skills,
+      platform,
+    });
+    skillReadClassifierByRuntime.set(activeRuntime, { cwd: classifierCwd, classifier });
+    return classifier;
+  };
+
+  const rememberToolInput = (sessionId, toolCallId, args) => {
+    const inputs = toolInputBySession.get(sessionId) ?? new Map();
+    inputs.set(toolCallId, args);
+    toolInputBySession.set(sessionId, inputs);
+  };
+
+  const getToolInput = (sessionId, toolCallId) => toolInputBySession.get(sessionId)?.get(toolCallId);
+
+  const forgetToolInput = (sessionId, toolCallId) => {
+    const inputs = toolInputBySession.get(sessionId);
+    if (!inputs) return;
+    inputs.delete(toolCallId);
+    if (inputs.size === 0) toolInputBySession.delete(sessionId);
+  };
+
+  const mergeToolPresentationMetadata = (metadata, activeRuntime, directory, toolName, args) => {
+    const skill = skillReadClassifierFor(activeRuntime, directory)?.(toolName, args);
+    if (!skill) return metadata;
+    const currentPiChamberMetadata = metadata?.pichamber && typeof metadata.pichamber === 'object'
+      ? metadata.pichamber
+      : {};
+    return {
+      ...(metadata ?? {}),
+      pichamber: {
+        ...currentPiChamberMetadata,
+        skill,
+      },
+    };
+  };
 
   const validateDirectoryPath = async (dir) => {
     if (typeof dir !== 'string' || dir.trim().length === 0) {
@@ -574,6 +630,24 @@ export function createSessionDaemon({
     ? { sessionId: runtime.session.sessionId, isStreaming: runtime.session.isStreaming }
     : { sessionId: dormantSession?.sessionId, isStreaming: false };
 
+  const persistedCompactionState = (session) => {
+    const entries = session?.sessionManager?.getBranch?.() ?? session?.sessionManager?.getEntries?.();
+    if (!Array.isArray(entries)) return undefined;
+    const entry = [...entries].reverse().find((candidate) => candidate?.type === 'compaction');
+    if (!entry) return undefined;
+    const completedAt = typeof entry.timestamp === 'number' ? entry.timestamp : Date.parse(entry.timestamp);
+    return {
+      phase: 'completed',
+      ...(Number.isFinite(completedAt) ? { completedAt } : {}),
+      ...(Number.isFinite(entry.tokensBefore) && entry.tokensBefore >= 0 ? { tokensBefore: entry.tokensBefore } : {}),
+    };
+  };
+
+  const compactionStateFor = (session) => {
+    if (!session?.sessionId) return undefined;
+    return compactionStateBySession.get(session.sessionId) ?? persistedCompactionState(session);
+  };
+
   const rememberRuntimeSession = () => {
     const sessionId = runtime?.session?.sessionId;
     if (typeof sessionId !== 'string' || sessionId.length === 0) return;
@@ -590,8 +664,10 @@ export function createSessionDaemon({
       : getSessionState();
     if (requestedSessionId && requestedSessionId !== session.sessionId) return;
     const activeSession = targetRuntime?.session || runtime?.session;
+    const retry = session.sessionId ? retryStateBySession.get(session.sessionId) : undefined;
+    const compaction = compactionStateFor(activeSession);
     const targetDirectory = targetRuntime?.cwd || activeDirectory || cwd;
-    const messages = activeSession ? projectMessageEntries(activeSession, targetDirectory) : [];
+    const messages = activeSession ? projectMessageEntries(targetRuntime || runtime, targetDirectory) : [];
     const lastAssistant = [...messages].reverse().find((entry) => entry.message.role === 'assistant')?.message;
     const model = activeSession?.model;
     const snapshotSequence = ++sequence;
@@ -616,7 +692,9 @@ export function createSessionDaemon({
         ...(session.sessionId ? { sessionId: session.sessionId } : {}),
         directory: targetDirectory,
         isStreaming: session.isStreaming ?? false,
-        lifecycle: session.isStreaming ? 'busy' : 'idle',
+        lifecycle: retry ? 'retry' : session.isStreaming ? 'busy' : 'idle',
+        ...(retry ? { retry } : {}),
+        ...(compaction ? { compaction } : {}),
         queue: activeSession ? {
           steering: activeSession.getSteeringMessages?.().length ?? 0,
           followUp: activeSession.getFollowUpMessages?.().length ?? 0,
@@ -625,6 +703,8 @@ export function createSessionDaemon({
         ...(activeSession?.thinkingLevel ? { thinking: activeSession.thinkingLevel } : {}),
         ...(typeof lastAssistant?.text === 'string' ? { lastText: lastAssistant.text } : {}),
         ...(typeof lastAssistant?.thinking === 'string' ? { lastThinking: lastAssistant.thinking } : {}),
+        ...(session.sessionId && activeRunStartedAt.has(session.sessionId) ? { runStartedAt: activeRunStartedAt.get(session.sessionId) } : {}),
+        serverNow: Date.now(),
         lastSequence: snapshotSequence,
         ...(statusesForSnapshot && statusesForSnapshot.size > 0 ? { extensionStatuses: [...statusesForSnapshot.entries()].map(([key, text]) => ({ key, text })) } : {}),
         ...(widgetsForSnapshot && widgetsForSnapshot.size > 0 ? { extensionWidgets: [...widgetsForSnapshot.entries()].map(([key, value]) => ({ key, lines: value.lines, placement: value.placement })) } : {}),
@@ -695,13 +775,14 @@ export function createSessionDaemon({
     const timer = setTimeout(async () => {
       idleDisposeTimers.delete(sessionId);
       const targetRuntime = runtimeRegistry?.findBySessionId(sessionId);
-      if (!targetRuntime || targetRuntime.session?.isStreaming) return;
+      if (!targetRuntime || targetRuntime.session?.isStreaming || targetRuntime.session?.isCompacting) return;
       try {
         if (targetRuntime === runtime) {
           rememberRuntimeSession();
         }
         clearExtensionState(sessionId);
         await runtimeRegistry.dispose(targetRuntime);
+        compactionStateBySession.delete(sessionId);
         if (targetRuntime === runtime) {
           runtime = undefined;
         }
@@ -1001,7 +1082,8 @@ export function createSessionDaemon({
     return entries;
   };
 
-  const projectMessageEntries = (session, targetDir = activeDirectory || cwd) => {
+  const projectMessageEntries = (activeRuntime, targetDir = activeDirectory || cwd) => {
+    const session = activeRuntime?.session;
     // Use the active branch, not the full file. `getEntries()` returns every
     // entry ever written, so a bare `branch()`/`resetLeaf()` would appear to
     // do nothing. `getBranch()` follows the current leaf and is what
@@ -1080,6 +1162,7 @@ export function createSessionDaemon({
           const result = toolResults.get(part.id);
           const running = streaming && !result;
           const interrupted = !running && !result;
+          const metadata = mergeToolPresentationMetadata(result?.metadata, activeRuntime, targetDir, part.name, part.arguments);
           return [{
             type: 'tool',
             id: `${entry.id}:tool:${part.id}`,
@@ -1095,7 +1178,7 @@ export function createSessionDaemon({
                 ? { error: 'Tool was interrupted before completion.' }
                 : {}),
             ...(result?.isError || interrupted ? { isError: true } : {}),
-            ...(result?.metadata ? { metadata: result.metadata } : {}),
+            ...(metadata ? { metadata } : {}),
             ...(Number.isFinite(result?.endedAt)
               ? { endedAt: result.endedAt }
               : interrupted
@@ -1128,12 +1211,14 @@ export function createSessionDaemon({
       throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi returned an invalid active session.');
     }
     const model = session.model;
-    const messages = projectMessageEntries(session, targetDir);
+    const messages = projectMessageEntries(activeRuntime, targetDir);
     const lastAssistant = [...messages].reverse().find((entry) => entry.message.role === 'assistant')?.message;
     const sessionModel = lastAssistant?.model
       ?? (model?.provider && model?.id ? { providerId: model.provider, modelId: model.id } : undefined);
     const sessionThinking = lastAssistant?.thinkingLevel || session.thinkingLevel;
     const isStreaming = session.isStreaming === true;
+    const retry = retryStateBySession.get(session.sessionId);
+    const compaction = compactionStateFor(session);
     return {
       session: {
         id: session.sessionId, directory: targetDir, createdAt, updatedAt: createdAt,
@@ -1145,11 +1230,19 @@ export function createSessionDaemon({
       messages,
       lastSequence: sequence,
       isStreaming,
-      lifecycle: isStreaming ? 'busy' : 'idle',
+      lifecycle: retry ? 'retry' : isStreaming ? 'busy' : 'idle',
+      ...(retry ? { retry } : {}),
+      ...(compaction ? { compaction } : {}),
+      ...(activeRunStartedAt.has(session.sessionId) ? { runStartedAt: activeRunStartedAt.get(session.sessionId) } : {}),
+      serverNow: Date.now(),
     };
   };
 
   const createSession = async (payload) => {
+    const explicitRetryLimit = payload && typeof payload === 'object' ? (payload.maxRetries ?? payload.retryLimit ?? payload.defaultRetryLimit) : undefined;
+    if (explicitRetryLimit !== undefined && (!Number.isInteger(explicitRetryLimit) || explicitRetryLimit < 0 || explicitRetryLimit > 10)) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The retry limit must be an integer between 0 and 10.');
+    }
     if (!payload || typeof payload !== 'object'
       || (payload.cwd !== undefined && (typeof payload.cwd !== 'string' || payload.cwd.length === 0))
       || (payload.title !== undefined && (typeof payload.title !== 'string' || payload.title.trim().length === 0 || payload.title.length > 256))
@@ -1171,6 +1264,29 @@ export function createSessionDaemon({
       ...(parent ? { sessionFile: parent.path } : {}),
     });
     if (!newRuntime.cwd) newRuntime.cwd = targetCwd;
+    // Apply default retry limit for new sessions. Explicit per-run overrides win.
+    // With no PiChamber override configured, Pi's own retry settings stay
+    // authoritative — the runtime default (3) already matches, so nothing is
+    // applied and a user's Pi-native maxRetries value is never stomped.
+    try {
+      const settingsManager = newRuntime.services?.settingsManager;
+      if (settingsManager && typeof settingsManager.getRetrySettings === 'function') {
+        const effective = await resolveEffectiveRetryLimit({ payloadRetryLimit: explicitRetryLimit, dataDir: resolvePiChamberDataDir() });
+        if (effective !== undefined) {
+          const current = settingsManager.getRetrySettings().maxRetries;
+          if (current !== effective) {
+            if (typeof settingsManager.applyOverrides === 'function') {
+              // In-memory only: applyOverrides never queues a write, so this
+              // scopes the limit to sessions created on this runtime without
+              // touching Pi's own settings files.
+              settingsManager.applyOverrides({ retry: { maxRetries: effective } });
+            } else if (settingsManager.globalSettings) {
+              settingsManager.globalSettings.retry = { ...(settingsManager.globalSettings.retry ?? {}), maxRetries: effective };
+            }
+          }
+        }
+      }
+    } catch {}
     let result = { cancelled: false };
     if (typeof newRuntime.newSession === 'function') {
       result = await newRuntime.newSession({
@@ -1756,11 +1872,72 @@ export function createSessionDaemon({
     }
   };
 
-  const redactAttachmentPaths = (text) => typeof text === 'string'
-    ? text
-      .replace(/\[Attachment[^\]\r\n]*pi-clipboard-[0-9a-f-]{36}[^\]\r\n]*\]/gi, '[attachment]')
-      .replace(/(?:[A-Za-z]:)?[^\s[\](){}"'`]*pi-clipboard-[0-9a-f-]{36}(?:\.[^\s\])}\]"'`,;]+)?/gi, '[attachment]')
-    : '';
+  const attachmentMarkerPattern = /pi-clipboard-/i;
+  const attachmentMarkerSearchPattern = /pi-clipboard-/gi;
+  const attachmentIdPattern = /^[0-9a-f-]{36}$/i;
+  const attachmentBracketStartPattern = /\[Attachment/gi;
+  const attachmentTokenPattern = /pi-clipboard-[0-9a-f-]{36}/i;
+  const isAttachmentPathDelimiter = (character) => /[\s[\](){}"'`,;]/u.test(character);
+
+  const redactAttachmentBrackets = (text) => {
+    let cursor = 0;
+    let output = '';
+    while (cursor < text.length) {
+      attachmentBracketStartPattern.lastIndex = cursor;
+      const bracketStart = attachmentBracketStartPattern.exec(text);
+      if (!bracketStart) {
+        output += text.slice(cursor);
+        break;
+      }
+
+      output += text.slice(cursor, bracketStart.index);
+      let bracketEnd = bracketStart.index + bracketStart[0].length;
+      while (bracketEnd < text.length && text[bracketEnd] !== ']' && text[bracketEnd] !== '\r' && text[bracketEnd] !== '\n') bracketEnd += 1;
+      if (text[bracketEnd] === ']') {
+        const candidate = text.slice(bracketStart.index, bracketEnd + 1);
+        output += attachmentTokenPattern.test(candidate) ? '[attachment]' : candidate;
+        cursor = bracketEnd + 1;
+      } else {
+        output += text.slice(bracketStart.index, bracketEnd);
+        cursor = bracketEnd;
+      }
+    }
+    return output;
+  };
+
+  const redactAttachmentPaths = (text) => {
+    if (typeof text !== 'string') return '';
+
+    if (!attachmentMarkerPattern.test(text)) return text;
+    const bracketRedacted = redactAttachmentBrackets(text);
+    let cursor = 0;
+    let output = '';
+    while (cursor < bracketRedacted.length) {
+      attachmentMarkerSearchPattern.lastIndex = cursor;
+      const markerMatch = attachmentMarkerSearchPattern.exec(bracketRedacted);
+      if (!markerMatch) {
+        output += bracketRedacted.slice(cursor);
+        break;
+      }
+
+      const markerIndex = markerMatch.index;
+      const idStart = markerIndex + markerMatch[0].length;
+      const idEnd = idStart + 36;
+      if (!attachmentIdPattern.test(bracketRedacted.slice(idStart, idEnd))) {
+        output += bracketRedacted.slice(cursor, idStart);
+        cursor = idStart;
+        continue;
+      }
+
+      let tokenStart = markerIndex;
+      while (tokenStart > cursor && !isAttachmentPathDelimiter(bracketRedacted[tokenStart - 1])) tokenStart -= 1;
+      let tokenEnd = idEnd;
+      while (tokenEnd < bracketRedacted.length && !isAttachmentPathDelimiter(bracketRedacted[tokenEnd])) tokenEnd += 1;
+      output += `${bracketRedacted.slice(cursor, tokenStart)}[attachment]`;
+      cursor = tokenEnd;
+    }
+    return output;
+  };
 
   const redactAttachmentValues = (value) => {
     if (typeof value === 'string') return redactAttachmentPaths(value);
@@ -2016,7 +2193,14 @@ export function createSessionDaemon({
       targetDir = directory;
       await rm(target.path, { force: false });
     }
-    publish('session.lifecycle', { state: 'idle', deleted: true }, sessionId, targetDir);
+    messageEntryAliases.clearSession({ cwd: active?.cwd || targetDir, sessionId });
+    retryStateBySession.delete(sessionId);
+    compactionStateBySession.delete(sessionId);
+    activeRunStartedAt.delete(sessionId);
+    latestUserMessageIds.delete(sessionId);
+    latestAssistantMessageIds.delete(sessionId);
+    toolInputBySession.delete(sessionId);
+    publish('session.lifecycle', { state: 'idle', deleted: true, serverNow: Date.now() }, sessionId, targetDir);
   };
 
   const publishExtensionCustomMessage = (sessionId, message, directory = activeDirectory || cwd) => {
@@ -2115,6 +2299,7 @@ export function createSessionDaemon({
               ? content.filter((part) => part?.type === 'text').map((part) => part.text).join('')
               : '');
           const messageId = `user-${sessionId}-${sequence + 1}`;
+          messageEntryAliases.retain({ cwd: directory, sessionId, syntheticMessageId: messageId, message: event.message });
           latestUserMessageIds.set(sessionId, messageId);
           publish('assistant.message.start', {
             messageId,
@@ -2124,6 +2309,7 @@ export function createSessionDaemon({
           }, sessionId, directory);
         } else if (event.message?.role === 'assistant') {
           const messageId = `assistant-${sessionId}-${sequence + 1}`;
+          messageEntryAliases.retain({ cwd: directory, sessionId, syntheticMessageId: messageId, message: event.message });
           clearStreamingRedactionBuffers(sessionId);
           streamingMessageIds.set(sessionId, messageId);
           latestAssistantMessageIds.set(sessionId, messageId);
@@ -2152,6 +2338,19 @@ export function createSessionDaemon({
         break;
       }
       case 'message_end': {
+        const eventRuntime = runtimeRegistry?.get({ cwd: directory, sessionId });
+        const syntheticMessageId = event.message?.role === 'assistant'
+          ? streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId)
+          : event.message?.role === 'user'
+            ? latestUserMessageIds.get(sessionId)
+            : undefined;
+        messageEntryAliases.observeMessageEnd({
+          cwd: directory,
+          sessionId,
+          syntheticMessageId,
+          message: event.message,
+          sessionManager: eventRuntime?.session?.sessionManager,
+        });
         if (event.message?.role === 'assistant') {
           const content = Array.isArray(event.message.content) ? event.message.content : [];
           const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
@@ -2164,6 +2363,7 @@ export function createSessionDaemon({
             text: redactAttachmentPaths(content.filter((part) => part?.type === 'text').map((part) => part.text).join('')),
             thinking: redactAttachmentPaths(content.filter((part) => part?.type === 'thinking').map((part) => part.thinking).join('')),
             durationMs,
+            ...(content.some((part) => part?.type === 'toolCall') ? { continuing: true } : {}),
             ...(event.message.errorMessage ? { error: { code: 'ASSISTANT_ERROR', message: redactAttachmentPaths(event.message.errorMessage) } } : {}),
             ...(usage ? { usage } : {}),
           }, sessionId, directory);
@@ -2203,7 +2403,10 @@ export function createSessionDaemon({
       case 'tool_execution_start': {
         const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
         const startedAt = Date.now();
+        const activeRuntime = runtimeRegistry?.get({ cwd: directory, sessionId }) || runtime;
+        const metadata = mergeToolPresentationMetadata(undefined, activeRuntime, directory, event.toolName, event.args);
         toolStartedAt.set(event.toolCallId, startedAt);
+        rememberToolInput(sessionId, event.toolCallId, event.args);
         publish('session.tool.start', {
           toolCallId: event.toolCallId,
           partId: `${messageId}:tool:${event.toolCallId}`,
@@ -2212,13 +2415,17 @@ export function createSessionDaemon({
           toolName: event.toolName,
           state: 'running',
           ...(event.args !== undefined ? { input: redactAttachmentValues(event.args) } : {}),
+          ...(metadata ? { metadata } : {}),
           startedAt,
         }, sessionId, directory);
         break;
       }
       case 'tool_execution_update': {
         const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
+        const activeRuntime = runtimeRegistry?.get({ cwd: directory, sessionId }) || runtime;
+        const toolArgs = event.args ?? getToolInput(sessionId, event.toolCallId);
         const projected = projectToolResult(event.partialResult, false);
+        const metadata = mergeToolPresentationMetadata(projected.metadata, activeRuntime, directory, event.toolName, toolArgs);
         publish('session.tool.update', {
           toolCallId: event.toolCallId,
           partId: `${messageId}:tool:${event.toolCallId}`,
@@ -2228,14 +2435,19 @@ export function createSessionDaemon({
           state: 'running',
           ...(event.args !== undefined ? { input: redactAttachmentValues(event.args) } : {}),
           ...projected,
+          ...(metadata ? { metadata } : {}),
         }, sessionId, directory);
         break;
       }
       case 'tool_execution_end': {
         const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
         const startedAt = toolStartedAt.get(event.toolCallId);
+        const toolArgs = event.args ?? getToolInput(sessionId, event.toolCallId);
         toolStartedAt.delete(event.toolCallId);
+        forgetToolInput(sessionId, event.toolCallId);
+        const activeRuntime = runtimeRegistry?.get({ cwd: directory, sessionId }) || runtime;
         const projected = projectToolResult(event.result, event.isError === true);
+        const metadata = mergeToolPresentationMetadata(projected.metadata, activeRuntime, directory, event.toolName, toolArgs);
         publish('session.tool.end', {
           toolCallId: event.toolCallId,
           partId: `${messageId}:tool:${event.toolCallId}`,
@@ -2245,6 +2457,7 @@ export function createSessionDaemon({
           state: event.isError ? 'error' : 'completed',
           isError: event.isError === true,
           ...projected,
+          ...(metadata ? { metadata } : {}),
           ...(Number.isFinite(startedAt) ? { startedAt } : {}),
           endedAt: Date.now(),
         }, sessionId, directory);
@@ -2255,11 +2468,11 @@ export function createSessionDaemon({
         break;
       case 'agent_start':
         clearIdleDisposal(sessionId);
-        publish('session.lifecycle', { state: 'busy' }, sessionId, directory);
+        retryStateBySession.delete(sessionId);
+        if (!activeRunStartedAt.has(sessionId)) activeRunStartedAt.set(sessionId, Date.now());
+        publish('session.lifecycle', { state: 'busy', runStartedAt: activeRunStartedAt.get(sessionId), serverNow: Date.now() }, sessionId, directory);
         break;
       case 'agent_end': {
-        latestUserMessageIds.delete(sessionId);
-        latestAssistantMessageIds.delete(sessionId);
         const finalMessage = event.messages?.at?.(-1);
         if (finalMessage?.role === 'assistant' && finalMessage.stopReason === 'aborted') {
           publish('session.interrupted', { reason: 'user-abort', streaming: false }, sessionId, directory);
@@ -2268,27 +2481,85 @@ export function createSessionDaemon({
         }
         break;
       }
-      case 'auto_retry_start':
-        publish('session.lifecycle', {
-          state: 'retry',
+      case 'auto_retry_start': {
+        const retry = {
           attempt: event.attempt,
           next: Date.now() + event.delayMs,
           message: redactAttachmentPaths(event.errorMessage),
-        }, sessionId, directory);
+        };
+        retryStateBySession.set(sessionId, retry);
+        if (!activeRunStartedAt.has(sessionId)) activeRunStartedAt.set(sessionId, Date.now());
+        publish('session.lifecycle', { state: 'retry', ...retry, runStartedAt: activeRunStartedAt.get(sessionId), serverNow: Date.now() }, sessionId, directory);
+        break;
+      }
+      case 'auto_retry_end':
+        retryStateBySession.delete(sessionId);
         break;
       case 'agent_settled':
-        publish('session.lifecycle', { state: 'idle' }, sessionId, directory);
+        retryStateBySession.delete(sessionId);
+        activeRunStartedAt.delete(sessionId);
+        latestUserMessageIds.delete(sessionId);
+        latestAssistantMessageIds.delete(sessionId);
+        toolInputBySession.delete(sessionId);
+        publish('session.lifecycle', { state: 'idle', serverNow: Date.now() }, sessionId, directory);
         scheduleIdleDisposal(sessionId);
         break;
       case 'thinking_level_changed':
         publish('session.thinking', { thinking: event.level }, sessionId, directory);
         break;
-      case 'compaction_start':
-        publish('session.compaction', { running: true }, sessionId, directory);
+      case 'compaction_start': {
+        clearIdleDisposal(sessionId);
+        const compaction = { phase: 'running', reason: event.reason, startedAt: Date.now() };
+        compactionStateBySession.set(sessionId, compaction);
+        publish('session.compaction', compaction, sessionId, directory);
         break;
-      case 'compaction_end':
-        publish('session.compaction', { running: false }, sessionId, directory);
+      }
+      case 'summarization_retry_scheduled': {
+        const current = compactionStateBySession.get(sessionId);
+        if (!current || (current.phase !== 'running' && current.phase !== 'retrying')) break;
+        const compaction = {
+          ...current,
+          phase: 'retrying',
+          attempt: event.attempt,
+          maxAttempts: event.maxAttempts,
+          next: Date.now() + event.delayMs,
+          message: redactAttachmentPaths(event.errorMessage),
+        };
+        compactionStateBySession.set(sessionId, compaction);
+        publish('session.compaction', compaction, sessionId, directory);
         break;
+      }
+      case 'summarization_retry_attempt_start': {
+        if (event.source !== 'compaction') break;
+        const current = compactionStateBySession.get(sessionId);
+        if (!current) break;
+        const compaction = { ...current, phase: 'running' };
+        compactionStateBySession.set(sessionId, compaction);
+        publish('session.compaction', compaction, sessionId, directory);
+        break;
+      }
+      case 'compaction_end': {
+        const current = compactionStateBySession.get(sessionId);
+        const phase = event.aborted ? 'aborted' : event.result ? 'completed' : 'failed';
+        const compaction = {
+          phase,
+          ...(event.reason ? { reason: event.reason } : {}),
+          ...(current?.startedAt ? { startedAt: current.startedAt } : {}),
+          completedAt: Date.now(),
+          ...(event.result && Number.isFinite(event.result.tokensBefore) && event.result.tokensBefore >= 0
+            ? { tokensBefore: event.result.tokensBefore }
+            : {}),
+          ...(event.result && Number.isFinite(event.result.estimatedTokensAfter) && event.result.estimatedTokensAfter >= 0
+            ? { estimatedTokensAfter: event.result.estimatedTokensAfter }
+            : {}),
+          willRetry: event.willRetry === true,
+          ...(typeof event.errorMessage === 'string' ? { message: redactAttachmentPaths(event.errorMessage) } : {}),
+        };
+        compactionStateBySession.set(sessionId, compaction);
+        publish('session.compaction', compaction, sessionId, directory);
+        if (!event.willRetry) scheduleIdleDisposal(sessionId);
+        break;
+      }
       default:
         break;
     }
@@ -2493,35 +2764,16 @@ export function createSessionDaemon({
       }
       case 'sessions.navigate': {
         const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
-        let messageId = message.payload?.messageId;
-        if (typeof messageId !== 'string' || messageId.length === 0) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested tree entry is invalid.');
-        // UI may pass a part id like "c865141a:text:1" (e.g. from a tool block).
-        // Pi only knows entry ids, so strip the suffix and retry the entry lookup.
-        const tryIds = [messageId];
-        if (messageId.includes(':')) {
-          const entryId = messageId.split(':')[0];
-          if (entryId && entryId !== messageId) tryIds.unshift(entryId);
-        }
+        const requestedId = message.payload?.messageId;
+        if (typeof requestedId !== 'string' || requestedId.length === 0) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested tree entry is invalid.');
+        const messageId = messageEntryAliases.resolve({
+          cwd: activeRuntime.cwd,
+          sessionId: message.payload.sessionId,
+          requestedId,
+          sessionManager: activeRuntime.session.sessionManager,
+        });
         const previousLeafId = activeRuntime.session.sessionManager?.getLeafId?.() ?? null;
-        let result;
-        let lastError;
-        for (const tryId of tryIds) {
-          try {
-            result = await activeRuntime.session.navigateTree(tryId);
-            messageId = tryId;
-            lastError = undefined;
-            break;
-          } catch (error) {
-            lastError = error;
-            // Only retry on "Entry not found" with a stripped id; otherwise surface immediately.
-            const isEntryNotFound = String(error?.message ?? '').includes('not found');
-            if (!isEntryNotFound || tryId === tryIds[tryIds.length - 1]) {
-              console.error(`[pi:navigate] target=${tryId} leaf=${previousLeafId} branch=${activeRuntime.session.sessionManager?.getBranch?.()?.map((e) => e.id).join(',') ?? 'unknown'} error=${error?.message ?? String(error)}`);
-              throw error;
-            }
-          }
-        }
-        if (lastError) throw lastError;
+        const result = await activeRuntime.session.navigateTree(messageId);
         if (result?.cancelled) throw new SessionDaemonProtocolError('SESSION_TREE_NOT_FOUND', 'Pi cancelled tree navigation.');
         const newLeafId = activeRuntime.session.sessionManager?.getLeafId?.() ?? null;
         const navigation = {
@@ -2536,8 +2788,16 @@ export function createSessionDaemon({
       case 'sessions.fork':
       case 'sessions.clone': {
         const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
-        const entryId = message.command === 'sessions.fork' ? message.payload?.messageId : activeRuntime.session.sessionManager?.getLeafId?.();
-        if (typeof entryId !== 'string' || entryId.length === 0) throw new SessionDaemonProtocolError('SESSION_TREE_NOT_FOUND', 'The Pi session has no fork point.');
+        const requestedId = message.command === 'sessions.fork' ? message.payload?.messageId : activeRuntime.session.sessionManager?.getLeafId?.();
+        if (typeof requestedId !== 'string' || requestedId.length === 0) throw new SessionDaemonProtocolError('SESSION_TREE_NOT_FOUND', 'The Pi session has no fork point.');
+        const entryId = message.command === 'sessions.fork'
+          ? messageEntryAliases.resolve({
+            cwd: activeRuntime.cwd,
+            sessionId: message.payload.sessionId,
+            requestedId,
+            sessionManager: activeRuntime.session.sessionManager,
+          })
+          : requestedId;
         const result = await activeRuntime.fork(entryId, { position: 'at' });
         if (result.cancelled) throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled session creation.');
         rememberRuntimeSession();
@@ -2585,7 +2845,15 @@ export function createSessionDaemon({
       }
       case 'sessions.compact': {
         if (message.payload?.thinking !== undefined) validateThinking(message.payload.thinking);
+        if (message.payload?.customInstructions !== undefined
+          && (typeof message.payload.customInstructions !== 'string' || message.payload.customInstructions.length > 20_000)) {
+          throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'Compaction instructions must be a string no longer than 20,000 characters.');
+        }
         const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
+        const currentCompaction = compactionStateBySession.get(message.payload.sessionId);
+        if (activeRuntime.session.isCompacting || currentCompaction?.phase === 'running' || currentCompaction?.phase === 'retrying') {
+          throw new SessionDaemonProtocolError('SESSION_BUSY', 'This session is already compacting.');
+        }
         if (message.payload?.model !== undefined) {
           await setSessionModel(activeRuntime, message.payload.model);
           publishSessionModel(activeRuntime.session, message.payload.sessionId, activeRuntime.cwd);
@@ -2593,8 +2861,22 @@ export function createSessionDaemon({
         if (message.payload?.thinking !== undefined) {
           applyThinking(activeRuntime, message.payload.thinking, message.payload.sessionId, activeRuntime.cwd);
         }
-        await activeRuntime.session.compact();
-        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
+        Promise.resolve(activeRuntime.session.compact(message.payload?.customInstructions)).catch((error) => {
+          const current = compactionStateBySession.get(message.payload.sessionId);
+          if (current?.phase === 'completed' || current?.phase === 'failed' || current?.phase === 'aborted') return;
+          const compaction = {
+            phase: 'failed',
+            reason: 'manual',
+            ...(current?.startedAt ? { startedAt: current.startedAt } : {}),
+            completedAt: Date.now(),
+            message: redactAttachmentPaths(error instanceof Error ? error.message : 'Compaction failed.'),
+            willRetry: false,
+          };
+          compactionStateBySession.set(message.payload.sessionId, compaction);
+          publish('session.compaction', compaction, message.payload.sessionId, activeRuntime.cwd);
+          scheduleIdleDisposal(message.payload.sessionId);
+        });
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: { accepted: true } });
         return;
       }
       default:
@@ -2705,6 +2987,7 @@ export function createSessionDaemon({
         if (platform !== 'win32') await chmod(endpoint, 0o600);
         started = true;
       } catch (error) {
+        messageEntryAliases.clear();
         await disposeRuntime();
         server = undefined;
         throw error;
@@ -2718,8 +3001,14 @@ export function createSessionDaemon({
         clearTimeout(attempt.expiry);
       }
       loginAttempts.clear();
+      retryStateBySession.clear();
+      compactionStateBySession.clear();
+      activeRunStartedAt.clear();
+      latestUserMessageIds.clear();
+      latestAssistantMessageIds.clear();
       for (const client of clients) client.destroy();
       clients.clear();
+      messageEntryAliases.clear();
       await new Promise((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());
       });

@@ -6,10 +6,13 @@ import { cn } from '@/lib/utils';
 import { Icon } from '@/components/icon/Icon';
 import { SimpleMarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 
+type SnippetEditorMode = 'write' | 'preview';
+
 interface SnippetMarkdownEditorProps {
   value: string;
   onChange: (value: string) => void;
   readOnly?: boolean;
+  initialMode?: SnippetEditorMode;
   placeholder?: string;
   /** Optional id for anchoring via data-settings-item. */
   settingsItem?: string;
@@ -22,12 +25,13 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
   value,
   onChange,
   readOnly = false,
+  initialMode = 'preview',
   placeholder = 'Enter the prompt template text... Use markdown to format your snippet. It will expand as #name in the composer.',
   settingsItem,
   minHeight = 220,
   hideExpandsNote = false,
 }) => {
-  const [mode, setMode] = React.useState<'write' | 'preview'>('preview');
+  const [mode, setMode] = React.useState<SnippetEditorMode>(() => readOnly ? 'preview' : initialMode);
   const hasContent = value.trim().length > 0;
 
   React.useEffect(() => {

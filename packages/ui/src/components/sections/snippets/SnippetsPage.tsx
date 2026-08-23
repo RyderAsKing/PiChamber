@@ -367,7 +367,13 @@ export const SnippetsPage: React.FC = () => {
               ) : null
             }
           >
-            <SnippetMarkdownEditor value={content} onChange={setContent} readOnly={!isEditable} />
+            <SnippetMarkdownEditor
+              key={isNew ? 'new-snippet-editor' : `snippet-editor:${selected?.name ?? ''}`}
+              value={content}
+              onChange={setContent}
+              readOnly={!isEditable}
+              initialMode={isNew ? 'write' : 'preview'}
+            />
             {isEditable ? (
               <div className="flex items-center justify-between gap-3 pt-2">
                 <Button variant="ghost" size="sm" onClick={handleBack}>

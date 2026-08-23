@@ -5,7 +5,6 @@ import { parseRoute, updateBrowserURL, hasRouteParams } from '@/lib/router';
 import type { RouteState, AppRouteState } from '@/lib/router';
 import type { MainTab } from '@/stores/useUIStore';
 import { resolveSettingsSlug } from '@/lib/settings/metadata';
-import { isEmbeddedSessionChat } from '@/components/layout/contextPanelEmbeddedChat';
 import { routeSessionIdForState } from '@/lib/router/session-intent';
 
 import { getPiSessionStore } from '@/apps/pi-session-store';
@@ -18,20 +17,9 @@ import { getPiSessionStore } from '@/apps/pi-session-store';
  * - Sets up subscriptions to sync state changes back to URL
  * - Listens for browser back/forward navigation
  *
- * Works in:
- * - Web: Full bidirectional sync
- * - Desktop: Full bidirectional sync
- * - Embedded session-chat iframe (`?ocPanel=session-chat`): No URL updates.
- *   The iframe's session identity is fixed at mount (the parent builds the
- *   src with `sessionId`); in-place subtask navigation must NOT rewrite the
- *   URL, otherwise `ocPanel` (and `directory`/`readOnly`) get stripped and
- *   `isEmbeddedSessionChat()` starts returning false, breaking subsequent
- *   "Open subtask" clicks.
+ * Web and desktop both use full bidirectional synchronization.
  */
 export function useRouter(): void {
-  // Captured once at mount: the iframe's embedded-ness never changes during
-  // its lifetime (a parent src swap is a full reload).
-  const isEmbeddedChat = React.useMemo(() => isEmbeddedSessionChat(), []);
 
   // Track initialization to avoid duplicate applies
   const initializedRef = React.useRef(false);
@@ -61,11 +49,7 @@ export function useRouter(): void {
           const currentSessionId = useSessionUIStore.getState().currentSessionId;
           const piSelectedId = getPiSessionStore().getState().selectedSessionId;
           if (route.sessionId !== currentSessionId || route.sessionId !== piSelectedId) {
-            const embeddedDirectory = isEmbeddedChat && typeof window !== 'undefined'
-              ? new URLSearchParams(window.location.search).get('directory')
-              : null;
-            const directoryHint = embeddedDirectory
-              || useSessionUIStore.getState().getDirectoryForSession(route.sessionId);
+            const directoryHint = useSessionUIStore.getState().getDirectoryForSession(route.sessionId);
             setCurrentSession(route.sessionId, directoryHint);
           }
         }
@@ -96,7 +80,7 @@ export function useRouter(): void {
         isApplyingRouteRef.current = false;
       }
     },
-    [isEmbeddedChat, setCurrentSession, setActiveMainTab, setSettingsDialogOpen, setSettingsPage, navigateToDiff]
+    [setCurrentSession, setActiveMainTab, setSettingsDialogOpen, setSettingsPage, navigateToDiff]
   );
 
   /**
@@ -125,14 +109,14 @@ export function useRouter(): void {
    */
   const syncURLFromState = React.useCallback(
     (options: { replace?: boolean } = {}) => {
-      if (isEmbeddedChat || isApplyingRouteRef.current) {
+      if (isApplyingRouteRef.current) {
         return;
       }
 
       const state = getCurrentAppState();
       updateBrowserURL(state, options);
     },
-    [isEmbeddedChat, getCurrentAppState]
+    [getCurrentAppState]
   );
 
   // Initialize: parse URL and apply route on mount
@@ -158,8 +142,7 @@ export function useRouter(): void {
       // Use the parsed route values instead of an immediate store snapshot so
       // deep links do not briefly normalize `?session=...` back to `/` while
       // the session's directory/message bootstrap is still catching up.
-      if (!isEmbeddedChat) {
-        updateBrowserURL({
+      updateBrowserURL({
           ...getCurrentAppState(),
           sessionId: route.sessionId ?? routeSessionIdForState({
             currentSessionId: useSessionUIStore.getState().currentSessionId,
@@ -170,18 +153,13 @@ export function useRouter(): void {
           settingsPath: route.settingsPath ?? useUIStore.getState().settingsPage,
           diffFile: route.diffFile ?? useUIStore.getState().pendingDiffFile,
         }, { replace: true, force: true });
-      }
     };
 
     void initializeRoute();
-  }, [applyRoute, getCurrentAppState, isEmbeddedChat]);
+  }, [applyRoute, getCurrentAppState]);
 
   // Subscribe to session changes
   React.useEffect(() => {
-    if (isEmbeddedChat) {
-      return;
-    }
-
     const readRouteSessionId = () => {
       const uiState = useSessionUIStore.getState();
       const piState = getPiSessionStore().getState();
@@ -222,14 +200,10 @@ export function useRouter(): void {
       unsubscribeUI();
       unsubscribePi();
     };
-  }, [isEmbeddedChat, syncURLFromState]);
+  }, [syncURLFromState]);
 
   // Subscribe to UI store changes (tab, settings)
   React.useEffect(() => {
-    if (isEmbeddedChat) {
-      return;
-    }
-
     let prevTab: MainTab = useUIStore.getState().activeMainTab;
     let prevSettingsOpen: boolean = useUIStore.getState().isSettingsDialogOpen;
     let prevSettingsPath: string = useUIStore.getState().settingsPage;
@@ -259,11 +233,11 @@ export function useRouter(): void {
     });
 
     return unsubscribe;
-  }, [isEmbeddedChat, syncURLFromState]);
+  }, [syncURLFromState]);
 
   // Listen for browser back/forward navigation
   React.useEffect(() => {
-    if (typeof window === 'undefined' || isEmbeddedChat) {
+    if (typeof window === 'undefined') {
       return;
     }
 
@@ -293,5 +267,5 @@ export function useRouter(): void {
     return () => {
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [applyRoute, isEmbeddedChat, setActiveMainTab, setSettingsDialogOpen]);
+  }, [applyRoute, setActiveMainTab, setSettingsDialogOpen]);
 }

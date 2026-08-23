@@ -49,3 +49,27 @@ export const unsupportedAppSpecificOpenError = (targetKind, platform = process.p
       : platform;
   return `Opening ${targetKind} in a specific app is not supported on ${platformName} yet. Use the default open action instead.`;
 };
+
+// Only http/https may leave the app via the OS handler. Other schemes
+// (file:, ms-msdt:, search-ms:, custom protocols) are a Windows execution
+// vector when passed to shell.openExternal from renderer-driven navigation.
+const SAFE_EXTERNAL_URL_PROTOCOLS = new Set(['http:', 'https:']);
+
+export const isSafeExternalUrl = (rawUrl) => {
+  if (typeof rawUrl !== 'string' || rawUrl.trim().length === 0) {
+    return false;
+  }
+  try {
+    return SAFE_EXTERNAL_URL_PROTOCOLS.has(new URL(rawUrl).protocol);
+  } catch {
+    return false;
+  }
+};
+
+export const openExternalUrlIfSafe = async (shellLike, rawUrl) => {
+  if (!isSafeExternalUrl(rawUrl)) {
+    return false;
+  }
+  await shellLike.openExternal(rawUrl);
+  return true;
+};

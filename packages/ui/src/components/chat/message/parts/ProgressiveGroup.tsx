@@ -19,13 +19,14 @@ import { isExpandableTool, isStandaloneTool, isStaticTool } from './toolRenderUt
 import { RuntimeAPIContext } from '@/contexts/runtimeAPIContext';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useUIStore } from '@/stores/useUIStore';
-import { useSkillsStore } from '@/stores/useSkillsStore';
 import { ensureOutsideFileGrantForDesktop } from '@/lib/outsideFileGrants';
 import ReasoningPart from './ReasoningPart';
 import JustificationBlock from './JustificationBlock';
 import { areRenderRelevantPartsEqual } from '../renderCompare';
 import { getExternalFaviconUrl } from '@/lib/url';
-import { getDirectoryForFilePath, getRelativeFilePath, isFilePathWithinDirectory, normalizeFilePath, toAbsoluteFilePath } from '@/lib/path-utils';
+import { getDirectoryForFilePath, getRelativeFilePath, isFilePathWithinDirectory, toAbsoluteFilePath } from '@/lib/path-utils';
+import { openSkillSettings } from '@/lib/skills/openSkillSettings';
+import { getToolSkillName } from './skillToolPresentation';
 
 const TOOL_ROW_TEXT_CLASS = '!text-[length:var(--text-meta)] !leading-5 sm:!leading-6 tracking-normal';
 const TOOL_ROW_TITLE_CLASS = cn('typography-meta font-medium', TOOL_ROW_TEXT_CLASS);
@@ -134,14 +135,6 @@ const getToolFilePath = (activity: TurnActivityPart): string | null => {
         (metadata?.path as string);
 
     return typeof filePath === 'string' && filePath.trim().length > 0 ? filePath : null;
-};
-
-const getToolSkillDirectory = (activity: TurnActivityPart): string | null => {
-    const part = activity.part as ToolPartType;
-    const state = part.state as { metadata?: Record<string, unknown> } | undefined;
-    const dir = state?.metadata?.dir;
-
-    return typeof dir === 'string' && dir.trim().length > 0 ? dir : null;
 };
 
 const toTodoStatusKey = (value: unknown): 'pending' | 'in_progress' | 'completed' | 'cancelled' | null => {
@@ -287,15 +280,6 @@ const renderReadFilePath = (displayPath: string, animate = true) => {
             </Text>
         </span>
     );
-};
-
-const resolveSkillFilePath = (skillPathOrDir: string): string => {
-    const normalizedPath = normalizeFilePath(skillPathOrDir);
-    if (!normalizedPath) {
-        return '';
-    }
-
-    return normalizedPath.toLowerCase().endsWith('/skill.md') ? normalizedPath : `${normalizedPath}/SKILL.md`;
 };
 
 /**
@@ -570,15 +554,10 @@ const StaticToolRowInner: React.FC<{
     animateTailText: boolean;
 }> = ({ toolName, activities, animateTailText }) => {
     const showToolFileIcons = useUIStore((state) => state.showToolFileIcons);
-    const displayName = getToolMetadata(toolName).displayName;
-    const icon = getToolIcon(toolName);
-    const isReadGroup = toolName.toLowerCase() === 'read';
     const runtime = React.useContext(RuntimeAPIContext);
     const mobileActions = useMobileAppActions();
     const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
-    const skills = useSkillsStore((state) => state.skills);
     const hasRunningActivity = React.useMemo(() => activities.some((activity) => isActivityRunning(activity)), [activities]);
-    const skillByName = React.useMemo(() => new Map(skills.map((skill) => [skill.name, skill])), [skills]);
 
     const descriptions = React.useMemo(() => {
         const descs: string[] = [];
@@ -592,22 +571,21 @@ const StaticToolRowInner: React.FC<{
     }, [activities]);
 
     const skillEntries = React.useMemo(() => {
-        if (toolName.toLowerCase() !== 'skill') return [] as Array<{ name: string; path: string }>;
-
-        const entries: Array<{ name: string; path: string }> = [];
+        const entries: Array<{ name: string }> = [];
         for (const activity of activities) {
-            const name = getToolShortDescription(activity);
-            if (!name) continue;
-
-            const skill = skillByName.get(name);
-            const rawPath = skill?.path || getToolSkillDirectory(activity);
-            const path = rawPath ? resolveSkillFilePath(rawPath) : '';
-            if (!path || entries.some((entry) => entry.name === name && entry.path === path)) continue;
-            entries.push({ name, path });
+            const name = getToolSkillName(activity.part as ToolPartType);
+            if (!name || entries.some((entry) => entry.name === name)) continue;
+            entries.push({ name });
         }
-
         return entries;
-    }, [activities, skillByName, toolName]);
+    }, [activities]);
+
+    const normalizedToolName = toolName.toLowerCase();
+    const isSkillGroup = normalizedToolName === 'skill' || (normalizedToolName === 'read' && skillEntries.length > 0);
+    const isReadGroup = normalizedToolName === 'read' && !isSkillGroup;
+    const presentationToolName = isSkillGroup ? 'skill' : toolName;
+    const displayName = getToolMetadata(presentationToolName).displayName;
+    const icon = getToolIcon(presentationToolName);
 
     const readFileEntries = React.useMemo(() => {
         if (!isReadGroup) return [] as Array<{ path: string; displayPath: string; offset?: number }>;
@@ -673,14 +651,12 @@ const StaticToolRowInner: React.FC<{
         uiStore.openContextFile(contextDirectory, absolutePath);
     }, [currentDirectory, mobileActions, runtime]);
 
-    const normalizedToolName = toolName.toLowerCase();
     const isSearchGroup = normalizedToolName === 'grep'
         || normalizedToolName === 'search'
         || normalizedToolName === 'find'
         || normalizedToolName === 'ripgrep'
         || normalizedToolName === 'glob';
     const isFetchGroup = normalizedToolName === 'webfetch' || normalizedToolName === 'fetch' || normalizedToolName === 'curl' || normalizedToolName === 'wget';
-    const isSkillGroup = normalizedToolName === 'skill';
 
     return (
         <div
@@ -758,16 +734,17 @@ const StaticToolRowInner: React.FC<{
             {isSkillGroup && skillEntries.length > 0
                 ? skillEntries.map((entry, index) => (
                     <button
-                        key={`${entry.name}-${entry.path}-${index}`}
+                        key={`${entry.name}-${index}`}
                         type="button"
                         onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
-                            handleFileClick(entry.path);
+                            openSkillSettings(entry.name, mobileActions);
                         }}
                         className={cn('!min-h-0 min-w-0 flex-1 truncate whitespace-nowrap text-left hover:opacity-90', TOOL_ROW_DESCRIPTION_CLASS)}
                         style={{ color: 'var(--tools-description)' }}
-                        title={entry.path}
+                        title={`Open ${entry.name} in Settings`}
+                        aria-label={`Open ${entry.name} skill in Settings`}
                     >
                         {entry.name}
                     </button>
