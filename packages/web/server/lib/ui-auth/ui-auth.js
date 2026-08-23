@@ -295,6 +295,7 @@ const isUrlAuthReadableHttpPath = (pathname) => pathname === '/api/pi/events';
 
 const URL_AUTH_WEBSOCKET_PATHS = new Set([
   '/api/terminal/ws',
+  '/api/stt/ws',
 ]);
 
 const isUrlAuthWebSocketPath = (pathname) => URL_AUTH_WEBSOCKET_PATHS.has(pathname);

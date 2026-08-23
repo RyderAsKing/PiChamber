@@ -191,6 +191,14 @@ describe('ui auth client credential seam', () => {
     const terminalWsRes = createResponse();
     expect(await auth.ensureSessionToken(terminalWsReq, terminalWsRes)).toBe('client:device-1');
 
+    const sttWsReq = {
+      method: 'GET',
+      path: '/api/stt/ws',
+      url: `/api/stt/ws?oc_url_token=${encodeURIComponent(urlToken)}`,
+      headers: { connection: 'Upgrade', upgrade: 'websocket' },
+    };
+    expect(await auth.ensureSessionToken(sttWsReq, createResponse())).toBe('client:device-1');
+
     const arbitraryWsReq = {
       method: 'GET',
       path: '/api/not-allowed/ws',

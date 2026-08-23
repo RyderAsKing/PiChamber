@@ -190,7 +190,7 @@ export async function startWebUiServer(options = {}) {
   app.get('/api/pichamber/tunnel/doctor', requireTunnelAuth, async (req, res) => {
     try { const status = await tunnelService.getStatus(); const checkResult = await tunnelService.check(); res.json({ ok: true, status, check: checkResult, query: req.query }); } catch (error) { res.status(500).json({ ok: false, error: error?.message || 'Doctor failed' }); }
   });
-  registerWorkspaceIntegrations({ app, server, express, uiAuthController });
+  const workspaceRuntime = registerWorkspaceIntegrations({ app, server, express, uiAuthController, dataDir: PICHAMBER_DATA_DIR });
   registerStaticRoutes(app, { apiOnly });
 
   await listen(server, port, host);
@@ -216,7 +216,7 @@ export async function startWebUiServer(options = {}) {
       if (stopped) return;
       stopped = true;
       if (activeController === controller) activeController = null;
-      await Promise.allSettled([piSessionDaemonRuntime.stop(), close(server)]);
+      await Promise.allSettled([workspaceRuntime.shutdown(), piSessionDaemonRuntime.stop(), close(server)]);
       uiAuthController.dispose?.();
       if (exitProcess) process.exit(0);
     },
