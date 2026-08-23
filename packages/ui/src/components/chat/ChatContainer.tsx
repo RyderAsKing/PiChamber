@@ -51,7 +51,6 @@ import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import { isFullySyntheticMessage } from '@/lib/messages/synthetic';
 import { normalizeUserDisplayParts } from './message/normalizeUserDisplayParts';
 import { findShellCommandForMessage, isUserShellMarkerMessage } from './lib/shellBridge';
-import { resolveChatPromptReadOnly } from './chatPromptReadOnly';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { createFirstVisibleSessionPerformanceTracker } from '@/sync/session-load-performance';
 import { hasActiveQuestionToolInCurrentTurn, recoverPendingQuestionWithRetry } from '@/sync/question-recovery';
@@ -466,18 +465,6 @@ const HYDRATING_SKELETON_ITEMS: Array<{
     },
 ];
 
-const ReadOnlyPromptBanner: React.FC = () => {
-    
-
-    return (
-        <div className="p-3">
-            <div className="rounded-2xl border border-border/70 bg-[var(--surface-background)] px-4 py-3 typography-ui-label text-muted-foreground">
-                {"Subagent sessions cannot be prompted."}
-            </div>
-        </div>
-    );
-};
-
 const getProjectDisplayLabel = (project: { label?: string; path: string }): string => {
     const label = project.label?.trim();
     return label || formatDirectoryName(project.path);
@@ -529,10 +516,9 @@ const DraftWelcome: React.FC = () => {
 type ChatContainerProps = {
     active?: boolean;
     autoOpenDraft?: boolean;
-    readOnly?: boolean;
 };
 
-export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, autoOpenDraft = true, readOnly = false }) => {
+export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, autoOpenDraft = true }) => {
     
     // Session UI state
     const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
@@ -561,7 +547,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     const isExpandedInput = useUIStore((state) => state.isExpandedInput);
     const stickyUserHeader = useUIStore((state) => state.stickyUserHeader);
     const promptNavigatorEnabled = useUIStore((state) => state.promptNavigatorEnabled);
-    const allowPromptingSubagentSessions = useUIStore((state) => state.allowPromptingSubagentSessions);
     const isTimelineDialogOpen = useUIStore((s) => s.isTimelineDialogOpen);
     const setTimelineDialogOpen = useUIStore((s) => s.setTimelineDialogOpen);
 
@@ -730,45 +715,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
             {"Parent"}
         </Button>
     ) : null;
-    const promptReadOnly = resolveChatPromptReadOnly(currentSession, allowPromptingSubagentSessions, readOnly);
-
-    React.useEffect(() => {
-        // VS Code/Cursor/Positron webviews delete window.parent (and window.top).
-        // The old `window.parent === window` check does not catch that, so
-        // `window.parent.postMessage(...)` threw on chat open:
-        // TypeError: Cannot read properties of undefined (reading 'postMessage')
-        if (typeof window === 'undefined' || !window.parent || window.parent === window) {
-            return;
-        }
-
-        const parentWindow = window.parent;
-        const applySetting = (value: boolean) => {
-            useUIStore.getState().setAllowPromptingSubagentSessions(value);
-        };
-        const scopedWindow = window as typeof window & {
-            __pichamberApplyChatSettingsSync?: (payload: { allowPromptingSubagentSessions: boolean }) => void;
-        };
-        const applySync = (payload: { allowPromptingSubagentSessions: boolean }) => {
-            applySetting(payload.allowPromptingSubagentSessions);
-        };
-        const handleMessage = (event: MessageEvent) => {
-            if (event.source !== parentWindow || event.origin !== window.location.origin) return;
-            const data = event.data as { type?: unknown; payload?: { allowPromptingSubagentSessions?: unknown } };
-            if (data?.type !== 'pichamber:chat-settings-sync'
-                || typeof data.payload?.allowPromptingSubagentSessions !== 'boolean') return;
-            applySetting(data.payload.allowPromptingSubagentSessions);
-        };
-
-        scopedWindow.__pichamberApplyChatSettingsSync = applySync;
-        window.addEventListener('message', handleMessage);
-        parentWindow.postMessage({ type: 'pichamber:chat-settings-request' }, window.location.origin);
-        return () => {
-            window.removeEventListener('message', handleMessage);
-            if (scopedWindow.__pichamberApplyChatSettingsSync === applySync) {
-                delete scopedWindow.__pichamberApplyChatSettingsSync;
-            }
-        };
-    }, []);
 
     React.useEffect(() => {
         const route = parseRoute();
@@ -1033,7 +979,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 								: 'flex-1 items-center justify-center bg-background px-0 pb-[6vh]'
 					)}
 				>
-                        {promptReadOnly ? <ReadOnlyPromptBanner /> : <ChatInput scrollToBottom={scrollToBottomOnSend} />}
+                        <ChatInput scrollToBottom={scrollToBottomOnSend} />
 				</div>
 			</div>
         );
@@ -1061,7 +1007,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 						</div>
 					</div>
 					<div className={composerBarClassName(false)}>
-						{promptReadOnly ? <ReadOnlyPromptBanner /> : <ChatInput scrollToBottom={scrollToBottomOnSend} />}
+						<ChatInput scrollToBottom={scrollToBottomOnSend} />
 					</div>
 				</div>
 			);
@@ -1081,7 +1027,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                     <PiChamberLogo width={120} height={120} isAnimated />
                 </div>
                 <div className={composerBarClassName(isDesktopExpandedInput)}>
-                    {promptReadOnly ? <ReadOnlyPromptBanner /> : <ChatInput scrollToBottom={scrollToBottomOnSend} />}
+                    <ChatInput scrollToBottom={scrollToBottomOnSend} />
 				</div>
             </div>
         );
@@ -1109,7 +1055,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                     ) : null}
                 </div>
                 <div className={composerBarClassName(isDesktopExpandedInput)}>
-                    {promptReadOnly ? <ReadOnlyPromptBanner /> : <ChatInput scrollToBottom={scrollToBottomOnSend} />}
+                    <ChatInput scrollToBottom={scrollToBottomOnSend} />
 				</div>
             </div>
         );
@@ -1160,7 +1106,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                         onClick={navigation.resumeToLatest}
                     />
                 )}
-                {promptReadOnly ? <ReadOnlyPromptBanner /> : <ChatInput scrollToBottom={scrollToBottomOnSend} />}
+                <ChatInput scrollToBottom={scrollToBottomOnSend} />
             </div>
 
             <TimelineDialog

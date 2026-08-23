@@ -5,10 +5,9 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 
 type ChatViewProps = {
     active?: boolean;
-    readOnly?: boolean;
 };
 
-export const ChatView: React.FC<ChatViewProps> = ({ active = true, readOnly = false }) => {
+export const ChatView: React.FC<ChatViewProps> = ({ active = true }) => {
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
 
     return (
@@ -16,7 +15,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ active = true, readOnly = fa
             {/* Remount on session switch so composer drafts, viewport anchors,
                 and the message timeline reset to the right session even when
                 the cluster preserves resident transcripts during the switch. */}
-            <ChatContainer key={currentSessionId ?? 'no-session'} active={active} readOnly={readOnly} />
+            <ChatContainer key={currentSessionId ?? 'no-session'} active={active} />
         </ChatErrorBoundary>
     );
 };

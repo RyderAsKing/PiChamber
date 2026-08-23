@@ -238,12 +238,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['starter', 'starters', 'new session', 'welcome', 'suggestions'],
   },
   {
-    id: 'chat.subagent-read-only-banner',
-    page: 'chat',
-    title: "Allow Prompting Subagent Sessions",
-    keywords: ['subagent', 'read only', 'prompt', 'banner'],
-  },
-  {
     id: 'chat.tool-file-icons',
     page: 'chat',
     title: "Show Tool File Icons",

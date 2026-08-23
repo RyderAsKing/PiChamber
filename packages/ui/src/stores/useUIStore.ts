@@ -722,7 +722,6 @@ interface UIStore {
   promptNavigatorEnabled: boolean;
   expandedEditorToolbar: boolean;
   showSplitAssistantMessageActions: boolean;
-  allowPromptingSubagentSessions: boolean;
   isExpandedInput: boolean;
   shortcutOverrides: Record<string, ShortcutCombo>;
   fileEditorKeymap: FileEditorKeymap;
@@ -868,7 +867,6 @@ interface UIStore {
   setPromptNavigatorEnabled: (value: boolean) => void;
   setExpandedEditorToolbar: (value: boolean) => void;
   setShowSplitAssistantMessageActions: (value: boolean) => void;
-  setAllowPromptingSubagentSessions: (value: boolean) => void;
   viewPagerPage: 'left' | 'center' | 'right';
   setViewPagerPage: (page: 'left' | 'center' | 'right') => void;
   toggleExpandedInput: () => void;
@@ -999,7 +997,6 @@ export const useUIStore = create<UIStore>()(
         promptNavigatorEnabled: true,
         expandedEditorToolbar: false,
         showSplitAssistantMessageActions: false,
-        allowPromptingSubagentSessions: false,
         draftStartersVisible: true,
         isExpandedInput: false,
         shortcutOverrides: {},
@@ -2084,9 +2081,6 @@ export const useUIStore = create<UIStore>()(
         setShowSplitAssistantMessageActions: (value) => {
           set({ showSplitAssistantMessageActions: value });
         },
-        setAllowPromptingSubagentSessions: (value) => {
-          set({ allowPromptingSubagentSessions: value });
-        },
         viewPagerPage: 'center',
         setViewPagerPage: (page: 'left' | 'center' | 'right') => {
           set({ viewPagerPage: page });
@@ -2388,7 +2382,6 @@ export const useUIStore = create<UIStore>()(
           promptNavigatorEnabled: state.promptNavigatorEnabled,
           expandedEditorToolbar: state.expandedEditorToolbar,
           showSplitAssistantMessageActions: state.showSplitAssistantMessageActions,
-          allowPromptingSubagentSessions: state.allowPromptingSubagentSessions,
           draftStartersVisible: state.draftStartersVisible,
           shortcutOverrides: state.shortcutOverrides,
           fileEditorKeymap: state.fileEditorKeymap,

@@ -8,6 +8,7 @@ import {
 } from '../utils';
 import { compareSessionsByLifecycleOrder } from '@/sync/session-ordering';
 import { formatPathForDisplay } from '@/lib/utils';
+import { getForkColorIdForSession } from '../forkColor';
 
 type Args = {
   homeDirectory: string | null;
@@ -69,43 +70,18 @@ export const useSessionGrouping = (args: Args) => {
       const childrenCountById = new Map<string, number>();
       sortedProjectSessions.forEach((session) => {
         const parentID = (session as Session & { parentID?: string | null }).parentID ?? null;
-        parentById.set(session.id, parentID);
-        if (parentID) {
-          const parentSession = sessionMap.get(parentID);
-          if (parentSession && isArchivedSession(parentSession) === isArchivedSession(session)) {
-            childrenCountById.set(parentID, (childrenCountById.get(parentID) ?? 0) + 1);
-          }
+        const parentSession = parentID ? sessionMap.get(parentID) : null;
+        const validParentID = parentSession && isArchivedSession(parentSession) === isArchivedSession(session)
+          ? parentID
+          : null;
+        parentById.set(session.id, validParentID);
+        if (validParentID) {
+          childrenCountById.set(validParentID, (childrenCountById.get(validParentID) ?? 0) + 1);
         }
       });
-      const getFamilyId = (sessionId: string): string | null => {
-        let current: string | null | undefined = sessionId;
-        const visited = new Set<string>();
-        let root: string | null = null;
-        while (current) {
-          if (visited.has(current)) break;
-          visited.add(current);
-          const parentIdForCurrent: string | null = parentById.get(current) ?? null;
-          if (!parentIdForCurrent) {
-            root = current;
-            break;
-          }
-          const parentSession = sessionMap.get(parentIdForCurrent);
-          const currentSession = sessionMap.get(current);
-          if (!parentSession || !currentSession || isArchivedSession(parentSession) !== isArchivedSession(currentSession)) {
-            root = current;
-            break;
-          }
-          current = parentIdForCurrent;
-        }
-        return root;
-      };
       const toFlatNode = (session: Session): SessionNode => {
-        const parentID = (session as Session & { parentID?: string | null }).parentID ?? null;
-        const hasParent = Boolean(parentID && sessionMap.has(parentID) && isArchivedSession(sessionMap.get(parentID)!) === isArchivedSession(session));
-        const hasChildren = (childrenCountById.get(session.id) ?? 0) > 0;
-        const participates = hasParent || hasChildren;
-        const familyId = participates ? getFamilyId(session.id) : null;
-        return { session, children: [], worktree: null, forkFamilyId: familyId };
+        const forkColorId = getForkColorIdForSession(session.id, parentById, childrenCountById);
+        return { session, children: [], worktree: null, forkColorId };
       };
 
       const activeNodes: SessionNode[] = [];

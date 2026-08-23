@@ -47,7 +47,7 @@ import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { getForkFamilyBackgroundColor, getForkFamilyColor } from './forkFamilyColor';
+import { getForkBackgroundColor, getForkColor } from './forkColor';
 
 type Folder = { id: string; name: string; sessionIds: string[] };
 
@@ -447,17 +447,13 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   const [isContextMenuOpen, setIsContextMenuOpen] = React.useState(false);
   const isSessionMenuOpen = isMenuOpen || isContextMenuOpen;
 
-  const forkSolid = React.useMemo(() => getForkFamilyColor((node as SessionNode & { forkFamilyId?: string | null }).forkFamilyId), [node]);
-  // On mobile surfaces we paint a `borderLeft` instead of the translucent
-  // wash (≈11% alpha is invisible against bg-sidebar at 72% width).
-  // `forkBackground` is null in that case so the row style drops the wash
-  // and the row chrome falls back to the usual hover/selection treatment.
+  const forkSolid = React.useMemo(() => getForkColor(node.forkColorId), [node.forkColorId]);
   const forkBackground = React.useMemo(
-    () => getForkFamilyBackgroundColor(
-      (node as SessionNode & { forkFamilyId?: string | null }).forkFamilyId,
+    () => getForkBackgroundColor(
+      node.forkColorId,
       { active: isActive || isRowSelected, isMobile: mobileVariant },
     ),
-    [node, isActive, isRowSelected, mobileVariant],
+    [node.forkColorId, isActive, isRowSelected, mobileVariant],
   );
   const descendantCount = React.useMemo(() => collectNodeDescendantIds(node).length, [collectNodeDescendantIds, node]);
 
@@ -889,7 +885,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                 data-session-row={session.id}
                 data-session-scope={selectionScopeKey ?? ''}
                 data-session-archived={archivedBucket ? '1' : '0'}
-                data-fork-family={forkSolid ? (node as SessionNode & { forkFamilyId?: string | null }).forkFamilyId : undefined}
+                data-fork-color={forkSolid ? node.forkColorId : undefined}
                 onClick={handleRowBackgroundClick}
                 style={{
                   ...(depth > 0 ? { marginLeft: `${depth * 14}px` } : undefined),

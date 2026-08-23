@@ -180,7 +180,6 @@ const ChatSectionContent: React.FC = () => {
                 'wideChatLayout',
                 'codeBlockLineWrap',
                 'splitAssistantMessageActions',
-                'subagentReadOnlyBanner',
                 'diffLayout',
                 'dotfiles',
                 'fileViewerPreview',
