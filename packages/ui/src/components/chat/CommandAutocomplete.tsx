@@ -8,8 +8,10 @@ import { Icon } from "@/components/icon/Icon";
 import { useUIStore } from '@/stores/useUIStore';
 import { useMobileAutocompleteMaxHeight } from './useMobileAutocompleteMaxHeight';
 import { commandMatchesSearch, mergeCommandAutocompleteItems } from './commandAutocompleteItems';
+import { piClient } from '@/lib/pi/client';
+import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 
-type CommandSource = 'pichamber' | 'opencode' | 'skill';
+type CommandSource = 'pichamber' | 'opencode' | 'skill' | 'extension';
 
 export interface CommandInfo {
   id: string;
@@ -73,6 +75,34 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
   const [loading, setLoading] = React.useState(false);
   const skills = useSkillsStore((s) => s.skills);
   const refreshSkills = useSkillsStore((s) => s.loadSkills);
+  const effectiveDirectory = useEffectiveDirectory();
+
+  // Extension-registered slash commands (pi extensions loaded by the session
+  // daemon). Fetched per effective directory and cached in component state;
+  // failures keep whatever was last known rather than emptying the list.
+  const [extensionCommands, setExtensionCommands] = React.useState<CommandInfo[]>([]);
+  React.useEffect(() => {
+    if (!hasSession || !effectiveDirectory) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await piClient.listExtensions(effectiveDirectory);
+        if (cancelled) return;
+        setExtensionCommands((result.commands ?? [])
+          .filter((command) => command.source === 'extension')
+          .map((command, index) => ({
+            id: `extension:${command.name}:${index}`,
+            name: command.name,
+            source: 'extension' as const,
+            description: command.description,
+          })));
+      } catch {
+        // Autocomplete still works with built-ins; extension commands are a
+        // progressive enhancement, not an authoritative fetch.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [hasSession, effectiveDirectory]);
   const [selectedIndex, setSelectedIndex] = React.useState(0);
   const selectedIndexRef = React.useRef(0);
   const keyboardNavigationRef = React.useRef(false);
@@ -159,11 +189,13 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
           ),
         ];
         const allCommands = mergeCommandAutocompleteItems(builtInCommands, [], skillCommands);
+        const builtInNames = new Set(allCommands.map((cmd) => cmd.name));
+        const withExtensions = [...allCommands, ...extensionCommands.filter((cmd) => !builtInNames.has(cmd.name))];
 
         const allowInitCommand = !hasMessagesInCurrentSession;
         const filtered = (searchQuery
-          ? allCommands.filter(cmd => commandMatchesSearch(cmd, searchQuery))
-          : allCommands).filter(cmd => allowInitCommand || cmd.name !== 'init');
+          ? withExtensions.filter(cmd => commandMatchesSearch(cmd, searchQuery))
+          : withExtensions).filter(cmd => allowInitCommand || cmd.name !== 'init');
 
         filtered.sort((a, b) => {
           const aStartsWith = a.name.toLowerCase().startsWith(searchQuery.toLowerCase());
@@ -231,7 +263,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
     };
 
     loadCommands();
-  }, [searchQuery, hasMessagesInCurrentSession, hasSession, canStartSessionCommand, canUseReviewHandoffFlow, skills]);
+  }, [searchQuery, hasMessagesInCurrentSession, hasSession, canStartSessionCommand, canUseReviewHandoffFlow, skills, extensionCommands]);
 
   React.useEffect(() => {
     setSelectedIndex(0);
@@ -303,6 +335,9 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
       default:
         if (command.isBuiltIn) {
           return <Icon name="flashlight" className="h-3.5 w-3.5 text-yellow-500" />;
+        }
+        if (command.source === 'extension') {
+          return <Icon name="plug" className="h-3.5 w-3.5 text-muted-foreground" />;
         }
         return <Icon name="command" className="h-3.5 w-3.5 text-muted-foreground" />;
     }
