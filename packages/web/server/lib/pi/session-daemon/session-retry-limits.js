@@ -37,7 +37,7 @@ const resolveEffectiveRetryLimit = async ({ payloadRetryLimit, readSettingsFile 
       // file) is the normal no-override case and resolves to undefined.
       if (error?.code === 'ENOENT') return undefined;
       if (error instanceof SyntaxError || error?.message?.includes('retry limit')) throw error;
-      return undefined;
+      throw error;
     }
   }
   return undefined;

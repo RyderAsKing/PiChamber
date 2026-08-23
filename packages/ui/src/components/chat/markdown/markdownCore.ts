@@ -107,32 +107,28 @@ const sharedRenderer = {
   },
 };
 
-// Synchronous parser for the hot first-paint path — no KaTeX, no async.
-// Keeps the initial chunk free of the 259 kB katex import.
-const syncParser = new Marked({
+const sharedMarkedOptions = {
   gfm: true,
   breaks: false,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   renderer: sharedRenderer as any,
-});
+} as const;
+
+// Synchronous parser for the hot first-paint path — no KaTeX, no async.
+// Keeps the initial chunk free of the 259 kB katex import.
+const syncParser = new Marked(sharedMarkedOptions);
 
 // Async parser for the settled path — KaTeX via dynamic import.
 const asyncParser = new Marked({
+  ...sharedMarkedOptions,
   async: true,
-  gfm: true,
-  breaks: false,
   extensions: [inlineMathExtension, blockMathExtension],
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  renderer: sharedRenderer as any,
 });
 // Preserve legacy `marked.use` global for any external callers that rely on
 // the default instance (none in-repo, but keeps `marked.parse` working).
 marked.use({
-  gfm: true,
-  breaks: false,
+  ...sharedMarkedOptions,
   extensions: [inlineMathExtension, blockMathExtension],
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  renderer: sharedRenderer as any,
 });
 
 // ---------------------------------------------------------------------------

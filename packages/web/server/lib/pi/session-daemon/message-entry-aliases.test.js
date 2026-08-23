@@ -75,8 +75,8 @@ describe('message entry aliases', () => {
     const aliases = createMessageEntryAliases({ now });
     const message = { role: 'user' };
 
-    aliases.retain({ cwd: '/fresh', sessionId: 'fresh', syntheticMessageId: 'u-fresh', message });
     clock += ALIAS_SCOPE_IDLE_TTL_MS + 1;
+    aliases.retain({ cwd: '/fresh', sessionId: 'fresh', syntheticMessageId: 'u-fresh', message });
     for (let i = 0; i < 64; i += 1) {
       aliases.retain({ cwd: `/churn`, sessionId: `churn-${i}`, syntheticMessageId: `u-churn-${i}`, message: { role: 'user' } });
     }

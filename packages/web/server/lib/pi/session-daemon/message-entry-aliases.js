@@ -21,8 +21,8 @@ const findPersistedMessageEntry = (sessionManager, message) => {
  * oldest scopes beyond MAX_SCOPES). Deleted sessions are cleared eagerly via
  * clearSession; pruning here only bounds the ones that are merely abandoned.
  */
-const ALIAS_SCOPE_IDLE_TTL_MS = 24 * 60 * 60 * 1000;
-const MAX_SCOPES = 512;
+export const ALIAS_SCOPE_IDLE_TTL_MS = 24 * 60 * 60 * 1000;
+export const MAX_SCOPES = 512;
 const PRUNE_EVERY_N_RETAINS = 64;
 
 export function createMessageEntryAliases({ scheduleMicrotask = queueMicrotask, now = () => Date.now() } = {}) {
@@ -31,16 +31,16 @@ export function createMessageEntryAliases({ scheduleMicrotask = queueMicrotask, 
   let retainsSincePrune = 0;
 
   const pruneScopes = (nowMs) => {
-    for (const [key, scope] of aliasesByScope.entries()) {
-      if (!scope || nowMs - (scope.lastTouchedAt || 0) > ALIAS_SCOPE_IDLE_TTL_MS) {
+    for (const [key, entry] of aliasesByScope.entries()) {
+      if (!entry || nowMs - (entry.lastTouchedAt || 0) > ALIAS_SCOPE_IDLE_TTL_MS) {
         aliasesByScope.delete(key);
       }
     }
     while (aliasesByScope.size > MAX_SCOPES) {
       let oldestKey = null;
       let oldestAt = Infinity;
-      for (const [key, scope] of aliasesByScope.entries()) {
-        const touchedAt = scope?.lastTouchedAt || 0;
+      for (const [key, entry] of aliasesByScope.entries()) {
+        const touchedAt = entry?.lastTouchedAt || 0;
         if (touchedAt < oldestAt) {
           oldestAt = touchedAt;
           oldestKey = key;
@@ -51,24 +51,25 @@ export function createMessageEntryAliases({ scheduleMicrotask = queueMicrotask, 
     }
   };
 
-  const getScope = (cwd, sessionId, create = false) => {
+  const getScopeEntry = (cwd, sessionId, create = false) => {
     const key = scopeKey(cwd, sessionId);
-    let scope = aliasesByScope.get(key);
-    if (!scope && create) {
-      scope = new Map();
-      scope.lastTouchedAt = now();
-      aliasesByScope.set(key, scope);
+    let entry = aliasesByScope.get(key);
+    if (!entry && create) {
+      entry = { aliases: new Map(), lastTouchedAt: now() };
+      aliasesByScope.set(key, entry);
     }
-    return scope;
+    return entry;
   };
+
+  const getScope = (cwd, sessionId, create = false) => getScopeEntry(cwd, sessionId, create)?.aliases;
 
   const retain = ({ cwd, sessionId, syntheticMessageId, message }) => {
     if (typeof cwd !== 'string' || typeof sessionId !== 'string' || typeof syntheticMessageId !== 'string'
       || !message || typeof message !== 'object') return;
     const alias = { message };
-    const scope = getScope(cwd, sessionId, true);
-    scope.set(syntheticMessageId, alias);
-    scope.lastTouchedAt = now();
+    const entry = getScopeEntry(cwd, sessionId, true);
+    entry.aliases.set(syntheticMessageId, alias);
+    entry.lastTouchedAt = now();
     pendingByMessage.set(message, { alias });
     if (++retainsSincePrune >= PRUNE_EVERY_N_RETAINS) {
       retainsSincePrune = 0;
@@ -119,17 +120,17 @@ export function createMessageEntryAliases({ scheduleMicrotask = queueMicrotask, 
 
     clearSession({ cwd, sessionId }) {
       const key = scopeKey(cwd, sessionId);
-      const scope = aliasesByScope.get(key);
-      if (!scope) return;
-      for (const alias of scope.values()) {
+      const entry = aliasesByScope.get(key);
+      if (!entry) return;
+      for (const alias of entry.aliases.values()) {
         if (alias.message) pendingByMessage.delete(alias.message);
       }
       aliasesByScope.delete(key);
     },
 
     clear() {
-      for (const scope of aliasesByScope.values()) {
-        for (const alias of scope.values()) {
+      for (const entry of aliasesByScope.values()) {
+        for (const alias of entry.aliases.values()) {
           if (alias.message) pendingByMessage.delete(alias.message);
         }
       }
