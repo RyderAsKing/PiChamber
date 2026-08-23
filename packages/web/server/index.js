@@ -138,6 +138,16 @@ export async function startWebUiServer(options = {}) {
   });
   let stopped = false;
 
+  // trust proxy = true is intentional for PiChamber's deployment model:
+  // - In production the server sits behind the user's reverse proxy / tunnel
+  //   (Caddy, Nginx, Cloudflare Tunnel) which terminates TLS and sets
+  //   X-Forwarded-* . Client IP rate-limiting and secure-cookie detection
+  //   (`isSecureRequest` checks X-Forwarded-Proto) depend on this.
+  // - For direct LAN access without a proxy, Express correctly ignores the
+  //   header when none is present. Changing to 'loopback' or false would break
+  //   `getClientIp` and `isSecureRequest` behind a tunnel; see
+  //   `security/bind-host.js` and `ui-auth.js` . Do not change without a
+  //   deployment-wide review.
   app.set('trust proxy', true);
   app.use((_req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); next(); });
   app.get('/robots.txt', (_req, res) => res.type('text/plain').send('User-agent: *\nDisallow: /\n'));
