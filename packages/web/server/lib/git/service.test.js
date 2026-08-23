@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import simpleGit from 'simple-git';
 
 import {
+  checkoutBranch,
   checkoutCommit,
   cherryPick,
   createWorktree,
@@ -1165,6 +1166,79 @@ describe('hash validation', () => {
     await expect(
       resetToCommit('/tmp', '1234567890abcdef1234567890abcdef12345678', 'soft')
     ).rejects.not.toThrow('Invalid commit hash');
+  });
+});
+
+describe.runIf(canRunGit())('checkoutBranch', () => {
+  const createBranchRepository = async () => {
+    const { tmpDir, git } = await createTempRepo();
+    fs.writeFileSync(path.join(tmpDir, 'tracked.txt'), 'main\n');
+    await git.add('tracked.txt');
+    await git.commit('main');
+    await git.checkoutLocalBranch('feature');
+    fs.writeFileSync(path.join(tmpDir, 'tracked.txt'), 'feature\n');
+    await git.add('tracked.txt');
+    await git.commit('feature');
+    await git.checkout('main');
+    return { repository: tmpDir, git };
+  };
+
+  it('conditionally checks out an exact local branch and returns the observed branches', async () => {
+    const { repository } = await createBranchRepository();
+
+    await expect(checkoutBranch(repository, 'feature', {
+      expectedCurrent: 'main',
+      localOnly: true,
+    })).resolves.toMatchObject({
+      success: true,
+      branch: 'feature',
+      previousBranch: 'main',
+      currentBranch: 'feature',
+    });
+    expect(runGit(repository, ['branch', '--show-current']).trim()).toBe('feature');
+  });
+
+  it('rejects a stale expected branch without changing the worktree', async () => {
+    const { repository } = await createBranchRepository();
+
+    await expect(checkoutBranch(repository, 'feature', {
+      expectedCurrent: 'release',
+      localOnly: true,
+    })).rejects.toMatchObject({
+      code: 'BRANCH_CHANGED',
+      statusCode: 409,
+      currentBranch: 'main',
+    });
+    expect(runGit(repository, ['branch', '--show-current']).trim()).toBe('main');
+  });
+
+  it('rejects a missing local branch before checkout', async () => {
+    const { repository } = await createBranchRepository();
+
+    await expect(checkoutBranch(repository, 'origin/feature', {
+      expectedCurrent: 'main',
+      localOnly: true,
+    })).rejects.toMatchObject({
+      code: 'BRANCH_NOT_FOUND',
+      statusCode: 409,
+      currentBranch: 'main',
+    });
+  });
+
+  it('preserves the current branch when local changes conflict with checkout', async () => {
+    const { repository } = await createBranchRepository();
+    fs.writeFileSync(path.join(repository, 'tracked.txt'), 'uncommitted main change\n');
+
+    await expect(checkoutBranch(repository, 'feature', {
+      expectedCurrent: 'main',
+      localOnly: true,
+    })).rejects.toMatchObject({
+      code: 'CHECKOUT_FAILED',
+      statusCode: 409,
+      currentBranch: 'main',
+    });
+    expect(runGit(repository, ['branch', '--show-current']).trim()).toBe('main');
+    expect(fs.readFileSync(path.join(repository, 'tracked.txt'), 'utf8')).toBe('uncommitted main change\n');
   });
 });
 

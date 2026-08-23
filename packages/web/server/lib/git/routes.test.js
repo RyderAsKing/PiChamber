@@ -5,6 +5,7 @@ const gitLibraries = {
   unstageFiles: vi.fn(),
   isGitRepository: vi.fn(),
   getStatus: vi.fn(),
+  checkoutBranch: vi.fn(),
 };
 
 vi.mock('./index.js', () => ({
@@ -12,6 +13,7 @@ vi.mock('./index.js', () => ({
   unstageFiles: gitLibraries.unstageFiles,
   isGitRepository: gitLibraries.isGitRepository,
   getStatus: gitLibraries.getStatus,
+  checkoutBranch: gitLibraries.checkoutBranch,
 }));
 
 const { registerGitRoutes } = await import('./routes.js');
@@ -67,6 +69,7 @@ describe('git routes index mutations', () => {
     gitLibraries.unstageFiles.mockReset();
     gitLibraries.isGitRepository.mockReset();
     gitLibraries.getStatus.mockReset();
+    gitLibraries.checkoutBranch.mockReset();
   });
 
   it('accepts legacy stage path payloads', async () => {
@@ -123,6 +126,74 @@ describe('git routes index mutations', () => {
 
     expect(response.statusCode).toBe(200);
     expect(gitLibraries.unstageFiles).toHaveBeenCalledWith('/repo', ['a.ts', 'b.ts']);
+  });
+
+  it('forwards conditional local-only checkout options', async () => {
+    gitLibraries.checkoutBranch.mockResolvedValue({
+      success: true,
+      branch: 'feature',
+      previousBranch: 'main',
+      currentBranch: 'feature',
+    });
+    const { app, getRoute } = createRouteRegistry();
+    registerGitRoutes(app);
+    const response = createMockResponse();
+
+    await getRoute('POST', '/api/git/checkout')(
+      {
+        query: { directory: '/repo' },
+        body: { branch: 'feature', expectedCurrent: 'main', localOnly: true },
+      },
+      response,
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(gitLibraries.checkoutBranch).toHaveBeenCalledWith('/repo', 'feature', {
+      expectedCurrent: 'main',
+      localOnly: true,
+    });
+  });
+
+  it('rejects malformed checkout preconditions before calling git', async () => {
+    const { app, getRoute } = createRouteRegistry();
+    registerGitRoutes(app);
+    const response = createMockResponse();
+
+    await getRoute('POST', '/api/git/checkout')(
+      {
+        query: { directory: '/repo' },
+        body: { branch: 'feature', expectedCurrent: 42, localOnly: 'true' },
+      },
+      response,
+    );
+
+    expect(response.statusCode).toBe(400);
+    expect(gitLibraries.checkoutBranch).not.toHaveBeenCalled();
+  });
+
+  it('returns structured checkout conflicts', async () => {
+    gitLibraries.checkoutBranch.mockRejectedValue(Object.assign(
+      new Error('The current branch changed.'),
+      { statusCode: 409, code: 'BRANCH_CHANGED', currentBranch: 'release' },
+    ));
+    const { app, getRoute } = createRouteRegistry();
+    registerGitRoutes(app);
+    const response = createMockResponse();
+
+    await getRoute('POST', '/api/git/checkout')(
+      {
+        query: { directory: '/repo' },
+        body: { branch: 'feature', expectedCurrent: 'main', localOnly: true },
+      },
+      response,
+    );
+
+    expect(response.statusCode).toBe(409);
+    expect(response.body).toEqual({
+      error: 'The current branch changed.',
+      code: 'BRANCH_CHANGED',
+      currentBranch: 'release',
+    });
   });
 
   it('rejects invalid path payloads before calling git', async () => {

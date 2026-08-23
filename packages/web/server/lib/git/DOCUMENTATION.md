@@ -36,7 +36,7 @@ The following functions are exported and used by the web server:
 ### Branch Operations
 - `getBranches(directory)`: Get list of local and remote branches (filtered to active remote branches).
 - `createBranch(directory, branchName, options)`: Create and checkout a new branch.
-- `checkoutBranch(directory, branchName)`: Checkout an existing branch.
+- `checkoutBranch(directory, branchName, options)`: Checkout an existing branch. Composer sends may provide `expectedCurrent` plus `localOnly: true`; the operation serializes PiChamber checkouts for that worktree, rejects a stale current branch with `BRANCH_CHANGED`, verifies the exact local ref before mutation, and returns the observed `previousBranch` and `currentBranch`.
 - `deleteBranch(directory, branch, options)`: Delete a branch (supports force flag).
 - `renameBranch(directory, oldName, newName)`: Rename a branch and preserve upstream tracking.
 - `getRemotes(directory)`: Get list of configured remotes. Non-repository directories return an empty list without logging an operational failure.
@@ -107,6 +107,12 @@ The following functions are internal helpers used by exported functions:
 - `diffStats`: Object mapping file paths to `{ insertions, deletions }`.
 - `mergeInProgress`: Object with `{ head, message }` if merge in progress.
 - `rebaseInProgress`: Object with `{ headName, onto }` if rebase in progress.
+
+### Checkout response
+- Successful checkout returns `{ success, branch, previousBranch, currentBranch }`.
+- Conditional composer checkout returns HTTP 409 with a stable `code` and the observed `currentBranch` when the selected branch disappeared, the current branch changed after confirmation, Git rejected local changes, or checkout could not be confirmed.
+- A failed Git command rereads the current branch before returning. Callers must not assume that a thrown error proves no mutation because a checkout hook can fail after Git changes HEAD.
+- Checkout never auto-stashes, forces, resets, or rolls back working-tree changes.
 
 ### Branches Response
 - `all`: Local branches plus remote-tracking branches that still exist on their remote. A remote that fails to answer keeps its branches in the list: "we could not ask" must not be reported as "these branches are gone", because callers use this list to decide whether a base branch exists at all.

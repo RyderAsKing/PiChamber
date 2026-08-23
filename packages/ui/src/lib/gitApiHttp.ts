@@ -26,6 +26,8 @@ import type {
   GitIdentitySummary,
   DiscoveredGitCredential,
   MergeConflictDetails,
+  CheckoutBranchOptions,
+  CheckoutBranchResponse,
   CheckoutCommitResponse,
   CherryPickResponse,
   RevertCommitResponse,
@@ -684,15 +686,27 @@ export const applyGitStash = (directory: string, options: { ref: string }) => po
 export const popGitStash = (directory: string, options: { ref: string }) => postStashRef(directory, 'stash/pop', options);
 export const dropGitStash = (directory: string, options: { ref: string }) => postStashRef(directory, 'stash/drop', options);
 
-export async function checkoutBranch(directory: string, branch: string): Promise<{ success: boolean; branch: string }> {
+export async function checkoutBranch(
+  directory: string,
+  branch: string,
+  options?: CheckoutBranchOptions,
+): Promise<CheckoutBranchResponse> {
   const response = await runtimeFetch(buildUrl(`${API_BASE}/checkout`, directory), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ branch }),
+    body: JSON.stringify({ branch, ...options }),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to checkout branch');
+    const payload = await response.json().catch(() => ({ error: response.statusText }));
+    const error = new Error(payload.error || 'Failed to checkout branch') as Error & {
+      code?: string;
+      currentBranch?: string | null;
+    };
+    if (typeof payload.code === 'string') error.code = payload.code;
+    if (typeof payload.currentBranch === 'string' || payload.currentBranch === null) {
+      error.currentBranch = payload.currentBranch;
+    }
+    throw error;
   }
   return response.json();
 }

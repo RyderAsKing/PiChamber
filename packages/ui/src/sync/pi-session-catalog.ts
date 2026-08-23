@@ -556,6 +556,16 @@ export const listUiSessionsFromCatalog = (
   return sessions.length === 0 ? EMPTY_UI_SESSIONS : sessions;
 };
 
+export const listLiveSessionRecordsFromCatalog = (
+  catalog: PiSessionCatalogState,
+): LiveSessionRecord[] => {
+  const records: LiveSessionRecord[] = [];
+  for (const record of catalog.byId.values()) {
+    if (record.lifecycle === 'busy' || record.lifecycle === 'retry') records.push(record);
+  }
+  return records;
+};
+
 export const catalogLiveSessionIdsKey = (catalog: PiSessionCatalogState): string => {
   const ids: string[] = [];
   for (const record of catalog.byId.values()) {
