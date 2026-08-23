@@ -69,7 +69,7 @@ export function ComposerVoiceInput({ state, subscribeLevel }: ComposerVoiceInput
         : 'Recording';
 
   return (
-    <div className="flex min-h-[7rem] w-full items-center px-3 py-3" role="group" aria-label="Dictation recorder">
+    <div className="flex h-[7rem] w-full items-center px-3 py-3" role="group" aria-label="Dictation recorder">
       <div className="min-w-0 flex-1">
         {recording ? <ComposerVoiceVisualizer subscribeLevel={subscribeLevel} /> : (
           <div className="flex h-12 items-center justify-center typography-ui-label text-muted-foreground">{status}</div>
