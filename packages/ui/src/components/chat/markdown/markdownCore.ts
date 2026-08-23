@@ -1,5 +1,4 @@
-import { marked, type Tokens } from 'marked';
-import katex from 'katex';
+import { Marked, marked, type Tokens } from 'marked';
 import DOMPurify from 'dompurify';
 import { buildAgentMentionUrl, parseAgentHref, parseSkillHref } from '@/lib/messages/inlineMessageLinks';
 import { highlightCodeInWorker } from './markdown-worker';
@@ -28,8 +27,20 @@ const escapeAttr = (value: string): string =>
 // renderMathExpressions). This mirrors KaTeX auto-render's default delimiters.
 type MathToken = { type: string; raw: string; text: string };
 
-const renderKatex = (math: string, raw: string, displayMode: boolean): string => {
+// KaTeX (259 kB) is the largest eager dependency in the chat render path.
+// Load it only when math is actually present, and never during streaming's
+// hot path — DeepSeek keeps Shiki/KaTeX off until the message settles.
+let katexPromise: Promise<{ renderToString: (tex: string, opts: { displayMode: boolean; throwOnError: boolean }) => string }> | null = null;
+const loadKatex = (): Promise<{ renderToString: (tex: string, opts: { displayMode: boolean; throwOnError: boolean }) => string }> => {
+  if (!katexPromise) {
+    katexPromise = import('katex').then((module) => (module as unknown as { default: { renderToString: (tex: string, opts: { displayMode: boolean; throwOnError: boolean }) => string } }).default ?? (module as unknown as { renderToString: (tex: string, opts: { displayMode: boolean; throwOnError: boolean }) => string }));
+  }
+  return katexPromise;
+};
+
+const renderKatex = async (math: string, raw: string, displayMode: boolean): Promise<string> => {
   try {
+    const katex = await loadKatex();
     return katex.renderToString(math, { displayMode, throwOnError: false });
   } catch {
     return raw;
@@ -48,7 +59,7 @@ const inlineMathExtension = {
     if (!match) return undefined;
     return { type: 'inlineMath', raw: match[0], text: match[1] ?? '' };
   },
-  renderer(token: Tokens.Generic) {
+  async renderer(token: Tokens.Generic) {
     const math = token as MathToken;
     return renderKatex(math.text, math.raw, false);
   },
@@ -66,37 +77,62 @@ const blockMathExtension = {
     if (!match) return undefined;
     return { type: 'blockMath', raw: match[0], text: match[1] ?? '' };
   },
-  renderer(token: Tokens.Generic) {
+  async renderer(token: Tokens.Generic) {
     const math = token as MathToken;
     return renderKatex(math.text, math.raw, true);
   },
 };
 
-const parser = marked.use({
+const sharedRenderer = {
+  // Assistant output is untrusted. Markdown constructs still render as HTML,
+  // but raw HTML must remain visible text so it cannot introduce active DOM
+  // such as stylesheets or positioned overlays into the application shell.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  html({ text }: any) {
+    return escapeRawMarkdownHtml(text);
+  },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  link({ href, title, text }: any) {
+    const target = href ?? '';
+    const agentName = parseAgentHref(target);
+    if (agentName) {
+      return `<a href="${escapeAttr(buildAgentMentionUrl(agentName))}" data-pichamber-agent-mention="true" class="text-primary hover:underline" target="_blank" rel="noopener noreferrer">${text}</a>`;
+    }
+    const skillName = parseSkillHref(target);
+    if (skillName) {
+      return `<a href="${escapeAttr(target)}" data-skill-name="${escapeAttr(skillName)}" class="text-primary hover:underline">${text}</a>`;
+    }
+    const titleAttr = title ? ` title="${escapeAttr(title)}"` : '';
+    return `<a href="${escapeAttr(target)}"${titleAttr} class="external-link" target="_blank" rel="noopener noreferrer">${text}</a>`;
+  },
+};
+
+// Synchronous parser for the hot first-paint path — no KaTeX, no async.
+// Keeps the initial chunk free of the 259 kB katex import.
+const syncParser = new Marked({
+  gfm: true,
+  breaks: false,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  renderer: sharedRenderer as any,
+});
+
+// Async parser for the settled path — KaTeX via dynamic import.
+const asyncParser = new Marked({
+  async: true,
   gfm: true,
   breaks: false,
   extensions: [inlineMathExtension, blockMathExtension],
-  renderer: {
-    // Assistant output is untrusted. Markdown constructs still render as HTML,
-    // but raw HTML must remain visible text so it cannot introduce active DOM
-    // such as stylesheets or positioned overlays into the application shell.
-    html({ text }) {
-      return escapeRawMarkdownHtml(text);
-    },
-    link({ href, title, text }) {
-      const target = href ?? '';
-      const agentName = parseAgentHref(target);
-      if (agentName) {
-        return `<a href="${escapeAttr(buildAgentMentionUrl(agentName))}" data-pichamber-agent-mention="true" class="text-primary hover:underline" target="_blank" rel="noopener noreferrer">${text}</a>`;
-      }
-      const skillName = parseSkillHref(target);
-      if (skillName) {
-        return `<a href="${escapeAttr(target)}" data-skill-name="${escapeAttr(skillName)}" class="text-primary hover:underline">${text}</a>`;
-      }
-      const titleAttr = title ? ` title="${escapeAttr(title)}"` : '';
-      return `<a href="${escapeAttr(target)}"${titleAttr} class="external-link" target="_blank" rel="noopener noreferrer">${text}</a>`;
-    },
-  },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  renderer: sharedRenderer as any,
+});
+// Preserve legacy `marked.use` global for any external callers that rely on
+// the default instance (none in-repo, but keeps `marked.parse` working).
+marked.use({
+  gfm: true,
+  breaks: false,
+  extensions: [inlineMathExtension, blockMathExtension],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  renderer: sharedRenderer as any,
 });
 
 // ---------------------------------------------------------------------------
@@ -109,25 +145,29 @@ const parser = marked.use({
 // marked extensions above). `$$` survives marked untouched (no backslash), so
 // post-processing the parsed HTML — skipping code via renderMathExpressions —
 // stays correct and code-safe.
-const renderMathInText = (text: string): string =>
-  text.replace(/\$\$([\s\S]*?)\$\$/g, (_match, math: string) => {
-    try {
-      return katex.renderToString(math, { displayMode: true, throwOnError: false });
-    } catch {
-      return `$$${math}$$`;
-    }
-  });
+const renderMathInText = async (text: string): Promise<string> => {
+  const segments = text.split(/(\$\$[\s\S]*?\$\$)/g);
+  const rendered = await Promise.all(
+    segments.map(async (segment) => {
+      const inner = /^\$\$([\s\S]*?)\$\$$/.exec(segment)?.[1];
+      if (inner === undefined) return segment;
+      return renderKatex(inner, segment, true);
+    }),
+  );
+  return rendered.join('');
+};
 
-const renderMathExpressions = (html: string): string => {
+const renderMathExpressions = async (html: string): Promise<string> => {
   // No `$` anywhere means no math to render — skip the split + regex passes on
   // the hot streaming path (the overwhelming majority of blocks have no math).
   if (html.indexOf('$') === -1) return html;
 
   const codeBlockPattern = /(<(?:pre|code|kbd)[^>]*>[\s\S]*?<\/(?:pre|code|kbd)>)/gi;
-  return html
-    .split(codeBlockPattern)
-    .map((part, index) => (index % 2 === 1 ? part : renderMathInText(part)))
-    .join('');
+  const parts = html.split(codeBlockPattern);
+  const rendered = await Promise.all(
+    parts.map(async (part, index) => (index % 2 === 1 ? part : renderMathInText(part))),
+  );
+  return rendered.join('');
 };
 
 // ---------------------------------------------------------------------------
@@ -251,11 +291,11 @@ const touch = (key: string, entry: { hash: string; html: string }): void => {
 };
 
 const parseBlock = async (block: MarkdownBlock): Promise<string> => {
-  const parsed = await Promise.resolve(parser.parse(block.src));
+  const parsed = await (asyncParser.parse(block.src) as Promise<string>);
   // DeepSeek leaves KaTeX and Shiki off until the message settles. Cheap
   // stream blocks (`highlight: false`) skip both; the finalize pass re-parses
   // as `full` with highlighting.
-  const withMath = block.highlight ? renderMathExpressions(parsed) : parsed;
+  const withMath = block.highlight ? await renderMathExpressions(parsed) : parsed;
   const highlighted = block.highlight ? await highlightCodeBlocks(withMath) : withMath;
   return sanitize(highlighted);
 };
@@ -263,17 +303,17 @@ const parseBlock = async (block: MarkdownBlock): Promise<string> => {
 /**
  * Synchronous styled render for the first paint, before the async pipeline
  * (Shiki-in-worker highlight) resolves. Produces the SAME structural HTML as
- * `renderMarkdownBlocks` minus syntax coloring: paragraphs, lists, code blocks
- * and bold all render at their final width, so the async pass only upgrades
- * code-block colors — no flash of full-width raw markdown source. `parser.parse`
- * is synchronous (marked is not configured `async`), so this never blocks on a
- * worker round-trip.
+ * `renderMarkdownBlocks` minus syntax coloring — but intentionally without
+ * KaTeX: the eager `katex` import (259 kB) is now behind a dynamic import on
+ * the async path. Streaming keeps KaTeX off until settle (DeepSeek), and the
+ * first-paint sync block shows raw delimiters for at most one frame before
+ * `renderMarkdownBlocks` replaces it with rendered math. This keeps the
+ * synchronous path hot and avoids pulling KaTeX into the initial chunk.
  */
 export const renderMarkdownSync = (text: string): string => {
   if (!text) return '';
-  const parsed = parser.parse(text) as string;
-  const withMath = renderMathExpressions(parsed);
-  return sanitize(withMath);
+  const parsed = syncParser.parse(text) as string;
+  return sanitize(parsed);
 };
 
 export type RenderedBlock = {
