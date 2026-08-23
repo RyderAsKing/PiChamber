@@ -23,6 +23,7 @@ export interface PiSessionSnapshotView {
   queue: { steering: number; followUp: number };
   model?: PiSessionSnapshot['model'];
   thinking?: PiSessionSnapshot['thinking'];
+  compaction?: PiSessionSnapshot['compaction'];
   lastText?: string;
   lastThinking?: string;
   lastToolPart?: PiSessionSnapshot['lastToolPart'];
@@ -37,6 +38,7 @@ export const projectSnapshot = (snapshot: PiSessionSnapshot): PiSessionSnapshotV
   queue: snapshot.queue ?? { steering: 0, followUp: 0 },
   ...(snapshot.model ? { model: snapshot.model } : {}),
   ...(snapshot.thinking ? { thinking: snapshot.thinking } : {}),
+  ...(snapshot.compaction ? { compaction: snapshot.compaction } : {}),
   ...(snapshot.lastText ? { lastText: snapshot.lastText } : {}),
   ...(snapshot.lastThinking ? { lastThinking: snapshot.lastThinking } : {}),
   ...(snapshot.lastToolPart ? { lastToolPart: snapshot.lastToolPart } : {}),

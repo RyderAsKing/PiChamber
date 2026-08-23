@@ -205,6 +205,8 @@ export const bootstrapPiDirectory = async (
         lastSequence: detail.lastSequence,
         ...(detail.isStreaming !== undefined ? { isStreaming: detail.isStreaming } : {}),
         ...(detail.lifecycle ? { lifecycle: detail.lifecycle } : {}),
+        ...(detail.retry ? { retry: detail.retry } : {}),
+        ...(detail.compaction ? { compaction: detail.compaction } : {}),
         messages: detail.messages.map((entry) => ({
           message: entry.message,
           parts: entry.parts.map((part) => ({

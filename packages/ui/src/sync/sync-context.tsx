@@ -4,7 +4,7 @@ import { getPiSessionStore, type PiSessionStoreState } from '@/apps/pi-session-s
 import { piProjectedToRecords, mapPart } from '@/lib/chat/pi-to-renderable';
 import type { Message, Part, PermissionRequest, QuestionRequest, Session, SessionStatus } from '@/lib/chat/types';
 import { projectSession, type PiReducerMessage, type PiReducerMessagePart, type PiReducerSessionState } from '@/lib/pi/event-reducer';
-import type { PiRetryInfo } from '@/lib/pi/types';
+import type { PiCompactionInfo, PiRetryInfo } from '@/lib/pi/types';
 import { usePiSessionSnapshot, usePiSessionStore } from './pi-session-context';
 import { mapPiSessionList } from './sync-refs';
 import {
@@ -210,6 +210,14 @@ export function useSessionStatus(sessionID: string, _directory?: string): Sessio
   if (!sessionID) return IDLE;
   const record = catalogById.get(sessionID);
   return sessionStatusFromLifecycle(record?.lifecycle, record?.retry);
+}
+
+export function useSessionCompaction(sessionID: string): PiCompactionInfo | null {
+  return usePiSessionSnapshot(
+    (state) => (sessionID ? state.reducer.bySession.get(sessionID)?.compaction ?? null : null),
+    undefined,
+    sessionID ? sessionTopic(sessionID) : '*',
+  );
 }
 
 export function useSessionPermissions(_sessionID: string, _directory?: string): PermissionRequest[] {

@@ -39,6 +39,7 @@ import {
     useSyncDirectory,
     useSessionRenderable,
     useSessionStatus,
+    useSessionCompaction,
     useScopedBlockingPermissions,
     useScopedBlockingQuestions,
     useParentSession,
@@ -163,6 +164,10 @@ type ChatViewportProps = {
         confirmedAt?: number;
         fallbackTimestamp?: number;
     } | null;
+    compactionOverlay: {
+        sessionId: string;
+        compaction: import('@/lib/pi/types').PiCompactionInfo;
+    } | null;
     handleMessageContentChange: (reason?: ContentChangeReason) => void;
     getAnimationHandlers: (messageId: string) => AnimationHandlers;
     handleHistoryScroll: () => void;
@@ -197,6 +202,7 @@ const ChatViewport = React.memo(({
     streamingMessageId,
     activeStreamingPhase,
     retryOverlay,
+    compactionOverlay,
     handleMessageContentChange,
     getAnimationHandlers,
     handleHistoryScroll,
@@ -360,6 +366,7 @@ const ChatViewport = React.memo(({
                             activeStreamingMessageId={streamingMessageId}
                             activeStreamingPhase={activeStreamingPhase}
                             retryOverlay={retryOverlay}
+                            compactionOverlay={compactionOverlay}
                             onMessageContentChange={handleMessageContentChange}
                             getAnimationHandlers={getAnimationHandlers}
                             isLoadingOlder={isLoadingOlder}
@@ -406,6 +413,7 @@ const ChatViewport = React.memo(({
         && prev.streamingMessageId === next.streamingMessageId
         && prev.activeStreamingPhase === next.activeStreamingPhase
         && prev.retryOverlay === next.retryOverlay
+        && prev.compactionOverlay === next.compactionOverlay
         && prev.handleMessageContentChange === next.handleMessageContentChange
         && prev.getAnimationHandlers === next.getAnimationHandlers
         && prev.handleHistoryScroll === next.handleHistoryScroll
@@ -646,6 +654,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
             confirmedAt: (sessionStatusForCurrent as { confirmedAt?: number }).confirmedAt,
         };
     }, [currentSessionId, sessionStatusForCurrent]);
+    const compaction = useSessionCompaction(currentSessionId ?? '');
+    const compactionOverlay = React.useMemo(() => currentSessionId && compaction
+        ? { sessionId: currentSessionId, compaction }
+        : null, [compaction, currentSessionId]);
     const [retryFallbackTimestamp, setRetryFallbackTimestamp] = React.useState<number>(0);
     const retryFallbackSessionRef = React.useRef<string | null>(null);
 
@@ -1122,6 +1134,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                 streamingMessageId={streamingMessageId}
                 activeStreamingPhase={activeStreamingPhase}
                 retryOverlay={retryOverlay}
+                compactionOverlay={compactionOverlay}
                 handleMessageContentChange={handleMessageContentChange}
                 getAnimationHandlers={getAnimationHandlers}
                 handleHistoryScroll={timelineController.handleHistoryScroll}

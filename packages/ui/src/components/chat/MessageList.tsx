@@ -10,6 +10,7 @@ import { HISTORY_GATE_ESTIMATED_SIZE, nextRevealedOlderCount, revealedCountForTu
 import type { AnimationHandlers, ContentChangeReason } from '@/hooks/useChatAutoFollow';
 import type { ChatMessageEntry, TurnRecord, TurnGroupingContext } from './lib/turns/types';
 import { useTurnRecords } from './hooks/useTurnRecords';
+import { applyCompactionOverlay } from './lib/turns/applyCompactionOverlay';
 import { applyRetryOverlay } from './lib/turns/applyRetryOverlay';
 import { isTurnAssistantWorking, resolveTurnStreamingAssistantId } from './lib/turns/assistantWorkingState';
 import { buildLiveStreamingEntry, type StreamingTailEntry } from './lib/turns/streamingTailEntry';
@@ -20,6 +21,7 @@ import { FadeInDisabledProvider } from './message/FadeInOnReveal';
 import { hasPendingUserSendAnimation, consumePendingUserSendAnimation } from '@/lib/userSendAnimation';
 import { streamPerfCount, streamPerfMark, streamPerfMeasure } from '@/stores/utils/streamDebug';
 import type { StreamPhase } from './message/types';
+import type { PiCompactionInfo } from '@/lib/pi/types';
 import { useSessionParts } from '@/sync/sync-context';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import {
@@ -373,6 +375,10 @@ interface MessageListProps {
         message: string;
         confirmedAt?: number;
         fallbackTimestamp?: number;
+    } | null;
+    compactionOverlay?: {
+        sessionId: string;
+        compaction: PiCompactionInfo;
     } | null;
     onMessageContentChange: (reason?: ContentChangeReason) => void;
     getAnimationHandlers: (messageId: string) => AnimationHandlers;
@@ -1178,6 +1184,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     activeStreamingMessageId = null,
     activeStreamingPhase = null,
     retryOverlay = null,
+    compactionOverlay = null,
     onMessageContentChange,
     getAnimationHandlers,
     scrollToBottom,
@@ -1320,13 +1327,18 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     }, [scrollRef]);
 
     const displayMessages = React.useMemo(() => streamPerfMeasure('ui.message_list.retry_overlay_ms', () => {
-        return applyRetryOverlay(baseDisplayMessages, {
+        const withRetry = applyRetryOverlay(baseDisplayMessages, {
             sessionId: retryOverlay?.sessionId ?? null,
             message: retryOverlay?.message ?? 'Quota limit reached. Retrying automatically.',
             confirmedAt: retryOverlay?.confirmedAt,
             fallbackTimestamp: retryOverlay?.fallbackTimestamp ?? 0,
         });
-    }), [baseDisplayMessages, retryOverlay]);
+        return applyCompactionOverlay(
+            withRetry,
+            compactionOverlay?.sessionId ?? null,
+            compactionOverlay?.compaction ?? null,
+        );
+    }), [baseDisplayMessages, compactionOverlay, retryOverlay]);
 
     const { projection, staticTurns, streamingTurn } = useTurnRecords(displayMessages, {
         sessionKey,

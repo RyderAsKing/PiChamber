@@ -19,6 +19,16 @@ describe('areOptionalNeighborMessagesEqual', () => {
     expect(areOptionalNeighborMessagesEqual(user, user)).toBe(true);
   });
 
+  test('invalidates the rendered message when compaction feedback changes', () => {
+    const running = record('a1', 'assistant', 'answer');
+    const completed = record('a1', 'assistant', 'answer');
+    (running.info as unknown as { error?: unknown }).error = { name: 'SessionCompaction', data: { phase: 'running' } };
+    (completed.info as unknown as { error?: unknown }).error = { name: 'SessionCompaction', data: { phase: 'completed' } };
+
+    expect(areOptionalRenderRelevantMessagesEqual(running, completed)).toBe(false);
+    expect(areOptionalNeighborMessagesEqual(running, completed)).toBe(true);
+  });
+
   test('treats a different neighbor id as a change', () => {
     expect(areOptionalNeighborMessagesEqual(
       record('a1', 'assistant', 'hel'),

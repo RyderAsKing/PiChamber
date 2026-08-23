@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { Message, Part } from '@/lib/chat/types';
+import { applyCompactionOverlay } from './applyCompactionOverlay';
 import { applyRetryOverlay } from './applyRetryOverlay';
 import { projectTurnRecords } from './projectTurnRecords';
 import type { ChatMessageEntry } from './types';
@@ -57,6 +58,48 @@ describe('applyRetryOverlay', () => {
 
         expect((overlaid[1]?.info as Message).parentID).toBe('u1');
         expect(projectTurnRecords(overlaid).turns[0]?.assistantMessageIds).toEqual(['synthetic_retry_notice_ses_1']);
+    });
+});
+
+describe('applyCompactionOverlay', () => {
+    test('attaches active automatic compaction feedback to the latest turn', () => {
+        const user = createMessageEntry({ id: 'u1', role: 'user', createdAt: 1 });
+        const assistant = createMessageEntry({ id: 'a1', role: 'assistant', parentID: 'u1', createdAt: 2 });
+        const overlaid = applyCompactionOverlay([user, assistant], 'ses_1', {
+            phase: 'running',
+            reason: 'threshold',
+            startedAt: 3,
+        });
+
+        const error = overlaid[1]?.info.error as { name?: string; data?: { phase?: string; reason?: string } };
+        expect(error.name).toBe('SessionCompaction');
+        expect(error.data).toEqual({ phase: 'running', reason: 'threshold', startedAt: 3 });
+    });
+
+    test('keeps completed feedback on the turn that was compacted', () => {
+        const user1 = createMessageEntry({ id: 'u1', role: 'user', createdAt: 1 });
+        const assistant1 = createMessageEntry({ id: 'a1', role: 'assistant', parentID: 'u1', createdAt: 2 });
+        const user2 = createMessageEntry({ id: 'u2', role: 'user', createdAt: 4 });
+        const assistant2 = createMessageEntry({ id: 'a2', role: 'assistant', parentID: 'u2', createdAt: 5 });
+        const overlaid = applyCompactionOverlay([user1, assistant1, user2, assistant2], 'ses_1', {
+            phase: 'completed',
+            completedAt: 3,
+        });
+
+        expect((overlaid[1]?.info.error as { name?: string }).name).toBe('SessionCompaction');
+        expect(overlaid[3]?.info.error).toBe(undefined);
+    });
+
+    test('creates a notice when compaction starts before an assistant exists', () => {
+        const user = createMessageEntry({ id: 'u1', role: 'user', createdAt: 1 });
+        const overlaid = applyCompactionOverlay([user], 'ses_1', {
+            phase: 'completed',
+            reason: 'manual',
+            completedAt: 3,
+        });
+
+        expect(overlaid[1]?.info.id).toBe('synthetic_compaction_notice_ses_1');
+        expect(projectTurnRecords(overlaid).turns[0]?.assistantMessageIds).toEqual(['synthetic_compaction_notice_ses_1']);
     });
 });
 

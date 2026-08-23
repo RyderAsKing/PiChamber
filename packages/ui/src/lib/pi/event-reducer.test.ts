@@ -127,6 +127,40 @@ describe("applyPiEvent", () => {
     expect(turns.turns[0]?.assistantMessageIds).toEqual(["a-failed", "a-recovered"])
   })
 
+  test("keeps authoritative compaction progress and completion details", () => {
+    let state = applyPiEvent(createReducerState(), baseEvent("session.compaction", 1, {
+      phase: "running",
+      reason: "threshold",
+      startedAt: 1_000,
+    } as never)).state
+
+    expect((state.bySession.get("sess-1") as PiReducerSessionState & { compaction?: unknown }).compaction).toEqual({
+      phase: "running",
+      reason: "threshold",
+      startedAt: 1_000,
+    })
+
+    state = applyPiEvent(state, baseEvent("session.compaction", 2, {
+      phase: "completed",
+      reason: "threshold",
+      startedAt: 1_000,
+      completedAt: 2_000,
+      tokensBefore: 120_000,
+      estimatedTokensAfter: 24_000,
+      willRetry: false,
+    } as never)).state
+
+    expect((state.bySession.get("sess-1") as PiReducerSessionState & { compaction?: unknown }).compaction).toEqual({
+      phase: "completed",
+      reason: "threshold",
+      startedAt: 1_000,
+      completedAt: 2_000,
+      tokensBefore: 120_000,
+      estimatedTokensAfter: 24_000,
+      willRetry: false,
+    })
+  })
+
   test("assembles canonical assistant message and thinking deltas", () => {
     let state = applyPiEvent(createReducerState(), assistantStart()).state
     state = applyPiEvent(state, baseEvent("assistant.message.delta", 2, {
@@ -408,6 +442,18 @@ describe("hydrateSessionFromDetail", () => {
 
     expect(session.lifecycle).toBe("retry")
     expect(session.retry).toEqual({ attempt: 2, next: 8_000, message: "provider unavailable" })
+  })
+
+  test("restores compaction state from getSession", () => {
+    const { session } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 12,
+      lifecycle: "idle",
+      compaction: { phase: "running", reason: "manual", startedAt: 1_000 },
+      messages: [],
+    })
+
+    expect(session.compaction).toEqual({ phase: "running", reason: "manual", startedAt: 1_000 })
   })
 
   test("restores live streaming UI from an in-flight getSession", () => {

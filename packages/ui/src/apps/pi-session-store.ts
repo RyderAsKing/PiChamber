@@ -1363,7 +1363,10 @@ export class PiSessionStore {
     }
   }
   abort = (sessionId: string) => piClient.abortSession({ sessionId }, this.scope());
-  compact = (sessionId: string) => piClient.compactSession({ sessionId }, this.scope());
+  compact = (sessionId: string, customInstructions?: string) => piClient.compactSession({
+    sessionId,
+    ...(customInstructions ? { customInstructions } : {}),
+  }, this.scope());
   setModel = (sessionId: string, providerId: string, modelId: string) => piClient.setSessionModel({ sessionId, model: { providerId, modelId } }, this.scope());
   setThinking = (sessionId: string, thinking: PiThinkingLevel) => piClient.setSessionThinking({ sessionId, thinking }, this.scope());
   tree = (sessionId: string) => piClient.getSessionTree(sessionId, this.scope());
@@ -1377,6 +1380,8 @@ export class PiSessionStore {
       lastSequence: detail.lastSequence,
       ...(detail.isStreaming !== undefined ? { isStreaming: detail.isStreaming } : {}),
       ...(detail.lifecycle ? { lifecycle: detail.lifecycle } : {}),
+      ...(detail.retry ? { retry: detail.retry } : {}),
+      ...(detail.compaction ? { compaction: detail.compaction } : {}),
       messages: detail.messages,
     }).session;
   }

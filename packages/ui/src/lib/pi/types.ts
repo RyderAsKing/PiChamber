@@ -233,6 +233,23 @@ export interface PiRetryInfo {
   message?: string;
 }
 
+export type PiCompactionReason = 'manual' | 'threshold' | 'overflow';
+export type PiCompactionPhase = 'running' | 'retrying' | 'completed' | 'failed' | 'aborted';
+
+export interface PiCompactionInfo {
+  phase: PiCompactionPhase;
+  reason?: PiCompactionReason;
+  startedAt?: number;
+  completedAt?: number;
+  attempt?: number;
+  maxAttempts?: number;
+  next?: number;
+  tokensBefore?: number;
+  estimatedTokensAfter?: number;
+  willRetry?: boolean;
+  message?: string;
+}
+
 export interface PiSessionSnapshot {
   sessionId: PiSessionId;
   directory: PiDirectory;
@@ -257,6 +274,8 @@ export interface PiSessionSnapshot {
   lifecycle: PiSessionLifecycleState;
   /** Retry countdown/error context while `lifecycle` is `retry`. */
   retry?: PiRetryInfo;
+  /** Latest active or completed compaction state. */
+  compaction?: PiCompactionInfo;
   /** Server authoritative run start for an active turn. */
   runStartedAt?: number;
   /** Server wall clock at snapshot time. */

@@ -644,7 +644,20 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             return undefined;
         }
         const errorInfo = (message.info as { error?: unknown } | undefined)?.error as
-            | { data?: { message?: unknown }; message?: unknown; name?: unknown }
+            | {
+                data?: {
+                    message?: unknown;
+                    phase?: unknown;
+                    reason?: unknown;
+                    attempt?: unknown;
+                    maxAttempts?: unknown;
+                    tokensBefore?: unknown;
+                    estimatedTokensAfter?: unknown;
+                    willRetry?: unknown;
+                };
+                message?: unknown;
+                name?: unknown;
+            }
             | undefined;
         if (!errorInfo) {
             return undefined;
@@ -661,6 +674,43 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                 text: `Retrying after an error:\n\`${detail}\``,
                 variant: 'info' as const,
             };
+        }
+        if (errorName === 'SessionCompaction') {
+            const phase = errorInfo.data?.phase;
+            const reason = errorInfo.data?.reason;
+            if (phase === 'running') {
+                const text = reason === 'threshold'
+                    ? 'Context is nearly full. Compacting automatically...'
+                    : reason === 'overflow'
+                        ? 'Context limit reached. Compacting before retrying...'
+                        : 'Compacting session context...';
+                return { text, variant: 'info' as const };
+            }
+            if (phase === 'retrying') {
+                const attempt = typeof errorInfo.data?.attempt === 'number' ? errorInfo.data.attempt : undefined;
+                const maxAttempts = typeof errorInfo.data?.maxAttempts === 'number' ? errorInfo.data.maxAttempts : undefined;
+                const count = attempt && maxAttempts ? ` (${attempt}/${maxAttempts})` : '';
+                const reasonText = typeof errorInfo.data?.message === 'string' && errorInfo.data.message.trim()
+                    ? `\n\`${errorInfo.data.message.trim()}\``
+                    : '';
+                return { text: `Compaction failed temporarily. Retrying${count}...${reasonText}`, variant: 'info' as const };
+            }
+            if (phase === 'completed') {
+                const before = typeof errorInfo.data?.tokensBefore === 'number' ? errorInfo.data.tokensBefore : undefined;
+                const after = typeof errorInfo.data?.estimatedTokensAfter === 'number' ? errorInfo.data.estimatedTokensAfter : undefined;
+                const reduction = before !== undefined && after !== undefined
+                    ? `\n${before.toLocaleString()} → approximately ${after.toLocaleString()} tokens`
+                    : '';
+                const retryingTurn = errorInfo.data?.willRetry === true ? '\nRetrying the interrupted turn.' : '';
+                return { text: `Session compacted${reduction}${retryingTurn}`, variant: 'info' as const };
+            }
+            if (phase === 'aborted') {
+                return { text: 'Compaction stopped.', variant: 'info' as const };
+            }
+            const failure = typeof errorInfo.data?.message === 'string' && errorInfo.data.message.trim()
+                ? `\n\`${errorInfo.data.message.trim()}\``
+                : '';
+            return { text: `Compaction failed.${failure}`, variant: 'error' as const };
         }
         if (isLikelyProviderAuthFailure(detail)) {
             return {

@@ -40,6 +40,7 @@ import { resolveExistingSessionComposerSelection } from './thinking';
 import type {
   PiAssistantMessage,
   PiAttachment,
+  PiCompactionInfo,
   PiModelRef,
   PiRetryInfo,
   PiSessionLifecycleState,
@@ -120,6 +121,8 @@ export interface PiReducerSessionState {
   lifecycle: PiSessionLifecycleState;
   /** Retry countdown/error context while `lifecycle` is `retry`. */
   retry?: PiRetryInfo;
+  /** Latest authoritative compaction progress or outcome. */
+  compaction?: PiCompactionInfo;
   /** Active model/thinking the session is using. */
   model?: PiModelRef;
   thinking?: PiThinkingLevel;
@@ -770,6 +773,7 @@ export const applyPiEvent = (
       if (event.payload?.snapshot) {
         session.lifecycle = event.payload.snapshot.lifecycle ?? (event.payload.snapshot.isStreaming ? 'busy' : 'idle');
         session.retry = session.lifecycle === 'retry' ? event.payload.snapshot.retry : undefined;
+        session.compaction = event.payload.snapshot.compaction;
         if (event.payload.snapshot.model) session.model = event.payload.snapshot.model;
         if (event.payload.snapshot.thinking) session.thinking = event.payload.snapshot.thinking;
         if (event.payload.snapshot.queue) session.queue = { ...event.payload.snapshot.queue };
@@ -859,8 +863,7 @@ export const applyPiEvent = (
       session.thinking = event.payload.thinking;
       break;
     case 'session.compaction':
-      // Compaction does not change the reducer state directly; consumers
-      // observe the event name through their own subscription.
+      session.compaction = { ...event.payload };
       break;
     case 'session.updated':
       // Title/metadata lives in the live catalog, not the transcript reducer.
@@ -1182,6 +1185,7 @@ export const hydrateSessionFromDetail = (
     isStreaming?: boolean;
     lifecycle?: PiSessionLifecycleState;
     retry?: PiRetryInfo;
+    compaction?: PiCompactionInfo;
     messages: Array<{
       message: PiUserMessage | PiAssistantMessage;
       parts: Array<{
@@ -1272,6 +1276,7 @@ export const hydrateSessionFromDetail = (
   });
   if (resolved.model) session.model = resolved.model;
   if (resolved.thinking) session.thinking = resolved.thinking;
+  session.compaction = detail.compaction;
   markHydratedLiveActivity(session, {
     ...(detail.isStreaming !== undefined ? { isStreaming: detail.isStreaming } : {}),
     ...(detail.lifecycle ? { lifecycle: detail.lifecycle } : {}),

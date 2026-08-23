@@ -144,6 +144,23 @@ const projectRetryInfo = (value) => {
   };
 };
 
+const projectCompactionInfo = (value) => {
+  if (!value || typeof value !== 'object' || !['running', 'retrying', 'completed', 'failed', 'aborted'].includes(value.phase)) return null;
+  return {
+    phase: value.phase,
+    ...(['manual', 'threshold', 'overflow'].includes(value.reason) ? { reason: value.reason } : {}),
+    ...(Number.isFinite(value.startedAt) && value.startedAt >= 0 ? { startedAt: Math.floor(value.startedAt) } : {}),
+    ...(Number.isFinite(value.completedAt) && value.completedAt >= 0 ? { completedAt: Math.floor(value.completedAt) } : {}),
+    ...(Number.isSafeInteger(value.attempt) && value.attempt > 0 ? { attempt: value.attempt } : {}),
+    ...(Number.isSafeInteger(value.maxAttempts) && value.maxAttempts > 0 ? { maxAttempts: value.maxAttempts } : {}),
+    ...(Number.isFinite(value.next) && value.next >= 0 ? { next: Math.floor(value.next) } : {}),
+    ...(Number.isFinite(value.tokensBefore) && value.tokensBefore >= 0 ? { tokensBefore: Math.floor(value.tokensBefore) } : {}),
+    ...(Number.isFinite(value.estimatedTokensAfter) && value.estimatedTokensAfter >= 0 ? { estimatedTokensAfter: Math.floor(value.estimatedTokensAfter) } : {}),
+    ...(typeof value.willRetry === 'boolean' ? { willRetry: value.willRetry } : {}),
+    ...(typeof value.message === 'string' ? { message: value.message } : {}),
+  };
+};
+
 const sanitizeNavigation = (value) => {
   if (!value || typeof value !== 'object' || typeof value.targetEntryId !== 'string' || value.targetEntryId.length === 0) return null;
   const previousLeafId = value.previousLeafId === null ? null : (typeof value.previousLeafId === 'string' ? value.previousLeafId : null);
@@ -212,6 +229,7 @@ const projectSessionDetail = (value) => {
     ? value.lifecycle
     : (isStreaming ? 'busy' : 'idle');
   const retry = lifecycle === 'retry' ? projectRetryInfo(value.retry) : null;
+  const compaction = projectCompactionInfo(value.compaction);
   return {
     session: projectSession(value.session),
     messages,
@@ -219,6 +237,7 @@ const projectSessionDetail = (value) => {
     isStreaming,
     lifecycle,
     ...(retry ? { retry } : {}),
+    ...(compaction ? { compaction } : {}),
     ...(Number.isFinite(value.runStartedAt) ? { runStartedAt: Math.floor(value.runStartedAt) } : {}),
     ...(Number.isFinite(value.serverNow) ? { serverNow: Math.floor(value.serverNow) } : {}),
   };
@@ -373,10 +392,12 @@ const projectEventFrame = (frame) => {
       const snapshot = frame.payload;
       const lifecycle = ['idle', 'busy', 'retry', 'error', 'interrupted'].includes(snapshot.lifecycle) ? snapshot.lifecycle : 'idle';
       const retry = lifecycle === 'retry' ? projectRetryInfo(snapshot.retry) : null;
+      const compaction = projectCompactionInfo(snapshot.compaction);
       return { ...common, payload: { snapshot: {
         sessionId, directory, isStreaming: snapshot.isStreaming === true,
         lifecycle,
         ...(retry ? { retry } : {}),
+        ...(compaction ? { compaction } : {}),
         queue: { steering: Number.isSafeInteger(snapshot.queue?.steering) ? snapshot.queue.steering : 0, followUp: Number.isSafeInteger(snapshot.queue?.followUp) ? snapshot.queue.followUp : 0 },
         ...(snapshot.model && typeof snapshot.model.providerId === 'string' && typeof snapshot.model.modelId === 'string' ? { model: { providerId: snapshot.model.providerId, modelId: snapshot.model.modelId } } : {}),
         ...(typeof snapshot.thinking === 'string' ? { thinking: snapshot.thinking } : {}),
@@ -422,7 +443,10 @@ const projectEventFrame = (frame) => {
     case 'session.queue': return { ...common, payload: { steering: frame.payload.steering, followUp: frame.payload.followUp } };
     case 'session.model': return { ...common, payload: { model: frame.payload.model } };
     case 'session.thinking': return { ...common, payload: { thinking: frame.payload.thinking } };
-    case 'session.compaction': return { ...common, payload: { running: frame.payload.running === true } };
+    case 'session.compaction': {
+      const compaction = projectCompactionInfo(frame.payload);
+      return compaction ? { ...common, payload: compaction } : null;
+    }
     case 'session.error': return {
       ...common,
       payload: {
@@ -977,12 +1001,22 @@ export const registerPiRuntimeRoutes = (app, {
     });
   }
 
-  for (const [suffix, command] of [['abort', 'sessions.abort'], ['model', 'sessions.setModel'], ['thinking', 'sessions.setThinking'], ['compact', 'sessions.compact']]) {
+  for (const [suffix, command] of [['abort', 'sessions.abort'], ['model', 'sessions.setModel'], ['thinking', 'sessions.setThinking']]) {
     app.post(`/api/pi/sessions/:sessionId/${suffix}`, async (req, res) => {
       const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, command, req.body && typeof req.body === 'object' ? req.body : {});
       if (result !== undefined) res.status(204).end();
     });
   }
+
+  app.post('/api/pi/sessions/:sessionId/compact', async (req, res) => {
+    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.compact', req.body && typeof req.body === 'object' ? req.body : {});
+    if (result === undefined) return;
+    if (!result || result.accepted !== true) {
+      writeDaemonError(res, protocolMismatch());
+      return;
+    }
+    res.status(202).json({ accepted: true });
+  });
 
   app.post('/api/pi/attachments', async (req, res) => {
     try {

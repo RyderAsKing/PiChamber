@@ -145,6 +145,10 @@ export async function waitForConnectionOrThrow(): Promise<void> {
   throw snapshot.error ?? new Error('Pi runtime is unavailable');
 }
 
+export async function compactSession(sessionId: string, customInstructions?: string): Promise<void> {
+  await store().compact(sessionId, customInstructions);
+}
+
 export async function setLinkedIssue(..._args: unknown[]): Promise<void> {
   void _args;
 }

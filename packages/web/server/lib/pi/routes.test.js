@@ -497,6 +497,7 @@ describe('Pi runtime route', () => {
         if (command === 'sessions.tree') return { rootId: 'pi-session-7', nodes: [{ entryId: 'entry-7', updatedAt: 2, children: [], privatePath: '/private' }] };
         if (command === 'sessions.list') return { sessions: [{ session: detail.session, updatedAt: 2 }] };
         if (['sessions.prompt', 'sessions.steer', 'sessions.followUp'].includes(command)) return { accepted: true, messageId: 'message-1' };
+        if (command === 'sessions.compact') return { accepted: true };
         return {};
       },
     };
@@ -515,9 +516,10 @@ describe('Pi runtime route', () => {
     for (const suffix of ['prompt', 'steer', 'follow-up']) {
       expect((await fetch(`${base}/${suffix}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other', text: 'hello' }) })).status).toBe(202);
     }
-    for (const [suffix, body] of [['abort', {}], ['model', { model: { providerId: 'test', modelId: 'model' } }], ['thinking', { thinking: 'high' }], ['compact', { thinking: 'low' }]]) {
+    for (const [suffix, body] of [['abort', {}], ['model', { model: { providerId: 'test', modelId: 'model' } }], ['thinking', { thinking: 'high' }]]) {
       expect((await fetch(`${base}/${suffix}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other', ...body }) })).status).toBe(204);
     }
+    expect((await fetch(`${base}/compact`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other', thinking: 'low' }) })).status).toBe(202);
     const callsBeforeArchive = calls.length;
     expect((await fetch(`${base}/archive`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived: false }) })).status).toBe(204);
     expect(calls).toContainEqual({ command: 'archive.set', payload: ['pi-session-7', false] });
@@ -543,11 +545,12 @@ describe('Pi runtime route', () => {
     const runtime = {
       health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
       subscribe: async ({ onEvent }) => {
-        onEvent({ protocolVersion: 1, kind: 'event', event: 'session.snapshot', sequence: 4, payload: { sessionId: 'pi-session-5', directory: '/workspace', isStreaming: true, lifecycle: 'retry', retry: { attempt: 1, next: 4_000, message: 'provider request timed out' }, queue: { steering: 0, followUp: 0 }, lastSequence: 4, endpoint: '/private/socket' } });
+        onEvent({ protocolVersion: 1, kind: 'event', event: 'session.snapshot', sequence: 4, payload: { sessionId: 'pi-session-5', directory: '/workspace', isStreaming: true, lifecycle: 'retry', retry: { attempt: 1, next: 4_000, message: 'provider request timed out' }, compaction: { phase: 'running', reason: 'overflow', startedAt: 3_000 }, queue: { steering: 0, followUp: 0 }, lastSequence: 4, endpoint: '/private/socket' } });
         onEvent({ protocolVersion: 1, kind: 'event', event: 'assistant.message.start', sequence: 5, payload: { sessionId: 'pi-session-5', directory: '/workspace', messageId: 'assistant-1', parentId: 'user-1', role: 'assistant', startedAt: 1 } });
         onEvent({ protocolVersion: 1, kind: 'event', event: 'assistant.message.end', sequence: 6, payload: { sessionId: 'pi-session-5', directory: '/workspace', messageId: 'assistant-1', durationMs: 42, continuing: true, error: { code: 'ASSISTANT_ERROR', message: 'provider request timed out' } } });
         onEvent({ protocolVersion: 1, kind: 'event', event: 'session.lifecycle', sequence: 7, payload: { sessionId: 'pi-session-5', directory: '/workspace', state: 'retry', attempt: 2, next: 8_000, message: 'provider request timed out' } });
         onEvent({ protocolVersion: 1, kind: 'event', event: 'session.error', sequence: 8, payload: { sessionId: 'pi-session-5', directory: '/workspace', code: 'ASSISTANT_ERROR', message: 'provider request timed out' } });
+        onEvent({ protocolVersion: 1, kind: 'event', event: 'session.compaction', sequence: 9, payload: { sessionId: 'pi-session-5', directory: '/workspace', phase: 'completed', reason: 'overflow', startedAt: 3_000, completedAt: 9_000, tokensBefore: 120_000, estimatedTokensAfter: 24_000, willRetry: true, privateResult: 'hidden' } });
         return () => {};
       },
     };
@@ -558,7 +561,7 @@ describe('Pi runtime route', () => {
     const reader = response.body.getReader();
     const first = await reader.read();
     let text = new TextDecoder().decode(first.value);
-    while (!text.includes('"state":"retry"')) {
+    while (!text.includes('"phase":"completed"')) {
       const next = await reader.read();
       if (next.done) break;
       text += new TextDecoder().decode(next.value);
@@ -567,11 +570,14 @@ describe('Pi runtime route', () => {
     expect(text).toContain('"name":"session.snapshot"');
     expect(text).toContain('"lastSequence":4');
     expect(text).toContain('"retry":{"attempt":1,"next":4000,"message":"provider request timed out"}');
+    expect(text).toContain('"compaction":{"phase":"running","reason":"overflow","startedAt":3000}');
     expect(text).toContain('"parentId":"user-1"');
     expect(text).toContain('"durationMs":42');
     expect(text).toContain('"continuing":true');
     expect(text).toContain('"state":"retry","attempt":2,"next":8000,"message":"provider request timed out"');
     expect(text).toContain('"message":"provider request timed out"');
+    expect(text).toContain('"phase":"completed","reason":"overflow","startedAt":3000,"completedAt":9000,"tokensBefore":120000,"estimatedTokensAfter":24000,"willRetry":true');
+    expect(text).not.toContain('privateResult');
     expect(text).not.toContain('/private/socket');
   });
 
