@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import { chmod, mkdir, lstat, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { createReadStream } from 'node:fs';
+import { createReadStream, existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { hasTrustRequiringProjectResources } from '@earendil-works/pi-coding-agent';
@@ -45,6 +46,28 @@ if (!globalThis.__PICHAMBER__) {
 if (!process.env.PICHAMBER) {
   try { process.env.PICHAMBER = '1'; } catch {}
 }
+
+// Extensions that spawn the pi CLI as a child process (subagent runners,
+// task delegators) locate it through `process.argv[1]`. Inside this detached
+// daemon that path is daemon-process.js — a bare invocation exits 64 with no
+// output, which the extension then reports as "failed (no output)". Re-point
+// argv at the installed pi CLI entry before any extension loads so child
+// spawns run the real CLI. Scoped to the detached entrypoint so tests and
+// in-process hosts keep their own argv.
+try {
+  if (process.argv[1]?.endsWith('daemon-process.js')) {
+    // The SDK is ESM-only, so resolve through import.meta rather than require.
+    const mainEntry = fileURLToPath(import.meta.resolve('@earendil-works/pi-coding-agent'));
+    const packageRoot = dirname(dirname(mainEntry));
+    const pkg = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
+    const bin = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin?.pi;
+    if (bin) {
+      const cliEntry = join(packageRoot, bin);
+      if (existsSync(cliEntry)) process.argv[1] = cliEntry;
+    }
+  }
+} catch {}
+
 const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 
 class SessionDaemonProtocolError extends Error {
