@@ -56,7 +56,6 @@ import { GitHubPrPickerDialog } from '@/components/session/GitHubPrPickerDialog'
 import { Icon } from "@/components/icon/Icon";
 import { DraftPresetChips } from './DraftPresetChips';
 import { useChatSearchDirectory } from '@/hooks/useChatSearchDirectory';
-import { piClient } from '@/lib/pi/client';
 import { useGitStore, useIsGitRepo } from '@/stores/useGitStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { invalidateSkillsLoadCache, useSkillsStore } from '@/stores/useSkillsStore';
@@ -1005,10 +1004,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 setTimelineDialogOpen(true);
                 return;
             }
-            if (commandName === 'compact' && currentSessionId) {
+            if (commandName === 'compact') {
+                if (!currentSessionId) {
+                    toast.error('Open a session before compacting.');
+                    return;
+                }
                 try {
                     await sessionActions.waitForConnectionOrThrow();
-                    await piClient.compactSession({ sessionId: currentSessionId });
+                    await sessionActions.compactSession(currentSessionId, argument.trim() || undefined);
                 } catch (error) {
                     toast.error(getSubmitErrorMessage(error, "Failed to compact session"));
                 }

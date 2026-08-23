@@ -996,7 +996,7 @@ describe('Pi session daemon spike', () => {
     const thinkingEvent = client.next((frame) => frame.event === 'session.thinking');
     await expect(client.request('sessions.setThinking', { sessionId: 'pi-session-forked', thinking: 'minimal' })).resolves.toMatchObject({ result: {} });
     await expect(thinkingEvent).resolves.toMatchObject({ payload: { thinking: 'minimal' } });
-    await expect(client.request('sessions.compact', { sessionId: 'pi-session-forked', thinking: 'medium' })).resolves.toMatchObject({ result: {} });
+    await expect(client.request('sessions.compact', { sessionId: 'pi-session-forked', thinking: 'medium' })).resolves.toMatchObject({ result: { accepted: true } });
     expect(runtime.session.compacted).toBe(1);
     await expect(client.request('sessions.prompt', { sessionId: 'pi-session-forked', text: 'prompt' })).resolves.toMatchObject({ result: { accepted: true, messageId: 'fake-entry' } });
     expect(runtime.session.sent).toEqual([{ text: 'prompt', options: undefined }]);
@@ -1198,6 +1198,82 @@ describe('Pi session daemon spike', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(session.lastOAuthCode).toBe('manual-code');
     await expect(client.request('providers.logout', { providerId: 'test' })).resolves.toMatchObject({ result: { authenticated: false } });
+    await client.close();
+  });
+
+  it('acknowledges manual compaction before summarization completes and publishes its outcome', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-compact-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession('pi-session-compact');
+    let finishCompaction;
+    session.compact = async (customInstructions) => {
+      session.compacted += 1;
+      session.compactionInstructions = customInstructions;
+      session.emit({ type: 'compaction_start', reason: 'manual' });
+      await new Promise((resolve) => { finishCompaction = resolve; });
+      session.emit({
+        type: 'compaction_end',
+        reason: 'manual',
+        result: { tokensBefore: 120_000, estimatedTokensAfter: 24_000 },
+        aborted: false,
+        willRetry: false,
+      });
+    };
+    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
+
+    const started = client.next((frame) => frame.event === 'session.compaction' && frame.payload.phase === 'running');
+    const completed = client.next((frame) => frame.event === 'session.compaction' && frame.payload.phase === 'completed');
+    await expect(client.request('sessions.compact', {
+      sessionId: 'pi-session-compact',
+      customInstructions: 'Keep the unresolved test failures',
+    })).resolves.toMatchObject({ result: { accepted: true } });
+    expect(session.compacted).toBe(1);
+    expect(session.compactionInstructions).toBe('Keep the unresolved test failures');
+    await expect(started).resolves.toMatchObject({ payload: { phase: 'running', reason: 'manual' } });
+
+    const observer = connectClient(endpoint);
+    const snapshot = await observer.authenticate();
+    expect(snapshot.payload.compaction).toMatchObject({ phase: 'running', reason: 'manual' });
+    await observer.close();
+
+    const retrying = client.next((frame) => frame.event === 'session.compaction' && frame.payload.phase === 'retrying');
+    session.emit({ type: 'summarization_retry_scheduled', attempt: 1, maxAttempts: 3, delayMs: 2_000, errorMessage: 'temporary provider failure' });
+    await expect(retrying).resolves.toMatchObject({
+      payload: { phase: 'retrying', attempt: 1, maxAttempts: 3, message: 'temporary provider failure' },
+    });
+
+    finishCompaction();
+    await expect(completed).resolves.toMatchObject({
+      payload: {
+        phase: 'completed',
+        reason: 'manual',
+        tokensBefore: 120_000,
+        estimatedTokensAfter: 24_000,
+      },
+    });
+    await client.close();
+  });
+
+  it('publishes a terminal compaction failure when the SDK rejects without an end event', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-compact-failure-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession('pi-session-compact-failure');
+    session.compact = async () => { throw new Error('summary provider unavailable'); };
+    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
+
+    const failed = client.next((frame) => frame.event === 'session.compaction' && frame.payload.phase === 'failed');
+    await expect(client.request('sessions.compact', { sessionId: session.sessionId })).resolves.toMatchObject({ result: { accepted: true } });
+    await expect(failed).resolves.toMatchObject({
+      payload: { phase: 'failed', reason: 'manual', message: 'summary provider unavailable', willRetry: false },
+    });
     await client.close();
   });
 

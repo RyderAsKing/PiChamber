@@ -139,6 +139,7 @@ export function createSessionDaemon({
   const toolStartedAt = new Map();
   const latestUserMessageIds = new Map();
   const retryStateBySession = new Map();
+  const compactionStateBySession = new Map();
   const activeRunStartedAt = new Map();
   const sendGenerationBySession = new Map();
   const streamingRedactionBuffers = new Map();
@@ -227,6 +228,24 @@ export function createSessionDaemon({
     ? { sessionId: runtime.session.sessionId, isStreaming: runtime.session.isStreaming }
     : { sessionId: dormantSession?.sessionId, isStreaming: false };
 
+  const persistedCompactionState = (session) => {
+    const entries = session?.sessionManager?.getBranch?.() ?? session?.sessionManager?.getEntries?.();
+    if (!Array.isArray(entries)) return undefined;
+    const entry = [...entries].reverse().find((candidate) => candidate?.type === 'compaction');
+    if (!entry) return undefined;
+    const completedAt = typeof entry.timestamp === 'number' ? entry.timestamp : Date.parse(entry.timestamp);
+    return {
+      phase: 'completed',
+      ...(Number.isFinite(completedAt) ? { completedAt } : {}),
+      ...(Number.isFinite(entry.tokensBefore) && entry.tokensBefore >= 0 ? { tokensBefore: entry.tokensBefore } : {}),
+    };
+  };
+
+  const compactionStateFor = (session) => {
+    if (!session?.sessionId) return undefined;
+    return compactionStateBySession.get(session.sessionId) ?? persistedCompactionState(session);
+  };
+
   const rememberRuntimeSession = () => {
     const sessionId = runtime?.session?.sessionId;
     if (typeof sessionId !== 'string' || sessionId.length === 0) return;
@@ -244,6 +263,7 @@ export function createSessionDaemon({
     if (requestedSessionId && requestedSessionId !== session.sessionId) return;
     const activeSession = targetRuntime?.session || runtime?.session;
     const retry = session.sessionId ? retryStateBySession.get(session.sessionId) : undefined;
+    const compaction = compactionStateFor(activeSession);
     const targetDirectory = targetRuntime?.cwd || activeDirectory || cwd;
     const messages = activeSession ? projectMessageEntries(activeSession, targetDirectory) : [];
     const lastAssistant = [...messages].reverse().find((entry) => entry.message.role === 'assistant')?.message;
@@ -260,6 +280,7 @@ export function createSessionDaemon({
         isStreaming: session.isStreaming ?? false,
         lifecycle: retry ? 'retry' : session.isStreaming ? 'busy' : 'idle',
         ...(retry ? { retry } : {}),
+        ...(compaction ? { compaction } : {}),
         queue: activeSession ? {
           steering: activeSession.getSteeringMessages?.().length ?? 0,
           followUp: activeSession.getFollowUpMessages?.().length ?? 0,
@@ -334,12 +355,13 @@ export function createSessionDaemon({
     const timer = setTimeout(async () => {
       idleDisposeTimers.delete(sessionId);
       const targetRuntime = runtimeRegistry?.findBySessionId(sessionId);
-      if (!targetRuntime || targetRuntime.session?.isStreaming) return;
+      if (!targetRuntime || targetRuntime.session?.isStreaming || targetRuntime.session?.isCompacting) return;
       try {
         if (targetRuntime === runtime) {
           rememberRuntimeSession();
         }
         await runtimeRegistry.dispose(targetRuntime);
+        compactionStateBySession.delete(sessionId);
         if (targetRuntime === runtime) {
           runtime = undefined;
         }
@@ -737,6 +759,7 @@ export function createSessionDaemon({
     const sessionThinking = lastAssistant?.thinkingLevel || session.thinkingLevel;
     const isStreaming = session.isStreaming === true;
     const retry = retryStateBySession.get(session.sessionId);
+    const compaction = compactionStateFor(session);
     return {
       session: {
         id: session.sessionId, directory: targetDir, createdAt, updatedAt: createdAt,
@@ -750,6 +773,7 @@ export function createSessionDaemon({
       isStreaming,
       lifecycle: retry ? 'retry' : isStreaming ? 'busy' : 'idle',
       ...(retry ? { retry } : {}),
+      ...(compaction ? { compaction } : {}),
       ...(activeRunStartedAt.has(session.sessionId) ? { runStartedAt: activeRunStartedAt.get(session.sessionId) } : {}),
       serverNow: Date.now(),
     };
@@ -1708,6 +1732,7 @@ export function createSessionDaemon({
     }
     messageEntryAliases.clearSession({ cwd: active?.cwd || targetDir, sessionId });
     retryStateBySession.delete(sessionId);
+    compactionStateBySession.delete(sessionId);
     activeRunStartedAt.delete(sessionId);
     latestUserMessageIds.delete(sessionId);
     latestAssistantMessageIds.delete(sessionId);
@@ -1891,12 +1916,59 @@ export function createSessionDaemon({
       case 'thinking_level_changed':
         publish('session.thinking', { thinking: event.level }, sessionId, directory);
         break;
-      case 'compaction_start':
-        publish('session.compaction', { running: true }, sessionId, directory);
+      case 'compaction_start': {
+        clearIdleDisposal(sessionId);
+        const compaction = { phase: 'running', reason: event.reason, startedAt: Date.now() };
+        compactionStateBySession.set(sessionId, compaction);
+        publish('session.compaction', compaction, sessionId, directory);
         break;
-      case 'compaction_end':
-        publish('session.compaction', { running: false }, sessionId, directory);
+      }
+      case 'summarization_retry_scheduled': {
+        const current = compactionStateBySession.get(sessionId);
+        if (!current || (current.phase !== 'running' && current.phase !== 'retrying')) break;
+        const compaction = {
+          ...current,
+          phase: 'retrying',
+          attempt: event.attempt,
+          maxAttempts: event.maxAttempts,
+          next: Date.now() + event.delayMs,
+          message: redactAttachmentPaths(event.errorMessage),
+        };
+        compactionStateBySession.set(sessionId, compaction);
+        publish('session.compaction', compaction, sessionId, directory);
         break;
+      }
+      case 'summarization_retry_attempt_start': {
+        if (event.source !== 'compaction') break;
+        const current = compactionStateBySession.get(sessionId);
+        if (!current) break;
+        const compaction = { ...current, phase: 'running' };
+        compactionStateBySession.set(sessionId, compaction);
+        publish('session.compaction', compaction, sessionId, directory);
+        break;
+      }
+      case 'compaction_end': {
+        const current = compactionStateBySession.get(sessionId);
+        const phase = event.aborted ? 'aborted' : event.result ? 'completed' : 'failed';
+        const compaction = {
+          phase,
+          ...(event.reason ? { reason: event.reason } : {}),
+          ...(current?.startedAt ? { startedAt: current.startedAt } : {}),
+          completedAt: Date.now(),
+          ...(event.result && Number.isFinite(event.result.tokensBefore) && event.result.tokensBefore >= 0
+            ? { tokensBefore: event.result.tokensBefore }
+            : {}),
+          ...(event.result && Number.isFinite(event.result.estimatedTokensAfter) && event.result.estimatedTokensAfter >= 0
+            ? { estimatedTokensAfter: event.result.estimatedTokensAfter }
+            : {}),
+          willRetry: event.willRetry === true,
+          ...(typeof event.errorMessage === 'string' ? { message: redactAttachmentPaths(event.errorMessage) } : {}),
+        };
+        compactionStateBySession.set(sessionId, compaction);
+        publish('session.compaction', compaction, sessionId, directory);
+        if (!event.willRetry) scheduleIdleDisposal(sessionId);
+        break;
+      }
       default:
         break;
     }
@@ -2140,7 +2212,15 @@ export function createSessionDaemon({
       }
       case 'sessions.compact': {
         if (message.payload?.thinking !== undefined) validateThinking(message.payload.thinking);
+        if (message.payload?.customInstructions !== undefined
+          && (typeof message.payload.customInstructions !== 'string' || message.payload.customInstructions.length > 20_000)) {
+          throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'Compaction instructions must be a string no longer than 20,000 characters.');
+        }
         const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
+        const currentCompaction = compactionStateBySession.get(message.payload.sessionId);
+        if (activeRuntime.session.isCompacting || currentCompaction?.phase === 'running' || currentCompaction?.phase === 'retrying') {
+          throw new SessionDaemonProtocolError('SESSION_BUSY', 'This session is already compacting.');
+        }
         if (message.payload?.model !== undefined) {
           await setSessionModel(activeRuntime, message.payload.model);
           publishSessionModel(activeRuntime.session, message.payload.sessionId, activeRuntime.cwd);
@@ -2148,8 +2228,22 @@ export function createSessionDaemon({
         if (message.payload?.thinking !== undefined) {
           applyThinking(activeRuntime, message.payload.thinking, message.payload.sessionId, activeRuntime.cwd);
         }
-        await activeRuntime.session.compact();
-        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
+        Promise.resolve(activeRuntime.session.compact(message.payload?.customInstructions)).catch((error) => {
+          const current = compactionStateBySession.get(message.payload.sessionId);
+          if (current?.phase === 'completed' || current?.phase === 'failed' || current?.phase === 'aborted') return;
+          const compaction = {
+            phase: 'failed',
+            reason: 'manual',
+            ...(current?.startedAt ? { startedAt: current.startedAt } : {}),
+            completedAt: Date.now(),
+            message: redactAttachmentPaths(error instanceof Error ? error.message : 'Compaction failed.'),
+            willRetry: false,
+          };
+          compactionStateBySession.set(message.payload.sessionId, compaction);
+          publish('session.compaction', compaction, message.payload.sessionId, activeRuntime.cwd);
+          scheduleIdleDisposal(message.payload.sessionId);
+        });
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: { accepted: true } });
         return;
       }
       default:
@@ -2275,6 +2369,7 @@ export function createSessionDaemon({
       }
       loginAttempts.clear();
       retryStateBySession.clear();
+      compactionStateBySession.clear();
       activeRunStartedAt.clear();
       latestUserMessageIds.clear();
       latestAssistantMessageIds.clear();

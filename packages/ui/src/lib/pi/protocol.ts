@@ -21,6 +21,7 @@
 import type {
   PiAttachment,
   PiAssistantMessage,
+  PiCompactionInfo,
   PiModel,
   PiModelRef,
   PiProvider,
@@ -145,6 +146,8 @@ export interface PiSessionDetailResponse {
   lifecycle: PiSessionLifecycleState;
   /** Retry countdown/error context while `lifecycle` is `retry`. */
   retry?: PiRetryInfo;
+  /** Latest active or completed compaction state. */
+  compaction?: PiCompactionInfo;
   /** Server authoritative run start for an active turn. Present only while busy/retry. */
   runStartedAt?: number;
   /** Server wall clock at the time the response was generated. */
@@ -241,6 +244,8 @@ export interface PiSetThinkingInput {
 
 export interface PiCompactInput {
   sessionId: PiSessionId;
+  /** Optional instructions for the compaction summary. */
+  customInstructions?: string;
   /** Optional model override for the compacting turn. */
   model?: PiModelRef;
   thinking?: PiThinkingLevel;
@@ -612,10 +617,7 @@ export type PiSessionThinkingEvent = PiEventEnvelope<
 
 export type PiSessionCompactionEvent = PiEventEnvelope<
   'session.compaction',
-  {
-    /** True when the compaction is starting; false when it has completed. */
-    running: boolean;
-  }
+  PiCompactionInfo
 >;
 
 export type PiSessionErrorEvent = PiEventEnvelope<

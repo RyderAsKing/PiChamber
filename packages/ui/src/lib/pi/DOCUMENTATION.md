@@ -103,7 +103,15 @@ message-end/tool-start boundary and does not flash a settled footer. An errored
 message end also keeps that ownership until Pi publishes retry or a terminal
 lifecycle. Retry metadata survives Pi's preparatory `busy` frame and the next
 assistant start, then clears only when text, thinking, or tool output proves the
-new attempt is streaming.
+new attempt is streaming. Compaction is separate authoritative per-session
+state, not a `busy` heuristic. `session.compaction` and reconnect/getSession
+snapshots preserve manual/threshold/overflow reason, active/retrying/terminal
+phase, retry timing, redacted failure, compact-and-retry intent, and available
+pre/post token estimates. The chat overlays that notice on the turn whose
+timestamp precedes the compaction boundary, so a completed historical notice
+does not move onto a later turn. Manual `/compact` is acknowledged
+asynchronously and optional command text is forwarded as Pi custom compaction
+instructions.
 Thinking parts also clear `streaming` as soon as a later text or tool part
 on the same message starts, so the thinking block can collapse at handoff
 instead of waiting for message-end.

@@ -138,7 +138,9 @@ const areRenderRelevantMessageInfoEqual = (left: Message, right: Message): boole
 };
 
 export const areRenderRelevantMessagesEqual = (left: MessageRecord, right: MessageRecord): boolean => {
-  return areRenderRelevantMessageInfoEqual(left.info, right.info) && areRenderRelevantPartsEqual(left.parts, right.parts);
+  return areRenderRelevantMessageInfoEqual(left.info, right.info)
+    && (left.info as { error?: unknown }).error === (right.info as { error?: unknown }).error
+    && areRenderRelevantPartsEqual(left.parts, right.parts);
 };
 
 export const areOptionalRenderRelevantMessagesEqual = (left?: MessageRecord, right?: MessageRecord): boolean => {
