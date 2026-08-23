@@ -337,7 +337,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
           return <Icon name="flashlight" className="h-3.5 w-3.5 text-yellow-500" />;
         }
         if (command.source === 'extension') {
-          return <Icon name="plug" className="h-3.5 w-3.5 text-muted-foreground" />;
+          return <Icon name="plug-2" className="h-3.5 w-3.5 text-muted-foreground" />;
         }
         return <Icon name="command" className="h-3.5 w-3.5 text-muted-foreground" />;
     }

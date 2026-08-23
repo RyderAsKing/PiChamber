@@ -31,7 +31,7 @@ export const ExtensionStatusStrip: React.FC<{ sessionId?: string | null }> = ({ 
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 py-0.5 text-xs text-muted-foreground">
-      <Icon name="plug" className="size-3.5" />
+      <Icon name="plug-2" className="size-3.5" />
       {statuses.map(([key, text]) => (
         <span key={key} className="truncate">
           {text}

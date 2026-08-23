@@ -90,7 +90,7 @@ const ExtensionAppFrame: React.FC<{
     <div className="mb-2 overflow-hidden rounded-lg border" data-testid={`extension-app-${appId}`}>
       <div className="flex items-center justify-between gap-2 border-b bg-surface-inset px-3 py-1.5">
         <div className="flex min-w-0 items-center gap-1.5">
-          <Icon name="plug" className="size-3.5 shrink-0 text-muted-foreground" />
+          <Icon name="plug-2" className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="truncate text-xs font-medium tracking-wide text-muted-foreground uppercase">
             {title ?? appId}
           </span>
