@@ -26,6 +26,7 @@ export interface ComposerFooterProps {
     children?: React.ReactNode;
     leadingExtra?: React.ReactNode;
     trailingExtra?: React.ReactNode;
+    actionsOverride?: React.ReactNode;
 
     radius: string;
     footerPaddingClass: string;
@@ -59,6 +60,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
         children,
         leadingExtra,
         trailingExtra,
+        actionsOverride,
         footerPaddingClass,
         footerGapClass,
         footerIconButtonClass,
@@ -91,7 +93,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
         />
     );
 
-    const actions = (
+    const actions = actionsOverride ?? (
         <ComposerActionButtons
             isMobile={isMobile}
             footerIconButtonClass={footerIconButtonClass}

@@ -127,7 +127,7 @@ import { ComposerContextChips } from './composer/ui/ComposerContextChips';
 import { LinkedReferenceRow } from './composer/ui/LinkedReferenceRow';
 import { RevertedMessageDock } from './composer/ui/RevertedMessageDock';
 import { ComposerVoiceButton } from './composer/ui/ComposerVoiceButton';
-import { ComposerVoiceInput } from './composer/ui/ComposerVoiceInput';
+import { ComposerVoiceActions, ComposerVoiceInput } from './composer/ui/ComposerVoiceInput';
 import { useComposerDictation } from '@/lib/dictation/use-composer-dictation';
 
 // Lazy like in ChatMessage: a static import would pull the @pierre/diffs and
@@ -2329,15 +2329,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         onAgentSelect={handleAgentSelect}
                         onClose={closeAutocomplete}
                     />
-                    {dictationActive ? (
-                        <ComposerVoiceInput
-                            state={dictation.state}
-                            elapsedSeconds={dictation.elapsedSeconds}
-                            subscribeLevel={dictation.subscribeLevel}
-                            onCancel={dictation.cancel}
-                            onDone={handleFinishDictation}
-                        />
-                    ) : (
                     <ComposerFooter
                         isMobile={isMobile}
                         isInline={isInlineComposer}
@@ -2354,7 +2345,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                 onMobilePanelChange={isMobile ? setMobileControlsPanel : undefined}
                             />
                         ) : null}
-                        trailingExtra={(
+                        trailingExtra={dictationActive ? null : (
                             <ComposerVoiceButton
                                 available={dictation.available}
                                 disabled={!currentSessionId && !newSessionDraftOpen}
@@ -2363,6 +2354,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                 onStart={handleStartDictation}
                             />
                         )}
+                        actionsOverride={dictationActive ? (
+                            <ComposerVoiceActions
+                                state={dictation.state}
+                                elapsedSeconds={dictation.elapsedSeconds}
+                                buttonClassName={footerIconButtonClass}
+                                iconClassName={iconSizeClass}
+                                onCancel={dictation.cancel}
+                                onDone={handleFinishDictation}
+                            />
+                        ) : undefined}
                         radius={chatInputRadius}
                         footerPaddingClass={footerPaddingClass}
                         footerGapClass={footerGapClass}
@@ -2382,6 +2383,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         onQueueMessage={handleQueueMessage}
                         onAbort={handleAbort}
                     >
+                    {dictationActive ? (
+                        <ComposerVoiceInput
+                            state={dictation.state}
+                            subscribeLevel={dictation.subscribeLevel}
+                        />
+                    ) : (
                     <div className={cn("overflow-hidden", isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
                         <div className={cn('relative z-10 flex flex-wrap items-center gap-1', isInlineComposer ? 'px-0' : 'px-3 pt-1')}>
                             <AttachedFilesList onShowPopup={handleShowAttachmentPreview} />
@@ -2447,8 +2454,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                             />
                         </div>
                     </div>
-                    </ComposerFooter>
                     )}
+                    </ComposerFooter>
 
                 </div>
                 </>
