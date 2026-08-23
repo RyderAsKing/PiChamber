@@ -55,7 +55,7 @@ Use this doc when you ask an agent to change tool/header/description behavior.
   HTML is sanitized as defense in depth, with script and style elements
   forbidden, so message content cannot inject active DOM or application-wide
   CSS into any runtime surface.
-- `read` and `skill` are **static navigation tools** and render via `StaticToolRow`.
+- `read` and the legacy explicit `skill` tool are **static navigation tools** and render via `StaticToolRow`. Pi loads skills through `read`; when the daemon attaches authoritative `metadata.pichamber.skill`, that read renders as a one-line Skill row and opens the discovered skill in Settings instead of opening `SKILL.md` as a file.
 - Every other tool, including search/fetch, OpenCode built-ins, custom tools, plugins, and MCP tools, is **expandable** and renders through `ToolPart`.
 - The managed `pichamber` plugin tool uses the expandable path and hides its broad protocol input. The plugin supplies the selected action's human description as the native tool title; the UI renders that metadata without owning an action map. The full versioned result envelope renders through the same neutral JSON summary/tree/raw views as other tools, without a tool-specific output card.
 - `ToolPart` defers expanded content after a user toggle, preventing large tool input/output payloads from mounting during the initial chat render. Settled historical tools whose output or patch exceeds the render-record budget arrive as `state.deferredBody` stubs; expanding hydrates the canonical reducer part through `useSessionReducerPart` instead of keeping full bodies in every transcript record. Task child transcripts are requested only while the Task is active or expanded; a settled collapsed Task uses its persisted metadata/output and does no child-session work.
@@ -72,7 +72,7 @@ Use this doc when you ask an agent to change tool/header/description behavior.
 If task is: "change text shown near Read or Skill in compact mode":
 
 1. Edit `ProgressiveGroup.tsx` -> `getToolShortDescription(activity)`.
-2. Update the branch that handles `read` or `skill` in `StaticToolRow`.
+2. Update the branch that handles file reads or classified skill reads in `StaticToolRow`.
 3. Keep all other tool header/output behavior in `ToolPart.tsx`.
 4. Keep icon changes (if any) in `toolPresentation.tsx`.
 

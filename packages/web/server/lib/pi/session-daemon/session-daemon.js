@@ -20,6 +20,7 @@ import { createPiModelConfigStore } from '../model-config-store.js';
 import { clampThinkingLevel, getSupportedThinkingLevels, isPiThinkingLevel } from '../thinking-levels.js';
 import { createMessageEntryAliases } from './message-entry-aliases.js';
 import { resolveEffectiveRetryLimitFromDataDir as resolveEffectiveRetryLimit } from './session-retry-limits.js';
+import { createSkillReadClassifier } from './skill-read-classifier.js';
 import { createSessionRuntimeRegistry } from './runtime-registry.js';
 import {
   findPiSessionJsonlById,
@@ -138,6 +139,7 @@ export function createSessionDaemon({
   const latestAssistantMessageIds = new Map();
   const messageStartedAt = new Map();
   const toolStartedAt = new Map();
+  const toolInputBySession = new Map();
   const latestUserMessageIds = new Map();
   const retryStateBySession = new Map();
   const compactionStateBySession = new Map();
@@ -146,7 +148,54 @@ export function createSessionDaemon({
   const streamingRedactionBuffers = new Map();
   const loginAttempts = new Map();
   const messageEntryAliases = createMessageEntryAliases();
+  const skillReadClassifierByRuntime = new WeakMap();
   const MAX_REPLAY_EVENTS = 1_024;
+
+  const skillReadClassifierFor = (activeRuntime, directory) => {
+    if (!activeRuntime || typeof activeRuntime !== 'object') return undefined;
+    const classifierCwd = activeRuntime.cwd || directory || activeDirectory || cwd;
+    const cached = skillReadClassifierByRuntime.get(activeRuntime);
+    if (cached?.cwd === classifierCwd) return cached.classifier;
+    const loader = activeRuntime.services?.resourceLoader;
+    const discovered = loader?.getSkills?.();
+    const classifier = createSkillReadClassifier({
+      cwd: classifierCwd,
+      skills: discovered?.skills,
+      platform,
+    });
+    skillReadClassifierByRuntime.set(activeRuntime, { cwd: classifierCwd, classifier });
+    return classifier;
+  };
+
+  const rememberToolInput = (sessionId, toolCallId, args) => {
+    const inputs = toolInputBySession.get(sessionId) ?? new Map();
+    inputs.set(toolCallId, args);
+    toolInputBySession.set(sessionId, inputs);
+  };
+
+  const getToolInput = (sessionId, toolCallId) => toolInputBySession.get(sessionId)?.get(toolCallId);
+
+  const forgetToolInput = (sessionId, toolCallId) => {
+    const inputs = toolInputBySession.get(sessionId);
+    if (!inputs) return;
+    inputs.delete(toolCallId);
+    if (inputs.size === 0) toolInputBySession.delete(sessionId);
+  };
+
+  const mergeToolPresentationMetadata = (metadata, activeRuntime, directory, toolName, args) => {
+    const skill = skillReadClassifierFor(activeRuntime, directory)?.(toolName, args);
+    if (!skill) return metadata;
+    const currentPiChamberMetadata = metadata?.pichamber && typeof metadata.pichamber === 'object'
+      ? metadata.pichamber
+      : {};
+    return {
+      ...(metadata ?? {}),
+      pichamber: {
+        ...currentPiChamberMetadata,
+        skill,
+      },
+    };
+  };
 
   const validateDirectoryPath = async (dir) => {
     if (typeof dir !== 'string' || dir.trim().length === 0) {
@@ -266,7 +315,7 @@ export function createSessionDaemon({
     const retry = session.sessionId ? retryStateBySession.get(session.sessionId) : undefined;
     const compaction = compactionStateFor(activeSession);
     const targetDirectory = targetRuntime?.cwd || activeDirectory || cwd;
-    const messages = activeSession ? projectMessageEntries(activeSession, targetDirectory) : [];
+    const messages = activeSession ? projectMessageEntries(targetRuntime || runtime, targetDirectory) : [];
     const lastAssistant = [...messages].reverse().find((entry) => entry.message.role === 'assistant')?.message;
     const model = activeSession?.model;
     const snapshotSequence = ++sequence;
@@ -662,7 +711,8 @@ export function createSessionDaemon({
     return entries;
   };
 
-  const projectMessageEntries = (session, targetDir = activeDirectory || cwd) => {
+  const projectMessageEntries = (activeRuntime, targetDir = activeDirectory || cwd) => {
+    const session = activeRuntime?.session;
     // Use the active branch, not the full file. `getEntries()` returns every
     // entry ever written, so a bare `branch()`/`resetLeaf()` would appear to
     // do nothing. `getBranch()` follows the current leaf and is what
@@ -705,6 +755,7 @@ export function createSessionDaemon({
           const result = toolResults.get(part.id);
           const running = streaming && !result;
           const interrupted = !running && !result;
+          const metadata = mergeToolPresentationMetadata(result?.metadata, activeRuntime, targetDir, part.name, part.arguments);
           return [{
             type: 'tool',
             id: `${entry.id}:tool:${part.id}`,
@@ -720,7 +771,7 @@ export function createSessionDaemon({
                 ? { error: 'Tool was interrupted before completion.' }
                 : {}),
             ...(result?.isError || interrupted ? { isError: true } : {}),
-            ...(result?.metadata ? { metadata: result.metadata } : {}),
+            ...(metadata ? { metadata } : {}),
             ...(Number.isFinite(result?.endedAt)
               ? { endedAt: result.endedAt }
               : interrupted
@@ -753,7 +804,7 @@ export function createSessionDaemon({
       throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi returned an invalid active session.');
     }
     const model = session.model;
-    const messages = projectMessageEntries(session, targetDir);
+    const messages = projectMessageEntries(activeRuntime, targetDir);
     const lastAssistant = [...messages].reverse().find((entry) => entry.message.role === 'assistant')?.message;
     const sessionModel = lastAssistant?.model
       ?? (model?.provider && model?.id ? { providerId: model.provider, modelId: model.id } : undefined);
@@ -1734,6 +1785,7 @@ export function createSessionDaemon({
     activeRunStartedAt.delete(sessionId);
     latestUserMessageIds.delete(sessionId);
     latestAssistantMessageIds.delete(sessionId);
+    toolInputBySession.delete(sessionId);
     publish('session.lifecycle', { state: 'idle', deleted: true, serverNow: Date.now() }, sessionId, targetDir);
   };
 
@@ -1824,7 +1876,10 @@ export function createSessionDaemon({
       case 'tool_execution_start': {
         const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
         const startedAt = Date.now();
+        const activeRuntime = runtimeRegistry?.get({ cwd: directory, sessionId }) || runtime;
+        const metadata = mergeToolPresentationMetadata(undefined, activeRuntime, directory, event.toolName, event.args);
         toolStartedAt.set(event.toolCallId, startedAt);
+        rememberToolInput(sessionId, event.toolCallId, event.args);
         publish('session.tool.start', {
           toolCallId: event.toolCallId,
           partId: `${messageId}:tool:${event.toolCallId}`,
@@ -1833,13 +1888,17 @@ export function createSessionDaemon({
           toolName: event.toolName,
           state: 'running',
           ...(event.args !== undefined ? { input: redactAttachmentValues(event.args) } : {}),
+          ...(metadata ? { metadata } : {}),
           startedAt,
         }, sessionId, directory);
         break;
       }
       case 'tool_execution_update': {
         const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
+        const activeRuntime = runtimeRegistry?.get({ cwd: directory, sessionId }) || runtime;
+        const toolArgs = event.args ?? getToolInput(sessionId, event.toolCallId);
         const projected = projectToolResult(event.partialResult, false);
+        const metadata = mergeToolPresentationMetadata(projected.metadata, activeRuntime, directory, event.toolName, toolArgs);
         publish('session.tool.update', {
           toolCallId: event.toolCallId,
           partId: `${messageId}:tool:${event.toolCallId}`,
@@ -1849,14 +1908,19 @@ export function createSessionDaemon({
           state: 'running',
           ...(event.args !== undefined ? { input: redactAttachmentValues(event.args) } : {}),
           ...projected,
+          ...(metadata ? { metadata } : {}),
         }, sessionId, directory);
         break;
       }
       case 'tool_execution_end': {
         const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
         const startedAt = toolStartedAt.get(event.toolCallId);
+        const toolArgs = event.args ?? getToolInput(sessionId, event.toolCallId);
         toolStartedAt.delete(event.toolCallId);
+        forgetToolInput(sessionId, event.toolCallId);
+        const activeRuntime = runtimeRegistry?.get({ cwd: directory, sessionId }) || runtime;
         const projected = projectToolResult(event.result, event.isError === true);
+        const metadata = mergeToolPresentationMetadata(projected.metadata, activeRuntime, directory, event.toolName, toolArgs);
         publish('session.tool.end', {
           toolCallId: event.toolCallId,
           partId: `${messageId}:tool:${event.toolCallId}`,
@@ -1866,6 +1930,7 @@ export function createSessionDaemon({
           state: event.isError ? 'error' : 'completed',
           isError: event.isError === true,
           ...projected,
+          ...(metadata ? { metadata } : {}),
           ...(Number.isFinite(startedAt) ? { startedAt } : {}),
           endedAt: Date.now(),
         }, sessionId, directory);
@@ -1908,6 +1973,7 @@ export function createSessionDaemon({
         activeRunStartedAt.delete(sessionId);
         latestUserMessageIds.delete(sessionId);
         latestAssistantMessageIds.delete(sessionId);
+        toolInputBySession.delete(sessionId);
         publish('session.lifecycle', { state: 'idle', serverNow: Date.now() }, sessionId, directory);
         scheduleIdleDisposal(sessionId);
         break;

@@ -6,8 +6,8 @@ import { SimpleMarkdownRenderer } from '../../MarkdownRenderer';
 import { useUIStore } from '@/stores/useUIStore';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { Icon } from "@/components/icon/Icon";
-import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
-import { getDirectoryForFilePath } from '@/lib/path-utils';
+import { useMobileAppActions } from '@/apps/mobileAppContext';
+import { openSkillSettings } from '@/lib/skills/openSkillSettings';
 import {
     buildAgentMentionUrl,
     parseSkillHref,
@@ -40,8 +40,7 @@ const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMenti
     const userMessageRenderingMode = useUIStore((state) => state.userMessageRenderingMode);
     const collapsibleUserMessages = useUIStore((state) => state.collapsibleUserMessages);
     const skills = useSkillsStore((state) => state.skills);
-    const openContextFile = useUIStore((state) => state.openContextFile);
-    const effectiveDirectory = useEffectiveDirectory();
+    const mobileActions = useMobileAppActions();
     
     const normalizedRenderingMode = normalizeUserMessageRenderingMode(userMessageRenderingMode);
     const isCollapsed = collapsibleUserMessages && !isExpanded;
@@ -49,10 +48,9 @@ const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMenti
     const skillByName = React.useMemo(() => new Map(skills.map((skill) => [skill.name, skill])), [skills]);
 
     const openSkill = React.useCallback((name: string) => {
-        const skill = skillByName.get(name);
-        if (!skill?.path) return;
-        openContextFile(effectiveDirectory || getDirectoryForFilePath('', skill.path) || '/', skill.path);
-    }, [effectiveDirectory, openContextFile, skillByName]);
+        if (!skillByName.has(name)) return;
+        openSkillSettings(name, mobileActions);
+    }, [mobileActions, skillByName]);
 
     const hasActiveSelectionInElement = React.useCallback((element: HTMLElement): boolean => {
         if (typeof window === 'undefined') {
