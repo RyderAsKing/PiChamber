@@ -158,7 +158,7 @@ const TOOL_METADATA: Record<string, ToolMetadata> = {
      inputFields: []
    },
    skill: {
-     displayName: 'Load Skill',
+     displayName: 'Skill',
      category: 'ai',
      outputLanguage: 'markdown',
      inputFields: [

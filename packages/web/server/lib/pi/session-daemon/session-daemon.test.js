@@ -1122,14 +1122,16 @@ describe('Pi session daemon spike', () => {
     const agentDir = join(root, 'agent');
     const endpoint = testDaemonEndpoint(root);
     await Promise.all([mkdir(cwd), mkdir(agentDir)]);
+    const skillPath = join(agentDir, 'skills', 'directory-name', 'SKILL.md');
     const loader = {
-      getSkills: () => ({ skills: [{ name: 'review', description: 'Review changes', filePath: join(agentDir, 'skills', 'review', 'SKILL.md'), sourceInfo: { scope: 'user', origin: 'top-level' } }] }),
+      getSkills: () => ({ skills: [{ name: 'review', description: 'Review changes', filePath: skillPath, sourceInfo: { scope: 'user', origin: 'top-level' } }] }),
       getPrompts: () => ({ prompts: [] }),
       getAgentsFiles: () => ({ agentsFiles: [] }),
     };
+    const session = new FakeSession();
     daemon = createSessionDaemon({
       endpoint, credential, cwd, agentDir,
-      createRuntime: async () => ({ session: new FakeSession(), services: { resourceLoader: loader }, async dispose() {} }),
+      createRuntime: async () => ({ cwd, session, services: { resourceLoader: loader }, async dispose() {} }),
     });
     await daemon.start();
     const client = connectClient(endpoint);
@@ -1139,6 +1141,48 @@ describe('Pi session daemon spike', () => {
     const globalAgents = listed.result.agents.find((resource) => resource.location === 'global');
     expect(globalAgents).toMatchObject({ kind: 'agents', name: 'AGENTS.md', editable: true });
     expect(JSON.stringify(listed.result)).not.toContain(agentDir);
+
+    const skillToolStart = client.next((frame) => frame.event === 'session.tool.start' && frame.payload?.toolCallId === 'skill-read');
+    session.emit({ type: 'tool_execution_start', toolCallId: 'skill-read', toolName: 'read', args: { path: skillPath } });
+    await expect(skillToolStart).resolves.toMatchObject({
+      payload: { metadata: { pichamber: { skill: { name: 'review' } } } },
+    });
+    const skillToolEnd = client.next((frame) => frame.event === 'session.tool.end' && frame.payload?.toolCallId === 'skill-read');
+    session.emit({
+      type: 'tool_execution_end', toolCallId: 'skill-read', toolName: 'read',
+      result: { content: [{ type: 'text', text: 'skill content' }], details: { truncation: { truncated: false } } },
+      isError: false,
+    });
+    await expect(skillToolEnd).resolves.toMatchObject({
+      payload: {
+        metadata: {
+          truncation: { truncated: false },
+          pichamber: { skill: { name: 'review' } },
+        },
+      },
+    });
+
+    session.entries = [{
+      type: 'message',
+      id: 'assistant-skill-read',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      message: {
+        role: 'assistant', provider: 'test', model: 'model',
+        content: [{ type: 'toolCall', id: 'persisted-skill-read', name: 'read', arguments: { path: skillPath } }],
+      },
+    }, {
+      type: 'message',
+      id: 'skill-read-result',
+      timestamp: '2026-01-01T00:00:03.000Z',
+      message: {
+        role: 'toolResult', toolCallId: 'persisted-skill-read', toolName: 'read',
+        content: [{ type: 'text', text: 'skill content' }], isError: false,
+      },
+    }];
+    await expect(client.request('sessions.open', { sessionId: session.sessionId, directory: cwd })).resolves.toMatchObject({
+      result: { messages: [{ parts: [expect.objectContaining({ metadata: { pichamber: { skill: { name: 'review' } } } })] }] },
+    });
+
     await expect(client.request('resources.update', { resourceId: globalAgents.id, content: '# Global instructions\n' })).resolves.toMatchObject({ result: { agents: expect.any(Array) } });
     await expect(readFile(join(agentDir, 'AGENTS.md'), 'utf8')).resolves.toBe('# Global instructions\n');
     await client.close();

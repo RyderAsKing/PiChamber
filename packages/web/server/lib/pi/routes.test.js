@@ -550,7 +550,8 @@ describe('Pi runtime route', () => {
         onEvent({ protocolVersion: 1, kind: 'event', event: 'assistant.message.end', sequence: 6, payload: { sessionId: 'pi-session-5', directory: '/workspace', messageId: 'assistant-1', durationMs: 42, continuing: true, error: { code: 'ASSISTANT_ERROR', message: 'provider request timed out' } } });
         onEvent({ protocolVersion: 1, kind: 'event', event: 'session.lifecycle', sequence: 7, payload: { sessionId: 'pi-session-5', directory: '/workspace', state: 'retry', attempt: 2, next: 8_000, message: 'provider request timed out' } });
         onEvent({ protocolVersion: 1, kind: 'event', event: 'session.error', sequence: 8, payload: { sessionId: 'pi-session-5', directory: '/workspace', code: 'ASSISTANT_ERROR', message: 'provider request timed out' } });
-        onEvent({ protocolVersion: 1, kind: 'event', event: 'session.compaction', sequence: 9, payload: { sessionId: 'pi-session-5', directory: '/workspace', phase: 'completed', reason: 'overflow', startedAt: 3_000, completedAt: 9_000, tokensBefore: 120_000, estimatedTokensAfter: 24_000, willRetry: true, privateResult: 'hidden' } });
+        onEvent({ protocolVersion: 1, kind: 'event', event: 'session.tool.start', sequence: 9, payload: { sessionId: 'pi-session-5', directory: '/workspace', toolCallId: 'skill-read', partId: 'assistant-1:tool:skill-read', messageId: 'assistant-1', name: 'read', state: 'running', metadata: { pichamber: { skill: { name: 'review' } } }, privatePath: '/private/skill/SKILL.md' } });
+        onEvent({ protocolVersion: 1, kind: 'event', event: 'session.compaction', sequence: 10, payload: { sessionId: 'pi-session-5', directory: '/workspace', phase: 'completed', reason: 'overflow', startedAt: 3_000, completedAt: 9_000, tokensBefore: 120_000, estimatedTokensAfter: 24_000, willRetry: true, privateResult: 'hidden' } });
         return () => {};
       },
     };
@@ -576,7 +577,9 @@ describe('Pi runtime route', () => {
     expect(text).toContain('"continuing":true');
     expect(text).toContain('"state":"retry","attempt":2,"next":8000,"message":"provider request timed out"');
     expect(text).toContain('"message":"provider request timed out"');
+    expect(text).toContain('"metadata":{"pichamber":{"skill":{"name":"review"}}}');
     expect(text).toContain('"phase":"completed","reason":"overflow","startedAt":3000,"completedAt":9000,"tokensBefore":120000,"estimatedTokensAfter":24000,"willRetry":true');
+    expect(text).not.toContain('privatePath');
     expect(text).not.toContain('privateResult');
     expect(text).not.toContain('/private/socket');
   });
