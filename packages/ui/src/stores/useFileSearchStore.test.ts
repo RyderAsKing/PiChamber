@@ -25,10 +25,8 @@ const searchFilesMock = mock(() => {
   return request.promise;
 });
 
-mock.module('@/lib/pi/legacy-ui-client', () => ({
-  opencodeClient: {
-    searchFiles: searchFilesMock,
-  },
+mock.module('@/lib/fsApi', () => ({
+  searchFiles: searchFilesMock,
 }));
 mock.module('@/lib/runtime-switch', () => ({ getRuntimeKey: () => runtimeKey }));
 

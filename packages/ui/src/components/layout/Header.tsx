@@ -44,7 +44,10 @@ import type { GitHubAuthStatus } from '@/lib/api/types';
 import { DesktopHostSwitcherDialog } from '@/components/desktop/DesktopHostSwitcher';
 import { OpenInAppButton } from '@/components/desktop/OpenInAppButton';
 import { ProjectActionsButton } from '@/components/layout/ProjectActionsButton';
-import { SessionSwitcherDropdown } from '@/components/session/SessionSwitcherDropdown';
+
+const SessionSwitcherDropdown = React.lazy(() =>
+  import('@/components/session/SessionSwitcherDropdown').then((module) => ({ default: module.SessionSwitcherDropdown })),
+);
 import { canUseElectronDesktopIPC, invokeDesktop, isDesktopLocalOriginActive, isDesktopShell, startDesktopWindowDrag, type UpdateInfo } from '@/lib/desktop';
 import { desktopHostsGet, redactSensitiveUrl } from '@/lib/desktopHosts';
 import {
@@ -1417,15 +1420,23 @@ export const Header: React.FC<HeaderProps> = ({
         ) : (
           <div className="app-region-no-drag mr-3 flex min-w-0 max-w-full items-center gap-0.5 py-0.5 -my-0.5 text-left">
             {!isSidebarOpen ? (
-              <SessionSwitcherDropdown align="start">
-                <button
-                  type="button"
-                  className={desktopHeaderIconButtonClass}
-                  aria-label={"Open session switcher"}
-                >
-                  <Icon name="history" className="h-[18px] w-[18px]" />
-                </button>
-              </SessionSwitcherDropdown>
+              <React.Suspense
+                fallback={
+                  <button type="button" className={desktopHeaderIconButtonClass} aria-label="Open session switcher">
+                    <Icon name="history" className="h-[18px] w-[18px]" />
+                  </button>
+                }
+              >
+                <SessionSwitcherDropdown align="start">
+                  <button
+                    type="button"
+                    className={desktopHeaderIconButtonClass}
+                    aria-label={"Open session switcher"}
+                  >
+                    <Icon name="history" className="h-[18px] w-[18px]" />
+                  </button>
+                </SessionSwitcherDropdown>
+              </React.Suspense>
             ) : null}
             <div className="flex min-w-0 flex-col justify-center px-1">
               {isRenamingHeaderSession ? (

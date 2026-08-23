@@ -48,6 +48,17 @@ let signalsAttached = false;
 
 const isEnvFlagEnabled = (value) => value === true || value === 1 || (typeof value === 'string' && ['1', 'true'].includes(value.trim().toLowerCase()));
 
+// Serve-time tunnel startup was removed with the OpenChamber migration; the
+// standalone `pichamber tunnel` command still manages cloudflared. Options
+// parsed for the removed integration must fail loudly instead of being
+// silently ignored — a user passing --tunnel expects an exposed URL.
+const IGNORED_TUNNEL_OPTION_NAMES = ['tryCfTunnel', 'tunnelProvider', 'tunnelMode', 'tunnelConfigPath', 'tunnelToken', 'tunnelHostname'];
+const warnIgnoredTunnelOptions = (options) => {
+  const ignored = IGNORED_TUNNEL_OPTION_NAMES.filter((name) => options[name] !== undefined && options[name] !== false && options[name] !== null && options[name] !== '');
+  if (ignored.length === 0) return;
+  console.warn(`[pichamber] Ignoring unsupported serve option(s): ${ignored.join(', ')}. This server does not start a tunnel; use the \`pichamber tunnel\` command to manage cloudflared.`);
+};
+
 const resolveDistPath = () => {
   const configured = typeof process.env.PICHAMBER_DIST_DIR === 'string' ? process.env.PICHAMBER_DIST_DIR.trim() : '';
   return configured ? path.resolve(configured) : path.join(__dirname, '..', 'dist');
@@ -92,13 +103,14 @@ export async function gracefulShutdown({ exitProcess = false } = {}) {
 }
 
 export async function startWebUiServer(options = {}) {
+  warnIgnoredTunnelOptions(options);
   const port = Number.isInteger(options.port) && options.port >= 0 ? options.port : DEFAULT_PORT;
-  const host = typeof options.host === 'string' && options.host.trim() ? options.host.trim() : (process.env.PICHAMBER_HOST || process.env.PICHAMBER_HOST || '127.0.0.1');
-  const uiPassword = typeof options.uiPassword === 'string' ? options.uiPassword : (process.env.PICHAMBER_UI_PASSWORD || process.env.PICHAMBER_UI_PASSWORD || null);
+  const host = typeof options.host === 'string' && options.host.trim() ? options.host.trim() : (process.env.PICHAMBER_HOST || '127.0.0.1');
+  const uiPassword = typeof options.uiPassword === 'string' ? options.uiPassword : (process.env.PICHAMBER_UI_PASSWORD || null);
   if (isNetworkExposedBindHost(host) && !uiPassword?.trim() && !isUnsafeUnauthenticatedLanAllowed(process.env)) {
     throw new Error(getUnauthenticatedLanErrorMessage(host));
   }
-  const apiOnly = options.apiOnly === true || isEnvFlagEnabled(process.env.PICHAMBER_API_ONLY ?? process.env.PICHAMBER_API_ONLY);
+  const apiOnly = options.apiOnly === true || isEnvFlagEnabled(process.env.PICHAMBER_API_ONLY);
   const app = express();
   const server = http.createServer(app);
   const pairingTransports = createPairingTransportResolvers({
@@ -126,6 +138,16 @@ export async function startWebUiServer(options = {}) {
   });
   let stopped = false;
 
+  // trust proxy = true is intentional for PiChamber's deployment model:
+  // - In production the server sits behind the user's reverse proxy / tunnel
+  //   (Caddy, Nginx, Cloudflare Tunnel) which terminates TLS and sets
+  //   X-Forwarded-* . Client IP rate-limiting and secure-cookie detection
+  //   (`isSecureRequest` checks X-Forwarded-Proto) depend on this.
+  // - For direct LAN access without a proxy, Express correctly ignores the
+  //   header when none is present. Changing to 'loopback' or false would break
+  //   `getClientIp` and `isSecureRequest` behind a tunnel; see
+  //   `security/bind-host.js` and `ui-auth.js` . Do not change without a
+  //   deployment-wide review.
   app.set('trust proxy', true);
   app.use((_req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); next(); });
   app.get('/robots.txt', (_req, res) => res.type('text/plain').send('User-agent: *\nDisallow: /\n'));

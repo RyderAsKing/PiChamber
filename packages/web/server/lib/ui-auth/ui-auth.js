@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { promisify } from 'util';
 import { SignJWT, jwtVerify } from 'jose';
 import fs from 'fs';
 import path from 'path';
@@ -653,7 +654,10 @@ export const createUiAuth = ({
     res.setHeader('Set-Cookie', header);
   };
 
-  const verifyPassword = (candidate) => {
+  // Async scrypt keeps the N=16384 key derivation off the event loop; a login
+  // attempt must not stall SSE frames and API traffic for its full duration.
+  const scryptAsync = promisify(crypto.scrypt);
+  const verifyPassword = async (candidate) => {
     if (!candidate) {
       return false;
     }
@@ -662,7 +666,7 @@ export const createUiAuth = ({
       return false;
     }
     try {
-      const candidateHash = crypto.scryptSync(normalizedCandidate, salt, 64);
+      const candidateHash = await scryptAsync(normalizedCandidate, salt, 64);
       return crypto.timingSafeEqual(candidateHash, expectedHash);
     } catch {
       return false;
@@ -808,7 +812,7 @@ export const createUiAuth = ({
     }
 
     const candidate = typeof req.body?.password === 'string' ? req.body.password : '';
-    if (!verifyPassword(candidate)) {
+    if (!(await verifyPassword(candidate))) {
       await recordFailedAttempt(req);
       clearSessionCookie(req, res);
       res.status(401).json({ error: 'Invalid credentials' });

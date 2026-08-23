@@ -30,7 +30,7 @@ import {
   readLinuxAutostartEnabled,
   setLinuxAutostartEnabled,
 } from './linux-autostart.mjs';
-import { unsupportedAppSpecificOpenError, validateLocalPath } from './path-open-utils.mjs';
+import { isSafeExternalUrl, openExternalUrlIfSafe, unsupportedAppSpecificOpenError, validateLocalPath } from './path-open-utils.mjs';
 import { mintOutsideFileGrant } from '@pi-chamber/web/server/lib/fs/routes.js';
 import { resolvePiChamberDataDir, resolvePiChamberDataPath } from '@pi-chamber/web/server/lib/pichamber-data-dir.js';
 
@@ -2407,14 +2407,14 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
     if (isAllowedNavigationUrl(url)) {
       return { action: 'allow' };
     }
-    void shell.openExternal(url).catch(() => {});
+    void openExternalUrlIfSafe(shell, url).catch(() => {});
     return { action: 'deny' };
   });
 
   browserWindow.webContents.on('will-navigate', (event, url) => {
     if (isAllowedNavigationUrl(url)) return;
     event.preventDefault();
-    void shell.openExternal(url).catch(() => {});
+    void openExternalUrlIfSafe(shell, url).catch(() => {});
   });
 
   browserWindow.webContents.setZoomFactor(1);
@@ -2689,7 +2689,7 @@ const createMiniChatWindow = async ({ mode, sessionId = '', directory = '', proj
   });
 
   browserWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url).catch(() => {});
+    void openExternalUrlIfSafe(shell, url).catch(() => {});
     return { action: 'deny' };
   });
   browserWindow.webContents.on('will-navigate', (event, url) => {
@@ -2700,7 +2700,7 @@ const createMiniChatWindow = async ({ mode, sessionId = '', directory = '', proj
     } catch {
     }
     event.preventDefault();
-    void shell.openExternal(url).catch(() => {});
+    void openExternalUrlIfSafe(shell, url).catch(() => {});
   });
   browserWindow.webContents.on('dom-ready', () => {
     const initScript = browserWindow.__ocInitScript;
@@ -3799,12 +3799,11 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
       const target = typeof args.url === 'string' ? args.url.trim() : '';
       if (!target) throw new Error('URL is required');
 
-      const parsed = new URL(target);
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      if (!isSafeExternalUrl(target)) {
         throw new Error('Only HTTP URLs can be opened externally');
       }
 
-      await shell.openExternal(parsed.toString());
+      await shell.openExternal(target);
       return null;
     }
 
