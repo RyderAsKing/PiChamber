@@ -1,10 +1,13 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Button } from '@/components/ui/button';
 import { ChatContainer } from '@/components/chat/ChatContainer';
 import { ChatSurfaceProvider } from '@/components/chat/ChatSurfaceContext';
 import { ContextUsageDisplay } from '@/components/ui/ContextUsageDisplay';
 import { WindowsWindowControls } from '@/components/desktop/WindowsWindowControls';
-import { SessionSwitcherDropdown } from '@/components/session/SessionSwitcherDropdown';
+
+const SessionSwitcherDropdown = React.lazy(() =>
+  import('@/components/session/SessionSwitcherDropdown').then((module) => ({ default: module.SessionSwitcherDropdown })),
+);
 import { cn } from '@/lib/utils';
 import { invokeDesktop, isElectronShell } from '@/lib/desktop';
 import { useDesktopWindowControlsLayout } from '@/hooks/useDesktopWindowControlsLayout';
@@ -245,27 +248,47 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
       {usesFramelessChrome && windowControlsSide === 'left' ? (
         <WindowsWindowControls visible position="left" />
       ) : null}
-      <SessionSwitcherDropdown>
-        <button
-          type="button"
-          aria-label={"Open session switcher"}
-          style={noDragRegionStyle}
-          className="flex min-w-0 max-w-full flex-col items-start rounded-md px-1 py-0.5 text-left transition-colors hover:bg-interactive-hover/60 focus-visible:outline-none focus-visible:bg-interactive-hover/60"
-        >
-          <span className="truncate typography-ui-label text-[14px] font-normal leading-tight text-foreground max-w-full">
-            {title}
-          </span>
-          <span className="flex min-w-0 max-w-full items-center gap-1.5 truncate typography-micro text-[10.5px] font-normal leading-tight text-muted-foreground/75">
-            <span className="truncate">{projectLabel}</span>
-            {branchLabel ? (
-              <span className="inline-flex min-w-0 items-center gap-0.5">
-                <Icon name="git-branch" className="h-3 w-3 flex-shrink-0 text-muted-foreground/70" />
-                <span className="truncate">{branchLabel}</span>
-              </span>
-            ) : null}
-          </span>
-        </button>
-      </SessionSwitcherDropdown>
+      <Suspense
+        fallback={
+          <button
+            type="button"
+            aria-label="Open session switcher"
+            style={noDragRegionStyle}
+            className="flex min-w-0 max-w-full flex-col items-start rounded-md px-1 py-0.5 text-left transition-colors hover:bg-interactive-hover/60 focus-visible:outline-none focus-visible:bg-interactive-hover/60"
+          >
+            <span className="truncate typography-ui-label text-[14px] font-normal leading-tight text-foreground max-w-full">{title}</span>
+            <span className="flex min-w-0 max-w-full items-center gap-1.5 truncate typography-micro text-[10.5px] font-normal leading-tight text-muted-foreground/75">
+              <span className="truncate">{projectLabel}</span>
+              {branchLabel ? (
+                <span className="inline-flex min-w-0 items-center gap-0.5">
+                  <Icon name="git-branch" className="h-3 w-3 flex-shrink-0 text-muted-foreground/70" />
+                  <span className="truncate">{branchLabel}</span>
+                </span>
+              ) : null}
+            </span>
+          </button>
+        }
+      >
+        <SessionSwitcherDropdown>
+          <button
+            type="button"
+            aria-label="Open session switcher"
+            style={noDragRegionStyle}
+            className="flex min-w-0 max-w-full flex-col items-start rounded-md px-1 py-0.5 text-left transition-colors hover:bg-interactive-hover/60 focus-visible:outline-none focus-visible:bg-interactive-hover/60"
+          >
+            <span className="truncate typography-ui-label text-[14px] font-normal leading-tight text-foreground max-w-full">{title}</span>
+            <span className="flex min-w-0 max-w-full items-center gap-1.5 truncate typography-micro text-[10.5px] font-normal leading-tight text-muted-foreground/75">
+              <span className="truncate">{projectLabel}</span>
+              {branchLabel ? (
+                <span className="inline-flex min-w-0 items-center gap-0.5">
+                  <Icon name="git-branch" className="h-3 w-3 flex-shrink-0 text-muted-foreground/70" />
+                  <span className="truncate">{branchLabel}</span>
+                </span>
+              ) : null}
+            </span>
+          </button>
+        </SessionSwitcherDropdown>
+      </Suspense>
       <div className="min-w-0 flex-1" />
       {stableContextUsage && stableContextUsage.totalTokens > 0 ? (
         <ContextUsageDisplay
