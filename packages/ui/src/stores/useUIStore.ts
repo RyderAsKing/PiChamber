@@ -2129,12 +2129,27 @@ export const useUIStore = create<UIStore>()(
       {
         name: 'ui-store',
         storage: createDeferredSafeJSONStorage(),
-        version: 16,
+        version: 17,
         migrate: (persistedState, version) => {
           if (!persistedState || typeof persistedState !== 'object') {
             return persistedState;
           }
           const state = persistedState as Record<string, unknown>;
+
+          // v16 -> v17: re-sanitize persisted context-panel state.
+          // The v15→v16 migration stripped the chat-mode tabs from
+          // `contextPanelByDirectory`, but devices that already shipped at
+          // v16 (e.g. hosted-mobile tablet-width users browsing the desktop
+          // fallback) still hold those tabs on disk because the migration
+          // only runs on the v15→v16 transition. Bumping to v17 forces a
+          // one-shot re-sanitize so the deprecated chat rail + tabs disappear
+          // on next load without the user having to clear site data.
+          if (version < 17) {
+            state.contextPanelByDirectory = sanitizeContextPanelByDirectory(state.contextPanelByDirectory);
+            if (Array.isArray(state.contextRailOrder)) {
+              state.contextRailOrder = (state.contextRailOrder as unknown[]).filter((id) => id !== 'chat');
+            }
+          }
 
           // v15 -> v16: remove the session-chat side-panel surface and tabs.
           if (version < 16) {

@@ -600,7 +600,11 @@ export const ProvidersPage: React.FC = () => {
             <div className="flex items-center gap-1">
               <Button
                 variant="ghost"
-                size="icon"
+                // 32px `size="icon"` is too tight for a phone touch target.
+                // Use `size="sm"` on dedicated mobile so the button meets the
+                // shared 36px touch affordance without sacrificing the row's
+                // compactness on desktop.
+                size={isMobile ? 'sm' : 'icon'}
                 onClick={() => void refreshCatalog()}
                 disabled={refreshingCatalog || busy}
                 aria-label="Refresh model catalog"
@@ -684,7 +688,7 @@ export const ProvidersPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
-              size="icon"
+              size={isMobile ? 'sm' : 'icon'}
               onClick={() => void refreshProviders()}
               disabled={refreshing}
               aria-label="Refresh providers"
@@ -727,7 +731,7 @@ export const ProvidersPage: React.FC = () => {
             </div>
             <Button
               variant="ghost"
-              size="icon"
+              size={isMobile ? 'sm' : 'icon'}
               onClick={() => void refreshProviders()}
               disabled={refreshing}
               aria-label="Refresh providers"
@@ -785,7 +789,7 @@ export const ProvidersPage: React.FC = () => {
           </div>
           <Button
             variant="ghost"
-            size="icon"
+            size={isMobile ? 'sm' : 'icon'}
             onClick={() => void refreshProviders()}
             disabled={refreshing}
             aria-label="Refresh providers"

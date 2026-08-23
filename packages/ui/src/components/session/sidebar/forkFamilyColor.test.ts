@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { getForkFamilyColor, getForkFamilyIdForSession } from './forkFamilyColor';
+import { getForkFamilyBackgroundColor, getForkFamilyColor, getForkFamilyIdForSession } from './forkFamilyColor';
 
 describe('fork family color', () => {
   test('is deterministic for same family id across calls', () => {
@@ -33,5 +33,22 @@ describe('fork family color', () => {
     // But UI should only color when actually in a fork family — tested via
     // the flag that checks hasParent || hasChildren.
     expect(getForkFamilyColor(familyId)).not.toBeNull();
+  });
+
+  test('background wash returns null on mobile so callers can paint a left border instead', () => {
+    // On phone/tablet surfaces the 11% wash reads as "no color" against
+    // bg-sidebar; the row paints borderLeft: 3px solid with the solid color
+    // for a clear fork-family cue. The utility returns null so the row style
+    // does not double-stack the wash under the border.
+    const bg = getForkFamilyBackgroundColor('ses_root_mobile', { isMobile: true });
+    expect(bg).toBeNull();
+
+    const bgActive = getForkFamilyBackgroundColor('ses_root_mobile', { isMobile: true, active: true });
+    expect(bgActive).toBeNull();
+  });
+
+  test('background wash keeps the desktop tint when isMobile is not set', () => {
+    const bg = getForkFamilyBackgroundColor('ses_root_desktop');
+    expect(bg).not.toBeNull();
   });
 });

@@ -278,6 +278,11 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     return () => root.classList.remove('oc-keep-draft-starters');
   }, [hasHardwareKeyboard, isTabletLayout, isPortrait]);
 
+  const closeAllDrawers = React.useCallback(() => {
+    setSessionsSheetOpenSafely(false);
+    setWorkspaceOpenSafely(false);
+  }, [setSessionsSheetOpenSafely, setWorkspaceOpenSafely]);
+
   const mobileActions = React.useMemo<MobileAppActions>(
     () => ({
       openChanges: ({ diffPath, staged } = {}) => {
@@ -288,8 +293,9 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       openInstances: showCapacitorOnlyFeatures ? () => openSurface('instances') : undefined,
       instanceLabel: showCapacitorOnlyFeatures ? getAutoConnectTargetLabel() : null,
       openUpdate: showUpdateItem ? () => openSurface('update') : undefined,
+      closeDrawers: closeAllDrawers,
     }),
-    [openChangesSurface, openFilesSurface, openSettingsSurface, openSurface, showCapacitorOnlyFeatures, showUpdateItem],
+    [closeAllDrawers, openChangesSurface, openFilesSurface, openSettingsSurface, openSurface, showCapacitorOnlyFeatures, showUpdateItem],
   );
 
   // Expose the shell's panel-opening actions to the deep-link layer so pichamber:// URLs

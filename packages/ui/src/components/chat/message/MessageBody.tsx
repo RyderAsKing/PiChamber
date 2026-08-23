@@ -21,6 +21,7 @@ import type { ContentChangeReason } from '@/hooks/useChatAutoFollow';
 import { SimpleMarkdownRenderer } from '../MarkdownRenderer';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useUIStore } from '@/stores/useUIStore';
+import { useMobileAppActions } from '@/apps/mobileAppContext';
 import { TextSelectionMenu } from './TextSelectionMenu';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { useChatSurfaceMode } from '@/components/chat/useChatSurfaceMode';
@@ -174,6 +175,11 @@ const UserSubtaskPart: React.FC<{ part: SubtaskPartLike }> = ({ part }) => {
     const [expanded, setExpanded] = React.useState(false);
     const effectiveDirectory = useEffectiveDirectory();
     const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
+    // On the dedicated mobile shell, swapping to the subtask session with
+    // the sessions drawer still open leaves the user staring at the drawer
+    // covering the new chat. The shell exposes `closeDrawers` for exactly
+    // this — no-op when running on web/desktop.
+    const mobileActions = useMobileAppActions();
 
     const description = typeof part.description === 'string' ? part.description.trim() : '';
     const command = typeof part.command === 'string' ? part.command.trim() : '';
@@ -181,6 +187,12 @@ const UserSubtaskPart: React.FC<{ part: SubtaskPartLike }> = ({ part }) => {
     const prompt = typeof part.prompt === 'string' ? part.prompt.trim() : '';
     const taskSessionID = typeof part.taskSessionID === 'string' ? part.taskSessionID.trim() : '';
     const model = normalizeSubtaskModel(part.model);
+
+    const openSubtaskSession = React.useCallback(() => {
+        if (!effectiveDirectory || !taskSessionID) return;
+        setCurrentSession(taskSessionID, effectiveDirectory);
+        mobileActions?.closeDrawers?.();
+    }, [effectiveDirectory, taskSessionID, setCurrentSession, mobileActions]);
 
     return (
         <div className="mt-2">
@@ -231,10 +243,7 @@ const UserSubtaskPart: React.FC<{ part: SubtaskPartLike }> = ({ part }) => {
                     <button
                         type="button"
                         className="typography-meta text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
-                        onClick={() => {
-                            if (!effectiveDirectory) return;
-                            setCurrentSession(taskSessionID, effectiveDirectory);
-                        }}
+                        onClick={openSubtaskSession}
                     >
                         {"Open subtask session"}
                     </button>
