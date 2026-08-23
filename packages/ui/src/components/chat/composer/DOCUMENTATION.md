@@ -112,7 +112,7 @@ and the send path reading the same grammar.
 
 ## Dictation
 
-`ChatInput.tsx` captures the editor selection before recording and replaces only the editor area with the recording controls. Audio levels stay outside React state. `ComposerVoiceVisualizer` coalesces them through `requestAnimationFrame` and writes only bar `transform` and `opacity`.
+`ChatInput.tsx` captures the editor selection before recording and replaces only the editor area with the full-width recording controls. The footer stays mounted: icon-only Cancel and Done controls replace the microphone and send actions in the trailing action slot while dictation is active, with elapsed time beside them. Audio levels stay outside React state. `ComposerVoiceVisualizer` coalesces them through `requestAnimationFrame` on a single canvas. Each frame shifts the existing bitmap left and paints one new level at the right edge, so older history moves left without rewriting a row of DOM nodes. Canvas dimensions update only through `ResizeObserver`, device-pixel ratio is capped at 2, and the resize history is bounded to 512 levels.
 
 The server returns one authoritative transcript after Done. `ChatInput` pads it through `withInlineInsertionBoundaries`, inserts it at the captured range in one CodeMirror transaction, restores focus, and leaves sending to the user. Cancel, permission denial, disconnect, empty audio, model download, and transcription failure leave the draft and attachments unchanged.
 
