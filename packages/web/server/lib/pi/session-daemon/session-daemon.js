@@ -28,6 +28,23 @@ import {
 } from './session-jsonl.js';
 
 const PROTOCOL_VERSION = 1;
+
+// Marker so pi extensions can detect PiChamber without an extra dependency.
+// Extensions should use optional detection, e.g.:
+//   const chamber = (globalThis as any).__PICHAMBER__;
+// or `process.env.PICHAMBER === "1"`. The object is frozen and versioned.
+if (!globalThis.__PICHAMBER__) {
+  try {
+    globalThis.__PICHAMBER__ = Object.freeze({
+      version: 1,
+      protocol: 'pichamber-extension-ui',
+      mode: 'rpc',
+    });
+  } catch {}
+}
+if (!process.env.PICHAMBER) {
+  try { process.env.PICHAMBER = '1'; } catch {}
+}
 const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 
 class SessionDaemonProtocolError extends Error {
@@ -145,6 +162,17 @@ export function createSessionDaemon({
   const sendGenerationBySession = new Map();
   const streamingRedactionBuffers = new Map();
   const loginAttempts = new Map();
+  // Server-side normalized extension live state: statuses, widgets, panels,
+  // apps, and pending dialogs are kept per session so a reconnect can
+  // reconstruct the current UI without requiring the extension to re-emit.
+  const extensionStatusesBySession = new Map(); // sessionId -> Map<key,string>
+  const extensionWidgetsBySession = new Map(); // sessionId -> Map<key,{lines:string[],placement:string}>
+  const extensionPanelsBySession = new Map(); // sessionId -> Map<id,panel payload>
+  const extensionAppsBySession = new Map(); // sessionId -> Map<appId,app payload>
+  const MAX_EXTENSION_PANELS_PER_SESSION = 24;
+  const MAX_EXTENSION_APPS_PER_SESSION = 8;
+  const MAX_EXTENSION_PANEL_ACTIONS = 8;
+  const MAX_EXTENSION_APP_HTML_CHARS = 200_000;
   const MAX_REPLAY_EVENTS = 1_024;
 
   const validateDirectoryPath = async (dir) => {
@@ -240,6 +268,22 @@ export function createSessionDaemon({
     }
   };
 
+  const clearExtensionState = (sessionId) => {
+    if (sessionId) {
+      extensionStatusesBySession.delete(sessionId);
+      extensionWidgetsBySession.delete(sessionId);
+      extensionPanelsBySession.delete(sessionId);
+      extensionAppsBySession.delete(sessionId);
+      cancelPendingExtensionDialogs(sessionId, 'session-closed');
+    } else {
+      extensionStatusesBySession.clear();
+      extensionWidgetsBySession.clear();
+      extensionPanelsBySession.clear();
+      extensionAppsBySession.clear();
+      cancelPendingExtensionDialogs(undefined, 'daemon-stopped');
+    }
+  };
+
   const createExtensionUIContext = (sessionId) => {
     const dialog = (method, fields, opts, defaultValue, parseResponse) => {
       const requestId = randomUUID();
@@ -256,13 +300,14 @@ export function createSessionDaemon({
           : undefined;
         const signal = opts?.signal;
         signal?.addEventListener('abort', onAbort, { once: true });
-        pendingExtensionDialogs.set(requestId, { sessionId, settle, timer });
-        publish('extension.dialog', {
+        const payload = {
           requestId,
           method,
           ...fields,
           ...(Number.isFinite(opts?.timeout) ? { timeoutMs: opts.timeout } : {}),
-        }, sessionId);
+        };
+        pendingExtensionDialogs.set(requestId, { sessionId, settle, timer, payload });
+        publish('extension.dialog', payload, sessionId);
       });
     };
 
@@ -288,6 +333,40 @@ export function createSessionDaemon({
         undefined,
         (response) => (typeof response?.value === 'string' ? response.value : undefined),
       ),
+      form: (title, fields, opts) => {
+        // PiChamber-specific extension of the pi UI bridge (gate with
+        // isPiChamber(ctx)): structured multi-input dialogs resolved with a
+        // values object keyed by field id.
+        const sanitizedFields = Array.isArray(fields)
+          ? fields.slice(0, 12).flatMap((field) => {
+              if (!field || typeof field !== 'object') return [];
+              const id = typeof field.id === 'string' ? field.id.slice(0, 128) : '';
+              const label = typeof field.label === 'string' ? field.label.slice(0, 256) : '';
+              if (!id || !label) return [];
+              const type = ['text', 'textarea', 'number', 'select', 'checkbox'].includes(field.type) ? field.type : 'text';
+              return [{
+                id,
+                label,
+                type,
+                ...(field.required === true ? { required: true } : {}),
+                ...(typeof field.placeholder === 'string' ? { placeholder: field.placeholder.slice(0, 256) } : {}),
+                ...(Array.isArray(field.options) ? { options: field.options.filter((option) => typeof option === 'string').map((option) => option.slice(0, 256)).slice(0, 20) } : {}),
+                ...(typeof field.initial === 'string' ? { initial: field.initial.slice(0, 2_000) } : {}),
+                ...(Number.isFinite(field.min) ? { min: field.min } : {}),
+                ...(Number.isFinite(field.max) ? { max: field.max } : {}),
+              }];
+            })
+          : [];
+        return dialog(
+          'form',
+          { title, ...(sanitizedFields.length > 0 ? { fields: sanitizedFields } : {}) },
+          opts,
+          undefined,
+          (response) => (response?.values && typeof response.values === 'object' && !Array.isArray(response.values)
+            ? response.values
+            : undefined),
+        );
+      },
       editor: async (title, prefill) => {
         const requestId = randomUUID();
         return new Promise((resolve) => {
@@ -295,13 +374,14 @@ export function createSessionDaemon({
             if (pendingExtensionDialogs.get(requestId)?.settle === settle) pendingExtensionDialogs.delete(requestId);
             resolve(typeof response?.value === 'string' ? response.value : undefined);
           };
-          pendingExtensionDialogs.set(requestId, { sessionId, settle });
-          publish('extension.dialog', {
+          const payload = {
             requestId,
             method: 'editor',
             title,
             ...(typeof prefill === 'string' ? { prefill } : {}),
-          }, sessionId);
+          };
+          pendingExtensionDialogs.set(requestId, { sessionId, settle, payload });
+          publish('extension.dialog', payload, sessionId);
         });
       },
       notify: (message, level) => {
@@ -312,19 +392,35 @@ export function createSessionDaemon({
       },
       setStatus: (key, text) => {
         if (typeof key !== 'string' || key.length === 0) return;
+        // Mirror into server-side normalized state for snapshot / reconnect.
+        const statuses = extensionStatusesBySession.get(sessionId) ?? new Map();
+        if (typeof text === 'string' && text.length > 0) statuses.set(key, String(text).slice(0, 1000));
+        else statuses.delete(key);
+        if (statuses.size === 0) extensionStatusesBySession.delete(sessionId);
+        else extensionStatusesBySession.set(sessionId, statuses);
         publish('extension.status', {
           key,
-          ...(typeof text === 'string' && text.length > 0 ? { text } : {}),
+          ...(typeof text === 'string' && text.length > 0 ? { text: String(text).slice(0, 1000) } : {}),
         }, sessionId);
       },
       setWidget: (key, content, options) => {
         if (typeof key !== 'string' || key.length === 0) return;
         // Only string-array widgets are representable over the wire.
         if (content !== undefined && !Array.isArray(content)) return;
+        const widgets = extensionWidgetsBySession.get(sessionId) ?? new Map();
+        if (Array.isArray(content) && content.length > 0) {
+          const lines = content.map((line) => String(line).slice(0, 2000)).slice(0, 100);
+          const placement = options?.placement === 'belowEditor' ? 'belowEditor' : 'aboveEditor';
+          widgets.set(key, { lines, placement });
+        } else {
+          widgets.delete(key);
+        }
+        if (widgets.size === 0) extensionWidgetsBySession.delete(sessionId);
+        else extensionWidgetsBySession.set(sessionId, widgets);
         publish('extension.widget', {
           key,
-          ...(Array.isArray(content) ? { lines: content.map((line) => String(line)) } : {}),
-          ...(options?.placement === 'belowEditor' ? { placement: 'belowEditor' } : {}),
+          ...(Array.isArray(content) && content.length > 0 ? { lines: content.map((line) => String(line).slice(0, 2000)).slice(0, 100) } : {}),
+          ...(options?.placement === 'belowEditor' ? { placement: 'belowEditor' } : Array.isArray(content) && content.length > 0 ? { placement: 'aboveEditor' } : {}),
         }, sessionId);
       },
       // Terminal-only surfaces have no PiChamber equivalent yet.
@@ -437,6 +533,14 @@ export function createSessionDaemon({
       pending.settle({ confirmed: true });
     } else if (typeof payload.value === 'string') {
       pending.settle({ value: payload.value });
+    } else if (payload.values && typeof payload.values === 'object' && !Array.isArray(payload.values)) {
+      const values = {};
+      for (const [key, entry] of Object.entries(payload.values)) {
+        if (typeof key === 'string' && key.length > 0 && key.length <= 128 && typeof entry === 'string' && entry.length <= 8_000) {
+          values[key] = entry;
+        }
+      }
+      pending.settle({ values });
     } else {
       pending.settle({});
     }
@@ -468,6 +572,18 @@ export function createSessionDaemon({
     const lastAssistant = [...messages].reverse().find((entry) => entry.message.role === 'assistant')?.message;
     const model = activeSession?.model;
     const snapshotSequence = ++sequence;
+    // Snapshot must carry enough extension live state for a reconnect that
+    // missed the gap: statuses, widgets, and pending blocking dialogs per
+    // session. Without it, a phone that reconnects after the 1k replay
+    // window would lose its sub-agent panel or approval prompt.
+    const snapshotSessionId = session.sessionId;
+    const statusesForSnapshot = snapshotSessionId ? extensionStatusesBySession.get(snapshotSessionId) : undefined;
+    const widgetsForSnapshot = snapshotSessionId ? extensionWidgetsBySession.get(snapshotSessionId) : undefined;
+    const dialogsForSnapshot = snapshotSessionId
+      ? [...pendingExtensionDialogs.values()].filter((pending) => pending.sessionId === snapshotSessionId).map((pending) => pending.payload).slice(0, 20)
+      : [];
+    const panelsForSnapshot = snapshotSessionId ? extensionPanelsBySession.get(snapshotSessionId) : undefined;
+    const appsForSnapshot = snapshotSessionId ? extensionAppsBySession.get(snapshotSessionId) : undefined;
     writeFrame(socket, {
       protocolVersion: PROTOCOL_VERSION,
       kind: 'event',
@@ -487,6 +603,11 @@ export function createSessionDaemon({
         ...(typeof lastAssistant?.text === 'string' ? { lastText: lastAssistant.text } : {}),
         ...(typeof lastAssistant?.thinking === 'string' ? { lastThinking: lastAssistant.thinking } : {}),
         lastSequence: snapshotSequence,
+        ...(statusesForSnapshot && statusesForSnapshot.size > 0 ? { extensionStatuses: [...statusesForSnapshot.entries()].map(([key, text]) => ({ key, text })) } : {}),
+        ...(widgetsForSnapshot && widgetsForSnapshot.size > 0 ? { extensionWidgets: [...widgetsForSnapshot.entries()].map(([key, value]) => ({ key, lines: value.lines, placement: value.placement })) } : {}),
+        ...(dialogsForSnapshot.length > 0 ? { extensionDialogs: dialogsForSnapshot } : {}),
+        ...(panelsForSnapshot && panelsForSnapshot.size > 0 ? { extensionPanels: [...panelsForSnapshot.values()] } : {}),
+        ...(appsForSnapshot && appsForSnapshot.size > 0 ? { extensionApps: [...appsForSnapshot.values()] } : {}),
       },
     });
   };
@@ -506,7 +627,7 @@ export function createSessionDaemon({
 
   const disposeRuntime = async () => {
     clearIdleDisposal();
-    cancelPendingExtensionDialogs(undefined, 'daemon-stopped');
+    clearExtensionState(undefined);
     if (runtimeRegistry) {
       const hadTrackedRuntime = runtimeRegistry.size > 0;
       await runtimeRegistry.disposeAll();
@@ -556,7 +677,7 @@ export function createSessionDaemon({
         if (targetRuntime === runtime) {
           rememberRuntimeSession();
         }
-        cancelPendingExtensionDialogs(sessionId, 'session-disposed');
+        clearExtensionState(sessionId);
         await runtimeRegistry.dispose(targetRuntime);
         if (targetRuntime === runtime) {
           runtime = undefined;
@@ -1894,6 +2015,72 @@ export function createSessionDaemon({
     }, sessionId, directory);
   };
 
+  // Mirrors a declarative `pichamber.ui` descriptor into normalized panel
+  // state and publishes an `extension.ui` event. Latest wins per stable id;
+  // `removed: true` (or a payload without component/title) unregisters.
+  const mirrorExtensionPanel = (sessionId, descriptor, directory) => {
+    const id = typeof descriptor.id === 'string' && descriptor.id.length > 0 ? descriptor.id.slice(0, 128) : '';
+    if (!id) return;
+    const hasBody = typeof descriptor.component === 'string'
+      || typeof descriptor.title === 'string'
+      || Array.isArray(descriptor.actions);
+    const removed = descriptor.removed === true || !hasBody;
+    const panels = extensionPanelsBySession.get(sessionId) ?? new Map();
+    const normalized = removed ? undefined : {
+      id,
+      ...(typeof descriptor.title === 'string' ? { title: descriptor.title.slice(0, 256) } : {}),
+      ...(typeof descriptor.component === 'string' ? { component: descriptor.component.slice(0, 64) } : {}),
+      ...(descriptor.props && typeof descriptor.props === 'object' && !Array.isArray(descriptor.props) ? { props: redactAttachmentValues(descriptor.props) } : {}),
+      ...(Array.isArray(descriptor.actions) ? { actions: descriptor.actions.slice(0, MAX_EXTENSION_PANEL_ACTIONS) } : {}),
+    };
+    if (removed) {
+      panels.delete(id);
+    } else {
+      panels.set(id, normalized);
+    }
+    if (panels.size > MAX_EXTENSION_PANELS_PER_SESSION) {
+      const oldest = [...panels.keys()].slice(0, panels.size - MAX_EXTENSION_PANELS_PER_SESSION);
+      for (const key of oldest) panels.delete(key);
+    }
+    if (panels.size === 0) extensionPanelsBySession.delete(sessionId);
+    else extensionPanelsBySession.set(sessionId, panels);
+    publish('extension.ui', removed ? { id, removed: true } : normalized, sessionId, directory);
+  };
+
+  // Mirrors a `pichamber.app` descriptor into normalized app state and
+  // publishes an `extension.app` event. HTML is capped; removal unregisters.
+  const mirrorExtensionApp = (sessionId, descriptor, directory) => {
+    const appId = typeof descriptor.appId === 'string' && descriptor.appId.length > 0 ? descriptor.appId.slice(0, 128) : '';
+    if (!appId) return;
+    const html = typeof descriptor.html === 'string'
+      ? (descriptor.html.length > MAX_EXTENSION_APP_HTML_CHARS ? descriptor.html.slice(0, MAX_EXTENSION_APP_HTML_CHARS) : descriptor.html)
+      : undefined;
+    const removed = descriptor.removed === true || !html || html.length === 0;
+    const apps = extensionAppsBySession.get(sessionId) ?? new Map();
+    if (removed) {
+      apps.delete(appId);
+    } else {
+      apps.set(appId, {
+        appId,
+        ...(typeof descriptor.title === 'string' ? { title: descriptor.title.slice(0, 256) } : {}),
+        html,
+      });
+    }
+    if (apps.size > MAX_EXTENSION_APPS_PER_SESSION) {
+      const oldest = [...apps.keys()].slice(0, apps.size - MAX_EXTENSION_APPS_PER_SESSION);
+      for (const key of oldest) apps.delete(key);
+    }
+    if (apps.size === 0) extensionAppsBySession.delete(sessionId);
+    else extensionAppsBySession.set(sessionId, apps);
+    publish('extension.app', {
+      appId,
+      ...(removed ? { removed: true } : {
+        ...(typeof descriptor.title === 'string' ? { title: descriptor.title.slice(0, 256) } : {}),
+        html,
+      }),
+    }, sessionId, directory);
+  };
+
   const publishSessionEvent = (sessionId, event, directory = activeDirectory || cwd) => {
     switch (event.type) {
       case 'message_start': {
@@ -1974,6 +2161,20 @@ export function createSessionDaemon({
           ...(entry.data !== undefined ? { data: redactAttachmentValues(entry.data) } : {}),
           createdAt: Number.isFinite(timestamp) ? timestamp : Date.now(),
         }, sessionId, directory);
+        // Declarative GUI payloads are additionally mirrored into normalized
+        // live state so panels/apps update in place and survive reconnects.
+        if (entry.customType === 'pichamber.ui' || entry.customType.startsWith('pichamber.')) {
+          const descriptor = entry.data && typeof entry.data === 'object' && !Array.isArray(entry.data)
+            ? (entry.data.ui && typeof entry.data.ui === 'object' && !Array.isArray(entry.data.ui) ? entry.data.ui : entry.data)
+            : undefined;
+          if (descriptor) {
+            if (entry.customType === 'pichamber.app') {
+              mirrorExtensionApp(sessionId, descriptor, directory);
+            } else {
+              mirrorExtensionPanel(sessionId, descriptor, directory);
+            }
+          }
+        }
         break;
       }
       case 'tool_execution_start': {

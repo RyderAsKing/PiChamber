@@ -102,6 +102,30 @@ describe('parseExtensionChatItem', () => {
     expect(fromEntry.kind).toBe('fallback')
   })
 
+  test('handles versioned protocol and unknown versions as fallback', () => {
+    const versioned = parseExtensionChatItem({
+      customType: PI_EXTENSION_UI_CUSTOM_TYPE,
+      data: {
+        protocol: 'pichamber-extension-ui',
+        version: 1,
+        component: 'markdown',
+        props: { body: 'ok' },
+      },
+    })
+    expect(versioned.kind).toBe('ui')
+
+    const future = parseExtensionChatItem({
+      customType: PI_EXTENSION_UI_CUSTOM_TYPE,
+      data: {
+        protocol: 'pichamber-extension-ui',
+        version: 99,
+        component: 'markdown',
+        props: { body: 'future' },
+      },
+    })
+    expect(future.kind).toBe('fallback')
+  })
+
   test('validates table and badge payloads', () => {
     const table = parseExtensionChatItem({
       customType: PI_EXTENSION_UI_CUSTOM_TYPE,
@@ -131,5 +155,73 @@ describe('parseExtensionChatItem', () => {
         { label: 'plain', tone: 'neutral' },
       ])
     }
+  })
+})
+
+describe('generalized card actions', () => {
+  test('parses icon, disabled, loading, confirm, and promptForArgs fields', () => {
+    const parsed = parseExtensionChatItem({
+      customType: PI_EXTENSION_UI_CUSTOM_TYPE,
+      data: {
+        component: 'markdown',
+        props: { body: 'Agents' },
+        actions: [
+          {
+            label: 'Cancel',
+            command: 'agents-cancel',
+            args: 'research',
+            icon: 'close',
+            confirm: 'Cancel the research agent?',
+          },
+          { label: 'Spawn', command: 'agents-spawn', promptForArgs: { label: 'Agent name', placeholder: 'research' } },
+          { label: 'Frozen', command: 'agents-frozen', disabled: true, loading: true },
+        ],
+      },
+    })
+    expect(parsed.kind).toBe('ui')
+    if (parsed.kind !== 'ui') throw new Error('expected ui')
+    expect(parsed.descriptor.actions?.[0]).toEqual({
+      label: 'Cancel',
+      command: 'agents-cancel',
+      args: 'research',
+      icon: 'close',
+      confirm: 'Cancel the research agent?',
+    })
+    expect(parsed.descriptor.actions?.[1]).toEqual({
+      label: 'Spawn',
+      command: 'agents-spawn',
+      promptForArgs: { label: 'Agent name', placeholder: 'research' },
+    })
+    expect(parsed.descriptor.actions?.[2]).toEqual({
+      label: 'Frozen',
+      command: 'agents-frozen',
+      disabled: true,
+      loading: true,
+    })
+  })
+
+  test('truncates oversized action text and drops hostile commands', () => {
+    const parsed = parseExtensionChatItem({
+      customType: PI_EXTENSION_UI_CUSTOM_TYPE,
+      data: {
+        component: 'markdown',
+        props: { body: '' },
+        actions: [
+          { label: `${'x'.repeat(300)}`, command: 'ok-command', args: `${'y'.repeat(5000)}` },
+          { label: 'Bad', command: '../escape' },
+          { label: 'Bad', command: 'a/b' },
+          { label: 'Long icon', command: 'ok-command', icon: `${'i'.repeat(100)}` },
+        ],
+      },
+    })
+    expect(parsed.kind).toBe('ui')
+    if (parsed.kind !== 'ui') throw new Error('expected ui')
+    expect(parsed.descriptor.actions).toHaveLength(2)
+    const actions = parsed.descriptor.actions ?? []
+    const first = actions[0]
+    const longIcon = actions[1]
+    expect(first?.label).toHaveLength(128)
+    expect(first?.args).toHaveLength(2_000)
+    expect(longIcon?.icon).toHaveLength(64)
   })
 })

@@ -1249,6 +1249,8 @@ export class PiSessionStore {
           extensionDialogs: [],
           extensionNotices: [],
           extensionErrors: [],
+          extensionPanels: new Map(),
+          extensionApps: new Map(),
         };
     const nextBySession = new Map(this.state.reducer.bySession);
     nextBySession.set(sessionId, nextSession);

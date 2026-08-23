@@ -30,7 +30,9 @@ import { CowMap } from './cow-map';
 import type {
   PiAssistantMessageDeltaPayload,
   PiAssistantThinkingDeltaPayload,
+  PiExtensionAppPayload,
   PiExtensionDialogPayload,
+  PiExtensionPanelPayload,
   PiMessageStartPayload,
   PiMessageEndPayload,
   PiSessionEvent,
@@ -148,6 +150,10 @@ export interface PiReducerSessionState {
   extensionNotices: Array<{ id: string; message: string; level: 'info' | 'warning' | 'error'; createdAt: number }>;
   /** Bounded feed of extension runtime errors. */
   extensionErrors: Array<{ id: string; source: string; event?: string; message: string; createdAt: number }>;
+  /** Live declarative GUI panels keyed by stable id (latest wins). */
+  extensionPanels: Map<string, PiExtensionPanelPayload>;
+  /** Registered sandboxed extension app surfaces keyed by appId. */
+  extensionApps: Map<string, PiExtensionAppPayload>;
   /**
    * Last message a part-level or structural write touched. Live-tail freeze
    * uses this instead of walking every historical part on each token.
@@ -221,6 +227,8 @@ const getOrCreateSession = (
     extensionDialogs: [],
     extensionNotices: [],
     extensionErrors: [],
+    extensionPanels: new Map(),
+    extensionApps: new Map(),
   };
   state.bySession.set(sessionId, fresh);
   return fresh;
@@ -760,8 +768,9 @@ export const applyPiEvent = (
         extensionDialogs: [],
         extensionNotices: [],
         extensionErrors: [],
+        extensionPanels: new Map(),
+        extensionApps: new Map(),
       };
-
   switch (event.name) {
     case 'session.snapshot':
       if (event.payload?.snapshot) {
@@ -769,6 +778,41 @@ export const applyPiEvent = (
         if (event.payload.snapshot.model) session.model = event.payload.snapshot.model;
         if (event.payload.snapshot.thinking) session.thinking = event.payload.snapshot.thinking;
         if (event.payload.snapshot.queue) session.queue = { ...event.payload.snapshot.queue };
+        // Snapshot may carry current extension live state for reconnect after
+        // the replay window. Replace the session's extension maps so a phone
+        // that reconnected late still sees approval prompts and sub-agent panels.
+        if (Array.isArray(event.payload.snapshot.extensionStatuses)) {
+          session.extensionStatuses = new Map(event.payload.snapshot.extensionStatuses.map((entry) => [entry.key, entry.text]));
+        }
+        if (Array.isArray(event.payload.snapshot.extensionWidgets)) {
+          session.extensionWidgets = new Map(event.payload.snapshot.extensionWidgets.map((entry) => [entry.key, { lines: entry.lines, placement: entry.placement === 'belowEditor' ? 'belowEditor' : 'aboveEditor' }]));
+        }
+        if (Array.isArray(event.payload.snapshot.extensionDialogs)) {
+          const incoming = event.payload.snapshot.extensionDialogs.filter((dialog) => typeof dialog.requestId === 'string' && typeof dialog.method === 'string' && typeof dialog.title === 'string');
+          // Merge with existing pending dialogs: snapshot is authoritative for
+          // its session, but preserve any newer dialogs that already arrived
+          // via delta events with greater sequence numbers.
+          const existingIds = new Set(session.extensionDialogs.map((dialog) => dialog.requestId));
+          const merged = [...session.extensionDialogs];
+          for (const dialog of incoming) {
+            if (!existingIds.has(dialog.requestId)) merged.push(dialog as unknown as PiExtensionDialogPayload);
+          }
+          session.extensionDialogs = merged;
+        }
+        if (Array.isArray(event.payload.snapshot.extensionPanels)) {
+          const panels = new Map<string, PiExtensionPanelPayload>();
+          for (const panel of event.payload.snapshot.extensionPanels) {
+            if (typeof panel?.id === 'string' && panel.id.length > 0) panels.set(panel.id, panel);
+          }
+          session.extensionPanels = panels;
+        }
+        if (Array.isArray(event.payload.snapshot.extensionApps)) {
+          const apps = new Map<string, PiExtensionAppPayload>();
+          for (const app of event.payload.snapshot.extensionApps) {
+            if (typeof app?.appId === 'string' && app.appId.length > 0) apps.set(app.appId, app);
+          }
+          session.extensionApps = apps;
+        }
         markHydratedLiveActivity(session, {
           isStreaming: event.payload.snapshot.isStreaming,
           lifecycle: session.lifecycle,
@@ -932,6 +976,29 @@ export const applyPiEvent = (
       // reconnect) must not stack.
       if (session.extensionDialogs.some((dialog) => dialog.requestId === event.payload.requestId)) break;
       session.extensionDialogs = [...session.extensionDialogs, event.payload];
+      break;
+    }
+    case 'extension.ui': {
+      // Live declarative panels are latest-wins per stable id. A removed flag
+      // or an empty payload body unregisters the panel entirely.
+      const panel = event.payload;
+      session.extensionPanels = new Map(session.extensionPanels);
+      const hasBody = panel.component !== undefined || panel.title !== undefined || panel.actions !== undefined;
+      if (panel.removed === true || !hasBody) {
+        session.extensionPanels.delete(panel.id);
+      } else {
+        session.extensionPanels.set(panel.id, panel);
+      }
+      break;
+    }
+    case 'extension.app': {
+      const app = event.payload;
+      session.extensionApps = new Map(session.extensionApps);
+      if (app.removed === true || typeof app.html !== 'string' || app.html.length === 0) {
+        session.extensionApps.delete(app.appId);
+      } else {
+        session.extensionApps.set(app.appId, app);
+      }
       break;
     }
     case 'extension.error':

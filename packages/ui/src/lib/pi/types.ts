@@ -267,6 +267,16 @@ export interface PiSessionSnapshot {
   lastToolPart?: PiToolPart;
   /** The current session lifecycle phase. */
   lifecycle: PiSessionLifecycleState;
+  /** Live extension status texts at snapshot time (for reconnect). */
+  extensionStatuses?: Array<{ key: string; text: string }>;
+  /** Live extension widgets at snapshot time. */
+  extensionWidgets?: Array<{ key: string; lines: string[]; placement?: 'aboveEditor' | 'belowEditor' }>;
+  /** Pending blocking extension dialogs at snapshot time. */
+  extensionDialogs?: Array<{ requestId: string; method: 'select' | 'confirm' | 'input' | 'editor' | 'form'; title: string; message?: string; options?: string[]; placeholder?: string; prefill?: string; fields?: import('./protocol').PiExtensionFormField[]; timeoutMs?: number }>;
+  /** Live declarative GUI panels (latest-wins per id) at snapshot time. */
+  extensionPanels?: Array<import('./protocol').PiExtensionPanelPayload>;
+  /** Registered sandboxed extension app surfaces at snapshot time. */
+  extensionApps?: Array<import('./protocol').PiExtensionAppPayload>;
 }
 
 export type PiSessionLifecycleState =

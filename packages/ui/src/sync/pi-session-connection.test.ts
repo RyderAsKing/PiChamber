@@ -41,6 +41,8 @@ const reducerSession = (
       extensionDialogs: [],
       extensionNotices: [],
       extensionErrors: [],
+  extensionPanels: new Map(),
+  extensionApps: new Map(),
   queue: { steering: 0, followUp: 0 },
   ...overrides,
 });
@@ -199,6 +201,8 @@ describe('PiSessionStore runtime-scoped sessions', () => {
       extensionDialogs: [],
       extensionNotices: [],
       extensionErrors: [],
+      extensionPanels: new Map(),
+      extensionApps: new Map(),
       queue: { steering: 0, followUp: 0 },
     };
     internal.stream = stream;

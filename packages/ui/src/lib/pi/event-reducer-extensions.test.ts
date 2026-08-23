@@ -34,7 +34,9 @@ describe("extension event protocol", () => {
       baseEvent("extension.status", 4, { key: "k", text: "v" }),
       baseEvent("extension.widget", 5, { key: "w", lines: ["a"] }),
       baseEvent("extension.dialog", 6, { requestId: "r1", method: "confirm", title: "T" }),
-      baseEvent("extension.error", 7, { source: "/ext.ts", message: "boom" }),
+      baseEvent("extension.ui", 7, { id: "panel-1", title: "Panel", component: "progress", props: { value: 10 } }),
+      baseEvent("extension.app", 8, { appId: "app-1", title: "App", html: "<p>hi</p>" }),
+      baseEvent("extension.error", 9, { source: "/ext.ts", message: "boom" }),
     ]
     for (const event of events) expect(isPiEvent(event)).toBe(true)
   })
@@ -122,6 +124,109 @@ describe("extension event reduction", () => {
     expect(session.extensionNotices).toHaveLength(10)
     expect(session.extensionNotices.at(-1)?.message).toBe("n14")
     expect(session.extensionErrors).toHaveLength(1)
+  })
+})
+
+describe("snapshot extension state", () => {
+  test("restores live status, widget, and dialog state from a snapshot", () => {
+    let state = createReducerState()
+    // Simulate snapshot arriving with extension live state for reconnect
+    state = applyPiEvent(state, baseEvent("session.snapshot", 10, {
+      snapshot: {
+        sessionId: "sess-1",
+        directory: "/work",
+        isStreaming: false,
+        lifecycle: "idle",
+        queue: { steering: 0, followUp: 0 },
+        lastSequence: 10,
+        extensionStatuses: [{ key: "a", text: "one" }, { key: "b", text: "two" }],
+        extensionWidgets: [{ key: "w", lines: ["hello"], placement: "aboveEditor" }],
+        extensionDialogs: [{ requestId: "r1", method: "confirm", title: "Sure?", message: "confirm?" }],
+      },
+    } as never)).state
+    const session = state.bySession.get("sess-1")!
+    expect([...session.extensionStatuses.entries()]).toEqual([["a", "one"], ["b", "two"]])
+    expect([...session.extensionWidgets.entries()].map(([key, value]) => [key, value.lines])).toEqual([["w", ["hello"]]])
+    expect(session.extensionDialogs.map((dialog) => dialog.requestId)).toEqual(["r1"])
+    // Later delta should merge without wiping snapshot state
+    state = applyPiEvent(state, baseEvent("extension.status", 11, { key: "c", text: "three" })).state
+    expect([...state.bySession.get("sess-1")!.extensionStatuses.keys()].sort()).toEqual(["a", "b", "c"])
+  })
+})
+
+describe("live panels and app surfaces", () => {
+  const panelPayload = {
+    id: "subagents",
+    title: "Sub-agents",
+    component: "table",
+    props: { columns: ["Agent", "Status"], rows: [["research", "running"]] },
+  }
+
+  test("panels are latest-wins per id and removable", () => {
+    let state = applyPiEvent(createReducerState(), baseEvent("extension.ui", 1, panelPayload)).state
+    const updated = {
+      ...panelPayload,
+      props: { columns: ["Agent", "Status"], rows: [["research", "done"]] },
+    }
+    state = applyPiEvent(state, baseEvent("extension.ui", 2, updated)).state
+    let session = state.bySession.get("sess-1")!
+    expect(session.extensionPanels.size).toBe(1)
+    expect(session.extensionPanels.get("subagents")?.props).toEqual(updated.props)
+
+    // A payload without component/title unregisters too.
+    state = applyPiEvent(state, baseEvent("extension.ui", 3, { id: "subagents" })).state
+    session = state.bySession.get("sess-1")!
+    expect(session.extensionPanels.has("subagents")).toBe(false)
+
+    state = applyPiEvent(state, baseEvent("extension.ui", 4, panelPayload)).state
+    state = applyPiEvent(state, baseEvent("extension.ui", 5, { id: "subagents", removed: true })).state
+    expect(state.bySession.get("sess-1")!.extensionPanels.has("subagents")).toBe(false)
+  })
+
+  test("apps register with html and unregister on removal or empty html", () => {
+    let state = applyPiEvent(createReducerState(), baseEvent("extension.app", 1, {
+      appId: "board",
+      title: "Board",
+      html: "<button data-pichamber-command=\"run\">Run</button>",
+    })).state
+    expect(state.bySession.get("sess-1")!.extensionApps.get("board")?.html).toContain("data-pichamber-command")
+
+    state = applyPiEvent(state, baseEvent("extension.app", 2, { appId: "board", removed: true })).state
+    expect(state.bySession.get("sess-1")!.extensionApps.has("board")).toBe(false)
+
+    state = applyPiEvent(state, baseEvent("extension.app", 3, { appId: "board", html: "<b>x</b>" })).state
+    state = applyPiEvent(state, baseEvent("extension.app", 4, { appId: "board" })).state
+    expect(state.bySession.get("sess-1")!.extensionApps.has("board")).toBe(false)
+  })
+
+  test("snapshot replaces panel and app maps and replays pending form dialogs", () => {
+    let state = createReducerState()
+    state = applyPiEvent(state, baseEvent("session.snapshot", 20, {
+      snapshot: {
+        sessionId: "sess-1",
+        directory: "/work",
+        isStreaming: false,
+        lifecycle: "idle",
+        queue: { steering: 0, followUp: 0 },
+        lastSequence: 20,
+        extensionPanels: [panelPayload],
+        extensionApps: [{ appId: "board", title: "Board", html: "<p>b</p>" }],
+        extensionDialogs: [{
+          requestId: "form-1",
+          method: "form",
+          title: "Spawn agent",
+          fields: [
+            { id: "name", label: "Name", type: "text", required: true },
+            { id: "level", label: "Level", type: "select", options: ["low", "high"] },
+          ],
+        }],
+      },
+    } as never)).state
+    const session = state.bySession.get("sess-1")!
+    expect([...session.extensionPanels.keys()]).toEqual(["subagents"])
+    expect([...session.extensionApps.keys()]).toEqual(["board"])
+    expect(session.extensionDialogs[0]?.method).toBe("form")
+    expect(session.extensionDialogs[0]?.fields).toHaveLength(2)
   })
 })
 

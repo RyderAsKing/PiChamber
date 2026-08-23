@@ -451,6 +451,8 @@ export type PiEventName =
   | 'extension.status'
   | 'extension.widget'
   | 'extension.dialog'
+  | 'extension.ui'
+  | 'extension.app'
   | 'extension.error';
 
 /** Common envelope for every public event. */
@@ -694,9 +696,24 @@ export type PiExtensionWidgetEvent = PiEventEnvelope<
   }
 >;
 
+/** One typed input of a `form` dialog (`ctx.ui.form`). */
+export interface PiExtensionFormField {
+  id: string;
+  label: string;
+  type: 'text' | 'textarea' | 'number' | 'select' | 'checkbox';
+  required?: boolean;
+  placeholder?: string;
+  /** Select choices. */
+  options?: string[];
+  /** Initial value as a string (checkbox: 'true'/'false'). */
+  initial?: string;
+  min?: number;
+  max?: number;
+}
+
 export interface PiExtensionDialogPayload {
   requestId: string;
-  method: 'select' | 'confirm' | 'input' | 'editor';
+  method: 'select' | 'confirm' | 'input' | 'editor' | 'form';
   title: string;
   /** Confirm/dialog body text. */
   message?: string;
@@ -706,6 +723,8 @@ export interface PiExtensionDialogPayload {
   placeholder?: string;
   /** Editor prefill. */
   prefill?: string;
+  /** Form dialog inputs. */
+  fields?: PiExtensionFormField[];
   /** When present, the dialog auto-cancels after this many milliseconds. */
   timeoutMs?: number;
 }
@@ -722,7 +741,33 @@ export interface PiExtensionDialogResponseInput {
   confirmed?: boolean;
   /** Select choice, input text, or editor content. */
   value?: string;
+  /** Form dialog answers keyed by field id. */
+  values?: Record<string, string>;
 }
+
+/** Declarative GUI panel update keyed by a stable id; latest wins. */
+export interface PiExtensionPanelPayload {
+  id: string;
+  title?: string;
+  component?: string;
+  props?: Record<string, unknown>;
+  actions?: unknown[];
+  /** Present when the panel should be removed from the live dock. */
+  removed?: boolean;
+}
+
+export type PiExtensionUiEvent = PiEventEnvelope<'extension.ui', PiExtensionPanelPayload>;
+
+/** Sandboxed extension app surface; `removed` (or missing `html`) unregisters. */
+export interface PiExtensionAppPayload {
+  appId: string;
+  title?: string;
+  /** Self-contained HTML document rendered inside a sandboxed iframe. */
+  html?: string;
+  removed?: boolean;
+}
+
+export type PiExtensionAppEvent = PiEventEnvelope<'extension.app', PiExtensionAppPayload>;
 
 /** Extensions loaded for a directory plus the slash commands they register. */
 export interface PiExtensionListResponse {
@@ -736,7 +781,6 @@ export interface PiExtensionListResponse {
     scope?: 'user' | 'project' | 'temporary';
   }>;
 }
-
 export type PiExtensionErrorEvent = PiEventEnvelope<
   'extension.error',
   {
@@ -771,6 +815,8 @@ export type PiSessionEvent =
   | PiExtensionStatusEvent
   | PiExtensionWidgetEvent
   | PiExtensionDialogEvent
+  | PiExtensionUiEvent
+  | PiExtensionAppEvent
   | PiExtensionErrorEvent;
 
 // ---------------------------------------------------------------------------
@@ -801,6 +847,8 @@ export const PI_EVENT_KINDS = [
   'extension.status',
   'extension.widget',
   'extension.dialog',
+  'extension.ui',
+  'extension.app',
   'extension.error',
 ] as const satisfies readonly PiEventName[];
 

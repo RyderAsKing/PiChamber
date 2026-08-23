@@ -2,8 +2,12 @@ import * as React from 'react';
 
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { parseExtensionChatItem } from '@/lib/pi/extension-ui';
+import type { ExtensionUiAction } from '@/lib/pi/extension-ui';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Icon } from '@/components/icon/Icon';
+import { iconSpriteData } from '@/components/icon/sprite';
+import type { IconName } from '@/components/icon/icons';
 import { MarkdownRenderer } from '../../../MarkdownRenderer';
 
 interface ExtensionMessageCardProps {
@@ -25,37 +29,93 @@ const toneClasses: Record<string, string> = {
 };
 
 interface ActionButtonProps {
-    label: string;
+    action: ExtensionUiAction;
     variant: 'default' | 'outline' | 'ghost';
-    command: string;
-    args?: string;
     sessionId?: string;
 }
 
-const ExtensionActionButton: React.FC<ActionButtonProps> = ({ label, variant, command, args, sessionId }) => {
+const isKnownIcon = (name: string | undefined): name is IconName => (
+    typeof name === 'string' && name.length > 0 && name in iconSpriteData
+);
+
+const ExtensionActionButton: React.FC<ActionButtonProps> = ({ action, variant, sessionId }) => {
     const [pending, setPending] = React.useState(false);
-    const handleClick = React.useCallback(async () => {
+    const [prompting, setPrompting] = React.useState(false);
+    const [promptValue, setPromptValue] = React.useState('');
+
+    const runCommand = React.useCallback(async (args?: string) => {
         if (!sessionId || pending) return;
         setPending(true);
         try {
-            const text = args && args.trim().length > 0 ? `/${command} ${args.trim()}` : `/${command}`;
+            const trimmed = args?.trim();
+            const text = trimmed ? `/${action.command} ${trimmed}` : `/${action.command}`;
             await getPiSessionStore().prompt(sessionId, text, 'prompt');
         } finally {
             setPending(false);
         }
-    }, [sessionId, pending, command, args]);
+    }, [sessionId, pending, action.command]);
+
+    const handleClick = React.useCallback(async () => {
+        if (!sessionId || pending || action.disabled) return;
+        if (action.confirm && typeof window !== 'undefined' && !window.confirm(action.confirm)) return;
+        if (action.promptForArgs) {
+            setPrompting(true);
+            setPromptValue('');
+            return;
+        }
+        await runCommand(action.args);
+    }, [sessionId, pending, action, runCommand]);
 
     if (!sessionId) return null;
+
+    const busy = pending || action.loading === true;
+    const icon = isKnownIcon(action.icon) ? <Icon name={action.icon} className="size-3.5" /> : null;
+
+    if (prompting) {
+        return (
+            <form
+                className="flex items-center gap-1.5"
+                onSubmit={(event) => {
+                    event.preventDefault();
+                    setPrompting(false);
+                    void runCommand(promptValue);
+                }}
+            >
+                <input
+                    autoFocus
+                    value={promptValue}
+                    onChange={(event) => setPromptValue(event.target.value)}
+                    placeholder={action.promptForArgs?.placeholder ?? ''}
+                    aria-label={action.promptForArgs?.label ?? action.label}
+                    className="h-6 w-40 rounded-md border bg-transparent px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-interactive-focus"
+                    onKeyDown={(event) => {
+                        if (event.key === 'Escape') {
+                            event.stopPropagation();
+                            setPrompting(false);
+                        }
+                    }}
+                />
+                <Button type="submit" size="xs" variant="default" disabled={pending}>Run</Button>
+                <Button type="button" size="xs" variant="ghost" onClick={() => setPrompting(false)}>Cancel</Button>
+            </form>
+        );
+    }
 
     return (
         <Button
             size="xs"
             variant={variant}
-            onClick={handleClick}
-            disabled={pending}
-            aria-label={label}
+            onClick={() => void handleClick()}
+            disabled={busy || action.disabled}
+            aria-label={action.label}
         >
-            {label}
+            {busy ? (
+                <span
+                    aria-hidden="true"
+                    className="size-3.5 shrink-0 animate-spin rounded-full border border-current border-t-transparent"
+                />
+            ) : icon}
+            {action.label}
         </Button>
     );
 };
@@ -228,10 +288,8 @@ export const ExtensionMessageCard: React.FC<ExtensionMessageCardProps> = ({
                             {actions.map((action) => (
                                 <ExtensionActionButton
                                     key={`${action.command}:${action.label}`}
-                                    label={action.label}
+                                    action={action}
                                     variant={action.variant ?? 'outline'}
-                                    command={action.command}
-                                    args={action.args}
                                     sessionId={sessionId}
                                 />
                             ))}

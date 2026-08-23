@@ -25,6 +25,10 @@ export const PI_EXTENSION_UI_CUSTOM_TYPE = 'pichamber.ui';
 /** Custom types prefixed with this namespace are treated as PiChamber GUI. */
 export const PI_EXTENSION_UI_NAMESPACE = 'pichamber.';
 
+/** Versioned protocol marker for the declarative UI surface. */
+export const PI_EXTENSION_UI_PROTOCOL = 'pichamber-extension-ui';
+export const PI_EXTENSION_UI_VERSION = 1;
+
 export type ExtensionUiTone = 'info' | 'success' | 'warning' | 'error' | 'neutral';
 
 export interface ExtensionUiAction {
@@ -35,6 +39,19 @@ export interface ExtensionUiAction {
   /** Optional argument string appended after the command. */
   args?: string;
   variant?: 'default' | 'outline' | 'ghost';
+  /** Optional icon name rendered before the label (PiChamber sprite name). */
+  icon?: string;
+  /** Rendered disabled; clicks are ignored. */
+  disabled?: boolean;
+  /** Show a spinner instead of relying only on transport-level pending state. */
+  loading?: boolean;
+  /** Ask for explicit confirmation (browser dialog) before invoking. */
+  confirm?: string;
+  /** Collect an argument string through a blocking input before invoking. */
+  promptForArgs?: {
+    label?: string;
+    placeholder?: string;
+  };
 }
 
 export interface ExtensionUiRow {
@@ -106,6 +123,13 @@ const parseRows = (value: unknown): ExtensionUiRow[] | null => {
   return rows;
 };
 
+const MAX_ACTION_LABEL = 128;
+const MAX_ACTION_ARGS = 2_000;
+
+const truncateActionText = (value: string, maxLength: number): string => (
+  value.length > maxLength ? value.slice(0, maxLength) : value
+);
+
 const parseActions = (value: unknown): ExtensionUiAction[] | undefined => {
   if (!Array.isArray(value)) return undefined;
   const actions: ExtensionUiAction[] = [];
@@ -118,11 +142,26 @@ const parseActions = (value: unknown): ExtensionUiAction[] | undefined => {
     // Commands are invoked through the prompt path, which requires "/"-prefixed
     // text — keep the stored form clean and reject embedded separators.
     if (command.includes('/') || command.startsWith('.')) continue;
+    const promptForArgsSource = asRecord(record.promptForArgs);
+    const promptLabel = promptForArgsSource ? asString(promptForArgsSource.label) : undefined;
+    const promptPlaceholder = promptForArgsSource ? asString(promptForArgsSource.placeholder) : undefined;
     actions.push({
-      label,
+      label: truncateActionText(label, MAX_ACTION_LABEL),
       command,
-      ...(asString(record.args) !== undefined ? { args: asString(record.args) } : {}),
+      ...(asString(record.args) !== undefined ? { args: truncateActionText(asString(record.args) ?? '', MAX_ACTION_ARGS) } : {}),
       ...(record.variant === 'outline' || record.variant === 'ghost' ? { variant: record.variant } : {}),
+      ...(asString(record.icon) !== undefined ? { icon: truncateActionText(asString(record.icon) ?? '', 64) } : {}),
+      ...(record.disabled === true ? { disabled: true } : {}),
+      ...(record.loading === true ? { loading: true } : {}),
+      ...(asString(record.confirm) !== undefined ? { confirm: truncateActionText(asString(record.confirm) ?? '', 500) } : {}),
+      ...(promptForArgsSource
+        ? {
+            promptForArgs: {
+              ...(promptLabel !== undefined ? { label: truncateActionText(promptLabel, 256) } : {}),
+              ...(promptPlaceholder !== undefined ? { placeholder: truncateActionText(promptPlaceholder, 256) } : {}),
+            },
+          }
+        : {}),
     });
   }
   return actions.length > 0 ? actions : undefined;
@@ -219,25 +258,53 @@ export const parseExtensionChatItem = (input: {
     : null;
 
   if (source) {
-    const componentName = asString(source.component) ?? asString(source.type);
-    if (componentName) {
-      const rawProps = asRecord(source.props) ?? {};
-      const parsedComponent = parseProps(componentName, rawProps);
-      const actions = parseActions(source.actions);
-      if (parsedComponent || actions) {
-        const title = asString(source.title);
-        return {
-          kind: 'ui',
-          descriptor: {
-            ...(asString(source.id) !== undefined ? { id: asString(source.id) } : {}),
-            ...(title !== undefined ? { title } : {}),
-            // (title fallback handled by callers via component.title when present)
-            // Unrecognized component names still render their actions through
-            // a generic card body instead of being dropped.
-            component: parsedComponent ?? { component: 'markdown', body: '' },
-            ...(actions ? { actions } : {}),
-          },
-        };
+    // Version gate: unknown major versions degrade to fallback so a future
+    // breaking schema does not crash older clients. Minor forward-compat will
+    // be handled by lenient parsing below.
+    const protocol = asString(source.protocol);
+    const version = asFiniteNumber(source.version);
+    if (protocol && protocol !== PI_EXTENSION_UI_PROTOCOL) {
+      // Unknown protocol -> fallback
+    } else if (version !== undefined && version !== PI_EXTENSION_UI_VERSION) {
+      // Future version -> fallback (payload remains visible as JSON)
+    } else {
+      const componentName = asString(source.component) ?? asString(source.type);
+      if (componentName) {
+        const rawProps = asRecord(source.props) ?? {};
+        const parsedComponent = parseProps(componentName, rawProps);
+        const actions = parseActions(source.actions);
+        if (parsedComponent || actions) {
+          const title = asString(source.title);
+          return {
+            kind: 'ui',
+            descriptor: {
+              ...(asString(source.id) !== undefined ? { id: asString(source.id)?.slice(0, 128) } : {}),
+              ...(title !== undefined ? { title: title.slice(0, 256) } : {}),
+              // (title fallback handled by callers via component.title when present)
+              // Unrecognized component names still render their actions through
+              // a generic card body instead of being dropped.
+              component: parsedComponent ?? { component: 'markdown', body: '' },
+              ...(actions ? { actions } : {}),
+            },
+          };
+        }
+      }
+      // If customType is namespaced but contains no renderable component,
+      // treat the whole payload (or its `ui` sub-object) as a potential
+      // title-bearing fallback rather than dropping it silently.
+      if (asString(source.title) || asString(source.text) || asString(source.body)) {
+        const fallbackBody = asString(source.text) ?? asString(source.body) ?? '';
+        if (fallbackBody) {
+          return {
+            kind: 'ui',
+            descriptor: {
+              ...(asString(source.id) !== undefined ? { id: asString(source.id)?.slice(0, 128) } : {}),
+              ...(asString(source.title) !== undefined ? { title: asString(source.title)?.slice(0, 256) } : {}),
+              component: { component: 'markdown', body: fallbackBody.slice(0, 5000) },
+              ...(parseActions(source.actions) ? { actions: parseActions(source.actions) } : {}),
+            },
+          };
+        }
       }
     }
   }

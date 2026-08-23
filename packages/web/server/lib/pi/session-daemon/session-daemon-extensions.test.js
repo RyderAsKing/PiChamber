@@ -355,3 +355,120 @@ describe('Pi session daemon extension bridging', () => {
     await client.close();
   });
 });
+
+describe('Pi session daemon extension panels, apps, and forms', () => {
+  let daemon;
+  let sessions = [];
+
+  const startWithExtensibleSession = async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-panel-'));
+    const projectDir = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    await mkdir(projectDir, { recursive: true });
+    await mkdir(agentDir, { recursive: true });
+    const endpoint = join(root, 'daemon.sock');
+    const session = new ExtensibleFakeSession();
+    sessions.push(session);
+
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: projectDir,
+      agentDir,
+      createRuntime: async (_options, hooks) => {
+        if (hooks?.createExtensionBindings && typeof session.bindExtensions === 'function') {
+          await session.bindExtensions(hooks.createExtensionBindings(session));
+        }
+        return { session, cwd: projectDir, async dispose() {} };
+      },
+    });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.create', { cwd: projectDir });
+    return { client, session, endpoint };
+  };
+
+  afterEach(async () => {
+    await daemon?.stop();
+    daemon = undefined;
+    sessions = [];
+  });
+
+  it('mirrors pichamber.ui entries into extension.ui panels that update in place and appear in snapshots', async () => {
+    const { client, session, endpoint } = await startWithExtensibleSession();
+
+    session.emit({
+      type: 'entry_appended',
+      entry: { type: 'custom', id: 'entry-1', customType: 'pichamber.ui', data: { protocol: 'pichamber-extension-ui', version: 1, id: 'subagents', title: 'Sub-agents', component: 'progress', props: { value: 10 } }, timestamp: '2026-01-01T00:00:01.000Z' },
+    });
+    const first = await client.next((message) => message.event === 'extension.ui');
+    expect(first.payload).toMatchObject({ id: 'subagents', title: 'Sub-agents', component: 'progress' });
+
+    // Latest wins per id: an update replaces the panel instead of stacking.
+    session.emit({
+      type: 'entry_appended',
+      entry: { type: 'custom', id: 'entry-2', customType: 'pichamber.ui', data: { id: 'subagents', component: 'progress', props: { value: 90 } }, timestamp: '2026-01-01T00:00:02.000Z' },
+    });
+    await client.next((message) => message.event === 'extension.ui' && message.payload?.props?.value === 90);
+
+    // A freshly authenticating client receives the normalized panels in its
+    // authoritative snapshot.
+    const reconnect = connectClient(endpoint);
+    const snapshot = await reconnect.authenticate();
+    expect(snapshot.payload.extensionPanels).toHaveLength(1);
+    expect(snapshot.payload.extensionPanels[0]).toMatchObject({ id: 'subagents', props: { value: 90 } });
+    reconnect.close();
+  });
+
+  it('mirrors pichamber.app entries into extension.app events and unregisters on removal', async () => {
+    const { client, session } = await startWithExtensibleSession();
+
+    session.emit({
+      type: 'entry_appended',
+      entry: { type: 'custom', id: 'app-entry-1', customType: 'pichamber.app', data: { appId: 'board', title: 'Board', html: '<button data-pichamber-command="board-run">Run</button>' }, timestamp: '2026-01-01T00:00:03.000Z' },
+    });
+    const appEvent = await client.next((message) => message.event === 'extension.app');
+    expect(appEvent.payload).toMatchObject({ appId: 'board', title: 'Board' });
+    expect(appEvent.payload.html).toContain('data-pichamber-command');
+
+    session.emit({
+      type: 'entry_appended',
+      entry: { type: 'custom', id: 'app-entry-2', customType: 'pichamber.app', data: { appId: 'board', removed: true }, timestamp: '2026-01-01T00:00:04.000Z' },
+    });
+    const removal = await client.next((message) => message.event === 'extension.app' && message.payload?.removed === true);
+    expect(removal.payload.appId).toBe('board');
+  });
+
+  it('bridges ctx.ui.form to a form dialog and resolves with a values object', async () => {
+    const { client, session } = await startWithExtensibleSession();
+    const ui = session.boundBindings.uiContext;
+
+    const pending = ui.form('Spawn agent', [
+      { id: 'name', label: 'Name', type: 'text', required: true },
+      { id: 'level', label: 'Level', type: 'select', options: ['low', 'high'], initial: 'high' },
+    ]);
+
+    const dialogRequest = await client.next((message) => message.kind === 'event' && message.event === 'extension.dialog');
+    expect(dialogRequest.payload).toMatchObject({ method: 'form', title: 'Spawn agent' });
+    expect(dialogRequest.payload.fields).toHaveLength(2);
+
+    await client.request('extensions.respond', { requestId: dialogRequest.payload.requestId, values: { name: 'research', level: 'high' } });
+    expect(await pending).toEqual({ name: 'research', level: 'high' });
+  });
+
+  it('lists extensions with opaque ids and never leaks server paths', async () => {
+    const { client, session } = await startWithExtensibleSession();
+    session.extensionRunner = {
+      getExtensionPaths: () => ['/home/someone/secret/extensions/modes.ts'],
+      getRegisteredCommands: () => [{ invocationName: 'economy', description: 'Switch to economy mode' }],
+    };
+
+    const result = (await client.request('extensions.list', {})).result;
+    expect(result.extensions).toHaveLength(1);
+    expect(result.extensions[0].name).toBe('modes');
+    expect(JSON.stringify(result)).not.toContain('/home/someone');
+    expect(result.extensions[0].id).not.toContain('/');
+  });
+});
