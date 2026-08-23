@@ -5,7 +5,7 @@
 - `SessionSidebar.tsx` orchestrates sidebar components and lifecycle; core state and rendering logic lives in focused hooks and components.
 - Layout (web/desktop): the session list starts at the top of the sidebar. Chrome and session cards share a `0.75rem` (`px-3`) gutter; the session scroller is full-width so its overlay scrollbar sits on the sidebar edge. `SidebarNav` uses that same gutter so New session lines up with the icon toolbar, and only grows left to clear OS window chrome. It shares the header height and vertical centering of the content-area session title. On dedicated mobile, New session is a circular opaque FAB on the empty 28% scrim beside the 72% sessions drawer, not inside the sidebar and not as `SidebarNav`.
 - **Project zones & session lists**: Project zones display sessions in a unified recency and lifecycle order with per-row branch markers. Folders render after loose sessions.
-- When sticky zone headers are enabled, project headers are sticky "zone" bands (`SortableProjectItem`); on a vibrant desktop the scrolling content fades behind an unmasked, non-interactive copy of the stuck icon/title without painting a background. The transparent fade zone blocks interaction with obscured rows. Collapsed projects show an aggregated busy/unseen indicator (`ProjectAggregateStatusIndicator`), derived from the live status index and notification store scoped to the project's directories.
+- Folder and project identity belongs to `SidebarSpacesBar`, above the session scroller. The session list never paints a duplicate sticky folder identity. Collapsed projects show an aggregated busy/unseen indicator (`ProjectAggregateStatusIndicator`), derived from the live status index and notification store scoped to the project's directories.
 - **Activity indicator**: While a session is running (`busy`/`retry`), the row shows a spinner and elapsed turn time. When a background session finishes a turn, the relative timestamp is replaced by a foreground unread dot until that session is opened. Aggregate indicators for collapsed folders and projects show a spinner while any child is running, or the unread dot when a finished turn is still unseen.
 - Session rows have a single layout; rows show an inline branch label as normal text when the session lives in a branch or sub-directory, and bold titles while unread. The active session uses the selection fill only; the title color does not change. Session rows do not show files-changed or diff counts. Hovering a row swaps the relative timestamp (or live status) for the archive action in the same slot so the title does not shift. Session rows do not open hover or long-press tooltips; the visible title and meta are the only session summary.
 - Folders render **flat** after loose sessions: nested folders display at one level with a "Parent / Child" path label (`SessionFolderItem.displayName`); collapsing a folder hides its whole subtree.
@@ -31,7 +31,7 @@
 - `SessionNodeItem.tsx`: Renders one session row/tree node with a single-line layout, inline branch label, indicators, menu actions, and nested children. Pending-question counts stay per-session while expanded and roll up hidden descendants from their owning directory stores while collapsed. Rows do not wrap the title in a tooltip or paint an inner press fill; the row selection/hover chrome is the only highlight.
 - `collapsedActivityIndicator.tsx`: Aggregate busy/unseen dot for collapsed groups and folders.
 - `ConfirmDialogs.tsx`: Shared confirm dialog wrappers for session delete and folder delete flows.
-- `sortableItems.tsx`: DnD sortable wrapper for project ordering plus the sticky zone-band project header and its action affordances.
+- `sortableItems.tsx`: DnD sortable wrappers for project and group ordering.
 - `sessionFolderDnd.tsx`: Folder/session DnD scope and wrappers for dropping/moving sessions into folders.
 - `sessionOwnership.ts`: Resolves session directories once into shared project ownership and folder-scope indexes.
 
@@ -48,7 +48,6 @@
 - `hooks/useProjectRepoStatus.ts`: Tracks per-project git-repo state and root branch metadata.
 - `hooks/useProjectSessionLists.ts`: Reads live and archived project buckets from the shared ownership index.
 - `hooks/useAuthoritativeSessionCleanup.ts`: Establishes the first complete active+archived list as a non-destructive baseline, then cleans persisted state only for sessions omitted by a later authoritative snapshot.
-- `hooks/useStickyProjectHeaders.ts`: Tracks which project headers are sticky/stuck via `IntersectionObserver`.
 
 ### Types and utilities
 

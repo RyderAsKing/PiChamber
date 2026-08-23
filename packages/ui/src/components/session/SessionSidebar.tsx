@@ -3,7 +3,6 @@ import React from 'react';
 import type { Session } from '@/lib/chat/types';
 import { toast } from '@/components/ui';
 import { useDeviceInfo } from '@/lib/device';
-import { isDesktopShell } from '@/lib/desktop';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { formatDirectoryName, cn } from '@/lib/utils';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -35,7 +34,6 @@ import { useProjectRepoStatus } from './sidebar/hooks/useProjectRepoStatus';
 import { useProjectSessionLists } from './sidebar/hooks/useProjectSessionLists';
 import { useAuthoritativeSessionCleanup } from './sidebar/hooks/useAuthoritativeSessionCleanup';
 import { createSessionOwnershipIndex } from './sidebar/sessionOwnership';
-import { useStickyProjectHeaders } from './sidebar/hooks/useStickyProjectHeaders';
 import { ProjectEditDialog } from '@/components/layout/ProjectEditDialog';
 import { UpdateDialog } from '@/components/ui/UpdateDialog';
 import { SessionGroupSection } from './sidebar/SessionGroupSection';
@@ -335,7 +333,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   }, [safeStorage]);
 
   const [projectRootBranches, setProjectRootBranches] = React.useState<Map<string, string>>(new Map());
-  const projectHeaderSentinelRefs = React.useRef<Map<string, HTMLDivElement | null>>(new Map());
   const ignoreIntersectionUntil = React.useRef<number>(0);
 
   const homeDirectory = useDirectoryStore((state) => state.homeDirectory);
@@ -461,8 +458,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const [resolvedWorktreeTopologyKey, setResolvedWorktreeTopologyKey] = React.useState<string | null>(null);
   const isWorktreeTopologyLoading = resolvedWorktreeTopologyKey !== projectWorktreeDiscoveryKey;
   const [unresolvedWorktreeProjectPaths, setUnresolvedWorktreeProjectPaths] = React.useState<ReadonlySet<string>>(new Set());
-
-  const isDesktopShellRuntime = React.useMemo(() => isDesktopShell(), []);
 
   const { isTablet } = useDeviceInfo();
   const alwaysShowSidebarActions = mobileVariant || isTablet;
@@ -828,7 +823,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   }
 
   const showArchivedSessions = useSessionDisplayStore((state) => state.showArchivedSessions);
-  const stickyZoneHeaders = useSessionDisplayStore((state) => state.stickyZoneHeaders);
   const manualProjectOrder = useProjectsStore((state) => state.manualProjectOrder);
   const projectExpandedParentsRef = React.useRef<Set<string>>(new Set());
   const projectExpandedParents = selectExpandedParentKeysForContext(
@@ -1073,12 +1067,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     'flex size-9 shrink-0 items-center justify-center rounded-full leading-none text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed';
   const headerActionButtonClass = mobileVariant ? mobileHeaderActionButtonClass : desktopHeaderActionButtonClass;
   const headerActionIconClass = mobileVariant ? 'size-4' : 'h-4.5 w-4.5';
-  const stuckProjectHeaders = useStickyProjectHeaders({
-    enabled: isVisible && stickyZoneHeaders,
-    isDesktopShellRuntime,
-    projectSections,
-    projectHeaderSentinelRefs,
-  });
 
   const renderSessionNode = useStableRenderCallback(
     (
@@ -1427,9 +1415,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         collapsedProjects={collapsedProjects}
         hideDirectoryControls={hideDirectoryControls}
         projectRepoStatus={projectRepoStatus}
-        isDesktopShellRuntime={isDesktopShellRuntime}
-        stickyZoneHeaders={stickyZoneHeaders}
-        stuckProjectHeaders={stuckProjectHeaders}
         mobileVariant={mobileVariant}
         alwaysShowActions={alwaysShowSidebarActions}
         toggleProject={toggleProject}
@@ -1439,7 +1424,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         openNewSessionDraft={openNewSessionDraftFromTree}
         openProjectEditDialog={setEditingProjectDialogId}
         removeProject={removeProject}
-        projectHeaderSentinelRefs={projectHeaderSentinelRefs}
         reorderProjects={reorderProjects}
         getOrderedGroups={getOrderedGroups}
         setGroupOrderByProject={setGroupOrderByProject}
