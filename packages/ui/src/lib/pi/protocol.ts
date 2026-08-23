@@ -727,7 +727,8 @@ export interface PiExtensionDialogResponseInput {
 /** Extensions loaded for a directory plus the slash commands they register. */
 export interface PiExtensionListResponse {
   directory?: string;
-  extensions: Array<{ path: string; name: string }>;
+  /** Opaque ids only — server filesystem paths never cross the API. */
+  extensions: Array<{ id: string; name: string }>;
   commands: Array<{
     name: string;
     description?: string;

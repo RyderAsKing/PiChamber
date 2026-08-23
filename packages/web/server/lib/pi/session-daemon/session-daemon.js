@@ -2219,8 +2219,10 @@ export function createSessionDaemon({
             directory: activeRuntime.cwd,
             extensions: (Array.isArray(extensionPaths) ? extensionPaths : [])
               .filter((extensionPath) => typeof extensionPath === 'string' && extensionPath.length > 0)
+              // Opaque id only: server filesystem paths must never reach the
+              // browser (see DOCUMENTATION.md route invariants).
               .map((extensionPath) => ({
-                path: extensionPath,
+                id: createHash('sha256').update(extensionPath).digest('hex').slice(0, 16),
                 name: basename(extensionPath).replace(/\.(ts|js)$/, ''),
               })),
             commands: (Array.isArray(registeredCommands) ? registeredCommands : [])
