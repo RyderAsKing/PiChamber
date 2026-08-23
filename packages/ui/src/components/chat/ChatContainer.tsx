@@ -8,6 +8,9 @@ import type { QuestionRequest } from '@/types/question';
 import { ChatInput } from './ChatInput';
 import { ExtensionDialogOverlay } from './ExtensionDialogOverlay';
 import { ExtensionStatusStrip, ExtensionNoticeToasts, ExtensionWidgetStrip } from './ExtensionStatusWidgets';
+import { ExtensionPanelDock } from './extension/ExtensionPanelDock';
+import { ExtensionAppSurfaces } from './extension/ExtensionAppSurfaces';
+import { ComposerCommandTriggers } from './composer/ui/ComposerCommandTriggers';
 import { DraftPresetChips } from './DraftPresetChips';
 import { useInputStore } from '@/sync/input-store';
 import { useUIStore } from '@/stores/useUIStore';
@@ -1159,6 +1162,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                         onClick={navigation.resumeToLatest}
                     />
                 )}
+                <ComposerCommandTriggers sessionId={currentSessionId} />
+                <ExtensionAppSurfaces sessionId={currentSessionId} />
+                <ExtensionPanelDock sessionId={currentSessionId} />
                 <ExtensionWidgetStrip sessionId={currentSessionId} placement="aboveEditor" />
                 {promptReadOnly ? <ReadOnlyPromptBanner /> : <ChatInput scrollToBottom={scrollToBottomOnSend} />}
                 <ExtensionWidgetStrip sessionId={currentSessionId} placement="belowEditor" />

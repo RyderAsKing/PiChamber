@@ -1,4 +1,5 @@
 import type { ProjectEntry, RuntimeAPIs, TerminalShell } from '@/lib/api/types';
+import type { CommandTrigger } from '@/lib/pi/command-triggers';
 import { getInjectedBootOutcome } from '@/lib/desktopBoot';
 import type { DraftStarterRef } from '@/lib/draftStarters';
 import type { MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
@@ -161,6 +162,7 @@ export type DesktopSettings = {
   cornerRadius?: number;
   inputBarOffset?: number;
   shortcutOverrides?: Record<string, string>;
+  commandTriggers?: CommandTrigger[];
 
   favoriteModels?: Array<{ providerID: string; modelID: string }>;
   hiddenModels?: Array<{ providerID: string; modelID: string }>;

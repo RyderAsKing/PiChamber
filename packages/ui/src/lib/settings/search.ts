@@ -586,6 +586,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['keyboard', 'hotkeys', 'bindings'],
   },
   {
+    id: 'shortcuts.command-triggers',
+    page: 'shortcuts',
+    title: "Command triggers",
+    description: "Quick-action buttons above the composer and optional keybindings that run slash commands.",
+    keywords: ['quick actions', 'slash commands', 'toolbar buttons', 'triggers'],
+  },
+  {
     id: 'tunnel.provider',
     page: 'tunnel',
     title: "Provider",

@@ -17,6 +17,7 @@ import { loadAppearancePreferences, applyAppearancePreferences } from '@/lib/app
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { sanitizeStarterRefs } from '@/lib/draftStarters';
 import { normalizeMobileKeyboardMode, setStoredMobileKeyboardMode } from '@/lib/mobileKeyboardMode';
+import { sanitizeCommandTriggers } from '@/lib/pi/command-triggers';
 import { PWA_NAME_STORAGE_KEY, normalizePwaName } from '@/lib/pwaKeys';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isTerminalShell } from '@/lib/terminalShell';
@@ -287,6 +288,22 @@ const areStringRecordsEqual = (left: Record<string, string>, right: Record<strin
   if (leftEntries.length !== rightEntries.length) return false;
   return leftEntries.every(([key, value]) => right[key] === value);
 };
+
+const areCommandTriggerListsEqual = (
+  left: NonNullable<DesktopSettings['commandTriggers']>,
+  right: NonNullable<DesktopSettings['commandTriggers']>,
+): boolean => (
+  left.length === right.length
+  && left.every((trigger, index) => {
+    const other = right[index];
+    return Boolean(other)
+      && trigger.id === other?.id
+      && trigger.label === other.label
+      && trigger.command === other.command
+      && trigger.args === other.args
+      && trigger.combo === other.combo;
+  })
+);
 
 const areModelRefsEqual = (
   left: Array<{ providerID: string; modelID: string }>,
@@ -813,6 +830,9 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
   if (settings.shortcutOverrides && !areStringRecordsEqual(settings.shortcutOverrides, store.shortcutOverrides)) {
     useUIStore.setState({ shortcutOverrides: settings.shortcutOverrides });
   }
+  if (settings.commandTriggers && !areCommandTriggerListsEqual(settings.commandTriggers, store.commandTriggers)) {
+    useUIStore.setState({ commandTriggers: settings.commandTriggers });
+  }
   if (typeof settings.mobileKeyboardMode === 'string') {
     const mode = normalizeMobileKeyboardMode(settings.mobileKeyboardMode, store.mobileKeyboardMode);
     if (mode !== store.mobileKeyboardMode) {
@@ -1334,6 +1354,10 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
   const shortcutOverrides = sanitizeShortcutOverrides(candidate.shortcutOverrides);
   if (shortcutOverrides) {
     result.shortcutOverrides = shortcutOverrides;
+  }
+  const commandTriggers = sanitizeCommandTriggers(candidate.commandTriggers);
+  if (commandTriggers) {
+    result.commandTriggers = commandTriggers;
   }
   if (typeof candidate.mobileKeyboardMode === 'string') {
     if (candidate.mobileKeyboardMode === 'native' || candidate.mobileKeyboardMode === 'resize-content') {
