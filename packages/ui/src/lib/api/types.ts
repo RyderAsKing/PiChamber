@@ -239,6 +239,18 @@ export interface GitMergeResult {
   conflictFiles?: string[];
 }
 
+export interface CheckoutBranchOptions {
+  expectedCurrent?: string | null;
+  localOnly?: boolean;
+}
+
+export interface CheckoutBranchResponse {
+  success: boolean;
+  branch: string;
+  previousBranch: string | null;
+  currentBranch: string | null;
+}
+
 export interface CheckoutCommitResponse {
   success: boolean;
 }
@@ -414,7 +426,7 @@ export interface GitAPI {
   applyGitStash(directory: string, options: { ref: string }): Promise<{ success: boolean; ref: string }>;
   popGitStash(directory: string, options: { ref: string }): Promise<{ success: boolean; ref: string }>;
   dropGitStash(directory: string, options: { ref: string }): Promise<{ success: boolean; ref: string }>;
-  checkoutBranch(directory: string, branch: string): Promise<{ success: boolean; branch: string }>;
+  checkoutBranch(directory: string, branch: string, options?: CheckoutBranchOptions): Promise<CheckoutBranchResponse>;
   createBranch(directory: string, name: string, startPoint?: string): Promise<{ success: boolean; branch: string }>;
   renameBranch(directory: string, oldName: string, newName: string): Promise<{ success: boolean; branch: string }>;
   getGitLog(directory: string, options?: GitLogOptions): Promise<GitLogResponse>;

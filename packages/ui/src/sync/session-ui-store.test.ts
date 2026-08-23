@@ -1,9 +1,15 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import { getPiSessionStore } from '@/apps/pi-session-store';
-import { routeMessage, useSessionUIStore } from './session-ui-store';
+import {
+  draftBranchCheckoutReceiptMatches,
+  materializeOpenDraftSession,
+  routeMessage,
+  useSessionUIStore,
+} from './session-ui-store';
 import { clearAllRevertNavigations, setRevertNavigation } from './revert-navigation-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { getRuntimeKey } from '@/lib/runtime-switch';
 
 const store = getPiSessionStore();
 const originals = {
@@ -120,6 +126,16 @@ describe('routeMessage', () => {
     await expect(useSessionUIStore.getState().handleSlashRedo('session-1')).rejects.toThrow(failure.message);
   });
 
+  test('matches branch checkout receipts only to the exact runtime, directory, and branch', () => {
+    const intent = { runtimeKey: 'runtime-a', directory: '/workspace/project', branch: 'feature/a' };
+
+    expect(draftBranchCheckoutReceiptMatches(intent, { ...intent })).toBe(true);
+    expect(draftBranchCheckoutReceiptMatches(intent, { ...intent, runtimeKey: 'runtime-b' })).toBe(false);
+    expect(draftBranchCheckoutReceiptMatches(intent, { ...intent, directory: '/workspace/other' })).toBe(false);
+    expect(draftBranchCheckoutReceiptMatches(intent, { ...intent, branch: 'main' })).toBe(false);
+    expect(draftBranchCheckoutReceiptMatches(intent, null)).toBe(false);
+  });
+
   test('setNewSessionDraftTarget preserves draft open state and updates target project/directory', () => {
     useProjectsStore.setState({
       projects: [
@@ -150,5 +166,50 @@ describe('routeMessage', () => {
     expect(stateAfterTargetChange.newSessionDraft.selectedProjectId).toBe('proj-2');
     expect(stateAfterTargetChange.newSessionDraft.directoryOverride).toBe('/workspace/proj-2');
     expect(stateAfterTargetChange.currentSessionId).toBe(null);
+  });
+
+  test('refuses to materialize a draft with an unconfirmed branch intent', async () => {
+    const { openNewSessionDraft } = useSessionUIStore.getState();
+    openNewSessionDraft({
+      selectedProjectId: 'proj-1',
+      directoryOverride: '/workspace/proj-1',
+      branchIntent: {
+        runtimeKey: getRuntimeKey(),
+        directory: '/workspace/proj-1',
+        branch: 'feature/a',
+      },
+    });
+
+    await expect(materializeOpenDraftSession({
+      providerID: 'provider',
+      modelID: 'model',
+    })).rejects.toThrow('Confirm the selected branch');
+  });
+
+  test('stores a branch intent and clears it when the draft directory changes', () => {
+    const { openNewSessionDraft, setNewSessionDraftTarget } = useSessionUIStore.getState();
+    openNewSessionDraft({
+      selectedProjectId: 'proj-1',
+      directoryOverride: '/workspace/proj-1',
+    });
+
+    setNewSessionDraftTarget({
+      branchIntent: {
+        runtimeKey: getRuntimeKey(),
+        directory: '/workspace/proj-1',
+        branch: 'feature/a',
+      },
+    });
+    const draftWithBranch = useSessionUIStore.getState().newSessionDraft;
+    expect(draftWithBranch.open).toBe(true);
+    expect(draftWithBranch.branchIntent).toEqual({
+      runtimeKey: getRuntimeKey(),
+      directory: '/workspace/proj-1',
+      branch: 'feature/a',
+    });
+
+    setNewSessionDraftTarget({ directoryOverride: '/workspace/proj-2' });
+    expect(useSessionUIStore.getState().newSessionDraft.open).toBe(true);
+    expect(useSessionUIStore.getState().newSessionDraft.branchIntent).toBeNull();
   });
 });

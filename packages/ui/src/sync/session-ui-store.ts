@@ -155,11 +155,18 @@ type CapturedSendTarget = {
   directory: string
 }
 
+export type DraftBranchCheckoutReceipt = {
+  runtimeKey: string
+  directory: string
+  branch: string
+}
+
 type SendMessageOptions = {
   target?: CapturedSendTarget
   sessionId?: string
   directory?: string
   delivery?: 'steer'
+  branchCheckoutReceipt?: DraftBranchCheckoutReceipt
 }
 
 type AssistantMessageSessionExecution = {
@@ -172,10 +179,17 @@ type AssistantMessageSessionExecution = {
 
 // ---------------------------------------------------------------------------
 
+export type DraftBranchIntent = {
+  runtimeKey: string
+  directory: string
+  branch: string
+}
+
 type NewSessionDraftState = {
   open: boolean
   selectedProjectId?: string | null
   directoryOverride: string | null
+  branchIntent?: DraftBranchIntent | null
   permissionAutoAcceptEnabled?: boolean
   preserveDirectoryOverride?: boolean
   parentID: string | null
@@ -222,7 +236,7 @@ type SessionUIState = {
   restoreForRuntimeSwitch: (apiBaseUrl?: string | null) => void
   openNewSessionDraft: (options?: Partial<NewSessionDraftState> & { automatic?: boolean }) => void
   closeNewSessionDraft: () => void
-  setNewSessionDraftTarget: (target: { projectId?: string | null; selectedProjectId?: string | null; directoryOverride?: string | null }, options?: { force?: boolean }) => void
+  setNewSessionDraftTarget: (target: { projectId?: string | null; selectedProjectId?: string | null; directoryOverride?: string | null; branchIntent?: DraftBranchIntent | null }) => void
   setDraftPreserveDirectoryOverride: (value: boolean) => void
   setDraftPermissionAutoAcceptEnabled: (enabled: boolean) => void
   acknowledgeSessionAbort: (sessionId: string) => void
@@ -368,7 +382,18 @@ const activateConfigForDirectory = async (directory: string | null | undefined):
 const DEFAULT_DRAFT: NewSessionDraftState = {
   open: false,
   directoryOverride: null,
+  branchIntent: null,
   parentID: null,
+}
+
+export const draftBranchCheckoutReceiptMatches = (
+  intent: DraftBranchIntent | null | undefined,
+  receipt: DraftBranchCheckoutReceipt | null | undefined,
+): boolean => {
+  if (!intent || !receipt) return false
+  return intent.runtimeKey === receipt.runtimeKey
+    && normalizePath(intent.directory) === normalizePath(receipt.directory)
+    && intent.branch === receipt.branch
 }
 
 const activeSessionByRuntime = new Map<string, string | null>()
@@ -424,10 +449,21 @@ export async function materializeOpenDraftSession(selection: {
   agent?: string
   variant?: string
   initialPrompt?: string
+  branchCheckoutReceipt?: DraftBranchCheckoutReceipt
 }): Promise<MaterializedDraftSession | null> {
   const store = useSessionUIStore.getState()
   const draft = store.newSessionDraft
   if (!draft?.open) return null
+  if (draft.branchIntent) {
+    const branchDirectory = normalizePath(draft.branchIntent.directory)
+    const draftDirectory = normalizePath(draft.directoryOverride)
+    if (draft.branchIntent.runtimeKey !== getRuntimeKey() || branchDirectory !== draftDirectory) {
+      throw new Error("The selected branch no longer matches this draft target.")
+    }
+    if (!draftBranchCheckoutReceiptMatches(draft.branchIntent, selection.branchCheckoutReceipt)) {
+      throw new Error("Confirm the selected branch before creating this session.")
+    }
+  }
   const draftPermissionAutoAcceptEnabled = draft.permissionAutoAcceptEnabled === true
 
   const trimmedAgent = typeof selection.agent === "string" && selection.agent.trim().length > 0
@@ -701,6 +737,11 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       open: true,
       selectedProjectId: selectedProject?.id ?? null,
       directoryOverride: directory,
+      branchIntent: options?.branchIntent
+        && options.branchIntent.runtimeKey === getRuntimeKey()
+        && normalizePath(options.branchIntent.directory) === directory
+          ? options.branchIntent
+          : null,
       permissionAutoAcceptEnabled: options?.permissionAutoAcceptEnabled === true,
       preserveDirectoryOverride: options?.preserveDirectoryOverride === true,
       parentID: options?.parentID ?? null,
@@ -756,6 +797,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       !currentDraft.open
       && currentDraft.selectedProjectId == null
       && currentDraft.directoryOverride == null
+      && currentDraft.branchIntent == null
       && !currentDraft.preserveDirectoryOverride
       && currentDraft.parentID == null
       && currentDraft.title === undefined
@@ -770,6 +812,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         open: false,
         selectedProjectId: null,
         directoryOverride: null,
+        branchIntent: null,
         preserveDirectoryOverride: false,
         parentID: null,
         title: undefined,
@@ -789,11 +832,26 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     set((s) => {
       nextDirectory = normalizePath(target.directoryOverride ?? s.newSessionDraft.directoryOverride)
       nextProjectId = target.projectId ?? target.selectedProjectId ?? s.newSessionDraft.selectedProjectId ?? null
+      const hasBranchIntent = Object.prototype.hasOwnProperty.call(target, "branchIntent")
+      const currentDirectory = normalizePath(s.newSessionDraft.directoryOverride)
+      const directoryChanged = nextDirectory !== currentDirectory
+      const projectChanged = nextProjectId !== (s.newSessionDraft.selectedProjectId ?? null)
+      const requestedBranchIntent = target.branchIntent
+      const validRequestedBranchIntent = requestedBranchIntent
+        && requestedBranchIntent.runtimeKey === getRuntimeKey()
+        && normalizePath(requestedBranchIntent.directory) === nextDirectory
+          ? requestedBranchIntent
+          : null
       return {
         newSessionDraft: {
           ...s.newSessionDraft,
           selectedProjectId: nextProjectId,
           directoryOverride: target.directoryOverride ?? s.newSessionDraft.directoryOverride,
+          branchIntent: hasBranchIntent
+            ? validRequestedBranchIntent
+            : directoryChanged || projectChanged
+              ? null
+              : s.newSessionDraft.branchIntent,
         },
       }
     })
@@ -899,6 +957,13 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       nextDirectory = normalizePath(
         typeof nextDraft.directoryOverride === "string" ? nextDraft.directoryOverride : null,
       )
+      const currentDirectory = normalizePath(s.newSessionDraft.directoryOverride)
+      if (
+        nextDirectory !== currentDirectory
+        && !Object.prototype.hasOwnProperty.call(options, "branchIntent")
+      ) {
+        nextDraft.branchIntent = null
+      }
       return { newSessionDraft: nextDraft }
     })
     void activateConfigForDirectory(nextDirectory)
@@ -960,6 +1025,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         agent: trimmedAgent,
         variant,
         initialPrompt: content,
+        branchCheckoutReceipt: options?.branchCheckoutReceipt,
       })
       if (!createdDraftSession) throw new Error("Failed to create session")
 

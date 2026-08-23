@@ -9,6 +9,7 @@ import {
   applyDirectoryListToCatalog,
   applyLifecycleChange,
   initialCatalog,
+  listLiveSessionRecordsFromCatalog,
   listUiSessionsFromCatalog,
   liveSessionRecordToUiSession,
   mapDirectoriesWithRefreshSlot,
@@ -267,6 +268,21 @@ describe('pi-session-catalog helpers', () => {
     expect(flipped.byId.get('s')?.lifecycle).toBe('busy');
     // Other entries keep their reference.
     expect(flipped.byId.get('s')).not.toBe(seeded.byId.get('s'));
+  });
+
+  test('lists only catalog sessions with a live lifecycle', () => {
+    let catalog = applyDirectoryListToCatalog(initialCatalog(), '/repo-a', [
+      listItem('idle', '/repo-a'),
+      listItem('busy', '/repo-a'),
+      listItem('retry', '/repo-a'),
+    ], 100);
+    catalog = applyLifecycleChange(catalog, 'busy', 'busy');
+    catalog = applyLifecycleChange(catalog, 'retry', 'retry');
+
+    expect(listLiveSessionRecordsFromCatalog(catalog).map((record) => record.id)).toEqual([
+      'busy',
+      'retry',
+    ]);
   });
 
   test('retains retry metadata until the lifecycle leaves retry', () => {

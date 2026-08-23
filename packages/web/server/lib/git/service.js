@@ -3522,16 +3522,97 @@ export async function createBranch(directory, branchName, options = {}) {
   }
 }
 
-export async function checkoutBranch(directory, branchName) {
-  const { git } = await createRepositoryGitContext(directory);
+const branchCheckoutLocks = new Map();
 
+const readCurrentLocalBranch = async (git) => {
+  const output = await git.raw(['symbolic-ref', '--quiet', '--short', 'HEAD']).catch(() => '');
+  return output.trim() || null;
+};
+
+const withBranchCheckoutLock = async (directory, operation) => {
+  const normalized = normalizeDirectoryPath(directory);
+  const key = await canonicalPath(normalized).catch(() => normalized);
+  const previous = branchCheckoutLocks.get(key) ?? Promise.resolve();
+  let release;
+  const current = new Promise((resolve) => { release = resolve; });
+  branchCheckoutLocks.set(key, current);
+
+  await previous.catch(() => undefined);
   try {
-    await git.checkout(branchName);
-    return { success: true, branch: branchName };
-  } catch (error) {
-    console.error('Failed to checkout branch:', error);
-    throw error;
+    return await operation();
+  } finally {
+    release();
+    if (branchCheckoutLocks.get(key) === current) {
+      branchCheckoutLocks.delete(key);
+    }
   }
+};
+
+const checkoutBranchError = (message, code, statusCode, currentBranch) => Object.assign(
+  new Error(message),
+  { code, statusCode, currentBranch },
+);
+
+export async function checkoutBranch(directory, branchName, options = {}) {
+  const repositoryContext = await createRepositoryGitContext(directory);
+  return withBranchCheckoutLock(repositoryContext.repoRoot, async () => {
+    const { git } = repositoryContext;
+    const previousBranch = await readCurrentLocalBranch(git);
+    const hasExpectedCurrent = Object.prototype.hasOwnProperty.call(options, 'expectedCurrent');
+
+    if (hasExpectedCurrent && previousBranch !== (options.expectedCurrent ?? null)) {
+      throw checkoutBranchError(
+        `The current branch changed from ${options.expectedCurrent ?? 'detached HEAD'} to ${previousBranch ?? 'detached HEAD'}.`,
+        'BRANCH_CHANGED',
+        409,
+        previousBranch,
+      );
+    }
+
+    if (options.localOnly === true) {
+      const localRef = `refs/heads/${branchName}`;
+      const matchingRef = await git.raw(['for-each-ref', '--format=%(refname)', localRef]).catch(() => '');
+      const exists = matchingRef.trim().split('\n').includes(localRef);
+      if (!exists) {
+        throw checkoutBranchError(
+          `Local branch ${branchName} no longer exists.`,
+          'BRANCH_NOT_FOUND',
+          409,
+          previousBranch,
+        );
+      }
+    }
+
+    try {
+      await git.checkout(branchName);
+    } catch (error) {
+      const currentBranch = await readCurrentLocalBranch(git).catch(() => null);
+      console.error('Failed to checkout branch:', error);
+      if (error && typeof error === 'object') {
+        error.currentBranch = currentBranch;
+        error.code = error.code || 'CHECKOUT_FAILED';
+        error.statusCode = error.statusCode || 409;
+      }
+      throw error;
+    }
+
+    const currentBranch = await readCurrentLocalBranch(git);
+    if (options.localOnly === true && currentBranch !== branchName) {
+      throw checkoutBranchError(
+        `Git did not finish checking out ${branchName}.`,
+        'CHECKOUT_NOT_CONFIRMED',
+        409,
+        currentBranch,
+      );
+    }
+
+    return {
+      success: true,
+      branch: branchName,
+      previousBranch,
+      currentBranch,
+    };
+  });
 }
 
 export async function checkoutCommit(directory, hash) {

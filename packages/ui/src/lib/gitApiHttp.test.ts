@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  checkoutBranch,
   getGitBranches,
   getGitStatus,
   gitFetch,
@@ -113,6 +114,50 @@ describe('gitApiHttp index mutations', () => {
       expect(unstageError).toBeInstanceOf(Error);
       expect((unstageError as Error).message).toBe('path is required to unstage git changes');
       expect(calls).toHaveLength(0);
+    } finally {
+      restoreMocks();
+    }
+  });
+});
+
+describe('gitApiHttp branch checkout', () => {
+  test('sends the expected-current and local-only preconditions', async () => {
+    installWindowMock();
+    const calls = installFetchMock();
+    try {
+      await checkoutBranch('/repo', 'feature/a', { expectedCurrent: 'main', localOnly: true });
+
+      expect(calls).toHaveLength(1);
+      expect(String(calls[0].input)).toBe('/api/git/checkout?directory=%2Frepo');
+      expect(JSON.parse(String(calls[0].init?.body))).toEqual({
+        branch: 'feature/a',
+        expectedCurrent: 'main',
+        localOnly: true,
+      });
+    } finally {
+      restoreMocks();
+    }
+  });
+
+  test('preserves structured branch conflict details on errors', async () => {
+    installWindowMock();
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      error: 'The current branch changed.',
+      code: 'BRANCH_CHANGED',
+      currentBranch: 'release',
+    }), {
+      status: 409,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch;
+
+    try {
+      const error = await captureError(async () => {
+        await checkoutBranch('/repo', 'feature/a', { expectedCurrent: 'main', localOnly: true });
+      }) as Error & { code?: string; currentBranch?: string | null };
+
+      expect(error.message).toBe('The current branch changed.');
+      expect(error.code).toBe('BRANCH_CHANGED');
+      expect(error.currentBranch).toBe('release');
     } finally {
       restoreMocks();
     }

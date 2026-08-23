@@ -3,7 +3,7 @@ import { getPiSessionStore } from '@/apps/pi-session-store';
 import { piListItemToUiSession } from '@/lib/chat/pi-to-renderable';
 import type { Config, Message, Session } from '@/lib/chat/types';
 import type { PiSessionListItem } from '@/lib/pi/protocol';
-import { listUiSessionsFromCatalog } from './pi-session-catalog';
+import { listLiveSessionRecordsFromCatalog, listUiSessionsFromCatalog } from './pi-session-catalog';
 
 export function setSyncRefs() {}
 export function getDirectoryState(...args: unknown[]) {
@@ -51,6 +51,13 @@ export function getSyncSessionDirectory(sessionId: string): string | null {
   return state.catalog.byId.get(sessionId)?.directory
     ?? state.sessions.find((item) => item.session.id === sessionId)?.session.directory
     ?? state.directory;
+}
+export function getActiveSyncSessions(): Array<{ id: string; title: string | null; directory: string }> {
+  return listLiveSessionRecordsFromCatalog(getPiSessionStore().getState().catalog).map((record) => ({
+    id: record.id,
+    title: record.title.trim() || null,
+    directory: record.directory,
+  }));
 }
 export function getSyncMessages(sessionId: string, _directory?: string): Message[] {
   void sessionId;
