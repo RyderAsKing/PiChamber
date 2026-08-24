@@ -48,17 +48,17 @@ export const ExtensionStatusStrip: React.FC<{ sessionId?: string | null }> = ({ 
 
   return (
     <div className="chat-input-column">
-      <div className="flex flex-wrap items-center gap-2 rounded-full border border-border/40 bg-card px-3 py-1.5 shadow-sm transition-[opacity,transform] duration-150">
+      <div className="flex min-w-0 items-center gap-2 overflow-hidden rounded-full border border-border/40 bg-card px-3 py-1.5 shadow-sm transition-[opacity,transform] duration-150">
         <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-interactive-hover text-muted-foreground">
           <Icon name="plug-2" className="size-3" />
         </span>
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden overscroll-x-contain scrollbar-hidden touch-pan-x" data-no-drawer-swipe="true">
           {statuses.map(([key, text]) => {
             const color = extractAnsiTruecolor(text);
             return (
               <span
                 key={key}
-                className="inline-flex max-w-full items-center rounded-full border px-2 py-0.5 typography-micro font-medium"
+                className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-0.5 typography-micro font-medium"
                 style={
                   color
                     ? {
@@ -69,9 +69,7 @@ export const ExtensionStatusStrip: React.FC<{ sessionId?: string | null }> = ({ 
                     : undefined
                 }
               >
-                <span
-                  className={cn("truncate", !color && "text-muted-foreground")}
-                >
+                <span className={cn(!color && "text-muted-foreground")}>
                   {renderStatusText(text)}
                 </span>
               </span>
