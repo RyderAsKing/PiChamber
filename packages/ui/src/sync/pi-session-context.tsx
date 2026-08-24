@@ -7,6 +7,9 @@ import { parseRoute } from '@/lib/router';
 import { isNewSessionDraftActive } from '@/lib/router/session-intent';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { createSnapshotSelectorCache } from './select-snapshot';
+import { readLastActiveSession } from '@/sync/last-session-cache';
+import { getRuntimeKey } from '@/lib/runtime-switch';
+import { isCapacitorMobileApp } from '@/apps/mobileNativeChrome';
 
 const PiSessionContext = React.createContext<PiSessionStore | null>(null);
 
@@ -39,6 +42,21 @@ export const PiSessionProvider = ({ children, directory }: { children: ReactNode
       return;
     }
     if (!targetDirectory) {
+      // Even with no project, a persisted last session on this runtime
+      // (e.g. a global ~ session) should be re-opened on reload instead
+      // of showing the empty project picker. Native mobile has its own
+      // restore flow with snapshot validation, so skip the shortcut there.
+      if (!draftIsActive && !isCapacitorMobileApp()) {
+        const persisted = readLastActiveSession(getRuntimeKey());
+        if (persisted?.sessionId) {
+          void store.start({
+            ...(persisted.directory ? { directory: persisted.directory } : {}),
+            sessionId: persisted.sessionId,
+            ...(persisted.directory ? { sessionDirectoryKnown: true } : {}),
+          });
+          return;
+        }
+      }
       void store.connectWithoutProject();
       return;
     }
@@ -47,9 +65,32 @@ export const PiSessionProvider = ({ children, directory }: { children: ReactNode
     // that directory. The hint is internal — explicit route / caller
     // hints still win.
     const remembered = draftIsActive ? null : store.lastSelectedSessionForDirectory(targetDirectory);
+    if (remembered) {
+      void store.start({
+        directory: targetDirectory,
+        sessionId: remembered,
+        sessionDirectoryKnown: true,
+      });
+      return;
+    }
+    // Full reload: in-memory LRU is empty but the last active session
+    // is persisted per runtime (see last-session-cache). Using it here
+    // keeps Ctrl+R on the same chat instead of showing the project's
+    // first session. Native mobile's restore does its own snapshot
+    // validation, so keep this path for web/desktop only.
+    if (!draftIsActive && !isCapacitorMobileApp()) {
+      const persisted = readLastActiveSession(getRuntimeKey());
+      if (persisted?.sessionId) {
+        void store.start({
+          directory: persisted.directory ?? targetDirectory,
+          sessionId: persisted.sessionId,
+          ...(persisted.directory ? { sessionDirectoryKnown: true } : {}),
+        });
+        return;
+      }
+    }
     void store.start({
       directory: targetDirectory,
-      ...(remembered ? { sessionId: remembered, sessionDirectoryKnown: true } : {}),
     });
   }, [store, targetDirectory]);
   return <PiSessionContext.Provider value={store}>{children}</PiSessionContext.Provider>;

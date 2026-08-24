@@ -109,6 +109,7 @@ catalog.listStatusByDirectory:   Map<directory, 'idle'|'loading'|'ready'|'failed
 - A failed `listSessions` for `D` keeps the prior rows for `D` and flips `listStatusByDirectory[D]` to `'failed'`. Failure is not empty success.
 - Pi events update rows in place: `session.lifecycle` flips `lifecycle`. `session.updated` writes `title` without bumping last-prompt recency. A user-message start from another device stamps recency and fills an empty stub title from the prompt text so a remote first send is not stuck as "Untitled Session". Token deltas and lifecycle/snapshot boundaries do **not** bump `updatedAt`. Last-prompt recency is written by `PiSessionStore.prompt()` on this client and by remote user-message starts via `touchRecordUpdatedAt`.
 - An event arriving for a session that has not been listed yet (`byId` has no row) inserts a `upsertStubRecord` so the sidebar can render the session as busy. `applyDirectoryListToCatalog` preserves a non-idle existing lifecycle on listed ids, so a stub is never downgraded to idle by a slow list.
+- A global/home session (directory `~` or the expanded home directory, created via the "Don't work in a repository" composer target) is treated as global: `listUiSessionsFromCatalog(directory)` merges those ids into every directory's view, and `createSessionOwnershipIndex` attaches them to every project's bucket so they appear in all folders. The `PiSessionCatalogFeeder` includes the home directory in its refresh set so globals are re-fetched after a reload. The composer target for this is defined in `useDraftTarget` (`__home__` / "Don't work in a repository") and `session-ui-store` persists it as `selectedProjectId: "__home__"`.
 
 ### Single fill path
 
@@ -136,6 +137,8 @@ Per-directory failures stay scoped to that directory. The catalog's `listStatusB
 ### Runtime switch
 
 `dispose` / `clear` / `resetForRuntime` reset the catalog via `initial()`. The `hydratedSessionIds` set, `lastAccessById`, and the per-directory refresh generations all clear in lockstep.
+
+Ctrl+R reload keeps the active runtime and its last session: the active endpoint (`apiBaseUrl` + `runtimeKey`) is persisted to `pichamber:lastRuntimeEndpoint.v1` and re-hydrated before `getRuntimeKey`/`getRuntimeApiBaseUrl` are used, so a reload does not snap back to `local`. The last active session per runtime is persisted via `last-session-cache` (`oc.lastSession.v1`) on every `setCurrentSession`; `PiSessionProvider` falls back to that persisted session (web/desktop, non-Capacitor) when the in-memory `lastSelectedSessionForDirectory` hint is empty after a reload, and `PiSessionCatalogFeeder` ensures the home directory is part of the catalog refresh so a global `~` session is discoverable.
 
 ## Session list rules
 

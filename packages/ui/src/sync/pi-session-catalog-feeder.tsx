@@ -26,11 +26,35 @@ import { getPiSessionStore } from '@/apps/pi-session-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { buildKnownSessionDirectories } from '@/sync/known-session-directories';
 import { buildAvailableWorktreesByProject, useWorktreeStore } from '@/stores/useWorktreeStore';
+import { useDirectoryStore } from '@/stores/useDirectoryStore';
+import { normalizePath } from '@/lib/pathNormalization';
+import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
 
 const collectProjectDirectories = (): string[] => {
   const projects = useProjectsStore.getState().projects;
   const worktrees = buildAvailableWorktreesByProject(projects, useWorktreeStore.getState());
-  return [...buildKnownSessionDirectories(projects, worktrees, { includeWorktrees: true })];
+  const base = [...buildKnownSessionDirectories(projects, worktrees, { includeWorktrees: true })];
+  // Global sessions (cwd ~, i.e. the user's home directory) must be
+  // discoverable after a reload even though home is not a project root.
+  // Fetching the home directory once keeps the catalog's global bucket warm.
+  try {
+    const homeCandidates: Array<string | null | undefined> = [
+      useDirectoryStore.getState().homeDirectory,
+      getDeferredSafeStorage().getItem('homeDirectory'),
+      typeof window !== 'undefined' ? (window as unknown as { __PICHAMBER_HOME__?: string }).__PICHAMBER_HOME__ : null,
+    ];
+    const seen = new Set(base.map((entry) => normalizePath(entry)?.toLowerCase() ?? entry));
+    for (const candidate of homeCandidates) {
+      if (!candidate) continue;
+      const normalized = normalizePath(candidate);
+      if (!normalized) continue;
+      const key = normalized.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      base.push(normalized);
+    }
+  } catch { /* best-effort */ }
+  return base;
 };
 
 const sortedSignature = (directories: readonly string[]): string => {

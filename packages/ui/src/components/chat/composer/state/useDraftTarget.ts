@@ -8,8 +8,20 @@ import { formatDirectoryName } from '@/lib/utils';
 import { useGitBranches, useGitStore, useIsGitRepo } from '@/stores/useGitStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { buildAvailableWorktreesByProject, useWorktreeStore } from '@/stores/useWorktreeStore';
+import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { normalizePath } from '../attachments/filePaths';
+
+const GLOBAL_PROJECT_ID = '__home__';
+const GLOBAL_PROJECT_LABEL = "Don't work in a repository";
+
+const getGlobalProjectPath = (homeDirectory: string | null | undefined): string | null => {
+  const normalized = normalizePath(homeDirectory ?? null);
+  if (normalized) return normalized;
+  // Fallback sentinel that DirectoryStore expands to the real home.
+  return '~';
+};
+
 import { buildLocalDraftBranchOptions, shouldRefreshDraftBranchesOnDraftEntry } from './draftTargetBranches';
 
 export interface DraftTargetProject {
@@ -37,26 +49,42 @@ export function useDraftTarget(enabled: boolean) {
         () => buildAvailableWorktreesByProject(registeredProjects, { projects: worktreeProjects }),
         [registeredProjects, worktreeProjects],
     );
-    const projects = React.useMemo<DraftTargetProject[]>(() => registeredProjects.flatMap((project) => {
-        const root: DraftTargetProject = {
-            ...project,
-            id: project.id,
-            ownerProjectId: project.id,
-            kind: 'project',
-        };
-        const worktrees = availableWorktreesByProject.get(normalizePath(project.path) ?? project.path) ?? [];
-        return [
-            root,
-            ...worktrees.map((worktree): DraftTargetProject => ({
-                id: `worktree:${project.id}:${worktree.path}`,
+    const homeDirectory = useDirectoryStore((state) => state.homeDirectory);
+    const projects = React.useMemo<DraftTargetProject[]>(() => {
+        const base = registeredProjects.flatMap((project) => {
+            const root: DraftTargetProject = {
+                ...project,
+                id: project.id,
                 ownerProjectId: project.id,
-                kind: 'worktree',
-                path: worktree.path,
-                branch: worktree.branch,
-                label: worktree.branch || (worktree.detached ? 'Detached HEAD' : worktree.name),
-            })),
-        ];
-    }), [availableWorktreesByProject, registeredProjects]);
+                kind: 'project',
+            };
+            const worktrees = availableWorktreesByProject.get(normalizePath(project.path) ?? project.path) ?? [];
+            return [
+                root,
+                ...worktrees.map((worktree): DraftTargetProject => ({
+                    id: `worktree:${project.id}:${worktree.path}`,
+                    ownerProjectId: project.id,
+                    kind: 'worktree',
+                    path: worktree.path,
+                    branch: worktree.branch,
+                    label: worktree.branch || (worktree.detached ? 'Detached HEAD' : worktree.name),
+                })),
+            ];
+        });
+        const globalPath = getGlobalProjectPath(homeDirectory);
+        if (!globalPath) return base;
+        // Avoid duplicating if a project already points at the home directory.
+        const already = base.some((entry) => normalizePath(entry.path) === normalizePath(globalPath));
+        if (already) return base;
+        const globalEntry: DraftTargetProject = {
+            id: GLOBAL_PROJECT_ID,
+            ownerProjectId: GLOBAL_PROJECT_ID,
+            kind: 'project',
+            path: globalPath,
+            label: GLOBAL_PROJECT_LABEL,
+        };
+        return [globalEntry, ...base];
+    }, [availableWorktreesByProject, registeredProjects, homeDirectory]);
     const activeProjectId = useProjectsStore((state) => state.activeProjectId);
     const setActiveProjectIdOnly = useProjectsStore((state) => state.setActiveProjectIdOnly);
     const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
@@ -77,7 +105,19 @@ export function useDraftTarget(enabled: boolean) {
                 )) ?? projects.find((project) => project.id === newSessionDraft.selectedProjectId) ?? null
                 : null;
             if (explicit) return explicit;
+            // Global draft without an explicit project id (e.g. "~" from persistence):
+            // resolve by directory alone so the label does not flicker.
+            if (explicitDirectory) {
+                const byDir = projects.find((project) => normalizePath(project.path) === explicitDirectory) ?? null;
+                if (byDir) return byDir;
+            }
         } else if (currentSessionId) {
+            const sessionDirectory = normalizePath(currentSessionDirectory ?? null);
+            const globalPath = getGlobalProjectPath(homeDirectory);
+            if (globalPath && sessionDirectory && normalizePath(globalPath) === sessionDirectory) {
+                const global = projects.find((project) => project.ownerProjectId === GLOBAL_PROJECT_ID) ?? null;
+                if (global) return global;
+            }
             const fromSession = resolveProjectForSessionDirectory(
                 registeredProjects as ProjectEntry[],
                 availableWorktreesByProject,
@@ -101,6 +141,7 @@ export function useDraftTarget(enabled: boolean) {
         availableWorktreesByProject,
         currentSessionDirectory,
         currentSessionId,
+        homeDirectory,
         isDraftOpen,
         newSessionDraft?.directoryOverride,
         newSessionDraft?.selectedProjectId,
@@ -202,6 +243,16 @@ export function useDraftTarget(enabled: boolean) {
         const project = projects.find((entry) => entry.id === projectId);
         const nextDirectory = normalizePath(project?.path ?? null);
         if (!project || !nextDirectory) return;
+        if (project.ownerProjectId === GLOBAL_PROJECT_ID) {
+            // Global sessions live at ~ and must not change the active project.
+            setNewSessionDraftTarget({
+                projectId: GLOBAL_PROJECT_ID,
+                directoryOverride: nextDirectory,
+                branchIntent: null,
+                worktreeIntent: null,
+            });
+            return;
+        }
         if (activeProjectId !== project.ownerProjectId) setActiveProjectIdOnly(project.ownerProjectId);
         setNewSessionDraftTarget({
             projectId: project.ownerProjectId,
