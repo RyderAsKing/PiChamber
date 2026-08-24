@@ -9,7 +9,6 @@ const ALLOWED_CORS_HEADER_NAMES = new Set([
   'authorization',
   'cache-control',
   'content-type',
-  'x-opencode-directory',
   'x-pichamber-directory',
   'x-requested-with',
 ]);
@@ -20,7 +19,6 @@ const DEFAULT_ALLOWED_CORS_HEADERS = [
   'Accept',
   'X-Requested-With',
   'Cache-Control',
-  'x-opencode-directory',
   'x-pichamber-directory',
 ].join(',');
 

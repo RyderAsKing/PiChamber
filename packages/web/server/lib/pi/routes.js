@@ -7,7 +7,6 @@ import { createPiArchiveStore } from './archive-store.js';
 import { createPiAttachmentStore } from './attachment-store.js';
 import { checkForUpdates } from '../package-manager.js';
 import { listPiCustomThemes } from './custom-themes.js';
-import { adoptLegacyUiModelDefaults } from './legacy-ui-model-defaults.js';
 import { createPiSettingsStore } from './settings-store.js';
 import { isPiThinkingLevel } from './thinking-levels.js';
 import { createPiSessionFoldersStore } from './session-folders-store.js';
@@ -996,7 +995,7 @@ export const registerPiRuntimeRoutes = (app, {
   app.get('/api/pi/settings', async (_req, res) => {
     try {
       const pi = projectPiSettings(await getDaemonRuntime(getPiSessionDaemonRuntime).request('settings.get'));
-      const pichamber = await adoptLegacyUiModelDefaults(settingsStore, uiSettingsStore);
+      const pichamber = await settingsStore.read();
       res.json({ ...pi, pichamber });
     } catch (error) {
       writeDaemonError(res, error);

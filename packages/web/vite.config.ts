@@ -100,8 +100,6 @@ export default defineConfig({
       { find: '@pichamber/ui', replacement: path.resolve(__dirname, '../ui/src') },
       { find: '@web', replacement: path.resolve(__dirname, './src') },
       { find: '@', replacement: path.resolve(__dirname, '../ui/src') },
-      { find: '@opencode-ai/sdk/v2/client', replacement: path.resolve(__dirname, '../ui/src/lib/chat/types.ts') },
-      { find: '@opencode-ai/sdk/v2', replacement: path.resolve(__dirname, '../ui/src/lib/chat/types.ts') },
     ],
   },
   worker: {

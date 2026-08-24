@@ -276,31 +276,6 @@ describe('Pi runtime route', () => {
     await expect((await fetch(`${base}/defaults`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ defaultThinking: 'low' }) })).json()).resolves.toEqual({ pichamber: { version: 1, defaultThinking: 'low' } });
   });
 
-  it('adopts leftover UI model defaults into the sidecar on settings read', async () => {
-    const settingsStore = {
-      read: async () => ({ version: 1 }),
-      update: async (patch) => ({ version: 1, ...patch }),
-    };
-    const uiSettingsStore = {
-      read: async () => ({ defaultModel: 'openai/gpt-5', themeMode: 'dark' }),
-      write: async () => ({}),
-    };
-    const runtime = {
-      request: async (command) => {
-        if (command === 'settings.get') return { global: {}, project: { trusted: false } };
-        throw new Error(`Unexpected command ${command}`);
-      },
-    };
-    const app = express();
-    app.use(express.json());
-    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, settingsStore, uiSettingsStore });
-    server = await listen(app);
-    await expect((await fetch(`http://127.0.0.1:${server.address().port}/api/pi/settings`)).json()).resolves.toEqual({
-      pi: { global: {}, project: { trusted: false } },
-      pichamber: { version: 1, defaultModel: { providerId: 'openai', modelId: 'gpt-5' } },
-    });
-  });
-
   it('projects native resources without exposing daemon filesystem paths', async () => {
     const calls = [];
     const runtime = {

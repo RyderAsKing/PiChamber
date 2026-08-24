@@ -13,10 +13,10 @@ describe('packaged UI CORS', () => {
   });
 
   it('allows the workspace directory header used by packaged filesystem fetches', () => {
-    expect(resolveAllowedCorsHeaders('x-opencode-directory,authorization')).toBe('x-opencode-directory,authorization');
+    expect(resolveAllowedCorsHeaders('x-pichamber-directory,authorization')).toBe('x-pichamber-directory,authorization');
     expect(resolveAllowedCorsHeaders('x-pichamber-directory')).toBe('x-pichamber-directory');
     expect(resolveAllowedCorsHeaders('x-evil')).toBe(
-      'Content-Type,Authorization,Accept,X-Requested-With,Cache-Control,x-opencode-directory,x-pichamber-directory',
+      'Content-Type,Authorization,Accept,X-Requested-With,Cache-Control,x-pichamber-directory',
     );
   });
 
@@ -27,11 +27,11 @@ describe('packaged UI CORS', () => {
       method: 'OPTIONS',
       headers: {
         origin: 'pichamber-ui://app',
-        'access-control-request-headers': 'x-opencode-directory,authorization',
+        'access-control-request-headers': 'x-pichamber-directory,authorization',
       },
     }, res);
     expect(ended).toBe(true);
     expect(headers['Access-Control-Allow-Origin']).toBe('pichamber-ui://app');
-    expect(headers['Access-Control-Allow-Headers']).toBe('x-opencode-directory,authorization');
+    expect(headers['Access-Control-Allow-Headers']).toBe('x-pichamber-directory,authorization');
   });
 });

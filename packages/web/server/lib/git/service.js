@@ -554,7 +554,7 @@ const cleanBranchName = (branch) => {
   return branch;
 };
 
-const OPENCODE_ADJECTIVES = [
+const PICHAMBER_ADJECTIVES = [
   'brave',
   'calm',
   'clever',
@@ -586,7 +586,7 @@ const OPENCODE_ADJECTIVES = [
   'witty',
 ];
 
-const OPENCODE_NOUNS = [
+const PICHAMBER_NOUNS = [
   'cabin',
   'cactus',
   'canyon',
@@ -620,16 +620,11 @@ const OPENCODE_NOUNS = [
   'wolf',
 ];
 
-const OPENCODE_WORKTREE_ATTEMPTS = 26;
-
-const getOpenCodeDataPath = () => {
-  const xdgDataHome = process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share');
-  return path.join(xdgDataHome, 'opencode');
-};
+const PICHAMBER_WORKTREE_ATTEMPTS = 26;
 
 const pickRandom = (values) => values[Math.floor(Math.random() * values.length)];
 
-const generateOpenCodeRandomName = () => `${pickRandom(OPENCODE_ADJECTIVES)}-${pickRandom(OPENCODE_NOUNS)}`;
+const generatePiChamberRandomName = () => `${pickRandom(PICHAMBER_ADJECTIVES)}-${pickRandom(PICHAMBER_NOUNS)}`;
 
 const slugWorktreeName = (value) => {
   return String(value || '')
@@ -1003,8 +998,8 @@ const getFileIdentity = async (filePath) => {
   }
 };
 
-// PiChamber places managed worktrees under a deep data-dir path
-// (`<XDG_DATA_HOME>/opencode/worktree/<40-char project id>/<name>/`). On
+// PiChamber places managed worktrees under its application data path
+// (`<PICHAMBER_DATA_DIR>/worktree/<40-char project id>/<name>/`). On
 // Windows that prefix plus a deeply nested repo file routinely exceeds
 // MAX_PATH (260). Git can check those paths out when core.longpaths is
 // enabled; without it, `git reset --hard` during bootstrap fails with
@@ -1537,9 +1532,9 @@ export async function continueIntegrate(stateInput = {}) {
   return { kind: 'success', moved: state.remainingCommits.length };
 }
 
-const ensureOpenCodeProjectId = async (primaryWorktree) => {
+const ensurePiChamberProjectId = async (primaryWorktree) => {
   const gitDir = path.join(primaryWorktree, '.git');
-  const idFile = path.join(gitDir, 'opencode');
+  const idFile = path.join(gitDir, 'pichamber');
   const existing = await fsp.readFile(idFile, 'utf8').then((value) => value.trim()).catch(() => '');
   if (existing) {
     return existing;
@@ -1559,7 +1554,7 @@ const ensureOpenCodeProjectId = async (primaryWorktree) => {
 
   const projectId = roots[0] || '';
   if (!projectId) {
-    throw new Error('Failed to derive OpenCode project ID');
+    throw new Error('Failed to derive PiChamber project ID');
   }
 
   await fsp.mkdir(gitDir, { recursive: true }).catch(() => undefined);
@@ -1588,11 +1583,10 @@ const resolveWorktreeProjectContext = async (directory) => {
   );
   const commonDir = path.resolve(sandbox, commonResult.stdout.trim());
   const primaryWorktree = path.dirname(commonDir);
-  const projectID = await ensureOpenCodeProjectId(primaryWorktree);
-  const worktreeRoot = path.join(getOpenCodeDataPath(), 'worktree', projectID);
+  const projectID = await ensurePiChamberProjectId(primaryWorktree);
+  const worktreeRoot = resolvePiChamberDataPath(['worktree', projectID]);
 
   return {
-    projectID,
     sandbox,
     primaryWorktree,
     worktreeRoot,
@@ -1611,13 +1605,13 @@ const listWorktreeEntries = async (directory) => {
 const resolveWorktreeNameCandidates = (baseName) => {
   const normalizedBase = slugWorktreeName(baseName || '');
   if (!normalizedBase) {
-    return Array.from({ length: OPENCODE_WORKTREE_ATTEMPTS }, () => generateOpenCodeRandomName());
+    return Array.from({ length: PICHAMBER_WORKTREE_ATTEMPTS }, () => generatePiChamberRandomName());
   }
-  return Array.from({ length: OPENCODE_WORKTREE_ATTEMPTS }, (_, index) => {
+  return Array.from({ length: PICHAMBER_WORKTREE_ATTEMPTS }, (_, index) => {
     if (index === 0) {
       return normalizedBase;
     }
-    return `${normalizedBase}-${generateOpenCodeRandomName()}`;
+    return `${normalizedBase}-${generatePiChamberRandomName()}`;
   });
 };
 
@@ -1740,26 +1734,6 @@ const runWorktreeStartCommand = async (directory, command) => {
   return result;
 };
 
-const loadProjectStartCommand = async (projectID) => {
-  const storagePath = path.join(getOpenCodeDataPath(), 'storage', 'project', `${projectID}.json`);
-  try {
-    const raw = await fsp.readFile(storagePath, 'utf8');
-    const parsed = JSON.parse(raw);
-    const start = typeof parsed?.commands?.start === 'string' ? parsed.commands.start.trim() : '';
-    return start || '';
-  } catch {
-    return '';
-  }
-};
-
-// OpenCode owns its own project/sandbox registry. It records a worktree as a
-// sandbox itself when an instance boots for that directory, and filters entries
-// whose directory no longer exists when reading them back. PiChamber used to
-// write that state directly into OpenCode's storage JSON and SQLite database,
-// behind the back of the running process: the row changed but the server was
-// never told, so a worktree created while OpenCode was running stayed unknown
-// to it until a restart. Registration is not ours to perform.
-
 const isAttachedGitWorktreeDirectory = async (directory) => {
   try {
     const result = await runGitCommand(directory, ['rev-parse', '--is-inside-work-tree']);
@@ -1791,16 +1765,7 @@ const cleanupFailedFastWorktreeCreate = async (context, candidate) => {
   }
 };
 
-const runWorktreeStartScripts = async (directory, projectID, startCommand) => {
-  const projectStart = await loadProjectStartCommand(projectID);
-  if (projectStart) {
-    const projectResult = await runWorktreeStartCommand(directory, projectStart);
-    if (!projectResult.success) {
-      console.warn('Worktree project start command failed:', projectResult.message || projectResult.stderr || projectResult.stdout);
-      throw new Error('Project setup command failed');
-    }
-  }
-
+const runWorktreeStartScripts = async (directory, startCommand) => {
   const extraCommand = String(startCommand || '').trim();
   if (!extraCommand) {
     return;
@@ -1815,7 +1780,6 @@ const runWorktreeStartScripts = async (directory, projectID, startCommand) => {
 const queueWorktreeBootstrap = (args) => {
   const {
     directory,
-    projectID,
     primaryWorktree,
     localBranch,
     setUpstream,
@@ -1848,7 +1812,7 @@ const queueWorktreeBootstrap = (args) => {
         WORKTREE_BOOTSTRAP_PENDING,
         WORKTREE_BOOTSTRAP_PHASE_GIT_READY
       );
-      await runWorktreeStartScripts(directory, projectID, startCommand);
+      await runWorktreeStartScripts(directory, startCommand);
       setWorktreeBootstrapState(
         directory,
         WORKTREE_BOOTSTRAP_READY,
@@ -4032,7 +3996,6 @@ async function attachGitWorktreeToCandidate(context, candidate, input = {}) {
 
   queueWorktreeBootstrap({
     directory: candidate.directory,
-    projectID: context.projectID,
     primaryWorktree: context.primaryWorktree,
     localBranch,
     setUpstream: shouldSetUpstream,
