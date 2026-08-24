@@ -43,7 +43,7 @@ Second eval with DeepSeek V4 Pro was the same story. Pi solved the most tasks ac
 
 **This is why I made Pi and PiChamber.**
 
-PiChamber is not a bloated UI filled with features. It follows the footsteps of Pi, minimal, fast and hackable. All existing Pi extensions work in PiChamber. Soon you will be able to ship custom GUI for extensions that renders inside PiChamber, the same way Pi lets you build your own tools.
+PiChamber is not a bloated UI filled with features. It follows the footsteps of Pi, minimal, fast and hackable. Existing Pi extensions keep their tools, commands, hooks, and standard UI prompts in PiChamber. Extensions can also render cards, live panels, forms, and sandboxed app views directly in the workspace.
 
 Run it on your PC, or on a server, and connect from your phone or tablet. Same sessions, same daemon, over an authenticated web API with one time pairing links.
 

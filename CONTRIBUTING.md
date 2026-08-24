@@ -113,9 +113,9 @@ To cut a version:
 1. Bump workspace versions: `bun run version:bump 0.1.0` (does not bump `packages/mobile`).
 2. Move notes from `CHANGELOG.md` `[Unreleased]` into a `## [0.1.0] - YYYY-MM-DD` section. The release workflow fails if that heading is missing.
 3. Merge the bump to `main`.
-4. Push tag `v0.1.0`, or run the **Release** workflow with `version=0.1.0`. Tag pushes skip npm and skip iOS; they do build and upload the Android APK.
+4. Push tag `v0.1.0`, or run the **Release** workflow with `version=0.1.0`. Tag pushes skip npm and skip iOS; they do build and upload the Android APK. To publish `@pi-chamber/web`, dispatch the workflow once with `publish_npm=true` instead of also pushing the tag.
 
-The draft GitHub Release is published after macOS, Windows, and Linux desktop jobs succeed. The Android APK job runs in parallel and uploads onto the same tag.
+The npm job validates every release manifest against the requested version, publishes the same tarball that it attaches to the GitHub Release, and verifies that tarball against npm's SHA-512 integrity metadata, SHA-1 shasum, and registry download. The draft GitHub Release is published after macOS, Windows, and Linux desktop jobs succeed. The Android APK job runs in parallel and uploads onto the same tag.
 
 macOS signing uses `APPLE_CERTIFICATE` (base64-encoded Developer ID `.p12`) and `APPLE_CERTIFICATE_PASSWORD`. If those secrets are missing or not a readable PKCS#12, CI builds **unsigned** macOS artifacts and skips notarization instead of failing. Gatekeeper will warn until a valid Developer ID is stored:
 

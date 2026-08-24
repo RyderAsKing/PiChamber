@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-24
+
+Pi extension release: existing extensions now run inside PiChamber's session daemon, their commands and standard UI prompts work across clients, and extensions can add native cards, panels, forms, and sandboxed app views to the workspace.
+
+- **Pi extensions run in PiChamber.** The session daemon loads global and trusted project extensions through Pi's standard discovery flow. Registered tools, commands, lifecycle hooks, prompt modifications, and session state work without a PiChamber-specific dependency; child-process extensions resolve the real `pi-coding-agent` binary inside the detached daemon (`session-daemon`, `extension-bridge`).
+- **Extension dialogs and live UI.** Standard `ctx.ui` select, confirm, input, editor, notification, status, and widget calls render in web, desktop, hosted mobile, and Capacitor clients. PiChamber's versioned extension protocol adds validated markdown, key-value, list, table, progress, badge, and code cards; reconnect-safe live panels; structured forms; command actions; and script-only sandboxed app views (`extension-protocol`, `extension-ui`, `ExtensionDialogOverlay`, `ExtensionStatusWidgets`, `ExtensionMessageCard`, `ExtensionPanelDock`, `ExtensionAppSurfaces`).
+- **Extension commands in the composer.** Registered slash commands appear in autocomplete and dispatch to their extension with arguments. Settings can pin commands as composer buttons and bind global shortcuts without shadowing built-in shortcuts (`CommandAutocomplete`, `ComposerCommandTriggers`, `CommandTriggersSettings`).
+- **Extension state stays in sync.** Model and thinking-level changes made by commands such as `/balance` or `/juicer` now update the composer instead of being overwritten by stale local selection. Dialog responses are validated, ANSI and truecolor dialog content is normalized on mobile, notifications appear as toasts and transcript cards, and extension listings expose opaque IDs rather than host paths (`model-selection-sync`, `ansi`, `extension-bridge`).
+- **Faster worktree switching.** Changing sessions or worktrees no longer recreates the project list. Filtered worktree views remove redundant group headers and indentation, while draft target controls and pending-change details are more compact (`useProjectsStore`, `SidebarProjectsList`, `SidebarSpacesBar`, `DraftTargetSelectors`, `PendingChangesBar`).
+- **Mobile composer polish.** Speech recording no longer shows a timer that crowds the mobile composer, and long model and thinking-level labels use tighter limits (`ComposerVoiceInput`, `ModelControls`, `ThinkingLevelControl`).
+- **Pi-native cleanup.** The remaining internal OpenCode compatibility clients, status/config helpers, route aliases, and fallback contracts have been removed. PiChamber now uses the Pi-native session, settings, Git, and runtime paths directly.
+- **Release integrity.** npm publishing now publishes the exact tarball attached to the GitHub Release, then verifies its SHA-512 integrity and SHA-1 shasum against npm metadata and the registry download before attaching it (`release.yml`).
+
 ## [0.4.0] - 2026-08-24
 
 Worktree, composer, skills and voice release: linked Git worktrees become first-class peers, branch checkout is deferred until send, Pi skill reads render as navigation rows, and final-only speech dictation ships with waveform feedback.
