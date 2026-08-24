@@ -12,6 +12,12 @@ export const normalizeWorktreeName = (value: string): string => value
   .slice(0, MAX_WORKTREE_NAME_LENGTH)
   .replace(/-$/g, '');
 
+const readGeneratedWorktreeName = (value: string): string | null => {
+  const candidate = value.trim();
+  if (candidate.length === 0 || candidate.length > MAX_WORKTREE_NAME_LENGTH) return null;
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(candidate) ? candidate : null;
+};
+
 export const deriveLocalWorktreeName = (prompt: string): string | null => {
   const normalized = normalizeWorktreeName(prompt.trim());
   if (!normalized) return null;
@@ -32,7 +38,7 @@ export const deriveWorktreeName = async (prompt: string, directory: string): Pro
     if (response.ok) {
       const payload = await response.json().catch(() => null) as { text?: unknown } | null;
       if (typeof payload?.text === 'string') {
-        const generated = normalizeWorktreeName(payload.text);
+        const generated = readGeneratedWorktreeName(payload.text);
         if (generated) return generated;
       }
     }
