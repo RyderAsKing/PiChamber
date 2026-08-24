@@ -2285,7 +2285,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         projects={draftProjects}
                         selectedProject={selectedDraftProject}
                         selectedBranchName={selectedBranchName}
-                        selectedBranchLabel={worktreeMode && selectedDraftBranchLabel ? `Start from: ${selectedDraftBranchLabel}` : selectedDraftBranchLabel}
+                        selectedBranchLabel={selectedDraftBranchLabel}
                         branchOptions={draftBranchItems}
                         branchInteractive={newSessionDraftOpen}
                         branchLoading={isDiscoveringDraftBranches}
@@ -2303,7 +2303,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 {isMobileForDraft && showDraftTargetSelectors && selectedDraftProject && (newSessionDraftOpen || shouldShowDraftBranchSelector) ? (
                     <MobileDraftTargetTriggers
                         selectedProject={selectedDraftProject}
-                        selectedBranchLabel={worktreeMode && selectedDraftBranchLabel ? `Start from: ${selectedDraftBranchLabel}` : selectedDraftBranchLabel}
+                        selectedBranchLabel={selectedDraftBranchLabel}
                         branchInteractive={newSessionDraftOpen}
                         showBranchSelector={shouldShowDraftBranchSelector}
                         showProjectSelector={newSessionDraftOpen}
@@ -2314,11 +2314,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         theme={currentTheme}
                         onOpenPicker={setMobileDraftPicker}
                     />
-                ) : null}
-                {newSessionDraftOpen && worktreeMode && !draftWorktreeCreation.state ? (
-                    <p className="mx-3 mb-2 typography-meta text-muted-foreground">
-                        Starts from the selected branch's latest commit. Uncommitted changes are not copied.
-                    </p>
                 ) : null}
                 {draftWorktreeCreation.state ? (
                     <div
@@ -2686,7 +2681,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 projects={draftProjects}
                 selectedProject={selectedDraftProject}
                 selectedBranchName={selectedBranchName}
-                selectedBranchLabel={worktreeMode && selectedDraftBranchLabel ? `Start from: ${selectedDraftBranchLabel}` : selectedDraftBranchLabel}
+                selectedBranchLabel={selectedDraftBranchLabel}
                 branchOptions={draftBranchItems}
                 branchInteractive={newSessionDraftOpen}
                 branchLoading={isDiscoveringDraftBranches}
