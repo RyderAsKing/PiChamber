@@ -14,14 +14,15 @@ const createHarness = ({ waitForIdle = async () => undefined, timeoutMs = 100 } 
   };
   const selectedModel = { provider: 'provider', id: 'small' };
   const createSession = vi.fn(async () => ({ session }));
+  const createServices = vi.fn(async () => ({
+    modelRuntime: { getModel: () => selectedModel },
+    diagnostics: [],
+  }));
   const generate = createSmallModelGenerator({
     agentDir: '/agent',
     timeoutMs,
     inMemorySession: () => ({ kind: 'memory' }),
-    createServices: async () => ({
-      modelRuntime: { getModel: () => selectedModel },
-      diagnostics: [],
-    }),
+    createServices,
     createSession,
     createRuntime: async (factory, options) => ({
       ...(await factory({
@@ -32,7 +33,7 @@ const createHarness = ({ waitForIdle = async () => undefined, timeoutMs = 100 } 
       dispose,
     }),
   });
-  return { abort, createSession, dispose, generate, selectedModel, session };
+  return { abort, createServices, createSession, dispose, generate, selectedModel, session };
 };
 
 describe('small-model generation', () => {
@@ -43,6 +44,20 @@ describe('small-model generation', () => {
       prompt: 'Name this task',
       model: { providerId: 'provider', modelId: 'small' },
     })).resolves.toEqual({ text: 'fix-auth-timeout' });
+
+    expect(harness.createServices).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/repo',
+      resourceLoaderOptions: expect.objectContaining({
+        noExtensions: true,
+        noSkills: true,
+        noPromptTemplates: true,
+        noContextFiles: true,
+        systemPromptOverride: expect.any(Function),
+      }),
+    }));
+    const systemPrompt = harness.createServices.mock.calls[0][0].resourceLoaderOptions.systemPromptOverride();
+    expect(systemPrompt).toContain('stateless text transformation service');
+    expect(systemPrompt).toContain('Never perform the task');
 
     expect(harness.createSession).toHaveBeenCalledWith(expect.objectContaining({
       model: harness.selectedModel,
