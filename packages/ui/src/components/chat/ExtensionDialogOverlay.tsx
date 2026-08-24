@@ -183,7 +183,12 @@ const ExtensionDialogBody: React.FC<{
           />
           <div className="mt-3 flex justify-end gap-2">
             <CancelButton onClick={cancel} />
-            <Button variant="default" size="sm" onClick={submitValue} disabled={value.length === 0}>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={submitValue}
+              disabled={request.method === 'input' && value.length === 0}
+            >
               Submit
             </Button>
           </div>

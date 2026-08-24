@@ -1,5 +1,6 @@
 ---
 title: Pi extensions in PiChamber
+description: Run Pi extensions and render their dialogs, cards, panels, and app surfaces in PiChamber.
 ---
 
 # Pi extensions in PiChamber
@@ -20,7 +21,7 @@ On top of that compatibility layer, extensions can render rich UI directly insid
 | `ctx.ui.setStatus(key, text)` | Shown above the composer until cleared |
 | `ctx.ui.setWidget(key, lines)` | Lines shown above (or below) the composer |
 | `pi.appendEntry()` / `pi.sendMessage()` | Visible in the chat transcript (see below) |
-| TUI-only surfaces (`custom()`, custom editors, footers, themes) | Intentionally no-ops; use the GUI protocol instead |
+| TUI-only surfaces (`custom()`, editor manipulation, footers, themes) | Intentionally no-ops; use the GUI protocol instead |
 
 Extension errors don't abort your session — they surface as an error entry so you can see what failed.
 
@@ -158,13 +159,21 @@ Actions support optional fields beyond `label`/`command`/`args`/`variant`:
 
 ### Live panels update in place
 
-Entries carrying a stable `id` are additionally mirrored into normalized
-`extension.ui` events and server-side panel state. The chat transcript keeps
-the full history, but PiChamber also renders a live dock above the composer
-where the latest descriptor for each `id` replaces the previous one — an
-extension reporting progress updates one panel instead of stacking cards.
-Panels survive reconnects via snapshots, and `{ id, removed: true }`
-unregisters a panel from the dock.
+Custom entries published with `pi.appendEntry()` and carrying a stable `id`
+are additionally mirrored into normalized `extension.ui` events and
+server-side panel state. The chat transcript keeps the full history, but
+PiChamber also renders a live dock above the composer where the latest
+descriptor for each `id` replaces the previous one. Panels survive reconnects
+via snapshots, and `{ id, removed: true }` unregisters a panel from the dock.
+A `pichamber.ui` custom message published with `pi.sendMessage()` remains a
+transcript card and participates in model context, but it does not update the
+live dock.
+
+### Editor dialogs
+
+`ctx.ui.editor(title, prefill)` opens a multiline blocking dialog. Submit
+returns the current text, including an empty string. Cancel returns
+`undefined`.
 
 ### Structured form dialogs
 
@@ -183,7 +192,9 @@ const values = await (ctx.ui as any).form("Spawn agent", [
 
 Field types: `text`, `textarea`, `number`, `select`, `checkbox`. The dialog is
 blocking like `ctx.ui.input` and resolves with a values object keyed by field
-id. Fields are capped at 12; options at 20.
+id. The daemon validates required fields, number bounds, select options, and
+checkbox values before resolving the extension. Fields are capped at 12;
+options at 20.
 
 ### Sandboxed app surfaces
 
@@ -213,8 +224,9 @@ buttons. HTML is capped at ~200 KB per app and 8 apps per session.
 Declarative cards are `appendEntry` / `sendMessage` entries in the pi JSONL.
 They survive reloads and are served to late-joining devices via the same
 `GET /api/pi/sessions/:id` hydration that restores the transcript. Incremental
-`appendEntry` updates create new transcript rows; a stable `id` lets the client
-render the "current" panel while keeping history as fallback.
+`appendEntry` updates create new transcript rows; a stable `id` on an appended
+entry lets the client render the "current" panel while keeping history as
+fallback. Custom messages remain transcript-only.
 
 Live ephemeral state (`ctx.ui.setStatus`, `ctx.ui.setWidget`, pending
 `ctx.ui.select/confirm/input/editor/form` dialogs, live `pichamber.ui` panels,

@@ -592,6 +592,30 @@ export function createSessionDaemon({
     createExtensionBindings: buildExtensionBindings,
   });
 
+  const validateExtensionFormValues = (fields, values) => {
+    if (!Array.isArray(fields)) return false;
+    const fieldsById = new Map(fields.map((field) => [field.id, field]));
+    for (const key of Object.keys(values)) {
+      if (!fieldsById.has(key)) return false;
+    }
+    for (const field of fields) {
+      const value = values[field.id];
+      if (field.required === true && (typeof value !== 'string' || value.length === 0)) return false;
+      if (value === undefined || value.length === 0) continue;
+      if (field.type === 'number') {
+        const number = Number(value);
+        if (!Number.isFinite(number)) return false;
+        if (typeof field.min === 'number' && number < field.min) return false;
+        if (typeof field.max === 'number' && number > field.max) return false;
+      } else if (field.type === 'select' && !field.options?.includes(value)) {
+        return false;
+      } else if (field.type === 'checkbox' && value !== 'true' && value !== 'false') {
+        return false;
+      }
+    }
+    return true;
+  };
+
   // Resolves a pending extension dialog. Unknown or already-settled request
   // ids resolve to `{ resolved: false }` instead of throwing: a stale client
   // retry must never tear down the shared daemon socket.
@@ -618,6 +642,9 @@ export function createSessionDaemon({
         if (typeof key === 'string' && key.length > 0 && key.length <= 128 && typeof entry === 'string' && entry.length <= 8_000) {
           values[key] = entry;
         }
+      }
+      if (pending.payload?.method !== 'form' || !validateExtensionFormValues(pending.payload.fields, values)) {
+        throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The extension form response is invalid.');
       }
       pending.settle({ values });
     } else {

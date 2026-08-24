@@ -448,20 +448,39 @@ describe('Pi session daemon extension panels, apps, and forms', () => {
   });
 
   it('bridges ctx.ui.form to a form dialog and resolves with a values object', async () => {
-    const { client, session } = await startWithExtensibleSession();
+    const { client, session, endpoint } = await startWithExtensibleSession();
     const ui = session.boundBindings.uiContext;
 
     const pending = ui.form('Spawn agent', [
       { id: 'name', label: 'Name', type: 'text', required: true },
       { id: 'level', label: 'Level', type: 'select', options: ['low', 'high'], initial: 'high' },
+      { id: 'workers', label: 'Workers', type: 'number', min: 1, max: 4 },
     ]);
 
     const dialogRequest = await client.next((message) => message.kind === 'event' && message.event === 'extension.dialog');
     expect(dialogRequest.payload).toMatchObject({ method: 'form', title: 'Spawn agent' });
-    expect(dialogRequest.payload.fields).toHaveLength(2);
+    expect(dialogRequest.payload.fields).toHaveLength(3);
 
-    await client.request('extensions.respond', { requestId: dialogRequest.payload.requestId, values: { name: 'research', level: 'high' } });
-    expect(await pending).toEqual({ name: 'research', level: 'high' });
+    await expect(client.request('extensions.respond', {
+      requestId: dialogRequest.payload.requestId,
+      values: { level: 'high' },
+    })).rejects.toThrow('Daemon connection closed');
+
+    const invalidClient = connectClient(endpoint);
+    await invalidClient.authenticate();
+    await expect(invalidClient.request('extensions.respond', {
+      requestId: dialogRequest.payload.requestId,
+      values: { name: 'research', level: 'invalid-option', workers: '8' },
+    })).rejects.toThrow('Daemon connection closed');
+
+    const validClient = connectClient(endpoint);
+    await validClient.authenticate();
+    await validClient.request('extensions.respond', {
+      requestId: dialogRequest.payload.requestId,
+      values: { name: 'research', level: 'high', workers: '4' },
+    });
+    validClient.close();
+    expect(await pending).toEqual({ name: 'research', level: 'high', workers: '4' });
   });
 
   it('lists extensions with opaque ids and never leaks server paths', async () => {
