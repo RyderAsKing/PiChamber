@@ -298,9 +298,10 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
                 {rootGroup ? props.renderGroupSessions(rootGroup, `${projectKey}:${rootGroup.id}`, projectKey, true, null, undefined, scrollContainerRef) : null}
                 {nestedGroups.map((group) => {
                   const groupKey = `${projectKey}:${group.id}`;
+                  const hideGroupLabel = orderedGroups.length === 1;
                   return (
                     <React.Fragment key={group.id}>
-                      {props.renderGroupSessions(group, groupKey, projectKey, false, null, undefined, scrollContainerRef)}
+                      {props.renderGroupSessions(group, groupKey, projectKey, hideGroupLabel, null, undefined, scrollContainerRef)}
                     </React.Fragment>
                   );
                 })}
