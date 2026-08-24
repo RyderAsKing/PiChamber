@@ -1,7 +1,7 @@
 import * as React from 'react';
 
 import { getPiSessionStore } from '@/apps/pi-session-store';
-import { parseExtensionChatItem } from '@/lib/pi/extension-ui';
+import { normalizeExtensionCommandArgs, parseExtensionChatItem } from '@/lib/pi/extension-ui';
 import type { ExtensionUiAction } from '@/lib/pi/extension-ui';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -40,6 +40,7 @@ const isKnownIcon = (name: string | undefined): name is IconName => (
 
 const ExtensionActionButton: React.FC<ActionButtonProps> = ({ action, variant, sessionId }) => {
     const [pending, setPending] = React.useState(false);
+    const [confirming, setConfirming] = React.useState(false);
     const [prompting, setPrompting] = React.useState(false);
     const [promptValue, setPromptValue] = React.useState('');
 
@@ -47,34 +48,61 @@ const ExtensionActionButton: React.FC<ActionButtonProps> = ({ action, variant, s
         if (!sessionId || pending) return;
         setPending(true);
         try {
-            const trimmed = args?.trim();
-            const text = trimmed ? `/${action.command} ${trimmed}` : `/${action.command}`;
+            const normalizedArgs = normalizeExtensionCommandArgs(args);
+            const text = normalizedArgs ? `/${action.command} ${normalizedArgs}` : `/${action.command}`;
             await getPiSessionStore().prompt(sessionId, text, 'prompt');
         } finally {
             setPending(false);
         }
     }, [sessionId, pending, action.command]);
 
-    const handleClick = React.useCallback(async () => {
-        if (!sessionId || pending || action.disabled) return;
-        if (action.confirm && typeof window !== 'undefined' && !window.confirm(action.confirm)) return;
+    const runAction = React.useCallback(async () => {
         if (action.promptForArgs) {
             setPrompting(true);
             setPromptValue('');
             return;
         }
         await runCommand(action.args);
-    }, [sessionId, pending, action, runCommand]);
+    }, [action, runCommand]);
+
+    const handleClick = React.useCallback(async () => {
+        if (!sessionId || pending || action.disabled) return;
+        if (action.confirm) {
+            setConfirming(true);
+            return;
+        }
+        await runAction();
+    }, [sessionId, pending, action, runAction]);
 
     if (!sessionId) return null;
 
     const busy = pending || action.loading === true;
     const icon = isKnownIcon(action.icon) ? <Icon name={action.icon} className="size-3.5" /> : null;
 
+    if (confirming) {
+        return (
+            <div role="alertdialog" aria-label={action.confirm} className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <span className="min-w-0 flex-1 text-xs text-muted-foreground">{action.confirm}</span>
+                <Button
+                    type="button"
+                    size="xs"
+                    variant="default"
+                    onClick={() => {
+                        setConfirming(false);
+                        void runAction();
+                    }}
+                >
+                    Continue
+                </Button>
+                <Button type="button" size="xs" variant="ghost" onClick={() => setConfirming(false)}>Cancel</Button>
+            </div>
+        );
+    }
+
     if (prompting) {
         return (
             <form
-                className="flex items-center gap-1.5"
+                className="flex min-w-0 flex-wrap items-center gap-1.5"
                 onSubmit={(event) => {
                     event.preventDefault();
                     setPrompting(false);
@@ -87,7 +115,7 @@ const ExtensionActionButton: React.FC<ActionButtonProps> = ({ action, variant, s
                     onChange={(event) => setPromptValue(event.target.value)}
                     placeholder={action.promptForArgs?.placeholder ?? ''}
                     aria-label={action.promptForArgs?.label ?? action.label}
-                    className="h-6 w-40 rounded-md border bg-transparent px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-interactive-focus"
+                    className="h-6 min-w-0 flex-1 rounded-md border bg-transparent px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-interactive-focus sm:w-40 sm:flex-none"
                     onKeyDown={(event) => {
                         if (event.key === 'Escape') {
                             event.stopPropagation();

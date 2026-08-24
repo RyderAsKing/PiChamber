@@ -130,6 +130,14 @@ const truncateActionText = (value: string, maxLength: number): string => (
   value.length > maxLength ? value.slice(0, maxLength) : value
 );
 
+export const normalizeExtensionCommandArgs = (value: string | undefined): string => {
+  if (!value) return '';
+  return Array.from(value, (character) => {
+    const code = character.charCodeAt(0);
+    return code < 32 || code === 127 ? ' ' : character;
+  }).join('').trim().slice(0, MAX_ACTION_ARGS);
+};
+
 const parseActions = (value: unknown): ExtensionUiAction[] | undefined => {
   if (!Array.isArray(value)) return undefined;
   const actions: ExtensionUiAction[] = [];
@@ -148,7 +156,7 @@ const parseActions = (value: unknown): ExtensionUiAction[] | undefined => {
     actions.push({
       label: truncateActionText(label, MAX_ACTION_LABEL),
       command,
-      ...(asString(record.args) !== undefined ? { args: truncateActionText(asString(record.args) ?? '', MAX_ACTION_ARGS) } : {}),
+      ...(asString(record.args) !== undefined ? { args: normalizeExtensionCommandArgs(asString(record.args)) } : {}),
       ...(record.variant === 'outline' || record.variant === 'ghost' ? { variant: record.variant } : {}),
       ...(asString(record.icon) !== undefined ? { icon: truncateActionText(asString(record.icon) ?? '', 64) } : {}),
       ...(record.disabled === true ? { disabled: true } : {}),

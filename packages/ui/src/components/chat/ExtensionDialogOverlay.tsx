@@ -3,7 +3,8 @@ import * as React from 'react';
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import type { PiExtensionDialogPayload } from '@/lib/pi/protocol';
-import { piClient } from '@/lib/pi/client';
+import { PiRequestError, piClient } from '@/lib/pi/client';
+import { getRuntimeKey } from '@/lib/runtime-switch';
 import { stripAnsi } from '@/lib/pi/ansi';
 import { Button } from '@/components/ui/button';
 
@@ -13,18 +14,33 @@ import { Button } from '@/components/ui/button';
  * dialogs render as a modal overlay for the selected session.
  */
 
+type DialogAnswer = {
+  cancelled?: boolean;
+  confirmed?: boolean;
+  value?: string;
+  values?: Record<string, string>;
+};
+
 const respond = async (
   sessionId: string,
   request: PiExtensionDialogPayload,
-  answer: { cancelled?: boolean; confirmed?: boolean; value?: string; values?: Record<string, string> },
+  answer: DialogAnswer,
 ): Promise<void> => {
   try {
-    await piClient.respondToExtensionDialog({ requestId: request.requestId, ...answer });
-  } catch {
-    // A stale or already-settled response (404) means the dialog resolved
-    // elsewhere, e.g. daemon idle disposal; nothing to surface.
-  } finally {
+    await piClient.respondToExtensionDialog(
+      { requestId: request.requestId, ...answer },
+      { runtimeKey: getRuntimeKey() },
+    );
+    // The daemon also publishes extension.dialog.dismiss for every connected
+    // client. Apply the successful response locally so the answering client
+    // does not wait for the stream round trip.
     getPiSessionStore().dismissExtensionDialog(sessionId, request.requestId);
+  } catch (error) {
+    if (error instanceof PiRequestError && error.code === 'EXTENSION_DIALOG_NOT_PENDING') {
+      getPiSessionStore().dismissExtensionDialog(sessionId, request.requestId);
+      return;
+    }
+    throw error;
   }
 };
 
@@ -32,44 +48,71 @@ const DialogFrame: React.FC<{
   title: string;
   children: React.ReactNode;
   onRequestCancel: () => void;
-}> = ({ title, children, onRequestCancel }) => (
-  <div className="pointer-events-auto fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 pb-4 sm:items-center sm:pb-0">
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={stripAnsi(title)}
-      className="w-full max-w-md rounded-xl border bg-card p-4 text-card-foreground shadow-lg"
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          event.stopPropagation();
-          onRequestCancel();
-        }
-      }}
-      tabIndex={-1}
-      ref={(node) => node?.focus()}
-    >
-      <h2 className="mb-2 text-sm font-semibold">{stripAnsi(title)}</h2>
-      {children}
+}> = ({ title, children, onRequestCancel }) => {
+  const dialogRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog && !dialog.contains(document.activeElement)) dialog.focus();
+  }, []);
+
+  return (
+    <div className="pointer-events-auto fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center sm:py-4">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={stripAnsi(title)}
+        className="max-h-[calc(100dvh-max(2rem,env(safe-area-inset-bottom)))] w-full max-w-md overflow-y-auto overscroll-contain rounded-xl border bg-card p-4 text-card-foreground shadow-lg"
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.stopPropagation();
+            onRequestCancel();
+            return;
+          }
+          if (event.key !== 'Tab') return;
+          const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          );
+          if (!focusable || focusable.length === 0) {
+            event.preventDefault();
+            return;
+          }
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last?.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first?.focus();
+          }
+        }}
+        tabIndex={-1}
+      >
+        <h2 className="mb-2 text-sm font-semibold">{stripAnsi(title)}</h2>
+        {children}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const CancelButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
   <Button variant="ghost" size="sm" onClick={onClick}>Cancel</Button>
 );
 
 const ExtensionDialogBody: React.FC<{
-  sessionId: string;
   request: PiExtensionDialogPayload;
-}> = ({ sessionId, request }) => {
+  onRespond: (answer: DialogAnswer) => void;
+}> = ({ request, onRespond }) => {
   const cancel = React.useCallback(() => {
-    void respond(sessionId, request, { cancelled: true });
-  }, [sessionId, request]);
+    onRespond({ cancelled: true });
+  }, [onRespond]);
 
   const [value, setValue] = React.useState(request.method === 'editor' ? (request.prefill ?? '') : '');
 
   const submitValue = () => {
-    void respond(sessionId, request, { value });
+    onRespond({ value });
   };
 
   switch (request.method) {
@@ -84,7 +127,7 @@ const ExtensionDialogBody: React.FC<{
                 variant="outline"
                 size="sm"
                 className="justify-start"
-                onClick={() => void respond(sessionId, request, { value: option })}
+                onClick={() => onRespond({ value: option })}
               >
                 {/* Display-only strip: the daemon still receives the original option value. */}
                 {stripAnsi(option)}
@@ -105,7 +148,7 @@ const ExtensionDialogBody: React.FC<{
             <Button
               variant="default"
               size="sm"
-              onClick={() => void respond(sessionId, request, { confirmed: true })}
+              onClick={() => onRespond({ confirmed: true })}
             >
               Confirm
             </Button>
@@ -159,7 +202,7 @@ const ExtensionDialogBody: React.FC<{
           request={request}
           initialValues={initial}
           onCancel={cancel}
-          onSubmit={(values) => void respond(sessionId, request, { values })}
+          onSubmit={(values) => onRespond({ values })}
         />
       );
     }
@@ -281,26 +324,57 @@ interface ExtensionDialogOverlayProps {
 }
 
 export const ExtensionDialogOverlay: React.FC<ExtensionDialogOverlayProps> = ({ sessionId }) => {
-  const selectedSessionId = usePiSessionSnapshot((state) => state.selectedSessionId);
-  const activeSessionId = sessionId ?? selectedSessionId;
-
-  const dialogs = usePiSessionSnapshot(
-    (state) => (activeSessionId ? state.reducer.bySession.get(activeSessionId)?.extensionDialogs ?? [] : []),
-    (a, b) => a.length === b.length && a.every((dialog, index) => dialog.requestId === b[index]?.requestId),
-    `session:${activeSessionId ?? ''}`,
+  const target = usePiSessionSnapshot(
+    (state) => {
+      const preferredSessionId = sessionId ?? state.selectedSessionId;
+      const preferred = preferredSessionId
+        ? state.reducer.bySession.get(preferredSessionId)?.extensionDialogs[0]
+        : undefined;
+      if (preferred && preferredSessionId) return { sessionId: preferredSessionId, request: preferred };
+      if (sessionId !== undefined) return null;
+      for (const [candidateSessionId, candidate] of state.reducer.bySession) {
+        const request = candidate.extensionDialogs[0];
+        if (request) return { sessionId: candidateSessionId, request };
+      }
+      return null;
+    },
+    (a, b) => a?.sessionId === b?.sessionId && a?.request.requestId === b?.request.requestId,
+    'dialogs',
   );
+  const [responding, setResponding] = React.useState(false);
+  const [responseError, setResponseError] = React.useState(false);
 
-  // Only the oldest dialog renders at a time; answering it reveals the next.
-  const current = dialogs[0];
+  React.useEffect(() => {
+    setResponding(false);
+    setResponseError(false);
+  }, [target?.sessionId, target?.request.requestId]);
 
-  if (!activeSessionId || !current) return null;
+  const submit = React.useCallback((answer: DialogAnswer) => {
+    if (!target || responding) return;
+    setResponding(true);
+    setResponseError(false);
+    void respond(target.sessionId, target.request, answer).catch(() => {
+      setResponseError(true);
+    }).finally(() => {
+      setResponding(false);
+    });
+  }, [responding, target]);
+
+  if (!target) return null;
 
   return (
     <DialogFrame
-      title={current.title}
-      onRequestCancel={() => void respond(activeSessionId, current, { cancelled: true })}
+      title={target.request.title}
+      onRequestCancel={() => submit({ cancelled: true })}
     >
-      <ExtensionDialogBody key={current.requestId} sessionId={activeSessionId} request={current} />
+      <div className={responding ? 'pointer-events-none opacity-60' : undefined} aria-busy={responding || undefined}>
+        <ExtensionDialogBody key={target.request.requestId} request={target.request} onRespond={submit} />
+      </div>
+      {responseError && (
+        <p role="alert" className="mt-2 text-xs text-status-error">
+          Could not send the response. Check your connection and try again.
+        </p>
+      )}
     </DialogFrame>
   );
 };

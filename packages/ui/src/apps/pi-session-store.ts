@@ -90,6 +90,8 @@ const lifecycleFromEvent = (event: PiSessionEvent): LiveSessionLifecycle | undef
  * - `catalog`: `state.catalog` identity changed (lifecycle, title,
  *   membership, stub insert). Token deltas that leave the catalog ref
  *   unchanged do **not** emit this.
+ * - `dialogs`: runtime-wide pending extension-dialog membership. It changes
+ *   only when dialogs open, settle, or reconcile from authoritative state.
  * - `chrome`: cluster UI — `connection`, `error`, `directory`,
    *   `selectedSessionId`, `sessions[]`, `sessionsListStatus`,
    *   `focusPending`, `hydratedSessionIds`, `sessionLoadErrorById`.
@@ -98,9 +100,10 @@ const lifecycleFromEvent = (event: PiSessionEvent): LiveSessionLifecycle | undef
  *   unmigrated caller; production hooks pass an explicit topic so the
  *   broadcast path is unused on the token hot path.
  */
-export type PiSessionTopic = `session:${PiSessionId}` | 'catalog' | 'chrome' | '*';
+export type PiSessionTopic = `session:${PiSessionId}` | 'catalog' | 'chrome' | 'dialogs' | '*';
 const TOPIC_BROADCAST = '*';
 const TOPIC_CATALOG = 'catalog';
+const TOPIC_DIALOGS = 'dialogs';
 const TOPIC_CHROME = 'chrome';
 
 export type PiConnectionState = 'loading' | 'ready' | 'unavailable' | 'error';
@@ -1387,7 +1390,7 @@ export class PiSessionStore {
     const nextReducer = dismissExtensionDialog(this.state.reducer, sessionId, requestId);
     if (nextReducer === this.state.reducer) return;
     this.state = { ...this.state, reducer: nextReducer };
-    this.emit([`session:${sessionId}`]);
+    this.emit([`session:${sessionId}`, TOPIC_DIALOGS]);
   }
 
   private sessionFromDetail(detail: Awaited<ReturnType<typeof piClient.getSession>>) {
@@ -1614,7 +1617,7 @@ export class PiSessionStore {
     // commitHydratedSession always wraps `hydratedSessionIds` in a new
     // Set; chrome listeners must hear that flip every time. The catalog
     // emit is gated on the reference-stable helpers.
-    const hydrateTopics: string[] = [`session:${session.sessionId}`, TOPIC_CHROME];
+    const hydrateTopics: string[] = [`session:${session.sessionId}`, TOPIC_CHROME, TOPIC_DIALOGS];
     if (catalogChanged) hydrateTopics.push(TOPIC_CATALOG);
     this.emit(hydrateTopics);
     this.scheduleIdleEviction();
@@ -1840,7 +1843,7 @@ export class PiSessionStore {
           hydratedSessionIds: new Set(this.hydratedSessionIds),
           ...(catalogChanged ? { catalog: reconnectCatalog } : {}),
         };
-        const reconnectTopics: string[] = [TOPIC_CHROME];
+        const reconnectTopics: string[] = [TOPIC_CHROME, TOPIC_DIALOGS];
         for (const id of mergedSessionIds) reconnectTopics.push(`session:${id}`);
         if (catalogChanged) reconnectTopics.push(TOPIC_CATALOG);
         this.emit(reconnectTopics);
@@ -2020,6 +2023,9 @@ export class PiSessionStore {
     }
     const topics: string[] = [];
     if (catalogChanged) topics.push(TOPIC_CATALOG);
+    if (events.some((event) => event.name === 'extension.dialog' || event.name === 'extension.dialog.dismiss' || event.name === 'session.snapshot')) {
+      topics.push(TOPIC_DIALOGS);
+    }
     for (const id of touchedSessionIds) topics.push(`session:${id}`);
     if (topics.length > 0) this.emit(topics);
     if (touched) this.scheduleIdleEviction();

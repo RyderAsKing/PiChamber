@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { parseExtensionChatItem, PI_EXTENSION_UI_CUSTOM_TYPE } from './extension-ui'
+import { normalizeExtensionCommandArgs, parseExtensionChatItem, PI_EXTENSION_UI_CUSTOM_TYPE } from './extension-ui'
+
+describe('normalizeExtensionCommandArgs', () => {
+  test('removes command separators and control characters', () => {
+    expect(normalizeExtensionCommandArgs(' first\n/second\r\tvalue\u0000 ')).toBe('first /second  value')
+  })
+})
 
 describe('parseExtensionChatItem', () => {
   test('parses a pichamber.ui entry descriptor', () => {

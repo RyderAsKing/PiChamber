@@ -34,9 +34,10 @@ describe("extension event protocol", () => {
       baseEvent("extension.status", 4, { key: "k", text: "v" }),
       baseEvent("extension.widget", 5, { key: "w", lines: ["a"] }),
       baseEvent("extension.dialog", 6, { requestId: "r1", method: "confirm", title: "T" }),
-      baseEvent("extension.ui", 7, { id: "panel-1", title: "Panel", component: "progress", props: { value: 10 } }),
-      baseEvent("extension.app", 8, { appId: "app-1", title: "App", html: "<p>hi</p>" }),
-      baseEvent("extension.error", 9, { source: "/ext.ts", message: "boom" }),
+      baseEvent("extension.dialog.dismiss", 7, { requestId: "r1", reason: "answered" }),
+      baseEvent("extension.ui", 8, { id: "panel-1", title: "Panel", component: "progress", props: { value: 10 } }),
+      baseEvent("extension.app", 9, { appId: "app-1", title: "App", html: "<p>hi</p>" }),
+      baseEvent("extension.error", 10, { source: "/ext.ts", message: "boom" }),
     ]
     for (const event of events) expect(isPiEvent(event)).toBe(true)
   })
@@ -106,8 +107,14 @@ describe("extension event reduction", () => {
     const session = state.bySession.get("sess-1")!
     expect(session.extensionDialogs.map((dialog) => dialog.requestId)).toEqual(["r1", "r2"])
 
-    const dismissed = dismissExtensionDialog(state, "sess-1", "r1")
-    expect(dismissed.bySession.get("sess-1")?.extensionDialogs.map((dialog) => dialog.requestId)).toEqual(["r2"])
+    state = applyPiEvent(state, baseEvent("extension.dialog.dismiss", 3, {
+      requestId: "r1",
+      reason: "timeout",
+    })).state
+    expect(state.bySession.get("sess-1")?.extensionDialogs.map((dialog) => dialog.requestId)).toEqual(["r2"])
+
+    const dismissed = dismissExtensionDialog(state, "sess-1", "r2")
+    expect(dismissed.bySession.get("sess-1")?.extensionDialogs).toEqual([])
     expect(dismissExtensionDialog(state, "sess-1", "missing")).toBe(state)
   })
 
@@ -148,8 +155,22 @@ describe("snapshot extension state", () => {
     expect([...session.extensionStatuses.entries()]).toEqual([["a", "one"], ["b", "two"]])
     expect([...session.extensionWidgets.entries()].map(([key, value]) => [key, value.lines])).toEqual([["w", ["hello"]]])
     expect(session.extensionDialogs.map((dialog) => dialog.requestId)).toEqual(["r1"])
+
+    state = applyPiEvent(state, baseEvent("session.snapshot", 11, {
+      snapshot: {
+        sessionId: "sess-1",
+        directory: "/work",
+        isStreaming: false,
+        lifecycle: "idle",
+        queue: { steering: 0, followUp: 0 },
+        lastSequence: 11,
+        extensionDialogs: [],
+      },
+    } as never)).state
+    expect(state.bySession.get("sess-1")!.extensionDialogs).toEqual([])
+
     // Later delta should merge without wiping snapshot state
-    state = applyPiEvent(state, baseEvent("extension.status", 11, { key: "c", text: "three" })).state
+    state = applyPiEvent(state, baseEvent("extension.status", 12, { key: "c", text: "three" })).state
     expect([...state.bySession.get("sess-1")!.extensionStatuses.keys()].sort()).toEqual(["a", "b", "c"])
   })
 })

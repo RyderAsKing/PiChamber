@@ -191,6 +191,8 @@ describe('Pi session daemon extension bridging', () => {
 
     await client.request('extensions.respond', { requestId: dialogRequest.payload.requestId, confirmed: true });
     await expect(confirmPromise).resolves.toBe(true);
+    const confirmDismiss = await client.next((message) => message.event === 'extension.dialog.dismiss' && message.payload?.requestId === dialogRequest.payload.requestId);
+    expect(confirmDismiss.payload.reason).toBe('answered');
 
     const selectPromise = session.boundBindings.uiContext.select('Pick one:', ['A', 'B']);
     const selectRequest = await client.next((message) => message.event === 'extension.dialog' && message.payload?.method === 'select');
@@ -203,6 +205,8 @@ describe('Pi session daemon extension bridging', () => {
     expect(inputRequest.payload.placeholder).toBe('placeholder');
     await client.request('extensions.respond', { requestId: inputRequest.payload.requestId, cancelled: true });
     await expect(cancelPromise).resolves.toBeUndefined();
+    const cancelDismiss = await client.next((message) => message.event === 'extension.dialog.dismiss' && message.payload?.requestId === inputRequest.payload.requestId);
+    expect(cancelDismiss.payload.reason).toBe('cancelled');
   });
 
   it('reports unknown dialog requests as not pending and honors dialog timeouts', async () => {
@@ -211,8 +215,10 @@ describe('Pi session daemon extension bridging', () => {
     expect(unknown.result).toEqual({ resolved: false });
 
     const timedPromise = sessions[0].boundBindings.uiContext.confirm('Fast?', 'Decide quickly', { timeout: 20 });
-    await client.next((message) => message.event === 'extension.dialog');
+    const timedDialog = await client.next((message) => message.event === 'extension.dialog');
     await expect(timedPromise).resolves.toBe(false);
+    const dismissal = await client.next((message) => message.event === 'extension.dialog.dismiss' && message.payload?.requestId === timedDialog.payload.requestId);
+    expect(dismissal.payload.reason).toBe('timeout');
   });
 
   it('publishes fire-and-forget extension UI events and extension errors', async () => {

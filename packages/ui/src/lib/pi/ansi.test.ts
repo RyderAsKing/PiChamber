@@ -41,8 +41,8 @@ describe("extractAnsiTruecolor", () => {
   })
 
   test("returns undefined for plain text and non-truecolor SGR", () => {
-    expect(extractAnsiTruecolor("plain status")).toBeUndefined()
-    expect(extractAnsiTruecolor("\u001b[31mred\u001b[0m")).toBeUndefined()
+    expect(extractAnsiTruecolor("plain status")).toBe(undefined)
+    expect(extractAnsiTruecolor("\u001b[31mred\u001b[0m")).toBe(undefined)
   })
 
   test("uses the first truecolor when several appear", () => {

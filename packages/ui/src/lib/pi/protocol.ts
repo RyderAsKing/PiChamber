@@ -465,6 +465,7 @@ export type PiEventName =
   | 'extension.status'
   | 'extension.widget'
   | 'extension.dialog'
+  | 'extension.dialog.dismiss'
   | 'extension.ui'
   | 'extension.app'
   | 'extension.error';
@@ -739,6 +740,12 @@ export interface PiExtensionDialogPayload {
 
 export type PiExtensionDialogEvent = PiEventEnvelope<'extension.dialog', PiExtensionDialogPayload>;
 
+/** Authoritative removal of a dialog after response, timeout, abort, or runtime disposal. */
+export type PiExtensionDialogDismissEvent = PiEventEnvelope<
+  'extension.dialog.dismiss',
+  { requestId: string; reason: 'answered' | 'cancelled' | 'timeout' | 'aborted' | 'session-closed' | 'daemon-stopped' }
+>;
+
 /** Answer for a blocking extension dialog. Omit all answer fields to cancel. */
 export interface PiExtensionDialogResponseInput {
   requestId: string;
@@ -823,6 +830,7 @@ export type PiSessionEvent =
   | PiExtensionStatusEvent
   | PiExtensionWidgetEvent
   | PiExtensionDialogEvent
+  | PiExtensionDialogDismissEvent
   | PiExtensionUiEvent
   | PiExtensionAppEvent
   | PiExtensionErrorEvent;
@@ -855,6 +863,7 @@ export const PI_EVENT_KINDS = [
   'extension.status',
   'extension.widget',
   'extension.dialog',
+  'extension.dialog.dismiss',
   'extension.ui',
   'extension.app',
   'extension.error',

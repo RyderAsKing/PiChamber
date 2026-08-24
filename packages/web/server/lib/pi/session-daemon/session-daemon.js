@@ -338,12 +338,10 @@ export function createSessionDaemon({
   // `extensions.respond` daemon command.
   const pendingExtensionDialogs = new Map();
 
-  const cancelPendingExtensionDialogs = (sessionId, reason = 'cancelled') => {
-    for (const [requestId, pending] of pendingExtensionDialogs) {
+  const cancelPendingExtensionDialogs = (sessionId, reason = 'aborted') => {
+    for (const pending of pendingExtensionDialogs.values()) {
       if (sessionId !== undefined && pending.sessionId !== sessionId) continue;
-      clearTimeout(pending.timer);
-      pendingExtensionDialogs.delete(requestId);
-      pending.settle({});
+      pending.settle({}, reason);
     }
   };
 
@@ -367,15 +365,17 @@ export function createSessionDaemon({
     const dialog = (method, fields, opts, defaultValue, parseResponse) => {
       const requestId = randomUUID();
       return new Promise((resolve) => {
-        const settle = (response) => {
+        const settle = (response, reason = 'answered') => {
+          if (pendingExtensionDialogs.get(requestId)?.settle !== settle) return;
           clearTimeout(timer);
           signal?.removeEventListener('abort', onAbort);
-          if (pendingExtensionDialogs.get(requestId)?.settle === settle) pendingExtensionDialogs.delete(requestId);
+          pendingExtensionDialogs.delete(requestId);
+          publish('extension.dialog.dismiss', { requestId, reason }, sessionId);
           resolve(parseResponse(response));
         };
-        const onAbort = () => settle({});
+        const onAbort = () => settle({}, 'aborted');
         const timer = opts?.timeout
-          ? setTimeout(() => settle({}), opts.timeout)
+          ? setTimeout(() => settle({}, 'timeout'), opts.timeout)
           : undefined;
         const signal = opts?.signal;
         signal?.addEventListener('abort', onAbort, { once: true });
@@ -449,8 +449,10 @@ export function createSessionDaemon({
       editor: async (title, prefill) => {
         const requestId = randomUUID();
         return new Promise((resolve) => {
-          const settle = (response) => {
-            if (pendingExtensionDialogs.get(requestId)?.settle === settle) pendingExtensionDialogs.delete(requestId);
+          const settle = (response, reason = 'answered') => {
+            if (pendingExtensionDialogs.get(requestId)?.settle !== settle) return;
+            pendingExtensionDialogs.delete(requestId);
+            publish('extension.dialog.dismiss', { requestId, reason }, sessionId);
             resolve(typeof response?.value === 'string' ? response.value : undefined);
           };
           const payload = {
@@ -602,12 +604,10 @@ export function createSessionDaemon({
       return { resolved: false };
     }
     if (payload.directory !== undefined) await resolveDirectory(payload.directory);
-    clearTimeout(pending.timer);
-    pendingExtensionDialogs.delete(payload.requestId);
     if (payload.cancelled === true) {
       // Dialog closures derive their typed result (undefined/false) from an
       // empty response, which mirrors a timeout or explicit cancellation.
-      pending.settle({});
+      pending.settle({}, 'cancelled');
     } else if (payload.confirmed === true) {
       pending.settle({ confirmed: true });
     } else if (typeof payload.value === 'string') {
@@ -679,7 +679,7 @@ export function createSessionDaemon({
     const statusesForSnapshot = snapshotSessionId ? extensionStatusesBySession.get(snapshotSessionId) : undefined;
     const widgetsForSnapshot = snapshotSessionId ? extensionWidgetsBySession.get(snapshotSessionId) : undefined;
     const dialogsForSnapshot = snapshotSessionId
-      ? [...pendingExtensionDialogs.values()].filter((pending) => pending.sessionId === snapshotSessionId).map((pending) => pending.payload).slice(0, 20)
+      ? [...pendingExtensionDialogs.values()].filter((pending) => pending.sessionId === snapshotSessionId).map((pending) => pending.payload)
       : [];
     const panelsForSnapshot = snapshotSessionId ? extensionPanelsBySession.get(snapshotSessionId) : undefined;
     const appsForSnapshot = snapshotSessionId ? extensionAppsBySession.get(snapshotSessionId) : undefined;

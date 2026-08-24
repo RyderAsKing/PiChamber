@@ -71,6 +71,15 @@ describe('projectEventFrame extension panels and apps', () => {
     expect(projected?.payload.fields[0]).toMatchObject({ id: 'name', type: 'text', required: true });
     expect(projected?.payload.fields[1]).toMatchObject({ id: 'level', initial: 'high', options: ['low', 'high'] });
 
+    expect(projectEventFrame(frame('extension.dialog.dismiss', {
+      requestId: 'form-1',
+      reason: 'timeout',
+    }))?.payload).toEqual({ requestId: 'form-1', reason: 'timeout' });
+    expect(projectEventFrame(frame('extension.dialog.dismiss', {
+      requestId: 'form-1',
+      reason: 'invented',
+    }))).toBeNull();
+
     // Unknown dialog methods fail closed: the frame is dropped.
     expect(projectEventFrame(frame('extension.dialog', {
       requestId: 'r1',

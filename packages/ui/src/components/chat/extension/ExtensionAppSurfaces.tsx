@@ -2,6 +2,7 @@ import * as React from 'react';
 
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { getPiSessionStore } from '@/apps/pi-session-store';
+import { normalizeExtensionCommandArgs } from '@/lib/pi/extension-ui';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
 
@@ -75,7 +76,7 @@ const ExtensionAppFrame: React.FC<{
       if (!data || data.type !== 'pichamber-app-command') return;
       if (data.appId !== appId || data.token !== token) return;
       const command = typeof data.command === 'string' ? data.command : '';
-      const args = typeof data.args === 'string' ? data.args.slice(0, 2_000) : '';
+      const args = normalizeExtensionCommandArgs(typeof data.args === 'string' ? data.args : undefined);
       if (!COMMAND_PATTERN.test(command)) return;
       const text = args.length > 0 ? `/${command} ${args}` : `/${command}`;
       void getPiSessionStore().prompt(sessionId, text, 'prompt').catch(() => {});

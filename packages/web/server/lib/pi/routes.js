@@ -604,6 +604,17 @@ export const projectEventFrame = (frame) => {
         },
       };
     }
+    case 'extension.dialog.dismiss': {
+      if (typeof frame.payload.requestId !== 'string' || frame.payload.requestId.length === 0 || frame.payload.requestId.length > 512) return null;
+      if (!['answered', 'cancelled', 'timeout', 'aborted', 'session-closed', 'daemon-stopped'].includes(frame.payload.reason)) return null;
+      return {
+        ...common,
+        payload: {
+          requestId: frame.payload.requestId.slice(0, 512),
+          reason: frame.payload.reason,
+        },
+      };
+    }
     case 'extension.ui': {
       if (typeof frame.payload.id !== 'string' || frame.payload.id.length === 0 || frame.payload.id.length > 128) return null;
       const hasBody = typeof frame.payload.component === 'string'

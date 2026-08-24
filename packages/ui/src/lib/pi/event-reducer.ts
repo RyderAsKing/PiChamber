@@ -834,16 +834,12 @@ export const applyPiEvent = (
           session.extensionWidgets = new Map(event.payload.snapshot.extensionWidgets.map((entry) => [entry.key, { lines: entry.lines, placement: entry.placement === 'belowEditor' ? 'belowEditor' : 'aboveEditor' }]));
         }
         if (Array.isArray(event.payload.snapshot.extensionDialogs)) {
-          const incoming = event.payload.snapshot.extensionDialogs.filter((dialog) => typeof dialog.requestId === 'string' && typeof dialog.method === 'string' && typeof dialog.title === 'string');
-          // Merge with existing pending dialogs: snapshot is authoritative for
-          // its session, but preserve any newer dialogs that already arrived
-          // via delta events with greater sequence numbers.
-          const existingIds = new Set(session.extensionDialogs.map((dialog) => dialog.requestId));
-          const merged = [...session.extensionDialogs];
-          for (const dialog of incoming) {
-            if (!existingIds.has(dialog.requestId)) merged.push(dialog as unknown as PiExtensionDialogPayload);
-          }
-          session.extensionDialogs = merged;
+          // The snapshot is authoritative for pending dialogs. Keeping a local
+          // request that the daemon omitted would resurrect an answered,
+          // timed-out, or aborted blocking modal after reconnect.
+          session.extensionDialogs = event.payload.snapshot.extensionDialogs.filter(
+            (dialog) => typeof dialog.requestId === 'string' && typeof dialog.method === 'string' && typeof dialog.title === 'string',
+          ) as PiExtensionDialogPayload[];
         }
         if (Array.isArray(event.payload.snapshot.extensionPanels)) {
           const panels = new Map<string, PiExtensionPanelPayload>();
@@ -1042,6 +1038,13 @@ export const applyPiEvent = (
       // reconnect) must not stack.
       if (session.extensionDialogs.some((dialog) => dialog.requestId === event.payload.requestId)) break;
       session.extensionDialogs = [...session.extensionDialogs, event.payload];
+      break;
+    }
+    case 'extension.dialog.dismiss': {
+      if (!session.extensionDialogs.some((dialog) => dialog.requestId === event.payload.requestId)) break;
+      session.extensionDialogs = session.extensionDialogs.filter(
+        (dialog) => dialog.requestId !== event.payload.requestId,
+      );
       break;
     }
     case 'extension.ui': {
