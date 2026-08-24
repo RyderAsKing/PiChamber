@@ -17,7 +17,7 @@ import {
 // "[Bug] new worktree， Filename too long"
 //
 // PiChamber places worktrees under:
-//   <XDG_DATA_HOME>/opencode/worktree/<40-char root commit hash>/<worktree name>
+//   <PICHAMBER_DATA_DIR>/worktree/<40-char root commit hash>/<worktree name>
 // and populates them with `git reset --hard`. On Windows, that deep prefix plus
 // a deeply nested repo file (e.g. yudao ~173 chars) exceeds MAX_PATH (260) and
 // git aborts with "Filename too long" unless `core.longpaths` is enabled.
@@ -58,9 +58,9 @@ describe('issue #2746 - worktree long path support', () => {
   it('enables core.longpaths and populates a deeply nested worktree checkout', async () => {
     if (!canRunGit()) return;
 
-    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const previousPiChamberDataDir = process.env.PICHAMBER_DATA_DIR;
     const dataHome = createTempDir();
-    process.env.XDG_DATA_HOME = dataHome;
+    process.env.PICHAMBER_DATA_DIR = dataHome;
 
     try {
       const repo = createTempDir();
@@ -109,10 +109,10 @@ describe('issue #2746 - worktree long path support', () => {
       expect(fs.existsSync(path.join(created.path, deepRelative))).toBe(true);
       expect(fs.existsSync(path.join(created.path, 'README.md'))).toBe(true);
     } finally {
-      if (previousXdgDataHome === undefined) {
-        delete process.env.XDG_DATA_HOME;
+      if (previousPiChamberDataDir === undefined) {
+        delete process.env.PICHAMBER_DATA_DIR;
       } else {
-        process.env.XDG_DATA_HOME = previousXdgDataHome;
+        process.env.PICHAMBER_DATA_DIR = previousPiChamberDataDir;
       }
     }
   });
@@ -136,9 +136,9 @@ describe('issue #2746 - worktree long path support', () => {
   it('surfaces guided bootstrap failure when a path component exceeds the filesystem name limit', async () => {
     if (!canRunGit()) return;
 
-    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const previousPiChamberDataDir = process.env.PICHAMBER_DATA_DIR;
     const dataHome = createTempDir();
-    process.env.XDG_DATA_HOME = dataHome;
+    process.env.PICHAMBER_DATA_DIR = dataHome;
 
     try {
       const repo = createTempDir();
@@ -176,10 +176,10 @@ describe('issue #2746 - worktree long path support', () => {
       expect(status?.error).toMatch(/path-length limit/i);
       expect(runGit(created.path, ['config', '--get', 'core.longpaths']).trim()).toBe('true');
     } finally {
-      if (previousXdgDataHome === undefined) {
-        delete process.env.XDG_DATA_HOME;
+      if (previousPiChamberDataDir === undefined) {
+        delete process.env.PICHAMBER_DATA_DIR;
       } else {
-        process.env.XDG_DATA_HOME = previousXdgDataHome;
+        process.env.PICHAMBER_DATA_DIR = previousPiChamberDataDir;
       }
     }
   });

@@ -517,11 +517,11 @@ describe('createWorktree', () => {
   it('reports directory, Git, and setup bootstrap phases while preserving legacy status', async () => {
     if (!canRunGit()) return;
 
-    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const previousPiChamberDataDir = process.env.PICHAMBER_DATA_DIR;
     const dataHome = createTempDir();
     const setupMarker = path.join(dataHome, 'setup-started');
     const setupScript = path.join(dataHome, 'setup-phase.cjs');
-    process.env.XDG_DATA_HOME = dataHome;
+    process.env.PICHAMBER_DATA_DIR = dataHome;
 
     fs.writeFileSync(
       setupScript,
@@ -568,10 +568,10 @@ describe('createWorktree', () => {
         error: null,
       });
     } finally {
-      if (previousXdgDataHome === undefined) {
-        delete process.env.XDG_DATA_HOME;
+      if (previousPiChamberDataDir === undefined) {
+        delete process.env.PICHAMBER_DATA_DIR;
       } else {
-        process.env.XDG_DATA_HOME = previousXdgDataHome;
+        process.env.PICHAMBER_DATA_DIR = previousPiChamberDataDir;
       }
     }
   });
@@ -579,10 +579,10 @@ describe('createWorktree', () => {
   it('reports setup command failure after Git becomes ready', async () => {
     if (!canRunGit()) return;
 
-    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const previousPiChamberDataDir = process.env.PICHAMBER_DATA_DIR;
     const dataHome = createTempDir();
     const setupScript = path.join(dataHome, 'setup-failure.cjs');
-    process.env.XDG_DATA_HOME = dataHome;
+    process.env.PICHAMBER_DATA_DIR = dataHome;
     fs.writeFileSync(setupScript, 'process.exitCode = 1;\n');
 
     try {
@@ -612,8 +612,8 @@ describe('createWorktree', () => {
         error: 'Worktree setup command failed',
       });
     } finally {
-      if (previousXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
-      else process.env.XDG_DATA_HOME = previousXdgDataHome;
+      if (previousPiChamberDataDir === undefined) delete process.env.PICHAMBER_DATA_DIR;
+      else process.env.PICHAMBER_DATA_DIR = previousPiChamberDataDir;
     }
   });
 
@@ -629,9 +629,9 @@ describe('createWorktree', () => {
   it('runs the post-checkout hook after populating a created worktree', async () => {
     if (!canRunGit()) return;
 
-    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const previousPiChamberDataDir = process.env.PICHAMBER_DATA_DIR;
     const dataHome = createTempDir();
-    process.env.XDG_DATA_HOME = dataHome;
+    process.env.PICHAMBER_DATA_DIR = dataHome;
 
     try {
       const repo = createTempDir();
@@ -670,10 +670,10 @@ describe('createWorktree', () => {
       expect(flag).toBe('1');
       expect(cwd).toBe(fs.realpathSync(created.path));
     } finally {
-      if (previousXdgDataHome === undefined) {
-        delete process.env.XDG_DATA_HOME;
+      if (previousPiChamberDataDir === undefined) {
+        delete process.env.PICHAMBER_DATA_DIR;
       } else {
-        process.env.XDG_DATA_HOME = previousXdgDataHome;
+        process.env.PICHAMBER_DATA_DIR = previousPiChamberDataDir;
       }
     }
   });
@@ -681,9 +681,9 @@ describe('createWorktree', () => {
   it('skips a non-executable post-checkout hook', async () => {
     if (!canRunGit()) return;
 
-    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const previousPiChamberDataDir = process.env.PICHAMBER_DATA_DIR;
     const dataHome = createTempDir();
-    process.env.XDG_DATA_HOME = dataHome;
+    process.env.PICHAMBER_DATA_DIR = dataHome;
 
     try {
       const repo = createTempDir();
@@ -714,10 +714,10 @@ describe('createWorktree', () => {
       ).toBe('ready');
       expect(fs.existsSync(hookLog)).toBe(false);
     } finally {
-      if (previousXdgDataHome === undefined) {
-        delete process.env.XDG_DATA_HOME;
+      if (previousPiChamberDataDir === undefined) {
+        delete process.env.PICHAMBER_DATA_DIR;
       } else {
-        process.env.XDG_DATA_HOME = previousXdgDataHome;
+        process.env.PICHAMBER_DATA_DIR = previousPiChamberDataDir;
       }
     }
   });
@@ -725,9 +725,9 @@ describe('createWorktree', () => {
   it('does not fail worktree bootstrap when the post-checkout hook fails', async () => {
     if (!canRunGit()) return;
 
-    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const previousPiChamberDataDir = process.env.PICHAMBER_DATA_DIR;
     const dataHome = createTempDir();
-    process.env.XDG_DATA_HOME = dataHome;
+    process.env.PICHAMBER_DATA_DIR = dataHome;
 
     try {
       const repo = createTempDir();
@@ -757,10 +757,10 @@ describe('createWorktree', () => {
       ).toBe('ready');
       expect(fs.readFileSync(hookLog, 'utf8')).toBe('ran');
     } finally {
-      if (previousXdgDataHome === undefined) {
-        delete process.env.XDG_DATA_HOME;
+      if (previousPiChamberDataDir === undefined) {
+        delete process.env.PICHAMBER_DATA_DIR;
       } else {
-        process.env.XDG_DATA_HOME = previousXdgDataHome;
+        process.env.PICHAMBER_DATA_DIR = previousPiChamberDataDir;
       }
     }
   });
@@ -768,12 +768,12 @@ describe('createWorktree', () => {
   it('waits for active bootstrap work before removing a worktree', async () => {
     if (!canRunGit()) return;
 
-    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const previousPiChamberDataDir = process.env.PICHAMBER_DATA_DIR;
     const dataHome = createTempDir();
     const setupStarted = path.join(dataHome, 'remove-race-started');
     const setupCompleted = path.join(dataHome, 'remove-race-completed');
     const setupScript = path.join(dataHome, 'remove-race.cjs');
-    process.env.XDG_DATA_HOME = dataHome;
+    process.env.PICHAMBER_DATA_DIR = dataHome;
 
     fs.writeFileSync(
       setupScript,
@@ -814,10 +814,10 @@ describe('createWorktree', () => {
         phase: 'setup-ready',
       });
     } finally {
-      if (previousXdgDataHome === undefined) {
-        delete process.env.XDG_DATA_HOME;
+      if (previousPiChamberDataDir === undefined) {
+        delete process.env.PICHAMBER_DATA_DIR;
       } else {
-        process.env.XDG_DATA_HOME = previousXdgDataHome;
+        process.env.PICHAMBER_DATA_DIR = previousPiChamberDataDir;
       }
     }
   });
@@ -847,9 +847,9 @@ describe('createWorktree', () => {
   it('preflights fast create branch-in-use failures before creating the candidate directory', async () => {
     if (!canRunGit()) return;
 
-    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const previousPiChamberDataDir = process.env.PICHAMBER_DATA_DIR;
     const dataHome = createTempDir();
-    process.env.XDG_DATA_HOME = dataHome;
+    process.env.PICHAMBER_DATA_DIR = dataHome;
 
     try {
       const repo = createTempDir();
@@ -874,13 +874,13 @@ describe('createWorktree', () => {
         returnAfterDirectoryCreated: true,
       })).rejects.toThrow(`Branch is already checked out in ${canonicalWorktree}`);
 
-      const candidateDirectory = path.join(dataHome, 'opencode', 'worktree', projectID, 'feature-in-use');
+      const candidateDirectory = path.join(dataHome, 'pi', 'worktree', projectID, 'feature-in-use');
       expect(fs.existsSync(candidateDirectory)).toBe(false);
     } finally {
-      if (previousXdgDataHome === undefined) {
-        delete process.env.XDG_DATA_HOME;
+      if (previousPiChamberDataDir === undefined) {
+        delete process.env.PICHAMBER_DATA_DIR;
       } else {
-        process.env.XDG_DATA_HOME = previousXdgDataHome;
+        process.env.PICHAMBER_DATA_DIR = previousPiChamberDataDir;
       }
     }
   });
@@ -894,9 +894,9 @@ describe('removeWorktree', () => {
   it('forgets unmanaged orphan worktree entries without deleting files', async () => {
     if (!canRunGit()) return;
 
-    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const previousPiChamberDataDir = process.env.PICHAMBER_DATA_DIR;
     const dataHome = createTempDir();
-    process.env.XDG_DATA_HOME = dataHome;
+    process.env.PICHAMBER_DATA_DIR = dataHome;
 
     try {
       const repo = createTempDir();
@@ -917,10 +917,10 @@ describe('removeWorktree', () => {
       })).resolves.toBe(true);
       expect(fs.existsSync(canary)).toBe(true);
     } finally {
-      if (previousXdgDataHome === undefined) {
-        delete process.env.XDG_DATA_HOME;
+      if (previousPiChamberDataDir === undefined) {
+        delete process.env.PICHAMBER_DATA_DIR;
       } else {
-        process.env.XDG_DATA_HOME = previousXdgDataHome;
+        process.env.PICHAMBER_DATA_DIR = previousPiChamberDataDir;
       }
     }
   });

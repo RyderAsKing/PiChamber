@@ -212,6 +212,8 @@ Session display order is last-prompt recency, not last turn stage. `session-orde
 
 Sending a prompt promotes that session immediately (`observeSessionActivityEvent('active', reorder)` plus a catalog `updatedAt` bump). Finishing or switching sessions does not reorder. Status dots still follow catalog `lifecycle` (`idle` when the agent is done).
 
+Low-frequency `extension.catalog` events are reduced per session, then coalesced by directory within the ordered event batch. Provider refreshes preserve the previous catalog on failure; resource changes invalidate the skills TTL and fetch immediately only for the focused directory. Command autocomplete observes only the command revision, so a provider-only mutation does not rebuild its list. `session.tree.updated` increments a leaf revision used by an open Timeline dialog; a failed tree reload preserves the last successful labels.
+
 A provider stream that ends without `finish_reason` publishes `session.error` and must complete the in-flight assistant (duration, running tools) so the chat does not stay on "Analyzing". The next send is a new turn even if the UI still tried steer/follow-up.
 
 Starts are persisted so a reload resumes the same count, but a persisted start is a lookup table and never a claim of activity. **Nothing in the protocol marks where a turn begins.** OpenCode calls `SessionStatus.set` with `busy` at every step of the agent loop and publishes an event each time, so a busy event means "still running", not "just started"; after a refresh one of those repeats normally beats the first status snapshot, so treating it as a turn boundary reset the counter on nearly every reload. Turn *ends* are marked — `session.idle` and `session.error` fire once, live, and retire the persisted record — while a snapshot that omits a session is not evidence of anything, since it may simply not see it yet.
@@ -325,7 +327,7 @@ Rules:
 2. `attachment` and `worktreeMetadata` hold the worktree path this client asked for, before the server canonicalized it. They are a hint for a session sync has not indexed yet, never a correction of a confirmed directory — otherwise a stale local path re-creates the very mismatch this precedence exists to prevent.
 3. Never persist or rank a guessed directory. `selectSession` may fall back to the active directory to keep routing usable, but that value is not written to runtime memory, not written to the last-active snapshot, and not passed as `selected` — a persisted guess outlives the race that produced it and survives reloads and restarts.
 4. Components must not read `currentSessionDirectory` to build request or queue keys; use `getDirectoryForSession()` so every consumer resolves identically.
-5. A disagreement between sources is logged once per session, and `__opencodeDebug.diagnoseSessionDirectory()` reports every source in precedence order.
+5. A disagreement between sources is logged once per session, and `__piDebug.diagnoseSessionDirectory()` reports every source in precedence order.
 
 ## Session action rules
 

@@ -4,6 +4,7 @@ import type { SidebarSection } from '@/constants/sidebar';
 import { createDeferredSafeJSONStorage } from './utils/safeStorage';
 import { SEMANTIC_TYPOGRAPHY, getTypographyVariable, type SemanticTypographyKey } from '@/lib/typography';
 import type { ShortcutCombo } from '@/lib/shortcuts';
+import type { CommandTrigger } from '@/lib/pi/command-triggers';
 import type { DraftStarterRef } from '@/lib/draftStarters';
 import { DEFAULT_MONO_FONT, DEFAULT_UI_FONT, type MonoFontOption, type UiFontOption } from '@/lib/fontOptions';
 import { getStoredMobileKeyboardMode, type MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
@@ -724,6 +725,7 @@ interface UIStore {
   showSplitAssistantMessageActions: boolean;
   isExpandedInput: boolean;
   shortcutOverrides: Record<string, ShortcutCombo>;
+  commandTriggers: CommandTrigger[];
   fileEditorKeymap: FileEditorKeymap;
 
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
@@ -1000,6 +1002,7 @@ export const useUIStore = create<UIStore>()(
         draftStartersVisible: true,
         isExpandedInput: false,
         shortcutOverrides: {},
+        commandTriggers: [],
         fileEditorKeymap: 'default',
 
         setTheme: (theme) => {

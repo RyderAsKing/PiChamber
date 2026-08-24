@@ -1,6 +1,7 @@
 import {
   applyPiEvent,
   createReducerState,
+  dismissExtensionDialog,
   hydrateSessionFromDetail,
   projectSession,
   aliasSyntheticUserIfPersisted,
@@ -21,6 +22,8 @@ import { resolveCreateThinking } from '@/lib/pi/thinking';
 import { deriveSessionTitle } from '@/lib/chat/deriveSessionTitle';
 import { normalizePath } from '@/lib/pathNormalization';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import { useConfigStore } from '@/stores/useConfigStore';
+import { invalidateSkillsLoadCache, useSkillsStore } from '@/stores/useSkillsStore';
 import { adoptServerRunTiming, observeSessionActivityTiming, removeSessionActivityTiming } from '@/sync/session-activity-timing';
 import { observeSessionActivityEvent, removeSessionOrdering } from '@/sync/session-ordering';
 import { notifySessionTurnComplete } from '@/sync/notification-store';
@@ -89,6 +92,8 @@ const lifecycleFromEvent = (event: PiSessionEvent): LiveSessionLifecycle | undef
  * - `catalog`: `state.catalog` identity changed (lifecycle, title,
  *   membership, stub insert). Token deltas that leave the catalog ref
  *   unchanged do **not** emit this.
+ * - `dialogs`: runtime-wide pending extension-dialog membership. It changes
+ *   only when dialogs open, settle, or reconcile from authoritative state.
  * - `chrome`: cluster UI — `connection`, `error`, `directory`,
    *   `selectedSessionId`, `sessions[]`, `sessionsListStatus`,
    *   `focusPending`, `hydratedSessionIds`, `sessionLoadErrorById`.
@@ -97,9 +102,10 @@ const lifecycleFromEvent = (event: PiSessionEvent): LiveSessionLifecycle | undef
  *   unmigrated caller; production hooks pass an explicit topic so the
  *   broadcast path is unused on the token hot path.
  */
-export type PiSessionTopic = `session:${PiSessionId}` | 'catalog' | 'chrome' | '*';
+export type PiSessionTopic = `session:${PiSessionId}` | 'catalog' | 'chrome' | 'dialogs' | '*';
 const TOPIC_BROADCAST = '*';
 const TOPIC_CATALOG = 'catalog';
+const TOPIC_DIALOGS = 'dialogs';
 const TOPIC_CHROME = 'chrome';
 
 export type PiConnectionState = 'loading' | 'ready' | 'unavailable' | 'error';
@@ -262,6 +268,8 @@ export class PiSessionStore {
    *  refresh has begun, or after a runtime switch) commit nothing. Cleared
    *  on `dispose` / `clear` / `resetForRuntime`. */
   private directoryRefreshGenerationByDirectory = new Map<string, number>();
+  private providerRefreshRevisionByDirectory = new Map<string, number>();
+  private providerRefreshTaskByDirectory = new Map<string, Promise<void>>();
   private evictionScheduled = false;
   /** Sessions currently being re-fetched because a live event arrived after
    *  their transcript was dropped. Dedupes overlapping prompt/event hydrates. */
@@ -314,6 +322,7 @@ export class PiSessionStore {
     };
   };
   dispose = () => {
+    this.providerRefreshRevisionByDirectory.clear();
     this.runtimeGeneration += 1;
     this.focusGeneration += 1;
     this.pendingFocus = null;
@@ -423,6 +432,7 @@ export class PiSessionStore {
     this.emitChrome();
   }
   clear = () => {
+    this.providerRefreshRevisionByDirectory.clear();
     this.runtimeGeneration += 1;
     this.focusGeneration += 1;
     this.pendingFocus = null;
@@ -911,6 +921,7 @@ export class PiSessionStore {
       if (preferredSessionId && preferredSessionId !== this.state.selectedSessionId) await this.select(preferredSessionId);
       return;
     }
+    this.providerRefreshRevisionByDirectory.clear();
     const expected = ++this.runtimeGeneration;
     this.focusGeneration = expected;
     this.pendingFocus = null;
@@ -1310,6 +1321,13 @@ export class PiSessionStore {
           toolsByCallId: new Map(),
           streamingMessages: new Set(),
           queue: { steering: 0, followUp: 0 },
+          extensionStatuses: new Map(),
+          extensionWidgets: new Map(),
+          extensionDialogs: [],
+          extensionNotices: [],
+          extensionErrors: [],
+          extensionPanels: new Map(),
+          extensionApps: new Map(),
         };
     const nextBySession = new Map(this.state.reducer.bySession);
     nextBySession.set(sessionId, nextSession);
@@ -1373,6 +1391,24 @@ export class PiSessionStore {
   providers = () => piClient.listProviders({ runtimeKey: getRuntimeKey() });
   upload = (input: { filename: string; mime: string; base64: string }) => piClient.createAttachment(input, this.scope());
   selected(): PiProjectedSession | null { const id = this.state.selectedSessionId; const session = id ? this.state.reducer.bySession.get(id) : undefined; return session ? projectSession(session) : null; }
+
+  /** Consume a live editor replacement once so remount/revisit cannot replay it. */
+  consumeExtensionEditor(sessionId: PiSessionId, sequence: number): void {
+    const current = this.state.reducer.bySession.get(sessionId);
+    if (current?.extensionEditor?.sequence !== sequence) return;
+    const bySession = new Map(this.state.reducer.bySession);
+    bySession.set(sessionId, { ...current, extensionEditor: undefined });
+    this.state = { ...this.state, reducer: { ...this.state.reducer, bySession } };
+    this.emit([`session:${sessionId}`]);
+  }
+
+  /** Remove an answered extension dialog from the pending queue (no-op if absent). */
+  dismissExtensionDialog(sessionId: PiSessionId, requestId: string): void {
+    const nextReducer = dismissExtensionDialog(this.state.reducer, sessionId, requestId);
+    if (nextReducer === this.state.reducer) return;
+    this.state = { ...this.state, reducer: nextReducer };
+    this.emit([`session:${sessionId}`, TOPIC_DIALOGS]);
+  }
 
   private sessionFromDetail(detail: Awaited<ReturnType<typeof piClient.getSession>>) {
     return hydrateSessionFromDetail({
@@ -1598,7 +1634,7 @@ export class PiSessionStore {
     // commitHydratedSession always wraps `hydratedSessionIds` in a new
     // Set; chrome listeners must hear that flip every time. The catalog
     // emit is gated on the reference-stable helpers.
-    const hydrateTopics: string[] = [`session:${session.sessionId}`, TOPIC_CHROME];
+    const hydrateTopics: string[] = [`session:${session.sessionId}`, TOPIC_CHROME, TOPIC_DIALOGS];
     if (catalogChanged) hydrateTopics.push(TOPIC_CATALOG);
     this.emit(hydrateTopics);
     this.scheduleIdleEviction();
@@ -1824,7 +1860,7 @@ export class PiSessionStore {
           hydratedSessionIds: new Set(this.hydratedSessionIds),
           ...(catalogChanged ? { catalog: reconnectCatalog } : {}),
         };
-        const reconnectTopics: string[] = [TOPIC_CHROME];
+        const reconnectTopics: string[] = [TOPIC_CHROME, TOPIC_DIALOGS];
         for (const id of mergedSessionIds) reconnectTopics.push(`session:${id}`);
         if (catalogChanged) reconnectTopics.push(TOPIC_CATALOG);
         this.emit(reconnectTopics);
@@ -1943,6 +1979,44 @@ export class PiSessionStore {
     this.state = { ...this.state, sessions: next };
   }
 
+  private requestProviderCatalogRefresh(directory: string, recordMutation = true) {
+    if (recordMutation) {
+      const revision = (this.providerRefreshRevisionByDirectory.get(directory) ?? 0) + 1;
+      this.providerRefreshRevisionByDirectory.set(directory, revision);
+    }
+    if (this.providerRefreshTaskByDirectory.has(directory)) return;
+
+    const expectedRuntimeGeneration = this.runtimeGeneration;
+    let completedRevision = 0;
+    const task = (async () => {
+      while (expectedRuntimeGeneration === this.runtimeGeneration) {
+        const targetRevision = this.providerRefreshRevisionByDirectory.get(directory) ?? 0;
+        if (targetRevision <= completedRevision) return;
+        try {
+          await useConfigStore.getState().loadProviders({ directory, source: 'extension.catalog' });
+        } finally {
+          // Failure preserves the prior provider snapshot. Mark this revision
+          // handled so a broken provider does not create an unbounded retry loop.
+          completedRevision = targetRevision;
+        }
+      }
+    })().catch(() => {
+      // `loadProviders` normally reports failure in store state. Keep this
+      // guard for injected/runtime implementations that reject instead.
+    }).finally(() => {
+      if (this.providerRefreshTaskByDirectory.get(directory) !== task) return;
+      this.providerRefreshTaskByDirectory.delete(directory);
+      const currentRevision = this.providerRefreshRevisionByDirectory.get(directory) ?? 0;
+      if (
+        (expectedRuntimeGeneration !== this.runtimeGeneration && currentRevision > 0)
+        || currentRevision > completedRevision
+      ) {
+        this.requestProviderCatalogRefresh(directory, false);
+      }
+    });
+    this.providerRefreshTaskByDirectory.set(directory, task);
+  }
+
   private restoreTranscript(sessionId: PiSessionId) {
     if (!sessionId || this.restoringTranscriptById.has(sessionId)) return;
     this.restoringTranscriptById.add(sessionId);
@@ -1962,6 +2036,7 @@ export class PiSessionStore {
     let touched = false;
     const restoreIds = new Set<PiSessionId>();
     const touchedSessionIds = new Set<PiSessionId>();
+    const extensionCatalogChanges = new Map<string, { providers: boolean; resources: boolean }>();
     for (const event of events) {
       const missingBefore = !working.bySession.has(event.sessionId);
       const hadCursor = (working.lastSequence.get(event.sessionId) ?? -1) >= 0;
@@ -1972,6 +2047,13 @@ export class PiSessionStore {
       if (event.name === 'session.snapshot') restoreIds.add(event.sessionId);
       applied = true;
       touchedSessionIds.add(event.sessionId);
+      if (event.name === 'extension.catalog') {
+        const previous = extensionCatalogChanges.get(event.directory) ?? { providers: false, resources: false };
+        extensionCatalogChanges.set(event.directory, {
+          providers: previous.providers || event.payload.providers === true,
+          resources: previous.resources || event.payload.resources === true,
+        });
+      }
       this.notePromptProgress(event);
       if (
         this.pendingPromptById.has(event.sessionId)
@@ -2004,10 +2086,22 @@ export class PiSessionStore {
     }
     const topics: string[] = [];
     if (catalogChanged) topics.push(TOPIC_CATALOG);
+    if (events.some((event) => event.name === 'extension.dialog' || event.name === 'extension.dialog.dismiss' || event.name === 'session.snapshot')) {
+      topics.push(TOPIC_DIALOGS);
+    }
     for (const id of touchedSessionIds) topics.push(`session:${id}`);
     if (topics.length > 0) this.emit(topics);
     if (touched) this.scheduleIdleEviction();
     for (const sessionId of restoreIds) this.restoreTranscript(sessionId);
+    for (const [directory, change] of extensionCatalogChanges) {
+      if (change.providers) this.requestProviderCatalogRefresh(directory);
+      if (change.resources) {
+        invalidateSkillsLoadCache(directory);
+        if (normalizePath(directory) === normalizePath(this.state.directory ?? '')) {
+          void useSkillsStore.getState().loadSkills();
+        }
+      }
+    }
   }
 
   /**
@@ -2190,6 +2284,7 @@ export class PiSessionStore {
     void this.reconnect(sessionId, this.runtimeGeneration, getRuntimeKey());
   }
   private resetForRuntime() {
+    this.providerRefreshRevisionByDirectory.clear();
     this.runtimeGeneration += 1;
     this.focusGeneration += 1;
     this.pendingFocus = null;

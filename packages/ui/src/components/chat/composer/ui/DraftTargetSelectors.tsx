@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import {
@@ -12,14 +13,16 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { useTabletLayout } from '@/lib/device';
-import { useUIStore } from '@/stores/useUIStore';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Theme } from '@/types/theme';
 import { getProjectDisplayLabel, type DraftTargetProject } from '../state/useDraftTarget';
 
-const truncateWithEllipsis = (value: string, limit: number): string => {
-    if (value.length <= limit) return value;
-    return `${value.slice(0, limit)}...`;
+const FOLDER_LABEL_MAX_LENGTH = 20;
+const BRANCH_LABEL_MAX_LENGTH = 24;
+
+const truncateWithEllipsis = (value: string, maxLength: number): string => {
+    if (value.length <= maxLength) return value;
+    return `${value.slice(0, maxLength - 1)}…`;
 };
 
 interface BranchOption {
@@ -47,14 +50,18 @@ export interface DraftTargetProps {
 }
 
 /** A project's icon plus its name. */
-export function ProjectLabel({ project }: { project: DraftTargetProject; theme: Theme }) {
-    const isMobileRaw = useUIStore((state) => state.isMobile);
-    const { enabled: isTabletLayout } = useTabletLayout();
-    const isMobile = isMobileRaw && !isTabletLayout;
+export function ProjectLabel({
+    project,
+    maxCharacters,
+}: {
+    project: DraftTargetProject;
+    theme: Theme;
+    maxCharacters?: number;
+}) {
     const rawLabel = getProjectDisplayLabel(project);
-    const label = isMobile ? truncateWithEllipsis(rawLabel, 20) : rawLabel;
+    const label = maxCharacters ? truncateWithEllipsis(rawLabel, maxCharacters) : rawLabel;
     return (
-        <span className="inline-flex min-w-0 items-center gap-1.5">
+        <span className="inline-flex min-w-0 items-center gap-1.5" title={rawLabel}>
             <Icon name={project.kind === 'worktree' ? 'git-branch' : 'folder'} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate text-muted-foreground">{label}</span>
         </span>
@@ -64,19 +71,49 @@ export function ProjectLabel({ project }: { project: DraftTargetProject; theme: 
 const draftSelectTriggerClassName =
     'h-7 min-w-0 w-fit max-w-[48vw] gap-1 border-transparent bg-transparent px-1.5 text-muted-foreground typography-micro font-normal hover:bg-transparent hover:text-foreground data-[popup-open]:bg-transparent [&_svg]:size-3.5 [&_svg]:opacity-70 sm:max-w-[20rem]';
 
-const WorktreeValue = ({ enabled }: { enabled: boolean }) => (
-    <span className="inline-flex min-w-0 items-center gap-1.5">
-        <Icon name={enabled ? 'git-branch' : 'folder'} className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="truncate">{enabled ? 'New worktree' : 'Current checkout'}</span>
-    </span>
+const WorktreeModeToggle = ({
+    checked,
+    onChange,
+    showCheck = true,
+    chromeLess = false,
+}: {
+    checked: boolean;
+    onChange?: (enabled: boolean) => void;
+    showCheck?: boolean;
+    chromeLess?: boolean;
+}) => (
+    <Tooltip delayDuration={300}>
+        <TooltipTrigger asChild>
+            <Button
+                variant={chromeLess ? 'ghost' : 'chip'}
+                size="xs"
+                className={chromeLess
+                    ? 'min-w-0 max-w-[48vw] shrink aria-pressed:bg-interactive-hover aria-pressed:text-foreground sm:max-w-none'
+                    : 'min-w-0 max-w-[48vw] shrink sm:max-w-none'}
+                aria-pressed={checked}
+                onClick={() => onChange?.(!checked)}
+            >
+                <Icon name="git-branch" className="size-3.5" />
+                <span className="truncate">New worktree</span>
+                {checked && showCheck ? <Icon name="check" className="size-3.5" /> : null}
+            </Button>
+        </TooltipTrigger>
+        <TooltipContent side="top" sideOffset={6} className="max-w-72">
+            Starts from the selected branch's latest commit. Uncommitted changes are not copied.
+        </TooltipContent>
+    </Tooltip>
 );
 
-const BranchValue = ({ label }: { label: string | null }) => (
-    <span className="inline-flex min-w-0 items-center gap-1.5">
-        <Icon name="git-branch" className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="truncate">{label ?? 'Branch'}</span>
-    </span>
-);
+const BranchValue = ({ label, startFrom = false }: { label: string | null; startFrom?: boolean }) => {
+    const displayLabel = label ? truncateWithEllipsis(label, BRANCH_LABEL_MAX_LENGTH) : 'Branch';
+    return (
+        <span className="inline-flex min-w-0 items-center gap-1.5" title={label ?? undefined}>
+            <Icon name="git-branch" className="size-3.5 shrink-0 text-muted-foreground" />
+            {startFrom && label ? <span className="shrink-0 text-muted-foreground/70">from</span> : null}
+            <span className="truncate">{displayLabel}</span>
+        </span>
+    );
+};
 
 /** Desktop project selector and branch target. Existing sessions render a read-only branch label. */
 export function DraftTargetSelectors(props: DraftTargetProps) {
@@ -106,7 +143,7 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
                     <Select value={selectedProject.id} onValueChange={onProjectChange}>
                         <SelectTrigger size="sm" className={draftSelectTriggerClassName}>
                             <SelectValue>
-                                <ProjectLabel project={selectedProject} theme={theme} />
+                                <ProjectLabel project={selectedProject} theme={theme} maxCharacters={FOLDER_LABEL_MAX_LENGTH} />
                             </SelectValue>
                         </SelectTrigger>
                         <SelectContent className="w-max min-w-48">
@@ -131,7 +168,7 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
                     >
                         <SelectTrigger size="sm" className={draftSelectTriggerClassName}>
                             <SelectValue>
-                                <BranchValue label={selectedBranchLabel} />
+                                <BranchValue label={selectedBranchLabel} startFrom={worktreeMode} />
                             </SelectValue>
                         </SelectTrigger>
                         <SelectContent className="w-max min-w-56">
@@ -147,25 +184,12 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
                     </Select>
                 ) : showBranchSelector ? (
                     <div className="inline-flex h-7 min-w-0 max-w-[20rem] items-center px-1.5 typography-micro text-muted-foreground">
-                        <BranchValue label={selectedBranchLabel} />
+                        <BranchValue label={selectedBranchLabel} startFrom={worktreeMode} />
                     </div>
                 ) : null}
 
                 {showWorktreeSelector ? (
-                    <Select
-                        value={worktreeMode ? 'new-worktree' : 'current-checkout'}
-                        onValueChange={(value) => onWorktreeModeChange?.(value === 'new-worktree')}
-                    >
-                        <SelectTrigger size="sm" className={draftSelectTriggerClassName}>
-                            <SelectValue>
-                                <WorktreeValue enabled={worktreeMode} />
-                            </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent className="w-max min-w-48">
-                            <SelectItem value="current-checkout">Current checkout</SelectItem>
-                            <SelectItem value="new-worktree">New worktree</SelectItem>
-                        </SelectContent>
-                    </Select>
+                    <WorktreeModeToggle checked={worktreeMode} onChange={onWorktreeModeChange} />
                 ) : null}
             </div>
             {endAccessory ? <div className="min-w-0 shrink-0">{endAccessory}</div> : null}
@@ -193,52 +217,59 @@ export function MobileDraftTargetTriggers(
         theme,
         onOpenPicker,
     } = props;
-    const { enabled: isTabletForBranch } = useTabletLayout();
     const displayBranchLabel = selectedBranchLabel
-        ? (isTabletForBranch ? selectedBranchLabel : truncateWithEllipsis(selectedBranchLabel, 26))
+        ? truncateWithEllipsis(selectedBranchLabel, BRANCH_LABEL_MAX_LENGTH)
         : null;
 
     return (
-        <div className="mb-1.5 flex min-w-0 w-full items-center justify-between gap-2 pl-2 pr-1">
-            <div className="flex min-w-0 items-center gap-x-2">
+        <div className="mb-1.5 flex min-w-0 w-full flex-col gap-0.5 pl-2 pr-1">
+            {showWorktreeSelector ? (
+                <div className="flex w-full justify-end">
+                    <WorktreeModeToggle
+                        checked={worktreeMode}
+                        onChange={onWorktreeModeChange}
+                        showCheck={false}
+                        chromeLess
+                    />
+                </div>
+            ) : null}
+            <div className="flex min-w-0 w-full items-center gap-x-1">
                 {showProjectSelector ? (
                     <button
                         type="button"
-                        className="inline-flex h-7 min-w-0 max-w-[42vw] flex-shrink cursor-pointer items-center gap-1 rounded-lg px-1.5 typography-micro font-medium text-foreground/80 hover:bg-[var(--interactive-hover)]"
+                        className="inline-flex h-7 min-w-0 max-w-[44%] shrink cursor-pointer items-center gap-1 rounded-lg px-1.5 typography-micro font-medium text-foreground/80 hover:bg-[var(--interactive-hover)]"
                         onClick={() => onOpenPicker('project')}
                     >
-                        <ProjectLabel project={selectedProject} theme={theme} />
-                        <Icon name="arrow-down-s" className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+                        <ProjectLabel project={selectedProject} theme={theme} maxCharacters={FOLDER_LABEL_MAX_LENGTH} />
+                        <Icon name="arrow-down-s" className="h-3 w-3 shrink-0 text-muted-foreground" />
                     </button>
                 ) : null}
                 {showBranchSelector && branchInteractive ? (
                     <button
                         type="button"
-                        className="inline-flex h-7 min-w-0 max-w-[48vw] flex-shrink cursor-pointer items-center gap-1 rounded-lg px-1.5 typography-micro font-medium text-foreground/80 hover:bg-[var(--interactive-hover)]"
+                        className={`inline-flex h-7 min-w-0 cursor-pointer items-center gap-1 rounded-lg px-1.5 typography-micro font-medium text-foreground/80 hover:bg-[var(--interactive-hover)] ${showProjectSelector ? 'ml-auto max-w-[54%] shrink' : 'flex-1'}`}
                         onClick={() => onOpenPicker('branch')}
+                        title={selectedBranchLabel ?? undefined}
                     >
-                        <Icon name="git-branch" className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+                        <Icon name="git-branch" className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        {worktreeMode && displayBranchLabel ? <span className="shrink-0 text-muted-foreground/70">from</span> : null}
                         <span className="truncate">{displayBranchLabel ?? 'Branch'}</span>
-                        <Icon name="arrow-down-s" className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+                        <Icon name="arrow-down-s" className="h-3 w-3 shrink-0 text-muted-foreground" />
                     </button>
                 ) : showBranchSelector ? (
-                    <div className="inline-flex h-7 min-w-0 max-w-[48vw] items-center gap-1 px-1.5 typography-micro text-muted-foreground">
+                    <div
+                        className={`inline-flex h-7 min-w-0 items-center gap-1 px-1.5 typography-micro text-muted-foreground ${showProjectSelector ? 'ml-auto max-w-[54%] shrink' : 'flex-1'}`}
+                        title={selectedBranchLabel ?? undefined}
+                    >
                         <Icon name="git-branch" className="h-3 w-3 shrink-0" />
+                        {worktreeMode && displayBranchLabel ? <span className="shrink-0 text-muted-foreground/70">from</span> : null}
                         <span className="truncate">{displayBranchLabel ?? 'Branch'}</span>
                     </div>
                 ) : null}
-                {showWorktreeSelector ? (
-                    <button
-                        type="button"
-                        className="inline-flex h-7 min-w-0 max-w-[48vw] flex-shrink cursor-pointer items-center gap-1 rounded-lg px-1.5 typography-micro font-medium text-foreground/80 hover:bg-[var(--interactive-hover)]"
-                        onClick={() => onWorktreeModeChange?.(!worktreeMode)}
-                        aria-pressed={worktreeMode}
-                    >
-                        <WorktreeValue enabled={worktreeMode} />
-                    </button>
-                ) : null}
             </div>
-            {endAccessory ? <div className="min-w-0 shrink-0">{endAccessory}</div> : null}
+            {!showProjectSelector && endAccessory ? (
+                <div className="flex w-full justify-end px-1.5">{endAccessory}</div>
+            ) : null}
         </div>
     );
 }

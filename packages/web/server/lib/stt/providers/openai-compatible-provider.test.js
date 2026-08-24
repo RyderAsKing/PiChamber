@@ -24,7 +24,7 @@ describe('OpenAI-compatible STT provider', () => {
     expect(result).toEqual({ text: 'remote transcript' });
     expect(requestSnapshot.url).toBe('/v1/audio/transcriptions');
     expect(requestSnapshot.authorization).toBe('Bearer server-secret');
-    expect(requestSnapshot.contentType).toStartWith('multipart/form-data; boundary=');
+    expect(requestSnapshot.contentType.startsWith('multipart/form-data; boundary=')).toBe(true);
     expect(requestSnapshot.body.includes(Buffer.from('RIFF'))).toBe(true);
     expect(requestSnapshot.body.includes(Buffer.from('whisper-test'))).toBe(true);
   });

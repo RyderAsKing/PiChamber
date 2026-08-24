@@ -37,12 +37,18 @@ function WidthReservedText({
   value,
   prefix = '',
   className,
+  truncateAt,
 }: {
   options: ReadonlyArray<PiThinkingLevel | undefined>;
   value: string;
   prefix?: string;
   className?: string;
+  truncateAt?: number;
 }) {
+  const truncate = (label: string) => {
+    if (truncateAt == null || label.length <= truncateAt) return label;
+    return `${label.slice(0, truncateAt)}...`;
+  };
   return (
     <span className={cn('grid min-w-0 justify-items-start', className)}>
       {options.map((option) => (
@@ -51,10 +57,10 @@ function WidthReservedText({
           className="invisible col-start-1 row-start-1 overflow-hidden whitespace-nowrap"
           aria-hidden="true"
         >
-          {prefix}{thinkingLevelLabel(option)}
+          {prefix}{truncate(thinkingLevelLabel(option))}
         </span>
       ))}
-      <span className="col-start-1 row-start-1 truncate">{prefix}{value}</span>
+      <span className="col-start-1 row-start-1 truncate">{prefix}{truncate(value)}</span>
     </span>
   );
 }
@@ -304,6 +310,7 @@ export function ThinkingLevelControl({
   const isDefault = !value;
   const colorClass = isDefault ? 'text-muted-foreground' : 'text-foreground';
   const labelOptions = thinkingOptions(levels, true);
+  const variantTruncateAt = isMobile ? 10 : undefined;
 
   const trigger = (
     <button
@@ -321,6 +328,7 @@ export function ThinkingLevelControl({
       <WidthReservedText
         options={labelOptions}
         value={displayLabel}
+        truncateAt={variantTruncateAt}
         className={cn(
           'model-controls__variant-label',
           textSize,

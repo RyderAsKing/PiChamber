@@ -96,7 +96,3 @@ export function usePiSessionSnapshot<T>(
   return useSyncExternalStore(subscribe, getSelection, getSelection);
 }
 
-/** @deprecated OpenCode SyncProvider name kept for restored shell call sites. */
-export const SyncProvider = ({ children, directory }: { children?: ReactNode; sdk?: unknown; directory?: string | null }) => (
-  <PiSessionProvider directory={directory}>{children}</PiSessionProvider>
-);

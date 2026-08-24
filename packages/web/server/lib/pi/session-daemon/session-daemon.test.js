@@ -986,7 +986,18 @@ describe('Pi session daemon spike', () => {
         ],
       }],
     });
-    await expect(client.request('sessions.tree', { sessionId: 'pi-session-persisted' })).resolves.toMatchObject({ result: { rootId: 'pi-session-persisted' } });
+    runtime.session.sessionManager.getTree = () => [{
+      entry: { id: 'fake-entry', parentId: undefined, timestamp: '2026-01-01T00:00:00.000Z' },
+      label: 'checkpoint',
+      labelTimestamp: '2026-01-01T00:00:04.000Z',
+      children: [],
+    }];
+    await expect(client.request('sessions.tree', { sessionId: 'pi-session-persisted' })).resolves.toMatchObject({
+      result: {
+        rootId: 'pi-session-persisted',
+        nodes: [{ entryId: 'fake-entry', label: 'checkpoint', labelTimestamp: '2026-01-01T00:00:04.000Z' }],
+      },
+    });
     await expect(client.request('sessions.navigate', { sessionId: 'pi-session-persisted', messageId: 'fake-entry' })).resolves.toMatchObject({ result: { session: { id: 'pi-session-persisted' } } });
     await expect(client.request('sessions.fork', { sessionId: 'pi-session-persisted', messageId: 'fake-entry' })).resolves.toMatchObject({ result: { session: { id: 'pi-session-forked' } } });
     await expect(client.request('sessions.clone', { sessionId: 'pi-session-forked' })).resolves.toMatchObject({ result: { session: { id: 'pi-session-forked' } } });
@@ -1389,6 +1400,52 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  it('publishes extension-authored session names through the catalog event', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-session-name-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession('pi-session-name');
+    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
+
+    const updated = client.next((frame) => frame.event === 'session.updated');
+    session.emit({ type: 'session_info_changed', name: 'Extension title' });
+    await expect(updated).resolves.toMatchObject({
+      payload: { sessionId: 'pi-session-name', directory: root, title: 'Extension title' },
+    });
+    await client.close();
+  });
+
+  it('publishes model selections made through the Pi session event stream', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-model-select-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession('pi-session-model-select');
+    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
+
+    const selected = client.next((frame) => frame.event === 'session.model');
+    session.emit({
+      type: 'model_select',
+      model: { provider: 'moonshot', id: 'kimi-k2' },
+      previousModel: { provider: 'openai', id: 'gpt-5' },
+      source: 'extension',
+    });
+
+    await expect(selected).resolves.toMatchObject({
+      payload: {
+        sessionId: 'pi-session-model-select',
+        directory: root,
+        model: { providerId: 'moonshot', modelId: 'kimi-k2' },
+      },
+    });
+    await client.close();
+  });
+
   it('keeps retry attempts attached to the original user turn until Pi settles', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-retry-'));
     const endpoint = testDaemonEndpoint(root);
@@ -1647,6 +1704,37 @@ describe('Pi session daemon spike', () => {
     expect(s1.sent).toHaveLength(1);
     expect(s2.sent).toHaveLength(1);
 
+    await client.close();
+  });
+
+  it('settles an extension command that completes without starting an agent turn', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-command-settle-'));
+    const endpoint = testDaemonEndpoint(root);
+    const sessionFile = join(root, 'session-1.jsonl');
+    await writeFile(sessionFile, `{"type":"session","id":"session-1","cwd":"${root}"}\n`);
+    const session = new FakeSession('session-1', sessionFile);
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => new FakeRuntime({ cwd: root, session }),
+      listSessions: async () => [
+        { path: sessionFile, id: 'session-1', cwd: root, created: new Date(), modified: new Date(), messageCount: 0 },
+      ],
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+
+    const settled = client.next((frame) => frame.event === 'session.lifecycle' && frame.payload.state === 'idle');
+    await expect(client.request('sessions.prompt', {
+      sessionId: 'session-1',
+      text: '/balance',
+    })).resolves.toMatchObject({ result: { accepted: true } });
+
+    await expect(settled).resolves.toMatchObject({
+      payload: { sessionId: 'session-1', directory: root, state: 'idle' },
+    });
     await client.close();
   });
 

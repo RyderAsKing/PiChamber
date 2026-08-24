@@ -15,6 +15,7 @@ import { useRouter } from '@/hooks/useRouter';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { syncDesktopSettings } from '@/lib/persistence';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import { WindowTitleEffect } from '@/hooks/useWindowTitle';
 
 const AppInner: React.FC = () => {
   useAppFontEffects();
@@ -22,6 +23,7 @@ const AppInner: React.FC = () => {
   return (
     <FireworksProvider>
       <SyncAppEffects embeddedBackgroundWorkEnabled />
+      <WindowTitleEffect />
       <MainLayout />
       <Toaster />
       <PerfHudHost />

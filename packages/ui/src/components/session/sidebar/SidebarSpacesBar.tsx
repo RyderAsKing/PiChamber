@@ -282,7 +282,7 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
                       key={worktree.path}
                       type="button"
                       onClick={() => onSelectWorktree?.(project.id, worktree.path)}
-                      className={cn(folderBarRowClass(mobileVariant, worktreeSelected), 'pl-8')}
+                      className={cn(folderBarRowClass(mobileVariant, worktreeSelected))}
                       aria-pressed={worktreeSelected}
                       title={worktree.path}
                     >

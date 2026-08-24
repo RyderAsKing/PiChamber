@@ -17,6 +17,7 @@ import { loadAppearancePreferences, applyAppearancePreferences } from '@/lib/app
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { sanitizeStarterRefs } from '@/lib/draftStarters';
 import { normalizeMobileKeyboardMode, setStoredMobileKeyboardMode } from '@/lib/mobileKeyboardMode';
+import { sanitizeCommandTriggers } from '@/lib/pi/command-triggers';
 import { PWA_NAME_STORAGE_KEY, normalizePwaName } from '@/lib/pwaKeys';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isTerminalShell } from '@/lib/terminalShell';
@@ -72,7 +73,6 @@ const persistRuntimeSettingsMirror = (settings: DesktopSettings, runtimeKey: str
     openInAppId: settings.openInAppId,
     pwaAppName: settings.pwaAppName,
     mobileKeyboardMode: settings.mobileKeyboardMode,
-    openCodeUpdateToastDismissedVersion: settings.openCodeUpdateToastDismissedVersion,
   };
   localStorage.setItem(getRuntimeSettingsMirrorStorageKey(runtimeKey), JSON.stringify(mirror));
 
@@ -164,16 +164,6 @@ const persistToLocalStorage = (settings: DesktopSettings) => {
     localStorage.removeItem(PWA_NAME_STORAGE_KEY);
   }
   setStoredMobileKeyboardMode(settings.mobileKeyboardMode);
-  if (typeof settings.openCodeUpdateToastDismissedVersion === 'string') {
-    const version = settings.openCodeUpdateToastDismissedVersion.trim();
-    if (version) {
-      localStorage.setItem('opencode-update-toast-dismissed-version', version);
-    } else {
-      localStorage.removeItem('opencode-update-toast-dismissed-version');
-    }
-  } else {
-    localStorage.removeItem('opencode-update-toast-dismissed-version');
-  }
 };
 
 const dispatchSettingsSynced = (settings: DesktopSettings): void => {
@@ -287,6 +277,22 @@ const areStringRecordsEqual = (left: Record<string, string>, right: Record<strin
   if (leftEntries.length !== rightEntries.length) return false;
   return leftEntries.every(([key, value]) => right[key] === value);
 };
+
+const areCommandTriggerListsEqual = (
+  left: NonNullable<DesktopSettings['commandTriggers']>,
+  right: NonNullable<DesktopSettings['commandTriggers']>,
+): boolean => (
+  left.length === right.length
+  && left.every((trigger, index) => {
+    const other = right[index];
+    return Boolean(other)
+      && trigger.id === other?.id
+      && trigger.label === other.label
+      && trigger.command === other.command
+      && trigger.args === other.args
+      && trigger.combo === other.combo;
+  })
+);
 
 const areModelRefsEqual = (
   left: Array<{ providerID: string; modelID: string }>,
@@ -543,7 +549,6 @@ const materializeAuthoritativeUiSettings = (settings: DesktopSettings): DesktopS
     summaryLength: defaults.summaryLength,
     maxLastMessageLength: defaults.maxLastMessageLength,
     inputSpellcheckEnabled: defaults.inputSpellcheckEnabled,
-    showOpenCodeUpdateNotifications: defaults.showOpenCodeUpdateNotifications,
     showToolFileIcons: defaults.showToolFileIcons,
     codeBlockLineWrap: defaults.codeBlockLineWrap,
     showTurnChangedFiles: defaults.showTurnChangedFiles,
@@ -676,12 +681,6 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
   if (typeof settings.inputSpellcheckEnabled === 'boolean' && settings.inputSpellcheckEnabled !== store.inputSpellcheckEnabled) {
     store.setInputSpellcheckEnabled(settings.inputSpellcheckEnabled);
   }
-  if (
-    typeof settings.showOpenCodeUpdateNotifications === 'boolean'
-    && settings.showOpenCodeUpdateNotifications !== store.showOpenCodeUpdateNotifications
-  ) {
-    store.setShowOpenCodeUpdateNotifications(settings.showOpenCodeUpdateNotifications);
-  }
   if (typeof settings.showToolFileIcons === 'boolean' && settings.showToolFileIcons !== store.showToolFileIcons) {
     store.setShowToolFileIcons(settings.showToolFileIcons);
   }
@@ -813,6 +812,9 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
   if (settings.shortcutOverrides && !areStringRecordsEqual(settings.shortcutOverrides, store.shortcutOverrides)) {
     useUIStore.setState({ shortcutOverrides: settings.shortcutOverrides });
   }
+  if (settings.commandTriggers && !areCommandTriggerListsEqual(settings.commandTriggers, store.commandTriggers)) {
+    useUIStore.setState({ commandTriggers: settings.commandTriggers });
+  }
   if (typeof settings.mobileKeyboardMode === 'string') {
     const mode = normalizeMobileKeyboardMode(settings.mobileKeyboardMode, store.mobileKeyboardMode);
     if (mode !== store.mobileKeyboardMode) {
@@ -917,10 +919,6 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
     result.homeDirectory = candidate.homeDirectory;
   }
 
-  if (typeof candidate.opencodeBinary === 'string') {
-    const trimmed = candidate.opencodeBinary.trim();
-    result.opencodeBinary = trimmed.length > 0 ? trimmed : undefined;
-  }
   if (typeof candidate.desktopLanAccessEnabled === 'boolean') {
     result.desktopLanAccessEnabled = candidate.desktopLanAccessEnabled;
   }
@@ -1230,12 +1228,6 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
   if (typeof candidate.inputSpellcheckEnabled === 'boolean') {
     result.inputSpellcheckEnabled = candidate.inputSpellcheckEnabled;
   }
-  if (typeof candidate.showOpenCodeUpdateNotifications === 'boolean') {
-    result.showOpenCodeUpdateNotifications = candidate.showOpenCodeUpdateNotifications;
-  }
-  if (typeof candidate.openCodeUpdateToastDismissedVersion === 'string') {
-    result.openCodeUpdateToastDismissedVersion = candidate.openCodeUpdateToastDismissedVersion.trim().slice(0, 128);
-  }
   if (typeof candidate.showToolFileIcons === 'boolean') {
     result.showToolFileIcons = candidate.showToolFileIcons;
   }
@@ -1334,6 +1326,10 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
   const shortcutOverrides = sanitizeShortcutOverrides(candidate.shortcutOverrides);
   if (shortcutOverrides) {
     result.shortcutOverrides = shortcutOverrides;
+  }
+  const commandTriggers = sanitizeCommandTriggers(candidate.commandTriggers);
+  if (commandTriggers) {
+    result.commandTriggers = commandTriggers;
   }
   if (typeof candidate.mobileKeyboardMode === 'string') {
     if (candidate.mobileKeyboardMode === 'native' || candidate.mobileKeyboardMode === 'resize-content') {

@@ -3,11 +3,13 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import type { Agent, Message } from '@/lib/chat/types';
 import type { QueuedMessage } from '../stores/messageQueueStore';
-import { ChildStoreManager } from '@/sync/child-store';
-import { setSyncRefs } from '@/sync/sync-refs';
 
 let visibleAgents: Agent[] = [];
 const sendMessageCalls: unknown[][] = [];
+
+// Directory-scoped state backing `getDirectoryState` — the seam the queue
+// gate reads session activity from.
+let directoryState: Record<string, unknown> | undefined;
 
 const getVisibleAgentsMock = mock(() => visibleAgents);
 
@@ -29,6 +31,10 @@ mock.module('@/sync/session-ui-store', () => ({
       sessionAbortFlags: new Map(),
     }),
   },
+}));
+
+mock.module('@/sync/sync-refs', () => ({
+  getDirectoryState: () => directoryState,
 }));
 
 import {
@@ -134,13 +140,8 @@ describe('resolveQueuedSessionStatusType', () => {
     time: { created: 1, ...(completed !== undefined ? { completed } : {}) },
   } as Message);
 
-  let childStores: ChildStoreManager;
-
   beforeEach(() => {
-    childStores = new ChildStoreManager();
-    const store = childStores.ensureChild(DIRECTORY, { bootstrap: false });
-    store.setState({ status: 'complete', session_status: {}, message: {} });
-    setSyncRefs({} as never, childStores, DIRECTORY);
+    directoryState = { status: 'complete', session_status: {}, message: {} };
   });
 
   test('treats a session with an in-flight assistant turn as busy even when the status entry is missing', () => {
@@ -148,30 +149,25 @@ describe('resolveQueuedSessionStatusType', () => {
     // event leaves NO status entry while the turn is still streaming. The
     // queue gate must not read that absence as idle: queued prompts would be
     // dispatched into the running turn and merged into one model response.
-    childStores.ensureChild(DIRECTORY, { bootstrap: false }).setState({
-      message: { ses_1: [assistantMessage('msg_streaming')] },
-    });
+    directoryState = { message: { ses_1: [assistantMessage('msg_streaming')] } };
 
     expect(resolveQueuedSessionStatusType('ses_1', DIRECTORY)).toBe('busy');
   });
 
   test('resolves an explicit busy or retry status entry', () => {
-    const store = childStores.ensureChild(DIRECTORY, { bootstrap: false });
-    store.setState({ session_status: { ses_1: { type: 'busy' } } });
+    directoryState = { session_status: { ses_1: { type: 'busy' } } };
     expect(resolveQueuedSessionStatusType('ses_1', DIRECTORY)).toBe('busy');
-    store.setState({ session_status: { ses_1: { type: 'retry', attempt: 2, message: 'boom', next: 30 } } });
+    directoryState = { session_status: { ses_1: { type: 'retry', attempt: 2, message: 'boom', next: 30 } } };
     expect(resolveQueuedSessionStatusType('ses_1', DIRECTORY)).toBe('retry');
   });
 
   test('resolves idle when the trailing assistant message has completed', () => {
-    const store = childStores.ensureChild(DIRECTORY, { bootstrap: false });
-    store.setState({ message: { ses_1: [assistantMessage('msg_done', 5)] } });
+    directoryState = { message: { ses_1: [assistantMessage('msg_done', 5)] } };
     expect(resolveQueuedSessionStatusType('ses_1', DIRECTORY)).toBe('idle');
   });
 
   test('resolves an explicit idle entry and unknown sessions as idle', () => {
-    const store = childStores.ensureChild(DIRECTORY, { bootstrap: false });
-    store.setState({ session_status: { ses_1: { type: 'idle' } } });
+    directoryState = { session_status: { ses_1: { type: 'idle' } } };
     expect(resolveQueuedSessionStatusType('ses_1', DIRECTORY)).toBe('idle');
     expect(resolveQueuedSessionStatusType('ses_unknown', DIRECTORY)).toBe('idle');
   });

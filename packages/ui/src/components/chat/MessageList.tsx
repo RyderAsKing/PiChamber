@@ -3,6 +3,7 @@ import type { Part } from '@/lib/chat/types';
 import { elementScroll, useVirtualizer as useTanstackVirtualizer, type ReactVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 
 import ChatMessage from './ChatMessage';
+import { ExtensionMessageCard } from './message/parts/extension/ExtensionMessageCard';
 import { areOptionalNeighborMessagesEqual, areRelevantTurnGroupingContextsEqual, areRenderRelevantMessagesEqual } from './message/renderCompare';
 import TurnItem from './components/TurnItem';
 import FoldedHistoryGate from './components/FoldedHistoryGate';
@@ -438,6 +439,23 @@ const MessageRow = React.memo<MessageRowProps>(({
     animationHandlers,
     scrollToBottom,
 }) => {
+    const info = message.info as { role?: string; sessionID?: string; customType?: string; data?: unknown; details?: unknown; text?: string };
+
+    // Extension-authored content renders through the extension card instead of
+    // the user/assistant turn pipeline.
+    if (info.role === 'extension') {
+        return (
+            <ExtensionMessageCard
+                sessionId={info.sessionID}
+                messageId={message.info.id}
+                customType={info.customType}
+                text={typeof info.text === 'string' ? info.text : undefined}
+                data={info.data}
+                details={info.details}
+            />
+        );
+    }
+
     return (
         <ChatMessage
             message={message}
@@ -557,7 +575,7 @@ const TurnBlock = React.memo(({
 
     const turnGroupingContextBase = React.useMemo(() => {
         const userCreatedAt = (turn.userMessage.info.time as { created?: number } | undefined)?.created;
-        // OpenCode 1.4.0 moved variant from top-level to model.variant on UserMessage.
+        // Hydrated historical user messages may store variant either at top level or under model.
         // Prefer the new location, fall back to the legacy one for older servers.
         const info = turn.userMessage.info as { variant?: unknown; model?: { variant?: unknown } } | undefined;
         const rawVariant = info?.model?.variant ?? info?.variant;

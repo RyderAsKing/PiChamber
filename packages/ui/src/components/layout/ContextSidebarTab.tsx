@@ -283,7 +283,7 @@ export const ContextPanelContent: React.FC = () => {
     const userMessages = sessionMessages.filter((entry) => deriveMessageRole(entry.info).isUser);
 
     // Prefer the most recent assistant message that carries Pi usage. Pi
-    // owns the token contract, so we only fall back to legacy OpenCode token
+    // owns the token contract, so we only fall back to legacy token
     // extraction when no usage is present (e.g. older daemon builds).
     let contextMessage: SessionMessage | null = null;
     for (let i = assistantMessages.length - 1; i >= 0; i -= 1) {
@@ -298,7 +298,7 @@ export const ContextPanelContent: React.FC = () => {
     const contextUsage = (contextMessage?.info as { usage?: PiUsageLike } | undefined)?.usage;
 
     // Cache hit rate for the last assistant message. `input` is the non-cached portion
-    // (total input - cache.read - cache.write per SDK's session.ts:getUsage),
+    // (total input - cache.read - cache.write per Pi usage semantics),
     // so hit rate = cache.read / (input + cache.read + cache.write).
     const cacheHitRate = computeCacheHitRate({
       input: tokenBreakdown.input,

@@ -15,6 +15,7 @@ import { getFullText, getMessagePreview } from './lib/messagePreview';
 import { cn } from '@/lib/utils';
 import { useDeviceInfo } from '@/lib/device';
 import { toast } from '@/components/ui';
+import type { PiSessionTreeNode } from '@/lib/pi/protocol';
 
 interface TimelineDialogProps {
     open: boolean;
@@ -43,6 +44,59 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
 }) => {
     const { isMobile } = useDeviceInfo();
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
+    const [sessionTreeRevision, setSessionTreeRevision] = React.useState(0);
+    React.useEffect(() => {
+        if (!currentSessionId) {
+            setSessionTreeRevision(0);
+            return;
+        }
+        const update = () => {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                const { getPiSessionStore } = require('@/apps/pi-session-store');
+                setSessionTreeRevision(getPiSessionStore().getState().reducer.bySession.get(currentSessionId)?.sessionTreeRevision ?? 0);
+            } catch {
+                setSessionTreeRevision(0);
+            }
+        };
+        update();
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { getPiSessionStore } = require('@/apps/pi-session-store');
+            return getPiSessionStore().subscribe(update, `session:${currentSessionId}`);
+        } catch {
+            return;
+        }
+    }, [currentSessionId]);
+    const [labelsByEntryId, setLabelsByEntryId] = React.useState<Map<string, string>>(new Map());
+    const labelsSessionRef = React.useRef<string | null>(null);
+    React.useEffect(() => {
+        if (!open || !currentSessionId) return;
+        if (labelsSessionRef.current !== currentSessionId) {
+            labelsSessionRef.current = currentSessionId;
+            setLabelsByEntryId(new Map());
+        }
+        let cancelled = false;
+        void (async () => {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                const { getPiSessionStore } = require('@/apps/pi-session-store');
+                const tree = await getPiSessionStore().tree(currentSessionId);
+                if (cancelled) return;
+                const labels = new Map<string, string>();
+                const visit = (node: PiSessionTreeNode) => {
+                    if (node.label) labels.set(node.entryId, node.label);
+                    for (const child of node.children) visit(child);
+                };
+                for (const node of tree.nodes) visit(node);
+                setLabelsByEntryId(labels);
+            } catch {
+                // A failed refresh is not authoritative empty state. Keep the
+                // labels from the last successful tree response.
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [currentSessionId, open, sessionTreeRevision]);
     const [isStreaming, setIsStreaming] = React.useState(false);
     React.useEffect(() => {
         if (!currentSessionId) {
@@ -358,6 +412,7 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
                             const showDateGroup = dateGroup !== previousDateGroup;
                             const messageTime = formatMessageTime(timestamp);
                             const isSelected = index === selectedIndex;
+                            const label = labelsByEntryId.get(message.info.id);
 
                             const snippet = searchQuery.trim()
                                 ? getSearchSnippet(getFullText(message.parts), searchQuery)
@@ -392,6 +447,11 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
                                         )}>
                                             {messageTime}
                                         </span>
+                                        {label && (
+                                            <span className="max-w-40 shrink-0 truncate rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 typography-micro text-muted-foreground">
+                                                {label}
+                                            </span>
+                                        )}
                                         <p className={cn(
                                             "flex-1 min-w-0 typography-small truncate",
                                             isSelected ? "text-interactive-selection-foreground" : "text-foreground"

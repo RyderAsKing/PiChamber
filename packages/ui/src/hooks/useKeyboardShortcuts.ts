@@ -10,7 +10,6 @@ import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useCurrentSessionActivity } from '@/hooks/useSessionActivity';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { canUseElectronDesktopIPC, invokeDesktop } from '@/lib/desktop';
-import { showOpenCodeStatus } from '@/lib/openCodeStatus';
 import {
   eventMatchesShortcut,
   eventMatchesShortcutPrefix,
@@ -26,6 +25,16 @@ import { toast } from '@/components/ui';
 import { cycleComposerThinking } from '@/lib/pi/apply-composer-thinking';
 import { addSelectionToChat } from '@/lib/addSelectionToChat';
 import { hasOpenDropdown } from './keyboard-shortcut-dom';
+import { getPiSessionStore } from '@/apps/pi-session-store';
+import { triggerPromptText } from '@/lib/pi/command-triggers';
+import type { CommandTrigger } from '@/lib/pi/command-triggers';
+
+/** Run a command trigger through the normal authenticated prompt path. */
+const fireCommandTrigger = (trigger: CommandTrigger): void => {
+  const sessionId = useSessionUIStore.getState().currentSessionId;
+  if (!sessionId) return;
+  void getPiSessionStore().prompt(sessionId, triggerPromptText(trigger), 'prompt').catch(() => {});
+};
 
 export const useKeyboardShortcuts = () => {
   const openNewSessionDraft = useSessionUIStore((s) => s.openNewSessionDraft);
@@ -268,12 +277,6 @@ export const useKeyboardShortcuts = () => {
 
         e.preventDefault();
         togglePromptNavigatorPanel();
-        return;
-      }
-
-      if (eventMatchesShortcut(e, combo('open_status'))) {
-        e.preventDefault();
-        void showOpenCodeStatus();
         return;
       }
 
@@ -561,6 +564,19 @@ export const useKeyboardShortcuts = () => {
         setModel(next.modelID);
         addRecentModel(next.providerID, next.modelID);
         return;
+      }
+
+      // User-authored command triggers match last so they can never shadow a
+      // built-in action bound to the same key.
+      const commandTriggers = useUIStore.getState().commandTriggers;
+      if (commandTriggers.length > 0 && !isDropdownEventTarget(e.target)) {
+        for (const candidate of commandTriggers) {
+          if (!candidate.combo || !eventMatchesShortcut(e, candidate.combo)) continue;
+          e.preventDefault();
+          e.stopPropagation();
+          fireCommandTrigger(candidate);
+          return;
+        }
       }
     };
 

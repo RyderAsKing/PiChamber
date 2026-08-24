@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import { chmod, mkdir, lstat, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { createReadStream } from 'node:fs';
+import { createReadStream, existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { hasTrustRequiringProjectResources } from '@earendil-works/pi-coding-agent';
@@ -16,8 +17,14 @@ import {
   SettingsManager,
 } from '@earendil-works/pi-coding-agent';
 
+import {
+  MAX_EXTENSION_APP_HTML_CHARS,
+  sanitizeExtensionFormFields,
+  validateExtensionFormValues,
+} from '../extension-protocol.js';
 import { createPiModelConfigStore } from '../model-config-store.js';
 import { clampThinkingLevel, getSupportedThinkingLevels, isPiThinkingLevel } from '../thinking-levels.js';
+import { createExtensionBridge } from './extension-bridge.js';
 import { createMessageEntryAliases } from './message-entry-aliases.js';
 import { resolveEffectiveRetryLimitFromDataDir as resolveEffectiveRetryLimit } from './session-retry-limits.js';
 import { createSkillReadClassifier } from './skill-read-classifier.js';
@@ -32,6 +39,51 @@ import {
 import { resolvePiChamberDataDir } from '../../pichamber-data-dir.js';
 
 const PROTOCOL_VERSION = 1;
+
+const textFromContent = (content) => (
+  Array.isArray(content)
+    ? content.filter((part) => part?.type === 'text' && typeof part.text === 'string').map((part) => part.text).join('')
+    : ''
+);
+
+// Marker so pi extensions can detect PiChamber without an extra dependency.
+// Extensions should use optional detection, e.g.:
+//   const chamber = (globalThis as any).__PICHAMBER__;
+// or `process.env.PICHAMBER === "1"`. The object is frozen and versioned.
+if (!globalThis.__PICHAMBER__) {
+  try {
+    globalThis.__PICHAMBER__ = Object.freeze({
+      version: 1,
+      protocol: 'pichamber-extension-ui',
+      mode: 'rpc',
+    });
+  } catch {}
+}
+if (!process.env.PICHAMBER) {
+  try { process.env.PICHAMBER = '1'; } catch {}
+}
+
+// Extensions that spawn the pi CLI as a child process (subagent runners,
+// task delegators) locate it through `process.argv[1]`. Inside this detached
+// daemon that path is daemon-process.js — a bare invocation exits 64 with no
+// output, which the extension then reports as "failed (no output)". Re-point
+// argv at the installed pi CLI entry before any extension loads so child
+// spawns run the real CLI. Scoped to the detached entrypoint so tests and
+// in-process hosts keep their own argv.
+try {
+  if (process.argv[1]?.endsWith('daemon-process.js')) {
+    // The SDK is ESM-only, so resolve through import.meta rather than require.
+    const mainEntry = fileURLToPath(import.meta.resolve('@earendil-works/pi-coding-agent'));
+    const packageRoot = dirname(dirname(mainEntry));
+    const pkg = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
+    const bin = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin?.pi;
+    if (bin) {
+      const cliEntry = join(packageRoot, bin);
+      if (existsSync(cliEntry)) process.argv[1] = cliEntry;
+    }
+  }
+} catch {}
+
 const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 
 class SessionDaemonProtocolError extends Error {
@@ -51,18 +103,18 @@ export function isLocalSessionDaemonEndpoint(endpoint, platform = process.platfo
   return isAbsolute(endpoint);
 }
 
-async function createPiSessionRuntime({ cwd, agentDir = getAgentDir(), sessionFile }) {
+// Hooks let the daemon thread extension bindings into every Pi runtime
+// creation (initial, new/resume/fork replacement) without coupling this
+// factory to daemon socket state.
+export async function createPiSessionRuntime({ cwd, agentDir = getAgentDir(), sessionFile }, hooks) {
   const createRuntime = async ({ cwd: runtimeCwd, agentDir: runtimeAgentDir, sessionManager, sessionStartEvent }) => {
     const services = await createAgentSessionServices({
       cwd: runtimeCwd,
       agentDir: runtimeAgentDir,
-      resourceLoaderOptions: {
-        // Third-party native extensions are intentionally disabled for the Pi core milestone.
-        noExtensions: true,
-      },
+      resourceLoaderOptions: {},
     });
 
-    return {
+    const result = {
       ...(await createAgentSessionFromServices({
         services,
         sessionManager,
@@ -71,6 +123,12 @@ async function createPiSessionRuntime({ cwd, agentDir = getAgentDir(), sessionFi
       services,
       diagnostics: services.diagnostics,
     };
+
+    if (hooks?.createExtensionBindings && typeof result.session?.bindExtensions === 'function') {
+      await result.session.bindExtensions(hooks.createExtensionBindings(result.session));
+    }
+
+    return result;
   };
 
   return createAgentSessionRuntime(createRuntime, {
@@ -87,7 +145,7 @@ export function createSessionDaemon({
   credential,
   cwd,
   agentDir = getAgentDir(),
-  createRuntime = createPiSessionRuntime,
+  createRuntime: injectCreateRuntime,
   healthMetadata = {},
   idleTimeoutMs = 5 * 60 * 1_000,
   listSessions = ({ cwd: sessionCwd, agentDir: sessionAgentDir = agentDir }) => listPiSessionJsonlDirectory({
@@ -145,8 +203,14 @@ export function createSessionDaemon({
   const compactionStateBySession = new Map();
   const activeRunStartedAt = new Map();
   const sendGenerationBySession = new Map();
+  const settledSendGenerationBySession = new Map();
+  const shutdownRequestedBySession = new Set();
+  const disposingSessionIds = new Set();
   const streamingRedactionBuffers = new Map();
   const loginAttempts = new Map();
+  // Server-side normalized extension live state: statuses, widgets, panels,
+  // apps, and pending dialogs are kept per session so a reconnect can
+  // reconstruct the current UI without requiring the extension to re-emit.
   const messageEntryAliases = createMessageEntryAliases();
   const skillReadClassifierByRuntime = new WeakMap();
   const MAX_REPLAY_EVENTS = 1_024;
@@ -249,7 +313,7 @@ export function createSessionDaemon({
     const services = await createAgentSessionServices({
       cwd: targetCwd,
       agentDir,
-      resourceLoaderOptions: { noExtensions: true },
+      resourceLoaderOptions: {},
     });
     servicesCache.set(targetCwd, services);
     return services;
@@ -273,6 +337,35 @@ export function createSessionDaemon({
     if (eventLog.length > MAX_REPLAY_EVENTS) eventLog.shift();
     for (const client of clients) writeFrame(client, message);
   };
+
+  const extensionBridge = createExtensionBridge({
+    publish,
+    resolveDirectory,
+    redactAttachmentPaths: (value) => redactAttachmentPaths(value),
+    redactAttachmentValues: (value) => redactAttachmentValues(value),
+    findRuntimeBySessionId: (sessionId) => runtimeRegistry?.findBySessionId(sessionId)
+      || (runtime?.session?.sessionId === sessionId ? runtime : undefined),
+    getDefaultDirectory: () => activeDirectory || cwd,
+    getSequence: () => sequence,
+    protocolError: (code, message) => new SessionDaemonProtocolError(code, message),
+    requestSessionShutdown: (sessionId) => shutdownRequestedBySession.add(sessionId),
+  });
+  const {
+    buildExtensionBindings,
+    clearExtensionState,
+    mirrorExtensionApp,
+    mirrorExtensionPanel,
+    publishExtensionCustomMessage,
+    resolveExtensionDialog,
+  } = extensionBridge;
+
+  // Thread extension hooks through our own default factory. Injected test or
+  // host factories keep their single-argument contract and ignore the hooks.
+  const baseCreateRuntime = injectCreateRuntime
+    ?? ((runtimeOptions, runtimeHooks) => createPiSessionRuntime(runtimeOptions, runtimeHooks));
+  const createRuntime = (runtimeOptions) => baseCreateRuntime(runtimeOptions, {
+    createExtensionBindings: buildExtensionBindings,
+  });
 
   const getSessionState = () => runtime
     ? { sessionId: runtime.session.sessionId, isStreaming: runtime.session.isStreaming }
@@ -319,6 +412,11 @@ export function createSessionDaemon({
     const lastAssistant = [...messages].reverse().find((entry) => entry.message.role === 'assistant')?.message;
     const model = activeSession?.model;
     const snapshotSequence = ++sequence;
+    // Snapshot must carry enough extension live state for a reconnect that
+    // missed the gap: statuses, widgets, and pending blocking dialogs per
+    // session. Without it, a phone that reconnects after the 1k replay
+    // window would lose its sub-agent panel or approval prompt.
+    const extensionSnapshot = extensionBridge.getSnapshotState(session.sessionId);
     writeFrame(socket, {
       protocolVersion: PROTOCOL_VERSION,
       kind: 'event',
@@ -342,6 +440,12 @@ export function createSessionDaemon({
         ...(session.sessionId && activeRunStartedAt.has(session.sessionId) ? { runStartedAt: activeRunStartedAt.get(session.sessionId) } : {}),
         serverNow: Date.now(),
         lastSequence: snapshotSequence,
+        ...(extensionSnapshot.statuses ? { extensionStatuses: extensionSnapshot.statuses } : {}),
+        ...(extensionSnapshot.widgets ? { extensionWidgets: extensionSnapshot.widgets } : {}),
+        ...(extensionSnapshot.dialogs ? { extensionDialogs: extensionSnapshot.dialogs } : {}),
+        ...(extensionSnapshot.panels ? { extensionPanels: extensionSnapshot.panels } : {}),
+        ...(extensionSnapshot.apps ? { extensionApps: extensionSnapshot.apps } : {}),
+        ...(extensionSnapshot.title ? { extensionTitle: extensionSnapshot.title } : {}),
       },
     });
   };
@@ -361,6 +465,7 @@ export function createSessionDaemon({
 
   const disposeRuntime = async () => {
     clearIdleDisposal();
+    clearExtensionState(undefined);
     if (runtimeRegistry) {
       const hadTrackedRuntime = runtimeRegistry.size > 0;
       await runtimeRegistry.disposeAll();
@@ -400,24 +505,41 @@ export function createSessionDaemon({
     return runtimeStartPromise;
   };
 
+  const disposeIdleSessionRuntime = async (sessionId) => {
+    if (disposingSessionIds.has(sessionId)) return;
+    const targetRuntime = runtimeRegistry?.findBySessionId(sessionId);
+    if (!targetRuntime) {
+      shutdownRequestedBySession.delete(sessionId);
+      return;
+    }
+    if (targetRuntime.session?.isStreaming || targetRuntime.session?.isCompacting) return;
+    disposingSessionIds.add(sessionId);
+    clearIdleDisposal(sessionId);
+    try {
+      if (targetRuntime === runtime) rememberRuntimeSession();
+      clearExtensionState(sessionId);
+      await runtimeRegistry.dispose(targetRuntime);
+      shutdownRequestedBySession.delete(sessionId);
+      compactionStateBySession.delete(sessionId);
+      if (targetRuntime === runtime) runtime = undefined;
+    } catch {
+      publish('session.error', { code: 'RUNTIME_DISPOSAL_FAILED' }, sessionId, targetRuntime.cwd);
+    } finally {
+      disposingSessionIds.delete(sessionId);
+    }
+  };
+
+  const completeRequestedShutdown = (sessionId) => {
+    if (!shutdownRequestedBySession.has(sessionId)) return false;
+    void disposeIdleSessionRuntime(sessionId);
+    return true;
+  };
+
   const scheduleIdleDisposal = (sessionId) => {
     clearIdleDisposal(sessionId);
-    const timer = setTimeout(async () => {
+    const timer = setTimeout(() => {
       idleDisposeTimers.delete(sessionId);
-      const targetRuntime = runtimeRegistry?.findBySessionId(sessionId);
-      if (!targetRuntime || targetRuntime.session?.isStreaming || targetRuntime.session?.isCompacting) return;
-      try {
-        if (targetRuntime === runtime) {
-          rememberRuntimeSession();
-        }
-        await runtimeRegistry.dispose(targetRuntime);
-        compactionStateBySession.delete(sessionId);
-        if (targetRuntime === runtime) {
-          runtime = undefined;
-        }
-      } catch {
-        publish('session.error', { code: 'RUNTIME_DISPOSAL_FAILED' }, sessionId);
-      }
+      void disposeIdleSessionRuntime(sessionId);
     }, idleTimeoutMs);
     idleDisposeTimers.set(sessionId, timer);
   };
@@ -732,6 +854,42 @@ export function createSessionDaemon({
     }
     let latestUserMessageId;
     return entries.flatMap((entry) => {
+      // Extension-authored content: custom entries (`appendEntry`) and custom
+      // messages (`sendMessage`) both surface as extension-role items so the
+      // UI can render them through its extension renderer registry.
+      if (entry?.type === 'custom') {
+        if (typeof entry.customType !== 'string' || entry.customType.length === 0 || typeof entry.id !== 'string') return [];
+        const timestamp = Date.parse(entry.timestamp);
+        return [{
+          message: {
+            id: entry.id, sessionId: session.sessionId, directory: targetDir, role: 'extension',
+            customType: entry.customType,
+            createdAt: Number.isFinite(timestamp) ? timestamp : 0,
+            ...(entry.data !== undefined ? { data: redactAttachmentValues(entry.data) } : {}),
+          },
+          parts: [],
+        }];
+      }
+      if (entry?.type === 'custom_message') {
+        if (typeof entry.customType !== 'string' || entry.customType.length === 0 || typeof entry.id !== 'string') return [];
+        if (entry.display === false) return [];
+        const timestamp = Date.parse(entry.timestamp);
+        const text = typeof entry.content === 'string'
+          ? entry.content
+          : Array.isArray(entry.content)
+            ? textFromContent(entry.content)
+            : '';
+        return [{
+          message: {
+            id: entry.id, sessionId: session.sessionId, directory: targetDir, role: 'extension',
+            customType: entry.customType,
+            text: redactAttachmentPaths(text),
+            createdAt: Number.isFinite(timestamp) ? timestamp : 0,
+            ...(entry.details !== undefined ? { details: redactAttachmentValues(entry.details) } : {}),
+          },
+          parts: [],
+        }];
+      }
       if (entry?.type !== 'message' || !entry.message || typeof entry.id !== 'string') return [];
       const timestamp = Date.parse(entry.timestamp);
       const createdAt = Number.isFinite(timestamp) ? timestamp : 0;
@@ -739,13 +897,13 @@ export function createSessionDaemon({
         const text = redactAttachmentPaths(typeof entry.message.content === 'string'
           ? entry.message.content
           : Array.isArray(entry.message.content)
-            ? entry.message.content.filter((part) => part?.type === 'text').map((part) => part.text).join('')
+            ? textFromContent(entry.message.content)
             : '');
         latestUserMessageId = entry.id;
         return [{ message: { id: entry.id, sessionId: session.sessionId, directory: targetDir, role: 'user', text, createdAt }, parts: [] }];
       }
       if (entry.message.role !== 'assistant' || !Array.isArray(entry.message.content)) return [];
-      const text = redactAttachmentPaths(entry.message.content.filter((part) => part?.type === 'text').map((part) => part.text).join(''));
+      const text = redactAttachmentPaths(textFromContent(entry.message.content));
       const thinking = redactAttachmentPaths(entry.message.content.filter((part) => part?.type === 'thinking').map((part) => part.thinking).join(''));
       const usage = projectUsage(entry.message.usage);
       const parts = entry.message.content.flatMap((part, index) => {
@@ -1547,7 +1705,7 @@ export function createSessionDaemon({
    */
   const projectToolResult = (result, isError) => {
     const content = result && typeof result === 'object' && Array.isArray(result.content) ? result.content : [];
-    const output = redactAttachmentPaths(content.filter((part) => part?.type === 'text').map((part) => part.text).join(''));
+    const output = redactAttachmentPaths(textFromContent(content));
     let metadata;
     if (result && typeof result === 'object' && result.details && typeof result.details === 'object') {
       const details = redactAttachmentValues(result.details);
@@ -1733,9 +1891,26 @@ export function createSessionDaemon({
     // report asynchronous failure through the existing session event channel.
     const generation = (sendGenerationBySession.get(payload.sessionId) ?? 0) + 1;
     sendGenerationBySession.set(payload.sessionId, generation);
-    Promise.resolve(
-      activeRuntime.session.sendUserMessage(content, deliverAs ? { deliverAs } : undefined),
-    ).catch((error) => {
+    // Slash-prefixed input dispatches extension commands and skill/template
+    // expansion exactly like the pi CLI and RPC modes; plain text keeps the
+    // sendUserMessage path so it is never expanded.
+    const sendCall = content.startsWith('/')
+      ? activeRuntime.session.prompt(content, {
+          source: 'rpc',
+          ...(deliverAs ? { streamingBehavior: deliverAs } : {}),
+        })
+      : activeRuntime.session.sendUserMessage(content, deliverAs ? { deliverAs } : undefined);
+    Promise.resolve(sendCall).then(() => {
+      if (sendGenerationBySession.get(payload.sessionId) !== generation) return;
+      if (settledSendGenerationBySession.get(payload.sessionId) === generation) return;
+      if (activeRuntime.session?.isStreaming) return;
+      settledSendGenerationBySession.set(payload.sessionId, generation);
+      // Extension commands can complete without starting an agent turn, so Pi
+      // emits no agent_settled event. Close the optimistic browser lifecycle
+      // when the command promise itself is the authoritative completion edge.
+      publish('session.lifecycle', { state: 'idle', serverNow: Date.now() }, payload.sessionId, activeRuntime.cwd);
+      completeRequestedShutdown(payload.sessionId);
+    }).catch((error) => {
       if (sendGenerationBySession.get(payload.sessionId) !== generation) return;
       publish('session.error', {
         code: 'ASSISTANT_ERROR',
@@ -1743,7 +1918,10 @@ export function createSessionDaemon({
           ? { message: redactAttachmentPaths(error.message) }
           : {}),
       }, payload.sessionId, activeRuntime.cwd);
-      if (!activeRuntime.session?.isStreaming) return;
+      if (!activeRuntime.session?.isStreaming) {
+        completeRequestedShutdown(payload.sessionId);
+        return;
+      }
       Promise.resolve(activeRuntime.session.abort()).catch(() => {});
     });
     return { accepted: true, messageId };
@@ -1757,6 +1935,8 @@ export function createSessionDaemon({
       entryId: node.entry.id,
       parentId: node.entry.parentId,
       ...(node.entry.type === 'session_info' && typeof node.entry.name === 'string' ? { title: node.entry.name } : {}),
+      ...(typeof node.label === 'string' && node.label.length > 0 ? { label: node.label.slice(0, 256) } : {}),
+      ...(typeof node.labelTimestamp === 'string' ? { labelTimestamp: node.labelTimestamp } : {}),
       updatedAt: Date.parse(node.entry.timestamp) || 0,
       children: node.children.map(project),
     });
@@ -1783,6 +1963,9 @@ export function createSessionDaemon({
     retryStateBySession.delete(sessionId);
     compactionStateBySession.delete(sessionId);
     activeRunStartedAt.delete(sessionId);
+    shutdownRequestedBySession.delete(sessionId);
+    sendGenerationBySession.delete(sessionId);
+    settledSendGenerationBySession.delete(sessionId);
     latestUserMessageIds.delete(sessionId);
     latestAssistantMessageIds.delete(sessionId);
     toolInputBySession.delete(sessionId);
@@ -1797,7 +1980,7 @@ export function createSessionDaemon({
           const text = redactAttachmentPaths(typeof content === 'string'
             ? content
             : Array.isArray(content)
-              ? content.filter((part) => part?.type === 'text').map((part) => part.text).join('')
+              ? textFromContent(content)
               : '');
           const messageId = `user-${sessionId}-${sequence + 1}`;
           messageEntryAliases.retain({ cwd: directory, sessionId, syntheticMessageId: messageId, message: event.message });
@@ -1861,7 +2044,7 @@ export function createSessionDaemon({
           const usage = projectUsage(event.message.usage);
           publish('assistant.message.end', {
             messageId,
-            text: redactAttachmentPaths(content.filter((part) => part?.type === 'text').map((part) => part.text).join('')),
+            text: redactAttachmentPaths(textFromContent(content)),
             thinking: redactAttachmentPaths(content.filter((part) => part?.type === 'thinking').map((part) => part.thinking).join('')),
             durationMs,
             ...(content.some((part) => part?.type === 'toolCall') ? { continuing: true } : {}),
@@ -1870,6 +2053,34 @@ export function createSessionDaemon({
           }, sessionId, directory);
           streamingMessageIds.delete(sessionId);
           clearStreamingRedactionBuffers(sessionId);
+        } else if (event.message?.role === 'custom') {
+          publishExtensionCustomMessage(sessionId, event.message, directory);
+        }
+        break;
+      }
+      case 'entry_appended': {
+        const entry = event.entry;
+        if (entry?.type !== 'custom' || typeof entry.customType !== 'string') break;
+        const timestamp = Date.parse(entry.timestamp);
+        publish('extension.entry', {
+          id: typeof entry.id === 'string' ? entry.id : `ext-${sessionId}-${sequence + 1}`,
+          customType: entry.customType,
+          ...(entry.data !== undefined ? { data: redactAttachmentValues(entry.data) } : {}),
+          createdAt: Number.isFinite(timestamp) ? timestamp : Date.now(),
+        }, sessionId, directory);
+        // Declarative GUI payloads are additionally mirrored into normalized
+        // live state so panels/apps update in place and survive reconnects.
+        if (entry.customType === 'pichamber.ui' || entry.customType.startsWith('pichamber.')) {
+          const descriptor = entry.data && typeof entry.data === 'object' && !Array.isArray(entry.data)
+            ? (entry.data.ui && typeof entry.data.ui === 'object' && !Array.isArray(entry.data.ui) ? entry.data.ui : entry.data)
+            : undefined;
+          if (descriptor) {
+            if (entry.customType === 'pichamber.app') {
+              mirrorExtensionApp(sessionId, descriptor, directory);
+            } else {
+              mirrorExtensionPanel(sessionId, descriptor, directory);
+            }
+          }
         }
         break;
       }
@@ -1971,11 +2182,24 @@ export function createSessionDaemon({
       case 'agent_settled':
         retryStateBySession.delete(sessionId);
         activeRunStartedAt.delete(sessionId);
+        settledSendGenerationBySession.set(sessionId, sendGenerationBySession.get(sessionId) ?? 0);
         latestUserMessageIds.delete(sessionId);
         latestAssistantMessageIds.delete(sessionId);
         toolInputBySession.delete(sessionId);
         publish('session.lifecycle', { state: 'idle', serverNow: Date.now() }, sessionId, directory);
-        scheduleIdleDisposal(sessionId);
+        if (!completeRequestedShutdown(sessionId)) scheduleIdleDisposal(sessionId);
+        break;
+      case 'session_info_changed': {
+        const title = typeof event.name === 'string' ? event.name.trim() : '';
+        if (title) publish('session.updated', { title: redactAttachmentPaths(title).slice(0, 256) }, sessionId, directory);
+        break;
+      }
+      case 'model_select':
+        if (event.model?.provider && event.model?.id) {
+          publish('session.model', {
+            model: { providerId: event.model.provider, modelId: event.model.id },
+          }, sessionId, directory);
+        }
         break;
       case 'thinking_level_changed':
         publish('session.thinking', { thinking: event.level }, sessionId, directory);
@@ -2060,6 +2284,7 @@ export function createSessionDaemon({
               'sessions.setThinking', 'sessions.compact', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.status', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.delete',
+              'extensions.list', 'extensions.respond',
             ],
             ...(Number.isInteger(healthMetadata.daemonPid) ? { daemonPid: healthMetadata.daemonPid } : {}),
           },
@@ -2161,6 +2386,47 @@ export function createSessionDaemon({
       case 'resources.prompts.delete': {
         const result = await deletePrompt(message.payload);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'extensions.respond': {
+        const resolution = await resolveExtensionDialog(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: resolution });
+        return;
+      }
+      case 'extensions.list': {
+        const requestedExtensionsDir = message.payload?.directory || message.payload?.cwd;
+        const activeRuntime = await ensureRuntime(requestedExtensionsDir ? await resolveDirectory(requestedExtensionsDir) : undefined);
+        const extensionSession = activeRuntime.session;
+        const extensionPaths = typeof extensionSession?.extensionRunner?.getExtensionPaths === 'function'
+          ? extensionSession.extensionRunner.getExtensionPaths()
+          : [];
+        const registeredCommands = typeof extensionSession?.extensionRunner?.getRegisteredCommands === 'function'
+          ? extensionSession.extensionRunner.getRegisteredCommands()
+          : [];
+        writeFrame(socket, {
+          protocolVersion: PROTOCOL_VERSION,
+          kind: 'response',
+          requestId: message.requestId,
+          result: {
+            directory: activeRuntime.cwd,
+            extensions: (Array.isArray(extensionPaths) ? extensionPaths : [])
+              .filter((extensionPath) => typeof extensionPath === 'string' && extensionPath.length > 0)
+              // Opaque id only: server filesystem paths must never reach the
+              // browser (see DOCUMENTATION.md route invariants).
+              .map((extensionPath) => ({
+                id: createHash('sha256').update(extensionPath).digest('hex').slice(0, 16),
+                name: basename(extensionPath).replace(/\.(ts|js)$/, ''),
+              })),
+            commands: (Array.isArray(registeredCommands) ? registeredCommands : [])
+              .filter((command) => command && typeof command.invocationName === 'string')
+              .map((command) => ({
+                name: command.invocationName,
+                ...(typeof command.description === 'string' ? { description: command.description } : {}),
+                source: 'extension',
+                ...(typeof command.sourceInfo?.scope === 'string' ? { scope: command.sourceInfo.scope } : {}),
+              })),
+          },
+        });
         return;
       }
       case 'sessions.list': {
@@ -2435,6 +2701,10 @@ export function createSessionDaemon({
       retryStateBySession.clear();
       compactionStateBySession.clear();
       activeRunStartedAt.clear();
+      shutdownRequestedBySession.clear();
+      disposingSessionIds.clear();
+      sendGenerationBySession.clear();
+      settledSendGenerationBySession.clear();
       latestUserMessageIds.clear();
       latestAssistantMessageIds.clear();
       for (const client of clients) client.destroy();

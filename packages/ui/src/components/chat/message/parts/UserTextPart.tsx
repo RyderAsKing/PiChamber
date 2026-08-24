@@ -8,10 +8,7 @@ import { useSkillsStore } from '@/stores/useSkillsStore';
 import { Icon } from "@/components/icon/Icon";
 import { useMobileAppActions } from '@/apps/mobileAppContext';
 import { openSkillSettings } from '@/lib/skills/openSkillSettings';
-import {
-    buildAgentMentionUrl,
-    parseSkillHref,
-} from '@/lib/messages/inlineMessageLinks';
+import { parseSkillHref } from '@/lib/messages/inlineMessageLinks';
 import { prepareUserMarkdownContent, SKILL_TOKEN_PATTERN } from './userTextPartContent';
 import { extractTerminalContexts } from '@/lib/messages/terminalContext';
 
@@ -175,16 +172,9 @@ const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMenti
             agentMentionUsed = true;
             return [
                 node.slice(0, idx),
-                <a
-                    key={`agent-${index}`}
-                    href={buildAgentMentionUrl(agentMention.name)}
-                    className="text-primary hover:underline"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(event) => event.stopPropagation()}
-                >
+                <span key={`agent-${index}`} className="text-primary">
                     {agentMention.token}
-                </a>,
+                </span>,
                 node.slice(idx + agentMention.token.length),
             ];
         });

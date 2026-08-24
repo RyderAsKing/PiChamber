@@ -7,6 +7,7 @@ import type { PiSessionEvent } from '@/lib/pi/protocol';
 import { useNotificationStore } from '@/sync/notification-store';
 import { resetSessionOrdering } from '@/sync/session-ordering';
 import { upsertStubRecord } from '@/sync/pi-session-catalog';
+import { useConfigStore } from '@/stores/useConfigStore';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -23,6 +24,13 @@ const reducerSession = (
   parts: createReducerPartMap(),
   toolsByCallId: new Map(),
   streamingMessages: new Set(),
+      extensionStatuses: new Map(),
+      extensionWidgets: new Map(),
+      extensionDialogs: [],
+      extensionNotices: [],
+      extensionErrors: [],
+  extensionPanels: new Map(),
+  extensionApps: new Map(),
   queue: { steering: 0, followUp: 0 },
   ...overrides,
 });
@@ -133,6 +141,85 @@ const lifecycle = (sessionId: string, sequence: number, state: 'busy' | 'idle' |
 // ---------------------------------------------------------------------------
 
 describe('PiSessionStore topic-isolated notifiers', () => {
+  test('refreshes the authoritative provider catalog for an extension mutation', () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    seedCluster(store, internal);
+    const originalLoadProviders = useConfigStore.getState().loadProviders;
+    const calls: unknown[] = [];
+    useConfigStore.setState({
+      loadProviders: async (options) => { calls.push(options); },
+    });
+    try {
+      internal.commitEvents([{
+        protocolVersion: 1,
+        kind: 'event',
+        name: 'extension.catalog',
+        sequence: 2,
+        sessionId: 'a',
+        directory: '/repo',
+        payload: { providers: true },
+      }]);
+      expect(calls).toEqual([{ directory: '/repo', source: 'extension.catalog' }]);
+    } finally {
+      useConfigStore.setState({ loadProviders: originalLoadProviders });
+    }
+  });
+
+  test('runs a follow-up provider refresh when a newer mutation arrives in flight', async () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    seedCluster(store, internal);
+    const originalLoadProviders = useConfigStore.getState().loadProviders;
+    let resolveFirst: (() => void) | undefined;
+    const first = new Promise<void>((resolve) => { resolveFirst = resolve; });
+    let calls = 0;
+    useConfigStore.setState({
+      loadProviders: async () => {
+        calls += 1;
+        if (calls === 1) await first;
+      },
+    });
+    try {
+      internal.commitEvents([{
+        protocolVersion: 1, kind: 'event', name: 'extension.catalog', sequence: 2,
+        sessionId: 'a', directory: '/repo', payload: { providers: true },
+      }]);
+      internal.commitEvents([{
+        protocolVersion: 1, kind: 'event', name: 'extension.catalog', sequence: 3,
+        sessionId: 'a', directory: '/repo', payload: { providers: true },
+      }]);
+      expect(calls).toBe(1);
+      resolveFirst?.();
+      for (let index = 0; index < 10 && calls < 2; index += 1) await Promise.resolve();
+      expect(calls).toBe(2);
+    } finally {
+      resolveFirst?.();
+      useConfigStore.setState({ loadProviders: originalLoadProviders });
+    }
+  });
+
+  test('consumes extension editor replacements so a remount cannot replay them', () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    seedCluster(store, internal);
+    internal.commitEvents([{
+      protocolVersion: 1,
+      kind: 'event',
+      name: 'extension.editor',
+      sequence: 2,
+      sessionId: 'a',
+      directory: '/repo',
+      payload: { text: 'extension draft' },
+    }]);
+    expect(store.getState().reducer.bySession.get('a')?.extensionEditor).toEqual({
+      text: 'extension draft',
+      sequence: 2,
+    });
+
+    store.consumeExtensionEditor('a', 2);
+    expect(store.getState().reducer.bySession.get('a')?.extensionEditor).toBe(undefined);
+  });
   beforeEach(() => {
     resetSessionOrdering();
     useNotificationStore.setState({
@@ -169,7 +256,9 @@ describe('PiSessionStore topic-isolated notifiers', () => {
 
     expect(bCounter.count).toBe(1);
     expect(aCounter.count).toBe(0);
-    expect(catalogCounter.count).toBe(0);
+    // Session B's catalog row flips idle → busy when its turn starts, which
+    // intentionally notifies catalog (sidebar busy state) exactly once.
+    expect(catalogCounter.count).toBe(1);
     expect(chromeCounter.count).toBe(0);
 
     // Visible session's reducer record still gets a new reference so

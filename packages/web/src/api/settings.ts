@@ -44,8 +44,4 @@ export const createWebSettingsAPI = (): SettingsAPI => ({
     const payload = sanitizePayload(await response.json());
     return payload;
   },
-
-  async restartOpenCode(): Promise<{ restarted: boolean }> {
-    return { restarted: false };
-  },
 });

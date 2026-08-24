@@ -1,0 +1,313 @@
+---
+title: Pi extensions in PiChamber
+description: Run Pi extensions and render their dialogs, cards, panels, and app surfaces in PiChamber.
+---
+
+# Pi extensions in PiChamber
+
+PiChamber runs your existing [pi extensions](https://pi.dev/docs/latest/extensions/) inside every session. Extensions load from the same locations as the pi CLI — `~/.pi/agent/extensions/` (global) and `.pi/extensions/` (project-local, after project trust) — and keep their tools, commands, events, and session state.
+
+On top of that compatibility layer, extensions can render rich UI directly inside PiChamber's chat with a small declarative protocol.
+
+## What works out of the box
+
+| Extension capability | Behavior in PiChamber |
+| --- | --- |
+| `pi.registerTool()` | Tools are callable by the model; results render as tool cards |
+| `pi.registerCommand()` | Invokable from the composer as `/command args` |
+| Lifecycle + agent events | Fully supported (`tool_call`, `before_agent_start`, compaction, …) |
+| `ctx.ui.select / confirm / input / editor` | Rendered as a blocking dialog in the chat; the extension waits for your answer |
+| `ctx.ui.notify` | Shown as a notification |
+| `ctx.ui.setStatus(key, text)` | Shown above the composer until cleared |
+| `ctx.ui.setWidget(key, lines)` | Lines shown above (or below) the composer |
+| `pi.appendEntry()` / `pi.sendMessage()` | Visible in the chat transcript (see below) |
+| TUI-only surfaces (`custom()`, editor manipulation, footers, themes) | Intentionally no-ops; use the GUI protocol instead |
+
+Extension errors don't abort your session — they surface as an error entry so you can see what failed.
+
+## Compatibility principle
+
+PiChamber adapts itself to pi extensions rather than the other way around. An
+extension that knows nothing about PiChamber keeps working: its tools, commands,
+hooks (`tool_call`, `before_agent_start`, `context`, `before_provider_request`,
+compaction, `session_*`, `agent_*`, `turn_*`, `message_*`, `tool_execution_*`,
+`input`, `user_bash`, etc.), prompt modifications, and `ctx.ui` dialogs all run
+inside the daemon's pi runtime via the SDK's canonical discovery and trust flow
+(`~/.pi/agent/extensions`, `.pi/extensions`, package `pi.extensions`). PiChamber
+only adds an optional enhancement when the extension opts in.
+
+## Detecting PiChamber (optional)
+
+Do not make PiChamber a hard dependency. Check at runtime inside a handler
+where `ctx` is available:
+
+```ts
+const isPiChamber = (ctx: { mode: string; hasUI: boolean }): boolean => {
+  const marker = (globalThis as Record<string, unknown>).__PICHAMBER__ as { version?: number } | undefined;
+  if (marker?.version) return true;
+  try { if (typeof process !== 'undefined' && process.env.PICHAMBER === '1') return true; } catch {}
+  return ctx.mode === 'rpc' && ctx.hasUI === true;
+};
+
+pi.on('session_start', async (_event, ctx) => {
+  if (isPiChamber(ctx)) ctx.ui.setStatus('my-ext', 'PiChamber mode');
+});
+```
+
+Keep the check local to your extension. It has no PiChamber runtime dependency,
+so the same extension continues to work in the plain pi CLI.
+
+## The PiChamber GUI protocol
+
+Any extension can emit a UI card by appending a custom entry or sending a custom message whose type is `pichamber.ui`:
+
+```ts
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+export default function (pi: ExtensionAPI) {
+  pi.registerCommand("explore-status", {
+    description: "Show explore progress",
+    handler: async () => {
+      // Chat transcript card with a live progress bar and action button
+      pi.appendEntry("pichamber.ui", {
+        title: "Explore",
+        component: "progress",
+        props: { label: "Files indexed", value: 40, max: 200 },
+        actions: [
+          { label: "Focus src", command: "explore-focus", args: "src" },
+        ],
+      });
+    },
+  });
+}
+```
+
+The payload is plain JSON — no markup, no scripts — so it is safe to render on
+web, desktop, and mobile. Include the versioned protocol marker so future
+breaking changes do not crash older clients:
+
+```ts
+pi.appendEntry('pichamber.ui', {
+  protocol: 'pichamber-extension-ui',
+  version: 1,
+  id: 'subagents', // stable id -> later entries can replace this card
+  title: 'Sub-agents',
+  component: 'table',
+  props: { columns: ['Agent','Status'], rows: [['research','running']] },
+  actions: [{ label: 'Cancel', command: 'subagents-cancel', args: 'research' }],
+});
+```
+
+- `protocol` / `version`: `pichamber-extension-ui` / `1`. Unknown versions
+  degrade to a generic JSON fallback instead of breaking the chat.
+- `id`: optional stable identity (≤128 chars). Used for live-panel semantics
+  and reconnect — a phone that joins late still sees the latest card for
+  `subagents` without the extension resending.
+- `component`: one of `markdown`, `kv`, `list`, `table`, `progress`, `badges`, `code`
+- `props`: component properties (validated; unknown components degrade to a generic card)
+- `actions`: up to 8 buttons. Each invokes a registered extension command through the normal prompt path, so the handler receives the arguments and can drive the agent
+- `title`: optional card heading (≤256 chars)
+
+### Component reference
+
+```ts
+// markdown
+{ component: "markdown", props: { body: "**Indexed** 12 files" } }
+
+// key-value rows
+{ component: "kv", props: { rows: [{ label: "Files", value: "12", tone: "info" }] } }
+
+// list
+{ component: "list", props: { items: [{ label: "src/", value: "42 files" }] } }
+
+// table
+{ component: "table", props: { columns: ["File", "Status"], rows: [["a.ts", "done"]] } }
+
+// progress bar (value/max)
+{ component: "progress", props: { label: "Indexing", value: 40, max: 100 } }
+
+// badges
+{ component: "badges", props: { items: [{ label: "passing", tone: "success" }, "3 skipped"] } }
+
+// code block
+{ component: "code", props: { language: "ts", code: "const x = 1;" } }
+```
+
+Tones: `info`, `success`, `warning`, `error`, `neutral`.
+
+### Actions invoke your commands
+
+Action buttons send `/<command> <args>` through PiChamber's prompt path. Register matching commands with `pi.registerCommand()`:
+
+```ts
+pi.registerCommand("explore-focus", {
+  description: "Focus exploration on a directory",
+  handler: async (args, ctx) => {
+    ctx.ui.notify(`Exploring ${args || "."}`, "info");
+  },
+});
+```
+
+Actions support optional fields beyond `label`/`command`/`args`/`variant`:
+
+- `icon`: PiChamber sprite icon name rendered before the label (unknown names are ignored)
+- `disabled`: render disabled and ignore clicks
+- `loading`: show a spinner while still clickable-disabled until the next card arrives
+- `confirm`: ask the user to confirm before invoking (destructive actions)
+- `promptForArgs`: `{ label?, placeholder? }` — collect an argument string through an inline input before invoking
+
+### Live panels update in place
+
+Custom entries published with `pi.appendEntry()` and carrying a stable `id`
+are additionally mirrored into normalized `extension.ui` events and
+server-side panel state. The chat transcript keeps the full history, but
+PiChamber also renders a live dock above the composer where the latest
+descriptor for each `id` replaces the previous one. Panels survive reconnects
+via snapshots, and `{ id, removed: true }` unregisters a panel from the dock.
+A `pichamber.ui` custom message published with `pi.sendMessage()` remains a
+transcript card and participates in model context, but it does not update the
+live dock.
+
+### Editor dialogs
+
+`ctx.ui.editor(title, prefill)` opens a multiline blocking dialog. Submit
+returns the current text, including an empty string. Cancel returns
+`undefined`.
+
+### Structured form dialogs
+
+PiChamber extends pi's UI bridge with `ctx.ui.form(title, fields)` (gate with
+`isPiChamber(ctx)`; plain pi has no `form` method):
+
+```ts
+const values = await (ctx.ui as any).form("Spawn agent", [
+  { id: "name", label: "Name", type: "text", required: true },
+  { id: "task", label: "Task", type: "textarea" },
+  { id: "priority", label: "Priority", type: "select", options: ["low", "high"], initial: "normal" },
+  { id: "dryRun", label: "Dry run", type: "checkbox", initial: "true" },
+]);
+// values: Record<fieldId, string> — or undefined when cancelled/timed out.
+```
+
+Field types: `text`, `textarea`, `number`, `select`, `checkbox`. The dialog is
+blocking like `ctx.ui.input` and resolves with a values object keyed by field
+id. The daemon validates required fields, number bounds, select options, and
+checkbox values before resolving the extension. Fields are capped at 12;
+options at 20.
+
+### Sandboxed app surfaces
+
+For richer custom UI, an extension can register an app surface by appending a
+`pichamber.app` entry containing self-contained HTML. It renders inside an
+iframe sandboxed with script execution only — no same-origin access to
+PiChamber, no cookies or storage, no navigation. The only capability granted
+back is firing registered slash commands from elements carrying
+`data-pichamber-command` / `data-pichamber-args`:
+
+```ts
+pi.appendEntry("pichamber.app", {
+  protocol: "pichamber-extension-ui",
+  version: 1,
+  appId: "board",
+  title: "Kanban board",
+  html: `<button data-pichamber-command="board-next">Next</button>`,
+});
+// Remove it again with: { appId: "board", removed: true }
+```
+
+The command name must match `[A-Za-z0-9][A-Za-z0-9:_-]{0,127}` — no path
+separators — and runs through the same authenticated prompt path as action
+buttons. HTML is capped at ~200 KB per app and 8 apps per session.
+### State ownership and transport
+
+Declarative cards are `appendEntry` / `sendMessage` entries in the pi JSONL.
+They survive reloads and are served to late-joining devices via the same
+`GET /api/pi/sessions/:id` hydration that restores the transcript. Incremental
+`appendEntry` updates create new transcript rows; a stable `id` on an appended
+entry lets the client render the "current" panel while keeping history as
+fallback. Custom messages remain transcript-only.
+
+Live ephemeral state (`ctx.ui.setStatus`, `ctx.ui.setWidget`, pending
+`ctx.ui.select/confirm/input/editor/form` dialogs, live `pichamber.ui` panels,
+and registered `pichamber.app` surfaces) is kept as server-side
+normalized state per `sessionId`. The daemon mirrors it into the `session.snapshot`
+so a reconnect that missed the 1k retained `extension.*` event window still
+rebuilds the current sub-agent list or approval prompt.
+
+All extension UI travels through the normal authenticated event stream
+(`/api/pi/events` via `runtimeFetch` / relay tunnel). No second WebSocket or
+custom origin is required; browser, Electron, and Capacitor clients share the
+same transport.
+
+### Anything else falls back gracefully
+
+Custom entries or messages that don't carry a `pichamber.ui` descriptor still appear in the chat as a collapsed card showing their content — internal state entries stay visible but never break rendering. Future major `version` values also fall back rather than crashing.
+
+## Sub-agent reference pattern
+
+```ts
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
+
+export default function (pi: ExtensionAPI) {
+  const agents = new Map<string, { name: string; status: string; task: string }>();
+  const render = () => pi.appendEntry('pichamber.ui', {
+    protocol: 'pichamber-extension-ui',
+    version: 1,
+    id: 'subagents',
+    title: 'Sub-agents',
+    component: 'table',
+    props: { columns: ['Agent','Status','Task'], rows: [...agents.values()].map((agent) => [agent.name, agent.status, agent.task]) },
+    actions: [{ label: 'Clear', command: 'subagents-clear' }],
+  });
+
+  pi.registerTool({
+    name: 'spawn_subagent',
+    description: 'Spawn a tracked sub-agent',
+    parameters: { type: 'object', properties: { name: { type: 'string' }, task: { type: 'string' } } } as never,
+    async execute(_id, params) {
+      agents.set(params.name, { name: params.name, status: 'running', task: params.task });
+      render();
+      return { content: [{ type: 'text', text: `Spawned ${params.name}` }], details: {} };
+    },
+  });
+
+  pi.registerCommand('subagents-clear', {
+    description: 'Clear finished sub-agents',
+    handler: async (_args, ctx) => { agents.clear(); render(); ctx.ui.notify('Cleared', 'info'); },
+  });
+}
+```
+
+A full working demo is `packages/web/server/lib/pi/fixtures/pichamber-gui-demo.ts`.
+
+## Notes for project-local extensions
+
+Project-local extensions participate in pi's standard trust flow. When PiChamber opens a project that hasn't been trusted yet, pi resolves trust exactly as it does on the CLI.
+
+## Security and limits
+
+- Declarative payloads are validated and truncated (keys ≤128, titles ≤256,
+  badge items ≤24, table rows ≤200, messages ≤50k). Unknown `pichamber.ui`
+  components never execute code.
+- Actions map to registered slash commands and are invoked through the
+  authenticated prompt path — never arbitrary function calls.
+- Extension UI state is scoped per `sessionId` and never leaks across sessions
+  or directory scopes.
+- Raw HTML in extension messages is rendered as inert text and sanitized.
+- App-surface HTML runs in a script-only sandboxed iframe: no same-origin
+  access, no storage or cookies, no navigation, and its single capability
+  (invoking slash commands) is bound to a per-mount random token validated by
+  the host before any prompt is sent.
+- `GET /api/pi/extensions` returns opaque extension ids only — server
+  filesystem paths never cross the API boundary.
+
+## User-authored command triggers
+
+Users can pin any registered slash command as a quick-action button near the
+composer and optionally bind a global keybinding to it (Settings → Shortcuts →
+Command triggers). Triggers are stored in shared ui-settings, fire the same
+authenticated prompt path, and always match after built-in shortcuts so they
+can never shadow core actions. This restores CLI-style muscle memory (for
+example cycling model modes without touching the mouse) for extensions that
+register commands instead of terminal keyboard hooks — `pi.registerShortcut()`
+remains TUI-only and does not fire in PiChamber sessions.

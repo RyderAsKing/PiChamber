@@ -125,6 +125,9 @@ export const piMessageToRecord = (message: PiProjectedMessage, sessionId: string
     id: message.id,
     sessionID: sessionId,
     role: message.role,
+    ...(message.role === 'extension'
+      ? { customType: message.customType, data: message.data, details: message.details, ...(message.text ? { text: message.text } : {}) }
+      : {}),
     ...(message.parentId ? { parentID: message.parentId } : {}),
     time: {
       created: message.createdAt,

@@ -18,9 +18,7 @@
       "@/*": ["../ui/src/*", "./src/*"],
       "@web/*": ["./src/*"],
       "@pichamber/ui/*": ["../ui/src/*"],
-      "@pichamber/web/*": ["./src/*"],
-      "@opencode-ai/sdk/v2/client": ["../ui/src/lib/chat/types.ts"],
-      "@opencode-ai/sdk/v2": ["../ui/src/lib/chat/types.ts"]
+      "@pichamber/web/*": ["./src/*"]
     }
   },
   "include": ["src", "../ui/src", "../ui/src/types/**/*"]

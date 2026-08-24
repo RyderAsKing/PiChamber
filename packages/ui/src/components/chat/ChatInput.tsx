@@ -6,6 +6,8 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { createMessageQueueTarget, getMessageQueueKey, useMessageQueueStore, type QueuedMessage } from '@/stores/messageQueueStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { usePiSessionSnapshot } from '@/sync/pi-session-context';
+import { getPiSessionStore } from '@/apps/pi-session-store';
 import { useSelectionStore } from '@/sync/selection-store';
 import { useInputStore } from '@/sync/input-store';
 import {
@@ -299,6 +301,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         Promise.resolve((useSessionUIStore.getState().sendMessage as (...a: unknown[]) => unknown)(...args)),
     ).current;
     const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
+    const extensionEditor = usePiSessionSnapshot(
+        (state) => currentSessionId ? state.reducer.bySession.get(currentSessionId)?.extensionEditor : undefined,
+        (previous, next) => previous?.sequence === next?.sequence,
+        currentSessionId ? `session:${currentSessionId}` : 'chrome',
+    );
+    const appliedExtensionEditorBySessionRef = React.useRef(new Map<string, number>());
+    React.useEffect(() => {
+        if (!currentSessionId || !extensionEditor) return;
+        const previousSequence = appliedExtensionEditorBySessionRef.current.get(currentSessionId) ?? -1;
+        if (extensionEditor.sequence <= previousSequence) return;
+        appliedExtensionEditorBySessionRef.current.set(currentSessionId, extensionEditor.sequence);
+        confirmedMentionsRef.current.clear();
+        setMessage(extensionEditor.text);
+        closeAutocomplete();
+        getPiSessionStore().consumeExtensionEditor(currentSessionId, extensionEditor.sequence);
+    }, [closeAutocomplete, currentSessionId, extensionEditor]);
     const fallbackDirectory = useDirectoryStore((s) => s.currentDirectory);
     const currentDirectory = useEffectiveDirectory() ?? fallbackDirectory;
     const currentSessionDirectoryForSync = useSessionUIStore(
@@ -961,7 +979,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             // vanishes the card instantly (optimistic); rejecting unblocks the
             // agent's tool but does NOT end its turn, so a direct send would
             // race with the still-active run and be silently discarded by the
-            // OpenCode runner. Instead we queue; the queued-message auto-send
+            // Pi session runner. Instead we queue; the queued-message auto-send
             // hook delivers it as the next turn once the rejected turn winds
             // down and the session returns to idle (parity with #1740).
             const [deniedPermissions, dismissedQuestions] = await Promise.all([
@@ -1313,7 +1331,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         // instead of through the composer input — the collapsed mobile pill has
         // no mounted textarea to stage it in.
         const draft = (composerRef.current?.getValue() ?? messageRef.current).trim();
-        // OpenCode recognizes slash commands only when their arguments follow
+        // Pi recognizes slash commands only when their arguments follow
         // the command on the same line. Skills retain the multiline prompt form.
         const presetText = draft ? `${text}${type === 'command' ? ' ' : '\n'}${draft}` : text;
         void handleSubmitRef.current({ presetText });
@@ -2267,7 +2285,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         projects={draftProjects}
                         selectedProject={selectedDraftProject}
                         selectedBranchName={selectedBranchName}
-                        selectedBranchLabel={worktreeMode && selectedDraftBranchLabel ? `Start from: ${selectedDraftBranchLabel}` : selectedDraftBranchLabel}
+                        selectedBranchLabel={selectedDraftBranchLabel}
                         branchOptions={draftBranchItems}
                         branchInteractive={newSessionDraftOpen}
                         branchLoading={isDiscoveringDraftBranches}
@@ -2285,7 +2303,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 {isMobileForDraft && showDraftTargetSelectors && selectedDraftProject && (newSessionDraftOpen || shouldShowDraftBranchSelector) ? (
                     <MobileDraftTargetTriggers
                         selectedProject={selectedDraftProject}
-                        selectedBranchLabel={worktreeMode && selectedDraftBranchLabel ? `Start from: ${selectedDraftBranchLabel}` : selectedDraftBranchLabel}
+                        selectedBranchLabel={selectedDraftBranchLabel}
                         branchInteractive={newSessionDraftOpen}
                         showBranchSelector={shouldShowDraftBranchSelector}
                         showProjectSelector={newSessionDraftOpen}
@@ -2296,11 +2314,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         theme={currentTheme}
                         onOpenPicker={setMobileDraftPicker}
                     />
-                ) : null}
-                {newSessionDraftOpen && worktreeMode && !draftWorktreeCreation.state ? (
-                    <p className="mx-3 mb-2 typography-meta text-muted-foreground">
-                        Starts from the selected branch's latest commit. Uncommitted changes are not copied.
-                    </p>
                 ) : null}
                 {draftWorktreeCreation.state ? (
                     <div
@@ -2443,6 +2456,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                 elapsedSeconds={dictation.elapsedSeconds}
                                 buttonClassName={footerIconButtonClass}
                                 iconClassName={iconSizeClass}
+                                isMobile={isMobile}
                                 onCancel={dictation.cancel}
                                 onDone={handleFinishDictation}
                             />
@@ -2667,7 +2681,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 projects={draftProjects}
                 selectedProject={selectedDraftProject}
                 selectedBranchName={selectedBranchName}
-                selectedBranchLabel={worktreeMode && selectedDraftBranchLabel ? `Start from: ${selectedDraftBranchLabel}` : selectedDraftBranchLabel}
+                selectedBranchLabel={selectedDraftBranchLabel}
                 branchOptions={draftBranchItems}
                 branchInteractive={newSessionDraftOpen}
                 branchLoading={isDiscoveringDraftBranches}

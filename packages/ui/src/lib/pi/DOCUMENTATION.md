@@ -5,12 +5,13 @@
 This directory owns the Pi-native runtime boundary. It defines:
 
 - The Pi session / message / part data shapes (`types.ts`).
-- The public `/api/pi/` IPC envelope (`protocol.ts`).
+- The public `/api/pi/` IPC envelope (`protocol.ts`), including the `extension.*` events that project pi extension UI (blocking dialogs and their authoritative dismissals, notifications, statuses, widgets, custom entries/messages, runtime errors) onto the public stream.
+- The PiChamber extension GUI parser (`extension-ui.ts`). It validates `pichamber.ui` descriptors from extension custom entries/messages into render-ready components (markdown, kv, list, table, progress, badges, code) plus action buttons; unknown content degrades to a generic card instead of being dropped.
 - The browser-side transport for `/api/pi/events` (`transport.ts`), using authenticated SSE by default and one active connection per stream generation. Explicit WebSocket mode remains only for runtimes that provide a matching upgrade endpoint; fetch-based SSE comment heartbeats count as liveness.
 - Stream cadence (`stream-cadence.ts`): adjacent same-part token deltas fold, then flush on `requestAnimationFrame` together with live `session.tool.update` frames; boundary events flush pending stream frames first.
 - The service facade that wraps every `/api/pi/*` call (`client.ts`).
 - The snapshot reducer helpers (`snapshot.ts`).
-- The event reducer helpers (`event-reducer.ts`). `projectSession` is incremental: pass the previous session and projection so unchanged historical messages and parts keep their object identity, and a no-op live-tail remap returns the previous projection object. Ordered message lists are cached on the reducer `messages` Map; projected parts are cached on reducer part identity. `parts` is a copy-on-write map (`CowMap`): token/tool deltas `fork()` a snapshot-private overlay instead of cloning every historical part, and flatten after a bounded depth. Each applied event records `lastMutatedMessageId` / `lastMutationKind` so live-tail freeze can skip an O(session) part walk.
+- The event reducer helpers (`event-reducer.ts`). `projectSession` is incremental: pass the previous session and projection so unchanged historical messages and parts keep their object identity, and a no-op live-tail remap returns the previous projection object. Ordered message lists are cached on the reducer `messages` Map; projected parts are cached on reducer part identity. `parts` is a copy-on-write map (`CowMap`): token/tool deltas `fork()` a snapshot-private overlay instead of cloning every historical part, and flatten after a bounded depth. Each applied event records `lastMutatedMessageId` / `lastMutationKind` so live-tail freeze can skip an O(session) part walk. Extension events append extension-role transcript items, maintain live status/widget maps and the blocking-dialog queue, and keep bounded notice/error feeds. The selected session's footer statuses render as a single horizontal, touch-scrollable strip rather than wrapping into stacked rows. Standard Pi RPC editor updates replace only the owning visible session's composer; background-session events stay resident until that session is selected. Session-scoped extension titles flow through the shared window-title owner on web, desktop, mini-chat, hosted mobile, and Capacitor. Extension catalog invalidations refresh provider/resource data without clearing the previous authoritative snapshot on failure, while command autocomplete keys its refetch to a low-frequency per-session revision. `extension.dialog.dismiss` removes answered, timed-out, aborted, or disposed requests on every client; an authoritative snapshot replaces the pending-dialog queue rather than preserving requests the daemon omitted. `dismissExtensionDialog` removes a successfully answered request locally without touching sequence bookkeeping.
 - The bootstrap owner (`bootstrap.ts`).
 - The reconnect owner (`reconnect.ts`).
 - The attachment helpers (`attachments.ts`).
@@ -23,7 +24,7 @@ The module uses native `Response` parsing through `runtimeFetch` so callers
 can distinguish failure from a successful empty result. `MainLayout` is the
 mounted owner for web, desktop, mini-chat, and mobile chrome. Session truth
 lives in `PiSessionStore` via `PiSessionProvider`; chat leaves consume
-`pi-to-renderable` adapters rather than OpenCode SDK types.
+`pi-to-renderable` adapters and local render contracts.
 
 Capacitor's native HTTP fetch adapter buffers long responses, so direct native
 mobile clients use URL-authenticated `EventSource` for `/api/pi/events`.
@@ -158,12 +159,13 @@ focus is already in flight.
 ### Topic-bus notify contract
 
 `PiSessionStore.subscribe(listener, topic?)` registers a listener on one of
-four topic keys; `commitEvents` and other writers publish one notification
+five topic keys; `commitEvents` and other writers publish one notification
 per topic they touch so a token delta in session B does not wake session A
 chat transcript selectors.
 
 - `session:{id}` — that session's reducer record changed.
 - `catalog` — `state.catalog` identity changed.
+- `dialogs` — runtime-wide pending extension-dialog membership; only dialog open, dismissal, hydrate, and reconnect reconciliation publish it.
 - `chrome` — cluster UI: `connection`, `error`, `directory`,
   `selectedSessionId`, `sessions[]`, `sessionsListStatus`,
   `focusPending`, `hydratedSessionIds`, `sessionLoadErrorById`.
@@ -276,9 +278,7 @@ so background hydrations don't steal the visible chat.
 `open(directory, sessionId)` is the first-attach entry: it selects the daemon
 project, probes health, lists and hydrates the selected session, and attaches
 the runtime-wide stream. The health and list results from that first attach
-are passed into hydration rather than probed/listed a second time. After attach, `open` /
-`start` /
-`legacy-ui-client.setDirectory` / `setActiveSession` route to
+are passed into hydration rather than probed/listed a second time. After attach, `open`, `start`, project selection, and `setActiveSession` route to
 `focusProject(directory)` when the cluster is attached, then call
 `select(sessionId)` for the new pointer. Same-folder selects remain pure
 pointer changes on the resident cluster. Cross-folder
@@ -314,15 +314,14 @@ React consumers read `PiSessionStore` through `usePiSessionSnapshot(selector)`.
 The selector must return a leaf or a stable per-session record; omitting it
 re-renders every subscriber on each accepted event.
 The restored web shell bootstraps provider/model config through
-`initializeApp()` in `SyncAppEffects`; `legacy-ui-client.getProvidersForConfig`
-must return `{ providers, default }` so the config store can leave the picker
-off the loading state. Selection catalogs (composer, session defaults, small
+`initializeApp()` in `SyncAppEffects`; `useConfigStore.loadProviders()` reads the
+Pi provider catalog through `piClient` so the picker can leave the loading state. Selection catalogs (composer, session defaults, small
 model, walkthrough model) include only authenticated providers that have
 models. Users can hide individual models from those catalogs in Providers
 settings; hidden models stay out of pickers. Session default, small-model, and
 walkthrough-model pickers live on the Sessions page and use the same picker as
 the composer. Providers settings still lists the
-full catalog so unconfigured providers can be logged in. Composer chrome does not expose an OpenCode agent selector.
+full catalog so unconfigured providers can be logged in. Composer chrome does not expose an agent selector.
 Chat, sidebar, and composer mutations go through `PiSessionStore` and `/api/pi/*`. Pi assistant projections preserve their owning user-message id end to end because the restored chat renderer groups assistant output into user turns by that identity. Tool parts preserve input, cumulative partial output, final output, error text, metadata, and start/end timestamps through the reducer. `pi-to-renderable` keeps that contract for live and expanded tools; settled historical tools whose output or patch exceeds a character budget become preview stubs (`state.deferredBody`) so transcript records do not retain full bodies. Expanding a tool hydrates the canonical part through `useSessionReducerPart`. A completed tool needs an end time and keeps its status verbatim, including `cancelled`. `pi-to-renderable` also copies the producing `providerId`/`modelId` onto both nested `info.model` and top-level `info.providerID`/`info.modelID` so the assistant message footer can show the model name without guessing from the current composer selection.
 Settings chrome is the restored PiChamber hub limited to Pi-owned pages
 (Providers, Skills, Snippets, Behavior/`AGENTS.md`, Magic Prompts, appearance

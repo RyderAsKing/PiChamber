@@ -7,10 +7,13 @@ import { createPiArchiveStore } from './archive-store.js';
 import { createPiAttachmentStore } from './attachment-store.js';
 import { checkForUpdates } from '../package-manager.js';
 import { listPiCustomThemes } from './custom-themes.js';
-import { adoptLegacyUiModelDefaults } from './legacy-ui-model-defaults.js';
 import { createPiSettingsStore } from './settings-store.js';
 import { isPiThinkingLevel } from './thinking-levels.js';
 import { createPiSessionFoldersStore } from './session-folders-store.js';
+import {
+  MAX_EXTENSION_APP_HTML_CHARS,
+  sanitizeExtensionFormFields,
+} from './extension-protocol.js';
 import { createPiUiSettingsStore } from './ui-settings-store.js';
 
 const UNAVAILABLE_CODES = new Set([
@@ -184,7 +187,7 @@ const projectSessionDetail = (value) => {
     if (!item || typeof item !== 'object' || !item.message || !Array.isArray(item.parts)) throw protocolMismatch();
     const message = item.message;
     if (typeof message.id !== 'string' || typeof message.sessionId !== 'string' || typeof message.directory !== 'string'
-      || !Number.isFinite(message.createdAt) || (message.role !== 'user' && message.role !== 'assistant')) throw protocolMismatch();
+      || !Number.isFinite(message.createdAt) || (message.role !== 'user' && message.role !== 'assistant' && message.role !== 'extension')) throw protocolMismatch();
     const projected = {
       id: message.id, sessionId: message.sessionId, directory: message.directory, role: message.role, createdAt: message.createdAt,
       ...(typeof message.parentId === 'string' ? { parentId: message.parentId } : {}),
@@ -200,6 +203,9 @@ const projectSessionDetail = (value) => {
           }
         : {}),
       ...(message.role === 'assistant' && message.usage && projectUsage(message.usage) ? { usage: projectUsage(message.usage) } : {}),
+      ...(message.role === 'extension' && typeof message.customType === 'string' ? { customType: message.customType } : {}),
+      ...(message.role === 'extension' && message.data !== undefined ? { data: message.data } : {}),
+      ...(message.role === 'extension' && message.details !== undefined ? { details: message.details } : {}),
     };
     const parts = item.parts.map((part) => {
       if (!part || typeof part !== 'object' || typeof part.type !== 'string' || typeof part.id !== 'string' || !Number.isSafeInteger(part.index)) throw protocolMismatch();
@@ -372,7 +378,9 @@ const projectSessionTree = (value) => {
     return {
       entryId: node.entryId,
       ...(typeof node.parentId === 'string' ? { parentId: node.parentId } : {}),
-      ...(typeof node.title === 'string' ? { title: node.title } : {}),
+      ...(typeof node.title === 'string' ? { title: node.title.slice(0, 256) } : {}),
+      ...(typeof node.label === 'string' && node.label.length > 0 ? { label: node.label.slice(0, 256) } : {}),
+      ...(typeof node.labelTimestamp === 'string' ? { labelTimestamp: node.labelTimestamp.slice(0, 64) } : {}),
       updatedAt: node.updatedAt,
       children: node.children.map(projectNode),
     };
@@ -382,7 +390,56 @@ const projectSessionTree = (value) => {
 
 const sessionIdFrom = (req) => typeof req.params.sessionId === 'string' && req.params.sessionId.length > 0 ? req.params.sessionId : undefined;
 
-const projectEventFrame = (frame) => {
+
+const projectExtensionPanelActions = (actions) => (
+  Array.isArray(actions)
+    ? actions.filter((action) => action && typeof action === 'object' && typeof action.command === 'string').slice(0, 8)
+    : undefined
+);
+
+const projectExtensionPanelPayload = (panel) => ({
+  id: panel.id.slice(0, 128),
+  ...(typeof panel.title === 'string' ? { title: panel.title.slice(0, 256) } : {}),
+  ...(typeof panel.component === 'string' ? { component: panel.component.slice(0, 64) } : {}),
+  ...(panel.props && typeof panel.props === 'object' && !Array.isArray(panel.props) ? { props: panel.props } : {}),
+  ...(projectExtensionPanelActions(panel.actions) ? { actions: panel.actions } : {}),
+});
+
+const projectExtensionAppPayload = (app) => ({
+  appId: app.appId.slice(0, 128),
+  ...(typeof app.title === 'string' ? { title: app.title.slice(0, 256) } : {}),
+  html: typeof app.html === 'string' ? app.html.slice(0, MAX_EXTENSION_APP_HTML_CHARS) : '',
+});
+
+const EXTENSION_COMMAND_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/;
+const OPAQUE_EXTENSION_ID_PATTERN = /^[a-f0-9]{16}$/;
+
+export const projectExtensionList = (result) => {
+  if (!result || typeof result !== 'object' || typeof result.directory !== 'string'
+    || !Array.isArray(result.extensions) || !Array.isArray(result.commands)) throw protocolMismatch();
+  const extensions = result.extensions.map((extension) => {
+    if (!extension || typeof extension !== 'object'
+      || typeof extension.id !== 'string' || !OPAQUE_EXTENSION_ID_PATTERN.test(extension.id)
+      || typeof extension.name !== 'string' || extension.name.length === 0 || extension.name.length > 256
+      || extension.name.includes('/') || extension.name.includes('\\')) throw protocolMismatch();
+    return { id: extension.id, name: extension.name };
+  });
+  const commands = result.commands.map((command) => {
+    if (!command || typeof command !== 'object'
+      || typeof command.name !== 'string' || !EXTENSION_COMMAND_PATTERN.test(command.name)
+      || (command.description !== undefined && typeof command.description !== 'string')
+      || (command.scope !== undefined && typeof command.scope !== 'string')) throw protocolMismatch();
+    return {
+      name: command.name,
+      ...(typeof command.description === 'string' ? { description: command.description.slice(0, 500) } : {}),
+      source: 'extension',
+      ...(typeof command.scope === 'string' ? { scope: command.scope.slice(0, 64) } : {}),
+    };
+  });
+  return { directory: result.directory, extensions, commands };
+};
+
+export const projectEventFrame = (frame) => {
   if (!frame || frame.kind !== 'event' || typeof frame.event !== 'string' || !Number.isSafeInteger(frame.sequence)
     || !frame.payload || typeof frame.payload.sessionId !== 'string' || typeof frame.payload.directory !== 'string') return null;
   const { sessionId, directory } = frame.payload;
@@ -390,6 +447,35 @@ const projectEventFrame = (frame) => {
   switch (frame.event) {
     case 'session.snapshot': {
       const snapshot = frame.payload;
+      const snapshotExtensionStatuses = Array.isArray(snapshot.extensionStatuses)
+        ? snapshot.extensionStatuses.filter((entry) => entry && typeof entry.key === 'string' && typeof entry.text === 'string' && entry.key.length > 0 && entry.key.length <= 128 && entry.text.length <= 1000).slice(0, 50).map((entry) => ({ key: entry.key.slice(0, 128), text: entry.text.slice(0, 1000) }))
+        : undefined;
+      const snapshotExtensionWidgets = Array.isArray(snapshot.extensionWidgets)
+        ? snapshot.extensionWidgets.filter((entry) => entry && typeof entry.key === 'string' && Array.isArray(entry.lines) && entry.key.length > 0 && entry.key.length <= 128 && entry.lines.length <= 100).slice(0, 50).map((entry) => ({
+            key: entry.key.slice(0, 128),
+            lines: entry.lines.filter((line) => typeof line === 'string').map((line) => line.slice(0, 2000)).slice(0, 100),
+            ...(entry.placement === 'belowEditor' ? { placement: 'belowEditor' } : { placement: 'aboveEditor' }),
+          }))
+        : undefined;
+      const snapshotExtensionDialogs = Array.isArray(snapshot.extensionDialogs)
+        ? snapshot.extensionDialogs.filter((entry) => entry && typeof entry.requestId === 'string' && typeof entry.method === 'string' && typeof entry.title === 'string').slice(0, 20).map((entry) => ({
+            requestId: entry.requestId.slice(0, 512),
+            method: ['select', 'confirm', 'input', 'editor', 'form'].includes(entry.method) ? entry.method : 'confirm',
+            title: entry.title.slice(0, 512),
+            ...(typeof entry.message === 'string' ? { message: entry.message.slice(0, 2000) } : {}),
+            ...(Array.isArray(entry.options) ? { options: entry.options.filter((option) => typeof option === 'string').map((option) => option.slice(0, 256)).slice(0, 20) } : {}),
+            ...(typeof entry.placeholder === 'string' ? { placeholder: entry.placeholder.slice(0, 512) } : {}),
+            ...(typeof entry.prefill === 'string' ? { prefill: entry.prefill.slice(0, 10000) } : {}),
+            ...(Array.isArray(entry.fields) ? { fields: sanitizeExtensionFormFields(entry.fields) } : {}),
+            ...(Number.isFinite(entry.timeoutMs) ? { timeoutMs: Math.floor(entry.timeoutMs) } : {}),
+          }))
+        : undefined;
+      const snapshotExtensionPanels = Array.isArray(snapshot.extensionPanels)
+        ? snapshot.extensionPanels.filter((entry) => entry && typeof entry.id === 'string' && entry.id.length > 0).slice(0, 24).map(projectExtensionPanelPayload)
+        : undefined;
+      const snapshotExtensionApps = Array.isArray(snapshot.extensionApps)
+        ? snapshot.extensionApps.filter((entry) => entry && typeof entry.appId === 'string' && entry.appId.length > 0 && typeof entry.html === 'string' && entry.html.length > 0).slice(0, 8).map(projectExtensionAppPayload)
+        : undefined;
       const lifecycle = ['idle', 'busy', 'retry', 'error', 'interrupted'].includes(snapshot.lifecycle) ? snapshot.lifecycle : 'idle';
       const retry = lifecycle === 'retry' ? projectRetryInfo(snapshot.retry) : null;
       const compaction = projectCompactionInfo(snapshot.compaction);
@@ -406,6 +492,14 @@ const projectEventFrame = (frame) => {
         ...(Number.isFinite(snapshot.runStartedAt) ? { runStartedAt: Math.floor(snapshot.runStartedAt) } : {}),
         ...(Number.isFinite(snapshot.serverNow) ? { serverNow: Math.floor(snapshot.serverNow) } : {}),
         lastSequence: Number.isSafeInteger(snapshot.lastSequence) ? snapshot.lastSequence : frame.sequence,
+        ...(snapshotExtensionStatuses ? { extensionStatuses: snapshotExtensionStatuses } : {}),
+        ...(snapshotExtensionWidgets ? { extensionWidgets: snapshotExtensionWidgets } : {}),
+        ...(snapshotExtensionDialogs ? { extensionDialogs: snapshotExtensionDialogs } : {}),
+        ...(snapshotExtensionPanels ? { extensionPanels: snapshotExtensionPanels } : {}),
+        ...(snapshotExtensionApps ? { extensionApps: snapshotExtensionApps } : {}),
+        ...(typeof snapshot.extensionTitle === 'string' && snapshot.extensionTitle.length > 0
+          ? { extensionTitle: snapshot.extensionTitle.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 256) }
+          : {}),
       } } };
     }
     case 'session.lifecycle': {
@@ -418,6 +512,7 @@ const projectEventFrame = (frame) => {
       if (title.length === 0 || title.length > 256) return null;
       return { ...common, payload: { title } };
     }
+    case 'session.tree.updated': return { ...common, payload: {} };
     case 'assistant.message.start': return { ...common, payload: { messageId: frame.payload.messageId, role: frame.payload.role, startedAt: frame.payload.startedAt, ...(typeof frame.payload.parentId === 'string' ? { parentId: frame.payload.parentId } : {}), ...(typeof frame.payload.text === 'string' ? { text: frame.payload.text } : {}), ...(frame.payload.model ? { model: frame.payload.model } : {}) } };
     case 'assistant.message.delta':
     case 'assistant.thinking.delta': return { ...common, payload: { messageId: frame.payload.messageId, contentIndex: frame.payload.contentIndex, delta: frame.payload.delta, ...(typeof frame.payload.partId === 'string' ? { partId: frame.payload.partId } : {}) } };
@@ -470,6 +565,126 @@ const projectEventFrame = (frame) => {
         ...(Number.isFinite(frame.payload.endedAt) ? { endedAt: frame.payload.endedAt } : {}),
       },
     };
+    case 'extension.entry': {
+      if (typeof frame.payload.id !== 'string' || frame.payload.id.length === 0 || frame.payload.id.length > 512) return null;
+      if (typeof frame.payload.customType !== 'string' || frame.payload.customType.length === 0 || frame.payload.customType.length > 256) return null;
+      if (!Number.isFinite(frame.payload.createdAt)) return null;
+      return { ...common, payload: { id: frame.payload.id.slice(0, 512), customType: frame.payload.customType.slice(0, 256), ...(frame.payload.data !== undefined ? { data: frame.payload.data } : {}), createdAt: frame.payload.createdAt } };
+    }
+    case 'extension.message': {
+      if (typeof frame.payload.id !== 'string' || frame.payload.id.length === 0 || frame.payload.id.length > 512) return null;
+      if (typeof frame.payload.customType !== 'string' || frame.payload.customType.length === 0 || frame.payload.customType.length > 256) return null;
+      if (typeof frame.payload.text !== 'string') return null;
+      if (!Number.isFinite(frame.payload.createdAt)) return null;
+      return { ...common, payload: { id: frame.payload.id.slice(0, 512), customType: frame.payload.customType.slice(0, 256), text: frame.payload.text.slice(0, 50000), ...(frame.payload.details !== undefined ? { details: frame.payload.details } : {}), createdAt: frame.payload.createdAt } };
+    }
+    case 'extension.notify': {
+      if (typeof frame.payload.message !== 'string' || frame.payload.message.length === 0) return null;
+      const level = ['info', 'warning', 'error'].includes(frame.payload.level) ? frame.payload.level : 'info';
+      return { ...common, payload: { message: frame.payload.message.slice(0, 2000), level } };
+    }
+    case 'extension.catalog': {
+      const providers = frame.payload.providers === true;
+      const resources = frame.payload.resources === true;
+      const commands = frame.payload.commands === true;
+      if (!providers && !resources && !commands) return null;
+      return { ...common, payload: { ...(providers ? { providers: true } : {}), ...(resources ? { resources: true } : {}), ...(commands ? { commands: true } : {}) } };
+    }
+    case 'extension.editor': {
+      if (typeof frame.payload.text !== 'string' || frame.payload.text.length > 100_000) return null;
+      return { ...common, payload: { text: frame.payload.text } };
+    }
+    case 'extension.title': {
+      if (frame.payload.title !== undefined && typeof frame.payload.title !== 'string') return null;
+      const title = typeof frame.payload.title === 'string'
+        ? frame.payload.title.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 256)
+        : '';
+      return { ...common, payload: title ? { title } : {} };
+    }
+    case 'extension.status': {
+      if (typeof frame.payload.key !== 'string' || frame.payload.key.length === 0 || frame.payload.key.length > 128) return null;
+      if (frame.payload.text !== undefined && typeof frame.payload.text !== 'string') return null;
+      return { ...common, payload: { key: frame.payload.key.slice(0, 128), ...(typeof frame.payload.text === 'string' ? { text: frame.payload.text.slice(0, 1000) } : {}) } };
+    }
+    case 'extension.widget': {
+      if (typeof frame.payload.key !== 'string' || frame.payload.key.length === 0 || frame.payload.key.length > 128) return null;
+      if (frame.payload.lines !== undefined) {
+        if (!Array.isArray(frame.payload.lines)) return null;
+        if (frame.payload.lines.length > 100) return null;
+        for (const line of frame.payload.lines) if (typeof line !== 'string' || line.length > 2000) return null;
+      }
+      if (frame.payload.placement !== undefined && frame.payload.placement !== 'aboveEditor' && frame.payload.placement !== 'belowEditor') return null;
+      return {
+        ...common,
+        payload: {
+          key: frame.payload.key.slice(0, 128),
+          ...(Array.isArray(frame.payload.lines) ? { lines: frame.payload.lines.map((line) => String(line).slice(0, 2000)).slice(0, 100) } : {}),
+          ...(frame.payload.placement === 'belowEditor' ? { placement: 'belowEditor' } : frame.payload.placement === 'aboveEditor' ? { placement: 'aboveEditor' } : {}),
+        },
+      };
+    }
+    case 'extension.dialog': {
+      if (typeof frame.payload.requestId !== 'string' || frame.payload.requestId.length === 0 || frame.payload.requestId.length > 512) return null;
+      if (!['select', 'confirm', 'input', 'editor', 'form'].includes(frame.payload.method)) return null;
+      if (typeof frame.payload.title !== 'string' || frame.payload.title.length === 0 || frame.payload.title.length > 512) return null;
+      return {
+        ...common,
+        payload: {
+          requestId: frame.payload.requestId.slice(0, 512),
+          method: frame.payload.method,
+          title: frame.payload.title.slice(0, 512),
+          ...(typeof frame.payload.message === 'string' ? { message: frame.payload.message.slice(0, 2000) } : {}),
+          ...(Array.isArray(frame.payload.options) ? { options: frame.payload.options.filter((option) => typeof option === 'string').map((option) => option.slice(0, 256)).slice(0, 20) } : {}),
+          ...(typeof frame.payload.placeholder === 'string' ? { placeholder: frame.payload.placeholder.slice(0, 512) } : {}),
+          ...(typeof frame.payload.prefill === 'string' ? { prefill: frame.payload.prefill.slice(0, 10000) } : {}),
+          ...(Array.isArray(frame.payload.fields) ? { fields: sanitizeExtensionFormFields(frame.payload.fields) } : {}),
+          ...(Number.isFinite(frame.payload.timeoutMs) && frame.payload.timeoutMs >= 0 && frame.payload.timeoutMs <= 600000 ? { timeoutMs: Math.floor(frame.payload.timeoutMs) } : {}),
+        },
+      };
+    }
+    case 'extension.dialog.dismiss': {
+      if (typeof frame.payload.requestId !== 'string' || frame.payload.requestId.length === 0 || frame.payload.requestId.length > 512) return null;
+      if (!['answered', 'cancelled', 'timeout', 'aborted', 'session-closed', 'daemon-stopped'].includes(frame.payload.reason)) return null;
+      return {
+        ...common,
+        payload: {
+          requestId: frame.payload.requestId.slice(0, 512),
+          reason: frame.payload.reason,
+        },
+      };
+    }
+    case 'extension.ui': {
+      if (typeof frame.payload.id !== 'string' || frame.payload.id.length === 0 || frame.payload.id.length > 128) return null;
+      const hasBody = typeof frame.payload.component === 'string'
+        || typeof frame.payload.title === 'string'
+        || Array.isArray(frame.payload.actions);
+      const removed = frame.payload.removed === true || !hasBody;
+      return {
+        ...common,
+        payload: removed
+          ? { id: frame.payload.id.slice(0, 128), removed: true }
+          : projectExtensionPanelPayload(frame.payload),
+      };
+    }
+    case 'extension.app': {
+      if (typeof frame.payload.appId !== 'string' || frame.payload.appId.length === 0 || frame.payload.appId.length > 128) return null;
+      const html = typeof frame.payload.html === 'string' ? frame.payload.html : '';
+      if (html.length === 0) return { ...common, payload: { appId: frame.payload.appId.slice(0, 128), removed: true } };
+      if (html.length > MAX_EXTENSION_APP_HTML_CHARS) return null;
+      return { ...common, payload: projectExtensionAppPayload({ ...frame.payload, html }) };
+    }
+    case 'extension.error': {
+      if (typeof frame.payload.source !== 'string' || frame.payload.source.length === 0 || frame.payload.source.length > 512) return null;
+      if (typeof frame.payload.message !== 'string' || frame.payload.message.length === 0) return null;
+      return {
+        ...common,
+        payload: {
+          source: frame.payload.source.slice(0, 512),
+          ...(typeof frame.payload.event === 'string' ? { event: frame.payload.event.slice(0, 128) } : {}),
+          message: frame.payload.message.slice(0, 5000),
+        },
+      };
+    }
     default: return null;
   }
 };
@@ -780,7 +995,7 @@ export const registerPiRuntimeRoutes = (app, {
   app.get('/api/pi/settings', async (_req, res) => {
     try {
       const pi = projectPiSettings(await getDaemonRuntime(getPiSessionDaemonRuntime).request('settings.get'));
-      const pichamber = await adoptLegacyUiModelDefaults(settingsStore, uiSettingsStore);
+      const pichamber = await settingsStore.read();
       res.json({ ...pi, pichamber });
     } catch (error) {
       writeDaemonError(res, error);
@@ -981,6 +1196,64 @@ export const registerPiRuntimeRoutes = (app, {
         throw error;
       }
       await archiveStore.set(sessionId, archived);
+      res.status(204).end();
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.get('/api/pi/extensions', async (req, res) => {
+    const directory = req.query?.directory;
+    if (directory !== undefined && typeof directory !== 'string') {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('extensions.list', {
+        ...(typeof directory === 'string' && directory.length > 0 ? { directory } : {}),
+      });
+      res.json(projectExtensionList(result));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.post('/api/pi/extensions/respond', async (req, res) => {
+    const body = req.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+      || typeof body.requestId !== 'string' || body.requestId.length === 0
+      || (body.directory !== undefined && typeof body.directory !== 'string')) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    let values;
+    if (body.values !== undefined) {
+      if (!body.values || typeof body.values !== 'object' || Array.isArray(body.values)) {
+        res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+        return;
+      }
+      values = {};
+      for (const [key, entry] of Object.entries(body.values)) {
+        if (typeof key !== 'string' || key.length === 0 || key.length > 128 || typeof entry !== 'string' || entry.length > 8_000) {
+          res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+          return;
+        }
+        values[key] = entry;
+      }
+    }
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('extensions.respond', {
+        requestId: body.requestId,
+        ...(typeof body.directory === 'string' && body.directory.length > 0 ? { directory: body.directory } : {}),
+        ...(body.cancelled === true ? { cancelled: true } : {}),
+        ...(body.confirmed === true ? { confirmed: true } : {}),
+        ...(typeof body.value === 'string' ? { value: body.value } : {}),
+        ...(values ? { values } : {}),
+      });
+      if (!result || typeof result !== 'object' || result.resolved !== true) {
+        res.status(404).json({ error: { code: 'EXTENSION_DIALOG_NOT_PENDING' } });
+        return;
+      }
       res.status(204).end();
     } catch (error) {
       writeDaemonError(res, error);

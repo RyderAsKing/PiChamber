@@ -25,6 +25,8 @@ const searchFilesMock = mock(() => {
   return request.promise;
 });
 
+// The store consumes `searchFiles` from `@/lib/fsApi`; mocking that seam
+// keeps the deferred-request assertions independent of the transport.
 mock.module('@/lib/fsApi', () => ({
   searchFiles: searchFilesMock,
 }));

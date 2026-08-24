@@ -6,6 +6,11 @@ import type { PermissionRequest } from '@/types/permission';
 import type { QuestionRequest } from '@/types/question';
 
 import { ChatInput } from './ChatInput';
+import { ExtensionDialogOverlay } from './ExtensionDialogOverlay';
+import { ExtensionStatusStrip, ExtensionNoticeToasts, ExtensionWidgetStrip } from './ExtensionStatusWidgets';
+import { ExtensionPanelDock } from './extension/ExtensionPanelDock';
+import { ExtensionAppSurfaces } from './extension/ExtensionAppSurfaces';
+import { ComposerCommandTriggers } from './composer/ui/ComposerCommandTriggers';
 import { DraftPresetChips } from './DraftPresetChips';
 import { useInputStore } from '@/sync/input-store';
 import { useUIStore } from '@/stores/useUIStore';
@@ -70,7 +75,7 @@ const CHAT_SCROLL_STYLE = {
 // default flex item (shrink 1) and can collapse to a 1px border under the
 // messages. Fullscreen mobile composer is the exception: it owns the column.
 const composerBarClassName = (expanded: boolean) => cn(
-    'relative z-10 bg-background',
+    'relative z-10 flex flex-col gap-2 bg-background',
     expanded ? 'flex-1 min-h-0' : 'shrink-0',
 );
 const CHAT_NAVIGATION_IGNORED_TARGET_SELECTOR = [
@@ -550,7 +555,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     const isTimelineDialogOpen = useUIStore((s) => s.isTimelineDialogOpen);
     const setTimelineDialogOpen = useUIStore((s) => s.setTimelineDialogOpen);
 
-    // Streaming id comes from the Pi reducer, not the unused OpenCode
+    // Streaming id comes from the Pi reducer, not the unused broad streaming store
     // streaming store. Transcript freeze is default in
     // `useSessionMessageRecords`; this id only drives the live-tail overlay.
     const streamingMessageId = useSessionStreamingMessageId(currentSessionId ?? '');
@@ -1106,8 +1111,17 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                         onClick={navigation.resumeToLatest}
                     />
                 )}
+                <ComposerCommandTriggers sessionId={currentSessionId} />
+                <ExtensionAppSurfaces sessionId={currentSessionId} />
+                <ExtensionPanelDock sessionId={currentSessionId} />
+                <ExtensionWidgetStrip sessionId={currentSessionId} placement="aboveEditor" />
+                <ExtensionStatusStrip sessionId={currentSessionId} />
                 <ChatInput scrollToBottom={scrollToBottomOnSend} />
+                <ExtensionWidgetStrip sessionId={currentSessionId} placement="belowEditor" />
             </div>
+
+            <ExtensionDialogOverlay />
+            <ExtensionNoticeToasts sessionId={currentSessionId} />
 
             <TimelineDialog
                 open={isTimelineDialogOpen}

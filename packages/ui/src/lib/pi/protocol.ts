@@ -284,6 +284,9 @@ export interface PiSessionTreeNode {
   entryId: string;
   parentId: string | null;
   title?: string;
+  /** Latest Pi label/bookmark attached to this history entry. */
+  label?: string;
+  labelTimestamp?: string;
   updatedAt: number;
   children: PiSessionTreeNode[];
 }
@@ -446,6 +449,7 @@ export type PiEventName =
   | 'session.snapshot'
   | 'session.lifecycle'
   | 'session.updated'
+  | 'session.tree.updated'
   | 'assistant.message.start'
   | 'assistant.message.delta'
   | 'assistant.message.end'
@@ -458,7 +462,20 @@ export type PiEventName =
   | 'session.thinking'
   | 'session.compaction'
   | 'session.error'
-  | 'session.interrupted';
+  | 'session.interrupted'
+  | 'extension.entry'
+  | 'extension.message'
+  | 'extension.notify'
+  | 'extension.catalog'
+  | 'extension.editor'
+  | 'extension.title'
+  | 'extension.status'
+  | 'extension.widget'
+  | 'extension.dialog'
+  | 'extension.dialog.dismiss'
+  | 'extension.ui'
+  | 'extension.app'
+  | 'extension.error';
 
 /** Common envelope for every public event. */
 export interface PiEventEnvelope<TName extends PiEventName, TPayload> {
@@ -490,6 +507,9 @@ export type PiSessionUpdatedEvent = PiEventEnvelope<
     title: string;
   }
 >;
+
+/** A Pi label/bookmark changed; mounted tree consumers should refetch. */
+export type PiSessionTreeUpdatedEvent = PiEventEnvelope<'session.tree.updated', Record<string, never>>;
 
 export interface PiMessageStartPayload {
   messageId: string;
@@ -637,11 +657,183 @@ export type PiSessionInterruptedEvent = PiEventEnvelope<
   }
 >;
 
+// ---------------------------------------------------------------------------
+// Extensions
+//
+// pi extensions run inside the session daemon. Their user-facing surface is
+// projected onto these public events; blocking dialogs are answered through
+// POST /api/pi/extensions/respond.
+// ---------------------------------------------------------------------------
+
+/** A custom entry appended via `pi.appendEntry(customType, data)`. */
+export type PiExtensionEntryEvent = PiEventEnvelope<
+  'extension.entry',
+  {
+    id: string;
+    customType: string;
+    data?: unknown;
+    createdAt: number;
+  }
+>;
+
+/** A custom message sent via `pi.sendMessage({ customType, content, display })`. */
+export type PiExtensionMessageEvent = PiEventEnvelope<
+  'extension.message',
+  {
+    id: string;
+    customType: string;
+    text: string;
+    details?: unknown;
+    createdAt: number;
+  }
+>;
+
+export type PiExtensionNotifyEvent = PiEventEnvelope<
+  'extension.notify',
+  {
+    message: string;
+    level: 'info' | 'warning' | 'error';
+  }
+>;
+
+/** Extension-owned catalogs changed inside the daemon and should be reloaded. */
+export type PiExtensionCatalogEvent = PiEventEnvelope<
+  'extension.catalog',
+  { providers?: true; resources?: true; commands?: true }
+>;
+
+/** Standard Pi RPC editor replacement for the owning session composer. */
+export type PiExtensionEditorEvent = PiEventEnvelope<'extension.editor', { text: string }>;
+
+/** Standard Pi RPC window/tab title; no title clears the session override. */
+export type PiExtensionTitleEvent = PiEventEnvelope<'extension.title', { title?: string }>;
+
+/** Status text keyed like `ctx.ui.setStatus(key, text)`; no `text` clears. */
+export type PiExtensionStatusEvent = PiEventEnvelope<
+  'extension.status',
+  {
+    key: string;
+    text?: string;
+  }
+>;
+
+/** Widget lines keyed like `ctx.ui.setWidget(key, lines)`; no `lines` clears. */
+export type PiExtensionWidgetEvent = PiEventEnvelope<
+  'extension.widget',
+  {
+    key: string;
+    lines?: string[];
+    placement?: 'aboveEditor' | 'belowEditor';
+  }
+>;
+
+/** One typed input of a `form` dialog (`ctx.ui.form`). */
+export interface PiExtensionFormField {
+  id: string;
+  label: string;
+  type: 'text' | 'textarea' | 'number' | 'select' | 'checkbox';
+  required?: boolean;
+  placeholder?: string;
+  /** Select choices. */
+  options?: string[];
+  /** Initial value as a string (checkbox: 'true'/'false'). */
+  initial?: string;
+  min?: number;
+  max?: number;
+}
+
+export interface PiExtensionDialogPayload {
+  requestId: string;
+  method: 'select' | 'confirm' | 'input' | 'editor' | 'form';
+  title: string;
+  /** Confirm/dialog body text. */
+  message?: string;
+  /** Select choices. */
+  options?: string[];
+  /** Input placeholder. */
+  placeholder?: string;
+  /** Editor prefill. */
+  prefill?: string;
+  /** Form dialog inputs. */
+  fields?: PiExtensionFormField[];
+  /** When present, the dialog auto-cancels after this many milliseconds. */
+  timeoutMs?: number;
+}
+
+export type PiExtensionDialogEvent = PiEventEnvelope<'extension.dialog', PiExtensionDialogPayload>;
+
+/** Authoritative removal of a dialog after response, timeout, abort, or runtime disposal. */
+export type PiExtensionDialogDismissEvent = PiEventEnvelope<
+  'extension.dialog.dismiss',
+  { requestId: string; reason: 'answered' | 'cancelled' | 'timeout' | 'aborted' | 'session-closed' | 'daemon-stopped' }
+>;
+
+/** Answer for a blocking extension dialog. Omit all answer fields to cancel. */
+export interface PiExtensionDialogResponseInput {
+  requestId: string;
+  directory?: string;
+  /** Explicit cancellation (Escape). */
+  cancelled?: boolean;
+  /** Confirm-dialog acceptance; absent/`false` declines. */
+  confirmed?: boolean;
+  /** Select choice, input text, or editor content. */
+  value?: string;
+  /** Form dialog answers keyed by field id. */
+  values?: Record<string, string>;
+}
+
+/** Declarative GUI panel update keyed by a stable id; latest wins. */
+export interface PiExtensionPanelPayload {
+  id: string;
+  title?: string;
+  component?: string;
+  props?: Record<string, unknown>;
+  actions?: unknown[];
+  /** Present when the panel should be removed from the live dock. */
+  removed?: boolean;
+}
+
+export type PiExtensionUiEvent = PiEventEnvelope<'extension.ui', PiExtensionPanelPayload>;
+
+/** Sandboxed extension app surface; `removed` (or missing `html`) unregisters. */
+export interface PiExtensionAppPayload {
+  appId: string;
+  title?: string;
+  /** Self-contained HTML document rendered inside a sandboxed iframe. */
+  html?: string;
+  removed?: boolean;
+}
+
+export type PiExtensionAppEvent = PiEventEnvelope<'extension.app', PiExtensionAppPayload>;
+
+/** Extensions loaded for a directory plus the slash commands they register. */
+export interface PiExtensionListResponse {
+  directory?: string;
+  /** Opaque ids only — server filesystem paths never cross the API. */
+  extensions: Array<{ id: string; name: string }>;
+  commands: Array<{
+    name: string;
+    description?: string;
+    source?: 'extension' | 'prompt' | 'skill';
+    scope?: 'user' | 'project' | 'temporary';
+  }>;
+}
+export type PiExtensionErrorEvent = PiEventEnvelope<
+  'extension.error',
+  {
+    /** Extension path or `<runtime>` source label reported by pi. */
+    source: string;
+    event?: string;
+    message: string;
+  }
+>;
+
 /** Discriminated union of every event the public stream can publish. */
 export type PiSessionEvent =
   | PiSessionSnapshotEvent
   | PiSessionLifecycleEvent
   | PiSessionUpdatedEvent
+  | PiSessionTreeUpdatedEvent
   | PiAssistantMessageStartEvent
   | PiAssistantMessageDeltaEvent
   | PiAssistantMessageEndEvent
@@ -654,7 +846,20 @@ export type PiSessionEvent =
   | PiSessionThinkingEvent
   | PiSessionCompactionEvent
   | PiSessionErrorEvent
-  | PiSessionInterruptedEvent;
+  | PiSessionInterruptedEvent
+  | PiExtensionEntryEvent
+  | PiExtensionMessageEvent
+  | PiExtensionNotifyEvent
+  | PiExtensionCatalogEvent
+  | PiExtensionEditorEvent
+  | PiExtensionTitleEvent
+  | PiExtensionStatusEvent
+  | PiExtensionWidgetEvent
+  | PiExtensionDialogEvent
+  | PiExtensionDialogDismissEvent
+  | PiExtensionUiEvent
+  | PiExtensionAppEvent
+  | PiExtensionErrorEvent;
 
 // ---------------------------------------------------------------------------
 // Snapshot / protocol helpers
@@ -665,6 +870,7 @@ export const PI_EVENT_KINDS = [
   'session.snapshot',
   'session.lifecycle',
   'session.updated',
+  'session.tree.updated',
   'assistant.message.start',
   'assistant.message.delta',
   'assistant.message.end',
@@ -678,6 +884,19 @@ export const PI_EVENT_KINDS = [
   'session.compaction',
   'session.error',
   'session.interrupted',
+  'extension.entry',
+  'extension.message',
+  'extension.notify',
+  'extension.catalog',
+  'extension.editor',
+  'extension.title',
+  'extension.status',
+  'extension.widget',
+  'extension.dialog',
+  'extension.dialog.dismiss',
+  'extension.ui',
+  'extension.app',
+  'extension.error',
 ] as const satisfies readonly PiEventName[];
 
 /** Discriminator guard. */

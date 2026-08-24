@@ -35,7 +35,7 @@ const isExecutable = (filePath) => {
 };
 
 const resolveProjectDirectory = async (req) => {
-  const header = typeof req.get === 'function' ? req.get('x-opencode-directory') || req.get('x-pichamber-directory') : null;
+  const header = typeof req.get === 'function' ? req.get('x-pichamber-directory') : null;
   const query = Array.isArray(req.query?.directory) ? req.query.directory[0] : req.query?.directory;
   const requested = typeof query === 'string' && query.trim() ? query.trim() : (typeof header === 'string' ? header.trim() : '');
   if (!requested) return { directory: process.cwd(), error: null };

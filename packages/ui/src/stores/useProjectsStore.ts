@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import { opencodeClient } from '@/lib/pi/legacy-ui-client';
 import type { ProjectEntry } from '@/lib/api/types';
 import type { DesktopSettings } from '@/lib/desktop';
 import { updateDesktopSettings } from '@/lib/persistence';
@@ -433,7 +432,6 @@ export const useProjectsStore = create<ProjectsStore>()(
       if (nextActiveId) {
         const nextActive = nextProjects.find((project) => project.id === nextActiveId);
         if (nextActive) {
-          opencodeClient.setDirectory(nextActive.path);
           useDirectoryStore.getState().setDirectory(nextActive.path, { showOverlay: false });
         }
       } else {
@@ -459,7 +457,6 @@ export const useProjectsStore = create<ProjectsStore>()(
       set({ projects: nextProjects, activeProjectId: id });
       persistProjects(nextProjects, id, get().manualProjectOrder);
 
-      opencodeClient.setDirectory(target.path);
       useDirectoryStore.getState().setDirectory(target.path, { showOverlay: false });
     },
 
@@ -653,7 +650,6 @@ export const useProjectsStore = create<ProjectsStore>()(
       if (incomingActive) {
         const activeProject = incomingProjects.find((project) => project.id === incomingActive);
         if (activeProject) {
-          opencodeClient.setDirectory(activeProject.path);
           useDirectoryStore.getState().setDirectory(activeProject.path, { showOverlay: false });
         }
       }

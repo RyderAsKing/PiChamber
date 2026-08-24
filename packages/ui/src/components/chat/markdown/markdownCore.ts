@@ -1,6 +1,6 @@
 import { Marked, marked, type Tokens } from 'marked';
 import DOMPurify from 'dompurify';
-import { buildAgentMentionUrl, parseAgentHref, parseSkillHref } from '@/lib/messages/inlineMessageLinks';
+import { parseAgentHref, parseSkillHref } from '@/lib/messages/inlineMessageLinks';
 import { highlightCodeInWorker } from './markdown-worker';
 import { escapeRawMarkdownHtml, MARKDOWN_FORBIDDEN_TAGS } from './markdownSecurity';
 import {
@@ -96,7 +96,7 @@ const sharedRenderer = {
     const target = href ?? '';
     const agentName = parseAgentHref(target);
     if (agentName) {
-      return `<a href="${escapeAttr(buildAgentMentionUrl(agentName))}" data-pichamber-agent-mention="true" class="text-primary hover:underline" target="_blank" rel="noopener noreferrer">${text}</a>`;
+      return `<span data-pichamber-agent-mention="true" class="text-primary">${text}</span>`;
     }
     const skillName = parseSkillHref(target);
     if (skillName) {
@@ -262,7 +262,7 @@ const sanitize = (html: string): string => {
 
 
 // ---------------------------------------------------------------------------
-// Per-block HTML cache (LRU, mirrors OpenCode's checksum cache)
+// Per-block HTML cache (LRU, mirrors the shared checksum cache)
 // ---------------------------------------------------------------------------
 
 const CACHE_MAX = 240;

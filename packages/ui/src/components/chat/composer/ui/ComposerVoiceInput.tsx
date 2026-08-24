@@ -16,21 +16,24 @@ interface ComposerVoiceActionsProps {
   elapsedSeconds: number;
   buttonClassName?: string;
   iconClassName?: string;
+  isMobile?: boolean;
   onCancel(): void;
   onDone(): void;
 }
 
 const elapsed = (seconds: number): string => `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
 
-export function ComposerVoiceActions({ state, elapsedSeconds, buttonClassName, iconClassName, onCancel, onDone }: ComposerVoiceActionsProps) {
+export function ComposerVoiceActions({ state, elapsedSeconds, buttonClassName, iconClassName, isMobile, onCancel, onDone }: ComposerVoiceActionsProps) {
   const recording = state === 'recording' || state === 'reconnecting';
 
   return (
     <div className="flex shrink-0 items-center gap-1">
-      <div className="mr-1 flex items-center gap-2 typography-ui-compact text-muted-foreground">
-        {recording ? <span className="size-2 rounded-full bg-[var(--status-error)]" aria-hidden="true" /> : null}
-        <span className="tabular-nums">{elapsed(elapsedSeconds)}</span>
-      </div>
+      {!isMobile ? (
+        <div className="mr-1 flex items-center gap-2 typography-ui-compact text-muted-foreground">
+          {recording ? <span className="size-2 rounded-full bg-[var(--status-error)]" aria-hidden="true" /> : null}
+          <span className="tabular-nums">{elapsed(elapsedSeconds)}</span>
+        </div>
+      ) : null}
       <Button
         type="button"
         variant="ghost"

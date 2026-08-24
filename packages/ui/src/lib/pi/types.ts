@@ -70,7 +70,7 @@ export interface PiModelRef {
 export type PiThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /** Common message envelope. Use a discriminant in UI code that switches on role. */
-export type PiMessage = PiUserMessage | PiAssistantMessage;
+export type PiMessage = PiUserMessage | PiAssistantMessage | PiExtensionMessage;
 
 interface PiMessageBase {
   id: string;
@@ -120,6 +120,24 @@ export interface PiAssistantMessage extends PiMessageBase {
    * thinking is a content block, so any "reasoning" token tile stays `—`.
    */
   usage?: PiUsage;
+}
+
+/**
+ * Content authored by a pi extension: either an appended custom entry
+ * (`pi.appendEntry`, projected with its `data`) or a custom message
+ * (`pi.sendMessage`, projected with `text` and optional `details`). Rendered
+ * by the extension UI renderer registry; never sent to the model by PiChamber.
+ */
+export interface PiExtensionMessage extends PiMessageBase {
+  role: 'extension';
+  /** The pi customType that authored this item (e.g. `pichamber.ui`). */
+  customType: string;
+  /** Text content for custom messages. Absent for custom entries. */
+  text?: string;
+  /** Arbitrary payload for custom entries (`entry.data`). */
+  data?: unknown;
+  /** Arbitrary details payload for custom messages (`message.details`). */
+  details?: unknown;
 }
 
 /**
@@ -272,6 +290,18 @@ export interface PiSessionSnapshot {
   lastToolPart?: PiToolPart;
   /** The current session lifecycle phase. */
   lifecycle: PiSessionLifecycleState;
+  /** Live extension status texts at snapshot time (for reconnect). */
+  extensionStatuses?: Array<{ key: string; text: string }>;
+  /** Live extension widgets at snapshot time. */
+  extensionWidgets?: Array<{ key: string; lines: string[]; placement?: 'aboveEditor' | 'belowEditor' }>;
+  /** Pending blocking extension dialogs at snapshot time. */
+  extensionDialogs?: Array<{ requestId: string; method: 'select' | 'confirm' | 'input' | 'editor' | 'form'; title: string; message?: string; options?: string[]; placeholder?: string; prefill?: string; fields?: import('./protocol').PiExtensionFormField[]; timeoutMs?: number }>;
+  /** Live declarative GUI panels (latest-wins per id) at snapshot time. */
+  extensionPanels?: Array<import('./protocol').PiExtensionPanelPayload>;
+  /** Registered sandboxed extension app surfaces at snapshot time. */
+  extensionApps?: Array<import('./protocol').PiExtensionAppPayload>;
+  /** Session-scoped window/tab title set by an extension. */
+  extensionTitle?: string;
   /** Retry countdown/error context while `lifecycle` is `retry`. */
   retry?: PiRetryInfo;
   /** Latest active or completed compaction state. */
@@ -317,7 +347,7 @@ export interface PiModel {
 /**
  * Pi resource (skill, prompt template, AGENTS.md scope). The UI lists these
  * via `GET /api/pi/resources`. PiChamber does not write a separate copy of
- * these on disk; the SDK reads them through Pi's normal discovery.
+ * these on disk; Pi reads them through its normal discovery.
  */
 export interface PiResource {
   /** Opaque daemon identifier; it never encodes a server filesystem path. */

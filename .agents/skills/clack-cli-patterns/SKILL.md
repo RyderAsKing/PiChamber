@@ -2,7 +2,7 @@
 name: clack-cli-patterns
 description: Use when creating or modifying PiChamber CLI commands, prompts, terminal output, non-TTY behavior, `--quiet`, or `--json` behavior.
 license: MIT
-compatibility: opencode
+compatibility: pichamber
 ---
 
 ## Overview

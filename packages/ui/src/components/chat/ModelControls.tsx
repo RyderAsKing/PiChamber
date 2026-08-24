@@ -30,7 +30,7 @@ import { useIsTextTruncated } from '@/hooks/useIsTextTruncated';
 import { toast } from '@/components/ui';
 import { formatEffortLabel, type MobileControlsPanel } from './mobileControlsUtils';
 import { ThinkingLevelControl, ThinkingLevelPicker } from './ThinkingLevelControl';
-import { useOpenCodeReadiness } from '@/hooks/useOpenCodeReadiness';
+import { usePiReadiness } from '@/hooks/usePiReadiness';
 import { markStartupTrace } from '@/lib/startupTrace';
 import { findLatestUserModelChoice } from '@/lib/messages/userModelChoice';
 import { getSyncParts } from '@/sync/sync-refs';
@@ -47,6 +47,7 @@ import {
     thinkingLevelLabel,
 } from '@/lib/pi/thinking';
 import type { PiThinkingLevel } from '@/lib/pi/types';
+import { classifyAuthoritativeComposerSelection } from './model-selection-sync';
 
 type IconComponent = IconName;
 
@@ -240,7 +241,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     mobilePanel,
     onMobilePanelChange,
 }) => {
-    const { isReady, isUnavailable } = useOpenCodeReadiness();
+    const { isReady, isUnavailable } = usePiReadiness();
     const readinessLabel = isUnavailable ? "Unavailable" : "Loading...";
     const providers = useConfigStore((state) => state.providers);
     const currentProviderId = useConfigStore((state) => state.currentProviderId);
@@ -494,6 +495,15 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     ];
 
     const existingSessionRestoreRef = React.useRef<string | null>(null);
+    // Last authoritative model/thinking this component observed or applied.
+    // Lets the sync effect below distinguish a genuinely new external change
+    // (extension slash command, TUI, another tab) from the echo of our own
+    // apply. `thinking: undefined` means "authoritative has no thinking".
+    const lastObservedSessionModelRef = React.useRef<{
+        providerId?: string;
+        modelId?: string;
+        thinking?: PiThinkingLevel;
+    } | null>(null);
 
     const currentSessionDirectory = currentSessionId ? getDirectoryForSession(currentSessionId) : undefined;
     const hasRenderableCurrentSessionSnapshot = useSessionRenderable(
@@ -607,6 +617,11 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
 
             const levels = getModelVariantOptions(providerId, modelId);
             setCurrentVariant(thinking && levels.includes(thinking) ? thinking : undefined);
+            lastObservedSessionModelRef.current = {
+                ...(providerId ? { providerId } : {}),
+                ...(modelId ? { modelId } : {}),
+                ...(thinking ? { thinking } : {}),
+            };
             return 'applied';
         },
         [
@@ -788,6 +803,68 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         sync,
     ]);
 
+    // Adopt authoritative model/thinking changes made OUTSIDE this composer —
+    // extension slash commands (/balance, /juicer), the pi TUI, or another
+    // tab. The one-shot restore above intentionally runs once per session, so
+    // without this the composer keeps its stale selection and routeMessage
+    // force-resets the daemon back to it on the next send, silently reverting
+    // the external switch. Echoes of our own applies are recognized via
+    // lastObservedSessionModelRef and ignored; a changed authoritative value
+    // that the composer does not already reflect is adopted verbatim.
+    React.useEffect(() => {
+        if (!currentSessionId || !contextHydrated || providers.length === 0) {
+            return;
+        }
+        if (!hasRenderableCurrentSessionSnapshot) {
+            return;
+        }
+        if (existingSessionRestoreRef.current !== currentSessionId) {
+            // Initial restore owns the first application for this session.
+            return;
+        }
+        const authModel = existingSessionSelection?.model;
+        const authThinking = existingSessionSelection?.thinking ?? undefined;
+        if (!authModel?.providerId || !authModel?.modelId) {
+            lastObservedSessionModelRef.current = null;
+            return;
+        }
+        const action = classifyAuthoritativeComposerSelection({
+            authoritative: {
+                providerId: authModel.providerId,
+                modelId: authModel.modelId,
+                thinking: authThinking,
+            },
+            observed: lastObservedSessionModelRef.current,
+            composer: {
+                providerId: currentProviderId,
+                modelId: currentModelId,
+                thinking: parsePiThinkingLevel(currentVariant) ?? undefined,
+            },
+        });
+        if (action === 'ignore') {
+            return;
+        }
+        if (action === 'apply') {
+            applyLockedSessionComposerSelection(authModel.providerId, authModel.modelId, authThinking);
+            return;
+        }
+        lastObservedSessionModelRef.current = {
+            providerId: authModel.providerId,
+            modelId: authModel.modelId,
+            ...(authThinking ? { thinking: authThinking } : {}),
+        };
+    }, [
+        applyLockedSessionComposerSelection,
+        contextHydrated,
+        currentModelId,
+        currentProviderId,
+        currentSessionId,
+        currentVariant,
+        existingSessionSelection,
+        hasRenderableCurrentSessionSnapshot,
+        providers.length,
+    ]);
+
     React.useEffect(() => {
         if (!contextHydrated) {
             manualVariantSelectionRef.current = false;
@@ -943,7 +1020,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         return `${value.slice(0, limit)}...`;
     }, [isMobile]);
 
-    const currentModelDisplayName = truncateForMobile(getCurrentModelDisplayName(), 20);
+    const currentModelDisplayName = truncateForMobile(getCurrentModelDisplayName(), 16);
     const modelLabelRef = React.useRef<HTMLSpanElement>(null);
     const isModelLabelTruncated = useIsTextTruncated(modelLabelRef, [currentModelDisplayName, isCompact]);
 

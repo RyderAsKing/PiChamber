@@ -163,18 +163,6 @@ export interface ProviderAuthResponse {
   [key: string]: unknown;
 }
 
-export type OpencodeClient = {
-  experimental?: {
-    session?: {
-      list?: (input: Record<string, unknown>) => Promise<{ data?: Session[]; error?: unknown; response?: { status?: number; headers?: { get?: (name: string) => string | null } } }>;
-    };
-  };
-  session?: unknown;
-  path?: { get?: (input?: unknown) => Promise<unknown> };
-  project?: { current?: (input?: unknown) => Promise<unknown> };
-  [key: string]: unknown;
-};
-
 export type SessionMessageRecord = { info: Message; parts: Part[] };
 
 export type Event = {

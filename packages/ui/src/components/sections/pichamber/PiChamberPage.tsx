@@ -9,6 +9,7 @@ import { NotificationSettings } from './NotificationSettings';
 import { TunnelSettings } from './TunnelSettings';
 import { DesktopNetworkSettings } from './DesktopNetworkSettings';
 import { KeyboardShortcutsSettings } from './KeyboardShortcutsSettings';
+import { CommandTriggersSettings } from './CommandTriggersSettings';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
 import { useDeviceInfo } from '@/lib/device';
 import { isDesktopLocalOriginActive, isDesktopShell, isWebRuntime } from '@/lib/desktop';
@@ -116,11 +117,16 @@ export const PiChamberPage: React.FC<PiChamberPageProps> = ({ section }) => {
 };
 
 const ShortcutsSectionContent: React.FC = () => {
-    return <KeyboardShortcutsSettings />;
+    return (
+        <>
+            <KeyboardShortcutsSettings />
+            <CommandTriggersSettings />
+        </>
+    );
 };
 
 // General section: app-level settings — startup/tray/network, access password,
-// passkeys, OpenCode CLI binary, privacy, diagnostics.
+// passkeys, privacy, diagnostics.
 const GeneralSectionContent: React.FC = () => {
     const runtimeEndpointEpoch = useRuntimeEndpointEpoch();
     void runtimeEndpointEpoch;
