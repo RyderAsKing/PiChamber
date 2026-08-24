@@ -21,6 +21,9 @@ Caches and async work must be scoped to the active runtime. A failed authoritati
 
 `useProjectsStore.resetForRuntimeSwitch()` clears project paths until the new
 runtime's authenticated settings snapshot arrives; persisted paths from another
-host are not a valid bootstrap source.
+host are not a valid bootstrap source. `setActiveProjectIdOnly()` changes and
+persists only the active pointer. It preserves the `projects` array and project
+metadata references so session or worktree navigation does not wake every
+project-list consumer.
 
 When changing store shape, keep persisted state intentionally compatible or discard obsolete fields safely. Do not use persisted history to infer live Pi activity.
