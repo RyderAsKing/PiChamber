@@ -76,6 +76,20 @@ describe('createSessionOwnershipIndex', () => {
     ]);
   });
 
+  test('includes home sessions in every project', () => {
+    const ownership = createSessionOwnershipIndex(
+      [{ id: 'global', directory: '~' } as Session],
+      [
+        { id: 'app', normalizedPath: '/projects/app' },
+        { id: 'docs', normalizedPath: '/projects/docs' },
+      ],
+      new Map(),
+    );
+
+    expect(ownership.sessionsByProject.get('app')?.map((session) => session.id)).toEqual(['global']);
+    expect(ownership.sessionsByProject.get('docs')?.map((session) => session.id)).toEqual(['global']);
+  });
+
   test('supports a Windows drive root project', () => {
     const ownership = createSessionOwnershipIndex(
       [{ id: 'windows-root', directory: 'c:\\Users\\name\\project' } as Session],

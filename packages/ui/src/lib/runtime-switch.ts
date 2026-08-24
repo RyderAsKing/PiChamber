@@ -1,5 +1,6 @@
 import { refreshRuntimeUrlAuthToken, setRuntimeBearerToken, setRuntimeExtraHeaders } from '@/lib/runtime-auth';
 import { configureRuntimeUrlResolver } from '@/lib/runtime-url';
+import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
 import {
   activateRelayTunnel,
   deactivateRelayTunnel,
@@ -21,6 +22,49 @@ const RUNTIME_ENDPOINT_WILL_CHANGE_EVENT = 'pichamber:runtime-endpoint-will-chan
 
 let activeApiBaseUrl = '';
 let activeRuntimeKey = '';
+
+const LAST_RUNTIME_STORAGE_KEY = 'pichamber:lastRuntimeEndpoint.v1';
+
+const readPersistedRuntime = (): { apiBaseUrl: string; runtimeKey: string } | null => {
+  try {
+    const raw = getDeferredSafeStorage().getItem(LAST_RUNTIME_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { apiBaseUrl?: unknown; runtimeKey?: unknown };
+    const apiBaseUrl = typeof parsed.apiBaseUrl === 'string' ? parsed.apiBaseUrl.trim() : '';
+    const runtimeKey = typeof parsed.runtimeKey === 'string' ? parsed.runtimeKey.trim() : '';
+    if (!apiBaseUrl || !runtimeKey) return null;
+    if (runtimeKey === 'mobile-disconnected') return null;
+    return { apiBaseUrl, runtimeKey };
+  } catch {
+    return null;
+  }
+};
+
+const persistLastRuntimeEndpoint = (apiBaseUrl: string, runtimeKey: string): void => {
+  try {
+    const storage = getDeferredSafeStorage();
+    if (runtimeKey === 'mobile-disconnected' || !apiBaseUrl) {
+      storage.removeItem(LAST_RUNTIME_STORAGE_KEY);
+      return;
+    }
+    storage.setItem(LAST_RUNTIME_STORAGE_KEY, JSON.stringify({ apiBaseUrl, runtimeKey }));
+  } catch {
+    // Best-effort cache — full storage must never break runtime switching.
+  }
+};
+
+const hydratePersistedRuntime = (): void => {
+  if (activeApiBaseUrl || activeRuntimeKey) return;
+  if (typeof window === 'undefined') return;
+  const persisted = readPersistedRuntime();
+  if (!persisted) return;
+  activeApiBaseUrl = persisted.apiBaseUrl;
+  activeRuntimeKey = persisted.runtimeKey;
+  try {
+    (window as typeof window & { __PICHAMBER_API_BASE_URL__?: string }).__PICHAMBER_API_BASE_URL__ = persisted.apiBaseUrl;
+  } catch { /* read-only contextBridge */ }
+  configureRuntimeUrlResolver({ apiBaseUrl: persisted.apiBaseUrl, realtimeBaseUrl: persisted.apiBaseUrl });
+};
 
 const setWindowRuntimeValue = <K extends '__PICHAMBER_API_BASE_URL__' | '__PICHAMBER_CLIENT_TOKEN__' | '__PICHAMBER_RUNTIME_HEADERS__'>(
   runtimeWindow: typeof window & {
@@ -75,7 +119,10 @@ const sameOrigin = (left: string, right: string): boolean => {
   }
 };
 
-export const getRuntimeApiBaseUrl = (): string => activeApiBaseUrl || readInjectedApiBaseUrl();
+export const getRuntimeApiBaseUrl = (): string => {
+  hydratePersistedRuntime();
+  return activeApiBaseUrl || readInjectedApiBaseUrl();
+};
 
 // `getRuntimeKey` keys caches, stores, and persisted state across the whole UI,
 // so it runs on store reads, event handling, and render paths. Before the
@@ -102,6 +149,7 @@ const readRawRuntimeGlobal = (key: '__PICHAMBER_API_BASE_URL__' | '__PICHAMBER_L
 };
 
 export const getRuntimeKey = (): string => {
+  hydratePersistedRuntime();
   if (activeRuntimeKey) return activeRuntimeKey;
 
   const rawApiBaseUrl = readRawRuntimeGlobal('__PICHAMBER_API_BASE_URL__');
@@ -125,6 +173,8 @@ export const getRuntimeKey = (): string => {
 };
 
 export const initializeRuntimeEndpoint = (options: { apiBaseUrl?: string | null; runtimeKey?: string | null } = {}): void => {
+  // Prefer the last explicitly chosen runtime over the injected default.
+  hydratePersistedRuntime();
   if (activeApiBaseUrl || activeRuntimeKey) {
     return;
   }
@@ -143,6 +193,7 @@ export const switchRuntimeEndpoint = (options: { apiBaseUrl: string; clientToken
   const previousApiBaseUrl = getRuntimeApiBaseUrl();
   const previousRuntimeKey = getRuntimeKey();
   const runtimeKey = options.runtimeKey?.trim() || normalizeRuntimeUrlKey(apiBaseUrl);
+  persistLastRuntimeEndpoint(apiBaseUrl, runtimeKey);
   const detail = { apiBaseUrl, previousApiBaseUrl, runtimeKey, previousRuntimeKey };
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent<RuntimeEndpointChangedDetail>(RUNTIME_ENDPOINT_WILL_CHANGE_EVENT, { detail }));

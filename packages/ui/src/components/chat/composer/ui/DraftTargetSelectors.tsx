@@ -60,9 +60,10 @@ export function ProjectLabel({
 }) {
     const rawLabel = getProjectDisplayLabel(project);
     const label = maxCharacters ? truncateWithEllipsis(rawLabel, maxCharacters) : rawLabel;
+    const isGlobal = project.id === '__home__' || project.ownerProjectId === '__home__';
     return (
         <span className="inline-flex min-w-0 items-center gap-1.5" title={rawLabel}>
-            <Icon name={project.kind === 'worktree' ? 'git-branch' : 'folder'} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <Icon name={project.kind === 'worktree' ? 'git-branch' : isGlobal ? 'home' : 'folder'} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate text-muted-foreground">{label}</span>
         </span>
     );

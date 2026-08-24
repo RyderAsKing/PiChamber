@@ -720,11 +720,13 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const currentDirectory = normalizePath(useDirectoryStore.getState().currentDirectory ?? null)
     const persistedTarget = readPersistedDraftTarget()
 
+    const GLOBAL_PROJECT_ID = '__home__'
+    const isGlobalExplicit = options?.selectedProjectId === GLOBAL_PROJECT_ID
     const explicitDirectory = options?.directoryOverride !== undefined
       ? normalizePath(options.directoryOverride)
       : null
     const explicitProject = options?.selectedProjectId
-      ? projects.find((p) => p.id === options.selectedProjectId) ?? null
+      ? (isGlobalExplicit ? { id: GLOBAL_PROJECT_ID, path: explicitDirectory ?? '' } as unknown as typeof projects[number] : projects.find((p) => p.id === options.selectedProjectId) ?? null)
       : null
 
     const inferredProjectFromDir = resolveProjectForSessionDirectory(projects, availableWorktreesByProject, explicitDirectory)
@@ -734,32 +736,37 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       return projects[0] ?? null
     })()
 
+    const isPersistedGlobal = persistedTarget?.projectId === GLOBAL_PROJECT_ID
     const persistedProjectById = persistedTarget?.projectId
-      ? projects.find((p) => p.id === persistedTarget.projectId) ?? null
+      ? (isPersistedGlobal ? { id: GLOBAL_PROJECT_ID, path: persistedTarget.directory ?? '' } as unknown as typeof projects[number] : projects.find((p) => p.id === persistedTarget.projectId) ?? null)
       : null
     const persistedProjectByDir = resolveProjectForSessionDirectory(projects, availableWorktreesByProject, persistedTarget?.directory ?? null)
     const currentDirProject = resolveProjectForSessionDirectory(projects, availableWorktreesByProject, currentDirectory)
 
     const selectedProject = (() => {
+      if (isGlobalExplicit) return explicitProject
       if (explicitProject) return explicitProject
       if (explicitDirectory !== null) return inferredProjectFromDir
       if (currentDirectory) return currentDirProject
+      if (isPersistedGlobal) return persistedProjectById
       return persistedProjectByDir ?? persistedProjectById ?? fallbackProject
     })()
 
     const directory = (() => {
       if (explicitDirectory !== null) return explicitDirectory
+      if (isGlobalExplicit) return explicitDirectory ?? normalizePath((useDirectoryStore.getState().homeDirectory || getDeferredSafeStorage().getItem('homeDirectory') || '~') as string) ?? explicitDirectory
       if (explicitProject) return normalizePath(explicitProject.path ?? null)
       if (currentDirectory) return currentDirectory
       if (persistedTarget?.directory) return persistedTarget.directory
       return normalizePath(selectedProject?.path ?? null)
     })()
 
-    persistDraftTarget({ projectId: selectedProject?.id ?? null, directory })
+    const draftSelectedProjectId = isGlobalExplicit ? GLOBAL_PROJECT_ID : (selectedProject?.id ?? null)
+    persistDraftTarget({ projectId: draftSelectedProjectId, directory })
 
     const nextDraft: NewSessionDraftState = {
       open: true,
-      selectedProjectId: selectedProject?.id ?? null,
+      selectedProjectId: draftSelectedProjectId,
       directoryOverride: directory,
       branchIntent: options?.branchIntent
         && options.branchIntent.runtimeKey === getRuntimeKey()

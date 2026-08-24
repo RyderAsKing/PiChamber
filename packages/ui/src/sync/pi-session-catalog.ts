@@ -27,7 +27,35 @@
 
 import { mapWithConcurrency } from '@/lib/concurrency';
 import { normalizePath } from '@/lib/pathNormalization';
+import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
 import type { Session } from '@/lib/chat/types';
+
+/** Global session directories: sessions rooted at the user's home (`~`) are
+ *  visible in every folder view. See `useDraftTarget`'s "Don't work in a
+ *  repository" option and `sessionOwnership`'s global bucket. */
+const getGlobalCatalogDirectories = (): string[] => {
+  const dirs: string[] = [];
+  // Sentinel value stored when a draft's directoryOverride is "~" rather
+  // than an expanded absolute path. The catalog keys such rows as "~".
+  dirs.push('~');
+  try {
+    const rawHome = getDeferredSafeStorage().getItem('homeDirectory');
+    if (typeof rawHome === 'string' && rawHome.trim().length > 0) {
+      const normalized = normalizePath(rawHome);
+      if (normalized && !dirs.includes(normalized)) dirs.push(normalized);
+    }
+  } catch { /* storage unavailable */ }
+  try {
+    if (typeof window !== 'undefined' && typeof (window as unknown as { __PICHAMBER_HOME__?: string }).__PICHAMBER_HOME__ === 'string') {
+      const candidate = (window as unknown as { __PICHAMBER_HOME__?: string }).__PICHAMBER_HOME__;
+      const normalized = candidate ? normalizePath(candidate) : null;
+      if (normalized && !dirs.includes(normalized)) dirs.push(normalized);
+    }
+  } catch { /* window unavailable */ }
+  return dirs;
+};
+
+
 import type { PiSessionListItem } from '@/lib/pi/protocol';
 import type { PiRetryInfo, PiSessionId } from '@/lib/pi/types';
 
@@ -540,7 +568,23 @@ export const listUiSessionsFromCatalog = (
   const directory = options?.directory;
   let ids: readonly string[];
   if (typeof directory === 'string' && directory.length > 0) {
-    ids = catalog.byDirectory.get(normalizedDirectory(directory)) ?? [];
+    const normalized = normalizedDirectory(directory);
+    const base = catalog.byDirectory.get(normalized) ?? [];
+    // Global/home sessions (cwd ~) appear in every folder view.
+    const globalDirs = getGlobalCatalogDirectories();
+    const globalIds: string[] = [];
+    const seen = new Set<string>(base);
+    for (const gd of globalDirs) {
+      if (gd === normalized) continue;
+      const gIds = catalog.byDirectory.get(gd);
+      if (!gIds) continue;
+      for (const id of gIds) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        globalIds.push(id);
+      }
+    }
+    ids = globalIds.length > 0 ? [...base, ...globalIds] : base;
   } else if (directory === null || directory === '') {
     return EMPTY_UI_SESSIONS;
   } else {
