@@ -75,7 +75,7 @@ const CHAT_SCROLL_STYLE = {
 // default flex item (shrink 1) and can collapse to a 1px border under the
 // messages. Fullscreen mobile composer is the exception: it owns the column.
 const composerBarClassName = (expanded: boolean) => cn(
-    'relative z-10 bg-background',
+    'relative z-10 flex flex-col gap-2 bg-background',
     expanded ? 'flex-1 min-h-0' : 'shrink-0',
 );
 const CHAT_NAVIGATION_IGNORED_TARGET_SELECTOR = [
@@ -1115,9 +1115,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                 <ExtensionAppSurfaces sessionId={currentSessionId} />
                 <ExtensionPanelDock sessionId={currentSessionId} />
                 <ExtensionWidgetStrip sessionId={currentSessionId} placement="aboveEditor" />
+                <ExtensionStatusStrip sessionId={currentSessionId} />
                 <ChatInput scrollToBottom={scrollToBottomOnSend} />
                 <ExtensionWidgetStrip sessionId={currentSessionId} placement="belowEditor" />
-                <ExtensionStatusStrip sessionId={currentSessionId} />
             </div>
 
             {currentSessionId ? <ExtensionDialogOverlay sessionId={currentSessionId} /> : null}

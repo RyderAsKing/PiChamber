@@ -2,6 +2,7 @@ import * as React from 'react';
 
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { cn } from '@/lib/utils';
+import { containsAnsiEscape, extractAnsiTruecolor, stripAnsi } from '@/lib/pi/ansi';
 import { Icon } from '@/components/icon/Icon';
 import { toast } from '@/components/ui';
 
@@ -13,6 +14,22 @@ import { toast } from '@/components/ui';
 const stripEquality = (a: unknown[], b: unknown[]): boolean => (
   a.length === b.length && a.every((item, index) => item === b[index])
 );
+
+// Pi TUI extensions color status text with raw ANSI (dotfiles `modes.ts`
+// uses 24-bit sequences for per-mode colors, `token-speed.ts` uses
+// `ctx.ui.theme.fg`). Strip the escapes and, when a truecolor is present,
+// preserve it as CSS so mode identity survives on the web surface.
+function renderStatusText(text: string): React.ReactNode {
+  // Fast path: no ESC at all
+  if (!containsAnsiEscape(text)) return text;
+  const clean = stripAnsi(text);
+  const color = extractAnsiTruecolor(text);
+  if (!color) return clean;
+  // Keep the whole segment in the mode color; the surrounding pill already
+  // provides muted background/border so colored text is enough to recover
+  // the per-mode identity from the TUI without a full ANSI parser.
+  return <span style={{ color }}>{clean}</span>;
+}
 
 export const ExtensionStatusStrip: React.FC<{ sessionId?: string | null }> = ({ sessionId }) => {
   const selectedSessionId = usePiSessionSnapshot((state) => state.selectedSessionId);
@@ -30,13 +47,38 @@ export const ExtensionStatusStrip: React.FC<{ sessionId?: string | null }> = ({ 
   if (statuses.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 py-0.5 text-xs text-muted-foreground">
-      <Icon name="plug-2" className="size-3.5" />
-      {statuses.map(([key, text]) => (
-        <span key={key} className="truncate">
-          {text}
+    <div className="chat-input-column">
+      <div className="flex flex-wrap items-center gap-2 rounded-full border border-border/40 bg-card px-3 py-1.5 shadow-sm transition-[opacity,transform] duration-150">
+        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-interactive-hover text-muted-foreground">
+          <Icon name="plug-2" className="size-3" />
         </span>
-      ))}
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+          {statuses.map(([key, text]) => {
+            const color = extractAnsiTruecolor(text);
+            return (
+              <span
+                key={key}
+                className="inline-flex max-w-full items-center rounded-full border px-2 py-0.5 typography-micro font-medium"
+                style={
+                  color
+                    ? {
+                        color,
+                        borderColor: `color-mix(in srgb, ${color} 28%, var(--border))`,
+                        background: `color-mix(in srgb, ${color} 12%, var(--muted))`,
+                      }
+                    : undefined
+                }
+              >
+                <span
+                  className={cn("truncate", !color && "text-muted-foreground")}
+                >
+                  {renderStatusText(text)}
+                </span>
+              </span>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 };
@@ -67,7 +109,7 @@ export const ExtensionNoticeToasts: React.FC<{ sessionId?: string | null }> = ({
     for (const notice of notices) {
       if (shownIds.current.has(notice.id)) continue;
       shownIds.current.add(notice.id);
-      const message = notice.message || 'Extension notification';
+      const message = stripAnsi(notice.message || 'Extension notification');
       if (notice.level === 'error') toast.error(message);
       else if (notice.level === 'warning') toast.warning(message);
       else toast.info(message);
@@ -97,20 +139,29 @@ export const ExtensionWidgetStrip: React.FC<{
   if (widgets.length === 0) return null;
 
   return (
-    <div
-      className={cn(
-        'flex flex-col gap-2 rounded-lg border border-dashed px-3 py-2',
-        placement === 'belowEditor' ? 'mt-2' : 'mb-2',
-        className,
-      )}
-    >
-      {widgets.map(([key, widget]) => (
-        <div key={key} className="flex flex-col gap-0.5 font-mono text-xs leading-relaxed text-muted-foreground">
-          {widget.lines.map((line, index) => (
-            <span key={index} className="whitespace-pre-wrap">{line}</span>
+    <div className={cn('chat-input-column', className)}>
+      <div className="rounded-xl border border-border/60 bg-card p-3 shadow-sm transition-[opacity,transform] duration-150">
+        <div className="mb-2 flex items-center gap-1.5 border-b border-border/40 pb-2">
+          <Icon name="plug-2" className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="typography-micro font-medium uppercase tracking-wide text-muted-foreground">
+            Extensions
+          </span>
+        </div>
+        <div className="flex flex-col gap-2">
+          {widgets.map(([key, widget]) => (
+            <div
+              key={key}
+              className="rounded-lg border border-border/30 bg-muted/40 px-2.5 py-2 font-mono text-xs leading-relaxed text-foreground"
+            >
+              {widget.lines.map((line, index) => (
+                <span key={index} className="block whitespace-pre-wrap">
+                  {containsAnsiEscape(line) ? stripAnsi(line) : line}
+                </span>
+              ))}
+            </div>
           ))}
         </div>
-      ))}
+      </div>
     </div>
   );
 };

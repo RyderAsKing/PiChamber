@@ -87,11 +87,16 @@ const ExtensionAppFrame: React.FC<{
   if (hidden) return null;
 
   return (
-    <div className="mb-2 overflow-hidden rounded-lg border" data-testid={`extension-app-${appId}`}>
-      <div className="flex items-center justify-between gap-2 border-b bg-surface-inset px-3 py-1.5">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <Icon name="plug-2" className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate text-xs font-medium tracking-wide text-muted-foreground uppercase">
+    <div
+      className="overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm transition-[opacity,transform] duration-150"
+      data-testid={`extension-app-${appId}`}
+    >
+      <div className="flex items-center justify-between gap-2 border-b border-border/40 bg-muted/40 px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-interactive-hover text-muted-foreground">
+            <Icon name="plug-2" className="size-3.5" />
+          </span>
+          <span className="truncate typography-ui-label font-medium text-foreground">
             {title ?? appId}
           </span>
         </div>
@@ -137,16 +142,18 @@ export const ExtensionAppSurfaces: React.FC<{ sessionId?: string | null }> = ({ 
   if (!activeSessionId || apps.length === 0) return null;
 
   return (
-    <div data-testid="extension-app-surfaces">
-      {apps.map((app) => (
-        <ExtensionAppFrame
-          key={app.appId}
-          sessionId={activeSessionId}
-          appId={app.appId}
-          title={app.title}
-          html={app.html ?? ''}
-        />
-      ))}
+    <div className="chat-input-column" data-testid="extension-app-surfaces">
+      <div className="flex flex-col gap-3">
+        {apps.map((app) => (
+          <ExtensionAppFrame
+            key={app.appId}
+            sessionId={activeSessionId}
+            appId={app.appId}
+            title={app.title}
+            html={app.html ?? ''}
+          />
+        ))}
+      </div>
     </div>
   );
 };

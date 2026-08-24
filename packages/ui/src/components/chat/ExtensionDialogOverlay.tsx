@@ -4,6 +4,7 @@ import { getPiSessionStore } from '@/apps/pi-session-store';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import type { PiExtensionDialogPayload } from '@/lib/pi/protocol';
 import { piClient } from '@/lib/pi/client';
+import { stripAnsi } from '@/lib/pi/ansi';
 import { Button } from '@/components/ui/button';
 
 /**
@@ -36,7 +37,7 @@ const DialogFrame: React.FC<{
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={title}
+      aria-label={stripAnsi(title)}
       className="w-full max-w-md rounded-xl border bg-card p-4 text-card-foreground shadow-lg"
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
@@ -47,7 +48,7 @@ const DialogFrame: React.FC<{
       tabIndex={-1}
       ref={(node) => node?.focus()}
     >
-      <h2 className="mb-2 text-sm font-semibold">{title}</h2>
+      <h2 className="mb-2 text-sm font-semibold">{stripAnsi(title)}</h2>
       {children}
     </div>
   </div>
@@ -75,7 +76,7 @@ const ExtensionDialogBody: React.FC<{
     case 'select':
       return (
         <>
-          {request.message && <p className="mb-2 text-sm text-muted-foreground">{request.message}</p>}
+          {request.message && <p className="mb-2 text-sm text-muted-foreground">{stripAnsi(request.message)}</p>}
           <div className="flex flex-col gap-1.5">
             {(request.options ?? []).map((option) => (
               <Button
@@ -85,7 +86,8 @@ const ExtensionDialogBody: React.FC<{
                 className="justify-start"
                 onClick={() => void respond(sessionId, request, { value: option })}
               >
-                {option}
+                {/* Display-only strip: the daemon still receives the original option value. */}
+                {stripAnsi(option)}
               </Button>
             ))}
           </div>
@@ -97,7 +99,7 @@ const ExtensionDialogBody: React.FC<{
     case 'confirm':
       return (
         <>
-          {request.message && <p className="text-sm text-muted-foreground">{request.message}</p>}
+          {request.message && <p className="text-sm text-muted-foreground">{stripAnsi(request.message)}</p>}
           <div className="mt-3 flex justify-end gap-2">
             <CancelButton onClick={cancel} />
             <Button
@@ -114,12 +116,12 @@ const ExtensionDialogBody: React.FC<{
     case 'editor':
       return (
         <>
-          {request.message && <p className="mb-2 text-sm text-muted-foreground">{request.message}</p>}
+          {request.message && <p className="mb-2 text-sm text-muted-foreground">{stripAnsi(request.message)}</p>}
           <textarea
             value={value}
             onChange={(event) => setValue(event.target.value)}
-            placeholder={request.placeholder ?? ''}
-            aria-label={request.title}
+            placeholder={request.placeholder ? stripAnsi(request.placeholder) : ''}
+            aria-label={stripAnsi(request.title)}
             rows={request.method === 'editor' ? 6 : 2}
             className="w-full resize-y rounded-md border bg-transparent p-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-interactive-focus"
             onKeyDown={(event) => {
@@ -188,7 +190,7 @@ const ExtensionFormBody: React.FC<{
         onSubmit({ ...values });
       }}
     >
-      {request.message && <p className="mb-2 text-sm text-muted-foreground">{request.message}</p>}
+      {request.message && <p className="mb-2 text-sm text-muted-foreground">{stripAnsi(request.message)}</p>}
       <div className="flex max-h-72 flex-col gap-3 overflow-y-auto">
         {(request.fields ?? []).map((field) => {
           const invalid = blocked && field.required && (values[field.id] ?? '').length === 0;
@@ -204,21 +206,22 @@ const ExtensionFormBody: React.FC<{
                   onChange={(event) => setValue(event.target.checked ? 'true' : 'false')}
                   className="size-4"
                 />
-                {field.label}
+                {/* Display-only strip: the daemon still receives the original value. */}
+                {stripAnsi(field.label)}
               </label>
             );
           }
           return (
             <label key={field.id} className="flex flex-col gap-1 text-sm">
               <span>
-                {field.label}
+                {stripAnsi(field.label)}
                 {field.required && <span aria-hidden="true" className="text-status-error"> *</span>}
               </span>
               {field.type === 'textarea' ? (
                 <textarea
                   value={value}
                   onChange={(event) => setValue(event.target.value)}
-                  placeholder={field.placeholder ?? ''}
+                  placeholder={field.placeholder ? stripAnsi(field.placeholder) : ''}
                   rows={3}
                   aria-invalid={invalid || undefined}
                   className={inputClass}
@@ -228,7 +231,7 @@ const ExtensionFormBody: React.FC<{
                   type="number"
                   value={value}
                   onChange={(event) => setValue(event.target.value)}
-                  placeholder={field.placeholder ?? ''}
+                  placeholder={field.placeholder ? stripAnsi(field.placeholder) : ''}
                   min={'min' in field && typeof field.min === 'number' ? field.min : undefined}
                   max={'max' in field && typeof field.max === 'number' ? field.max : undefined}
                   aria-invalid={invalid || undefined}
@@ -250,7 +253,7 @@ const ExtensionFormBody: React.FC<{
                   type="text"
                   value={value}
                   onChange={(event) => setValue(event.target.value)}
-                  placeholder={field.placeholder ?? ''}
+                  placeholder={field.placeholder ? stripAnsi(field.placeholder) : ''}
                   aria-invalid={invalid || undefined}
                   className={inputClass}
                 />

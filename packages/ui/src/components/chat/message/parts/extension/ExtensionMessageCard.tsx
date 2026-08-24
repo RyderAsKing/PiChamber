@@ -169,7 +169,7 @@ export const ExtensionMessageCard: React.FC<ExtensionMessageCardProps> = ({
             // Generic fallback: extension-authored content without a PiChamber
             // GUI descriptor renders as preformatted text so nothing is lost.
             return (
-                <pre className="max-h-64 overflow-auto rounded-md bg-surface-inset p-2 font-mono text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">
+                <pre className="max-h-64 overflow-auto rounded-md border border-border/40 bg-muted/40 p-2 font-mono text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">
                     {parsed.kind === 'fallback' ? parsed.body : ''}
                 </pre>
             );
@@ -257,7 +257,7 @@ export const ExtensionMessageCard: React.FC<ExtensionMessageCardProps> = ({
                 );
             case 'code':
                 return (
-                    <pre className="max-h-80 overflow-auto rounded-md bg-surface-inset p-2 font-mono text-xs leading-relaxed">
+                    <pre className="max-h-80 overflow-auto rounded-md border border-border/40 bg-muted/40 p-2 font-mono text-xs leading-relaxed">
                         <code>{component.code}</code>
                     </pre>
                 );
@@ -269,7 +269,7 @@ export const ExtensionMessageCard: React.FC<ExtensionMessageCardProps> = ({
     return (
         <div
             className={cn(
-                'my-1 flex flex-col gap-2 rounded-xl border bg-card p-3 text-card-foreground',
+                'my-1 flex flex-col gap-2 rounded-xl border border-border/60 bg-card p-3 text-card-foreground shadow-sm',
                 className,
             )}
             data-extension-ui={messageId}

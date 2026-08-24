@@ -39,21 +39,23 @@ export const ExtensionPanelDock: React.FC<{ sessionId?: string | null }> = ({ se
   if (!activeSessionId || panels.length === 0) return null;
 
   return (
-    <div className="mb-2 flex flex-col gap-2" data-testid="extension-panel-dock">
-      {panels.map((panel) => (
-        <ExtensionMessageCard
-          key={panel.id}
-          sessionId={activeSessionId}
-          messageId={`extension-panel-${panel.id}`}
-          customType="pichamber.ui"
-          data={{
-            protocol: PI_EXTENSION_UI_PROTOCOL,
-            version: PI_EXTENSION_UI_VERSION,
-            ...panel,
-          }}
-          className="my-0"
-        />
-      ))}
+    <div className="chat-input-column" data-testid="extension-panel-dock">
+      <div className="flex flex-col gap-3">
+        {panels.map((panel) => (
+          <ExtensionMessageCard
+            key={panel.id}
+            sessionId={activeSessionId}
+            messageId={`extension-panel-${panel.id}`}
+            customType="pichamber.ui"
+            data={{
+              protocol: PI_EXTENSION_UI_PROTOCOL,
+              version: PI_EXTENSION_UI_VERSION,
+              ...panel,
+            }}
+            className="my-0 border-border/60 shadow-sm"
+          />
+        ))}
+      </div>
     </div>
   );
 };
