@@ -47,6 +47,7 @@ import {
     thinkingLevelLabel,
 } from '@/lib/pi/thinking';
 import type { PiThinkingLevel } from '@/lib/pi/types';
+import { classifyAuthoritativeComposerSelection } from './model-selection-sync';
 
 type IconComponent = IconName;
 
@@ -827,27 +828,31 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             lastObservedSessionModelRef.current = null;
             return;
         }
-        const observed = lastObservedSessionModelRef.current;
-        if (
-            observed
-            && observed.providerId === authModel.providerId
-            && observed.modelId === authModel.modelId
-            && (observed.thinking ?? undefined) === (authThinking ?? undefined)
-        ) {
-            return;
-        }
-        const composerMatches = currentProviderId === authModel.providerId
-            && currentModelId === authModel.modelId
-            && (authThinking === undefined || currentVariant === authThinking);
-        if (!composerMatches) {
-            applyLockedSessionComposerSelection(authModel.providerId, authModel.modelId, authThinking);
-        } else {
-            lastObservedSessionModelRef.current = {
+        const action = classifyAuthoritativeComposerSelection({
+            authoritative: {
                 providerId: authModel.providerId,
                 modelId: authModel.modelId,
-                ...(authThinking ? { thinking: authThinking } : {}),
-            };
+                thinking: authThinking,
+            },
+            observed: lastObservedSessionModelRef.current,
+            composer: {
+                providerId: currentProviderId,
+                modelId: currentModelId,
+                thinking: parsePiThinkingLevel(currentVariant) ?? undefined,
+            },
+        });
+        if (action === 'ignore') {
+            return;
         }
+        if (action === 'apply') {
+            applyLockedSessionComposerSelection(authModel.providerId, authModel.modelId, authThinking);
+            return;
+        }
+        lastObservedSessionModelRef.current = {
+            providerId: authModel.providerId,
+            modelId: authModel.modelId,
+            ...(authThinking ? { thinking: authThinking } : {}),
+        };
     }, [
         applyLockedSessionComposerSelection,
         contextHydrated,
