@@ -86,6 +86,7 @@ and the send path reading the same grammar.
 
 ## Ordering rules worth knowing
 
+- A live standard-RPC `ctx.ui.setEditorText()` or `pasteToEditor()` event replaces the owning session's draft only while that session is the visible composer. The event is sequence-gated and applied once; reconnect snapshots never replay editor text over a newer local draft.
 - `editor/ComposerEditor.tsx` forwards a click on the composer's padding by
   focusing the view *before* setting the selection: CodeMirror reveals its
   drawn caret through a class it only writes while applying an update, so the
