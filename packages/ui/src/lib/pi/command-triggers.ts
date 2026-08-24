@@ -63,18 +63,18 @@ export const sanitizeCommandTriggers = (value: unknown): CommandTrigger[] | unde
   return triggers.length > 0 ? triggers : undefined;
 };
 
-export const triggerPromptText = (trigger: CommandTrigger): string => {
-  const args = trigger.args?.trim();
-  return args ? `/${trigger.command} ${args}` : `/${trigger.command}`;
+export const normalizeCommandArgs = (args?: string): string => (
+  Array.from(args ?? '', (character) => {
+    const code = character.charCodeAt(0);
+    return code < 32 || code === 127 ? ' ' : character;
+  }).join('').trim().slice(0, 2_000)
+);
+
+export const buildCommandPromptText = (command: string, args?: string): string => {
+  const normalizedArgs = normalizeCommandArgs(args);
+  return normalizedArgs ? `/${command} ${normalizedArgs}` : `/${command}`;
 };
 
-/**
- * Combos already taken by built-in actions must not be assignable to
- * triggers; the caller owns conflict resolution against the live registry.
- */
-export const findTriggerByCombo = (
-  triggers: CommandTrigger[],
-  combo: string,
-): CommandTrigger | undefined => (
-  triggers.find((trigger) => trigger.combo !== undefined && trigger.combo === combo)
+export const triggerPromptText = (trigger: CommandTrigger): string => (
+  buildCommandPromptText(trigger.command, trigger.args)
 );

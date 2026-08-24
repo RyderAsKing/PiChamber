@@ -54,9 +54,8 @@ pi.on('session_start', async (_event, ctx) => {
 });
 ```
 
-A helper with types is available at `packages/ui/src/lib/pi/pichamber-helpers.ts`.
-Copy it into your extension — it has no PiChamber runtime dependency, so the
-same file works in the plain pi CLI.
+Keep the check local to your extension. It has no PiChamber runtime dependency,
+so the same extension continues to work in the plain pi CLI.
 
 ## The PiChamber GUI protocol
 

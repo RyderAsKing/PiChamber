@@ -16,9 +16,8 @@
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 
-// Inline helper so the extension has no external dependency. In a real
-// extension, copy `packages/ui/src/lib/pi/pichamber-helpers.ts` or vendor
-// these two tiny functions.
+// Inline helpers keep the extension independent of PiChamber packages. Copy
+// the same detection and descriptor shape into extensions that opt into the GUI.
 const isPiChamber = (ctx: { mode: string; hasUI: boolean }): boolean => {
   const marker = (globalThis as unknown as Record<string, unknown>).__PICHAMBER__ as
     | { version?: number }

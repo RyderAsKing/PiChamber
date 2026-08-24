@@ -17,6 +17,11 @@ import {
   SettingsManager,
 } from '@earendil-works/pi-coding-agent';
 
+import {
+  MAX_EXTENSION_APP_HTML_CHARS,
+  sanitizeExtensionFormFields,
+  validateExtensionFormValues,
+} from '../extension-protocol.js';
 import { createPiModelConfigStore } from '../model-config-store.js';
 import { clampThinkingLevel, getSupportedThinkingLevels, isPiThinkingLevel } from '../thinking-levels.js';
 import { createMessageEntryAliases } from './message-entry-aliases.js';
@@ -33,6 +38,12 @@ import {
 import { resolvePiChamberDataDir } from '../../pichamber-data-dir.js';
 
 const PROTOCOL_VERSION = 1;
+
+const textFromContent = (content) => (
+  Array.isArray(content)
+    ? content.filter((part) => part?.type === 'text' && typeof part.text === 'string').map((part) => part.text).join('')
+    : ''
+);
 
 // Marker so pi extensions can detect PiChamber without an extra dependency.
 // Extensions should use optional detection, e.g.:
@@ -203,7 +214,6 @@ export function createSessionDaemon({
   const MAX_EXTENSION_PANELS_PER_SESSION = 24;
   const MAX_EXTENSION_APPS_PER_SESSION = 8;
   const MAX_EXTENSION_PANEL_ACTIONS = 8;
-  const MAX_EXTENSION_APP_HTML_CHARS = 200_000;
   const messageEntryAliases = createMessageEntryAliases();
   const skillReadClassifierByRuntime = new WeakMap();
   const MAX_REPLAY_EVENTS = 1_024;
@@ -362,7 +372,7 @@ export function createSessionDaemon({
   };
 
   const createExtensionUIContext = (sessionId) => {
-    const dialog = (method, fields, opts, defaultValue, parseResponse) => {
+    const dialog = (method, fields, opts, parseResponse) => {
       const requestId = randomUUID();
       return new Promise((resolve) => {
         const settle = (response, reason = 'answered') => {
@@ -395,76 +405,40 @@ export function createSessionDaemon({
         'select',
         { title, options: options.map((option) => String(option)) },
         opts,
-        undefined,
         (response) => (typeof response?.value === 'string' ? response.value : undefined),
       ),
       confirm: (title, message, opts) => dialog(
         'confirm',
         { title, message },
         opts,
-        false,
         (response) => response?.confirmed === true,
       ),
       input: (title, placeholder, opts) => dialog(
         'input',
         { title, ...(typeof placeholder === 'string' ? { placeholder } : {}) },
         opts,
-        undefined,
         (response) => (typeof response?.value === 'string' ? response.value : undefined),
       ),
       form: (title, fields, opts) => {
         // PiChamber-specific extension of the pi UI bridge (gate with
         // isPiChamber(ctx)): structured multi-input dialogs resolved with a
         // values object keyed by field id.
-        const sanitizedFields = Array.isArray(fields)
-          ? fields.slice(0, 12).flatMap((field) => {
-              if (!field || typeof field !== 'object') return [];
-              const id = typeof field.id === 'string' ? field.id.slice(0, 128) : '';
-              const label = typeof field.label === 'string' ? field.label.slice(0, 256) : '';
-              if (!id || !label) return [];
-              const type = ['text', 'textarea', 'number', 'select', 'checkbox'].includes(field.type) ? field.type : 'text';
-              return [{
-                id,
-                label,
-                type,
-                ...(field.required === true ? { required: true } : {}),
-                ...(typeof field.placeholder === 'string' ? { placeholder: field.placeholder.slice(0, 256) } : {}),
-                ...(Array.isArray(field.options) ? { options: field.options.filter((option) => typeof option === 'string').map((option) => option.slice(0, 256)).slice(0, 20) } : {}),
-                ...(typeof field.initial === 'string' ? { initial: field.initial.slice(0, 2_000) } : {}),
-                ...(Number.isFinite(field.min) ? { min: field.min } : {}),
-                ...(Number.isFinite(field.max) ? { max: field.max } : {}),
-              }];
-            })
-          : [];
+        const sanitizedFields = sanitizeExtensionFormFields(fields);
         return dialog(
           'form',
           { title, ...(sanitizedFields.length > 0 ? { fields: sanitizedFields } : {}) },
           opts,
-          undefined,
           (response) => (response?.values && typeof response.values === 'object' && !Array.isArray(response.values)
             ? response.values
             : undefined),
         );
       },
-      editor: async (title, prefill) => {
-        const requestId = randomUUID();
-        return new Promise((resolve) => {
-          const settle = (response, reason = 'answered') => {
-            if (pendingExtensionDialogs.get(requestId)?.settle !== settle) return;
-            pendingExtensionDialogs.delete(requestId);
-            publish('extension.dialog.dismiss', { requestId, reason }, sessionId);
-            resolve(typeof response?.value === 'string' ? response.value : undefined);
-          };
-          const payload = {
-            requestId,
-            method: 'editor',
-            title,
-            ...(typeof prefill === 'string' ? { prefill } : {}),
-          };
-          pendingExtensionDialogs.set(requestId, { sessionId, settle, payload });
-          publish('extension.dialog', payload, sessionId);
-        });
-      },
+      editor: (title, prefill) => dialog(
+        'editor',
+        { title, ...(typeof prefill === 'string' ? { prefill } : {}) },
+        undefined,
+        (response) => (typeof response?.value === 'string' ? response.value : undefined),
+      ),
       notify: (message, level) => {
         publish('extension.notify', {
           message: String(message ?? ''),
@@ -591,30 +565,6 @@ export function createSessionDaemon({
   const createRuntime = (runtimeOptions) => baseCreateRuntime(runtimeOptions, {
     createExtensionBindings: buildExtensionBindings,
   });
-
-  const validateExtensionFormValues = (fields, values) => {
-    if (!Array.isArray(fields)) return false;
-    const fieldsById = new Map(fields.map((field) => [field.id, field]));
-    for (const key of Object.keys(values)) {
-      if (!fieldsById.has(key)) return false;
-    }
-    for (const field of fields) {
-      const value = values[field.id];
-      if (field.required === true && (typeof value !== 'string' || value.length === 0)) return false;
-      if (value === undefined || value.length === 0) continue;
-      if (field.type === 'number') {
-        const number = Number(value);
-        if (!Number.isFinite(number)) return false;
-        if (typeof field.min === 'number' && number < field.min) return false;
-        if (typeof field.max === 'number' && number > field.max) return false;
-      } else if (field.type === 'select' && !field.options?.includes(value)) {
-        return false;
-      } else if (field.type === 'checkbox' && value !== 'true' && value !== 'false') {
-        return false;
-      }
-    }
-    return true;
-  };
 
   // Resolves a pending extension dialog. Unknown or already-settled request
   // ids resolve to `{ resolved: false }` instead of throwing: a stale client
@@ -1153,7 +1103,7 @@ export function createSessionDaemon({
         const text = typeof entry.content === 'string'
           ? entry.content
           : Array.isArray(entry.content)
-            ? entry.content.filter((part) => part?.type === 'text').map((part) => part.text).join('')
+            ? textFromContent(entry.content)
             : '';
         return [{
           message: {
@@ -1173,13 +1123,13 @@ export function createSessionDaemon({
         const text = redactAttachmentPaths(typeof entry.message.content === 'string'
           ? entry.message.content
           : Array.isArray(entry.message.content)
-            ? entry.message.content.filter((part) => part?.type === 'text').map((part) => part.text).join('')
+            ? textFromContent(entry.message.content)
             : '');
         latestUserMessageId = entry.id;
         return [{ message: { id: entry.id, sessionId: session.sessionId, directory: targetDir, role: 'user', text, createdAt }, parts: [] }];
       }
       if (entry.message.role !== 'assistant' || !Array.isArray(entry.message.content)) return [];
-      const text = redactAttachmentPaths(entry.message.content.filter((part) => part?.type === 'text').map((part) => part.text).join(''));
+      const text = redactAttachmentPaths(textFromContent(entry.message.content));
       const thinking = redactAttachmentPaths(entry.message.content.filter((part) => part?.type === 'thinking').map((part) => part.thinking).join(''));
       const usage = projectUsage(entry.message.usage);
       const parts = entry.message.content.flatMap((part, index) => {
@@ -1981,7 +1931,7 @@ export function createSessionDaemon({
    */
   const projectToolResult = (result, isError) => {
     const content = result && typeof result === 'object' && Array.isArray(result.content) ? result.content : [];
-    const output = redactAttachmentPaths(content.filter((part) => part?.type === 'text').map((part) => part.text).join(''));
+    const output = redactAttachmentPaths(textFromContent(content));
     let metadata;
     if (result && typeof result === 'object' && result.details && typeof result.details === 'object') {
       const details = redactAttachmentValues(result.details);
@@ -2237,7 +2187,7 @@ export function createSessionDaemon({
     const text = typeof message.content === 'string'
       ? message.content
       : Array.isArray(message.content)
-        ? message.content.filter((part) => part?.type === 'text').map((part) => part.text).join('')
+        ? textFromContent(message.content)
         : '';
     const timestamp = Number.isFinite(message.timestamp) ? message.timestamp : Date.now();
     publish('extension.message', {
@@ -2323,7 +2273,7 @@ export function createSessionDaemon({
           const text = redactAttachmentPaths(typeof content === 'string'
             ? content
             : Array.isArray(content)
-              ? content.filter((part) => part?.type === 'text').map((part) => part.text).join('')
+              ? textFromContent(content)
               : '');
           const messageId = `user-${sessionId}-${sequence + 1}`;
           messageEntryAliases.retain({ cwd: directory, sessionId, syntheticMessageId: messageId, message: event.message });
@@ -2387,7 +2337,7 @@ export function createSessionDaemon({
           const usage = projectUsage(event.message.usage);
           publish('assistant.message.end', {
             messageId,
-            text: redactAttachmentPaths(content.filter((part) => part?.type === 'text').map((part) => part.text).join('')),
+            text: redactAttachmentPaths(textFromContent(content)),
             thinking: redactAttachmentPaths(content.filter((part) => part?.type === 'thinking').map((part) => part.thinking).join('')),
             durationMs,
             ...(content.some((part) => part?.type === 'toolCall') ? { continuing: true } : {}),

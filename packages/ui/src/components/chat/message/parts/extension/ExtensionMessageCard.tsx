@@ -1,7 +1,8 @@
 import * as React from 'react';
 
 import { getPiSessionStore } from '@/apps/pi-session-store';
-import { normalizeExtensionCommandArgs, parseExtensionChatItem } from '@/lib/pi/extension-ui';
+import { buildCommandPromptText } from '@/lib/pi/command-triggers';
+import { parseExtensionChatItem } from '@/lib/pi/extension-ui';
 import type { ExtensionUiAction } from '@/lib/pi/extension-ui';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -48,9 +49,7 @@ const ExtensionActionButton: React.FC<ActionButtonProps> = ({ action, variant, s
         if (!sessionId || pending) return;
         setPending(true);
         try {
-            const normalizedArgs = normalizeExtensionCommandArgs(args);
-            const text = normalizedArgs ? `/${action.command} ${normalizedArgs}` : `/${action.command}`;
-            await getPiSessionStore().prompt(sessionId, text, 'prompt');
+            await getPiSessionStore().prompt(sessionId, buildCommandPromptText(action.command, args), 'prompt');
         } finally {
             setPending(false);
         }

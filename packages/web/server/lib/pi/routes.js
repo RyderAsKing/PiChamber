@@ -11,6 +11,10 @@ import { adoptLegacyUiModelDefaults } from './legacy-ui-model-defaults.js';
 import { createPiSettingsStore } from './settings-store.js';
 import { isPiThinkingLevel } from './thinking-levels.js';
 import { createPiSessionFoldersStore } from './session-folders-store.js';
+import {
+  MAX_EXTENSION_APP_HTML_CHARS,
+  sanitizeExtensionFormFields,
+} from './extension-protocol.js';
 import { createPiUiSettingsStore } from './ui-settings-store.js';
 
 const UNAVAILABLE_CODES = new Set([
@@ -385,23 +389,6 @@ const projectSessionTree = (value) => {
 
 const sessionIdFrom = (req) => typeof req.params.sessionId === 'string' && req.params.sessionId.length > 0 ? req.params.sessionId : undefined;
 
-const MAX_EXTENSION_APP_HTML_CHARS = 200_000;
-
-const projectExtensionFormFields = (fields) => (
-  fields.filter((field) => field && typeof field === 'object' && typeof field.id === 'string' && typeof field.label === 'string')
-    .slice(0, 12)
-    .map((field) => ({
-      id: field.id.slice(0, 128),
-      label: field.label.slice(0, 256),
-      type: ['text', 'textarea', 'number', 'select', 'checkbox'].includes(field.type) ? field.type : 'text',
-      ...(field.required === true ? { required: true } : {}),
-      ...(typeof field.placeholder === 'string' ? { placeholder: field.placeholder.slice(0, 256) } : {}),
-      ...(Array.isArray(field.options) ? { options: field.options.filter((option) => typeof option === 'string').map((option) => option.slice(0, 256)).slice(0, 20) } : {}),
-      ...(typeof field.initial === 'string' ? { initial: field.initial.slice(0, 2_000) } : {}),
-      ...(Number.isFinite(field.min) ? { min: field.min } : {}),
-      ...(Number.isFinite(field.max) ? { max: field.max } : {}),
-    }))
-);
 
 const projectExtensionPanelActions = (actions) => (
   Array.isArray(actions)
@@ -422,6 +409,34 @@ const projectExtensionAppPayload = (app) => ({
   ...(typeof app.title === 'string' ? { title: app.title.slice(0, 256) } : {}),
   html: typeof app.html === 'string' ? app.html.slice(0, MAX_EXTENSION_APP_HTML_CHARS) : '',
 });
+
+const EXTENSION_COMMAND_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/;
+const OPAQUE_EXTENSION_ID_PATTERN = /^[a-f0-9]{16}$/;
+
+export const projectExtensionList = (result) => {
+  if (!result || typeof result !== 'object' || typeof result.directory !== 'string'
+    || !Array.isArray(result.extensions) || !Array.isArray(result.commands)) throw protocolMismatch();
+  const extensions = result.extensions.map((extension) => {
+    if (!extension || typeof extension !== 'object'
+      || typeof extension.id !== 'string' || !OPAQUE_EXTENSION_ID_PATTERN.test(extension.id)
+      || typeof extension.name !== 'string' || extension.name.length === 0 || extension.name.length > 256
+      || extension.name.includes('/') || extension.name.includes('\\')) throw protocolMismatch();
+    return { id: extension.id, name: extension.name };
+  });
+  const commands = result.commands.map((command) => {
+    if (!command || typeof command !== 'object'
+      || typeof command.name !== 'string' || !EXTENSION_COMMAND_PATTERN.test(command.name)
+      || (command.description !== undefined && typeof command.description !== 'string')
+      || (command.scope !== undefined && typeof command.scope !== 'string')) throw protocolMismatch();
+    return {
+      name: command.name,
+      ...(typeof command.description === 'string' ? { description: command.description.slice(0, 500) } : {}),
+      source: 'extension',
+      ...(typeof command.scope === 'string' ? { scope: command.scope.slice(0, 64) } : {}),
+    };
+  });
+  return { directory: result.directory, extensions, commands };
+};
 
 export const projectEventFrame = (frame) => {
   if (!frame || frame.kind !== 'event' || typeof frame.event !== 'string' || !Number.isSafeInteger(frame.sequence)
@@ -450,7 +465,7 @@ export const projectEventFrame = (frame) => {
             ...(Array.isArray(entry.options) ? { options: entry.options.filter((option) => typeof option === 'string').map((option) => option.slice(0, 256)).slice(0, 20) } : {}),
             ...(typeof entry.placeholder === 'string' ? { placeholder: entry.placeholder.slice(0, 512) } : {}),
             ...(typeof entry.prefill === 'string' ? { prefill: entry.prefill.slice(0, 10000) } : {}),
-            ...(Array.isArray(entry.fields) ? { fields: projectExtensionFormFields(entry.fields) } : {}),
+            ...(Array.isArray(entry.fields) ? { fields: sanitizeExtensionFormFields(entry.fields) } : {}),
             ...(Number.isFinite(entry.timeoutMs) ? { timeoutMs: Math.floor(entry.timeoutMs) } : {}),
           }))
         : undefined;
@@ -599,7 +614,7 @@ export const projectEventFrame = (frame) => {
           ...(Array.isArray(frame.payload.options) ? { options: frame.payload.options.filter((option) => typeof option === 'string').map((option) => option.slice(0, 256)).slice(0, 20) } : {}),
           ...(typeof frame.payload.placeholder === 'string' ? { placeholder: frame.payload.placeholder.slice(0, 512) } : {}),
           ...(typeof frame.payload.prefill === 'string' ? { prefill: frame.payload.prefill.slice(0, 10000) } : {}),
-          ...(Array.isArray(frame.payload.fields) ? { fields: projectExtensionFormFields(frame.payload.fields) } : {}),
+          ...(Array.isArray(frame.payload.fields) ? { fields: sanitizeExtensionFormFields(frame.payload.fields) } : {}),
           ...(Number.isFinite(frame.payload.timeoutMs) && frame.payload.timeoutMs >= 0 && frame.payload.timeoutMs <= 600000 ? { timeoutMs: Math.floor(frame.payload.timeoutMs) } : {}),
         },
       };
@@ -1174,15 +1189,7 @@ export const registerPiRuntimeRoutes = (app, {
       const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('extensions.list', {
         ...(typeof directory === 'string' && directory.length > 0 ? { directory } : {}),
       });
-      if (!result || typeof result !== 'object' || !Array.isArray(result.extensions) || !Array.isArray(result.commands)) {
-        writeDaemonError(res, protocolMismatch());
-        return;
-      }
-      res.json({
-        directory: result.directory,
-        extensions: result.extensions,
-        commands: result.commands,
-      });
+      res.json(projectExtensionList(result));
     } catch (error) {
       writeDaemonError(res, error);
     }

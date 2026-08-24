@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { getPiSessionStore } from '@/apps/pi-session-store';
+import { buildCommandPromptText } from '@/lib/pi/command-triggers';
 import { formatShortcutForDisplay } from '@/lib/shortcuts';
 import { useUIStore } from '@/stores/useUIStore';
 import { Button } from '@/components/ui/button';
@@ -14,8 +15,7 @@ export const ComposerCommandTriggers: React.FC<{ sessionId?: string | null }> = 
 
     const runTrigger = React.useCallback((command: string, args?: string) => {
         if (!sessionId) return;
-        const text = args && args.trim().length > 0 ? `/${command} ${args.trim()}` : `/${command}`;
-        void getPiSessionStore().prompt(sessionId, text, 'prompt').catch(() => {});
+        void getPiSessionStore().prompt(sessionId, buildCommandPromptText(command, args), 'prompt').catch(() => {});
     }, [sessionId]);
 
     if (!sessionId || triggers.length === 0) return null;

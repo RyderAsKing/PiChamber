@@ -2,7 +2,7 @@ import * as React from 'react';
 
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { getPiSessionStore } from '@/apps/pi-session-store';
-import { normalizeExtensionCommandArgs } from '@/lib/pi/extension-ui';
+import { parseExtensionAppCommand } from '@/lib/pi/extension-app-command';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
 
@@ -22,7 +22,6 @@ import { Icon } from '@/components/icon/Icon';
  *   executes descriptors.
  */
 
-const COMMAND_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/;
 const MAX_APP_HEIGHT_PX = 420;
 
 const BRIDGE_SCRIPT_TEMPLATE = [
@@ -66,20 +65,9 @@ const ExtensionAppFrame: React.FC<{
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
-      const data = event.data as {
-        type?: unknown;
-        appId?: unknown;
-        token?: unknown;
-        command?: unknown;
-        args?: unknown;
-      } | null;
-      if (!data || data.type !== 'pichamber-app-command') return;
-      if (data.appId !== appId || data.token !== token) return;
-      const command = typeof data.command === 'string' ? data.command : '';
-      const args = normalizeExtensionCommandArgs(typeof data.args === 'string' ? data.args : undefined);
-      if (!COMMAND_PATTERN.test(command)) return;
-      const text = args.length > 0 ? `/${command} ${args}` : `/${command}`;
-      void getPiSessionStore().prompt(sessionId, text, 'prompt').catch(() => {});
+      const promptText = parseExtensionAppCommand(event.data, { appId, token });
+      if (!promptText) return;
+      void getPiSessionStore().prompt(sessionId, promptText, 'prompt').catch(() => {});
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);

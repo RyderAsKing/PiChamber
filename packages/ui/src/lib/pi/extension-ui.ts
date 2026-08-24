@@ -20,6 +20,8 @@
  * that PiChamber invokes through the normal prompt path.
  */
 
+import { normalizeCommandArgs } from './command-triggers';
+
 export const PI_EXTENSION_UI_CUSTOM_TYPE = 'pichamber.ui';
 
 /** Custom types prefixed with this namespace are treated as PiChamber GUI. */
@@ -124,19 +126,12 @@ const parseRows = (value: unknown): ExtensionUiRow[] | null => {
 };
 
 const MAX_ACTION_LABEL = 128;
-const MAX_ACTION_ARGS = 2_000;
 
 const truncateActionText = (value: string, maxLength: number): string => (
   value.length > maxLength ? value.slice(0, maxLength) : value
 );
 
-export const normalizeExtensionCommandArgs = (value: string | undefined): string => {
-  if (!value) return '';
-  return Array.from(value, (character) => {
-    const code = character.charCodeAt(0);
-    return code < 32 || code === 127 ? ' ' : character;
-  }).join('').trim().slice(0, MAX_ACTION_ARGS);
-};
+export const normalizeExtensionCommandArgs = (value: string | undefined): string => normalizeCommandArgs(value);
 
 const parseActions = (value: unknown): ExtensionUiAction[] | undefined => {
   if (!Array.isArray(value)) return undefined;
@@ -303,13 +298,14 @@ export const parseExtensionChatItem = (input: {
       if (asString(source.title) || asString(source.text) || asString(source.body)) {
         const fallbackBody = asString(source.text) ?? asString(source.body) ?? '';
         if (fallbackBody) {
+          const actions = parseActions(source.actions);
           return {
             kind: 'ui',
             descriptor: {
               ...(asString(source.id) !== undefined ? { id: asString(source.id)?.slice(0, 128) } : {}),
               ...(asString(source.title) !== undefined ? { title: asString(source.title)?.slice(0, 256) } : {}),
               component: { component: 'markdown', body: fallbackBody.slice(0, 5000) },
-              ...(parseActions(source.actions) ? { actions: parseActions(source.actions) } : {}),
+              ...(actions ? { actions } : {}),
             },
           };
         }

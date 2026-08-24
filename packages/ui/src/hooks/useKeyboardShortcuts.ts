@@ -27,15 +27,14 @@ import { cycleComposerThinking } from '@/lib/pi/apply-composer-thinking';
 import { addSelectionToChat } from '@/lib/addSelectionToChat';
 import { hasOpenDropdown } from './keyboard-shortcut-dom';
 import { getPiSessionStore } from '@/apps/pi-session-store';
+import { triggerPromptText } from '@/lib/pi/command-triggers';
 import type { CommandTrigger } from '@/lib/pi/command-triggers';
 
 /** Run a command trigger through the normal authenticated prompt path. */
 const fireCommandTrigger = (trigger: CommandTrigger): void => {
   const sessionId = useSessionUIStore.getState().currentSessionId;
   if (!sessionId) return;
-  const args = trigger.args?.trim();
-  const text = args ? `/${trigger.command} ${args}` : `/${trigger.command}`;
-  void getPiSessionStore().prompt(sessionId, text, 'prompt').catch(() => {});
+  void getPiSessionStore().prompt(sessionId, triggerPromptText(trigger), 'prompt').catch(() => {});
 };
 
 export const useKeyboardShortcuts = () => {

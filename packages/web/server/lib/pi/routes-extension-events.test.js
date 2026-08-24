@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { projectEventFrame } from './routes.js';
+import { projectEventFrame, projectExtensionList } from './routes.js';
 
 const frame = (event, payload, sequence = 1) => ({
   protocolVersion: 1,
@@ -10,7 +10,29 @@ const frame = (event, payload, sequence = 1) => ({
   payload: { sessionId: 'sess-1', directory: '/work', ...payload },
 });
 
-describe('projectEventFrame extension panels and apps', () => {
+describe('extension public projections', () => {
+  it('whitelists extension list fields and rejects path-shaped identities', () => {
+    expect(projectExtensionList({
+      directory: '/work',
+      extensions: [{ id: '0123456789abcdef', name: 'economy', path: '/secret/economy.ts' }],
+      commands: [{ name: 'balance', description: 'Switch mode', source: 'daemon-value', scope: 'global', path: '/secret' }],
+    })).toEqual({
+      directory: '/work',
+      extensions: [{ id: '0123456789abcdef', name: 'economy' }],
+      commands: [{ name: 'balance', description: 'Switch mode', source: 'extension', scope: 'global' }],
+    });
+
+    expect(() => projectExtensionList({
+      directory: '/work',
+      extensions: [{ id: '/secret/extension.ts', name: 'extension' }],
+      commands: [],
+    })).toThrow();
+    expect(() => projectExtensionList({
+      directory: '/work',
+      extensions: [{ id: '0123456789abcdef', name: '../extension' }],
+      commands: [],
+    })).toThrow();
+  });
   it('projects extension.ui panels with caps and removals', () => {
     const projected = projectEventFrame(frame('extension.ui', {
       id: 'subagents',
