@@ -16,6 +16,29 @@ const DEMO_EXTENSION = `
 const answer = Symbol.for('pichamber-demo-answer');
 
 export default function (pi) {
+  pi.registerCommand("demo-state", {
+    description: "Mutate extension-owned runtime state",
+    handler: async (_args, ctx) => {
+      pi.setSessionName("Extension-owned title");
+      const leafId = ctx.sessionManager.getLeafId();
+      if (leafId) pi.setLabel(leafId, "extension-checkpoint");
+      ctx.ui.setEditorText("draft from extension");
+      ctx.ui.setTitle("Extension window title");
+      pi.unregisterProvider("not-registered");
+    },
+  });
+  pi.registerCommand("demo-reload", {
+    description: "Reload extension resources",
+    handler: async (_args, ctx) => {
+      await ctx.reload();
+    },
+  });
+  pi.registerCommand("demo-shutdown", {
+    description: "Dispose this session runtime",
+    handler: async (_args, ctx) => {
+      ctx.shutdown();
+    },
+  });
   pi.registerCommand("demo-dialog", {
     description: "Ask a question",
     handler: async (_args, ctx) => {
@@ -134,6 +157,9 @@ describe('pi extensions end-to-end through the real SDK', () => {
     const dialog = await client.next((message) => message.kind === 'event' && message.event === 'extension.dialog');
     expect(dialog.payload).toMatchObject({ method: 'confirm', title: 'Fire the missile?' });
 
+    const settled = client.next((message) => message.kind === 'event'
+      && message.event === 'session.lifecycle'
+      && message.payload.state === 'idle');
     await client.request('extensions.respond', {
       requestId: dialog.payload.requestId,
       confirmed: true,
@@ -146,11 +172,43 @@ describe('pi extensions end-to-end through the real SDK', () => {
 
     const note = await client.next((message) => message.kind === 'event' && message.event === 'extension.message');
     expect(note.payload).toMatchObject({ customType: 'demo-note', text: 'Dialog answered' });
+    await expect(settled).resolves.toMatchObject({
+      payload: { sessionId: created.result.session.id, state: 'idle' },
+    });
 
     // A fresh projection includes both items for reconnect/hydration.
     const opened = await client.request('sessions.open', { sessionId: created.result.session.id });
     const extensionItems = opened.result.messages.filter((item) => item.message.role === 'extension');
     expect(extensionItems.map((item) => item.message.customType).sort()).toEqual(['demo-note', 'pichamber.ui']);
+
+    const sessionUpdated = client.next((message) => message.event === 'session.updated' && message.payload?.title === 'Extension-owned title');
+    const treeUpdated = client.next((message) => message.event === 'session.tree.updated');
+    const editorUpdated = client.next((message) => message.event === 'extension.editor' && message.payload?.text === 'draft from extension');
+    const titleUpdated = client.next((message) => message.event === 'extension.title' && message.payload?.title === 'Extension window title');
+    const providerUpdated = client.next((message) => message.event === 'extension.catalog' && message.payload?.providers === true);
+    await client.request('sessions.prompt', { sessionId: created.result.session.id, text: '/demo-state' });
+    await Promise.all([sessionUpdated, treeUpdated, editorUpdated, titleUpdated, providerUpdated]);
+
+    const tree = await client.request('sessions.tree', { sessionId: created.result.session.id });
+    const flatten = (nodes) => nodes.flatMap((node) => [node, ...flatten(node.children ?? [])]);
+    expect(flatten(tree.result.nodes)).toContainEqual(expect.objectContaining({ label: 'extension-checkpoint' }));
+
+    const reloadCatalog = client.next((message) => message.event === 'extension.catalog'
+      && message.payload?.providers === true
+      && message.payload?.resources === true
+      && message.payload?.commands === true);
+    const clearedTitle = client.next((message) => message.event === 'extension.title' && message.payload?.title === undefined);
+    await client.request('sessions.prompt', { sessionId: created.result.session.id, text: '/demo-reload' });
+    await Promise.all([reloadCatalog, clearedTitle]);
+
+    const beforeShutdownSequence = Math.max(...client.events.map((message) => message.sequence ?? 0));
+    const shutdownSettled = client.next((message) => message.event === 'session.lifecycle'
+      && message.sequence > beforeShutdownSequence
+      && message.payload?.state === 'idle');
+    await client.request('sessions.prompt', { sessionId: created.result.session.id, text: '/demo-shutdown' });
+    await shutdownSettled;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await expect(client.request('runtime.health')).resolves.toMatchObject({ result: { state: 'ready' } });
 
     await client.close();
   }, 120_000);

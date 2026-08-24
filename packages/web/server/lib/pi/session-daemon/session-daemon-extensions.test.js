@@ -16,6 +16,14 @@ class ExtensibleFakeSession {
     this.listeners = new Set();
     this.entries = [];
     this.boundBindings = undefined;
+    this.reloadCount = 0;
+    this.providerMutations = [];
+    this.labelChanges = [];
+    this.modelRuntime = {
+      registerProvider: (...args) => this.providerMutations.push(['registerProvider', ...args]),
+      registerNativeProvider: (...args) => this.providerMutations.push(['registerNativeProvider', ...args]),
+      unregisterProvider: (...args) => this.providerMutations.push(['unregisterProvider', ...args]),
+    };
     this.sessionManager = {
       getSessionFile: () => undefined,
       getHeader: () => ({ timestamp: '2026-01-01T00:00:00.000Z' }),
@@ -24,6 +32,7 @@ class ExtensibleFakeSession {
       getLeafId: () => 'fake-entry',
       appendSessionInfo: () => {},
       getSessionName: () => undefined,
+      appendLabelChange: (entryId, label) => this.labelChanges.push([entryId, label]),
     };
   }
 
@@ -41,6 +50,12 @@ class ExtensibleFakeSession {
   }
 
   async waitForIdle() {}
+
+  async reload() {
+    this.reloadCount += 1;
+  }
+
+  async prompt() {}
 
   async navigateTree() {
     return { cancelled: false };
@@ -144,6 +159,7 @@ describe('Pi session daemon extension bridging', () => {
     await mkdir(agentDir, { recursive: true });
     const endpoint = join(root, 'daemon.sock');
     const session = new ExtensibleFakeSession();
+    const runtimeState = { disposeCount: 0 };
     if (entries) session.entries = entries;
     sessions.push(session);
 
@@ -158,7 +174,7 @@ describe('Pi session daemon extension bridging', () => {
         if (hooks?.createExtensionBindings && typeof session.bindExtensions === 'function') {
           await session.bindExtensions(hooks.createExtensionBindings(session));
         }
-        return { session, cwd: projectDir, async dispose() {} };
+        return { session, cwd: projectDir, async dispose() { runtimeState.disposeCount += 1; } };
       },
     });
     await daemon.start();
@@ -166,7 +182,7 @@ describe('Pi session daemon extension bridging', () => {
     const client = connectClient(endpoint);
     await client.authenticate();
     await client.request('sessions.create', { cwd: projectDir });
-    return { client, session, endpoint };
+    return { client, session, endpoint, runtimeState };
   };
 
   afterEach(async () => {
@@ -207,6 +223,50 @@ describe('Pi session daemon extension bridging', () => {
     await expect(cancelPromise).resolves.toBeUndefined();
     const cancelDismiss = await client.next((message) => message.event === 'extension.dialog.dismiss' && message.payload?.requestId === inputRequest.payload.requestId);
     expect(cancelDismiss.payload.reason).toBe('cancelled');
+  });
+
+  it('bridges standard RPC editor/title calls and extension-owned catalog mutations', async () => {
+    const { client, session } = await startWithExtensibleSession();
+
+    const editor = client.next((message) => message.event === 'extension.editor');
+    session.boundBindings.uiContext.setEditorText('replace the draft');
+    await expect(editor).resolves.toMatchObject({ payload: { text: 'replace the draft' } });
+
+    const pasted = client.next((message) => message.event === 'extension.editor' && message.payload?.text === 'pasted text');
+    session.boundBindings.uiContext.pasteToEditor('pasted text');
+    await expect(pasted).resolves.toMatchObject({ payload: { text: 'pasted text' } });
+
+    const title = client.next((message) => message.event === 'extension.title' && message.payload?.title === 'Mode picker');
+    session.boundBindings.uiContext.setTitle('Mode picker');
+    await expect(title).resolves.toMatchObject({ payload: { title: 'Mode picker' } });
+
+    const providerChange = client.next((message) => message.event === 'extension.catalog' && message.payload?.providers === true);
+    session.modelRuntime.registerProvider('local', { models: [] });
+    await expect(providerChange).resolves.toMatchObject({ payload: { providers: true } });
+    expect(session.providerMutations).toEqual([['registerProvider', 'local', { models: [] }]]);
+
+    const treeChange = client.next((message) => message.event === 'session.tree.updated');
+    session.sessionManager.appendLabelChange('entry-1', 'checkpoint');
+    await expect(treeChange).resolves.toMatchObject({ payload: { sessionId: session.sessionId } });
+    expect(session.labelChanges).toEqual([['entry-1', 'checkpoint']]);
+    await client.close();
+  });
+
+  it('reloads extension resources and disposes only the requesting idle runtime on shutdown', async () => {
+    const { client, session, runtimeState } = await startWithExtensibleSession();
+
+    const reloaded = client.next((message) => message.event === 'extension.catalog'
+      && message.payload?.providers === true
+      && message.payload?.resources === true
+      && message.payload?.commands === true);
+    await session.boundBindings.commandContextActions.reload();
+    expect(session.reloadCount).toBe(1);
+    await expect(reloaded).resolves.toBeTruthy();
+
+    session.boundBindings.shutdownHandler();
+    session.emit({ type: 'agent_settled' });
+    await expect.poll(() => runtimeState.disposeCount).toBe(1);
+    await client.close();
   });
 
   it('reports unknown dialog requests as not pending and honors dialog timeouts', async () => {

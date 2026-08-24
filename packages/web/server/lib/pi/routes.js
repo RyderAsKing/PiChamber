@@ -379,7 +379,9 @@ const projectSessionTree = (value) => {
     return {
       entryId: node.entryId,
       ...(typeof node.parentId === 'string' ? { parentId: node.parentId } : {}),
-      ...(typeof node.title === 'string' ? { title: node.title } : {}),
+      ...(typeof node.title === 'string' ? { title: node.title.slice(0, 256) } : {}),
+      ...(typeof node.label === 'string' && node.label.length > 0 ? { label: node.label.slice(0, 256) } : {}),
+      ...(typeof node.labelTimestamp === 'string' ? { labelTimestamp: node.labelTimestamp.slice(0, 64) } : {}),
       updatedAt: node.updatedAt,
       children: node.children.map(projectNode),
     };
@@ -496,6 +498,9 @@ export const projectEventFrame = (frame) => {
         ...(snapshotExtensionDialogs ? { extensionDialogs: snapshotExtensionDialogs } : {}),
         ...(snapshotExtensionPanels ? { extensionPanels: snapshotExtensionPanels } : {}),
         ...(snapshotExtensionApps ? { extensionApps: snapshotExtensionApps } : {}),
+        ...(typeof snapshot.extensionTitle === 'string' && snapshot.extensionTitle.length > 0
+          ? { extensionTitle: snapshot.extensionTitle.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 256) }
+          : {}),
       } } };
     }
     case 'session.lifecycle': {
@@ -508,6 +513,7 @@ export const projectEventFrame = (frame) => {
       if (title.length === 0 || title.length > 256) return null;
       return { ...common, payload: { title } };
     }
+    case 'session.tree.updated': return { ...common, payload: {} };
     case 'assistant.message.start': return { ...common, payload: { messageId: frame.payload.messageId, role: frame.payload.role, startedAt: frame.payload.startedAt, ...(typeof frame.payload.parentId === 'string' ? { parentId: frame.payload.parentId } : {}), ...(typeof frame.payload.text === 'string' ? { text: frame.payload.text } : {}), ...(frame.payload.model ? { model: frame.payload.model } : {}) } };
     case 'assistant.message.delta':
     case 'assistant.thinking.delta': return { ...common, payload: { messageId: frame.payload.messageId, contentIndex: frame.payload.contentIndex, delta: frame.payload.delta, ...(typeof frame.payload.partId === 'string' ? { partId: frame.payload.partId } : {}) } };
@@ -577,6 +583,24 @@ export const projectEventFrame = (frame) => {
       if (typeof frame.payload.message !== 'string' || frame.payload.message.length === 0) return null;
       const level = ['info', 'warning', 'error'].includes(frame.payload.level) ? frame.payload.level : 'info';
       return { ...common, payload: { message: frame.payload.message.slice(0, 2000), level } };
+    }
+    case 'extension.catalog': {
+      const providers = frame.payload.providers === true;
+      const resources = frame.payload.resources === true;
+      const commands = frame.payload.commands === true;
+      if (!providers && !resources && !commands) return null;
+      return { ...common, payload: { ...(providers ? { providers: true } : {}), ...(resources ? { resources: true } : {}), ...(commands ? { commands: true } : {}) } };
+    }
+    case 'extension.editor': {
+      if (typeof frame.payload.text !== 'string' || frame.payload.text.length > 100_000) return null;
+      return { ...common, payload: { text: frame.payload.text } };
+    }
+    case 'extension.title': {
+      if (frame.payload.title !== undefined && typeof frame.payload.title !== 'string') return null;
+      const title = typeof frame.payload.title === 'string'
+        ? frame.payload.title.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 256)
+        : '';
+      return { ...common, payload: title ? { title } : {} };
     }
     case 'extension.status': {
       if (typeof frame.payload.key !== 'string' || frame.payload.key.length === 0 || frame.payload.key.length > 128) return null;

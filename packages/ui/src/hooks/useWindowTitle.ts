@@ -4,6 +4,8 @@ import { isDesktopLocalOriginActive, isDesktopShell } from '@/lib/desktop';
 import { desktopHostsGet, getDesktopHostApiUrl, locationMatchesHost, redactSensitiveUrl } from '@/lib/desktopHosts';
 import { setDesktopWindowTitle } from '@/lib/desktopNative';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
+import { usePiSessionSnapshot } from '@/sync/pi-session-context';
+import { useSessionUIStore } from '@/sync/session-ui-store';
 
 const APP_TITLE = 'PiChamber';
 
@@ -22,7 +24,13 @@ const buildWindowTitle = (projectLabel: string | null, instanceLabel: string | n
   return parts.join(' | ');
 };
 
-export const useWindowTitle = () => {
+const useWindowTitle = () => {
+  const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
+  const extensionTitle = usePiSessionSnapshot(
+    (state) => currentSessionId ? state.reducer.bySession.get(currentSessionId)?.extensionTitle ?? null : null,
+    Object.is,
+    currentSessionId ? `session:${currentSessionId}` : 'chrome',
+  );
   const activeProject = useProjectsStore((state) => {
     if (!state.activeProjectId) {
       return null;
@@ -103,7 +111,10 @@ export const useWindowTitle = () => {
     };
   }, []);
 
-  const title = React.useMemo(() => buildWindowTitle(projectLabel, instanceLabel), [projectLabel, instanceLabel]);
+  const title = React.useMemo(
+    () => buildWindowTitle(extensionTitle?.trim() || projectLabel, instanceLabel),
+    [extensionTitle, instanceLabel, projectLabel],
+  );
 
   React.useEffect(() => {
     if (typeof document !== 'undefined') {
@@ -129,4 +140,9 @@ export const useWindowTitle = () => {
 
     void applyTitle();
   }, [title]);
+};
+
+export const WindowTitleEffect: React.FC = () => {
+  useWindowTitle();
+  return null;
 };

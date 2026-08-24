@@ -31,13 +31,17 @@ describe("extension event protocol", () => {
       baseEvent("extension.entry", 1, { id: "e1", customType: "pichamber.ui", data: {}, createdAt: 1 }),
       baseEvent("extension.message", 2, { id: "cm1", customType: "x", text: "hi", createdAt: 2 }),
       baseEvent("extension.notify", 3, { message: "done", level: "info" }),
-      baseEvent("extension.status", 4, { key: "k", text: "v" }),
-      baseEvent("extension.widget", 5, { key: "w", lines: ["a"] }),
-      baseEvent("extension.dialog", 6, { requestId: "r1", method: "confirm", title: "T" }),
-      baseEvent("extension.dialog.dismiss", 7, { requestId: "r1", reason: "answered" }),
-      baseEvent("extension.ui", 8, { id: "panel-1", title: "Panel", component: "progress", props: { value: 10 } }),
-      baseEvent("extension.app", 9, { appId: "app-1", title: "App", html: "<p>hi</p>" }),
-      baseEvent("extension.error", 10, { source: "/ext.ts", message: "boom" }),
+      baseEvent("extension.catalog", 4, { providers: true }),
+      baseEvent("extension.editor", 5, { text: "draft" }),
+      baseEvent("extension.title", 6, { title: "Mode" }),
+      baseEvent("extension.status", 7, { key: "k", text: "v" }),
+      baseEvent("extension.widget", 8, { key: "w", lines: ["a"] }),
+      baseEvent("extension.dialog", 9, { requestId: "r1", method: "confirm", title: "T" }),
+      baseEvent("extension.dialog.dismiss", 10, { requestId: "r1", reason: "answered" }),
+      baseEvent("extension.ui", 11, { id: "panel-1", title: "Panel", component: "progress", props: { value: 10 } }),
+      baseEvent("extension.app", 12, { appId: "app-1", title: "App", html: "<p>hi</p>" }),
+      baseEvent("extension.error", 13, { source: "/ext.ts", message: "boom" }),
+      baseEvent("session.tree.updated", 14, {}),
     ]
     for (const event of events) expect(isPiEvent(event)).toBe(true)
   })
@@ -83,6 +87,22 @@ describe("extension event reduction", () => {
     expect([...state.bySession.get("sess-1")!.extensionWidgets.entries()].map(([key, value]) => [key, value.placement])).toEqual([
       ["todo", "belowEditor"],
     ])
+  })
+
+  test("tracks catalog, tree, editor, and window-title state", () => {
+    let state = applyPiEvent(createReducerState(), baseEvent("extension.catalog", 1, { commands: true })).state
+    state = applyPiEvent(state, baseEvent("session.tree.updated", 2, {})).state
+    state = applyPiEvent(state, baseEvent("extension.editor", 3, { text: "replacement" })).state
+    state = applyPiEvent(state, baseEvent("extension.title", 4, { title: "Plan mode" })).state
+    let session = state.bySession.get("sess-1")!
+    expect(session.extensionCatalogRevision).toBe(1)
+    expect(session.sessionTreeRevision).toBe(1)
+    expect(session.extensionEditor).toEqual({ text: "replacement", sequence: 3 })
+    expect(session.extensionTitle).toBe("Plan mode")
+
+    state = applyPiEvent(state, baseEvent("extension.title", 5, {})).state
+    session = state.bySession.get("sess-1")!
+    expect(session.extensionTitle).toBe(undefined)
   })
 
   test("queues dialogs by requestId without stacking replays", () => {
@@ -149,12 +169,14 @@ describe("snapshot extension state", () => {
         extensionStatuses: [{ key: "a", text: "one" }, { key: "b", text: "two" }],
         extensionWidgets: [{ key: "w", lines: ["hello"], placement: "aboveEditor" }],
         extensionDialogs: [{ requestId: "r1", method: "confirm", title: "Sure?", message: "confirm?" }],
+        extensionTitle: "Build mode",
       },
     } as never)).state
     const session = state.bySession.get("sess-1")!
     expect([...session.extensionStatuses.entries()]).toEqual([["a", "one"], ["b", "two"]])
     expect([...session.extensionWidgets.entries()].map(([key, value]) => [key, value.lines])).toEqual([["w", ["hello"]]])
     expect(session.extensionDialogs.map((dialog) => dialog.requestId)).toEqual(["r1"])
+    expect(session.extensionTitle).toBe("Build mode")
 
     state = applyPiEvent(state, baseEvent("session.snapshot", 11, {
       snapshot: {
@@ -168,6 +190,7 @@ describe("snapshot extension state", () => {
       },
     } as never)).state
     expect(state.bySession.get("sess-1")!.extensionDialogs).toEqual([])
+    expect(state.bySession.get("sess-1")!.extensionTitle).toBe(undefined)
 
     // Later delta should merge without wiping snapshot state
     state = applyPiEvent(state, baseEvent("extension.status", 12, { key: "c", text: "three" })).state

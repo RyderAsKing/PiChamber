@@ -6,6 +6,8 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { createMessageQueueTarget, getMessageQueueKey, useMessageQueueStore, type QueuedMessage } from '@/stores/messageQueueStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { usePiSessionSnapshot } from '@/sync/pi-session-context';
+import { getPiSessionStore } from '@/apps/pi-session-store';
 import { useSelectionStore } from '@/sync/selection-store';
 import { useInputStore } from '@/sync/input-store';
 import {
@@ -299,6 +301,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         Promise.resolve((useSessionUIStore.getState().sendMessage as (...a: unknown[]) => unknown)(...args)),
     ).current;
     const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
+    const extensionEditor = usePiSessionSnapshot(
+        (state) => currentSessionId ? state.reducer.bySession.get(currentSessionId)?.extensionEditor : undefined,
+        (previous, next) => previous?.sequence === next?.sequence,
+        currentSessionId ? `session:${currentSessionId}` : 'chrome',
+    );
+    const appliedExtensionEditorBySessionRef = React.useRef(new Map<string, number>());
+    React.useEffect(() => {
+        if (!currentSessionId || !extensionEditor) return;
+        const previousSequence = appliedExtensionEditorBySessionRef.current.get(currentSessionId) ?? -1;
+        if (extensionEditor.sequence <= previousSequence) return;
+        appliedExtensionEditorBySessionRef.current.set(currentSessionId, extensionEditor.sequence);
+        confirmedMentionsRef.current.clear();
+        setMessage(extensionEditor.text);
+        closeAutocomplete();
+        getPiSessionStore().consumeExtensionEditor(currentSessionId, extensionEditor.sequence);
+    }, [closeAutocomplete, currentSessionId, extensionEditor]);
     const fallbackDirectory = useDirectoryStore((s) => s.currentDirectory);
     const currentDirectory = useEffectiveDirectory() ?? fallbackDirectory;
     const currentSessionDirectoryForSync = useSessionUIStore(

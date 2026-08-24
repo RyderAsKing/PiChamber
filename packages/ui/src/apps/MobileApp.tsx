@@ -18,7 +18,7 @@ import { PerfHudHost } from '@/components/perf/PerfHudHost';
 import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
 import { useRouter } from '@/hooks/useRouter';
 import { DeferredUpdatePolling } from '@/hooks/useUpdatePolling';
-import { useWindowTitle } from '@/hooks/useWindowTitle';
+import { WindowTitleEffect } from '@/hooks/useWindowTitle';
 import { opencodeClient } from '@/lib/pi/legacy-ui-client';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { readTabletLayout, useOrientation, useTabletLayout } from '@/lib/device';
@@ -1137,7 +1137,6 @@ export function MobileApp({ apis }: MobileAppProps) {
 
   useAppFontEffects();
   usePushVisibilityBeacon({ enabled: true });
-  useWindowTitle();
   useRouter();
   // APNs is the only notification channel on the native app (background-capable,
   // focus-suppressed server-side via the visibility beacon). Local notifications are
@@ -1263,6 +1262,7 @@ export function MobileApp({ apis }: MobileAppProps) {
     <ErrorBoundary>
       <PiSessionProvider key={runtimeEndpointEpoch}>
         <RuntimeAPIProvider apis={apis}>
+          <WindowTitleEffect />
           <TooltipProvider delayDuration={300} skipDelayDuration={150}>
             <FireworksProvider>
               <DeferredUpdatePolling />

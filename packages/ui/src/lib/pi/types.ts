@@ -300,6 +300,8 @@ export interface PiSessionSnapshot {
   extensionPanels?: Array<import('./protocol').PiExtensionPanelPayload>;
   /** Registered sandboxed extension app surfaces at snapshot time. */
   extensionApps?: Array<import('./protocol').PiExtensionAppPayload>;
+  /** Session-scoped window/tab title set by an extension. */
+  extensionTitle?: string;
   /** Retry countdown/error context while `lifecycle` is `retry`. */
   retry?: PiRetryInfo;
   /** Latest active or completed compaction state. */

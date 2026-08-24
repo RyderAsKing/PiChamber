@@ -9,6 +9,10 @@ import {
 const MAX_EXTENSION_PANELS_PER_SESSION = 24;
 const MAX_EXTENSION_APPS_PER_SESSION = 8;
 const MAX_EXTENSION_PANEL_ACTIONS = 8;
+const MAX_EXTENSION_EDITOR_TEXT_CHARS = 100_000;
+const MAX_EXTENSION_TITLE_CHARS = 256;
+const PROVIDER_OBSERVER = Symbol('pichamber.extension-provider-observer');
+const LABEL_OBSERVER = Symbol('pichamber.extension-label-observer');
 
 const textFromContent = (content) => (
   Array.isArray(content)
@@ -26,11 +30,13 @@ export const createExtensionBridge = ({
   getDefaultDirectory,
   getSequence,
   protocolError,
+  requestSessionShutdown,
 }) => {
   const extensionStatusesBySession = new Map();
   const extensionWidgetsBySession = new Map();
   const extensionPanelsBySession = new Map();
   const extensionAppsBySession = new Map();
+  const extensionTitlesBySession = new Map();
   // --- Extension bridging -------------------------------------------------
   // Pi extensions run inside each session runtime. Their user-interaction
   // surface (dialogs, notifications, statuses, widgets) is translated here
@@ -45,19 +51,77 @@ export const createExtensionBridge = ({
     }
   };
 
+  const directoryForSession = (sessionId) => findRuntimeBySessionId(sessionId)?.cwd || getDefaultDirectory();
+  const publishForSession = (event, payload, sessionId) => publish(event, payload, sessionId, directoryForSession(sessionId));
+
+  const clearOneExtensionState = (sessionId) => {
+    const statuses = extensionStatusesBySession.get(sessionId);
+    const widgets = extensionWidgetsBySession.get(sessionId);
+    const panels = extensionPanelsBySession.get(sessionId);
+    const apps = extensionAppsBySession.get(sessionId);
+    if (statuses) for (const key of statuses.keys()) publishForSession('extension.status', { key }, sessionId);
+    if (widgets) for (const key of widgets.keys()) publishForSession('extension.widget', { key }, sessionId);
+    if (panels) for (const id of panels.keys()) publishForSession('extension.ui', { id, removed: true }, sessionId);
+    if (apps) for (const appId of apps.keys()) publishForSession('extension.app', { appId, removed: true }, sessionId);
+    if (extensionTitlesBySession.has(sessionId)) publishForSession('extension.title', {}, sessionId);
+    extensionStatusesBySession.delete(sessionId);
+    extensionWidgetsBySession.delete(sessionId);
+    extensionPanelsBySession.delete(sessionId);
+    extensionAppsBySession.delete(sessionId);
+    extensionTitlesBySession.delete(sessionId);
+    cancelPendingExtensionDialogs(sessionId, 'session-closed');
+  };
+
   const clearExtensionState = (sessionId) => {
     if (sessionId) {
-      extensionStatusesBySession.delete(sessionId);
-      extensionWidgetsBySession.delete(sessionId);
-      extensionPanelsBySession.delete(sessionId);
-      extensionAppsBySession.delete(sessionId);
-      cancelPendingExtensionDialogs(sessionId, 'session-closed');
-    } else {
-      extensionStatusesBySession.clear();
-      extensionWidgetsBySession.clear();
-      extensionPanelsBySession.clear();
-      extensionAppsBySession.clear();
-      cancelPendingExtensionDialogs(undefined, 'daemon-stopped');
+      clearOneExtensionState(sessionId);
+      return;
+    }
+    const sessionIds = new Set([
+      ...extensionStatusesBySession.keys(),
+      ...extensionWidgetsBySession.keys(),
+      ...extensionPanelsBySession.keys(),
+      ...extensionAppsBySession.keys(),
+      ...extensionTitlesBySession.keys(),
+    ]);
+    for (const id of sessionIds) clearOneExtensionState(id);
+    cancelPendingExtensionDialogs(undefined, 'daemon-stopped');
+  };
+
+  const publishCatalogChange = (sessionId, flags) => {
+    publishForSession('extension.catalog', flags, sessionId);
+  };
+
+  const installMutationObservers = (session) => {
+    const modelRuntime = session?.modelRuntime;
+    if (modelRuntime) {
+      const observer = modelRuntime[PROVIDER_OBSERVER];
+      if (observer) {
+        observer.sessionId = session.sessionId;
+      } else {
+        const state = { sessionId: session.sessionId };
+        Object.defineProperty(modelRuntime, PROVIDER_OBSERVER, { value: state });
+        for (const method of ['registerProvider', 'registerNativeProvider', 'unregisterProvider']) {
+          if (typeof modelRuntime[method] !== 'function') continue;
+          const original = modelRuntime[method].bind(modelRuntime);
+          modelRuntime[method] = (...args) => {
+            const result = original(...args);
+            if (!state.suppress) publishCatalogChange(state.sessionId, { providers: true });
+            return result;
+          };
+        }
+      }
+    }
+
+    const manager = session?.sessionManager;
+    if (manager && !manager[LABEL_OBSERVER] && typeof manager.appendLabelChange === 'function') {
+      Object.defineProperty(manager, LABEL_OBSERVER, { value: true });
+      const original = manager.appendLabelChange.bind(manager);
+      manager.appendLabelChange = (...args) => {
+        const result = original(...args);
+        publishForSession('session.tree.updated', {}, session.sessionId);
+        return result;
+      };
     }
   };
 
@@ -176,10 +240,19 @@ export const createExtensionBridge = ({
       setHiddenThinkingLabel: () => {},
       setFooter: () => {},
       setHeader: () => {},
-      setTitle: () => {},
+      setTitle: (value) => {
+        const title = String(value ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, MAX_EXTENSION_TITLE_CHARS);
+        if (title) extensionTitlesBySession.set(sessionId, title);
+        else extensionTitlesBySession.delete(sessionId);
+        publishForSession('extension.title', title ? { title } : {}, sessionId);
+      },
       custom: async () => undefined,
-      pasteToEditor: () => {},
-      setEditorText: () => {},
+      pasteToEditor: (value) => {
+        publishForSession('extension.editor', { text: String(value ?? '').slice(0, MAX_EXTENSION_EDITOR_TEXT_CHARS) }, sessionId);
+      },
+      setEditorText: (value) => {
+        publishForSession('extension.editor', { text: String(value ?? '').slice(0, MAX_EXTENSION_EDITOR_TEXT_CHARS) }, sessionId);
+      },
       getEditorText: () => '',
       addAutocompleteProvider: () => {},
       setEditorComponent: () => {},
@@ -205,45 +278,60 @@ export const createExtensionBridge = ({
     strikethrough: (text) => text,
   };
 
-  const buildExtensionBindings = (session) => ({
-    uiContext: createExtensionUIContext(session.sessionId),
-    mode: 'rpc',
-    commandContextActions: {
-      waitForIdle: () => session.waitForIdle(),
-      newSession: async (options) => {
-        const owner = findRuntimeBySessionId(session.sessionId);
-        if (!owner) throw new Error('Session runtime is no longer available.');
-        return owner.newSession(options);
+  const buildExtensionBindings = (session) => {
+    installMutationObservers(session);
+    return {
+      uiContext: createExtensionUIContext(session.sessionId),
+      mode: 'rpc',
+      commandContextActions: {
+        waitForIdle: () => session.waitForIdle(),
+        newSession: async (options) => {
+          const owner = findRuntimeBySessionId(session.sessionId);
+          if (!owner) throw new Error('Session runtime is no longer available.');
+          return owner.newSession(options);
+        },
+        fork: async (entryId, forkOptions) => {
+          const owner = findRuntimeBySessionId(session.sessionId);
+          if (!owner) throw new Error('Session runtime is no longer available.');
+          const result = await owner.fork(entryId, forkOptions);
+          return { cancelled: result.cancelled };
+        },
+        navigateTree: async (targetId, navigateOptions) => {
+          const result = await session.navigateTree(targetId, {
+            summarize: navigateOptions?.summarize,
+            customInstructions: navigateOptions?.customInstructions,
+            replaceInstructions: navigateOptions?.replaceInstructions,
+            label: navigateOptions?.label,
+          });
+          return { cancelled: result.cancelled };
+        },
+        switchSession: async (sessionPath, switchOptions) => {
+          const owner = findRuntimeBySessionId(session.sessionId);
+          if (!owner) throw new Error('Session runtime is no longer available.');
+          return owner.switchSession(sessionPath, switchOptions);
+        },
+        reload: async () => {
+          clearExtensionState(session.sessionId);
+          const providerObserver = session.modelRuntime?.[PROVIDER_OBSERVER];
+          if (providerObserver) providerObserver.suppress = true;
+          try {
+            await session.reload();
+          } finally {
+            if (providerObserver) providerObserver.suppress = false;
+          }
+          publishCatalogChange(session.sessionId, { providers: true, resources: true, commands: true });
+        },
       },
-      fork: async (entryId, forkOptions) => {
-        const owner = findRuntimeBySessionId(session.sessionId);
-        if (!owner) throw new Error('Session runtime is no longer available.');
-        const result = await owner.fork(entryId, forkOptions);
-        return { cancelled: result.cancelled };
+      shutdownHandler: () => requestSessionShutdown?.(session.sessionId),
+      onError: (error) => {
+        publish('extension.error', {
+          source: typeof error?.extensionPath === 'string' ? error.extensionPath : 'unknown',
+          ...(typeof error?.event === 'string' ? { event: error.event } : {}),
+          message: String(error?.error ?? 'Unknown extension error.'),
+        }, session.sessionId);
       },
-      navigateTree: async (targetId, navigateOptions) => {
-        const result = await session.navigateTree(targetId, {
-          summarize: navigateOptions?.summarize,
-          customInstructions: navigateOptions?.customInstructions,
-          replaceInstructions: navigateOptions?.replaceInstructions,
-          label: navigateOptions?.label,
-        });
-        return { cancelled: result.cancelled };
-      },
-      switchSession: async (sessionPath, switchOptions) => {
-        const owner = findRuntimeBySessionId(session.sessionId);
-        if (!owner) throw new Error('Session runtime is no longer available.');
-        return owner.switchSession(sessionPath, switchOptions);
-      },
-    },
-    onError: (error) => {
-      publish('extension.error', {
-        source: typeof error?.extensionPath === 'string' ? error.extensionPath : 'unknown',
-        ...(typeof error?.event === 'string' ? { event: error.event } : {}),
-        message: String(error?.error ?? 'Unknown extension error.'),
-      }, session.sessionId);
-    },
-  });
+    };
+  };
 
 
   // Resolves a pending extension dialog. Unknown or already-settled request
@@ -374,6 +462,7 @@ export const createExtensionBridge = ({
     const widgets = extensionWidgetsBySession.get(sessionId);
     const panels = extensionPanelsBySession.get(sessionId);
     const apps = extensionAppsBySession.get(sessionId);
+    const title = extensionTitlesBySession.get(sessionId);
     const dialogs = [...pendingExtensionDialogs.values()]
       .filter((pending) => pending.sessionId === sessionId)
       .map((pending) => pending.payload);
@@ -383,6 +472,7 @@ export const createExtensionBridge = ({
       ...(dialogs.length ? { dialogs } : {}),
       ...(panels?.size ? { panels: [...panels.values()] } : {}),
       ...(apps?.size ? { apps: [...apps.values()] } : {}),
+      ...(title ? { title } : {}),
     };
   };
 

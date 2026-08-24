@@ -3,6 +3,7 @@ import { cn, fuzzyMatch } from '@/lib/utils';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionMessages } from '@/sync/sync-context';
 import { useSkillsStore } from '@/stores/useSkillsStore';
+import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Icon } from "@/components/icon/Icon";
 import { useUIStore } from '@/stores/useUIStore';
@@ -66,6 +67,11 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
   const sessionMessages = useSessionMessages(currentSessionId ?? '');
   const hasMessagesInCurrentSession = sessionMessages.length > 0;
   const hasSession = Boolean(currentSessionId);
+  const extensionCatalogRevision = usePiSessionSnapshot(
+    (state) => currentSessionId ? state.reducer.bySession.get(currentSessionId)?.extensionCatalogRevision ?? 0 : 0,
+    Object.is,
+    currentSessionId ? `session:${currentSessionId}` : 'chrome',
+  );
   const hasNewSessionDraft = useSessionUIStore((state) => Boolean(state.newSessionDraft?.open));
   const canStartSessionCommand = hasSession || hasNewSessionDraft;
   const isMobile = useUIStore((state) => state.isMobile);
@@ -102,7 +108,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
       }
     })();
     return () => { cancelled = true; };
-  }, [hasSession, effectiveDirectory]);
+  }, [hasSession, effectiveDirectory, extensionCatalogRevision]);
   const [selectedIndex, setSelectedIndex] = React.useState(0);
   const selectedIndexRef = React.useRef(0);
   const keyboardNavigationRef = React.useRef(false);

@@ -160,6 +160,13 @@ export interface PiReducerSessionState {
   extensionPanels: Map<string, PiExtensionPanelPayload>;
   /** Registered sandboxed extension app surfaces keyed by appId. */
   extensionApps: Map<string, PiExtensionAppPayload>;
+  /** Low-frequency invalidation counters for extension-owned catalogs and labels. */
+  extensionCatalogRevision?: number;
+  sessionTreeRevision?: number;
+  /** Latest live standard-RPC editor replacement, applied once by the composer. */
+  extensionEditor?: { text: string; sequence: number };
+  /** Session-scoped standard-RPC window/tab title. */
+  extensionTitle?: string;
   /**
    * Last message a part-level or structural write touched. Live-tail freeze
    * uses this instead of walking every historical part on each token.
@@ -855,6 +862,7 @@ export const applyPiEvent = (
           }
           session.extensionApps = apps;
         }
+        session.extensionTitle = event.payload.snapshot.extensionTitle;
         markHydratedLiveActivity(session, {
           isStreaming: event.payload.snapshot.isStreaming,
           lifecycle: session.lifecycle,
@@ -946,6 +954,9 @@ export const applyPiEvent = (
     case 'session.updated':
       // Title/metadata lives in the live catalog, not the transcript reducer.
       break;
+    case 'session.tree.updated':
+      session.sessionTreeRevision = (session.sessionTreeRevision ?? 0) + 1;
+      break;
     case 'session.error':
       session.messages = new Map(session.messages);
       session.streamingMessages = new Set(session.streamingMessages);
@@ -1011,6 +1022,17 @@ export const applyPiEvent = (
         level: event.payload.level,
         createdAt: Date.now(),
       });
+      break;
+    case 'extension.catalog':
+      if (event.payload.commands === true) {
+        session.extensionCatalogRevision = (session.extensionCatalogRevision ?? 0) + 1;
+      }
+      break;
+    case 'extension.editor':
+      session.extensionEditor = { text: event.payload.text, sequence: event.sequence };
+      break;
+    case 'extension.title':
+      session.extensionTitle = event.payload.title;
       break;
     case 'extension.status': {
       session.extensionStatuses = new Map(session.extensionStatuses);

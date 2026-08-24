@@ -76,6 +76,22 @@ describe('extension public projections', () => {
     });
   });
 
+  it('projects bounded editor/title/catalog and tree invalidation events', () => {
+    expect(projectEventFrame(frame('extension.editor', { text: 'draft' }))).toMatchObject({
+      name: 'extension.editor', payload: { text: 'draft' },
+    });
+    expect(projectEventFrame(frame('extension.editor', { text: 'x'.repeat(100_001) }))).toBeNull();
+    expect(projectEventFrame(frame('extension.title', { title: 'Mode\u0000 Picker' }))).toMatchObject({
+      payload: { title: 'Mode  Picker' },
+    });
+    expect(projectEventFrame(frame('extension.title', {}))).toMatchObject({ payload: {} });
+    expect(projectEventFrame(frame('extension.catalog', { providers: true, resources: true }))).toMatchObject({
+      payload: { providers: true, resources: true },
+    });
+    expect(projectEventFrame(frame('extension.catalog', {}))).toBeNull();
+    expect(projectEventFrame(frame('session.tree.updated', {}))).toMatchObject({ payload: {} });
+  });
+
   it('projects form dialogs with sanitized fields', () => {
     const projected = projectEventFrame(frame('extension.dialog', {
       requestId: 'form-1',
@@ -119,6 +135,7 @@ describe('extension public projections', () => {
       extensionStatuses: [{ key: 'mode', text: 'economy' }],
       extensionPanels: [{ id: 'panel-1', component: 'progress', props: { value: 50 } }],
       extensionApps: [{ appId: 'app-1', html: '<p>x</p>' }],
+      extensionTitle: 'Build mode',
       extensionDialogs: [{
         requestId: 'form-1',
         method: 'form',
@@ -130,5 +147,6 @@ describe('extension public projections', () => {
     expect(snapshot.extensionPanels).toHaveLength(1);
     expect(snapshot.extensionApps).toHaveLength(1);
     expect(snapshot.extensionDialogs[0].fields).toHaveLength(1);
+    expect(snapshot.extensionTitle).toBe('Build mode');
   });
 });

@@ -284,6 +284,9 @@ export interface PiSessionTreeNode {
   entryId: string;
   parentId: string | null;
   title?: string;
+  /** Latest Pi label/bookmark attached to this history entry. */
+  label?: string;
+  labelTimestamp?: string;
   updatedAt: number;
   children: PiSessionTreeNode[];
 }
@@ -446,6 +449,7 @@ export type PiEventName =
   | 'session.snapshot'
   | 'session.lifecycle'
   | 'session.updated'
+  | 'session.tree.updated'
   | 'assistant.message.start'
   | 'assistant.message.delta'
   | 'assistant.message.end'
@@ -462,6 +466,9 @@ export type PiEventName =
   | 'extension.entry'
   | 'extension.message'
   | 'extension.notify'
+  | 'extension.catalog'
+  | 'extension.editor'
+  | 'extension.title'
   | 'extension.status'
   | 'extension.widget'
   | 'extension.dialog'
@@ -500,6 +507,9 @@ export type PiSessionUpdatedEvent = PiEventEnvelope<
     title: string;
   }
 >;
+
+/** A Pi label/bookmark changed; mounted tree consumers should refetch. */
+export type PiSessionTreeUpdatedEvent = PiEventEnvelope<'session.tree.updated', Record<string, never>>;
 
 export interface PiMessageStartPayload {
   messageId: string;
@@ -686,6 +696,18 @@ export type PiExtensionNotifyEvent = PiEventEnvelope<
   }
 >;
 
+/** Extension-owned catalogs changed inside the daemon and should be reloaded. */
+export type PiExtensionCatalogEvent = PiEventEnvelope<
+  'extension.catalog',
+  { providers?: true; resources?: true; commands?: true }
+>;
+
+/** Standard Pi RPC editor replacement for the owning session composer. */
+export type PiExtensionEditorEvent = PiEventEnvelope<'extension.editor', { text: string }>;
+
+/** Standard Pi RPC window/tab title; no title clears the session override. */
+export type PiExtensionTitleEvent = PiEventEnvelope<'extension.title', { title?: string }>;
+
 /** Status text keyed like `ctx.ui.setStatus(key, text)`; no `text` clears. */
 export type PiExtensionStatusEvent = PiEventEnvelope<
   'extension.status',
@@ -811,6 +833,7 @@ export type PiSessionEvent =
   | PiSessionSnapshotEvent
   | PiSessionLifecycleEvent
   | PiSessionUpdatedEvent
+  | PiSessionTreeUpdatedEvent
   | PiAssistantMessageStartEvent
   | PiAssistantMessageDeltaEvent
   | PiAssistantMessageEndEvent
@@ -827,6 +850,9 @@ export type PiSessionEvent =
   | PiExtensionEntryEvent
   | PiExtensionMessageEvent
   | PiExtensionNotifyEvent
+  | PiExtensionCatalogEvent
+  | PiExtensionEditorEvent
+  | PiExtensionTitleEvent
   | PiExtensionStatusEvent
   | PiExtensionWidgetEvent
   | PiExtensionDialogEvent
@@ -844,6 +870,7 @@ export const PI_EVENT_KINDS = [
   'session.snapshot',
   'session.lifecycle',
   'session.updated',
+  'session.tree.updated',
   'assistant.message.start',
   'assistant.message.delta',
   'assistant.message.end',
@@ -860,6 +887,9 @@ export const PI_EVENT_KINDS = [
   'extension.entry',
   'extension.message',
   'extension.notify',
+  'extension.catalog',
+  'extension.editor',
+  'extension.title',
   'extension.status',
   'extension.widget',
   'extension.dialog',

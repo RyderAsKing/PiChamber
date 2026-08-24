@@ -203,6 +203,9 @@ export function createSessionDaemon({
   const compactionStateBySession = new Map();
   const activeRunStartedAt = new Map();
   const sendGenerationBySession = new Map();
+  const settledSendGenerationBySession = new Map();
+  const shutdownRequestedBySession = new Set();
+  const disposingSessionIds = new Set();
   const streamingRedactionBuffers = new Map();
   const loginAttempts = new Map();
   // Server-side normalized extension live state: statuses, widgets, panels,
@@ -345,6 +348,7 @@ export function createSessionDaemon({
     getDefaultDirectory: () => activeDirectory || cwd,
     getSequence: () => sequence,
     protocolError: (code, message) => new SessionDaemonProtocolError(code, message),
+    requestSessionShutdown: (sessionId) => shutdownRequestedBySession.add(sessionId),
   });
   const {
     buildExtensionBindings,
@@ -441,6 +445,7 @@ export function createSessionDaemon({
         ...(extensionSnapshot.dialogs ? { extensionDialogs: extensionSnapshot.dialogs } : {}),
         ...(extensionSnapshot.panels ? { extensionPanels: extensionSnapshot.panels } : {}),
         ...(extensionSnapshot.apps ? { extensionApps: extensionSnapshot.apps } : {}),
+        ...(extensionSnapshot.title ? { extensionTitle: extensionSnapshot.title } : {}),
       },
     });
   };
@@ -500,25 +505,41 @@ export function createSessionDaemon({
     return runtimeStartPromise;
   };
 
+  const disposeIdleSessionRuntime = async (sessionId) => {
+    if (disposingSessionIds.has(sessionId)) return;
+    const targetRuntime = runtimeRegistry?.findBySessionId(sessionId);
+    if (!targetRuntime) {
+      shutdownRequestedBySession.delete(sessionId);
+      return;
+    }
+    if (targetRuntime.session?.isStreaming || targetRuntime.session?.isCompacting) return;
+    disposingSessionIds.add(sessionId);
+    clearIdleDisposal(sessionId);
+    try {
+      if (targetRuntime === runtime) rememberRuntimeSession();
+      clearExtensionState(sessionId);
+      await runtimeRegistry.dispose(targetRuntime);
+      shutdownRequestedBySession.delete(sessionId);
+      compactionStateBySession.delete(sessionId);
+      if (targetRuntime === runtime) runtime = undefined;
+    } catch {
+      publish('session.error', { code: 'RUNTIME_DISPOSAL_FAILED' }, sessionId, targetRuntime.cwd);
+    } finally {
+      disposingSessionIds.delete(sessionId);
+    }
+  };
+
+  const completeRequestedShutdown = (sessionId) => {
+    if (!shutdownRequestedBySession.has(sessionId)) return false;
+    void disposeIdleSessionRuntime(sessionId);
+    return true;
+  };
+
   const scheduleIdleDisposal = (sessionId) => {
     clearIdleDisposal(sessionId);
-    const timer = setTimeout(async () => {
+    const timer = setTimeout(() => {
       idleDisposeTimers.delete(sessionId);
-      const targetRuntime = runtimeRegistry?.findBySessionId(sessionId);
-      if (!targetRuntime || targetRuntime.session?.isStreaming || targetRuntime.session?.isCompacting) return;
-      try {
-        if (targetRuntime === runtime) {
-          rememberRuntimeSession();
-        }
-        clearExtensionState(sessionId);
-        await runtimeRegistry.dispose(targetRuntime);
-        compactionStateBySession.delete(sessionId);
-        if (targetRuntime === runtime) {
-          runtime = undefined;
-        }
-      } catch {
-        publish('session.error', { code: 'RUNTIME_DISPOSAL_FAILED' }, sessionId);
-      }
+      void disposeIdleSessionRuntime(sessionId);
     }, idleTimeoutMs);
     idleDisposeTimers.set(sessionId, timer);
   };
@@ -1879,7 +1900,17 @@ export function createSessionDaemon({
           ...(deliverAs ? { streamingBehavior: deliverAs } : {}),
         })
       : activeRuntime.session.sendUserMessage(content, deliverAs ? { deliverAs } : undefined);
-    Promise.resolve(sendCall).catch((error) => {
+    Promise.resolve(sendCall).then(() => {
+      if (sendGenerationBySession.get(payload.sessionId) !== generation) return;
+      if (settledSendGenerationBySession.get(payload.sessionId) === generation) return;
+      if (activeRuntime.session?.isStreaming) return;
+      settledSendGenerationBySession.set(payload.sessionId, generation);
+      // Extension commands can complete without starting an agent turn, so Pi
+      // emits no agent_settled event. Close the optimistic browser lifecycle
+      // when the command promise itself is the authoritative completion edge.
+      publish('session.lifecycle', { state: 'idle', serverNow: Date.now() }, payload.sessionId, activeRuntime.cwd);
+      completeRequestedShutdown(payload.sessionId);
+    }).catch((error) => {
       if (sendGenerationBySession.get(payload.sessionId) !== generation) return;
       publish('session.error', {
         code: 'ASSISTANT_ERROR',
@@ -1887,7 +1918,10 @@ export function createSessionDaemon({
           ? { message: redactAttachmentPaths(error.message) }
           : {}),
       }, payload.sessionId, activeRuntime.cwd);
-      if (!activeRuntime.session?.isStreaming) return;
+      if (!activeRuntime.session?.isStreaming) {
+        completeRequestedShutdown(payload.sessionId);
+        return;
+      }
       Promise.resolve(activeRuntime.session.abort()).catch(() => {});
     });
     return { accepted: true, messageId };
@@ -1901,6 +1935,8 @@ export function createSessionDaemon({
       entryId: node.entry.id,
       parentId: node.entry.parentId,
       ...(node.entry.type === 'session_info' && typeof node.entry.name === 'string' ? { title: node.entry.name } : {}),
+      ...(typeof node.label === 'string' && node.label.length > 0 ? { label: node.label.slice(0, 256) } : {}),
+      ...(typeof node.labelTimestamp === 'string' ? { labelTimestamp: node.labelTimestamp } : {}),
       updatedAt: Date.parse(node.entry.timestamp) || 0,
       children: node.children.map(project),
     });
@@ -1927,6 +1963,9 @@ export function createSessionDaemon({
     retryStateBySession.delete(sessionId);
     compactionStateBySession.delete(sessionId);
     activeRunStartedAt.delete(sessionId);
+    shutdownRequestedBySession.delete(sessionId);
+    sendGenerationBySession.delete(sessionId);
+    settledSendGenerationBySession.delete(sessionId);
     latestUserMessageIds.delete(sessionId);
     latestAssistantMessageIds.delete(sessionId);
     toolInputBySession.delete(sessionId);
@@ -2143,11 +2182,24 @@ export function createSessionDaemon({
       case 'agent_settled':
         retryStateBySession.delete(sessionId);
         activeRunStartedAt.delete(sessionId);
+        settledSendGenerationBySession.set(sessionId, sendGenerationBySession.get(sessionId) ?? 0);
         latestUserMessageIds.delete(sessionId);
         latestAssistantMessageIds.delete(sessionId);
         toolInputBySession.delete(sessionId);
         publish('session.lifecycle', { state: 'idle', serverNow: Date.now() }, sessionId, directory);
-        scheduleIdleDisposal(sessionId);
+        if (!completeRequestedShutdown(sessionId)) scheduleIdleDisposal(sessionId);
+        break;
+      case 'session_info_changed': {
+        const title = typeof event.name === 'string' ? event.name.trim() : '';
+        if (title) publish('session.updated', { title: redactAttachmentPaths(title).slice(0, 256) }, sessionId, directory);
+        break;
+      }
+      case 'model_select':
+        if (event.model?.provider && event.model?.id) {
+          publish('session.model', {
+            model: { providerId: event.model.provider, modelId: event.model.id },
+          }, sessionId, directory);
+        }
         break;
       case 'thinking_level_changed':
         publish('session.thinking', { thinking: event.level }, sessionId, directory);
@@ -2649,6 +2701,10 @@ export function createSessionDaemon({
       retryStateBySession.clear();
       compactionStateBySession.clear();
       activeRunStartedAt.clear();
+      shutdownRequestedBySession.clear();
+      disposingSessionIds.clear();
+      sendGenerationBySession.clear();
+      settledSendGenerationBySession.clear();
       latestUserMessageIds.clear();
       latestAssistantMessageIds.clear();
       for (const client of clients) client.destroy();

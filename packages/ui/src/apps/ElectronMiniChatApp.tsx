@@ -7,7 +7,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { PerfHudHost } from '@/components/perf/PerfHudHost';
 import { MiniChatLayout } from '@/components/mini-chat/MiniChatLayout';
 import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
-import { useWindowTitle } from '@/hooks/useWindowTitle';
+import { WindowTitleEffect } from '@/hooks/useWindowTitle';
 import { opencodeClient } from '@/lib/pi/legacy-ui-client';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
@@ -264,12 +264,12 @@ export function ElectronMiniChatApp({ apis }: ElectronMiniChatAppProps) {
   useAppFontEffects();
   useMiniChatKeyboardShortcuts();
   usePushVisibilityBeacon({ enabled: true });
-  useWindowTitle();
 
   return (
     <ErrorBoundary>
       <PiSessionProvider directory={currentDirectory || config.directory}>
         <RuntimeAPIProvider apis={apis}>
+          <WindowTitleEffect />
           <TooltipProvider delayDuration={300} skipDelayDuration={150}>
             <div className="h-full text-foreground bg-background">
               <ElectronMiniChatContent config={config} />
