@@ -27,7 +27,7 @@ interface SettingsSearchAvailabilityContext extends SettingsRuntimeContext {
   isWindows: boolean;
   // Linux desktop shell — for controls that only render on linux.
   isLinux: boolean;
-  // Windows ARM64 — temporary workaround gate (see opencode#19130).
+  // Windows ARM64 uses a reduced settings surface.
   isWindowsArm64: boolean;
 }
 
@@ -444,19 +444,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     description: "Restarts the app so phones, tablets, and other computers on your Wi-Fi can open it. On Windows, allow PiChamber through the firewall if a phone still cannot connect.",
     keywords: ['desktop', 'lan', 'network', 'phone', 'tablet', 'wifi', 'firewall'],
     isAvailable: (ctx) => ctx.isDesktopLocalOrigin,
-  },
-  {
-    id: 'sessions.opencode-binary',
-    page: 'general',
-    title: 'OpenCode CLI binary path',
-    keywords: ['opencode', 'cli', 'binary', 'path'],
-  },
-  {
-    id: 'sessions.opencode-update-notifications',
-    page: 'general',
-    title: 'Show update notifications',
-    keywords: ['opencode', 'cli', 'updates'],
-    isAvailable: (ctx) => !ctx.isWindowsArm64,
   },
   {
     id: 'git.github-account',

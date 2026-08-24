@@ -30,7 +30,7 @@ import { useIsTextTruncated } from '@/hooks/useIsTextTruncated';
 import { toast } from '@/components/ui';
 import { formatEffortLabel, type MobileControlsPanel } from './mobileControlsUtils';
 import { ThinkingLevelControl, ThinkingLevelPicker } from './ThinkingLevelControl';
-import { useOpenCodeReadiness } from '@/hooks/useOpenCodeReadiness';
+import { usePiReadiness } from '@/hooks/usePiReadiness';
 import { markStartupTrace } from '@/lib/startupTrace';
 import { findLatestUserModelChoice } from '@/lib/messages/userModelChoice';
 import { getSyncParts } from '@/sync/sync-refs';
@@ -241,7 +241,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     mobilePanel,
     onMobilePanelChange,
 }) => {
-    const { isReady, isUnavailable } = useOpenCodeReadiness();
+    const { isReady, isUnavailable } = usePiReadiness();
     const readinessLabel = isUnavailable ? "Unavailable" : "Loading...";
     const providers = useConfigStore((state) => state.providers);
     const currentProviderId = useConfigStore((state) => state.currentProviderId);

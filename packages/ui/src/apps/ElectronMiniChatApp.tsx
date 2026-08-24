@@ -8,7 +8,7 @@ import { PerfHudHost } from '@/components/perf/PerfHudHost';
 import { MiniChatLayout } from '@/components/mini-chat/MiniChatLayout';
 import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
 import { WindowTitleEffect } from '@/hooks/useWindowTitle';
-import { opencodeClient } from '@/lib/pi/legacy-ui-client';
+import { getPiSessionStore } from '@/apps/pi-session-store';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -253,7 +253,8 @@ export function ElectronMiniChatApp({ apis }: ElectronMiniChatAppProps) {
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
 
   React.useEffect(() => {
-    opencodeClient.setDirectory(currentDirectory || config.directory || undefined);
+    const directory = currentDirectory || config.directory;
+    if (directory) void getPiSessionStore().focusProject(directory, null);
   }, [config.directory, currentDirectory]);
 
   React.useEffect(() => {

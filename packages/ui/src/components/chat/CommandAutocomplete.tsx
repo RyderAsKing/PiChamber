@@ -12,7 +12,7 @@ import { commandMatchesSearch, mergeCommandAutocompleteItems } from './commandAu
 import { piClient } from '@/lib/pi/client';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 
-type CommandSource = 'pichamber' | 'opencode' | 'skill' | 'extension';
+type CommandSource = 'pichamber' | 'pi' | 'skill' | 'extension';
 
 export interface CommandInfo {
   id: string;
@@ -147,7 +147,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
       setLoading(true);
       try {
         const skillCommands: CommandInfo[] = skills.map((skill, index) => ({
-          id: `skill:${skill.scope}:${skill.source ?? 'opencode'}:${skill.name}:${index}`,
+          id: `skill:${skill.scope}:${skill.source ?? 'pi'}:${skill.name}:${index}`,
           name: skill.name,
           source: 'skill',
           description: skill.description,

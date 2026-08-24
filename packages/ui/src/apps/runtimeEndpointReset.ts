@@ -20,10 +20,10 @@ import { resetSessionOrdering } from '@/sync/session-ordering';
 import { resetSessionActivityTiming } from '@/sync/session-activity-timing';
 import { updateBrowserURL } from '@/lib/router';
 
-// Same-device transport switch (LAN⇄relay for one paired device): rebind the SDK
+// Same-device transport switch (LAN⇄relay for one paired device): rebind the Pi transport
 // to the new transport WITHOUT tearing down connection/session state or remounting
-// the sync layer. `reconnectToRuntimeBaseUrl` swaps in a fresh SDK client; the
-// caller then forces a re-render so SyncProvider receives it as a new `sdk` prop,
+// the sync layer. `reconnectToRuntimeBaseUrl` swaps in a fresh Pi transport; the
+// caller then forces a re-render so PiSessionProvider receives it as a new `sdk` prop,
 // which re-runs its event-pipeline + bootstrap effects (keyed on `sdk`) to
 // reconnect over the new transport IN PLACE. Message-pagination refs, the open
 // session, and the whole view are preserved — no reconnecting screen, no flash,

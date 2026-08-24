@@ -233,7 +233,7 @@ const parseCommitStructured = (structured: Record<string, unknown> | null): { su
 
 // Legacy transport: run the structured generation inside the active chat
 // session. Kept as the fallback for setups with no direct provider login
-// (vanilla installs on OpenCode's free models), where the small-model
+// (including installs using Pi's default models), where the small-model
 // endpoint has nothing to call but the session itself still works.
 async function generateCommitMessageViaSession(
   directory: string,

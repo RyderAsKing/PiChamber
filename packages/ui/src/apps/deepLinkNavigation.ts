@@ -14,7 +14,7 @@ import { buildDeepLink, parseDeepLink, type DeepLinkIntent, type SessionsFilter,
  *
  * Intents that arrive before the app is ready (cold launch from a tap/widget) or before their
  * handler is registered are stashed in a module-level holder that survives the connect flow
- * and SyncProvider remount, then applied as soon as the app becomes ready / the handler
+ * and PiSessionProvider remount, then applied as soon as the app becomes ready / the handler
  * appears. Only the most recent intent is kept (newest wins) — a burst of taps shouldn't queue.
  */
 

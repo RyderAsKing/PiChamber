@@ -1,11 +1,6 @@
 const SKILL_LINK_PREFIX = '#pichamber-skill:';
 const AGENT_LINK_PREFIX = '#pichamber-agent:';
 
-export const buildAgentMentionUrl = (name: string): string => {
-    const encoded = encodeURIComponent(name);
-    return `https://opencode.ai/docs/agents/#${encoded}`;
-};
-
 export const buildSkillHref = (name: string): string => `${SKILL_LINK_PREFIX}${encodeURIComponent(name)}`;
 
 export const buildAgentHref = (name: string): string => `${AGENT_LINK_PREFIX}${encodeURIComponent(name)}`;

@@ -4,7 +4,9 @@
 import { useSessionUIStore, getRememberedSessionDirectory } from '@/sync/session-ui-store';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { opencodeClient } from '@/lib/pi/legacy-ui-client';
+import { getPiSessionStore } from '@/apps/pi-session-store';
+import { piClient } from '@/lib/pi/client';
+import { getRuntimeKey } from '@/lib/runtime-switch';
 import { checkIsGitRepository } from '@/lib/gitApi';
 import { streamDebugEnabled } from '@/stores/utils/streamDebug';
 import { copyTextToClipboard as copyPlainTextToClipboard } from '@/lib/clipboard';
@@ -193,7 +195,8 @@ export const debugUtils = {
     const sessionState = useSessionUIStore.getState();
     const projectsState = useProjectsStore.getState();
     const currentDirectory = directoryState.currentDirectory || null;
-    const opencodeDirectory = opencodeClient.getDirectory() ?? null;
+    const piSessionState = getPiSessionStore().getState();
+    const piDirectory = piSessionState.directory ?? null;
 
     const sessions = getSyncSessions();
     const sessionDirectories = new Set<string>();
@@ -238,14 +241,6 @@ export const debugUtils = {
       }
     };
 
-    const safeText = async (resp: Response) => {
-      try {
-        return await resp.text();
-      } catch {
-        return null;
-      }
-    };
-
     const safeFetchJson = async (url: string): Promise<unknown> => {
       try {
         const resp = await runtimeFetch(url);
@@ -255,62 +250,12 @@ export const debugUtils = {
       }
     };
 
-    let pathInfo: unknown = null;
-    let projectInfo: unknown = null;
-    let settingsInfo: unknown = null;
-    let opencodeHealth: unknown = null;
-
+    const settingsInfo = await safeFetchJson('/api/pi/ui-settings');
+    let piHealth: unknown = null;
     try {
-      const pathResult = await opencodeClient.getSdkClient().path.get(
-        currentDirectory ? { directory: currentDirectory } : undefined
-      );
-      pathInfo = pathResult.error ? { error: pathResult.error } : pathResult.data;
+      piHealth = await piClient.health({ runtimeKey: getRuntimeKey() });
     } catch (error) {
-      pathInfo = { error: error instanceof Error ? error.message : String(error) };
-    }
-
-    try {
-      const projectResult = await opencodeClient.getSdkClient().project.current(
-        currentDirectory ? { directory: currentDirectory } : undefined
-      );
-      projectInfo = projectResult.error ? { error: projectResult.error } : projectResult.data;
-    } catch (error) {
-      projectInfo = { error: error instanceof Error ? error.message : String(error) };
-    }
-
-    settingsInfo = await safeFetchJson('/api/pi/ui-settings');
-
-    try {
-      const resp = await runtimeFetch('/api/health');
-      const contentType = resp.headers.get('content-type') || '';
-      const body = await safeText(resp);
-      const isJson = contentType.toLowerCase().includes('application/json');
-      let parsed: Record<string, unknown> | null = null;
-      if (isJson && body) {
-        try {
-          const candidate = JSON.parse(body) as unknown;
-          if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
-            parsed = candidate as Record<string, unknown>;
-          }
-        } catch {
-          parsed = null;
-        }
-      }
-      opencodeHealth = {
-        status: resp.status,
-        ok: resp.ok,
-        contentType,
-        type: isJson ? 'json' : 'html',
-        openCodePort: parsed?.openCodePort ?? null,
-        openCodeRunning: parsed?.openCodeRunning ?? null,
-        openCodeSecureConnection: parsed?.openCodeSecureConnection ?? null,
-        openCodeAuthSource: parsed?.openCodeAuthSource ?? null,
-        isOpenCodeReady: parsed?.isOpenCodeReady ?? null,
-        lastOpenCodeError: parsed?.lastOpenCodeError ?? null,
-        preview: body ? body.slice(0, 120) : null,
-      };
-    } catch (error) {
-      opencodeHealth = { error: error instanceof Error ? error.message : String(error) };
+      piHealth = { error: error instanceof Error ? error.message : String(error) };
     }
 
     let gitCheck: { isGitRepo: boolean | null; error?: string } = { isGitRepo: null };
@@ -346,9 +291,7 @@ export const debugUtils = {
         : null,
       directories: {
         currentDirectory,
-        opencodeDirectory: (pathInfo as { directory?: string; worktree?: string } | null)?.directory
-          || (pathInfo as { worktree?: string } | null)?.worktree
-          || opencodeDirectory,
+        piDirectory,
         homeDirectory: directoryState.homeDirectory || null,
         isHomeReady: directoryState.isHomeReady,
         hasPersistedDirectory: directoryState.hasPersistedDirectory,
@@ -369,10 +312,9 @@ export const debugUtils = {
       },
       git: gitCheck,
       localStorage: localStorageSnapshot,
-      opencode: {
-        pathInfo,
-        projectInfo,
-        health: opencodeHealth,
+      pi: {
+        health: piHealth,
+        connection: piSessionState.connection,
       },
       pichamber: {
         settingsInfo,
@@ -450,7 +392,7 @@ export const debugUtils = {
         rememberedForRuntime: remembered.runtime,
         persistedAcrossRestarts: remembered.persisted,
         activeDirectory: useDirectoryStore.getState().currentDirectory ?? null,
-        opencodeClientDirectory: opencodeClient.getDirectory() ?? null,
+        piSessionDirectory: getPiSessionStore().getState().directory ?? null,
       },
     };
 
@@ -568,9 +510,9 @@ export const debugUtils = {
    showRetryHelp() {
      console.log('[DEBUG] How to handle empty Claude responses:\n');
      console.log('1. Check the last message:');
-    console.log('   __opencodeDebug.getLastAssistantMessage()\n');
+    console.log('   __piDebug.getLastAssistantMessage()\n');
     console.log('2. Find all empty messages in session:');
-    console.log('   __opencodeDebug.findEmptyMessages()\n');
+    console.log('   __piDebug.findEmptyMessages()\n');
     console.log('3. To retry, you can:');
     console.log('   - Edit your last user message and resend');
     console.log('   - Send a follow-up message like "Please provide the response"');
@@ -777,22 +719,22 @@ export const debugUtils = {
 };
 
 if (typeof window !== 'undefined') {
-  (window as any).__opencodeDebug = debugUtils;
+  (window as any).__piDebug = debugUtils;
   if (streamDebugEnabled()) {
-    console.log('[DEBUG] OpenCode Debug Utils loaded! Use window.__opencodeDebug in console');
+    console.log('[DEBUG] Pi debug utilities loaded. Use window.__piDebug in the console.');
     console.log('Available commands:');
-    console.log('  __opencodeDebug.getLastAssistantMessage() - Get last assistant message details');
-    console.log('  __opencodeDebug.getAllMessages(truncate?) - List all messages (truncate=true for short preview)');
-    console.log('  __opencodeDebug.truncateMessages(messages) - Truncate long fields in messages array');
-    console.log('  __opencodeDebug.getAppStatus() - Show app status snapshot');
-    console.log('  __opencodeDebug.diagnoseSessionDirectory(sessionId?) - Show how the session directory is resolved');
-    console.log('  __opencodeDebug.getRecentSendFailures() - List prompt sends that were rejected and rolled back');
-    console.log('  __opencodeDebug.checkLastMessage() - Check if last message is problematic');
-    console.log('  __opencodeDebug.findEmptyMessages() - Find all empty assistant messages');
-    console.log('  __opencodeDebug.showRetryHelp() - Show instructions for handling empty responses');
-    console.log('  __opencodeDebug.getStreamingState() - Get streaming state info');
-    console.log('  __opencodeDebug.analyzeMessageCompletionConsistency(opts?) - Compare time.completed vs part timings');
-    console.log('  __opencodeDebug.checkCompletionStatus() - Check completion status of last message');
+    console.log('  __piDebug.getLastAssistantMessage() - Get last assistant message details');
+    console.log('  __piDebug.getAllMessages(truncate?) - List all messages (truncate=true for short preview)');
+    console.log('  __piDebug.truncateMessages(messages) - Truncate long fields in messages array');
+    console.log('  __piDebug.getAppStatus() - Show app status snapshot');
+    console.log('  __piDebug.diagnoseSessionDirectory(sessionId?) - Show how the session directory is resolved');
+    console.log('  __piDebug.getRecentSendFailures() - List prompt sends that were rejected and rolled back');
+    console.log('  __piDebug.checkLastMessage() - Check if last message is problematic');
+    console.log('  __piDebug.findEmptyMessages() - Find all empty assistant messages');
+    console.log('  __piDebug.showRetryHelp() - Show instructions for handling empty responses');
+    console.log('  __piDebug.getStreamingState() - Get streaming state info');
+    console.log('  __piDebug.analyzeMessageCompletionConsistency(opts?) - Compare time.completed vs part timings');
+    console.log('  __piDebug.checkCompletionStatus() - Check completion status of last message');
   }
 
   window.addEventListener('error', (event) => {

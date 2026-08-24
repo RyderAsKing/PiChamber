@@ -347,7 +347,7 @@ export interface PiModel {
 /**
  * Pi resource (skill, prompt template, AGENTS.md scope). The UI lists these
  * via `GET /api/pi/resources`. PiChamber does not write a separate copy of
- * these on disk; the SDK reads them through Pi's normal discovery.
+ * these on disk; Pi reads them through its normal discovery.
  */
 export interface PiResource {
   /** Opaque daemon identifier; it never encodes a server filesystem path. */

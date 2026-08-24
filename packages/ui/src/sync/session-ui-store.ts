@@ -10,13 +10,12 @@
  * Session↔worktree attachments are the authoritative exception: they live in
  * session-worktree-store (shared sync), and session-ui-store routes through it.
  *
- * SDK-calling actions that need domain data read it from sync-refs.
+ * Pi API actions that need domain data read it from sync-refs.
  */
 
 import { create } from "zustand"
 import type { Session, Part, Message, TextPart } from "@/lib/chat/types"
 import type { AttachedFile, SessionContextUsage } from "@/stores/types/sessionTypes"
-import { opencodeClient } from "@/lib/pi/legacy-ui-client"
 import { getPiSessionStore } from "@/apps/pi-session-store"
 import { isPiThinkingLevel } from "@/lib/pi/thinking"
 import { runtimeFetch } from "@/lib/runtime-fetch"
@@ -264,7 +263,7 @@ type SessionUIState = {
   initializeNewPiChamberSession: (sessionId: string, agents: unknown[]) => void
   overrideNewSessionDraftTarget: (options: Record<string, unknown>) => void
 
-  // Actions — SDK-calling operations (read domain data from sync-refs)
+  // Actions — Pi API operations (read domain data from sync-refs)
   sendMessage: (
     content: string,
     providerID: string,
@@ -583,7 +582,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const directoryState = useDirectoryStore.getState()
 
     const sessionDir = resolveSessionDirectory(id)
-    const fallbackDir = opencodeClient.getDirectory() ?? directoryState.currentDirectory ?? null
+    const fallbackDir = getPiSessionStore().getState().directory ?? directoryState.currentDirectory ?? null
     const knownDir = (directoryHint ? normalizePath(directoryHint) : null) ?? sessionDir
     const resolvedDir = knownDir ?? fallbackDir
     const isGuessedDir = knownDir === null
@@ -631,7 +630,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         projectsState.setActiveProjectIdOnly(sessionProject.id)
       }
     } catch (e) {
-      console.warn("Failed to set OpenCode directory for session switch:", e)
+      console.warn("Failed to set Pi directory for session switch:", e)
     }
 
     // Defer viewport anchor save for previous session — not needed for the
@@ -695,7 +694,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       pendingChangesBarDismissed: new Map(),
     })
     if (restoredSessionId) {
-      setActiveSession(restoredDirectory ?? opencodeClient.getDirectory() ?? "", restoredSessionId)
+      setActiveSession(restoredDirectory ?? getPiSessionStore().getState().directory ?? "", restoredSessionId)
     } else {
       setActiveSession("", "")
     }
@@ -802,8 +801,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
 
     // Config (providers/agents/default model+agent) lives at the PROJECT level. When the user
     // came from a worktree session, `directory` is the worktree path, whose provider list does
-    // not include project/global-scoped providers (e.g. the default agent's non-opencode model)
-    // — resolving defaults against it would wrongly fall back to opencode/big-pickle. Activate
+    // not include every runtime-scoped provider
+    // — resolving defaults against it could pick the wrong fallback model. Activate
     // the project's config instead so the default cascade matches app startup, then re-apply it
     // (a fresh draft must start from defaults, not inherit the previous session's selection).
     const configDirectory = normalizePath(selectedProject?.path ?? null) ?? directory
@@ -1028,7 +1027,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   },
 
   // ---------------------------------------------------------------------------
-  // sendMessage — calls SDK, reads domain data from sync
+  // sendMessage — calls the Pi API, reads domain data from sync
   // ---------------------------------------------------------------------------
   // Armed goal (composer target button): the sent prompt becomes the goal
   // objective; budget comes from the global default setting. Fire-and-forget —
@@ -1196,7 +1195,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const targetFolderId = draft.targetFolderId
 
     try {
-      const dir = directoryOverride ?? opencodeClient.getDirectory()
+      const dir = directoryOverride ?? getPiSessionStore().getState().directory
       const session = await createSessionAction(title, dir, parentID ?? null, metadata)
       if (!session) return null
 
@@ -1217,7 +1216,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   },
 
   // ---------------------------------------------------------------------------
-  // deleteSession — calls SDK, SSE event updates child store
+  // deleteSession — calls the Pi API, SSE event updates child store
   // ---------------------------------------------------------------------------
   deleteSession: (id, options) => deleteSessionAction(id, options as any),
 
@@ -1232,7 +1231,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   unarchiveSessions: (ids, options) => unarchiveSessionsAction(ids, options as any),
 
   // ---------------------------------------------------------------------------
-  // updateSessionTitle — calls SDK, SSE event updates child store
+  // updateSessionTitle — calls the Pi API, SSE event updates child store
   // ---------------------------------------------------------------------------
   updateSessionTitle: async (sessionId, title) => {
     await updateSessionTitleAction(sessionId, title)
@@ -1331,7 +1330,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
 
     if (!pID || !mID) return
 
-    const sourceDirectory = normalizePath(directory ?? opencodeClient.getDirectory() ?? null)
+    const sourceDirectory = normalizePath(directory ?? getPiSessionStore().getState().directory ?? null)
     const session = await get().createSession(undefined, sourceDirectory || null, null)
     if (!session) return
 

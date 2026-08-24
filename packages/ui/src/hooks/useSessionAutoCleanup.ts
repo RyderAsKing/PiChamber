@@ -2,7 +2,7 @@
 // @ts-nocheck
 import React from 'react';
 import type { Session } from '@/lib/chat/types';
-import { opencodeClient } from '@/lib/pi/legacy-ui-client';
+import { getPiSessionStore } from '@/apps/pi-session-store';
 import { ensureGlobalSessionsLoaded, useGlobalSessionsStore, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { getAllSyncSessions } from '@/sync/sync-refs';
@@ -160,9 +160,9 @@ export const useSessionAutoCleanup = (enabledOrOptions?: boolean | CleanupOption
 
           try {
             if (sessionRetentionAction === 'archive') {
-              await opencodeClient.updateSession(id, { time: { archived: Date.now() } }, directory);
+              await getPiSessionStore().archive(id, true);
             } else {
-              await opencodeClient.deleteSession(id, directory);
+              await getPiSessionStore().remove(id);
             }
             completedIds.push(id);
           } catch {

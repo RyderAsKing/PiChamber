@@ -126,7 +126,7 @@ const ShortcutsSectionContent: React.FC = () => {
 };
 
 // General section: app-level settings — startup/tray/network, access password,
-// passkeys, OpenCode CLI binary, privacy, diagnostics.
+// passkeys, privacy, diagnostics.
 const GeneralSectionContent: React.FC = () => {
     const runtimeEndpointEpoch = useRuntimeEndpointEpoch();
     void runtimeEndpointEpoch;

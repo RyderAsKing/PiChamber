@@ -3,7 +3,7 @@ import type { PiReducerSessionState } from '@/lib/pi/event-reducer';
 /**
  * Live assistant currently in `streamingMessages`. Stable across token
  * deltas; null once the turn settles. Chat freeze and the live-tail overlay
- * both key off this id — not the unused OpenCode `useStreamingStore`.
+ * both key off this id — not the unused broad streaming store `useStreamingStore`.
  */
 export const selectStreamingAssistantMessageId = (
   session: PiReducerSessionState | null | undefined,

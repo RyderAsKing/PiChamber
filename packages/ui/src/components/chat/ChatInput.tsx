@@ -979,7 +979,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             // vanishes the card instantly (optimistic); rejecting unblocks the
             // agent's tool but does NOT end its turn, so a direct send would
             // race with the still-active run and be silently discarded by the
-            // OpenCode runner. Instead we queue; the queued-message auto-send
+            // Pi session runner. Instead we queue; the queued-message auto-send
             // hook delivers it as the next turn once the rejected turn winds
             // down and the session returns to idle (parity with #1740).
             const [deniedPermissions, dismissedQuestions] = await Promise.all([
@@ -1331,7 +1331,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         // instead of through the composer input — the collapsed mobile pill has
         // no mounted textarea to stage it in.
         const draft = (composerRef.current?.getValue() ?? messageRef.current).trim();
-        // OpenCode recognizes slash commands only when their arguments follow
+        // Pi recognizes slash commands only when their arguments follow
         // the command on the same line. Skills retain the multiline prompt form.
         const presetText = draft ? `${text}${type === 'command' ? ' ' : '\n'}${draft}` : text;
         void handleSubmitRef.current({ presetText });

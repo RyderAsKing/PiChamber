@@ -13,8 +13,7 @@
  * The bootstrap owner is intentionally a plain function that returns a
  * result object. The owning store wraps it in zustand selectors, and the
  * `sync-context.tsx` layer subscribes the directory store to its events.
- * `retry()` lives in the sync layer so the bootstrap path can use the
- * shared retry budget without importing it directly here.
+ * Callers may inject a bounded retry policy without hiding failures.
  */
 
 import {
@@ -101,8 +100,7 @@ export interface PiBootstrapOptions {
   initialHealth?: Extract<PiBootstrapHealth, { state: 'ready' }>;
   /** Reuse a session list already obtained by the first-attach caller. */
   initialSessions?: readonly PiSessionListItem[];
-  /** Optional retry helper; defaults to no retry. The caller can pass the
-   *  shared `retry()` from `@/sync/retry` to share its budget. */
+  /** Optional bounded retry helper; defaults to no retry. */
   retry?: <T>(task: () => Promise<T>) => Promise<T>;
 }
 

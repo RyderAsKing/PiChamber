@@ -10,7 +10,6 @@ import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useCurrentSessionActivity } from '@/hooks/useSessionActivity';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { canUseElectronDesktopIPC, invokeDesktop } from '@/lib/desktop';
-import { showOpenCodeStatus } from '@/lib/openCodeStatus';
 import {
   eventMatchesShortcut,
   eventMatchesShortcutPrefix,
@@ -278,12 +277,6 @@ export const useKeyboardShortcuts = () => {
 
         e.preventDefault();
         togglePromptNavigatorPanel();
-        return;
-      }
-
-      if (eventMatchesShortcut(e, combo('open_status'))) {
-        e.preventDefault();
-        void showOpenCodeStatus();
         return;
       }
 

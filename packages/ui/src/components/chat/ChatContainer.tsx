@@ -555,7 +555,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     const isTimelineDialogOpen = useUIStore((s) => s.isTimelineDialogOpen);
     const setTimelineDialogOpen = useUIStore((s) => s.setTimelineDialogOpen);
 
-    // Streaming id comes from the Pi reducer, not the unused OpenCode
+    // Streaming id comes from the Pi reducer, not the unused broad streaming store
     // streaming store. Transcript freeze is default in
     // `useSessionMessageRecords`; this id only drives the live-tail overlay.
     const streamingMessageId = useSessionStreamingMessageId(currentSessionId ?? '');

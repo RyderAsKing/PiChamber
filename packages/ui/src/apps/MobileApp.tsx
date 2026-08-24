@@ -2,7 +2,6 @@ import React from 'react';
 
 import { AboutSettings } from '@/components/sections/pichamber/AboutSettings';
 import { MobileAppUpdateToast } from '@/components/update/MobileAppUpdateToast';
-import { ConfigUpdateOverlay } from '@/components/ui/ConfigUpdateOverlay';
 import { Button } from '@/components/ui/button';
 import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
 import { ChatView } from '@/components/views/ChatView';
@@ -19,7 +18,7 @@ import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
 import { useRouter } from '@/hooks/useRouter';
 import { DeferredUpdatePolling } from '@/hooks/useUpdatePolling';
 import { WindowTitleEffect } from '@/hooks/useWindowTitle';
-import { opencodeClient } from '@/lib/pi/legacy-ui-client';
+import { getPiSessionStore } from '@/apps/pi-session-store';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { readTabletLayout, useOrientation, useTabletLayout } from '@/lib/device';
 import { useHardwareKeyboard } from '@/lib/hardwareKeyboard';
@@ -773,7 +772,7 @@ export function MobileApp({ apis }: MobileAppProps) {
   // The instance the splash says we are connecting to. Read once on mount —
   // auto-connect targets the most-recent saved connection from the same list.
   const autoConnectLabel = React.useMemo(() => getAutoConnectTargetLabel(), []);
-  // Bumped to force a re-render (and thus a fresh `sdk` prop for SyncProvider)
+  // Bumped to force a re-render (and thus a fresh Pi runtime state for PiSessionProvider)
   // after a same-device transport swap — reconnects the sync layer in place with
   // no remount. The value itself is unused; only the re-render matters.
   const [, bumpTransportSwitch] = React.useReducer((count: number) => count + 1, 0);
@@ -896,7 +895,7 @@ export function MobileApp({ apis }: MobileAppProps) {
   // Switching instances (or disconnecting) only changes the runtime endpoint; the
   // stores still hold the previous instance's data. Mirror the web App.tsx reset
   // sequence so the UI fully re-bootstraps against the new server instead of going
-  // stale. The SyncProvider is keyed by runtimeEndpointEpoch so it remounts too.
+  // stale. The PiSessionProvider is keyed by runtimeEndpointEpoch so it remounts too.
   React.useEffect(() => {
     return subscribeRuntimeEndpointChanged((detail) => {
       // A LAN⇄relay swap for the SAME device keeps the runtime key stable. Treat
@@ -906,10 +905,9 @@ export function MobileApp({ apis }: MobileAppProps) {
       // change) does the full reset.
       const sameDevice = Boolean(detail.runtimeKey) && detail.runtimeKey === detail.previousRuntimeKey;
       if (sameDevice) {
-        // Transport-only swap for the same device: rebind the SDK to the new
-        // transport and force a re-render so SyncProvider receives the new `sdk`
-        // prop. Its event-pipeline + bootstrap effects (keyed on `sdk`) then
-        // reconnect over the new transport WITHOUT remounting — so the message
+        // Transport-only swap for the same device: rebind the Pi transport and
+        // force a re-render so PiSessionProvider observes the new runtime endpoint,
+        // then reconnect without remounting — so the message
         // pagination refs, the open session, and the whole view are preserved.
         // No key bump, no flash, no bounce to the draft.
         reconnectAppForTransportSwitch();
@@ -1098,7 +1096,7 @@ export function MobileApp({ apis }: MobileAppProps) {
 
   React.useEffect(() => {
     if (!isConnected) return;
-    opencodeClient.setDirectory(currentDirectory);
+    void getPiSessionStore().focusProject(currentDirectory, null);
   }, [currentDirectory, isConnected]);
 
   // Gated on isConnected (and re-run on reconnect/instance switch): probing the
@@ -1285,7 +1283,6 @@ export function MobileApp({ apis }: MobileAppProps) {
                 <SessionDialogs />
                 <Toaster position="top-center" offset="calc(var(--oc-safe-area-top, 0px) + 16px)" />
                 <PerfHudHost />
-                {isInitialized ? <ConfigUpdateOverlay /> : null}
               </div>
             </FireworksProvider>
           </TooltipProvider>

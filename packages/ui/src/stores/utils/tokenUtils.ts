@@ -1,4 +1,4 @@
-import type { Message, Part } from "@opencode-ai/sdk/v2";
+import type { Message, Part } from "@/lib/chat/types";
 
 type TokenBreakdown = {
     input?: number;
@@ -60,7 +60,7 @@ type CacheHitRateResult = {
 /**
  * Compute prefix-cache hit rate from a token breakdown.
  *
- * The SDK reports `input` as the non-cached portion (total input minus
+ * The Pi usage projection reports `input` as the non-cached portion (total input minus
  * cache reads and cache writes). The full input processed by the model is
  * therefore:
  *
@@ -68,7 +68,7 @@ type CacheHitRateResult = {
  *
  *   cacheHitRate = cache.read / totalInput
  *
- * Verified against the SDK source (`session.ts:getUsage`): `input` 
+ * The Pi usage projection defines: `input` 
  * is `safe(inputTokens - cacheReadInputTokens - cacheWriteInputTokens)`.
  *
  * Returns `hasInput: false` when there is no total input to compare against,
@@ -132,7 +132,7 @@ export const computePiContextWindowTokens = (usage: PiUsageLike | null | undefin
  * Detailed per-row token breakdown used by the context sidebar. Pi has no
  * separate reasoning-token field, so when `info.usage` is present the
  * `reasoning` slot is `null` to render the `—` glyph exactly as the spec
- * requires. The OpenCode-style fallback path keeps `reasoning` numeric.
+ * requires. The historical-message fallback path keeps `reasoning` numeric.
  */
 export interface DetailedTokenBreakdown {
     input: number;
@@ -150,7 +150,7 @@ const NON_NEGATIVE = (value: unknown): number => (
 /**
  * Convert a PiChamber `info.usage` payload into the sidebar's detailed
  * breakdown. Returns `null` when no usage is present so the caller can fall
- * back to the legacy OpenCode-style extraction.
+ * back to the historical message extraction.
  */
 export const extractPiUsageBreakdown = (usage: PiUsageLike | null | undefined): DetailedTokenBreakdown | null => {
     if (!usage || typeof usage !== "object") return null;
@@ -170,7 +170,7 @@ export const extractPiUsageBreakdown = (usage: PiUsageLike | null | undefined): 
 
 /**
  * Sidebar-style breakdown of a session message. Prefers Pi `info.usage` (the
- * PiChamber protocol contract) and falls back to the legacy OpenCode
+ * PiChamber protocol contract) and falls back to the historical message
  * `info.tokens` / per-part `tokens` extraction when usage is absent (older
  * daemon builds or sessions that pre-date the usage upgrade).
  */
