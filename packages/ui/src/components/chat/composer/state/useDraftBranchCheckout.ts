@@ -5,6 +5,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { useGitStore } from '@/stores/useGitStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { buildAvailableWorktreesByProject, useWorktreeStore } from '@/stores/useWorktreeStore';
 import { getActiveSyncSessions } from '@/sync/sync-refs';
 import {
     draftBranchCheckoutReceiptMatches,
@@ -31,14 +32,12 @@ const getActiveProjectSessions = (
     projectId?: string | null,
 ): DraftBranchActiveSession[] => {
     const projectsState = useProjectsStore.getState();
-    const worktrees = (useSessionUIStore.getState() as {
-        availableWorktreesByProject?: Map<string, ReadonlyArray<{ path?: string | null }>>;
-    }).availableWorktreesByProject;
+    const worktrees = buildAvailableWorktreesByProject(projectsState.projects, useWorktreeStore.getState());
     const projectDirectories = buildDraftBranchProjectDirectories({
         targetDirectory: directory,
         projectId,
         projects: projectsState.projects,
-        availableWorktreesByProject: worktrees ?? new Map(),
+        availableWorktreesByProject: worktrees,
     });
     return getActiveSyncSessions()
         .filter((session) => projectDirectories.has(session.directory))

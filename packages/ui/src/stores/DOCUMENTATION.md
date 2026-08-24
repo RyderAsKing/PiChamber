@@ -7,13 +7,15 @@ Use a store only for state shared across distant component trees or for a cache 
 ## Ownership
 
 - `useUIStore.ts`: local UI layout, dialogs, and presentation preferences.
-- `useDirectoryStore.ts`, `useProjectsStore.ts`, `useGitStore.ts`, `useTerminalStore.ts`, `useFilesStore.ts`: workspace chrome for Files/Git/Terminal against `/api/fs`, `/api/git`, `/api/terminal`. Automatic PiChamber-era project-icon discovery is an intentional unsupported no-op until Pi-native icon storage has an owning contract.
+- `useDirectoryStore.ts`, `useProjectsStore.ts`, `useGitStore.ts`, `useWorktreeStore.ts`, `useTerminalStore.ts`, `useFilesStore.ts`: workspace chrome for Files/Git/Terminal against `/api/fs`, `/api/git`, `/api/terminal`. `useWorktreeStore` owns runtime-scoped authoritative Git worktree topology per registered project; refresh failure preserves the previous list and remains distinct from successful empty discovery. Automatic PiChamber-era project-icon discovery is an intentional unsupported no-op until Pi-native icon storage has an owning contract.
 - `useSkillsStore.ts`: Pi resource-discovery state. Skill paths are opaque daemon identifiers, never filesystem paths.
 - `useSnippetsStore.ts` and `useMagicPromptsStore.ts`: Pi prompt-template and PiChamber magic-prompt UI state.
 
 `useSessionFoldersStore.ts` keeps a runtime-scoped browser snapshot for immediate continuity and reconciles it with the active server's validated `/api/pi/session-folders` sidecar. Missing server state is not authoritative empty state, and in-flight hydration cannot replace newer local mutations.
 
 Caches and async work must be scoped to the active runtime. A failed authoritative request must preserve existing state and remain distinguishable from a successful empty result.
+
+`useWorktreeStore.refreshProject()` coalesces discovery by runtime and project, rejects stale runtime completions, and keeps linked-worktree arrays reference-stable when topology is unchanged. `WorktreeDiscovery` refreshes with bounded concurrency while the app is visible; hidden UI does no polling.
 
 `useGitStore.fetchBranches()` coalesces concurrent loads by runtime and directory. Composer, dialog, and Git-surface mounts share one request; a runtime switch clears the in-flight owner so an old host cannot commit into the new store.
 

@@ -11,6 +11,7 @@ import {
   cherryPick,
   createWorktree,
   getWorktreeBootstrapStatus,
+  getWorktrees,
   getBranches,
   getRangeDiff,
   getRemotes,
@@ -450,6 +451,36 @@ describe('worktree root resolution', () => {
     await expect(resolveWorktreeTopLevel(subdirectory)).resolves.toEqual({ root: fs.realpathSync(repo) });
   });
 
+  it('lists primary and linked worktrees from either checkout', async () => {
+    if (!canRunGit()) return;
+
+    const repo = createTempDir();
+    const worktree = createTempDir();
+    runGit(repo, ['init', '-b', 'main']);
+    runGit(repo, ['config', 'user.email', 'test@example.com']);
+    runGit(repo, ['config', 'user.name', 'Test User']);
+    fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+    runGit(repo, ['add', 'README.md']);
+    runGit(repo, ['commit', '-m', 'Initial commit']);
+    fs.rmSync(worktree, { recursive: true, force: true });
+    runGit(repo, ['worktree', 'add', '-b', 'feature/test', worktree, 'HEAD']);
+
+    const listed = await getWorktrees(worktree);
+    expect(listed).toHaveLength(2);
+    expect(listed.find((entry) => entry.isPrimary)).toMatchObject({
+      path: fs.realpathSync(repo),
+      branch: 'main',
+      detached: false,
+    });
+    expect(listed.find((entry) => !entry.isPrimary)).toMatchObject({
+      path: fs.realpathSync(worktree),
+      branch: 'feature/test',
+      detached: false,
+      locked: false,
+      prunable: false,
+    });
+  });
+
   it('resolves the primary worktree root from a linked worktree', async () => {
     if (!canRunGit()) return;
 
@@ -542,6 +573,47 @@ describe('createWorktree', () => {
       } else {
         process.env.XDG_DATA_HOME = previousXdgDataHome;
       }
+    }
+  });
+
+  it('reports setup command failure after Git becomes ready', async () => {
+    if (!canRunGit()) return;
+
+    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const dataHome = createTempDir();
+    const setupScript = path.join(dataHome, 'setup-failure.cjs');
+    process.env.XDG_DATA_HOME = dataHome;
+    fs.writeFileSync(setupScript, 'process.exitCode = 1;\n');
+
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+
+      const created = await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/setup-failure',
+        worktreeName: 'setup-failure',
+        returnAfterDirectoryCreated: true,
+        startCommand: `${JSON.stringify(process.execPath)} ${JSON.stringify(setupScript)}`,
+      });
+
+      await expect.poll(
+        async () => (await getWorktreeBootstrapStatus(created.path)).status,
+        { timeout: 5_000 },
+      ).toBe('failed');
+      await expect(getWorktreeBootstrapStatus(created.path)).resolves.toMatchObject({
+        status: 'failed',
+        phase: 'git-ready',
+        error: 'Worktree setup command failed',
+      });
+    } finally {
+      if (previousXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
+      else process.env.XDG_DATA_HOME = previousXdgDataHome;
     }
   });
 

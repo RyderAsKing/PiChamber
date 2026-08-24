@@ -7,13 +7,17 @@ import { resolveProjectForSessionDirectory } from '@/lib/projectResolution';
 import { formatDirectoryName } from '@/lib/utils';
 import { useGitBranches, useGitStore, useIsGitRepo } from '@/stores/useGitStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { buildAvailableWorktreesByProject, useWorktreeStore } from '@/stores/useWorktreeStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { normalizePath } from '../attachments/filePaths';
 import { buildLocalDraftBranchOptions, shouldRefreshDraftBranchesOnDraftEntry } from './draftTargetBranches';
 
 export interface DraftTargetProject {
     id: string;
+    ownerProjectId: string;
+    kind: 'project' | 'worktree';
     path: string;
+    branch?: string | null;
     label?: string;
     icon?: string | null;
     color?: string | null;
@@ -27,7 +31,32 @@ export function getProjectDisplayLabel(project: { label?: string; path: string }
 }
 
 export function useDraftTarget(enabled: boolean) {
-    const projects = useProjectsStore((state) => state.projects) as DraftTargetProject[];
+    const registeredProjects = useProjectsStore((state) => state.projects);
+    const worktreeProjects = useWorktreeStore((state) => state.projects);
+    const availableWorktreesByProject = React.useMemo(
+        () => buildAvailableWorktreesByProject(registeredProjects, { projects: worktreeProjects }),
+        [registeredProjects, worktreeProjects],
+    );
+    const projects = React.useMemo<DraftTargetProject[]>(() => registeredProjects.flatMap((project) => {
+        const root: DraftTargetProject = {
+            ...project,
+            id: project.id,
+            ownerProjectId: project.id,
+            kind: 'project',
+        };
+        const worktrees = availableWorktreesByProject.get(normalizePath(project.path) ?? project.path) ?? [];
+        return [
+            root,
+            ...worktrees.map((worktree): DraftTargetProject => ({
+                id: `worktree:${project.id}:${worktree.path}`,
+                ownerProjectId: project.id,
+                kind: 'worktree',
+                path: worktree.path,
+                branch: worktree.branch,
+                label: worktree.branch || (worktree.detached ? 'Detached HEAD' : worktree.name),
+            })),
+        ];
+    }), [availableWorktreesByProject, registeredProjects]);
     const activeProjectId = useProjectsStore((state) => state.activeProjectId);
     const setActiveProjectIdOnly = useProjectsStore((state) => state.setActiveProjectIdOnly);
     const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
@@ -40,17 +69,27 @@ export function useDraftTarget(enabled: boolean) {
 
     const selectedDraftProject = React.useMemo(() => {
         if (isDraftOpen) {
+            const explicitDirectory = normalizePath(newSessionDraft?.directoryOverride ?? null);
             const explicit = newSessionDraft?.selectedProjectId
-                ? projects.find((project) => project.id === newSessionDraft.selectedProjectId) ?? null
+                ? projects.find((project) => (
+                    project.ownerProjectId === newSessionDraft.selectedProjectId
+                    && (!explicitDirectory || normalizePath(project.path) === explicitDirectory)
+                )) ?? projects.find((project) => project.id === newSessionDraft.selectedProjectId) ?? null
                 : null;
             if (explicit) return explicit;
         } else if (currentSessionId) {
             const fromSession = resolveProjectForSessionDirectory(
-                projects as ProjectEntry[],
-                undefined,
+                registeredProjects as ProjectEntry[],
+                availableWorktreesByProject,
                 currentSessionDirectory,
             );
-            if (fromSession) return fromSession as DraftTargetProject;
+            if (fromSession) {
+                const sessionDirectory = normalizePath(currentSessionDirectory ?? null);
+                return projects.find((project) => (
+                    project.ownerProjectId === fromSession.id
+                    && normalizePath(project.path) === sessionDirectory
+                )) ?? projects.find((project) => project.id === fromSession.id) ?? null;
+            }
         }
 
         const active = activeProjectId
@@ -59,11 +98,14 @@ export function useDraftTarget(enabled: boolean) {
         return active ?? projects[0] ?? null;
     }, [
         activeProjectId,
+        availableWorktreesByProject,
         currentSessionDirectory,
         currentSessionId,
         isDraftOpen,
+        newSessionDraft?.directoryOverride,
         newSessionDraft?.selectedProjectId,
         projects,
+        registeredProjects,
     ]);
 
     const selectedDraftProjectPath = React.useMemo(
@@ -76,6 +118,10 @@ export function useDraftTarget(enabled: boolean) {
         }
         return normalizePath(currentSessionDirectory ?? null) ?? selectedDraftProjectPath;
     }, [currentSessionDirectory, isDraftOpen, newSessionDraft?.directoryOverride, selectedDraftProjectPath]);
+    const selectedOwnerProject = selectedDraftProject
+        ? registeredProjects.find((project) => project.id === selectedDraftProject.ownerProjectId) ?? null
+        : null;
+    const selectedDraftProjectRoot = normalizePath(selectedOwnerProject?.path ?? null);
     const draftProjectLabel = selectedDraftProject ? getProjectDisplayLabel(selectedDraftProject) : null;
 
     React.useEffect(() => {
@@ -87,6 +133,7 @@ export function useDraftTarget(enabled: boolean) {
             projectId: project.id,
             directoryOverride: project.path,
             branchIntent: null,
+            worktreeIntent: null,
         });
     }, [activeProjectId, enabled, isDraftOpen, newSessionDraft?.selectedProjectId, projects, setNewSessionDraftTarget]);
 
@@ -134,7 +181,9 @@ export function useDraftTarget(enabled: boolean) {
     ]);
 
     const currentBranch = selectedDirectoryBranches?.current?.trim() || selectedDirectoryStatusBranch;
-    const explicitBranch = isDraftOpen ? newSessionDraft?.branchIntent?.branch?.trim() || null : null;
+    const explicitBranch = isDraftOpen
+        ? newSessionDraft?.worktreeIntent?.startRef?.trim() || newSessionDraft?.branchIntent?.branch?.trim() || null
+        : null;
     const selectedBranchName = explicitBranch ?? currentBranch;
 
     const draftBranchItems = React.useMemo(
@@ -153,11 +202,12 @@ export function useDraftTarget(enabled: boolean) {
         const project = projects.find((entry) => entry.id === projectId);
         const nextDirectory = normalizePath(project?.path ?? null);
         if (!project || !nextDirectory) return;
-        if (activeProjectId !== projectId) setActiveProjectIdOnly(projectId);
+        if (activeProjectId !== project.ownerProjectId) setActiveProjectIdOnly(project.ownerProjectId);
         setNewSessionDraftTarget({
-            projectId,
+            projectId: project.ownerProjectId,
             directoryOverride: nextDirectory,
             branchIntent: null,
+            worktreeIntent: null,
         });
     }, [activeProjectId, isDraftOpen, projects, setActiveProjectIdOnly, setNewSessionDraftTarget]);
 
@@ -165,19 +215,57 @@ export function useDraftTarget(enabled: boolean) {
         if (!isDraftOpen || !selectedDraftDirectory) return;
         const nextBranch = branch.trim();
         if (!nextBranch || nextBranch.startsWith('remotes/')) return;
+        if (newSessionDraft?.worktreeIntent && selectedDraftProjectRoot) {
+            setNewSessionDraftTarget({
+                branchIntent: null,
+                worktreeIntent: {
+                    runtimeKey: getRuntimeKey(),
+                    projectRoot: selectedDraftProjectRoot,
+                    sourceDirectory: selectedDraftDirectory,
+                    startRef: nextBranch,
+                },
+            });
+            return;
+        }
         setNewSessionDraftTarget({
+            worktreeIntent: null,
             branchIntent: {
                 runtimeKey: getRuntimeKey(),
                 directory: selectedDraftDirectory,
                 branch: nextBranch,
             },
         });
-    }, [isDraftOpen, selectedDraftDirectory, setNewSessionDraftTarget]);
+    }, [isDraftOpen, newSessionDraft?.worktreeIntent, selectedDraftDirectory, selectedDraftProjectRoot, setNewSessionDraftTarget]);
+
+    const handleWorktreeModeChange = React.useCallback((enabled: boolean) => {
+        if (!isDraftOpen || !selectedDraftDirectory || !selectedDraftProjectRoot || !selectedBranchName) return;
+        if (enabled) {
+            setNewSessionDraftTarget({
+                branchIntent: null,
+                worktreeIntent: {
+                    runtimeKey: getRuntimeKey(),
+                    projectRoot: selectedDraftProjectRoot,
+                    sourceDirectory: selectedDraftDirectory,
+                    startRef: selectedBranchName,
+                },
+            });
+            return;
+        }
+        setNewSessionDraftTarget({
+            worktreeIntent: null,
+            branchIntent: selectedBranchName === currentBranch ? null : {
+                runtimeKey: getRuntimeKey(),
+                directory: selectedDraftDirectory,
+                branch: selectedBranchName,
+            },
+        });
+    }, [currentBranch, isDraftOpen, selectedBranchName, selectedDraftDirectory, selectedDraftProjectRoot, setNewSessionDraftTarget]);
 
     return {
         projects,
         selectedDraftProject,
         selectedDraftProjectPath,
+        selectedDraftProjectRoot,
         draftProjectLabel,
         selectedDraftDirectory,
         selectedDraftBranchLabel,
@@ -186,7 +274,9 @@ export function useDraftTarget(enabled: boolean) {
         draftBranchItems,
         isDiscoveringDraftBranches,
         shouldShowDraftBranchSelector,
+        worktreeMode: Boolean(isDraftOpen && newSessionDraft?.worktreeIntent),
         handleDraftProjectChange,
         handleDraftBranchChange,
+        handleWorktreeModeChange,
     };
 }

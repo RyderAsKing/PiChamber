@@ -22,6 +22,7 @@ import { isPiThinkingLevel } from "@/lib/pi/thinking"
 import { runtimeFetch } from "@/lib/runtime-fetch"
 import { useConfigStore } from "@/stores/useConfigStore"
 import { useProjectsStore } from "@/stores/useProjectsStore"
+import { buildAvailableWorktreesByProject, useWorktreeStore } from "@/stores/useWorktreeStore"
 import { useGlobalSessionsStore, resolveGlobalSessionDirectory } from "@/stores/useGlobalSessionsStore"
 import { useDirectoryStore } from "@/stores/useDirectoryStore"
 import { useSessionFoldersStore } from "@/stores/useSessionFoldersStore"
@@ -167,6 +168,7 @@ type SendMessageOptions = {
   directory?: string
   delivery?: 'steer'
   branchCheckoutReceipt?: DraftBranchCheckoutReceipt
+  worktreeCreationReceipt?: DraftWorktreeCreationReceipt
 }
 
 type AssistantMessageSessionExecution = {
@@ -185,11 +187,24 @@ export type DraftBranchIntent = {
   branch: string
 }
 
+export type DraftWorktreeIntent = {
+  runtimeKey: string
+  projectRoot: string
+  sourceDirectory: string
+  startRef: string
+}
+
+export type DraftWorktreeCreationReceipt = DraftWorktreeIntent & {
+  path: string
+  branch: string
+}
+
 type NewSessionDraftState = {
   open: boolean
   selectedProjectId?: string | null
   directoryOverride: string | null
   branchIntent?: DraftBranchIntent | null
+  worktreeIntent?: DraftWorktreeIntent | null
   permissionAutoAcceptEnabled?: boolean
   preserveDirectoryOverride?: boolean
   parentID: string | null
@@ -236,7 +251,7 @@ type SessionUIState = {
   restoreForRuntimeSwitch: (apiBaseUrl?: string | null) => void
   openNewSessionDraft: (options?: Partial<NewSessionDraftState> & { automatic?: boolean }) => void
   closeNewSessionDraft: () => void
-  setNewSessionDraftTarget: (target: { projectId?: string | null; selectedProjectId?: string | null; directoryOverride?: string | null; branchIntent?: DraftBranchIntent | null }) => void
+  setNewSessionDraftTarget: (target: { projectId?: string | null; selectedProjectId?: string | null; directoryOverride?: string | null; branchIntent?: DraftBranchIntent | null; worktreeIntent?: DraftWorktreeIntent | null }) => void
   setDraftPreserveDirectoryOverride: (value: boolean) => void
   setDraftPermissionAutoAcceptEnabled: (enabled: boolean) => void
   acknowledgeSessionAbort: (sessionId: string) => void
@@ -383,6 +398,7 @@ const DEFAULT_DRAFT: NewSessionDraftState = {
   open: false,
   directoryOverride: null,
   branchIntent: null,
+  worktreeIntent: null,
   parentID: null,
 }
 
@@ -401,8 +417,6 @@ type RuntimeSessionMemory = {
   sessionId: string | null
   directory: string | null
   draft: NewSessionDraftState
-  worktreeMetadata: Map<string, any>
-  availableWorktreesByProject: Map<string, any[]>
 }
 const runtimeSessionMemory = new Map<string, RuntimeSessionMemory>()
 
@@ -419,8 +433,6 @@ const writeRuntimeSessionMemory = (key: string, patch: Partial<RuntimeSessionMem
     sessionId: current?.sessionId ?? null,
     directory: current?.directory ?? null,
     draft: current?.draft ? cloneDraft(current.draft) : { ...DEFAULT_DRAFT },
-    worktreeMetadata: current?.worktreeMetadata ?? new Map(),
-    availableWorktreesByProject: current?.availableWorktreesByProject ?? new Map(),
     ...patch,
   })
 }
@@ -450,6 +462,7 @@ export async function materializeOpenDraftSession(selection: {
   variant?: string
   initialPrompt?: string
   branchCheckoutReceipt?: DraftBranchCheckoutReceipt
+  worktreeCreationReceipt?: DraftWorktreeCreationReceipt
 }): Promise<MaterializedDraftSession | null> {
   const store = useSessionUIStore.getState()
   const draft = store.newSessionDraft
@@ -464,12 +477,25 @@ export async function materializeOpenDraftSession(selection: {
       throw new Error("Confirm the selected branch before creating this session.")
     }
   }
+  if (draft.worktreeIntent) {
+    const receipt = selection.worktreeCreationReceipt
+    if (
+      !receipt
+      || receipt.runtimeKey !== draft.worktreeIntent.runtimeKey
+      || normalizePath(receipt.projectRoot) !== normalizePath(draft.worktreeIntent.projectRoot)
+      || normalizePath(receipt.sourceDirectory) !== normalizePath(draft.worktreeIntent.sourceDirectory)
+      || receipt.startRef !== draft.worktreeIntent.startRef
+      || !normalizePath(receipt.path)
+    ) {
+      throw new Error("Create the selected worktree before creating this session.")
+    }
+  }
   const draftPermissionAutoAcceptEnabled = draft.permissionAutoAcceptEnabled === true
 
   const trimmedAgent = typeof selection.agent === "string" && selection.agent.trim().length > 0
     ? selection.agent.trim()
     : undefined
-  const draftDirectoryOverride = draft.directoryOverride ?? null
+  const draftDirectoryOverride = selection.worktreeCreationReceipt?.path ?? draft.directoryOverride ?? null
   const draftProjectId = draft.selectedProjectId ?? null
 
   const derivedTitle = draft.title || (selection.initialPrompt ? deriveSessionTitle(selection.initialPrompt) : undefined)
@@ -565,6 +591,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const sessionProject = resolvedDir
       ? resolveProjectForSessionDirectory(
         projectsState.projects,
+        buildAvailableWorktreesByProject(projectsState.projects, useWorktreeStore.getState()),
         resolvedDir,
       )
       : null
@@ -645,8 +672,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       sessionId: currentSessionId,
       directory,
       draft: cloneDraft(get().newSessionDraft),
-      worktreeMetadata: new Map(),
-      availableWorktreesByProject: new Map(),
     })
   },
 
@@ -691,7 +716,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     }
     const projectsState = useProjectsStore.getState()
     const projects = projectsState.projects
-    const availableWorktreesByProject = null
+    const availableWorktreesByProject = buildAvailableWorktreesByProject(projects, useWorktreeStore.getState())
     const activeProject = projectsState.getActiveProject()
     const currentDirectory = normalizePath(useDirectoryStore.getState().currentDirectory ?? null)
     const persistedTarget = readPersistedDraftTarget()
@@ -741,6 +766,11 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         && options.branchIntent.runtimeKey === getRuntimeKey()
         && normalizePath(options.branchIntent.directory) === directory
           ? options.branchIntent
+          : null,
+      worktreeIntent: options?.worktreeIntent
+        && options.worktreeIntent.runtimeKey === getRuntimeKey()
+        && normalizePath(options.worktreeIntent.sourceDirectory) === directory
+          ? options.worktreeIntent
           : null,
       permissionAutoAcceptEnabled: options?.permissionAutoAcceptEnabled === true,
       preserveDirectoryOverride: options?.preserveDirectoryOverride === true,
@@ -798,6 +828,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       && currentDraft.selectedProjectId == null
       && currentDraft.directoryOverride == null
       && currentDraft.branchIntent == null
+      && currentDraft.worktreeIntent == null
       && !currentDraft.preserveDirectoryOverride
       && currentDraft.parentID == null
       && currentDraft.title === undefined
@@ -813,6 +844,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         selectedProjectId: null,
         directoryOverride: null,
         branchIntent: null,
+        worktreeIntent: null,
         preserveDirectoryOverride: false,
         parentID: null,
         title: undefined,
@@ -833,6 +865,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       nextDirectory = normalizePath(target.directoryOverride ?? s.newSessionDraft.directoryOverride)
       nextProjectId = target.projectId ?? target.selectedProjectId ?? s.newSessionDraft.selectedProjectId ?? null
       const hasBranchIntent = Object.prototype.hasOwnProperty.call(target, "branchIntent")
+      const hasWorktreeIntent = Object.prototype.hasOwnProperty.call(target, "worktreeIntent")
       const currentDirectory = normalizePath(s.newSessionDraft.directoryOverride)
       const directoryChanged = nextDirectory !== currentDirectory
       const projectChanged = nextProjectId !== (s.newSessionDraft.selectedProjectId ?? null)
@@ -841,6 +874,12 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         && requestedBranchIntent.runtimeKey === getRuntimeKey()
         && normalizePath(requestedBranchIntent.directory) === nextDirectory
           ? requestedBranchIntent
+          : null
+      const requestedWorktreeIntent = target.worktreeIntent
+      const validRequestedWorktreeIntent = requestedWorktreeIntent
+        && requestedWorktreeIntent.runtimeKey === getRuntimeKey()
+        && normalizePath(requestedWorktreeIntent.sourceDirectory) === nextDirectory
+          ? requestedWorktreeIntent
           : null
       return {
         newSessionDraft: {
@@ -852,6 +891,11 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
             : directoryChanged || projectChanged
               ? null
               : s.newSessionDraft.branchIntent,
+          worktreeIntent: hasWorktreeIntent
+            ? validRequestedWorktreeIntent
+            : directoryChanged || projectChanged
+              ? null
+              : s.newSessionDraft.worktreeIntent,
         },
       }
     })
@@ -1026,6 +1070,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         variant,
         initialPrompt: content,
         branchCheckoutReceipt: options?.branchCheckoutReceipt,
+        worktreeCreationReceipt: options?.worktreeCreationReceipt,
       })
       if (!createdDraftSession) throw new Error("Failed to create session")
 

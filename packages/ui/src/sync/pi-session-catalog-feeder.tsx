@@ -1,14 +1,14 @@
 /**
  * Catalog feeder — keeps `PiSessionStore.catalog` populated for every
  * directory the sidebar knows about: project roots plus the discovered
- * worktree paths in `useSessionUIStore.availableWorktreesByProject`. The
+ * worktree paths in the runtime-scoped `useWorktreeStore` topology. The
  * feeder is the single fill path; the at-most-2-in-flight scheduler and
  * the per-directory refresh generation live in `pi-session-store.ts`
  * and `pi-session-catalog.ts`.
  *
  * Why a thin React wrapper:
  *
- * - Subscribe to `useProjectsStore` and `useSessionUIStore` once on mount.
+ * - Subscribe to `useProjectsStore` and `useWorktreeStore` once on mount.
  * - Compute the sorted directory-set signature and skip the refresh when
  *   it has not changed. Subscription churn from unrelated state changes
  *   (collapsing projects, reordering) must not re-list every folder.
@@ -24,17 +24,12 @@
 import { useEffect } from 'react';
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { useSessionUIStore } from '@/sync/session-ui-store';
 import { buildKnownSessionDirectories } from '@/sync/known-session-directories';
+import { buildAvailableWorktreesByProject, useWorktreeStore } from '@/stores/useWorktreeStore';
 
 const collectProjectDirectories = (): string[] => {
   const projects = useProjectsStore.getState().projects;
-  // `availableWorktreesByProject` is a runtime-scoped field on the session
-  // UI store; the field is not yet on the public state type, so reach
-  // through a narrow cast that matches the sidebar's existing pattern.
-  const worktrees = (useSessionUIStore.getState() as {
-    availableWorktreesByProject?: Map<string, ReadonlyArray<{ path?: string | null }> | null | undefined>;
-  }).availableWorktreesByProject;
+  const worktrees = buildAvailableWorktreesByProject(projects, useWorktreeStore.getState());
   return [...buildKnownSessionDirectories(projects, worktrees, { includeWorktrees: true })];
 };
 
@@ -91,13 +86,13 @@ export const PiSessionCatalogFeeder: React.FC = () => {
 
     refresh();
     const unsubscribeProjects = useProjectsStore.subscribe(refresh);
-    const unsubscribeUI = useSessionUIStore.subscribe(refresh);
+    const unsubscribeWorktrees = useWorktreeStore.subscribe(refresh);
     const unsubscribePi = store.subscribe(refresh, 'chrome');
 
     return () => {
       cancelled = true;
       unsubscribeProjects();
-      unsubscribeUI();
+      unsubscribeWorktrees();
       unsubscribePi();
     };
   }, []);

@@ -681,6 +681,21 @@ const parseWorktreePorcelain = (raw) => {
       const branchRef = line.substring('branch '.length).trim();
       current.branchRef = branchRef;
       current.branch = cleanBranchName(branchRef);
+      continue;
+    }
+
+    if (line === 'detached') {
+      current.detached = true;
+      continue;
+    }
+
+    if (line === 'locked' || line.startsWith('locked ')) {
+      current.locked = true;
+      continue;
+    }
+
+    if (line === 'prunable' || line.startsWith('prunable ')) {
+      current.prunable = true;
     }
   }
 
@@ -1782,7 +1797,7 @@ const runWorktreeStartScripts = async (directory, projectID, startCommand) => {
     const projectResult = await runWorktreeStartCommand(directory, projectStart);
     if (!projectResult.success) {
       console.warn('Worktree project start command failed:', projectResult.message || projectResult.stderr || projectResult.stdout);
-      return;
+      throw new Error('Project setup command failed');
     }
   }
 
@@ -1793,6 +1808,7 @@ const runWorktreeStartScripts = async (directory, projectID, startCommand) => {
   const extraResult = await runWorktreeStartCommand(directory, extraCommand);
   if (!extraResult.success) {
     console.warn('Worktree start command failed:', extraResult.message || extraResult.stderr || extraResult.stdout);
+    throw new Error('Worktree setup command failed');
   }
 };
 
@@ -1832,9 +1848,7 @@ const queueWorktreeBootstrap = (args) => {
         WORKTREE_BOOTSTRAP_PENDING,
         WORKTREE_BOOTSTRAP_PHASE_GIT_READY
       );
-      await runWorktreeStartScripts(directory, projectID, startCommand).catch((error) => {
-        console.warn('Worktree start script task failed:', error instanceof Error ? error.message : String(error));
-      });
+      await runWorktreeStartScripts(directory, projectID, startCommand);
       setWorktreeBootstrapState(
         directory,
         WORKTREE_BOOTSTRAP_READY,
@@ -1842,10 +1856,12 @@ const queueWorktreeBootstrap = (args) => {
       );
     })
     .catch((error) => {
+      const currentPhase = worktreeBootstrapState.get(toBootstrapStateKey(directory))?.phase
+        ?? WORKTREE_BOOTSTRAP_PHASE_DIRECTORY_CREATED;
       setWorktreeBootstrapState(
         directory,
         WORKTREE_BOOTSTRAP_FAILED,
-        WORKTREE_BOOTSTRAP_PHASE_DIRECTORY_CREATED,
+        currentPhase,
         error instanceof Error ? error.message : String(error)
       );
       console.warn('Worktree bootstrap task failed:', error instanceof Error ? error.message : String(error));
@@ -3711,26 +3727,28 @@ export async function resetToCommit(directory, hash, mode, force = false) {
 export async function getWorktrees(directory) {
   const directoryPath = normalizeDirectoryPath(directory);
   if (!directoryPath || !fs.existsSync(directoryPath)) {
-    return [];
+    throw new Error('Git worktree directory does not exist');
   }
-  try {
-    const directoryGit = await createGit(directoryPath);
-    const repoRoot = await resolveGitRepositoryRoot(directoryPath, directoryGit);
-    const result = await runGitCommandOrThrow(
-      repoRoot,
-      ['worktree', 'list', '--porcelain'],
-      'Failed to list git worktrees'
-    );
-    return parseWorktreePorcelain(result.stdout).map((entry) => ({
-      head: entry.head || '',
-      name: path.basename(entry.worktree || ''),
-      branch: entry.branch || '',
-      path: entry.worktree,
-    }));
-  } catch (error) {
-    console.warn('Failed to list worktrees, returning empty list:', error?.message || error);
-    return [];
-  }
+
+  const directoryGit = await createGit(directoryPath);
+  const repoRoot = await resolveGitRepositoryRoot(directoryPath, directoryGit);
+  const { root: primaryRoot } = await resolvePrimaryWorktreeRoot(directoryPath);
+  const primaryCanonical = await canonicalPath(primaryRoot);
+  const result = await runGitCommandOrThrow(
+    repoRoot,
+    ['worktree', 'list', '--porcelain'],
+    'Failed to list git worktrees'
+  );
+  return Promise.all(parseWorktreePorcelain(result.stdout).map(async (entry) => ({
+    head: entry.head || '',
+    name: path.basename(entry.worktree || ''),
+    branch: entry.detached ? null : (entry.branch || null),
+    path: entry.worktree,
+    isPrimary: await canonicalPath(entry.worktree) === primaryCanonical,
+    detached: entry.detached === true || !entry.branch,
+    locked: entry.locked === true,
+    prunable: entry.prunable === true,
+  })));
 }
 
 export async function validateWorktreeCreate(directory, input = {}) {

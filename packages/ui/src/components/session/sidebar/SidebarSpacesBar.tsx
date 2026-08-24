@@ -15,6 +15,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Icon } from '@/components/icon/Icon';
+import type { GitWorktree } from '@/lib/api/types';
 import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
 import {
   ContextMenu,
@@ -41,7 +42,11 @@ export type SpaceProject = {
 export interface SidebarSpacesBarProps {
   projects: SpaceProject[];
   selectedProjectId: string | null;
+  selectedWorktreePath?: string | null;
+  worktreesByProject?: ReadonlyMap<string, readonly GitWorktree[]>;
+  worktreeErrorsByProject?: ReadonlyMap<string, string>;
   onSelectProject: (projectId: string | null) => void;
+  onSelectWorktree?: (projectId: string, worktreePath: string) => void;
   onOpenDirectoryDialog: () => void;
   onOpenProjectEditDialog: (id: string) => void;
   onRemoveProject: (id: string) => void;
@@ -69,6 +74,9 @@ const SortableFolderRow: React.FC<{
   label: string;
   isSelected: boolean;
   hasActive?: boolean;
+  hasWorktrees?: boolean;
+  worktreeError?: string;
+  isExpanded?: boolean;
   canDrag: boolean;
   onSelect: () => void;
   onOpenProjectEditDialog: (id: string) => void;
@@ -79,6 +87,9 @@ const SortableFolderRow: React.FC<{
   label,
   isSelected,
   hasActive,
+  hasWorktrees,
+  worktreeError,
+  isExpanded,
   canDrag,
   onSelect,
   onOpenProjectEditDialog,
@@ -160,6 +171,12 @@ const SortableFolderRow: React.FC<{
                 className="text-primary text-xs shrink-0"
               />
             ) : null}
+            {worktreeError ? (
+              <span title={worktreeError} aria-label="Worktree discovery failed">
+                <Icon name="error-warning" className="size-4 text-[var(--status-warning-foreground)]" />
+              </span>
+            ) : null}
+            {hasWorktrees ? <Icon name={isExpanded ? 'arrow-down-s' : 'arrow-right-s'} className="size-4 text-muted-foreground" /> : null}
           </div>
         </ContextMenuTrigger>
 
@@ -185,7 +202,11 @@ const SortableFolderRow: React.FC<{
 export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
   projects,
   selectedProjectId,
+  selectedWorktreePath = null,
+  worktreesByProject = new Map(),
+  worktreeErrorsByProject = new Map(),
   onSelectProject,
+  onSelectWorktree,
   onOpenDirectoryDialog,
   onOpenProjectEditDialog,
   onRemoveProject,
@@ -230,25 +251,49 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={projects.map((project) => project.id)} strategy={verticalListSortingStrategy}>
           {projects.map((project) => {
-            const isSelected = selectedProjectId === project.id;
+            const isProjectExpanded = selectedProjectId === project.id;
+            const isSelected = isProjectExpanded && !selectedWorktreePath;
+            const worktrees = worktreesByProject.get(project.normalizedPath) ?? [];
             const label = formatProjectLabel(
               project.label?.trim()
               || formatDirectoryName(project.normalizedPath, homeDirectory)
               || project.normalizedPath,
             );
             return (
-              <SortableFolderRow
-                key={project.id}
-                project={project}
-                label={label}
-                isSelected={isSelected}
-                hasActive={hasActiveSessionByProject?.(project.id)}
-                canDrag={canDrag}
-                onSelect={() => onSelectProject(isSelected ? null : project.id)}
-                onOpenProjectEditDialog={onOpenProjectEditDialog}
-                onRemoveProject={onRemoveProject}
-                mobileVariant={mobileVariant}
-              />
+              <React.Fragment key={project.id}>
+                <SortableFolderRow
+                  project={project}
+                  label={label}
+                  isSelected={isSelected}
+                  hasActive={hasActiveSessionByProject?.(project.id)}
+                  hasWorktrees={worktrees.length > 0}
+                  worktreeError={worktreeErrorsByProject.get(project.normalizedPath)}
+                  isExpanded={isProjectExpanded}
+                  canDrag={canDrag}
+                  onSelect={() => onSelectProject(project.id)}
+                  onOpenProjectEditDialog={onOpenProjectEditDialog}
+                  onRemoveProject={onRemoveProject}
+                  mobileVariant={mobileVariant}
+                />
+                {isProjectExpanded ? worktrees.map((worktree: GitWorktree) => {
+                  const worktreeSelected = selectedWorktreePath === worktree.path;
+                  return (
+                    <button
+                      key={worktree.path}
+                      type="button"
+                      onClick={() => onSelectWorktree?.(project.id, worktree.path)}
+                      className={cn(folderBarRowClass(mobileVariant, worktreeSelected), 'pl-8')}
+                      aria-pressed={worktreeSelected}
+                      title={worktree.path}
+                    >
+                      <Icon name="git-branch" className={cn(sidebarRowIconClass(mobileVariant), 'text-muted-foreground')} />
+                      <span className={sidebarRowLabelClass(mobileVariant)}>
+                        {worktree.branch || (worktree.detached ? 'Detached HEAD' : worktree.name)}
+                      </span>
+                    </button>
+                  );
+                }) : null}
+              </React.Fragment>
             );
           })}
         </SortableContext>

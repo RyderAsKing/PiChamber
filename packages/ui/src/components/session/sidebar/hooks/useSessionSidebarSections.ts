@@ -1,4 +1,5 @@
 import React from 'react';
+import type { GitWorktree } from '@/lib/api/types';
 import type { Session } from '@/lib/chat/types';
 import type { SessionGroup, SessionNode, GroupSearchData } from '../types';
 import { dedupeSessionsById, normalizePath } from '../utils';
@@ -27,6 +28,7 @@ type ProjectSectionCacheEntry = {
   archivedSessions: Session[];
   rootBranch: string | null;
   isRepo: boolean;
+  worktrees: readonly GitWorktree[];
   buildGroupedSessions: Args['buildGroupedSessions'];
   section: ProjectSection;
 };
@@ -35,14 +37,14 @@ type Args = {
   normalizedProjects: ProjectItem[];
   getSessionsForProject: (projectId: string) => Session[];
   getArchivedSessionsForProject: (projectId: string) => Session[];
-  availableWorktreesByProject?: unknown;
+  availableWorktreesByProject: ReadonlyMap<string, readonly GitWorktree[]>;
   projectRepoStatus: Map<string, boolean | null>;
   projectRootBranches: Map<string, string | null>;
   lastRepoStatus: boolean;
   buildGroupedSessions: (
     sessions: Session[],
     projectRoot: string,
-    _wt: unknown,
+    worktrees: readonly GitWorktree[],
     rootBranch: string | null,
     isRepo: boolean,
   ) => SessionGroup[];
@@ -58,6 +60,7 @@ export const useSessionSidebarSections = (args: Args) => {
     normalizedProjects,
     getSessionsForProject,
     getArchivedSessionsForProject,
+    availableWorktreesByProject,
     projectRepoStatus,
     projectRootBranches,
     lastRepoStatus,
@@ -86,6 +89,7 @@ export const useSessionSidebarSections = (args: Args) => {
         ? Boolean(projectRepoStatus.get(project.id))
         : lastRepoStatus;
       const rootBranch = projectRootBranches.get(project.id) ?? null;
+      const worktrees = availableWorktreesByProject.get(project.normalizedPath) ?? [];
       const cached = previousCache.get(project.id);
       if (
         cached
@@ -94,6 +98,7 @@ export const useSessionSidebarSections = (args: Args) => {
         && sameSessions(cached.archivedSessions, archivedSessions)
         && cached.rootBranch === rootBranch
         && cached.isRepo === isRepo
+        && cached.worktrees === worktrees
         && cached.buildGroupedSessions === buildGroupedSessions
       ) {
         reusedSections += 1;
@@ -106,7 +111,7 @@ export const useSessionSidebarSections = (args: Args) => {
       const groups = buildGroupedSessions(
         projectSessions,
         project.normalizedPath,
-        [],
+        worktrees,
         rootBranch,
         isRepo,
       );
@@ -117,6 +122,7 @@ export const useSessionSidebarSections = (args: Args) => {
         archivedSessions,
         rootBranch,
         isRepo,
+        worktrees,
         buildGroupedSessions,
         section,
       });
@@ -130,6 +136,7 @@ export const useSessionSidebarSections = (args: Args) => {
     normalizedProjects,
     getSessionsForProject,
     getArchivedSessionsForProject,
+    availableWorktreesByProject,
     projectRepoStatus,
     lastRepoStatus,
     buildGroupedSessions,

@@ -37,9 +37,12 @@ export interface DraftTargetProps {
     branchLoading?: boolean;
     showBranchSelector: boolean;
     showProjectSelector?: boolean;
+    showWorktreeSelector?: boolean;
+    worktreeMode?: boolean;
     endAccessory?: React.ReactNode;
     onProjectChange: (projectId: string) => void;
     onBranchChange: (branch: string) => void;
+    onWorktreeModeChange?: (enabled: boolean) => void;
     theme: Theme;
 }
 
@@ -52,7 +55,7 @@ export function ProjectLabel({ project }: { project: DraftTargetProject; theme: 
     const label = isMobile ? truncateWithEllipsis(rawLabel, 20) : rawLabel;
     return (
         <span className="inline-flex min-w-0 items-center gap-1.5">
-            <Icon name="folder" className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <Icon name={project.kind === 'worktree' ? 'git-branch' : 'folder'} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate text-muted-foreground">{label}</span>
         </span>
     );
@@ -60,6 +63,13 @@ export function ProjectLabel({ project }: { project: DraftTargetProject; theme: 
 
 const draftSelectTriggerClassName =
     'h-7 min-w-0 w-fit max-w-[48vw] gap-1 border-transparent bg-transparent px-1.5 text-muted-foreground typography-micro font-normal hover:bg-transparent hover:text-foreground data-[popup-open]:bg-transparent [&_svg]:size-3.5 [&_svg]:opacity-70 sm:max-w-[20rem]';
+
+const WorktreeValue = ({ enabled }: { enabled: boolean }) => (
+    <span className="inline-flex min-w-0 items-center gap-1.5">
+        <Icon name={enabled ? 'git-branch' : 'folder'} className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate">{enabled ? 'New worktree' : 'Current checkout'}</span>
+    </span>
+);
 
 const BranchValue = ({ label }: { label: string | null }) => (
     <span className="inline-flex min-w-0 items-center gap-1.5">
@@ -80,9 +90,12 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
         branchLoading,
         showBranchSelector,
         showProjectSelector = true,
+        showWorktreeSelector = false,
+        worktreeMode = false,
         endAccessory,
         onProjectChange,
         onBranchChange,
+        onWorktreeModeChange,
         theme,
     } = props;
 
@@ -98,7 +111,11 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
                         </SelectTrigger>
                         <SelectContent className="w-max min-w-48">
                             {projects.map((project) => (
-                                <SelectItem key={project.id} value={project.id} className="max-w-[24rem] truncate">
+                                <SelectItem
+                                    key={project.id}
+                                    value={project.id}
+                                    className={project.kind === 'worktree' ? 'max-w-[24rem] truncate pl-7' : 'max-w-[24rem] truncate'}
+                                >
                                     <ProjectLabel project={project} theme={theme} />
                                 </SelectItem>
                             ))}
@@ -133,6 +150,23 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
                         <BranchValue label={selectedBranchLabel} />
                     </div>
                 ) : null}
+
+                {showWorktreeSelector ? (
+                    <Select
+                        value={worktreeMode ? 'new-worktree' : 'current-checkout'}
+                        onValueChange={(value) => onWorktreeModeChange?.(value === 'new-worktree')}
+                    >
+                        <SelectTrigger size="sm" className={draftSelectTriggerClassName}>
+                            <SelectValue>
+                                <WorktreeValue enabled={worktreeMode} />
+                            </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent className="w-max min-w-48">
+                            <SelectItem value="current-checkout">Current checkout</SelectItem>
+                            <SelectItem value="new-worktree">New worktree</SelectItem>
+                        </SelectContent>
+                    </Select>
+                ) : null}
             </div>
             {endAccessory ? <div className="min-w-0 shrink-0">{endAccessory}</div> : null}
         </div>
@@ -143,7 +177,7 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
 export function MobileDraftTargetTriggers(
     props: Pick<
         DraftTargetProps,
-        'selectedProject' | 'selectedBranchLabel' | 'branchInteractive' | 'showBranchSelector' | 'showProjectSelector' | 'endAccessory' | 'theme'
+        'selectedProject' | 'selectedBranchLabel' | 'branchInteractive' | 'showBranchSelector' | 'showProjectSelector' | 'showWorktreeSelector' | 'worktreeMode' | 'onWorktreeModeChange' | 'endAccessory' | 'theme'
     > & { onOpenPicker: (picker: 'project' | 'branch') => void },
 ) {
     const {
@@ -152,6 +186,9 @@ export function MobileDraftTargetTriggers(
         branchInteractive,
         showBranchSelector,
         showProjectSelector = true,
+        showWorktreeSelector = false,
+        worktreeMode = false,
+        onWorktreeModeChange,
         endAccessory,
         theme,
         onOpenPicker,
@@ -189,6 +226,16 @@ export function MobileDraftTargetTriggers(
                         <Icon name="git-branch" className="h-3 w-3 shrink-0" />
                         <span className="truncate">{displayBranchLabel ?? 'Branch'}</span>
                     </div>
+                ) : null}
+                {showWorktreeSelector ? (
+                    <button
+                        type="button"
+                        className="inline-flex h-7 min-w-0 max-w-[48vw] flex-shrink cursor-pointer items-center gap-1 rounded-lg px-1.5 typography-micro font-medium text-foreground/80 hover:bg-[var(--interactive-hover)]"
+                        onClick={() => onWorktreeModeChange?.(!worktreeMode)}
+                        aria-pressed={worktreeMode}
+                    >
+                        <WorktreeValue enabled={worktreeMode} />
+                    </button>
                 ) : null}
             </div>
             {endAccessory ? <div className="min-w-0 shrink-0">{endAccessory}</div> : null}
@@ -272,7 +319,7 @@ export function MobileDraftTargetSheets(
                                         onProjectChange(project.id);
                                         onOpenPickerChange(null);
                                     }}
-                                    className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2 text-left typography-ui-label transition-colors hover:bg-[var(--interactive-hover)] ${
+                                    className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2 text-left typography-ui-label transition-colors hover:bg-[var(--interactive-hover)] ${project.kind === 'worktree' ? 'pl-7 ' : ''}${
                                         isSelected ? 'bg-[var(--interactive-hover)] font-medium text-foreground' : 'text-foreground/80'
                                     }`}
                                 >

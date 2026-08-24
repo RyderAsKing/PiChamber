@@ -113,6 +113,7 @@ import { useMessageHistory } from './composer/state/useMessageHistory';
 import { useComposerDraft } from './composer/state/useComposerDraft';
 import { useDraftTarget } from './composer/state/useDraftTarget';
 import { useDraftBranchCheckout } from './composer/state/useDraftBranchCheckout';
+import { useDraftWorktreeCreation } from './composer/state/useDraftWorktreeCreation';
 import { useMobileComposerShell } from './composer/state/useMobileComposerShell';
 import { useMobileViewportPin } from './composer/state/useMobileViewportPin';
 import {
@@ -129,6 +130,7 @@ import { LinkedReferenceRow } from './composer/ui/LinkedReferenceRow';
 import { RevertedMessageDock } from './composer/ui/RevertedMessageDock';
 import { ComposerVoiceButton } from './composer/ui/ComposerVoiceButton';
 import { ComposerVoiceActions, ComposerVoiceInput } from './composer/ui/ComposerVoiceInput';
+import { AgentThinkingLoader } from './AgentThinkingLoader';
 import { useComposerDictation } from '@/lib/dictation/use-composer-dictation';
 
 // Lazy like in ChatMessage: a static import would pull the @pierre/diffs and
@@ -399,6 +401,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const draftBranchCheckout = useDraftBranchCheckout<SubmitOptions | undefined>({
         activeRuntimeKey,
         intent: newSessionDraft?.branchIntent,
+        onReady: (continuation) => {
+            void handleSubmitRef.current(continuation);
+        },
+    });
+    const draftWorktreeCreation = useDraftWorktreeCreation<SubmitOptions | undefined>({
+        activeRuntimeKey,
+        intent: newSessionDraft?.worktreeIntent,
         onReady: (continuation) => {
             void handleSubmitRef.current(continuation);
         },
@@ -912,6 +921,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         const draftAtSend = useSessionUIStore.getState().newSessionDraft;
         const draftCommand = inputMode === 'normal' ? parseSlashCommand(inputSnapshot.message) : null;
         const commandStopsBeforeMaterialization = draftCommand?.name === 'compact';
+        const worktreeIntent = !capturedTarget
+            && !options?.queuedOnly
+            && !options?.queuedMessageId
+            && draftAtSend?.open
+            && !commandStopsBeforeMaterialization
+                ? draftAtSend.worktreeIntent
+                : null;
+        if (worktreeIntent && !draftWorktreeCreation.getReceipt(worktreeIntent)) {
+            await draftWorktreeCreation.request({
+                intent: worktreeIntent,
+                prompt: inputSnapshot.message,
+                continuation: options,
+            });
+            return;
+        }
+
         const branchIntent = !capturedTarget
             && !options?.queuedOnly
             && !options?.queuedMessageId
@@ -950,12 +975,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         }
 
         const branchCheckoutReceipt = draftBranchCheckout.getReceipt(branchIntent);
+        const worktreeCreationReceipt = draftWorktreeCreation.getReceipt(worktreeIntent);
         const sendMessageOptions = capturedTarget
             ? { target: capturedTarget, ...(delivery ? { delivery } : {}) }
-            : delivery || branchCheckoutReceipt
+            : delivery || branchCheckoutReceipt || worktreeCreationReceipt
                 ? {
                     ...(delivery ? { delivery } : {}),
                     ...(branchCheckoutReceipt ? { branchCheckoutReceipt } : {}),
+                    ...(worktreeCreationReceipt ? { worktreeCreationReceipt } : {}),
                 }
                 : undefined;
 
@@ -1087,6 +1114,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     );
                     draftBranchCheckout.clearReceipt();
                     await commandSendPromise;
+                    draftWorktreeCreation.clearReceipt();
                     scrollToBottom?.();
                 } catch (error) {
                     toast.error(getSubmitErrorMessage(error, command.errorToastKey));
@@ -1153,6 +1181,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         }
 
         void sendPromise.then(() => {
+            draftWorktreeCreation.clearReceipt();
             // Record what this session was pointed at. A snapshot only —
             // never re-fetched, never authoritative.
             // Failures are swallowed: the message went out, and a missing
@@ -2044,8 +2073,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         draftBranchItems,
         isDiscoveringDraftBranches,
         shouldShowDraftBranchSelector,
+        worktreeMode,
         handleDraftProjectChange,
         handleDraftBranchChange,
+        handleWorktreeModeChange,
     } = useDraftTarget(showDraftTargetSelectors);
 
     const showComposerTargetRow = Boolean(
@@ -2236,29 +2267,61 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         projects={draftProjects}
                         selectedProject={selectedDraftProject}
                         selectedBranchName={selectedBranchName}
-                        selectedBranchLabel={selectedDraftBranchLabel}
+                        selectedBranchLabel={worktreeMode && selectedDraftBranchLabel ? `Start from: ${selectedDraftBranchLabel}` : selectedDraftBranchLabel}
                         branchOptions={draftBranchItems}
                         branchInteractive={newSessionDraftOpen}
                         branchLoading={isDiscoveringDraftBranches}
                         showBranchSelector={shouldShowDraftBranchSelector}
                         showProjectSelector={newSessionDraftOpen}
+                        showWorktreeSelector={newSessionDraftOpen && shouldShowDraftBranchSelector}
+                        worktreeMode={worktreeMode}
                         endAccessory={pendingChangesBar}
                         onProjectChange={handleDraftProjectChange}
                         onBranchChange={handleDraftBranchChange}
+                        onWorktreeModeChange={handleWorktreeModeChange}
                         theme={currentTheme}
                     />
                 ) : null}
                 {isMobileForDraft && showDraftTargetSelectors && selectedDraftProject && (newSessionDraftOpen || shouldShowDraftBranchSelector) ? (
                     <MobileDraftTargetTriggers
                         selectedProject={selectedDraftProject}
-                        selectedBranchLabel={selectedDraftBranchLabel}
+                        selectedBranchLabel={worktreeMode && selectedDraftBranchLabel ? `Start from: ${selectedDraftBranchLabel}` : selectedDraftBranchLabel}
                         branchInteractive={newSessionDraftOpen}
                         showBranchSelector={shouldShowDraftBranchSelector}
                         showProjectSelector={newSessionDraftOpen}
+                        showWorktreeSelector={newSessionDraftOpen && shouldShowDraftBranchSelector}
+                        worktreeMode={worktreeMode}
+                        onWorktreeModeChange={handleWorktreeModeChange}
                         endAccessory={pendingChangesBar}
                         theme={currentTheme}
                         onOpenPicker={setMobileDraftPicker}
                     />
+                ) : null}
+                {newSessionDraftOpen && worktreeMode && !draftWorktreeCreation.state ? (
+                    <p className="mx-3 mb-2 typography-meta text-muted-foreground">
+                        Starts from the selected branch's latest commit. Uncommitted changes are not copied.
+                    </p>
+                ) : null}
+                {draftWorktreeCreation.state ? (
+                    <div
+                        className={cn(
+                            'mx-2 mb-2 flex min-h-16 items-center gap-3 rounded-xl px-3 py-2 typography-meta',
+                            draftWorktreeCreation.state.phase === 'failed'
+                                ? 'bg-[var(--status-error-background)] text-[var(--status-error-foreground)]'
+                                : 'bg-[var(--surface-muted)] text-muted-foreground',
+                        )}
+                        role={draftWorktreeCreation.state.phase === 'failed' ? 'alert' : 'status'}
+                    >
+                        {draftWorktreeCreation.state.phase !== 'failed' ? (
+                            <AgentThinkingLoader variant="inline" text={null} animationType="spinner" />
+                        ) : null}
+                        <div className="min-w-0">
+                            <p className="typography-ui-label">{draftWorktreeCreation.state.label}</p>
+                            {draftWorktreeCreation.state.error ? (
+                                <p className="mt-0.5 break-words">{draftWorktreeCreation.state.error}</p>
+                            ) : null}
+                        </div>
+                    </div>
                 ) : null}
                 <div
                     className={cn(
@@ -2368,7 +2431,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         trailingExtra={dictationActive ? null : (
                             <ComposerVoiceButton
                                 available={dictation.available}
-                                disabled={!currentSessionId && !newSessionDraftOpen}
+                                disabled={(!currentSessionId && !newSessionDraftOpen) || Boolean(draftWorktreeCreation.state && draftWorktreeCreation.state.phase !== 'failed')}
                                 className={footerIconButtonClass}
                                 iconClassName={iconSizeClass}
                                 onStart={handleStartDictation}
@@ -2391,7 +2454,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         iconSizeClass={iconSizeClass}
                         sendIconSizeClass={sendIconSizeClass}
                         stopIconSizeClass={stopIconSizeClass}
-                        canSend={canSend}
+                        canSend={canSend && !Boolean(draftWorktreeCreation.state && draftWorktreeCreation.state.phase !== 'failed')}
                         canAbort={canAbort}
                         hasContent={Boolean(hasContent)}
                         onOpenSettings={onOpenSettings}
@@ -2449,7 +2512,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                             ? "Plan, build, / for skills, @ for context"
                                             : (useCompactChatPlaceholder ? "Use @ / ! # for helpers" : "@ for files/agents; / for commands and skills; ! for shell; # for snippets")
                                     : "Select or create a session to start chatting"}
-                                editable={Boolean(currentSessionId || newSessionDraftOpen)}
+                                editable={Boolean(currentSessionId || newSessionDraftOpen) && !Boolean(draftWorktreeCreation.state && draftWorktreeCreation.state.phase !== 'failed')}
                                 autoCorrect={false}
                                 autoCapitalize="none"
                                 spellCheck={isMobile || inputSpellcheckEnabled}
@@ -2604,14 +2667,17 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 projects={draftProjects}
                 selectedProject={selectedDraftProject}
                 selectedBranchName={selectedBranchName}
-                selectedBranchLabel={selectedDraftBranchLabel}
+                selectedBranchLabel={worktreeMode && selectedDraftBranchLabel ? `Start from: ${selectedDraftBranchLabel}` : selectedDraftBranchLabel}
                 branchOptions={draftBranchItems}
                 branchInteractive={newSessionDraftOpen}
                 branchLoading={isDiscoveringDraftBranches}
                 showBranchSelector={shouldShowDraftBranchSelector}
                 showProjectSelector={newSessionDraftOpen}
+                showWorktreeSelector={newSessionDraftOpen && shouldShowDraftBranchSelector}
+                worktreeMode={worktreeMode}
                 onProjectChange={handleDraftProjectChange}
                 onBranchChange={handleDraftBranchChange}
+                onWorktreeModeChange={handleWorktreeModeChange}
                 theme={currentTheme}
                 openPicker={mobileDraftPicker}
                 onOpenPickerChange={setMobileDraftPicker}

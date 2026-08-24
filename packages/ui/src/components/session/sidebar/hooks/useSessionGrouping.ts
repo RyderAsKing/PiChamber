@@ -1,4 +1,5 @@
 import React from 'react';
+import type { GitWorktree } from '@/lib/api/types';
 import type { Session } from '@/lib/chat/types';
 import type { SessionGroup, SessionNode } from '../types';
 import {
@@ -57,7 +58,7 @@ export const useSessionGrouping = (args: Args) => {
     (
       projectSessions: Session[],
       projectRoot: string,
-      _availableWorktrees?: unknown,
+      availableWorktrees: readonly GitWorktree[] = [],
       projectRootBranch?: string | null,
       projectIsRepo?: boolean,
     ) => {
@@ -79,18 +80,35 @@ export const useSessionGrouping = (args: Args) => {
           childrenCountById.set(validParentID, (childrenCountById.get(validParentID) ?? 0) + 1);
         }
       });
-      const toFlatNode = (session: Session): SessionNode => {
+      const normalizedWorktrees = availableWorktrees
+        .map((worktree) => ({ worktree, directory: normalizePath(worktree.path) }))
+        .filter((entry): entry is { worktree: GitWorktree; directory: string } => Boolean(entry.directory) && !entry.worktree.isPrimary)
+        .sort((left, right) => right.directory.length - left.directory.length);
+      const containsDirectory = (root: string, candidate: string): boolean => (
+        candidate === root || candidate.startsWith(`${root}/`)
+      );
+      const worktreeForSession = (session: Session): GitWorktree | null => {
+        const directory = normalizePath((session as Session & { directory?: string | null }).directory ?? null);
+        if (!directory) return null;
+        return normalizedWorktrees.find((entry) => containsDirectory(entry.directory, directory))?.worktree ?? null;
+      };
+      const toFlatNode = (session: Session, worktree: GitWorktree | null): SessionNode => {
         const forkColorId = getForkColorIdForSession(session.id, parentById, childrenCountById);
-        return { session, children: [], worktree: null, forkColorId };
+        return { session, children: [], worktree, forkColorId };
       };
 
       const activeNodes: SessionNode[] = [];
+      const activeNodesByWorktree = new Map<string, SessionNode[]>();
       const archivedNodes: SessionNode[] = [];
+      for (const entry of normalizedWorktrees) activeNodesByWorktree.set(entry.directory, []);
 
       sortedProjectSessions.forEach((session) => {
-        const node = toFlatNode(session);
+        const worktree = worktreeForSession(session);
+        const node = toFlatNode(session, worktree);
         if (session.time?.archived) {
           archivedNodes.push(node);
+        } else if (worktree) {
+          activeNodesByWorktree.get(normalizePath(worktree.path) ?? '')?.push(node);
         } else {
           activeNodes.push(node);
         }
@@ -110,6 +128,21 @@ export const useSessionGrouping = (args: Args) => {
         folderScopeKey: normalizedProjectRoot,
         sessions: activeNodes,
       }];
+
+      for (const { worktree, directory } of normalizedWorktrees) {
+        groups.push({
+          id: `worktree:${directory}`,
+          label: worktree.branch || (worktree.detached ? 'Detached HEAD' : worktree.name),
+          branch: worktree.branch,
+          description: formatPathForDisplay(directory, args.homeDirectory),
+          isMain: false,
+          isArchivedBucket: false,
+          worktree,
+          directory,
+          folderScopeKey: directory,
+          sessions: activeNodesByWorktree.get(directory) ?? [],
+        });
+      }
 
       if (archivedNodes.length > 0) {
         groups.push({

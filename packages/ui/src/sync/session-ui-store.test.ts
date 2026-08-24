@@ -186,6 +186,43 @@ describe('routeMessage', () => {
     })).rejects.toThrow('Confirm the selected branch');
   });
 
+  test('refuses to materialize a draft with an uncreated worktree intent', async () => {
+    const { openNewSessionDraft } = useSessionUIStore.getState();
+    openNewSessionDraft({
+      selectedProjectId: 'proj-1',
+      directoryOverride: '/workspace/proj-1',
+      worktreeIntent: {
+        runtimeKey: getRuntimeKey(),
+        projectRoot: '/workspace/proj-1',
+        sourceDirectory: '/workspace/proj-1',
+        startRef: 'main',
+      },
+    });
+
+    await expect(materializeOpenDraftSession({
+      providerID: 'provider',
+      modelID: 'model',
+    })).rejects.toThrow('Create the selected worktree');
+  });
+
+  test('stores a worktree intent and clears it when the draft directory changes', () => {
+    const { openNewSessionDraft, setNewSessionDraftTarget } = useSessionUIStore.getState();
+    openNewSessionDraft({ selectedProjectId: 'proj-1', directoryOverride: '/workspace/proj-1' });
+    setNewSessionDraftTarget({
+      branchIntent: null,
+      worktreeIntent: {
+        runtimeKey: getRuntimeKey(),
+        projectRoot: '/workspace/proj-1',
+        sourceDirectory: '/workspace/proj-1',
+        startRef: 'main',
+      },
+    });
+    expect(useSessionUIStore.getState().newSessionDraft.worktreeIntent?.startRef).toBe('main');
+
+    setNewSessionDraftTarget({ directoryOverride: '/workspace/proj-2' });
+    expect(useSessionUIStore.getState().newSessionDraft.worktreeIntent).toBeNull();
+  });
+
   test('stores a branch intent and clears it when the draft directory changes', () => {
     const { openNewSessionDraft, setNewSessionDraftTarget } = useSessionUIStore.getState();
     openNewSessionDraft({

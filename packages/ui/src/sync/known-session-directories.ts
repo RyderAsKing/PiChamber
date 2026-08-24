@@ -1,7 +1,7 @@
 /**
  * Shared helper for the set of directories the sidebar / feeder / catalog
  * consider "known". Built from `useProjectsStore.projects[].path` plus the
- * discovered worktree paths in `useSessionUIStore.availableWorktreesByProject`.
+ * discovered worktree paths in the runtime-scoped Git worktree topology.
  *
  * Dedupe is case-insensitive so a project and a worktree on the same path
  * with different trailing-slash or letter-case conventions collapse into
