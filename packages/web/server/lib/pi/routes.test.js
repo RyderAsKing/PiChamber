@@ -100,6 +100,37 @@ describe('Pi runtime route', () => {
     await expect((await fetch(`${base}/api/pi/update-check`)).json()).resolves.toEqual({ available: false, currentVersion: '1.0.0' });
   });
 
+  it('generates a task name with the configured small model without exposing model details', async () => {
+    const calls = [];
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, {
+      getPiSessionDaemonRuntime: () => null,
+      settingsStore: {
+        read: async () => ({ smallModel: { providerId: 'provider', modelId: 'small' } }),
+      },
+      smallModelGenerator: async (input) => {
+        calls.push(input);
+        return { text: 'fix-auth-timeout' };
+      },
+    });
+    server = await listen(app);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/small-model/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ directory: '/repo', prompt: 'Fix the authentication timeout' }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ text: 'fix-auth-timeout' });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      directory: '/repo',
+      model: { providerId: 'provider', modelId: 'small' },
+    });
+    expect(calls[0].prompt).toContain('Fix the authentication timeout');
+  });
+
   it('lists and selects only daemon-owned projects', async () => {
     const calls = [];
     const runtime = {

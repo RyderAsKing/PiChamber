@@ -677,6 +677,7 @@ export const registerPiRuntimeRoutes = (app, {
   uiSettingsStore = createPiUiSettingsStore(),
   listCustomThemes = listPiCustomThemes,
   updateChecker = checkForUpdates,
+  smallModelGenerator = async (input) => (await import('./small-model-generation.js')).generateWithSmallModel(input),
 }) => {
   app.get('/api/pi/ui-settings', async (_req, res) => {
     try {
@@ -909,6 +910,36 @@ export const registerPiRuntimeRoutes = (app, {
       res.json(projectProviderStatus(result));
     } catch (error) {
       writeDaemonError(res, error);
+    }
+  });
+
+  app.post('/api/pi/small-model/generate', async (req, res) => {
+    const source = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
+    const directory = typeof req.body?.directory === 'string' ? req.body.directory.trim() : '';
+    if (!source || source.length > 20_000 || !directory) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const settings = await settingsStore.read();
+      const model = settings.smallModel ?? settings.defaultModel;
+      const result = await smallModelGenerator({
+        directory,
+        model,
+        prompt: [
+          'Create a short task name for a Git worktree and branch.',
+          'Return only lowercase ASCII words separated by hyphens.',
+          'Use at most 48 characters. Do not include quotes, punctuation, a prefix, or explanation.',
+          '',
+          source,
+        ].join('\n'),
+      });
+      if (!result || typeof result.text !== 'string' || result.text.trim().length === 0) throw protocolMismatch();
+      res.json({ text: result.text.trim() });
+    } catch (error) {
+      const code = typeof error?.code === 'string' ? error.code : 'SMALL_MODEL_FAILED';
+      const status = code === 'SMALL_MODEL_UNCONFIGURED' ? 409 : 503;
+      res.status(status).json({ error: { code } });
     }
   });
 

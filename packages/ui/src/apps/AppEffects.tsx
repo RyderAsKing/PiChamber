@@ -14,6 +14,7 @@ import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { isNewSessionDraftActive } from '@/lib/router/session-intent';
 import { PiSessionCatalogFeeder } from '@/sync/pi-session-catalog-feeder';
+import { WorktreeDiscovery } from '@/sync/worktree-discovery';
 
 const MINI_CHAT_PRESENCE_CHANNEL = 'pichamber:mini-chat-presence';
 
@@ -143,6 +144,8 @@ const PiSessionBootstrapBridge: React.FC = () => {
               open: false as const,
               selectedProjectId: null,
               directoryOverride: null,
+              branchIntent: null,
+              worktreeIntent: null,
               preserveDirectoryOverride: false,
               parentID: null,
               title: undefined,
@@ -205,6 +208,7 @@ export function SyncAppEffects({ embeddedBackgroundWorkEnabled }: {
       <SyncRuntimeEffects embeddedBackgroundWorkEnabled={embeddedBackgroundWorkEnabled} />
       <PiSessionBootstrapBridge />
       <MiniChatPresenceBridge />
+      <WorktreeDiscovery />
       <PiSessionCatalogFeeder />
     </>
   );

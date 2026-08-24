@@ -32,6 +32,11 @@ import type {
   CherryPickResponse,
   RevertCommitResponse,
   ResetToCommitResponse,
+  GitWorktree,
+  GitWorktreeCreateInput,
+  GitWorktreeCreateResult,
+  GitWorktreeValidationResult,
+  GitWorktreeBootstrapStatus,
 } from './api/types';
 import { runtimeFetch } from './runtime-fetch';
 import { getRuntimeUrlResolver } from './runtime-url';
@@ -153,6 +158,52 @@ export async function getGitStatus(directory: string, options?: { mode?: 'light'
       gitStatusInFlight.delete(key);
     }
   }
+}
+
+const readGitError = async (response: Response, fallback: string): Promise<Error> => {
+  const payload = await response.json().catch(() => null) as { error?: unknown } | null;
+  return new Error(typeof payload?.error === 'string' && payload.error ? payload.error : fallback);
+};
+
+export async function listGitWorktrees(directory: string): Promise<GitWorktree[]> {
+  const response = await runtimeFetch(buildUrl(`${API_BASE}/worktrees`, directory));
+  if (!response.ok) throw await readGitError(response, 'Failed to list git worktrees');
+  const payload = await response.json() as { worktrees?: GitWorktree[] };
+  if (!Array.isArray(payload.worktrees)) throw new Error('Git worktree response is invalid');
+  return payload.worktrees;
+}
+
+export async function validateGitWorktree(
+  directory: string,
+  input: GitWorktreeCreateInput,
+): Promise<GitWorktreeValidationResult> {
+  const response = await runtimeFetch(buildUrl(`${API_BASE}/worktrees/validate`, directory), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw await readGitError(response, 'Failed to validate git worktree');
+  return response.json();
+}
+
+export async function createGitWorktree(
+  directory: string,
+  input: GitWorktreeCreateInput,
+): Promise<GitWorktreeCreateResult> {
+  const response = await runtimeFetch(buildUrl(`${API_BASE}/worktrees`, directory), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw await readGitError(response, 'Failed to create git worktree');
+  invalidateGitStatusCache(directory);
+  return response.json();
+}
+
+export async function getGitWorktreeBootstrapStatus(directory: string): Promise<GitWorktreeBootstrapStatus> {
+  const response = await runtimeFetch(buildUrl(`${API_BASE}/worktrees/bootstrap-status`, directory));
+  if (!response.ok) throw await readGitError(response, 'Failed to get git worktree bootstrap status');
+  return response.json();
 }
 
 export async function resolveGitPrimaryRoot(directory: string): Promise<{ root: string }> {

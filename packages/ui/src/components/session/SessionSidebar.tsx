@@ -17,6 +17,7 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
 import { useGitStore, useGitAllBranches, useGitRepoStatusMap } from '@/stores/useGitStore';
+import { buildAvailableWorktreesByProject, useWorktreeStore } from '@/stores/useWorktreeStore';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
@@ -245,6 +246,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const safeStorage = React.useMemo(() => getDeferredSafeStorage(), []);
   const [collapsedProjects, setCollapsedProjects] = React.useState<Set<string>>(new Set());
   const [selectedSpaceId, setSelectedSpaceId] = React.useState<string | null>(null);
+  const [selectedWorktreePath, setSelectedWorktreePath] = React.useState<string | null>(null);
 
   const [projectRepoStatus, setProjectRepoStatus] = React.useState<Map<string, boolean | null>>(new Map());
   const [visibleSessionCountByGroup, setVisibleSessionCountByGroup] = React.useState<Map<string, number>>(new Map());
@@ -404,8 +406,37 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const shareSession = useSessionUIStore((state) => state.shareSession);
   const unshareSession = useSessionUIStore((state) => state.unshareSession);
   // sessionAttentionStates removed — now using notification-store directly in SessionNodeItem
-  const worktreeMetadata = null;
-  const availableWorktreesByProject = useSessionUIStore((state) => (state as any).availableWorktreesByProject) ?? new Map();
+  const worktreeProjects = useWorktreeStore((state) => state.projects);
+  const availableWorktreesByProject = React.useMemo(
+    () => buildAvailableWorktreesByProject(projects, { projects: worktreeProjects }),
+    [projects, worktreeProjects],
+  );
+  const worktreeErrorsByProject = React.useMemo(() => {
+    const errors = new Map<string, string>();
+    for (const project of projects) {
+      const projectPath = normalizePath(project.path);
+      if (!projectPath) continue;
+      const error = worktreeProjects.get(projectPath)?.error;
+      if (error) errors.set(projectPath, error);
+    }
+    return errors;
+  }, [projects, worktreeProjects]);
+  React.useEffect(() => {
+    if (!selectedSpaceId) return;
+    const project = projects.find((candidate) => candidate.id === selectedSpaceId);
+    if (!project) {
+      setSelectedSpaceId(null);
+      setSelectedWorktreePath(null);
+      return;
+    }
+    if (!selectedWorktreePath) return;
+    const stillAvailable = (availableWorktreesByProject.get(normalizePath(project.path) ?? project.path) ?? [])
+      .some((worktree) => normalizePath(worktree.path) === normalizePath(selectedWorktreePath));
+    if (!stillAvailable) {
+      setSelectedWorktreePath(null);
+      toast.warning('The selected worktree is no longer available. Showing the project checkout instead.');
+    }
+  }, [availableWorktreesByProject, projects, selectedSpaceId, selectedWorktreePath]);
   const openNewSessionDraft = useSessionUIStore((state) => state.openNewSessionDraft);
   // The sidebar tree's +-buttons (project / group / folder) open a draft but,
   // unlike selecting an existing session, don't navigate. VS Code's compact view
@@ -455,9 +486,21 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       .join('|')}`,
     [projects, runtimeKey],
   );
-  const [resolvedWorktreeTopologyKey, setResolvedWorktreeTopologyKey] = React.useState<string | null>(null);
-  const isWorktreeTopologyLoading = resolvedWorktreeTopologyKey !== projectWorktreeDiscoveryKey;
-  const [unresolvedWorktreeProjectPaths, setUnresolvedWorktreeProjectPaths] = React.useState<ReadonlySet<string>>(new Set());
+  const worktreeTopologyState = React.useMemo(() => {
+    const unresolved = new Set<string>();
+    let complete = true;
+    for (const project of projects) {
+      const projectPath = normalizePath(project.path);
+      if (!projectPath) continue;
+      const status = worktreeProjects.get(projectPath)?.status ?? 'idle';
+      if (status === 'failed') unresolved.add(projectPath);
+      if (status === 'idle' || status === 'loading') complete = false;
+    }
+    return { complete, unresolved };
+  }, [projects, worktreeProjects]);
+  const resolvedWorktreeTopologyKey = worktreeTopologyState.complete ? projectWorktreeDiscoveryKey : null;
+  const isWorktreeTopologyLoading = !worktreeTopologyState.complete;
+  const unresolvedWorktreeProjectPaths: ReadonlySet<string> = worktreeTopologyState.unresolved;
 
   const { isTablet } = useDeviceInfo();
   const alwaysShowSidebarActions = mobileVariant || isTablet;
@@ -1007,11 +1050,15 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   }, [flatSectionsForRender]);
 
   const filteredSectionsForSidebarRender = React.useMemo(() => {
-    if (!selectedSpaceId) {
-      return sectionsForSidebarRender;
-    }
-    return sectionsForSidebarRender.filter((section) => section.project.id === selectedSpaceId);
-  }, [sectionsForSidebarRender, selectedSpaceId]);
+    if (!selectedSpaceId) return sectionsForSidebarRender;
+    const section = sectionsForRender.find((candidate) => candidate.project.id === selectedSpaceId);
+    if (!section) return [];
+    const targetDirectory = normalizePath(selectedWorktreePath ?? section.project.normalizedPath);
+    const selectedGroup = section.groups.find((group) => (
+      !group.isArchivedBucket && normalizePath(group.directory) === targetDirectory
+    ));
+    return selectedGroup ? [{ ...section, groups: [selectedGroup] }] : [];
+  }, [sectionsForRender, sectionsForSidebarRender, selectedSpaceId, selectedWorktreePath]);
 
   const totalSessionCount = React.useMemo(() => {
     let count = 0;
@@ -1381,10 +1428,34 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         <SidebarSpacesBar
           projects={projectSections.map((s) => s.project)}
           selectedProjectId={selectedSpaceId}
+          selectedWorktreePath={selectedWorktreePath}
+          worktreesByProject={availableWorktreesByProject}
+          worktreeErrorsByProject={worktreeErrorsByProject}
           onSelectProject={(id) => {
             setSelectedSpaceId(id);
-            if (id) {
-              setActiveProjectIdOnly(id);
+            setSelectedWorktreePath(null);
+            if (!id) return;
+            setActiveProjectIdOnly(id);
+            const section = projectSections.find((candidate) => candidate.project.id === id);
+            const rootGroup = section?.groups.find((group) => group.isMain);
+            const firstSession = rootGroup?.sessions[0]?.session;
+            if (firstSession) {
+              stableHandleSessionSelect(firstSession.id, rootGroup?.directory ?? section?.project.normalizedPath ?? null, { keepPanelOpen: true });
+            } else if (section) {
+              openNewSessionDraftFromTree({ selectedProjectId: id, directoryOverride: section.project.normalizedPath });
+            }
+          }}
+          onSelectWorktree={(projectId, worktreePath) => {
+            setSelectedSpaceId(projectId);
+            setSelectedWorktreePath(worktreePath);
+            setActiveProjectIdOnly(projectId);
+            const section = projectSections.find((candidate) => candidate.project.id === projectId);
+            const group = section?.groups.find((candidate) => normalizePath(candidate.directory) === normalizePath(worktreePath));
+            const firstSession = group?.sessions[0]?.session;
+            if (firstSession) {
+              stableHandleSessionSelect(firstSession.id, worktreePath, { keepPanelOpen: true });
+            } else {
+              openNewSessionDraftFromTree({ selectedProjectId: projectId, directoryOverride: worktreePath });
             }
           }}
           onOpenDirectoryDialog={handleOpenDirectoryDialog}

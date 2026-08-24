@@ -248,6 +248,62 @@ export function registerGitRoutes(app) {
     }
   });
 
+  app.get('/api/git/worktrees', async (req, res) => {
+    const { getWorktrees } = await getGitLibraries();
+    try {
+      const directory = resolveDirectoryQuery(req.query.directory);
+      if (!directory) {
+        return res.status(400).json({ error: 'directory parameter is required' });
+      }
+      res.json({ worktrees: await getWorktrees(directory) });
+    } catch (error) {
+      console.error('Failed to list git worktrees:', error);
+      res.status(500).json({ error: error.message || 'Failed to list git worktrees' });
+    }
+  });
+
+  app.post('/api/git/worktrees/validate', async (req, res) => {
+    const { validateWorktreeCreate } = await getGitLibraries();
+    try {
+      const directory = resolveDirectoryQuery(req.query.directory);
+      if (!directory) {
+        return res.status(400).json({ error: 'directory parameter is required' });
+      }
+      res.json(await validateWorktreeCreate(directory, req.body ?? {}));
+    } catch (error) {
+      console.error('Failed to validate git worktree:', error);
+      res.status(400).json({ error: error.message || 'Failed to validate git worktree' });
+    }
+  });
+
+  app.post('/api/git/worktrees', async (req, res) => {
+    const { createWorktree } = await getGitLibraries();
+    try {
+      const directory = resolveDirectoryQuery(req.query.directory);
+      if (!directory) {
+        return res.status(400).json({ error: 'directory parameter is required' });
+      }
+      res.status(201).json(await createWorktree(directory, req.body ?? {}));
+    } catch (error) {
+      console.error('Failed to create git worktree:', error);
+      res.status(400).json({ error: error.message || 'Failed to create git worktree' });
+    }
+  });
+
+  app.get('/api/git/worktrees/bootstrap-status', async (req, res) => {
+    const { getWorktreeBootstrapStatus } = await getGitLibraries();
+    try {
+      const directory = resolveDirectoryQuery(req.query.directory);
+      if (!directory) {
+        return res.status(400).json({ error: 'directory parameter is required' });
+      }
+      res.json(await getWorktreeBootstrapStatus(directory));
+    } catch (error) {
+      console.error('Failed to get git worktree bootstrap status:', error);
+      res.status(500).json({ error: error.message || 'Failed to get git worktree bootstrap status' });
+    }
+  });
+
   app.get('/api/git/primary-root', async (req, res) => {
     const { resolvePrimaryWorktreeRoot } = await getGitLibraries();
     try {

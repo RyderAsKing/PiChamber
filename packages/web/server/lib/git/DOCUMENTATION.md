@@ -42,7 +42,7 @@ The following functions are exported and used by the web server:
 - `getRemotes(directory)`: Get list of configured remotes. Non-repository directories return an empty list without logging an operational failure.
 
 ### Worktree Operations
-- `getWorktrees(directory)`: List all git worktrees for a repository.
+- `getWorktrees(directory)`: List all Git worktrees for a repository with primary, detached, locked, and prunable metadata. Listing is authoritative and throws on failure; callers that intentionally use a soft fallback must catch it locally.
 - `validateWorktreeCreate(directory, input)`: Validate worktree creation parameters (mode, branchName, startRef, upstream config).
 - `createWorktree(directory, input)`: Create a new worktree (supports 'new' and 'existing' modes, upstream setup). After populating the worktree, the repository's `post-checkout` hook runs once with git's standard arguments (null ref as previous HEAD, the checked-out HEAD, and flag `1`) from the worktree directory, mirroring `git worktree add` without `--no-checkout`; a missing or non-executable hook is skipped and a failing hook is logged as a warning, never failing worktree creation or the session bootstrap.
 - `removeWorktree(directory, input)`: Remove a worktree (optionally delete local branch).
@@ -120,6 +120,10 @@ The following functions are internal helpers used by exported functions:
 - `branches`: Per-branch detail keyed by branch name, as reported by `git branch`.
 - `defaultBranches`: Each remote's default branch, keyed by remote name. Read from the local `remotes/<name>/HEAD` symbolic ref; for a remote that has none — clone writes it, a hand-added remote may not — the remote itself is asked once with `ls-remote --symref`. A remote that answers neither is absent rather than guessed, and consumers fall back to conventional branch names. Omitted entirely by runtimes that do not provide this Git metadata.
 
+### Runtime availability of worktrees
+
+Authenticated `GET /api/git/worktrees`, `POST /api/git/worktrees/validate`, `POST /api/git/worktrees`, and `GET /api/git/worktrees/bootstrap-status` expose discovery and creation to the shared web runtime. Electron, hosted mobile, and Capacitor clients use the same server implementation. Worktree removal is deliberately not routed because the current server operation is forceful and needs separate dirty, unpushed-commit, and active-session safety rules before becoming user-facing.
+
 ### Runtime availability of range diffs
 - `GET /api/git/range-diff` is served by the PiChamber web server, so it is available to web, desktop, and mobile clients. The shared `GitAPI.getGitRangeDiff` is therefore optional: web supplies the HTTP implementation, and VS Code does not implement it because the extension host serves Git through its own bridge rather than these routes. Features built on range diffs (currently the AI diff walkthrough) are not offered in VS Code.
 
@@ -134,7 +138,7 @@ The following functions are internal helpers used by exported functions:
 - `branch`: Local branch name.
 - `path`: Absolute path to worktree directory.
 - `directoryCreated`: Present when create returned after the target directory exists while background Git/bootstrap work continues.
-- `bootstrapStatus`: Background setup state. The legacy `status` remains `pending`, `ready`, or `failed`, while `phase` reports `directory-created`, `git-ready`, or `setup-ready`. Fast create starts at `pending`/`directory-created`; population and upstream Git completion advances to `pending`/`git-ready` before setup/start scripts; completed setup is `ready`/`setup-ready`. A missing in-memory state falls back to `ready`/`setup-ready`; clients continue to accept legacy status responses that omit `phase`.
+- `bootstrapStatus`: Background setup state. The legacy `status` remains `pending`, `ready`, or `failed`, while `phase` reports `directory-created`, `git-ready`, or `setup-ready`. Fast create starts at `pending`/`directory-created`; population and upstream Git completion advances to `pending`/`git-ready` before setup/start scripts; completed setup is `ready`/`setup-ready`. A failed setup command becomes `failed` at `git-ready`, so clients do not create a session in a checkout whose required setup failed. A missing in-memory state falls back to `ready`/`setup-ready`; clients continue to accept legacy status responses that omit `phase`.
 - Fast-create background failures remove OpenCode sandbox metadata for directories that never became Git worktrees, and remove the pre-created directory only if it is still empty. User-created files are never recursively deleted by this cleanup.
 - Worktree removal waits for any active create/bootstrap task for that directory before deleting it, preventing a background Git or setup task from restoring removed state or racing filesystem cleanup.
 - Worktree bootstrap retries transient `index.lock` conflicts. If the lock remains byte-for-byte and metadata-identical across the retry window, it is treated as stale, removed, and population continues automatically; changing locks are left untouched and reported as failures.

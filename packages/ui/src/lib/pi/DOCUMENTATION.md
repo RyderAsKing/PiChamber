@@ -338,8 +338,7 @@ adapter or renders Pi's opaque browser/device/manual-code login state; stored
 credentials never return to the browser. Custom OpenAI-compatible providers
 are written through the same adapter to Pi `models.json`; configuration
 responses omit credentials and headers, which are write-only. PiChamber new-session model, small-model, and walkthrough-model
-defaults live in its own sidecar and are edited on the Sessions settings page
-with the shared model picker. Per-model thinking variants live solely in
+defaults live in its own sidecar and are edited on the Sessions settings page with the shared model picker. The authenticated `/api/pi/small-model/generate` adapter uses an in-memory, no-tools Pi session with the configured small model (falling back to the configured default model) for short utility output. It never writes a visible session or JSONL file, applies a bounded timeout, and returns no provider, credential, prompt, or daemon metadata. Worktree naming is its first consumer and falls back to a local safe slug when generation is unavailable. Per-model thinking variants live solely in
 Providers settings — each model row shows its default variant directly
 without a boxed border (`Default` when unset) and stores `pichamber.defaultThinkingByModel`
 (`provider/model` → level). The Sessions default-thinking row edits the same

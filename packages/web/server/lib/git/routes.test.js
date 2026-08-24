@@ -6,6 +6,10 @@ const gitLibraries = {
   isGitRepository: vi.fn(),
   getStatus: vi.fn(),
   checkoutBranch: vi.fn(),
+  getWorktrees: vi.fn(),
+  validateWorktreeCreate: vi.fn(),
+  createWorktree: vi.fn(),
+  getWorktreeBootstrapStatus: vi.fn(),
 };
 
 vi.mock('./index.js', () => ({
@@ -14,6 +18,10 @@ vi.mock('./index.js', () => ({
   isGitRepository: gitLibraries.isGitRepository,
   getStatus: gitLibraries.getStatus,
   checkoutBranch: gitLibraries.checkoutBranch,
+  getWorktrees: gitLibraries.getWorktrees,
+  validateWorktreeCreate: gitLibraries.validateWorktreeCreate,
+  createWorktree: gitLibraries.createWorktree,
+  getWorktreeBootstrapStatus: gitLibraries.getWorktreeBootstrapStatus,
 }));
 
 const { registerGitRoutes } = await import('./routes.js');
@@ -70,6 +78,62 @@ describe('git routes index mutations', () => {
     gitLibraries.isGitRepository.mockReset();
     gitLibraries.getStatus.mockReset();
     gitLibraries.checkoutBranch.mockReset();
+    gitLibraries.getWorktrees.mockReset();
+    gitLibraries.validateWorktreeCreate.mockReset();
+    gitLibraries.createWorktree.mockReset();
+    gitLibraries.getWorktreeBootstrapStatus.mockReset();
+  });
+
+  it('lists worktrees without converting failures into an empty result', async () => {
+    const { app, getRoute } = createRouteRegistry();
+    registerGitRoutes(app);
+    const response = createMockResponse();
+    gitLibraries.getWorktrees.mockResolvedValue([{ path: '/repo-task', branch: 'task' }]);
+
+    await getRoute('GET', '/api/git/worktrees')(
+      { query: { directory: '/repo' } },
+      response,
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual({ worktrees: [{ path: '/repo-task', branch: 'task' }] });
+    expect(gitLibraries.getWorktrees).toHaveBeenCalledWith('/repo');
+
+    const failed = createMockResponse();
+    gitLibraries.getWorktrees.mockRejectedValueOnce(new Error('registry unavailable'));
+    await getRoute('GET', '/api/git/worktrees')(
+      { query: { directory: '/repo' } },
+      failed,
+    );
+    expect(failed.statusCode).toBe(500);
+    expect(failed.body).toEqual({ error: 'registry unavailable' });
+  });
+
+  it('creates and polls a worktree through explicit routes', async () => {
+    const { app, getRoute } = createRouteRegistry();
+    registerGitRoutes(app);
+    const created = {
+      path: '/repo-task',
+      branch: 'pichamber/task',
+      bootstrapStatus: { status: 'pending', phase: 'directory-created' },
+    };
+    gitLibraries.createWorktree.mockResolvedValue(created);
+    gitLibraries.getWorktreeBootstrapStatus.mockResolvedValue({ status: 'ready', phase: 'setup-ready' });
+
+    const createResponse = createMockResponse();
+    await getRoute('POST', '/api/git/worktrees')(
+      { query: { directory: '/repo' }, body: { mode: 'new', startRef: 'main' } },
+      createResponse,
+    );
+    expect(createResponse.statusCode).toBe(201);
+    expect(createResponse.body).toEqual(created);
+
+    const statusResponse = createMockResponse();
+    await getRoute('GET', '/api/git/worktrees/bootstrap-status')(
+      { query: { directory: '/repo-task' } },
+      statusResponse,
+    );
+    expect(statusResponse.body).toEqual({ status: 'ready', phase: 'setup-ready' });
   });
 
   it('accepts legacy stage path payloads', async () => {
