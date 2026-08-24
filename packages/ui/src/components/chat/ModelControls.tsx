@@ -1020,7 +1020,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         return `${value.slice(0, limit)}...`;
     }, [isMobile]);
 
-    const currentModelDisplayName = truncateForMobile(getCurrentModelDisplayName(), 20);
+    const currentModelDisplayName = truncateForMobile(getCurrentModelDisplayName(), 16);
     const modelLabelRef = React.useRef<HTMLSpanElement>(null);
     const isModelLabelTruncated = useIsTextTruncated(modelLabelRef, [currentModelDisplayName, isCompact]);
 
