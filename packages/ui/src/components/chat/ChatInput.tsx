@@ -2461,6 +2461,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                 elapsedSeconds={dictation.elapsedSeconds}
                                 buttonClassName={footerIconButtonClass}
                                 iconClassName={iconSizeClass}
+                                isMobile={isMobile}
                                 onCancel={dictation.cancel}
                                 onDone={handleFinishDictation}
                             />
