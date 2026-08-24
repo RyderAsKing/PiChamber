@@ -2,7 +2,7 @@
 name: relay-transport
 description: Use when adding or changing PiChamber WebSocket, SSE, streaming, realtime endpoints, shared UI sockets, runtime transport internals, private relay behavior, or files under the UI/server relay modules.
 license: MIT
-compatibility: opencode
+compatibility: pichamber
 ---
 
 ## Overview

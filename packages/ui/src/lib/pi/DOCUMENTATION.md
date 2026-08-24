@@ -24,7 +24,7 @@ The module uses native `Response` parsing through `runtimeFetch` so callers
 can distinguish failure from a successful empty result. `MainLayout` is the
 mounted owner for web, desktop, mini-chat, and mobile chrome. Session truth
 lives in `PiSessionStore` via `PiSessionProvider`; chat leaves consume
-`pi-to-renderable` adapters rather than OpenCode SDK types.
+`pi-to-renderable` adapters and local render contracts.
 
 Capacitor's native HTTP fetch adapter buffers long responses, so direct native
 mobile clients use URL-authenticated `EventSource` for `/api/pi/events`.
@@ -278,9 +278,7 @@ so background hydrations don't steal the visible chat.
 `open(directory, sessionId)` is the first-attach entry: it selects the daemon
 project, probes health, lists and hydrates the selected session, and attaches
 the runtime-wide stream. The health and list results from that first attach
-are passed into hydration rather than probed/listed a second time. After attach, `open` /
-`start` /
-`legacy-ui-client.setDirectory` / `setActiveSession` route to
+are passed into hydration rather than probed/listed a second time. After attach, `open`, `start`, project selection, and `setActiveSession` route to
 `focusProject(directory)` when the cluster is attached, then call
 `select(sessionId)` for the new pointer. Same-folder selects remain pure
 pointer changes on the resident cluster. Cross-folder
@@ -316,15 +314,14 @@ React consumers read `PiSessionStore` through `usePiSessionSnapshot(selector)`.
 The selector must return a leaf or a stable per-session record; omitting it
 re-renders every subscriber on each accepted event.
 The restored web shell bootstraps provider/model config through
-`initializeApp()` in `SyncAppEffects`; `legacy-ui-client.getProvidersForConfig`
-must return `{ providers, default }` so the config store can leave the picker
-off the loading state. Selection catalogs (composer, session defaults, small
+`initializeApp()` in `SyncAppEffects`; `useConfigStore.loadProviders()` reads the
+Pi provider catalog through `piClient` so the picker can leave the loading state. Selection catalogs (composer, session defaults, small
 model, walkthrough model) include only authenticated providers that have
 models. Users can hide individual models from those catalogs in Providers
 settings; hidden models stay out of pickers. Session default, small-model, and
 walkthrough-model pickers live on the Sessions page and use the same picker as
 the composer. Providers settings still lists the
-full catalog so unconfigured providers can be logged in. Composer chrome does not expose an OpenCode agent selector.
+full catalog so unconfigured providers can be logged in. Composer chrome does not expose an agent selector.
 Chat, sidebar, and composer mutations go through `PiSessionStore` and `/api/pi/*`. Pi assistant projections preserve their owning user-message id end to end because the restored chat renderer groups assistant output into user turns by that identity. Tool parts preserve input, cumulative partial output, final output, error text, metadata, and start/end timestamps through the reducer. `pi-to-renderable` keeps that contract for live and expanded tools; settled historical tools whose output or patch exceeds a character budget become preview stubs (`state.deferredBody`) so transcript records do not retain full bodies. Expanding a tool hydrates the canonical part through `useSessionReducerPart`. A completed tool needs an end time and keeps its status verbatim, including `cancelled`. `pi-to-renderable` also copies the producing `providerId`/`modelId` onto both nested `info.model` and top-level `info.providerID`/`info.modelID` so the assistant message footer can show the model name without guessing from the current composer selection.
 Settings chrome is the restored PiChamber hub limited to Pi-owned pages
 (Providers, Skills, Snippets, Behavior/`AGENTS.md`, Magic Prompts, appearance

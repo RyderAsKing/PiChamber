@@ -2,7 +2,7 @@
 name: drag-to-reorder
 description: Use when implementing or modifying PiChamber sortable or drag-to-reorder behavior, especially `@dnd-kit`, touch/mobile interactions, variable-width items, or wrapping layouts.
 license: MIT
-compatibility: opencode
+compatibility: pichamber
 ---
 
 ## Overview

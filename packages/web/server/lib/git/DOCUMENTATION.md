@@ -139,7 +139,7 @@ Authenticated `GET /api/git/worktrees`, `POST /api/git/worktrees/validate`, `POS
 - `path`: Absolute path to worktree directory.
 - `directoryCreated`: Present when create returned after the target directory exists while background Git/bootstrap work continues.
 - `bootstrapStatus`: Background setup state. The legacy `status` remains `pending`, `ready`, or `failed`, while `phase` reports `directory-created`, `git-ready`, or `setup-ready`. Fast create starts at `pending`/`directory-created`; population and upstream Git completion advances to `pending`/`git-ready` before setup/start scripts; completed setup is `ready`/`setup-ready`. A failed setup command becomes `failed` at `git-ready`, so clients do not create a session in a checkout whose required setup failed. A missing in-memory state falls back to `ready`/`setup-ready`; clients continue to accept legacy status responses that omit `phase`.
-- Fast-create background failures remove OpenCode sandbox metadata for directories that never became Git worktrees, and remove the pre-created directory only if it is still empty. User-created files are never recursively deleted by this cleanup.
+- Fast-create background failures remove the pre-created directory only if it is still empty. User-created files are never recursively deleted by this cleanup.
 - Worktree removal waits for any active create/bootstrap task for that directory before deleting it, preventing a background Git or setup task from restoring removed state or racing filesystem cleanup.
 - Worktree bootstrap retries transient `index.lock` conflicts. If the lock remains byte-for-byte and metadata-identical across the retry window, it is treated as stale, removed, and population continues automatically; changing locks are left untouched and reported as failures.
 - Worktree population enables Git `core.longpaths` (local repo config plus `-c core.longpaths=true` on `git reset --hard`) so deeply nested checkouts under the managed data-dir worktree root do not fail on Windows MAX_PATH with "Filename too long". Path-component limits that the filesystem itself rejects still fail bootstrap, with a clearer path-length guidance message.
@@ -172,7 +172,7 @@ Authenticated `GET /api/git/worktrees`, `POST /api/git/worktrees/validate`, `POS
 
 ### Worktree Naming
 - Worktree names are slugified via `slugWorktreeName`.
-- Random names use adjectives/nouns from `OPENCODE_ADJECTIVES` and `OPENCODE_NOUNS` lists.
+- Random names use adjectives/nouns from `PICHAMBER_ADJECTIVES` and `PICHAMBER_NOUNS` lists.
 - Branches created for new worktrees use `pichamber/<worktree-name>` pattern.
 
 ### Cross-Platform Considerations
