@@ -1123,6 +1123,26 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     });
   }, [activeSessionIdSet, projectSections]);
 
+  // Per-directory active set: for each project, which group directories (root + worktrees)
+  // currently contain at least one busy session. This lets SidebarSpacesBar show the spinner
+  // on the primary worktree when expanded, or aggregated on the project row when collapsed.
+  const activeDirectoriesByProject = React.useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const section of projectSections) {
+      const dirs = new Set<string>();
+      for (const group of section.groups) {
+        if (group.isArchivedBucket) continue;
+        const hasActive = group.sessions.some((node) => activeSessionIdSet.has(node.session.id));
+        if (hasActive && group.directory) {
+          const normalized = normalizePath(group.directory)?.toLowerCase();
+          if (normalized) dirs.add(normalized);
+        }
+      }
+      if (dirs.size > 0) map.set(section.project.id, dirs);
+    }
+    return map as ReadonlyMap<string, ReadonlySet<string>>;
+  }, [activeSessionIdSet, projectSections]);
+
   const hasUnseenByProject = React.useCallback((projectId: string) => {
     const section = projectSections.find((s) => s.project.id === projectId);
     if (!section) return false;
@@ -1492,6 +1512,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
           totalSessionCount={totalSessionCount}
           getSessionCountForProject={(id) => sessionCountByProject.get(id) ?? 0}
           hasActiveSessionByProject={hasActiveSessionByProject}
+          activeDirectoriesByProject={activeDirectoriesByProject}
           hasUnseenByProject={hasUnseenByProject}
           homeDirectory={homeDirectory}
           mobileVariant={mobileVariant}

@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/context-menu';
 import { cn, formatDirectoryName } from '@/lib/utils';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { formatProjectLabel, sidebarRowIconClass, sidebarRowLabelClass } from './utils';
+import { formatProjectLabel, normalizePath, sidebarRowIconClass, sidebarRowLabelClass } from './utils';
 
 export type SpaceProject = {
   id: string;
@@ -53,6 +53,8 @@ export interface SidebarSpacesBarProps {
   totalSessionCount?: number;
   getSessionCountForProject?: (projectId: string) => number;
   hasActiveSessionByProject?: (projectId: string) => boolean;
+  /** Per-project set of normalized-lowercased directories that have a busy session. */
+  activeDirectoriesByProject?: ReadonlyMap<string, ReadonlySet<string>>;
   hasUnseenByProject?: (projectId: string) => boolean;
   homeDirectory: string | null;
   className?: string;
@@ -211,6 +213,7 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
   onOpenProjectEditDialog,
   onRemoveProject,
   hasActiveSessionByProject,
+  activeDirectoriesByProject,
   homeDirectory,
   className,
   mobileVariant = false,
@@ -259,13 +262,24 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
               || formatDirectoryName(project.normalizedPath, homeDirectory)
               || project.normalizedPath,
             );
+            const activeSet = activeDirectoriesByProject?.get(project.id);
+            const normalizedRoot = normalizePath(project.normalizedPath)?.toLowerCase() ?? '';
+            const hasActiveInRoot = normalizedRoot ? (activeSet?.has(normalizedRoot) ?? false) : false;
+            const hasAnyActive = (activeSet?.size ?? 0) > 0;
+            // When the project is expanded, only show the primary spinner on the root
+            // if the busy session is actually in the primary worktree. When collapsed,
+            // the root row aggregates all worktrees so the user still sees activity.
+            const legacyHasActive = hasActiveSessionByProject?.(project.id) ?? false;
+            const hasActiveForProject = activeDirectoriesByProject
+              ? (isProjectExpanded ? hasActiveInRoot : hasAnyActive)
+              : legacyHasActive;
             return (
               <React.Fragment key={project.id}>
                 <SortableFolderRow
                   project={project}
                   label={label}
                   isSelected={isSelected}
-                  hasActive={hasActiveSessionByProject?.(project.id)}
+                  hasActive={hasActiveForProject}
                   hasWorktrees={worktrees.length > 0}
                   worktreeError={worktreeErrorsByProject.get(project.normalizedPath)}
                   isExpanded={isProjectExpanded}
@@ -277,6 +291,10 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
                 />
                 {isProjectExpanded ? worktrees.map((worktree: GitWorktree) => {
                   const worktreeSelected = selectedWorktreePath === worktree.path;
+                  const normalizedWorktree = normalizePath(worktree.path)?.toLowerCase() ?? '';
+                  const hasActiveInWorktree = normalizedWorktree ? (activeSet?.has(normalizedWorktree) ?? false) : false;
+                  // Fallback to legacy global check only if the new map is unavailable (backwards compat).
+                  const showWorktreeActive = activeDirectoriesByProject ? hasActiveInWorktree : false;
                   return (
                     <button
                       key={worktree.path}
@@ -286,10 +304,23 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
                       aria-pressed={worktreeSelected}
                       title={worktree.path}
                     >
-                      <Icon name="git-branch" className={cn(sidebarRowIconClass(mobileVariant), 'text-muted-foreground')} />
-                      <span className={sidebarRowLabelClass(mobileVariant)}>
-                        {worktree.branch || (worktree.detached ? 'Detached HEAD' : worktree.name)}
-                      </span>
+                      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                        <Icon name="git-branch" className={cn(sidebarRowIconClass(mobileVariant), 'text-muted-foreground')} />
+                        <span className={sidebarRowLabelClass(mobileVariant)}>
+                          {worktree.branch || (worktree.detached ? 'Detached HEAD' : worktree.name)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0 ml-1">
+                        {showWorktreeActive ? (
+                          <AgentThinkingLoader
+                            variant="inline"
+                            text={null}
+                            animationType="spinner"
+                            speedMs={80}
+                            className="text-primary text-xs shrink-0"
+                          />
+                        ) : null}
+                      </div>
                     </button>
                   );
                 }) : null}
