@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-08-25
+
+Focused composer and reload reliability release.
+
+- **Repository-free sessions.** The new-session folder picker now offers "Don't work in a repository", creates the session in the connected runtime's home directory, and shows those home sessions in every project folder. Literal `~` and expanded-home catalog entries merge without duplicate rows.
+- **Reload restores context.** Reloading the web or desktop renderer preserves the selected runtime and its last active session instead of reverting to Local server. Runtime endpoint persistence remains credential-free, and Capacitor mobile keeps its existing validated restore flow.
+- **Safe worktree names.** Small-model utility inference now runs in an isolated Pi text-transformation session without coding-agent instructions, repository context, skills, extensions, templates, or tools. Worktree naming accepts only a complete lowercase ASCII hyphenated slug within 48 characters; conversational or malformed replies fall back to the deterministic task-derived name.
+
 ## [0.5.0] - 2026-08-24
 
 Pi extension release: existing extensions now run inside PiChamber's session daemon, their commands and standard UI prompts work across clients, and extensions can add native cards, panels, forms, and sandboxed app views to the workspace.
