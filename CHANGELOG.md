@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-25
+
+Worktree-aware sidebar and no-folder session fixes.
+
+- **Worktree-specific busy indicator.** When a project has linked worktrees, the sidebar now shows the busy spinner on the exact worktree that is running. Collapsed projects aggregate activity on the project row; expanded projects show the spinner only on the primary checkout or the linked worktree that is actually busy. Single-project and no-worktree behavior is unchanged (`SessionSidebar` → `activeDirectoriesByProject`, `SidebarSpacesBar` per-worktree `AgentThinkingLoader`).
+- **Sessions without a folder stay global.** Sessions created with “Don’t work in a folder” at literal `~` no longer leak into every registered project’s ownership bucket or focused catalog slice, so switching folders cannot retain or select an unrelated home session. `isKnownActiveSessionDirectory` and directory-ownership logic now scope correctly to authoritative known directories and global session home, with header location hiding the stale active project for home sessions (#59).
+- **Electron update manifest verification handles multiple artifacts.** `verify-update-manifest.mjs` now finds the expected artifact by matching its URL among multiple `files` entries instead of requiring exactly one, fixing checksum validation for macOS `latest-mac.yml` which lists both DMG and ZIP.
+- **Sidebar labeling.** “All sessions” is now labeled “All Folders” across the sidebar and docs; global/home sessions carry the neutral “No folder” shade and correct empty states when no folder is selected.
+
 ## [0.5.2] - 2026-08-25
 
 Folder-scoped session reliability release.
