@@ -1099,7 +1099,7 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
 
   // Rows own their left gutter (aligned with the zone-header text), so the
   // group body adds no extra indentation. Keep top spacing identical between
-  // All Folders and a single folder — session rows already use my-0.5.
+  // All sessions and a single folder — session rows already use my-0.5.
   void compactBodyPadding;
   void createFolderAndStartRename;
 
