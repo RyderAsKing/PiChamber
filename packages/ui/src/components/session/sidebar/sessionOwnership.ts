@@ -1,29 +1,7 @@
 /* eslint-disable */
 import type { Session } from '@/lib/chat/types';
 import { normalizePath } from '@/lib/pathNormalization';
-import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
-
-const isGlobalSessionDirectory = (directory: string | null): boolean => {
-  if (!directory) return false;
-  const normalized = normalizePath(directory);
-  if (!normalized) return false;
-  if (normalized === '~') return true;
-  try {
-    const rawHome = getDeferredSafeStorage().getItem('homeDirectory');
-    if (typeof rawHome === 'string' && rawHome.trim().length > 0) {
-      const homeNormalized = normalizePath(rawHome);
-      if (homeNormalized && normalized === homeNormalized) return true;
-    }
-  } catch { /* ignored */ }
-  try {
-    if (typeof window !== 'undefined' && typeof (window as unknown as { __PICHAMBER_HOME__?: string }).__PICHAMBER_HOME__ === 'string') {
-      const candidate = (window as unknown as { __PICHAMBER_HOME__?: string }).__PICHAMBER_HOME__;
-      const homeNormalized = candidate ? normalizePath(candidate) : null;
-      if (homeNormalized && normalized === homeNormalized) return true;
-    }
-  } catch { /* ignored */ }
-  return false;
-};
+import { isGlobalSessionDirectory } from '@/sync/global-session-directory';
 
 type Project = {
   id: string;
@@ -166,35 +144,8 @@ export const createSessionOwnershipIndex = (
     for (const session of input) {
       const directory = resolveSessionDirectory(session);
       if (isGlobalSessionDirectory(directory)) {
-        // Global/home sessions (cwd ~) appear in every folder.
-        if (projects.length === 0) continue;
-        // Pick first project's owner for bySessionId so detail pages still
-        // resolve; the session is attached to every project's bucket.
-        let firstOwner: DirectoryOwner | null = null;
-        for (const project of projects) {
-          const projectRoot = normalizePath(project.normalizedPath);
-          if (!projectRoot) continue;
-          const owner = ownerByDirectory.get(projectRoot);
-          if (!owner) continue;
-          if (!firstOwner) firstOwner = owner;
-          const projectSessions = target.get(owner.projectId);
-          if (projectSessions) {
-            if (!projectSessions.some((entry) => entry.id === session.id)) {
-              projectSessions.push(session);
-            }
-          } else {
-            target.set(owner.projectId, [session]);
-          }
-          if (scopeTarget) {
-            const scopeSessions = scopeTarget.get(owner.scopeDirectory);
-            if (scopeSessions) {
-              scopeSessions.add(session.id);
-            } else {
-              scopeTarget.set(owner.scopeDirectory, new Set([session.id]));
-            }
-          }
-        }
-        if (firstOwner) bySessionId.set(session.id, firstOwner);
+        // A global/home session intentionally has no project owner. Attaching it
+        // to project buckets makes every folder show and select the same session.
         continue;
       }
       const owner = resolveOwner(directory);

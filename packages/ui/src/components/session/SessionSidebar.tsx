@@ -5,6 +5,7 @@ import { toast } from '@/components/ui';
 import { useDeviceInfo } from '@/lib/device';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { formatDirectoryName, cn } from '@/lib/utils';
+import { isGlobalSessionDirectory } from '@/sync/global-session-directory';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { catalogLiveSessionIdsKey } from '@/sync/pi-session-catalog';
@@ -964,6 +965,46 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     foldersMap,
   });
 
+  const allFoldersOnlySection = React.useMemo(() => {
+    const globalSessions = sessions.filter((session) => (
+      isGlobalSessionDirectory(resolveGlobalSessionDirectory(session), homeDirectory)
+    ));
+    if (globalSessions.length === 0) return null;
+
+    const groups = buildGroupedSessions(globalSessions, '~', [], null, false)
+      .map((group) => hasSessionSearchQuery
+        ? { ...group, sessions: filterSessionNodesForSearch(group.sessions, normalizedSessionSearchQuery) }
+        : group)
+      .filter((group) => group.sessions.length > 0 && !group.isArchivedBucket);
+    if (groups.length === 0) return null;
+
+    return {
+      project: {
+        id: '__home__',
+        path: '~',
+        normalizedPath: '~',
+        label: 'No folder',
+      },
+      groups,
+    };
+  }, [
+    buildGroupedSessions,
+    filterSessionNodesForSearch,
+    hasSessionSearchQuery,
+    homeDirectory,
+    normalizedSessionSearchQuery,
+    sessions,
+  ]);
+
+  const allFoldersOnlySearchMatchCount = React.useMemo(() => {
+    if (!hasSessionSearchQuery || !allFoldersOnlySection) return 0;
+    const countNodes = (nodes: SessionNode[]): number => nodes.reduce(
+      (total, node) => total + 1 + countNodes(node.children),
+      0,
+    );
+    return allFoldersOnlySection.groups.reduce((total, group) => total + countNodes(group.sessions), 0);
+  }, [allFoldersOnlySection, hasSessionSearchQuery]);
+
   const searchEmptyState = React.useMemo(() => (
     <div className="py-6 text-center text-muted-foreground">
       <p className="typography-ui-label font-semibold">{"No matching sessions"}</p>
@@ -1122,7 +1163,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       groupDirectory?: string | null,
       projectId?: string | null,
       archivedBucket: boolean = false,
-      secondaryMeta?: { projectLabel?: string | null; branchLabel?: string | null } | null,
+      secondaryMeta?: { projectLabel?: string | null; branchLabel?: string | null; globalSession?: boolean } | null,
       renderContext: 'project' | 'recent' = 'project',
       renderExtras?: SessionNodeRenderExtras,
     ): React.ReactNode => (
@@ -1409,7 +1450,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         sessionSearchQuery={sessionSearchQuery}
         setSessionSearchQuery={setSessionSearchQuery}
         hasSessionSearchQuery={hasSessionSearchQuery}
-        searchMatchCount={searchMatchCount}
+        searchMatchCount={searchMatchCount + (selectedSpaceId === null ? allFoldersOnlySearchMatchCount : 0)}
         selectionModeEnabled={selectionModeEnabled}
         onToggleSelectionMode={handleToggleSelectionMode}
         mobileVariant={mobileVariant}
@@ -1472,6 +1513,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
       <SidebarProjectsList
         sectionsForRender={filteredSectionsForSidebarRender}
+        allFoldersOnlySection={selectedSpaceId === null ? allFoldersOnlySection : null}
         projectSections={projectSections}
         activeProjectId={activeProjectId}
         showOnlyMainWorkspace={showOnlyMainWorkspace}

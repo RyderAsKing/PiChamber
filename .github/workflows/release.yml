@@ -279,6 +279,16 @@ jobs:
               -c.mac.identity=null -c.mac.notarize=false
           fi
 
+      - name: Validate macOS update manifest checksum
+        working-directory: packages/electron
+        env:
+          VERSION: ${{ needs.create-release.outputs.version }}
+          ARTIFACT_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          ZIP="dist/PiChamber-${VERSION}-mac-${ARTIFACT_ARCH}.zip"
+          node ./scripts/verify-update-manifest.mjs "dist/latest-mac.yml" "$ZIP" "$VERSION"
+
       - name: Verify signature + entitlements + notarization
         if: ${{ steps.apple_cert.outputs.signed == 'true' }}
         run: |
@@ -395,6 +405,17 @@ jobs:
         shell: bash
         run: |
           node ./scripts/package.mjs --win --${{ matrix.arch }} --publish=never
+
+      - name: Validate Windows update manifest checksum
+        working-directory: packages/electron
+        shell: bash
+        env:
+          VERSION: ${{ needs.create-release.outputs.version }}
+          ARTIFACT_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          INSTALLER="dist/PiChamber-${VERSION}-win-${ARTIFACT_ARCH}.exe"
+          node ./scripts/verify-update-manifest.mjs "dist/latest.yml" "$INSTALLER" "$VERSION"
 
       - name: Upload installer to release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2

@@ -1033,18 +1033,17 @@ describe('listUiSessionsFromCatalog', () => {
     expect(listUiSessionsFromCatalog(catalog, { archived: false, directory: '' })).toEqual([]);
   });
 
-  test('a concrete directory includes its own and global membership', () => {
+  test('a concrete project directory excludes global membership', () => {
     let catalog = initialCatalog();
     catalog = applyDirectoryListToCatalog(catalog, '/repo-a', [listItem('a-1', '/repo-a')], 1);
     catalog = applyDirectoryListToCatalog(catalog, '/repo-b', [listItem('b-1', '/repo-b')], 1);
     catalog = applyDirectoryListToCatalog(catalog, '~', [listItem('global-1', '~')], 1);
     expect(listUiSessionsFromCatalog(catalog, { archived: false, directory: '/repo-a' }).map((session) => session.id)).toEqual([
       'a-1',
-      'global-1',
     ]);
   });
 
-  test('merges and deduplicates literal and expanded home membership', () => {
+  test('merges and deduplicates literal and expanded home membership only in the home view', () => {
     const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
     try {
       Object.defineProperty(globalThis, 'window', {
@@ -1057,7 +1056,7 @@ describe('listUiSessionsFromCatalog', () => {
         listItem('shared', '/home/tester'),
         listItem('expanded', '/home/tester'),
       ], 1);
-      expect(listUiSessionsFromCatalog(catalog, { archived: false, directory: '/repo-a' }).map((session) => session.id).sort()).toEqual([
+      expect(listUiSessionsFromCatalog(catalog, { archived: false, directory: '/home/tester' }).map((session) => session.id).sort()).toEqual([
         'expanded',
         'shared',
       ]);

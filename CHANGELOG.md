@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-08-25
+
+Folder-scoped session reliability release.
+
+- **Folder switching shows the correct sessions.** Home sessions no longer enter every registered project's ownership bucket or focused catalog slice, so changing folders cannot retain or select an unrelated home session.
+- **Explicit no-folder sessions.** The new-session picker always offers "Don't work in a folder" at literal `~`, whether the runtime home is registered as a folder or not. The selection remains stable instead of snapping back to the active project.
+- **All folders keeps global sessions accessible.** Sessions created at `~` appear only in All folders, carry a "No folder" secondary label, and use a neutral theme-aware background. Project views remain strictly folder-owned.
+- **Release integrity.** Desktop release jobs independently verify macOS, Windows, and Linux updater-manifest checksums against their generated artifacts. The npm job publishes the exact attached tarball and verifies its SHA-512 integrity, SHA-1 shasum, and downloaded registry bytes.
+
 ## [0.5.1] - 2026-08-25
 
 Focused composer and reload reliability release.

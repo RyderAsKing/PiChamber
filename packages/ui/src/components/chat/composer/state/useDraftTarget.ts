@@ -2,40 +2,25 @@ import React from 'react';
 
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import type { ProjectEntry } from '@/lib/api/types';
+import { formatDirectoryName } from '@/lib/utils';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { resolveProjectForSessionDirectory } from '@/lib/projectResolution';
-import { formatDirectoryName } from '@/lib/utils';
 import { useGitBranches, useGitStore, useIsGitRepo } from '@/stores/useGitStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { buildAvailableWorktreesByProject, useWorktreeStore } from '@/stores/useWorktreeStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
+import { isGlobalSessionDirectory } from '@/sync/global-session-directory';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { normalizePath } from '../attachments/filePaths';
 
-const GLOBAL_PROJECT_ID = '__home__';
-const GLOBAL_PROJECT_LABEL = "Don't work in a repository";
-
-const getGlobalProjectPath = (homeDirectory: string | null | undefined): string | null => {
-  const normalized = normalizePath(homeDirectory ?? null);
-  if (normalized) return normalized;
-  // Fallback sentinel that DirectoryStore expands to the real home.
-  return '~';
-};
-
 import { buildLocalDraftBranchOptions, shouldRefreshDraftBranchesOnDraftEntry } from './draftTargetBranches';
+import {
+    buildDraftTargetProjects,
+    GLOBAL_PROJECT_ID,
+    shouldSyncDraftTargetToActiveProject,
+} from './draftTargetProjects';
 
-export interface DraftTargetProject {
-    id: string;
-    ownerProjectId: string;
-    kind: 'project' | 'worktree';
-    path: string;
-    branch?: string | null;
-    label?: string;
-    icon?: string | null;
-    color?: string | null;
-    iconImage?: { mime: string; updatedAt: number; source: 'custom' | 'auto' } | null;
-    iconBackground?: string | null;
-}
+export type { DraftTargetProject } from './draftTargetProjects';
 
 /** A project's display name, falling back to its directory name. */
 export function getProjectDisplayLabel(project: { label?: string; path: string }): string {
@@ -50,41 +35,10 @@ export function useDraftTarget(enabled: boolean) {
         [registeredProjects, worktreeProjects],
     );
     const homeDirectory = useDirectoryStore((state) => state.homeDirectory);
-    const projects = React.useMemo<DraftTargetProject[]>(() => {
-        const base = registeredProjects.flatMap((project) => {
-            const root: DraftTargetProject = {
-                ...project,
-                id: project.id,
-                ownerProjectId: project.id,
-                kind: 'project',
-            };
-            const worktrees = availableWorktreesByProject.get(normalizePath(project.path) ?? project.path) ?? [];
-            return [
-                root,
-                ...worktrees.map((worktree): DraftTargetProject => ({
-                    id: `worktree:${project.id}:${worktree.path}`,
-                    ownerProjectId: project.id,
-                    kind: 'worktree',
-                    path: worktree.path,
-                    branch: worktree.branch,
-                    label: worktree.branch || (worktree.detached ? 'Detached HEAD' : worktree.name),
-                })),
-            ];
-        });
-        const globalPath = getGlobalProjectPath(homeDirectory);
-        if (!globalPath) return base;
-        // Avoid duplicating if a project already points at the home directory.
-        const already = base.some((entry) => normalizePath(entry.path) === normalizePath(globalPath));
-        if (already) return base;
-        const globalEntry: DraftTargetProject = {
-            id: GLOBAL_PROJECT_ID,
-            ownerProjectId: GLOBAL_PROJECT_ID,
-            kind: 'project',
-            path: globalPath,
-            label: GLOBAL_PROJECT_LABEL,
-        };
-        return [globalEntry, ...base];
-    }, [availableWorktreesByProject, registeredProjects, homeDirectory]);
+    const projects = React.useMemo(
+        () => buildDraftTargetProjects(registeredProjects, availableWorktreesByProject),
+        [availableWorktreesByProject, registeredProjects],
+    );
     const activeProjectId = useProjectsStore((state) => state.activeProjectId);
     const setActiveProjectIdOnly = useProjectsStore((state) => state.setActiveProjectIdOnly);
     const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
@@ -113,8 +67,7 @@ export function useDraftTarget(enabled: boolean) {
             }
         } else if (currentSessionId) {
             const sessionDirectory = normalizePath(currentSessionDirectory ?? null);
-            const globalPath = getGlobalProjectPath(homeDirectory);
-            if (globalPath && sessionDirectory && normalizePath(globalPath) === sessionDirectory) {
+            if (sessionDirectory && isGlobalSessionDirectory(sessionDirectory, homeDirectory)) {
                 const global = projects.find((project) => project.ownerProjectId === GLOBAL_PROJECT_ID) ?? null;
                 if (global) return global;
             }
@@ -166,8 +119,12 @@ export function useDraftTarget(enabled: boolean) {
     const draftProjectLabel = selectedDraftProject ? getProjectDisplayLabel(selectedDraftProject) : null;
 
     React.useEffect(() => {
-        if (!enabled || !isDraftOpen || !activeProjectId) return;
-        if (newSessionDraft?.selectedProjectId === activeProjectId) return;
+        if (!shouldSyncDraftTargetToActiveProject({
+            enabled,
+            isDraftOpen,
+            activeProjectId,
+            selectedProjectId: newSessionDraft?.selectedProjectId,
+        })) return;
         const project = projects.find((entry) => entry.id === activeProjectId);
         if (!project) return;
         setNewSessionDraftTarget({

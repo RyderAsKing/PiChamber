@@ -34,6 +34,7 @@ type Props = {
   sharedSessionsOnly?: boolean;
   hasSharedSessions?: boolean;
   sectionsForRender: ProjectSection[];
+  allFoldersOnlySection?: ProjectSection | null;
   projectSections: ProjectSection[];
   activeProjectId: string | null;
   showOnlyMainWorkspace: boolean;
@@ -48,7 +49,7 @@ type Props = {
     groupDirectory?: string | null,
     projectId?: string | null,
     archivedBucket?: boolean,
-    secondaryMeta?: { projectLabel?: string | null; branchLabel?: string | null; showFolderLabel?: boolean } | null,
+    secondaryMeta?: { projectLabel?: string | null; branchLabel?: string | null; showFolderLabel?: boolean; globalSession?: boolean } | null,
     renderContext?: 'project' | 'recent',
   ) => React.ReactNode;
   renderGroupSessions: (
@@ -122,9 +123,13 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
       projectLabel: string;
       isPinned: boolean;
       timestamp: number;
+      globalSession: boolean;
     }> = [];
 
-    for (const section of props.sectionsForRender) {
+    const sections = props.allFoldersOnlySection
+      ? [props.allFoldersOnlySection, ...props.sectionsForRender]
+      : props.sectionsForRender;
+    for (const section of sections) {
       const projectLabel = getProjectLabel(section.project, props.homeDirectory);
       for (const group of section.groups) {
         if (group.isArchivedBucket) continue;
@@ -137,6 +142,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
             projectLabel,
             isPinned,
             timestamp,
+            globalSession: section === props.allFoldersOnlySection,
           });
         }
       }
@@ -151,7 +157,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
     });
 
     return items;
-  }, [props.isAllFoldersView, props.sectionsForRender, props.homeDirectory, props.pinnedSessionIds]);
+  }, [props.allFoldersOnlySection, props.isAllFoldersView, props.sectionsForRender, props.homeDirectory, props.pinnedSessionIds]);
 
   const [allFoldersLimit, setAllFoldersLimit] = React.useState(30);
 
@@ -173,11 +179,12 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
     );
   }
 
-  if (props.projectSections.length === 0) {
+  const hasAllFoldersOnlySection = props.isAllFoldersView && Boolean(props.allFoldersOnlySection);
+  if (props.projectSections.length === 0 && !hasAllFoldersOnlySection) {
     return <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant && 'pb-20')}><div className="space-y-1 px-3">{props.topContent}{props.emptyState}</div></ScrollableOverlay>;
   }
 
-  if (props.sectionsForRender.length === 0) {
+  if (props.sectionsForRender.length === 0 && !hasAllFoldersOnlySection) {
     return <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant && 'pb-20')}><div className="space-y-1 px-3">{props.searchEmptyState}</div></ScrollableOverlay>;
   }
 
@@ -246,7 +253,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
             props.hasSessionSearchQuery ? props.searchEmptyState : props.emptyState
           ) : (
             <>
-              {visibleAllFolderSessions.map(({ node, project, projectLabel }) => {
+              {visibleAllFolderSessions.map(({ node, project, projectLabel, globalSession }) => {
                 const groupDirectory = node.session.directory ?? project.normalizedPath;
                 return (
                   <React.Fragment key={node.session.id}>
@@ -256,7 +263,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
                       groupDirectory,
                       project.id,
                       false,
-                      { projectLabel, showFolderLabel: true },
+                      { projectLabel, showFolderLabel: true, globalSession },
                       'project',
                     )}
                   </React.Fragment>

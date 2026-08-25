@@ -55,6 +55,7 @@ type SecondaryMeta = {
   projectLabel?: string | null;
   branchLabel?: string | null;
   showFolderLabel?: boolean;
+  globalSession?: boolean;
 };
 
 type Props = {
@@ -452,6 +453,10 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     () => getForkBackgroundColor(node.forkColorId, { active: isActive || isRowSelected }),
     [node.forkColorId, isActive, isRowSelected],
   );
+  const globalBackground = secondaryMeta?.globalSession && !isActive && !isRowSelected
+    ? 'var(--surface-elevated)'
+    : null;
+  const rowBackground = forkBackground ?? globalBackground;
   const descendantCount = React.useMemo(() => collectNodeDescendantIds(node).length, [collectNodeDescendantIds, node]);
 
   const collectChildExports = React.useCallback(async (children: SessionNode[]): Promise<{ children: ChildSessionExport[]; skipped: number }> => {
@@ -883,20 +888,21 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                 data-session-scope={selectionScopeKey ?? ''}
                 data-session-archived={archivedBucket ? '1' : '0'}
                 data-fork-color={forkSolid ? node.forkColorId : undefined}
+                data-global-session={secondaryMeta?.globalSession ? '1' : undefined}
                 onClick={handleRowBackgroundClick}
                 style={{
                   ...(depth > 0 ? { marginLeft: `${depth * 14}px` } : undefined),
-                  ...(forkBackground ? { backgroundColor: forkBackground } : undefined),
+                  ...(rowBackground ? { backgroundColor: rowBackground } : undefined),
                 }}
                 className={cn(
                   'group relative my-0.5 flex cursor-pointer items-center rounded-xl px-3 py-2 transition-colors',
-                  !forkBackground && depth > 0
+                  !rowBackground && depth > 0
                     ? 'bg-secondary/30 hover:bg-interactive-hover'
-                    : !forkBackground
+                    : !rowBackground
                       ? 'hover:bg-interactive-hover'
                       : 'hover:brightness-[1.07] dark:hover:brightness-[1.18]',
-                  !forkBackground && isActive && !isRowSelected && 'bg-interactive-selection',
-                  !forkBackground && isRowSelected && 'bg-interactive-selection',
+                  !rowBackground && isActive && !isRowSelected && 'bg-interactive-selection',
+                  !rowBackground && isRowSelected && 'bg-interactive-selection',
                 )}
               />
             }
@@ -1114,7 +1120,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                 sessionDirectory ?? groupDirectory,
                 projectId,
                 archivedBucket,
-                undefined,
+                secondaryMeta?.globalSession ? { globalSession: true } : undefined,
                 renderContext,
                 childRenderExtras,
               )}
