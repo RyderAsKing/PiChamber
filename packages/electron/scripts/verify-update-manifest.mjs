@@ -33,12 +33,10 @@ export const verifyUpdateManifest = ({ manifestPath, artifactPath, expectedVersi
   if (manifest.version !== expectedVersion) {
     throw new Error(`Update manifest version mismatch: expected ${expectedVersion}, got ${manifest.version || '(missing)'}`);
   }
-  if (manifest.files.length !== 1) {
-    throw new Error(`Linux update manifest must contain exactly one artifact, got ${manifest.files.length}`);
-  }
-  const [entry] = manifest.files;
-  if (decodeURIComponent(path.basename(entry.url)) !== expectedName) {
-    throw new Error(`Update manifest artifact mismatch: expected ${expectedName}, got ${entry.url}`);
+  const entry = manifest.files.find((file) => decodeURIComponent(path.basename(file.url)) === expectedName) ?? null;
+  if (!entry) {
+    const available = manifest.files.map((file) => file.url).join(', ') || '(none)';
+    throw new Error(`Update manifest artifact mismatch: expected ${expectedName}, got ${available}`);
   }
   const bytes = fs.readFileSync(artifactPath);
   if (entry.size !== bytes.length) {
