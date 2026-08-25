@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { createConnection } from 'node:net';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
@@ -628,6 +628,43 @@ describe('Pi session daemon spike', () => {
       event: 'session.updated',
       payload: { sessionId: 'pi-session-new', title: 'Inspect this report' },
     });
+    await client.close();
+  });
+
+  it('creates a global session from the literal home-directory target', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
+    const endpoint = testDaemonEndpoint(root);
+    const agentDir = join(root, 'agent');
+    const runtimeCalls = [];
+    await mkdir(agentDir, { recursive: true });
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      agentDir,
+      createRuntime: async (options) => {
+        runtimeCalls.push(options);
+        return new FakeRuntime({ cwd: options.cwd, session: new FakeSession('pi-session-old') });
+      },
+      listSessions: async ({ cwd: directory }) => [{
+        path: join(root, 'new-session.jsonl'),
+        id: 'pi-session-new',
+        cwd: directory,
+        created: new Date('2026-01-01T00:00:00.000Z'),
+        modified: new Date('2026-01-01T00:00:01.000Z'),
+        messageCount: 0,
+        firstMessage: '',
+      }],
+    });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await expect(client.request('sessions.create', { cwd: '~' })).resolves.toMatchObject({
+      result: { session: { id: 'pi-session-new', directory: homedir() } },
+    });
+    expect(runtimeCalls).toHaveLength(1);
+    expect(runtimeCalls[0].cwd).toBe(homedir());
     await client.close();
   });
 

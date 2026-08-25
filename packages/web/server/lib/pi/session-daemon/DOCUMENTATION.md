@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This module is the Pi-owned session-daemon foundation. A detached local daemon process creates an `AgentSessionRuntime` with the Pi SDK, tracks it in a registry keyed by Pi session identity and cwd, keeps it behind a private local socket, and maps a small event subset to the PiChamber IPC contract. Browsers never connect to it.
+This module is the Pi-owned session-daemon foundation. A detached local daemon process creates an `AgentSessionRuntime` with the Pi SDK, tracks it in a registry keyed by Pi session identity and cwd, keeps it behind a private local socket, and maps a small event subset to the PiChamber IPC contract. Browsers never connect to it. Directory inputs must be absolute except for the exact `~` global-session sentinel, which the daemon expands to the server user's home directory before validation. Other relative paths remain invalid.
 
 ## Entrypoints
 
