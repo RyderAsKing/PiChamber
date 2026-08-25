@@ -9,7 +9,7 @@ import { isGlobalSessionDirectory } from '@/sync/global-session-directory';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { catalogLiveSessionIdsKey } from '@/sync/pi-session-catalog';
-import { buildKnownSessionDirectories, knownSessionDirectoryKey } from '@/sync/known-session-directories';
+import { buildKnownSessionDirectories } from '@/sync/known-session-directories';
 import { useCatalogUiSessions, useChildStoreManager } from '@/sync/sync-context';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSync } from '@/sync/use-sync';
@@ -43,6 +43,7 @@ import { SidebarHeader } from './sidebar/SidebarHeader';
 import { SidebarNav } from './sidebar/SidebarNav';
 import { SidebarSpacesBar } from './sidebar/SidebarSpacesBar';
 import { SidebarFooter } from './sidebar/SidebarFooter';
+import { isKnownActiveSessionDirectory } from './sidebar/sessionOwnership';
 import { SidebarProjectsList } from './sidebar/SidebarProjectsList';
 import { SessionNodeItem } from './sidebar/SessionNodeItem';
 import { buildSessionBootstrapDemands } from './sidebar/sessionBootstrapDemands';
@@ -98,21 +99,6 @@ const PROJECT_ACTIVE_SESSION_STORAGE_KEY = 'oc.sessions.activeSessionByProject';
 // and a project's root) has independent expand state. Older expansion state
 // mixed contexts and is intentionally not migrated.
 const SESSION_EXPANDED_STORAGE_KEY = 'oc.sessions.expandedParents.v3';
-
-const isKnownActiveSessionDirectory = (
-  session: Session,
-  knownDirectories: Set<string>,
-  options?: { allowUnknownDirectory?: boolean; allowEmptyDirectorySet?: boolean },
-): boolean => {
-  if (session.time?.archived) return true;
-  const directory = knownSessionDirectoryKey(resolveGlobalSessionDirectory(session));
-  if (!directory) return options?.allowUnknownDirectory ?? true;
-  if (knownDirectories.size === 0) return options?.allowEmptyDirectorySet ?? true;
-  for (const known of knownDirectories) {
-    if (knownSessionDirectoryKey(known) === directory) return true;
-  }
-  return false;
-};
 
 const SIDEBAR_PR_NO_PR_RETRY_MS = 5 * 60_000;
 
@@ -472,8 +458,9 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     return catalogSessions.filter((session) => isKnownActiveSessionDirectory(session, knownSessionDirectories, {
       allowUnknownDirectory: true,
       allowEmptyDirectorySet: true,
+      homeDirectory,
     }));
-  }, [catalogSessions, knownSessionDirectories]);
+  }, [catalogSessions, homeDirectory, knownSessionDirectories]);
 
   const persistenceSessions = React.useMemo(
     () => [...sessions, ...archivedSessions],

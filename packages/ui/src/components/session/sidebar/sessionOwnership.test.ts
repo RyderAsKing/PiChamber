@@ -1,7 +1,19 @@
 import { describe, expect, test } from 'bun:test';
 import type { Session } from '@/lib/chat/types';
 
-import { createSessionOwnershipIndex } from './sessionOwnership';
+import { createSessionOwnershipIndex, isKnownActiveSessionDirectory } from './sessionOwnership';
+
+describe('isKnownActiveSessionDirectory', () => {
+  test('keeps an expanded-home session visible alongside registered project directories', () => {
+    const session = { id: 'global', directory: '/home/ryder' } as Session;
+
+    expect(isKnownActiveSessionDirectory(
+      session,
+      new Set(['/projects/pichamber', '/projects/khula-policy']),
+      { allowUnknownDirectory: true, allowEmptyDirectorySet: true, homeDirectory: '/home/ryder' },
+    )).toBe(true);
+  });
+});
 
 describe('createSessionOwnershipIndex', () => {
   test('assigns sessions to the deepest project and registered worktree', () => {

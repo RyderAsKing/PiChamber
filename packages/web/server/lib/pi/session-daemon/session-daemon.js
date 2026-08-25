@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import { chmod, mkdir, lstat, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createReadStream, existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { basename, dirname, isAbsolute, join } from 'node:path';
@@ -265,7 +266,8 @@ export function createSessionDaemon({
     if (typeof dir !== 'string' || dir.trim().length === 0) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The directory path is required.');
     }
-    const normalized = dir.trim();
+    const requested = dir.trim();
+    const normalized = requested === '~' ? homedir() : requested;
     if (!isAbsolute(normalized)) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The directory path must be absolute.');
     }

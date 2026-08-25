@@ -108,7 +108,7 @@ const renderGlobalSection = (isAllFoldersView: boolean): string => renderToStati
 );
 
 describe('SidebarProjectsList folder identity placement', () => {
-  test('does not show a project identity over the mixed All Folders session list', () => {
+  test('does not show a project identity over the mixed All sessions list', () => {
     expect(renderList(true)).not.toContain('oc-sticky-fade-overlay');
   });
 
@@ -116,7 +116,7 @@ describe('SidebarProjectsList folder identity placement', () => {
     expect(renderList(false)).not.toContain('oc-sticky-fade-overlay');
   });
 
-  test('renders unowned home sessions only in All folders and marks them for the global shade', () => {
+  test('renders unowned home sessions only in All sessions and marks them for the global shade', () => {
     expect(renderGlobalSection(true)).toContain('data-session-id="global-session"');
     expect(renderGlobalSection(true)).toContain('data-global-session="1"');
     expect(renderGlobalSection(false)).not.toContain('global-session');

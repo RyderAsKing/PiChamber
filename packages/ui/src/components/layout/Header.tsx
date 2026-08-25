@@ -22,6 +22,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { buildSessionMessageRecordsSnapshot, useDirectoryStore, useGlobalSessionStatus, useSession, useSessionMessages } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useDirectoryStore as useDirectoryMetadataStore } from '@/stores/useDirectoryStore';
 import { useGitBranchLabel } from '@/stores/useGitStore';
 import { getAllSyncSessions } from '@/sync/sync-refs';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
@@ -38,6 +39,7 @@ import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { formatTimeForPreference } from '@/lib/timeFormat';
 import { eventMatchesShortcut, formatShortcutForDisplay, getEffectiveShortcutCombo } from '@/lib/shortcuts';
+import { getHeaderLocationLabel, getHeaderOpenDirectory } from './headerLocation';
 
 type UsageWindow = any;
 import type { GitHubAuthStatus } from '@/lib/api/types';
@@ -461,6 +463,7 @@ export const Header: React.FC<HeaderProps> = ({
     const project = state.projects.find((candidate) => candidate.id === state.activeProjectId);
     return project ? { id: project.id, path: project.path, label: project.label } : null;
   }));
+  const homeDirectory = useDirectoryMetadataStore((state) => state.homeDirectory);
   const activeProjectLabel = React.useMemo(() => {
     if (!activeProject) {
       return null;
@@ -764,25 +767,32 @@ export const Header: React.FC<HeaderProps> = ({
     return normalize(state.newSessionDraft.directoryOverride ?? '');
   });
 
-  const openDirectory = React.useMemo(() => {
-    return sessionDirectory || draftDirectory;
-  }, [draftDirectory, sessionDirectory]);
+  const openDirectory = React.useMemo(() => getHeaderOpenDirectory({
+    sessionDirectory,
+    draftDirectory,
+    isNewSessionDraftOpen,
+  }), [draftDirectory, isNewSessionDraftOpen, sessionDirectory]);
 
   const gitBranchForDirectory = useGitBranchLabel(openDirectory || null);
   const currentBranchLabel = gitBranchForDirectory;
+  const headerLocationLabel = React.useMemo(() => getHeaderLocationLabel({
+    activeProjectLabel,
+    openDirectory,
+    homeDirectory,
+  }), [activeProjectLabel, homeDirectory, openDirectory]);
 
   // Whether the title carries a second line under it. Hoisted because the
   // session menu's vertical alignment depends on the same answer.
-  const showHeaderMetaRow = Boolean(activeProjectLabel || currentBranchLabel);
+  const showHeaderMetaRow = Boolean(headerLocationLabel || currentBranchLabel);
 
 
   const currentSessionTitle = React.useMemo(() => {
     if (!currentSessionId) {
-      return activeProjectLabel ?? 'PiChamber';
+      return headerLocationLabel ?? 'PiChamber';
     }
     const trimmedTitle = currentSession?.title?.trim();
     return trimmedTitle && trimmedTitle.length > 0 ? trimmedTitle : 'Untitled Session';
-  }, [activeProjectLabel, currentSession?.title, currentSessionId]);
+  }, [currentSession?.title, currentSessionId, headerLocationLabel]);
   const headerDirectoryStore = useDirectoryStore(openDirectory || undefined, { bootstrap: false });
   const sync = useSync();
   const updateSessionTitle = useSessionUIStore((state) => state.updateSessionTitle);
@@ -1486,7 +1496,7 @@ export const Header: React.FC<HeaderProps> = ({
               )}
               {showHeaderMetaRow ? (
                 <span className="flex min-w-0 max-w-full items-center gap-1.5 truncate typography-micro text-[10.5px] font-normal leading-tight text-muted-foreground/75">
-                  {activeProjectLabel ? <span className="truncate">{activeProjectLabel}</span> : null}
+                  {headerLocationLabel ? <span className="truncate">{headerLocationLabel}</span> : null}
                   {currentBranchLabel ? (
                     <span className="inline-flex min-w-0 items-center gap-0.5">
                       <Icon name="git-branch" className="h-3 w-3 flex-shrink-0 text-muted-foreground/70" />

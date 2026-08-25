@@ -52,6 +52,27 @@ const resolveSessionDirectory = (session: Session): string | null => {
   return normalizePath(record.directory) ?? normalizePath(record.project?.worktree);
 };
 
+export const isKnownActiveSessionDirectory = (
+  session: Session,
+  knownDirectories: Set<string>,
+  options?: {
+    allowUnknownDirectory?: boolean;
+    allowEmptyDirectorySet?: boolean;
+    homeDirectory?: string | null;
+  },
+): boolean => {
+  if (session.time?.archived) return true;
+  const directory = resolveSessionDirectory(session);
+  if (!directory) return options?.allowUnknownDirectory ?? true;
+  if (isGlobalSessionDirectory(directory, options?.homeDirectory)) return true;
+  if (knownDirectories.size === 0) return options?.allowEmptyDirectorySet ?? true;
+  const directoryKey = directory.toLowerCase();
+  for (const known of knownDirectories) {
+    if (normalizePath(known)?.toLowerCase() === directoryKey) return true;
+  }
+  return false;
+};
+
 const getParentDirectory = (directory: string): string | null => {
   if (directory === '/' || /^[A-Z]:$/.test(directory)) {
     return null;

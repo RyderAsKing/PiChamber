@@ -243,8 +243,8 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
         aria-pressed={isAllSelected}
       >
         <div className="flex min-w-0 items-center gap-1.5">
-          <Icon name="folder" className={sidebarRowIconClass(mobileVariant)} />
-          <span className={sidebarRowLabelClass(mobileVariant)}>{"All Folders"}</span>
+          <Icon name="chat-history" className={sidebarRowIconClass(mobileVariant)} />
+          <span className={sidebarRowLabelClass(mobileVariant)}>{"All sessions"}</span>
         </div>
       </button>
 
