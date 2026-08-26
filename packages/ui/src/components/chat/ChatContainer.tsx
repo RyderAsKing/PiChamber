@@ -31,8 +31,9 @@ import { useDeviceInfo } from '@/lib/device';
 import { Button } from '@/components/ui/button';
 import { OverlayScrollbar } from '@/components/ui/OverlayScrollbar';
 import { Icon } from "@/components/icon/Icon";
-import { cn, formatDirectoryName } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { resolveDraftWelcomeProjectLabel } from './composer/state/draftTargetProjects';
 
 // New sync system imports
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -470,11 +471,6 @@ const HYDRATING_SKELETON_ITEMS: Array<{
     },
 ];
 
-const getProjectDisplayLabel = (project: { label?: string; path: string }): string => {
-    const label = project.label?.trim();
-    return label || formatDirectoryName(project.path);
-};
-
 const renderDraftTitle = (title: string, projectLabel: string | null): React.ReactNode => {
     if (!projectLabel) return title;
     const projectIndex = title.indexOf(projectLabel);
@@ -492,13 +488,13 @@ const renderDraftTitle = (title: string, projectLabel: string | null): React.Rea
 const DraftWelcome: React.FC = () => {
     
     const selectedProjectId = useSessionUIStore((state) => state.newSessionDraft.selectedProjectId ?? null);
-    const projectLabel = useProjectsStore(React.useCallback((state) => {
-        const projectId = selectedProjectId ?? state.activeProjectId;
-        const project = (projectId
-            ? state.projects.find((candidate) => candidate.id === projectId)
-            : null) ?? state.projects[0] ?? null;
-        return project ? getProjectDisplayLabel(project) : null;
-    }, [selectedProjectId]));
+    const projectLabel = useProjectsStore(React.useCallback((state) => (
+        resolveDraftWelcomeProjectLabel({
+            selectedProjectId,
+            activeProjectId: state.activeProjectId,
+            projects: state.projects,
+        })
+    ), [selectedProjectId]));
 
     return (
         <div className="oc-draft-center flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">

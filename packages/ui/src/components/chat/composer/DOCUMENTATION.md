@@ -110,8 +110,9 @@ and the send path reading the same grammar.
   then revalidates them on every draft entry. The cache must not hide refs
   created by agents or terminals. The sidebar's active project remains
   authoritative unless the user explicitly selected the global target, which
-  must not snap back to that active project. A project or directory change
-  clears the old branch intent. Existing sessions subscribe only to the current branch from
+  must not snap back to that active project. The draft welcome heading omits
+  a folder name for that global target. A project or directory change clears
+  the old branch intent. Existing sessions subscribe only to the current branch from
   lightweight Git status; they do not load a branch list and render no branch
   picker.
 - A pending worktree intent is separate from branch-checkout intent and is scoped to runtime, owning project, source directory, and start ref. The first send captures the draft, derives a safe name, creates the worktree, and polls the server bootstrap phases. The composer is read-only while checkout/setup runs. It never materializes the session before `setup-ready`, never falls back to the source checkout, and keeps the draft intact on failure. The creation receipt carries the returned path into materialization; the session's returned directory is authoritative afterward. Creating from a linked worktree creates a peer worktree under the same project, and uncommitted source changes are not copied.

@@ -1,4 +1,5 @@
 import type { ProjectEntry } from '@/lib/api/types';
+import { formatDirectoryName } from '@/lib/utils';
 import { normalizePath } from '../attachments/filePaths';
 
 export const GLOBAL_PROJECT_ID = '__home__';
@@ -30,6 +31,21 @@ export const shouldSyncDraftTargetToActiveProject = (input: {
     && Boolean(input.activeProjectId)
     && input.selectedProjectId !== GLOBAL_PROJECT_ID
     && input.selectedProjectId !== input.activeProjectId;
+};
+
+export const resolveDraftWelcomeProjectLabel = (input: {
+  selectedProjectId: string | null | undefined;
+  activeProjectId: string | null;
+  projects: readonly ProjectEntry[];
+}): string | null => {
+  if (input.selectedProjectId === GLOBAL_PROJECT_ID) return null;
+
+  const projectId = input.selectedProjectId ?? input.activeProjectId;
+  const project = (projectId
+    ? input.projects.find((candidate) => candidate.id === projectId)
+    : null) ?? input.projects[0] ?? null;
+  if (!project) return null;
+  return project.label?.trim() || formatDirectoryName(project.path);
 };
 
 export function buildDraftTargetProjects(

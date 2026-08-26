@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import type { ProjectEntry } from '@/lib/api/types';
-import { buildDraftTargetProjects, shouldSyncDraftTargetToActiveProject } from './draftTargetProjects';
+import {
+  buildDraftTargetProjects,
+  resolveDraftWelcomeProjectLabel,
+  shouldSyncDraftTargetToActiveProject,
+} from './draftTargetProjects';
 
 const project = (id: string, path: string): ProjectEntry => ({ id, path } as ProjectEntry);
 
@@ -24,6 +28,14 @@ describe('buildDraftTargetProjects', () => {
       activeProjectId: 'app',
       selectedProjectId: '__home__',
     })).toBe(false);
+  });
+
+  test('does not show a registered project name for the global target', () => {
+    expect(resolveDraftWelcomeProjectLabel({
+      selectedProjectId: '__home__',
+      activeProjectId: 'app',
+      projects: [project('app', '/srv/app')],
+    })).toBeNull();
   });
 
   test('keeps the global target when the home directory is not registered', () => {
