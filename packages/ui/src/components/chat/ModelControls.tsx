@@ -27,7 +27,6 @@ import { useSync } from '@/sync/use-sync';
 import { useUIStore } from '@/stores/useUIStore';
 import { useModelLists } from '@/hooks/useModelLists';
 import { useIsTextTruncated } from '@/hooks/useIsTextTruncated';
-import { toast } from '@/components/ui';
 import { formatEffortLabel, type MobileControlsPanel } from './mobileControlsUtils';
 import { ThinkingLevelControl, ThinkingLevelPicker } from './ThinkingLevelControl';
 import { usePiReadiness } from '@/hooks/usePiReadiness';
@@ -54,11 +53,6 @@ type IconComponent = IconName;
 type ProviderModel = Record<string, unknown> & { id?: string; name?: string };
 
 const buildModelRefKey = (providerID: string, modelID: string) => `${providerID}:${modelID}`;
-
-const notifyThinkingApplyFailed = () => {
-    toast.error("Couldn't update thinking");
-};
-
 
 interface CapabilityDefinition {
     key: 'tool_call' | 'reasoning';
@@ -677,7 +671,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         const variantOptions = getModelVariantOptions(providerId, modelId);
         if (variantOptions.length === 0) {
             manualVariantSelectionRef.current = false;
-            void applyComposerThinking(undefined).catch(notifyThinkingApplyFailed);
+            applyComposerThinking(undefined);
             return;
         }
 
@@ -685,7 +679,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             ? variant
             : undefined;
         manualVariantSelectionRef.current = true;
-        void applyComposerThinking(next).catch(notifyThinkingApplyFailed);
+        applyComposerThinking(next);
         addRecentEffort(providerId, modelId, variant);
     }, [
         addRecentEffort,
@@ -808,9 +802,10 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     // tab. The one-shot restore above intentionally runs once per session, so
     // without this the composer keeps its stale selection and routeMessage
     // force-resets the daemon back to it on the next send, silently reverting
-    // the external switch. Echoes of our own applies are recognized via
-    // lastObservedSessionModelRef and ignored; a changed authoritative value
-    // that the composer does not already reflect is adopted verbatim.
+    // the external switch. Pending composer picks do not change the committed
+    // session, so lastObservedSessionModelRef still matches and those edits
+    // are ignored. A changed authoritative value that the composer does not
+    // already reflect is adopted verbatim.
     React.useEffect(() => {
         if (!currentSessionId || !contextHydrated || providers.length === 0) {
             return;
@@ -950,12 +945,12 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         const variantOptions = getModelVariantOptions(currentProviderId, currentModelId);
         if (variantOptions.length === 0) {
             manualVariantSelectionRef.current = false;
-            void applyComposerThinking(undefined).catch(notifyThinkingApplyFailed);
+            applyComposerThinking(undefined);
             return;
         }
         const next = isPiThinkingLevel(variant) && variantOptions.includes(variant) ? variant : undefined;
         manualVariantSelectionRef.current = true;
-        void applyComposerThinking(next).catch(notifyThinkingApplyFailed);
+        applyComposerThinking(next);
     }, [currentProviderId, currentModelId, getModelVariantOptions]);
 
     const handleVariantCommit = React.useCallback((variant: PiThinkingLevel | undefined) => {
