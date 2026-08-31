@@ -10,7 +10,6 @@ import { Tooltip, TooltipTrigger } from '@/components/ui/tooltip';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { BehaviorPage } from '@/components/sections/behavior/BehaviorPage';
 import { SkillsPage } from '@/components/sections/skills/SkillsPage';
-import { ProjectsSidebar } from '@/components/sections/projects/ProjectsSidebar';
 import { ProjectsPage } from '@/components/sections/projects/ProjectsPage';
 import { RemoteInstancesPage } from '@/components/sections/remote-instances/RemoteInstancesPage';
 import { ProvidersPage } from '@/components/sections/providers/ProvidersPage';
@@ -471,8 +470,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
 
   const renderPageSidebar = React.useCallback((slug: SettingsPageSlug, opts: { onItemSelect?: () => void }) => {
     switch (slug) {
-      case 'projects':
-        return <ProjectsSidebar onItemSelect={opts.onItemSelect} />;
       case 'magic-prompts':
         return <MagicPromptsSidebar onItemSelect={opts.onItemSelect} />;
       default:
