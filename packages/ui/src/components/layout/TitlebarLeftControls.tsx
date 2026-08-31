@@ -12,10 +12,10 @@ import { useTabletLayout } from '@/lib/device';
 const ICON_BUTTON_CLASS =
   'app-region-no-drag inline-flex h-8 w-8 items-center justify-center gap-2 rounded-md typography-ui-label font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary hover:bg-interactive-hover transition-colors';
 
-// Tablet header buttons sit alongside h-9 workspace tabs; a 32px toggle would
-// look visibly smaller than its row-mates and offset the rest of the header.
+// Mirrors the context-usage chart button in the header (size-10 rounded-full,
+// 18px icon) so the left burger and right rail controls share size/position.
 const TABLET_TOGGLE_BUTTON_CLASS =
-  'app-region-no-drag inline-flex h-9 w-9 items-center justify-center gap-2 p-2 rounded-md typography-ui-label font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50 hover:text-foreground hover:bg-interactive-hover transition-colors';
+  'app-region-no-drag flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50';
 
 /**
  * Persistent top-left titlebar controls (window chrome + collapsed-sidebar toggle).
@@ -48,7 +48,7 @@ export const TitlebarLeftControls: React.FC = () => {
   const showAppMenu = usesFramelessChrome;
   const showOverlay = showToggle || showWindowControls || showAppMenu;
   // A toggle-only cluster is always a 2rem button on desktop. On tablet the
-  // toggle grows to h-9 (36px) to match the header's other row-mates — see
+  // toggle grows to size-10 (40px) to match the context-usage chart button — see
   // TABLET_TOGGLE_BUTTON_CLASS. Measuring it on every sidebar toggle flushes
   // the just-invalidated layout tree; only native window chrome can make this
   // cluster's width variable.
@@ -114,11 +114,17 @@ export const TitlebarLeftControls: React.FC = () => {
     // header / sidebar strip beneath carve a matching no-drag region under it
     // and remain drag regions everywhere else, so window dragging still works
     // in the empty parts of the strip.
+    // On tablet/Android the header has `padding-top: var(--oc-safe-area-top)` for the
+    // notifications bar; the overlay must sit *below* that inset so the burger
+    // is vertically aligned with the right-rail header icons (which are inside
+    // the header's content box). Using top + height-calc keeps desktop (safe=0)
+    // identical and tablet aligned.
     <div
       ref={overlayRef}
-      className="app-region-no-drag absolute left-0 top-0 z-40 flex select-none items-center pr-2"
+      className="app-region-no-drag absolute left-0 z-40 flex select-none items-center pr-2"
       style={{
-        height: 'var(--oc-header-height, 3rem)',
+        top: 'var(--oc-safe-area-top, 0px)',
+        height: 'calc(var(--oc-header-height, 3rem) - var(--oc-safe-area-top, 0px))',
         paddingLeft: 'var(--oc-titlebar-left-inset, 0.75rem)',
       }}
     >
@@ -159,7 +165,7 @@ export const TitlebarLeftControls: React.FC = () => {
               >
                 <Icon
                   name="layout-left"
-                  className={isTabletLayoutEnabled ? 'h-5 w-5' : 'h-[18px] w-[18px]'}
+                  className={isTabletLayoutEnabled ? 'size-[18px]' : 'h-[18px] w-[18px]'}
                 />
               </button>
             </TooltipTrigger>

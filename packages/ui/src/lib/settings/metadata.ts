@@ -62,7 +62,7 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
     slug: 'projects',
     title: 'Projects',
     group: 'projects',
-    kind: 'split',
+    kind: 'single',
     keywords: ['project', 'projects', 'worktree', 'worktrees', 'repo', 'repository', 'directory'],
   },
   {

@@ -129,9 +129,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, isMobile, children, cl
         <aside
             ref={sidebarRef}
             className={cn(
-                'relative flex h-full overflow-hidden border-r border-border motion-reduce:transition-none',
+                'relative flex h-full overflow-hidden motion-reduce:transition-none',
                 'bg-sidebar',
-                !isOpen && 'border-r-0',
                 className,
             )}
             style={{

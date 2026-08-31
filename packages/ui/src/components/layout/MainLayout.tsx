@@ -521,7 +521,6 @@ export const MainLayout: React.FC = () => {
                         <Sidebar
                             isOpen={isSidebarOpen}
                             isMobile={isMobile}
-                            className="border-border"
                         >
                             <SessionSidebar isVisible={isSidebarOpen} />
                         </Sidebar>
