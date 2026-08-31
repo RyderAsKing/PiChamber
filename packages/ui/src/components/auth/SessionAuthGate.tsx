@@ -11,7 +11,8 @@ import { Icon } from "@/components/icon/Icon";
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeExtraHeadersSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged, switchRuntimeEndpoint } from '@/lib/runtime-switch';
-import { desktopHostsGet, desktopHostsSet, getDesktopHostApiUrl, normalizeHostUrl } from '@/lib/desktopHosts';
+import { resolveDesktopHostIdentity } from '@/lib/desktopCurrentHost';
+import { desktopHostsGet, desktopHostsSet, normalizeHostUrl } from '@/lib/desktopHosts';
 import { resolveStatusCheckFailureState, runtimeIdentityMatches, type GateState, type RuntimeIdentity } from './sessionAuthGateState';
 import {
   authenticateWithPasskey,
@@ -201,7 +202,14 @@ const persistDesktopClientToken = async (runtime: RuntimeIdentity, clientToken: 
   if (!isDesktopShell() || !clientToken || !isRuntimeIdentityActive(runtime)) return false;
   const cfg = await desktopHostsGet().catch(() => null);
   if (!cfg || !isRuntimeIdentityActive(runtime)) return false;
-  if (cfg.localOrigin && sameOrigin(cfg.localOrigin, runtime.apiBaseUrl)) {
+  const identity = resolveDesktopHostIdentity({
+    runtimeKey: runtime.runtimeKey,
+    apiBaseUrl: runtime.apiBaseUrl,
+    hosts: cfg.hosts,
+    localOrigin: cfg.localOrigin,
+  });
+  if (!identity) return true;
+  if (identity.kind === 'local') {
     await desktopHostsSet({
       hosts: cfg.hosts,
       defaultHostId: cfg.defaultHostId,
@@ -210,21 +218,10 @@ const persistDesktopClientToken = async (runtime: RuntimeIdentity, clientToken: 
     }).catch(() => undefined);
     return isRuntimeIdentityActive(runtime);
   }
-  let changed = false;
-  const hosts = cfg.hosts.map((host) => {
-    if (!sameOrigin(getDesktopHostApiUrl(host), runtime.apiBaseUrl)) {
-      return host;
-    }
-    if (host.clientToken === clientToken) {
-      return host;
-    }
-    changed = true;
-    return { ...host, clientToken };
-  });
-  if (!changed) return true;
+  if (identity.host.clientToken === clientToken) return true;
   if (!isRuntimeIdentityActive(runtime)) return false;
   await desktopHostsSet({
-    hosts,
+    hosts: cfg.hosts.map((host) => (host.id === identity.host.id ? { ...host, clientToken } : host)),
     defaultHostId: cfg.defaultHostId,
     initialHostChoiceCompleted: cfg.initialHostChoiceCompleted,
   }).catch(() => undefined);

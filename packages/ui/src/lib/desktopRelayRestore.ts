@@ -1,7 +1,20 @@
 import { isElectronShell } from '@/lib/desktop';
-import { desktopHostProbe, desktopHostsGet, desktopHostsSet, getDesktopHostApiUrl, normalizeHostUrl } from '@/lib/desktopHosts';
+import { resolveDesktopHostIdentity, runtimeKeyForDesktopHost } from '@/lib/desktopCurrentHost';
+import {
+  desktopHostProbe,
+  desktopHostsGet,
+  desktopHostsSet,
+  desktopLocalClientTokenGet,
+  getDesktopHostApiUrl,
+  locationMatchesHost,
+  normalizeHostUrl,
+  type DesktopHost,
+  type DesktopHostsConfig,
+} from '@/lib/desktopHosts';
+import { isRelayModeActive } from '@/lib/relay/runtime-tunnel';
+import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { getRuntimeKey, switchRuntimeEndpoint } from '@/lib/runtime-switch';
+import { getRuntimeApiBaseUrl, getRuntimeKey, switchRuntimeEndpoint } from '@/lib/runtime-switch';
 
 // Let the post-switch bootstrap traffic settle before the background refresh.
 const CANDIDATE_REFRESH_DELAY_MS = 5_000;
@@ -99,32 +112,76 @@ export const scheduleDesktopHostCandidateRefresh = (hostId: string): void => {
   }, CANDIDATE_REFRESH_DELAY_MS);
 };
 
+const resolveRestoreIdentity = (
+  config: DesktopHostsConfig,
+  targetHostId?: string,
+): ReturnType<typeof resolveDesktopHostIdentity> => {
+  if (targetHostId) {
+    const host = config.hosts.find((entry) => entry.id === targetHostId);
+    return host ? { kind: 'host', host } : null;
+  }
+  const hydrated = resolveDesktopHostIdentity({
+    runtimeKey: getRuntimeKey(),
+    apiBaseUrl: getRuntimeApiBaseUrl(),
+    hosts: config.hosts,
+    localOrigin: config.localOrigin,
+  });
+  if (hydrated) return hydrated;
+  if (config.defaultHostId && config.defaultHostId !== 'local') {
+    const host = config.hosts.find((entry) => entry.id === config.defaultHostId);
+    if (host) return { kind: 'host', host };
+  }
+  return { kind: 'local' };
+};
+
+const applyHostTokenInPlace = (host: DesktopHost, runtimeKey: string): void => {
+  const token = host.clientToken || '';
+  if (!token || getRuntimeBearerTokenSync() === token) return;
+  switchRuntimeEndpoint({
+    apiBaseUrl: getRuntimeApiBaseUrl() || getDesktopHostApiUrl(host),
+    clientToken: token,
+    requestHeaders: host.requestHeaders || null,
+    runtimeKey,
+    relay: isRelayModeActive() ? host.relay : undefined,
+  });
+};
+
 /**
- * On desktop startup, reconnect a relay-capable default host. The Electron
- * shell boots the LOCAL UI for any host that carries a relay leg and defers
- * transport selection to the renderer: here we probe the direct address first
- * (cheap, preferred on the home network) and fall back to the E2EE tunnel via
- * switchRuntimeEndpoint({ relay }) — the multi-transport model mobile uses.
- * Direct-only hosts never reach this path (the shell injects their
- * apiBaseUrl/token as window globals before render).
+ * Reconnect the last desktop runtime before SessionAuthGate runs.
  *
- * Safe to call unconditionally; it is a no-op outside the Electron shell and when
- * the default host is local or already active.
+ * Ctrl+R re-hydrates `apiBaseUrl` + `runtimeKey` from
+ * `pichamber:lastRuntimeEndpoint.v1`, but the client token is stored in the
+ * Electron host config (never localStorage). Without this restore the auth
+ * gate probes the last server with the injected/empty bootstrap token and
+ * prompts for the password again.
+ *
+ * When the hydrated runtime already names this host, only the stored token is
+ * reapplied — transport stays as the last session left it. A cold start that
+ * has not yet selected a runtime still probes relay-capable default hosts
+ * (direct first, E2EE fallback).
+ *
+ * Safe to call unconditionally; it is a no-op outside the Electron shell.
  */
 export const restoreDesktopRelayRuntime = async (targetHostId?: string): Promise<void> => {
   if (!isElectronShell()) return;
   const config = await desktopHostsGet().catch(() => null);
   if (!config) return;
-  // An explicit target (a "new window for host X") wins over the default-host
-  // relaunch logic.
-  const hostId = targetHostId || (config.defaultHostId !== 'local' ? config.defaultHostId : null);
-  if (!hostId) return;
-  const host = config.hosts.find((entry) => entry.id === hostId);
-  if (!host?.relay) return;
-  // Must match runtimeKeyForHost() in DesktopHostSwitcher so switch/resolve agree.
-  const runtimeKey = `host:${host.id}`;
-  if (getRuntimeKey() === runtimeKey) return;
 
+  const identity = resolveRestoreIdentity(config, targetHostId);
+  if (!identity) return;
+
+  if (identity.kind === 'local') {
+    const token = await desktopLocalClientTokenGet();
+    if (!token) return;
+    const apiBaseUrl = config.localOrigin || getRuntimeApiBaseUrl();
+    if (!apiBaseUrl) return;
+    if (getRuntimeKey() === 'local' && getRuntimeBearerTokenSync() === token) return;
+    switchRuntimeEndpoint({ apiBaseUrl, clientToken: token, runtimeKey: 'local' });
+    return;
+  }
+
+  const host = identity.host;
+  const runtimeKey = runtimeKeyForDesktopHost(host);
   const switchToDirect = (url: string) => {
     switchRuntimeEndpoint({
       apiBaseUrl: url,
@@ -145,6 +202,23 @@ export const restoreDesktopRelayRuntime = async (targetHostId?: string): Promise
     // hot-switch back to direct if it simply moved (DHCP re-lease).
     scheduleDesktopHostCandidateRefresh(host.id);
   };
+
+  if (getRuntimeKey() === runtimeKey) {
+    const directUrl = host.apiUrl ? normalizeHostUrl(getDesktopHostApiUrl(host)) : '';
+    const onDirect = Boolean(directUrl && locationMatchesHost(getRuntimeApiBaseUrl(), directUrl));
+    if (onDirect || !host.relay) {
+      applyHostTokenInPlace(host, runtimeKey);
+      return;
+    }
+    switchToRelay();
+    return;
+  }
+  if (!host.relay) {
+    const url = getDesktopHostApiUrl(host);
+    if (!url) return;
+    switchToDirect(url);
+    return;
+  }
 
   const directUrl = host.apiUrl ? normalizeHostUrl(getDesktopHostApiUrl(host)) : null;
   if (!directUrl) {
