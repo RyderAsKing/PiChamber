@@ -69,6 +69,7 @@ The Pi cluster belongs to the connected runtime, not the focused project:
 | `ChildStoreManager` and child directory stores | Priority-scheduled directory bootstrap plus `session`, `message`, `part`, `permission`, `question`, etc. | One runtime and one store per directory |
 | `SessionMessageLoader` | Initial message loading, pagination, prefetch, retries, load state, and optimistic reconciliation | One runtime, directory, and session ID |
 | `pi-session-catalog.ts` | Live runtime-scoped metadata catalog (`byId`, `byDirectory`, `listStatusByDirectory`); the at-most-2-in-flight directory refresh scheduler | All known directories in the active runtime |
+| `pi-session-catalog-cache.ts` | Best-effort runtime-scoped browser snapshot of stable catalog metadata for warm first paint; never persists lifecycle/retry/hydration authority | Up to four recently used runtimes and 2,000 session rows |
 | `PiSessionStore` (`pi-session-store.ts`) | Live event stream, reducer `bySession` (LRU-capped transcripts), `hydratedSessionIds`, `lastAccessById`, the live catalog, and per-directory refresh generation | One runtime-wide cluster |
 | `PiSessionCatalogFeeder` (`pi-session-catalog-feeder.tsx`) | Subscribes to `useProjectsStore` + `useWorktreeStore`; fills the catalog for every known directory (project roots + worktrees), deduped by sorted signature | All known directories; React-mount lifecycle |
 | `global-session-status.ts` | Incremental non-idle session status index reconciled from events and authoritative directory snapshots | All known directories in the active runtime |
@@ -111,7 +112,9 @@ catalog.listStatusByDirectory:   Map<directory, 'idle'|'loading'|'ready'|'failed
 - An event arriving for a session that has not been listed yet (`byId` has no row) inserts a `upsertStubRecord` so the sidebar can render the session as busy. `applyDirectoryListToCatalog` preserves a non-idle existing lifecycle on listed ids, so a stub is never downgraded to idle by a slow list.
 - A global/home session (created at literal `~` through the "Don't work in a folder" composer target) has no project owner. Project-focused catalog slices and `createSessionOwnershipIndex` exclude it, so it cannot appear in or drive selection for a registered folder. The sidebar adds these unowned records back only in All sessions and marks them for a neutral themed row shade. Literal `~` and expanded-home catalog membership are merged only while the home directory itself is focused. `global-session-directory.ts` owns this identity check. The `PiSessionCatalogFeeder` includes the home directory in its refresh set so globals are re-fetched after a reload. The composer target is defined in `draftTargetProjects.ts` (`__home__` / "Don't work in a folder") and `session-ui-store` persists it as `selectedProjectId: "__home__"`.
 
-### Single fill path
+### Cached first paint and authoritative fill
+
+On browser startup, `PiSessionStore` reads `pi-session-catalog-cache.ts` before mounting catalog consumers. The cache stores stable sidebar metadata only. Restored records always use `lifecycle: 'idle'`, `hydrated: false`, and per-directory list status `'idle'`; historical cache data can render a warm sidebar but can never claim current activity or completeness. Missing and malformed runtime snapshots remain distinct from a valid cached empty directory. The cache is keyed by runtime identity, retains at most four recent runtimes and 2,000 rows, coalesces writes for 250 ms, and flushes on runtime switch and browser lifecycle suspension. Storage failure is an accepted loss of this convenience cache because the network fill remains authoritative.
 
 `PiSessionCatalogFeeder` is the only direct caller of `PiSessionStore.refreshAllDirectoryCatalogs` from React. It subscribes to both `useProjectsStore` (project roots) and `useWorktreeStore` (authoritatively discovered linked-worktree paths). On every change in the union it:
 
@@ -136,7 +139,7 @@ Per-directory failures stay scoped to that directory. The catalog's `listStatusB
 
 ### Runtime switch
 
-`dispose` / `clear` / `resetForRuntime` reset the catalog via `initial()`. The `hydratedSessionIds` set, `lastAccessById`, and the per-directory refresh generations all clear in lockstep.
+`dispose` / `clear` reset the in-memory catalog via `initial()`. `resetForRuntime` flushes the outgoing runtime's pending cache write, clears live state and generations, then seeds the incoming runtime from its own cached snapshot when present. Cached directories remain `'idle'`, so the normal feeder revalidates them. Runtime identities never share catalog rows. The `hydratedSessionIds` set, `lastAccessById`, and the per-directory refresh generations all clear in lockstep.
 
 Ctrl+R reload keeps the active runtime and its last session: the active endpoint (`apiBaseUrl` + `runtimeKey`) is persisted to `pichamber:lastRuntimeEndpoint.v1` and re-hydrated before `getRuntimeKey`/`getRuntimeApiBaseUrl` are used, so a reload does not snap back to `local`. The last active session per runtime is persisted via `last-session-cache` (`oc.lastSession.v1`) on every `setCurrentSession`; `PiSessionProvider` falls back to that persisted session (web/desktop, non-Capacitor) when the in-memory `lastSelectedSessionForDirectory` hint is empty after a reload, and `PiSessionCatalogFeeder` ensures the home directory is part of the catalog refresh so a global `~` session is discoverable.
 

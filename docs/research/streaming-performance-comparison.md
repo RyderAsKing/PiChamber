@@ -19,6 +19,21 @@ Dependency docs consulted only where needed to interpret a primary symbol: Tauri
 
 ---
 
+## Follow-up: initial session sidebar loading
+
+T3 Code has two concrete advantages on this path.
+
+1. It stores the last complete `OrchestrationShellSnapshot` in IndexedDB. `makeEnvironmentShellState` reads that cache before starting authoritative synchronization, so a warm launch can render projects and thread summaries before the network responds. A sliding queue persists the newest live snapshot after a 500 ms debounce. Sources: `packages/client-runtime/src/state/shell.ts:54-99` and `apps/web/src/connection/storage.ts:124-185,469-503` at the pinned T3 revision.
+2. Its cold refresh is one lightweight snapshot. `GET /api/orchestration/shell` returns projects and every active thread summary in one gzip-compressible response. The server builds it from projected SQL rows for projects, threads, sessions, latest turns, and projection state. It does not hydrate complete transcripts for the sidebar. Sources: `packages/client-runtime/src/state/shellSnapshotHttp.ts:12-48`, `apps/server/src/orchestration/http.ts:48-62`, and `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts:1958-2106`.
+
+The T3 sidebar derives its whole thread list from that snapshot. It only prewarms full detail for three visible threads, while initial and older thread-detail pages are limited to 10 and 20 user turns. Those limits improve opening a thread and bound background work, but they do not explain the initial list paint. Sources: `packages/client-runtime/src/state/threadShell.ts:33-178`, `apps/web/src/components/Sidebar.logic.ts:15-24`, and `packages/client-runtime/src/state/threads.ts:49-50,611-636`.
+
+Before the cached-first catalog change, PiChamber took a different route. After the focused directory was ready, `PiSessionCatalogFeeder` lists every remaining project root, worktree, and home directory separately. The catalog scheduler permits two directory requests at once. Each completed directory replaces that directory's membership and emits `TOPIC_CATALOG`, so the sidebar visibly fills directory by directory. The server sends each directory as one response, not one row at a time. Within a directory, `listPiSessionJsonlDirectory` stats and reads a bounded head and optional tail from each JSONL session file with at most eight concurrent reads, then returns the sorted list. One unreadable or header-malformed file still fails that directory. Sources: `packages/ui/src/sync/pi-session-catalog-feeder.tsx:74-108`, `packages/ui/src/sync/pi-session-catalog.ts:611-651`, `packages/ui/src/apps/pi-session-store.ts:480-543`, `packages/web/server/lib/pi/session-daemon/session-daemon.js:549-616`, and `packages/web/server/lib/pi/session-daemon/session-jsonl.js`.
+
+So the visible drip was real, but its client-side unit was a directory rather than an individual session. T3 avoids it on warm starts with a cached complete catalog and on cold starts with one complete shell response backed by a database projection. PiChamber now adopts the warm-start half of that design in `packages/ui/src/sync/pi-session-catalog-cache.ts`: stable catalog metadata is cached per runtime, restored as explicitly stale/idle data, and revalidated through the existing per-directory failure boundary. Cold starts still issue one list per directory (two in flight) rather than one aggregate catalog response. Batching those existing results into one final render would hide the drip but would not reduce cold load time.
+
+No same-dataset runtime benchmark was run. These sources explain the observed loading shape and show why T3 should feel faster on a warm launch, but they do not establish a timing ratio.
+
 ## Bottom line
 
 * **No repo is a drop-in performance reference for PiChamber.** Each targets a different runtime boundary, so the mechanism that actually determines perceived streaming cost is not portable without adopting its boundary.

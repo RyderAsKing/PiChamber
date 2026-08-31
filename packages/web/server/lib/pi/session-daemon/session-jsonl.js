@@ -38,6 +38,25 @@ const LIST_HEAD_SCAN_BYTES = 512 * 1024;
 /** Latest `session_info` (rename) is appended; read a tail instead of the whole log. */
 const LIST_TAIL_SCAN_BYTES = 128 * 1024;
 const LIST_PREVIEW_CHARS = 500;
+/** Bound in-directory JSONL listing so a large folder is not one file at a time. */
+const LIST_FILE_CONCURRENCY = 8;
+
+const mapWithConcurrency = async (values, concurrency, mapper) => {
+  if (values.length === 0) return [];
+  const safeConcurrency = Math.max(1, Math.min(concurrency, values.length));
+  const results = new Array(values.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (true) {
+      const nextIndex = cursor;
+      cursor += 1;
+      if (nextIndex >= values.length) return;
+      results[nextIndex] = await mapper(values[nextIndex]);
+    }
+  };
+  await Promise.all(Array.from({ length: safeConcurrency }, () => worker()));
+  return results;
+};
 
 const isSessionHeader = (entry) => (
   Boolean(entry)
@@ -266,7 +285,9 @@ async function readPiSessionJsonlListFields(filePath, fileSize) {
 /**
  * Sidebar/list metadata for one cwd. Reads a header, a bounded prefix for
  * the first user prompt, and a tail for the latest rename. It does not
- * load whole transcripts.
+ * load whole transcripts. Files in the directory are read with bounded
+ * concurrency; one unreadable or header-malformed file still fails the
+ * whole directory list.
  */
 export async function listPiSessionJsonlDirectory({
   cwd,
@@ -284,9 +305,8 @@ export async function listPiSessionJsonlDirectory({
     throw unreadable();
   }
 
-  const sessions = [];
-  for (const entry of entries) {
-    if (!entry.name.endsWith('.jsonl') || entry.isDirectory()) continue;
+  const files = entries.filter((entry) => entry.name.endsWith('.jsonl') && !entry.isDirectory());
+  const sessions = await mapWithConcurrency(files, LIST_FILE_CONCURRENCY, async (entry) => {
     const filePath = join(sessionDirectory, entry.name);
     let fileStat;
     try {
@@ -303,7 +323,7 @@ export async function listPiSessionJsonlDirectory({
       ? Date.parse(fields.header.timestamp)
       : NaN;
     const created = Number.isFinite(headerTime) ? new Date(headerTime) : fileStat.mtime;
-    sessions.push({
+    return {
       path: filePath,
       id: fields.header.id,
       cwd: fields.header.cwd,
@@ -312,8 +332,8 @@ export async function listPiSessionJsonlDirectory({
       created,
       modified: fileStat.mtime,
       ...(fields.firstMessage ? { firstMessage: fields.firstMessage } : {}),
-    });
-  }
+    };
+  });
   sessions.sort((left, right) => right.modified.getTime() - left.modified.getTime());
   return sessions;
 }

@@ -138,4 +138,35 @@ describe('Pi session JSONL validation', () => {
     ]);
     expect(listed[0].path).toContain('session-one.jsonl');
   });
+
+  it('lists every session file in a crowded directory', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-jsonl-'));
+    const cwd = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    const sessionDirectory = getPiSessionDirectory({ cwd, agentDir });
+    await mkdir(sessionDirectory, { recursive: true });
+    const ids = Array.from({ length: 24 }, (_, index) => `session-${String(index).padStart(2, '0')}`);
+    await Promise.all(ids.map((id) => writeFile(
+      join(sessionDirectory, `${id}.jsonl`),
+      `${JSON.stringify({ type: 'session', version: 3, id, timestamp: '2026-01-01T00:00:00.000Z', cwd })}\n${JSON.stringify({ type: 'message', message: { role: 'user', content: [{ type: 'text', text: `Prompt ${id}` }] } })}\n`,
+    )));
+
+    const listed = await listPiSessionJsonlDirectory({ cwd, agentDir });
+    expect(listed.map((session) => session.id).sort()).toEqual([...ids].sort());
+    expect(listed.every((session) => session.cwd === cwd && session.firstMessage?.startsWith('Prompt '))).toBe(true);
+  });
+
+  it('fails the directory list when one session header is malformed', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-jsonl-'));
+    const cwd = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    const sessionDirectory = getPiSessionDirectory({ cwd, agentDir });
+    await mkdir(sessionDirectory, { recursive: true });
+    await writeFile(join(sessionDirectory, 'valid.jsonl'), `${validHeader(cwd)}\n`);
+    await writeFile(join(sessionDirectory, 'broken.jsonl'), '{"type":"not-a-session"}\n');
+
+    await expect(listPiSessionJsonlDirectory({ cwd, agentDir })).rejects.toMatchObject({
+      code: 'MALFORMED_SESSION_JSONL',
+    });
+  });
 });
