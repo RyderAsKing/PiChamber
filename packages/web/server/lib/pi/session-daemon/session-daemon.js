@@ -649,10 +649,44 @@ export function createSessionDaemon({
     if (typeof sessionId !== 'string' || sessionId.length === 0) {
       throw new SessionDaemonProtocolError('INVALID_SESSION', 'The Pi session does not exist.');
     }
-    // Filename identity is enough to 404 a missing id without listing or
-    // fully reading every transcript in every cwd. Deep-linking a stale
-    // `?session=` used to hang here while `validatePiSessionJsonlDirectory`
-    // scanned multi-megabyte JSONL files that cannot be the target.
+    const candidateDirs = new Set();
+    let requestedTargetDirectory;
+    if (requestedDirectory) {
+      try {
+        requestedTargetDirectory = await resolveDirectory(requestedDirectory);
+        candidateDirs.add(requestedTargetDirectory);
+      } catch {}
+    }
+    if (activeDirectory) candidateDirs.add(activeDirectory);
+    if (cwd) candidateDirs.add(cwd);
+    for (const d of knownDirectories) candidateDirs.add(d);
+
+    const findInDirectory = async (directory) => {
+      try {
+        const sessions = await listSessions({ cwd: directory, agentDir });
+        const target = Array.isArray(sessions) ? sessions.find((session) => session?.id === sessionId) : undefined;
+        if (target && typeof target.path === 'string' && target.path.length > 0) {
+          await validatePiSessionJsonlFile(target.path);
+          return { target, directory };
+        }
+      } catch {
+        // Continue through the remaining authoritative lookup paths.
+      }
+      return undefined;
+    };
+
+    // A caller-supplied directory is the narrowest authoritative scope. Check
+    // it before walking every directory in the agent store. This keeps an
+    // ordinary session open proportional to that project's sessions and avoids
+    // choosing a same-id record from another directory.
+    if (requestedTargetDirectory) {
+      const requestedTarget = await findInDirectory(requestedTargetDirectory);
+      if (requestedTarget) return requestedTarget;
+    }
+
+    // Filename identity is enough to locate a session from a directory-less
+    // deep link without fully reading every transcript. A stale link can still
+    // fall through to the bounded header scans below.
     try {
       const named = await findPiSessionJsonlById({ sessionId, agentDir });
       if (named?.path && named.cwd) {
@@ -662,29 +696,13 @@ export function createSessionDaemon({
         return { target: { id: sessionId, path: named.path }, directory };
       }
     } catch {
-      // Fall through to SDK list / header scan for non-standard filenames.
+      // Fall through to list / header scan for non-standard filenames.
     }
-    const candidateDirs = new Set();
-    if (requestedDirectory) {
-      try {
-        candidateDirs.add(await resolveDirectory(requestedDirectory));
-      } catch {}
-    }
-    if (activeDirectory) candidateDirs.add(activeDirectory);
-    if (cwd) candidateDirs.add(cwd);
-    for (const d of knownDirectories) candidateDirs.add(d);
 
-    for (const dir of candidateDirs) {
-      try {
-        const sessions = await listSessions({ cwd: dir, agentDir });
-        const target = Array.isArray(sessions) ? sessions.find((session) => session?.id === sessionId) : undefined;
-        if (target && typeof target.path === 'string' && target.path.length > 0) {
-          await validatePiSessionJsonlFile(target.path);
-          return { target, directory: dir };
-        }
-      } catch (err) {
-        // Continue searching other candidate directories
-      }
+    for (const directory of candidateDirs) {
+      if (directory === requestedTargetDirectory) continue;
+      const target = await findInDirectory(directory);
+      if (target) return target;
     }
 
     // If not found in candidateDirs, scan all directory stores under agentDir/sessions

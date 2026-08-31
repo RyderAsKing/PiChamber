@@ -173,9 +173,13 @@ const createSseConnection = (
   if (shouldUseCapacitorEventSource()) {
     const source = new EventSource(getRuntimeUrlResolver().sse('/api/pi/events', query));
     let closed = false;
+    const heartbeat = () => {
+      if (!closed) onActivity();
+    };
     const abort = () => {
       if (closed) return;
       closed = true;
+      source.removeEventListener('heartbeat', heartbeat);
       source.close();
       signal.removeEventListener('abort', abort);
     };
@@ -206,6 +210,7 @@ const createSseConnection = (
       recordMobileDiagnostic('stream-disconnect', { code: 'sse-error' });
       onDisconnect('sse-error');
     };
+    source.addEventListener('heartbeat', heartbeat);
     if (signal.aborted) abort();
     else signal.addEventListener('abort', abort, { once: true });
     return abort;
@@ -386,10 +391,6 @@ export const createPiEventStream = (
 
   const resetHeartbeat = (connectionId: number) => {
     if (heartbeatTimer) clearTimeout(heartbeatTimer);
-    if (shouldUseCapacitorEventSource()) {
-      heartbeatTimer = null;
-      return;
-    }
     heartbeatTimer = setTimeout(() => {
       if (connectionId === generation) handleDisconnect('heartbeat-timeout', connectionId);
     }, options.heartbeatTimeoutMs ?? DEFAULT_HEARTBEAT_TIMEOUT_MS);
@@ -397,11 +398,19 @@ export const createPiEventStream = (
 
   const markReady = (connectionId: number) => {
     if (disposed || signal.aborted || connectionId !== generation) return;
+    resetHeartbeat(connectionId);
+  };
+
+  const markActivity = (connectionId: number) => {
+    if (disposed || signal.aborted || connectionId !== generation) return;
+    const becameHealthy = !healthyConnection;
     attempt = 0;
     healthyConnection = true;
-    recordMobileDiagnostic('stream-ready', { code: mode });
     resetHeartbeat(connectionId);
-    handlers.onReconnect?.();
+    if (becameHealthy) {
+      recordMobileDiagnostic('stream-ready', { code: mode });
+      handlers.onReconnect?.();
+    }
   };
 
   const computeBackoff = () => {
@@ -448,7 +457,7 @@ export const createPiEventStream = (
       return;
     }
     if (event.sequence > lastSequence) lastSequence = event.sequence;
-    resetHeartbeat(connectionId);
+    markActivity(connectionId);
     handlers.onEvent(event);
   };
 
@@ -510,7 +519,7 @@ export const createPiEventStream = (
       : createSseConnection(resolveStreamQuery({
           fromSequence: lastSequence,
           ...(options.sessionId ? { sessionId: options.sessionId } : {}),
-        }), signal, onReady, () => resetHeartbeat(connectionId), onEvent, onDisconnect);
+        }), signal, onReady, () => markActivity(connectionId), onEvent, onDisconnect);
   };
 
   const handleSystemResume = () => {

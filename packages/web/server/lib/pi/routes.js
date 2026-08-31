@@ -727,6 +727,7 @@ export const registerPiRuntimeRoutes = (app, {
   listCustomThemes = listPiCustomThemes,
   updateChecker = checkForUpdates,
   smallModelGenerator = async (input) => (await import('./small-model-generation.js')).generateWithSmallModel(input),
+  eventHeartbeatMs = 15_000,
 }) => {
   app.get('/api/pi/ui-settings', async (_req, res) => {
     try {
@@ -1093,7 +1094,14 @@ export const registerPiRuntimeRoutes = (app, {
         if (event) res.write(`data: ${JSON.stringify(event)}\n\n`);
       };
       close = await runtime.subscribe({ sessionId, directory, fromSequence, onEvent: send, onError: () => res.end() });
-      const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 15_000);
+      // Named heartbeat events are visible to native EventSource clients.
+      // Comment-only SSE heartbeats keep proxies open but are hidden from the
+      // EventSource API, so WKWebView cannot use them to detect a silent link.
+      // Send one immediately so an empty replay still proves the connection is
+      // healthy before the client resets its reconnect backoff.
+      const sendHeartbeat = () => res.write('event: heartbeat\ndata: {}\n\n');
+      sendHeartbeat();
+      const heartbeat = setInterval(sendHeartbeat, eventHeartbeatMs);
       const cleanup = () => {
         clearInterval(heartbeat);
         close?.();

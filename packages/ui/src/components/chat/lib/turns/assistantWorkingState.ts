@@ -37,6 +37,14 @@ export const resolveTurnStreamingAssistantId = (options: {
     return null;
 };
 
+export const isSessionAssistantWorking = (options: {
+    connection: 'loading' | 'ready' | 'unavailable' | 'error';
+    authoritativeWorking: boolean;
+    hasPendingAssistant: boolean;
+}): boolean =>
+    options.connection === 'ready'
+    && (options.authoritativeWorking || options.hasPendingAssistant);
+
 export const isTurnAssistantWorking = (options: {
     messageId: string;
     activeStreamingMessageId: string | null | undefined;

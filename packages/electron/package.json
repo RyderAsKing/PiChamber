@@ -49,9 +49,13 @@
   "build": {
     "appId": "dev.pichamber.desktop",
     "productName": "PiChamber",
+    "electronLanguages": [
+      "en-US"
+    ],
     "files": [
       "dist-bundle/main.mjs",
-      "preload.mjs"
+      "preload.mjs",
+      "!node_modules/@pi-chamber/web/dist/**/*"
     ],
     "extraResources": [
       {
@@ -79,6 +83,9 @@
     "artifactName": "${productName}-${version}-${arch}.${ext}",
     "npmRebuild": false,
     "mac": {
+      "electronLanguages": [
+        "en"
+      ],
       "category": "public.app-category.developer-tools",
       "icon": "resources/icons/icon.icns",
       "artifactName": "${productName}-${version}-mac-${arch}.${ext}",

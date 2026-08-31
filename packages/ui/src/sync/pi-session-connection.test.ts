@@ -10,6 +10,10 @@ import type { PiSessionId } from '@/lib/pi/types';
 import { useNotificationStore } from '@/sync/notification-store';
 import { clearAllRevertNavigations, getRevertNavigation } from '@/sync/revert-navigation-store';
 import { resetSessionOrdering, useSessionOrderingStore } from '@/sync/session-ordering';
+import {
+  resetSessionActivityTiming,
+  useSessionActivityTimingStore,
+} from '@/sync/session-activity-timing';
 
 // ---------------------------------------------------------------------------
 // Helpers / fakes
@@ -182,6 +186,7 @@ const tickMicrotasks = async (count = 8) => {
 describe('PiSessionStore runtime-scoped sessions', () => {
   beforeEach(() => {
     resetSessionOrdering();
+    resetSessionActivityTiming();
     useNotificationStore.setState({
       list: [],
       index: {
@@ -192,6 +197,7 @@ describe('PiSessionStore runtime-scoped sessions', () => {
   });
   afterEach(() => {
     resetSessionOrdering();
+    resetSessionActivityTiming();
   });
 
   test('warm cross-folder focus skips getSession for the already-hydrated id', async () => {
@@ -984,6 +990,49 @@ describe('PiSessionStore hydrate/overlay reconciliation', () => {
     }]);
 
     expect(store.getState().reducer.bySession.get('s1')?.lifecycle).toBe('busy');
+    store.dispose();
+  });
+
+  test('adopts authoritative run timing from a reconnect snapshot without restarting elapsed time', () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    const elapsedMs = 75_000;
+    const serverNow = Date.now();
+    internal.hydratedSessionIds.add('s1');
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      selectedSessionId: 's1',
+      reducer: {
+        bySession: new Map([['s1', reducerSession({ sessionId: 's1', lifecycle: 'busy', lastSequence: 4 })]]),
+        lastSequence: new Map([['s1', 4]]),
+      },
+    };
+
+    internal.commitEvents([{
+      protocolVersion: 1,
+      kind: 'event',
+      name: 'session.snapshot',
+      sequence: 5,
+      sessionId: 's1',
+      directory: '/repo',
+      payload: {
+        snapshot: {
+          sessionId: 's1',
+          directory: '/repo',
+          isStreaming: true,
+          lifecycle: 'busy',
+          queue: { steering: 0, followUp: 0 },
+          lastSequence: 5,
+          runStartedAt: serverNow - elapsedMs,
+          serverNow,
+        },
+      },
+    }]);
+
+    const startedAt = useSessionActivityTimingStore.getState().startedAt.get('s1');
+    expect(typeof startedAt).toBe('number');
+    expect(Date.now() - (startedAt ?? Date.now())).toBeGreaterThanOrEqual(elapsedMs);
     store.dispose();
   });
 

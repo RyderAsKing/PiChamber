@@ -67,7 +67,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, isMobile, children, cl
         SIDEBAR_MAX_WIDTH,
         Math.max(SIDEBAR_MIN_WIDTH, sidebarWidth || SIDEBAR_CONTENT_WIDTH)
     );
-    const appliedWidth = isOpen ? openWidth : 0;
+    const appliedWidth = slide.layoutVisible ? openWidth : 0;
 
     const handlePointerDown = (event: React.PointerEvent) => {
         if (!isOpen) {

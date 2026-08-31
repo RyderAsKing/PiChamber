@@ -7,9 +7,13 @@ import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
 import { createMessageEntryAliases } from './message-entry-aliases.js';
-import { createSessionDaemon, isLocalSessionDaemonEndpoint } from './session-daemon.js';
+import { createSessionDaemon as createSessionDaemonImpl, isLocalSessionDaemonEndpoint } from './session-daemon.js';
 
 const credential = 'a-private-daemon-credential';
+
+function createSessionDaemon(options) {
+  return createSessionDaemonImpl({ ...options, agentDir: options.agentDir ?? options.cwd });
+}
 
 class FakeSession {
   constructor(sessionId = 'pi-session-1', sessionFile) {
@@ -317,7 +321,7 @@ describe('Pi session daemon spike', () => {
     await stale.close();
   });
 
-  it('keeps existing and late-joining device streams independent during one turn', async () => {
+  it('keeps existing, late-joining, and reconnecting device streams contiguous during one turn', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-multi-client-'));
     const endpoint = testDaemonEndpoint(root);
     const session = new FakeSession();
@@ -358,15 +362,37 @@ describe('Pi session daemon spike', () => {
     expect(firstDeltaFrame.sequence).toBe(lateDeltaFrame.sequence);
     expect(lateDeltaFrame.payload.delta).toBe(' plus the rest');
 
+    await late.close();
+    const firstEnd = first.next((frame) => frame.event === 'assistant.message.end');
+    session.emit({
+      type: 'message_end',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'half plus the rest' }],
+        provider: 'test',
+        model: 'model',
+        timestamp: 1_000,
+      },
+    });
+    const firstEndFrame = await firstEnd;
+
+    const resumed = connectClient(endpoint);
+    await resumed.authenticate(credential, {
+      sessionId: 'pi-session-1',
+      fromSequence: lateDeltaFrame.sequence,
+    });
+    const resumedEndFrame = await resumed.next((frame) => frame.event === 'assistant.message.end');
+    expect(resumedEndFrame.sequence).toBe(firstEndFrame.sequence);
+
     const firstIdle = first.next((frame) => frame.event === 'session.lifecycle' && frame.payload?.state === 'idle');
-    const lateIdle = late.next((frame) => frame.event === 'session.lifecycle' && frame.payload?.state === 'idle');
+    const resumedIdle = resumed.next((frame) => frame.event === 'session.lifecycle' && frame.payload?.state === 'idle');
     session.isStreaming = false;
     session.emit({ type: 'agent_settled' });
-    const [firstIdleFrame, lateIdleFrame] = await Promise.all([firstIdle, lateIdle]);
-    expect(firstIdleFrame.sequence).toBe(lateIdleFrame.sequence);
-    expect(firstIdleFrame.sequence).toBeGreaterThan(firstDeltaFrame.sequence);
+    const [firstIdleFrame, resumedIdleFrame] = await Promise.all([firstIdle, resumedIdle]);
+    expect(firstIdleFrame.sequence).toBe(resumedIdleFrame.sequence);
+    expect(firstIdleFrame.sequence).toBeGreaterThan(firstEndFrame.sequence);
 
-    await late.close();
+    await resumed.close();
     await first.close();
   });
 
@@ -530,6 +556,51 @@ describe('Pi session daemon spike', () => {
     expect(right.result.session.id).toBe('pi-session-1');
     await first.close();
     await second.close();
+  });
+
+  it('opens the requested directory before falling back to a same-id global session', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-open-requested-'));
+    const otherRoot = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-open-other-'));
+    const endpoint = testDaemonEndpoint(root);
+    const agentDir = join(root, 'agent');
+    const otherSessionDir = join(agentDir, 'sessions', 'other');
+    await mkdir(otherSessionDir, { recursive: true });
+
+    const requestedSessionFile = join(root, 'session-1.jsonl');
+    const otherSessionFile = join(otherSessionDir, 'session-1.jsonl');
+    await writeFile(requestedSessionFile, `{"type":"session","id":"session-1","cwd":${JSON.stringify(root)}}\n`);
+    await writeFile(otherSessionFile, `{"type":"session","id":"session-1","cwd":${JSON.stringify(otherRoot)}}\n`);
+
+    let opened;
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      agentDir,
+      listSessions: async ({ cwd }) => cwd === root ? [{
+        path: requestedSessionFile,
+        id: 'session-1',
+        cwd: root,
+        created: new Date('2026-01-01T00:00:00.000Z'),
+        modified: new Date('2026-01-02T00:00:00.000Z'),
+      }] : [],
+      createRuntime: async (options) => {
+        opened = options;
+        return new FakeRuntime({
+          cwd: options.cwd,
+          session: new FakeSession('session-1', options.sessionFile),
+        });
+      },
+    });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    const response = await client.request('sessions.open', { sessionId: 'session-1', directory: root });
+
+    expect(response.result.session.directory).toBe(root);
+    expect(opened).toMatchObject({ cwd: root, sessionFile: requestedSessionFile });
+    await client.close();
   });
 
   it('does not include in-memory sessions from another directory when listing a newly selected project directory', async () => {

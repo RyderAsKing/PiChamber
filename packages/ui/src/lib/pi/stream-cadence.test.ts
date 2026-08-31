@@ -161,10 +161,11 @@ describe('PiStreamCadence', () => {
     expect(frames).toEqual([]);
     pending[0]?.(0);
     expect(frames).toHaveLength(1);
-    expect(frames[0]?.map((event) => event.name)).toEqual([
-      'session.tool.update',
-      'session.tool.update',
-    ]);
+    expect(frames[0]).toHaveLength(1);
+    expect(frames[0]?.[0]?.sequence).toBe(2);
+    expect(
+      frames[0]?.[0]?.name === 'session.tool.update' && frames[0][0].payload.output,
+    ).toBe('chunk-2');
 
     cadence.dispose();
     globalThis.requestAnimationFrame = previousRaf;

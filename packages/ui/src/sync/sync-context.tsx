@@ -212,6 +212,10 @@ export function useSessionStatus(sessionID: string, _directory?: string): Sessio
   return sessionStatusFromLifecycle(record?.lifecycle, record?.retry);
 }
 
+export function usePiConnectionState() {
+  return usePiSessionSnapshot((state) => state.connection, undefined, TOPIC_CHROME);
+}
+
 export function useSessionCompaction(sessionID: string): PiCompactionInfo | null {
   return usePiSessionSnapshot(
     (state) => (sessionID ? state.reducer.bySession.get(sessionID)?.compaction ?? null : null),

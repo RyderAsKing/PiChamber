@@ -1,6 +1,13 @@
 import React from 'react';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useSessionStatus, useSessionMessages, useSessionPermissions, useSessionQuestions } from '@/sync/sync-context';
+import {
+  usePiConnectionState,
+  useSessionStatus,
+  useSessionMessages,
+  useSessionPermissions,
+  useSessionQuestions,
+} from '@/sync/sync-context';
+import { isSessionAssistantWorking } from '@/components/chat/lib/turns/assistantWorkingState';
 
 // Mirrors Pi session lifecycle: busy|retry|idle.
 type SessionActivityPhase = 'idle' | 'busy' | 'retry';
@@ -28,6 +35,7 @@ const IDLE_RESULT: SessionActivityResult = {
  * the user can supersede the prompt with a new message).
  */
 function useSessionActivity(sessionId: string | null | undefined, directory?: string): SessionActivityResult {
+  const connection = usePiConnectionState();
   const status = useSessionStatus(sessionId ?? '', directory);
   const messages = useSessionMessages(sessionId ?? '', directory);
   const permissions = useSessionPermissions(sessionId ?? '', directory);
@@ -53,7 +61,11 @@ function useSessionActivity(sessionId: string | null | undefined, directory?: st
 
     const hasAuthoritativeStatus = status !== undefined;
     const statusWorking = hasAuthoritativeStatus && phase !== 'idle';
-    const isWorking = statusWorking || hasPendingAssistant;
+    const isWorking = isSessionAssistantWorking({
+      connection,
+      authoritativeWorking: statusWorking,
+      hasPendingAssistant,
+    });
 
     if (hasAuthoritativeStatus && !statusWorking) return IDLE_RESULT;
 
@@ -65,7 +77,7 @@ function useSessionActivity(sessionId: string | null | undefined, directory?: st
       isBusy: phase === 'busy' || (!statusWorking && hasPendingAssistant),
       isCooldown: false,
     };
-  }, [sessionId, status, messages, permissions, questions]);
+  }, [connection, sessionId, status, messages, permissions, questions]);
 }
 
 export function useCurrentSessionActivity(): SessionActivityResult {
