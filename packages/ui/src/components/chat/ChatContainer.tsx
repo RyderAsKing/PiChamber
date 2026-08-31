@@ -386,7 +386,7 @@ const ChatViewport = React.memo(({
                             <StatusRowContainer />
                         </div>
 
-                        <div className="flex-shrink-0" style={{ height: isMobile ? '40px' : '10vh' }} aria-hidden="true" />
+                        <div className="flex-shrink-0" style={{ height: isMobile ? 'calc(40px + var(--oc-safe-area-bottom, 0px))' : 'calc(10vh + var(--oc-safe-area-bottom, 0px))' }} aria-hidden="true" />
                     </div>
                 </ScrollShadow>
                 <OverlayScrollbar containerRef={scrollRef} suppressVisibility={isProgrammaticFollowActive} userIntentOnly observeMutations={false} />

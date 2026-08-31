@@ -1022,7 +1022,10 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                 className={cn(
                     'group w-full',
                     isUser ? (isMobile ? 'pt-2' : 'pt-4') : assistantTopPaddingClass,
-                    isUser ? 'pb-0' : (isFollowedByAssistant || nextIsHiddenUserMessage) ? 'pb-0' : 'pb-2'
+                    // Tablet and desktop share bottom spacing (pb-2) for consistency;
+                    // mobile keeps tighter pb-0. User bubble's internal pb-4 below
+                    // provides the visual bottom padding inside the bubble.
+                    isUser ? (isMobile ? 'pb-0' : 'pb-2') : (isFollowedByAssistant || nextIsHiddenUserMessage) ? 'pb-0' : 'pb-2'
                 )}
                 id={`message-${message.info.id}`}
                 data-message-id={message.info.id}
@@ -1045,7 +1048,12 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                                 borderRadius: userMessageRadius,
                                                 borderBottomRightRadius: 'var(--radius-sm)',
                                             }}
-                                            className="px-5 py-3 shadow-none border border-primary/5"
+                                            className={cn(
+                                                'px-5 py-3 shadow-none border border-primary/5',
+                                                // Desktop and tablet share the same bottom padding (pb-4)
+                                                // for visual consistency; mobile keeps tighter py-3.
+                                                !isMobile && 'pb-4'
+                                            )}
                                         >
                                             <MessageBody
                                                 sessionId={message.info.sessionID}
