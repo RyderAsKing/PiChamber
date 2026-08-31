@@ -35,6 +35,42 @@ export const runtimeKeyForDesktopHost = (host: DesktopHost): string => {
   return `host:${host.id}`;
 };
 
+const DESKTOP_HOST_RUNTIME_KEY_PREFIX = 'host:';
+
+export type DesktopHostIdentity =
+  | { kind: 'local' }
+  | { kind: 'host'; host: DesktopHost };
+
+/**
+ * Map the active runtime onto a saved desktop host. Prefer the stable
+ * `host:<id>` key (relay hosts share the window origin, so URL matching cannot
+ * tell them apart), then the API URL, then the local origin.
+ */
+export const resolveDesktopHostIdentity = (options: {
+  runtimeKey: string;
+  apiBaseUrl: string;
+  hosts: DesktopHost[];
+  localOrigin?: string | null;
+}): DesktopHostIdentity | null => {
+  const runtimeKey = options.runtimeKey.trim();
+  if (runtimeKey === LOCAL_HOST_ID) return { kind: 'local' };
+  if (runtimeKey.startsWith(DESKTOP_HOST_RUNTIME_KEY_PREFIX)) {
+    const hostId = runtimeKey.slice(DESKTOP_HOST_RUNTIME_KEY_PREFIX.length);
+    const host = options.hosts.find((entry) => entry.id === hostId);
+    if (host) return { kind: 'host', host };
+  }
+
+  const remoteMatch = options.hosts.find((host) => (
+    options.apiBaseUrl ? locationMatchesHost(options.apiBaseUrl, getDesktopHostApiUrl(host)) : false
+  ));
+  if (remoteMatch) return { kind: 'host', host: remoteMatch };
+
+  if (options.localOrigin && options.apiBaseUrl && locationMatchesHost(options.apiBaseUrl, options.localOrigin)) {
+    return { kind: 'local' };
+  }
+  return null;
+};
+
 type ResolvedDesktopHost = {
   id: string;
   label: string;

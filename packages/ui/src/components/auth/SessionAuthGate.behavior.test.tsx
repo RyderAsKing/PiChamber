@@ -286,7 +286,9 @@ mock.module('@/lib/desktopHosts', () => ({
     return Promise.resolve();
   },
   getDesktopHostApiUrl: mock(() => ''),
+  locationMatchesHost: mock(() => false),
   normalizeHostUrl: mock(() => ''),
+  redactSensitiveUrl: mock((value: string) => value),
 }));
 
 mock.module('@/lib/passkeys', () => ({

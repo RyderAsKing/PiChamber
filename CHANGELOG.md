@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- **Desktop reload keeps the last host unlocked.** Reloading an Electron window reapplies the stored client token for the hydrated last runtime before the password gate runs, so a remembered host no longer asks for the password again (`restoreDesktopRelayRuntime`).
+
 ## [0.7.0] - 2026-09-01
 
 Streaming reliability and faster session startup.
