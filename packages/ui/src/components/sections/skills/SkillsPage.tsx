@@ -1,7 +1,6 @@
 import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
-import { ProjectTrustDialog } from '@/components/sections/shared/ProjectTrustDialog';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
 import { SettingsSection } from '@/components/sections/shared/SettingsSection';
 import { Button } from '@/components/ui/button';
@@ -125,7 +124,6 @@ export const SkillsPage: React.FC = () => {
 
     return (
       <>
-        <ProjectTrustDialog onResolved={() => void loadSkills()} />
         <SettingsPageLayout
           title={
             <span className="flex items-center gap-2">
@@ -236,7 +234,6 @@ export const SkillsPage: React.FC = () => {
   if (isLoading && skills.length === 0) {
     return (
       <>
-        <ProjectTrustDialog onResolved={() => void loadSkills()} />
         <SettingsPageLayout
           title={isMobile ? undefined : 'Skills'}
           description={isMobile ? undefined : 'Browse skills discovered by Pi. Click a card to read its guide.'}
@@ -269,7 +266,6 @@ export const SkillsPage: React.FC = () => {
   if (filteredSkills.length === 0 && skillQuery.trim() === '' && skills.length === 0) {
     return (
       <>
-        <ProjectTrustDialog onResolved={() => void loadSkills()} />
         <SettingsPageLayout
           title={isMobile ? undefined : 'Skills'}
           description={isMobile ? undefined : 'Browse skills discovered by Pi. Click a card to read its guide.'}
@@ -325,7 +321,6 @@ export const SkillsPage: React.FC = () => {
   // Main grid
   return (
     <>
-      <ProjectTrustDialog onResolved={() => void loadSkills()} />
       <SettingsPageLayout
         title={isMobile ? undefined : 'Skills'}
         description={isMobile ? undefined : 'Browse skills discovered by Pi. Click a card to read its guide.'}

@@ -287,6 +287,14 @@ export function createSessionDaemon({
     if (typeof requested === 'string' && requested.trim().length > 0) {
       const validated = await validateDirectoryPath(requested);
       knownDirectories.add(validated);
+      // PiChamber projects are trusted by default — auto-trust on explicit add/select
+      // so skills (and other resources) never trigger the trust popup for known dirs.
+      try {
+        const trustStore = createTrustStore(agentDir);
+        if (trustStore.get(validated) === null && hasTrustRequiringProjectResources(validated)) {
+          trustStore.set(validated, true);
+        }
+      } catch {}
       return validated;
     }
     return activeDirectory || cwd;
@@ -1380,7 +1388,15 @@ export function createSessionDaemon({
   const readPiSettings = (requestedDirectory) => {
     const targetDir = requestedDirectory || activeDirectory || cwd;
     const trustStore = createTrustStore(agentDir);
-    const trust = trustStore.get(targetDir);
+    let trust = trustStore.get(targetDir);
+    // Auto-trust known PiChamber projects so the skills popup never appears.
+    // `knownDirectories` tracks every dir the user explicitly added/selected.
+    if (trust === null && knownDirectories.has(targetDir) && hasTrustRequiringProjectResources(targetDir)) {
+      try {
+        trustStore.set(targetDir, true);
+        trust = true;
+      } catch {}
+    }
     const manager = createSettingsManager({ cwd: targetDir, agentDir, projectTrusted: trust === true });
     const global = manager.getGlobalSettings();
     const project = manager.getProjectSettings();
@@ -1421,8 +1437,14 @@ export function createSessionDaemon({
     if (hasTrust && payload.trust !== null && typeof payload.trust !== 'boolean') {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The project trust decision is invalid.');
     }
-    if (hasTrust && runtime?.session?.isStreaming) {
-      throw new SessionDaemonProtocolError('SESSION_BUSY', 'Project trust cannot change during an active session.');
+    if (hasTrust) {
+      const targetRuntimes = runtimeRegistry?.listByDirectory?.(targetDir) ?? [];
+      const inheritsActive = runtime && runtime.cwd === targetDir ? [runtime] : [];
+      const allTarget = targetRuntimes.length > 0 ? targetRuntimes : inheritsActive;
+      const isTargetStreaming = allTarget.some((r) => r.session?.isStreaming);
+      if (isTargetStreaming) {
+        throw new SessionDaemonProtocolError('SESSION_BUSY', 'Project trust cannot change during an active session.');
+      }
     }
     const trustStore = createTrustStore(agentDir);
     if (hasTrust) trustStore.set(targetDir, payload.trust);
