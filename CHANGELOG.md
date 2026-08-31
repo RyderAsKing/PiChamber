@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-01
+
+Streaming reliability and faster session startup.
+
+- **Live turns survive reload.** Reopening a chat that is still running restores the working/tooling state from `getSession` (`isStreaming` / `lifecycle: 'busy'` plus in-flight tools) instead of showing a settled transcript until the next token.
+- **Event stream stays attached.** Transport switches reconnect from the last accepted sequence without treating a disconnect as an empty session. Missed replay windows force-hydrate from an authoritative snapshot.
+- **Remembered desktop host auth.** Reloading an existing Electron window reapplies the selected remote host URL and stored client token so a remembered password is not prompted again (`startup-url-selection`, `main.mjs`).
+- **Warm sidebar catalog.** Stable session-list metadata is cached per runtime and restored as idle rows before directory lists return. Failed folder refreshes keep cached rows; authoritative empty lists persist an empty tombstone. Busy/retry and hydrated transcripts are never restored from cache (`pi-session-catalog-cache`).
+- **Faster crowded folder lists.** `sessions.list` reads up to eight JSONL session files at a time in a directory. One unreadable or header-malformed file still fails that folder only.
+
 ## [0.6.0] - 2026-08-25
 
 Worktree-aware sidebar and no-folder session fixes.
