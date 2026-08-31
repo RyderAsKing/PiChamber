@@ -87,6 +87,16 @@ export type { AttachedFile }
 // Send routing — shell mode, slash commands, or normal prompt
 // ---------------------------------------------------------------------------
 
+function committedSessionSelection(sessionId: string) {
+  const state = getPiSessionStore().getState()
+  const live = state.reducer.bySession.get(sessionId)
+  const listed = state.sessions.find((item) => item.session.id === sessionId)?.session
+  return {
+    model: live?.model ?? listed?.model,
+    thinking: live?.thinking ?? listed?.thinking,
+  }
+}
+
 export async function routeMessage(params: {
   runtimeKey?: string
   sessionId: string
@@ -105,28 +115,15 @@ export async function routeMessage(params: {
   const delivery = params.delivery === 'steer' || params.delivery === 'followUp' ? params.delivery : 'prompt'
   const sessionStore = getPiSessionStore()
   if (params.sessionId && params.providerID && params.modelID) {
-    const currentSession = sessionStore.getState().sessions.find((s) => s.session.id === params.sessionId)?.session
-    const currentModel = currentSession?.model
+    const currentModel = committedSessionSelection(params.sessionId).model
     if (!currentModel || currentModel.providerId !== params.providerID || currentModel.modelId !== params.modelID) {
-      try {
-        await sessionStore.setModel(params.sessionId, params.providerID, params.modelID)
-      } catch (err) {
-        console.warn("Failed to set model before sending prompt:", err)
-      }
+      await sessionStore.setModel(params.sessionId, params.providerID, params.modelID)
     }
   }
-  if (
-    params.sessionId
-    && isPiThinkingLevel(params.variant)
-  ) {
-    const currentSession = sessionStore.getState().sessions.find((s) => s.session.id === params.sessionId)?.session
-    const currentThinking = currentSession?.thinking
+  if (params.sessionId && isPiThinkingLevel(params.variant)) {
+    const currentThinking = committedSessionSelection(params.sessionId).thinking
     if (currentThinking !== params.variant) {
-      try {
-        await sessionStore.setThinking(params.sessionId, params.variant)
-      } catch (err) {
-        console.warn("Failed to set thinking before sending prompt:", err)
-      }
+      await sessionStore.setThinking(params.sessionId, params.variant)
     }
   }
   const outgoingFiles = [

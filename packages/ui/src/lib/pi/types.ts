@@ -40,10 +40,9 @@ export interface PiSession {
   createdAt: number;
   updatedAt: number;
   /**
-   * The last model/thinking used inside this session. Hydration prefers the
+   * The last committed model/thinking for this session. Hydration prefers the
    * latest assistant turn so reopening an older chat does not inherit the
-   * globally last-selected model. After the user changes model or thinking
-   * here, that choice stays until they change it again.
+   * globally last-selected model. Composer picks stay pending until send.
    */
   model?: PiModelRef;
   thinking?: PiThinkingLevel;
