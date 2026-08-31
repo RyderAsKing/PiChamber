@@ -4,7 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-- **Desktop reload keeps the last host unlocked.** Reloading an Electron window reapplies the stored client token for the hydrated last runtime before the password gate runs, so a remembered host no longer asks for the password again (`restoreDesktopRelayRuntime`).
+## [0.7.1] - 2026-09-01
+
+Composer, project, and desktop-auth polish after 0.7.0.
+
+- **Thinking changes wait until send.** Composer thinking-level picks stay local until the next send, so mid-turn or idle picker changes no longer rewrite the active session (`apply-composer-thinking`).
+- **Skills trust without a popup.** Opening a project no longer shows a trust dialog for skills; PiChamber projects are trusted automatically.
+- **Worktree create stays in the background.** Creating a worktree shows global progress instead of blocking the composer, so you can keep chatting while checkout finishes (#66).
+- **Desktop reload keeps the last host unlocked.** Reloading an Electron window reapplies the stored client token for the hydrated last runtime before the password gate runs (`restoreDesktopRelayRuntime`, #65).
+- **Projects settings match other pages.** The Projects settings page follows the Providers/Skills layout, and the Settings nav no longer repeats the PiChamber heading (#63, #69).
+- **UI polish.** Left sidebar border removed, tablet composer padding and header burger aligned with desktop, and the OpenAI logo shows for the `openai-codex` provider (#64).
 
 ## [0.7.0] - 2026-09-01
 
