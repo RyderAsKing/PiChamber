@@ -3,19 +3,17 @@ import React from 'react';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useWorktreeStore } from '@/stores/useWorktreeStore';
+import {
+  getWorktreeCreationKey,
+  useWorktreeCreationStore,
+  type DraftWorktreeCreationState,
+} from '@/stores/useWorktreeCreationStore';
 import type {
   DraftWorktreeCreationReceipt,
   DraftWorktreeIntent,
 } from '@/sync/session-ui-store';
-import { deriveWorktreeName } from './worktreeName';
 
-const BOOTSTRAP_POLL_MS = 500;
-
-export type DraftWorktreeCreationState = {
-  phase: 'naming' | 'creating' | 'checking-out' | 'setting-up' | 'failed';
-  label: string;
-  error?: string;
-};
+export type { DraftWorktreeCreationState } from '@/stores/useWorktreeCreationStore';
 
 const intentMatches = (
   left: DraftWorktreeIntent | null | undefined,
@@ -29,10 +27,6 @@ const intentMatches = (
   && left.startRef === right.startRef,
 );
 
-const delay = (milliseconds: number): Promise<void> => new Promise((resolve) => {
-  window.setTimeout(resolve, milliseconds);
-});
-
 export function useDraftWorktreeCreation<T>(input: {
   activeRuntimeKey: string;
   intent: DraftWorktreeIntent | null | undefined;
@@ -41,16 +35,25 @@ export function useDraftWorktreeCreation<T>(input: {
   const { activeRuntimeKey, intent, onReady } = input;
   const { git } = useRuntimeAPIs();
   const refreshProject = useWorktreeStore((state) => state.refreshProject);
-  const [state, setState] = React.useState<DraftWorktreeCreationState | null>(null);
-  const operationRef = React.useRef(0);
-  const receiptRef = React.useRef<DraftWorktreeCreationReceipt | null>(null);
   const onReadyRef = React.useRef(onReady);
   onReadyRef.current = onReady;
 
+  // Read state/receipt from the global store so it survives navigation and
+  // remains visible in the global banner.
+  const entryKey = React.useMemo(() => getWorktreeCreationKey(intent), [intent?.projectRoot, intent?.runtimeKey, intent?.sourceDirectory, intent?.startRef]);
+  const storeEntry = useWorktreeCreationStore(
+    React.useCallback((state) => (entryKey ? state.entries.get(entryKey) ?? null : null), [entryKey]),
+  );
+
+  const state = storeEntry?.state ?? null;
+
+  // When the intent changes, do NOT clear the global entry — the creation
+  // continues in the background. The composer will see `state === null` for
+  // the new intent, while the global banner still shows the previous entry.
+  // We only need to ensure failed state can be dismissed per intent.
+  const operationRef = React.useRef(0);
   React.useEffect(() => {
     operationRef.current += 1;
-    receiptRef.current = null;
-    setState(null);
   }, [activeRuntimeKey, intent?.projectRoot, intent?.runtimeKey, intent?.sourceDirectory, intent?.startRef]);
 
   const request = React.useCallback(async (params: {
@@ -58,84 +61,63 @@ export function useDraftWorktreeCreation<T>(input: {
     prompt: string;
     continuation: T;
   }): Promise<void> => {
-    if (state && state.phase !== 'failed') return;
-    if (!git?.createGitWorktree || !git.getGitWorktreeBootstrapStatus) {
-      setState({ phase: 'failed', label: 'Worktree creation failed', error: 'Git worktrees are unavailable for this runtime.' });
-      return;
-    }
-    if (params.intent.runtimeKey !== getRuntimeKey()) {
-      setState({ phase: 'failed', label: 'Worktree creation stopped', error: 'The runtime changed. Select New worktree again.' });
-      return;
-    }
-
+    if (!git) return;
+    const currentEntry = useWorktreeCreationStore.getState().entries.get(getWorktreeCreationKey(params.intent) ?? '');
+    if (currentEntry?.state && currentEntry.state.phase !== 'failed') return;
     const operation = operationRef.current + 1;
     operationRef.current = operation;
-    receiptRef.current = null;
     try {
-      setState({ phase: 'naming', label: 'Naming worktree...' });
-      const worktreeName = await deriveWorktreeName(params.prompt, params.intent.sourceDirectory);
-      if (operationRef.current !== operation || params.intent.runtimeKey !== getRuntimeKey()) return;
-
-      const createInput = {
-        mode: 'new' as const,
-        startRef: params.intent.startRef,
-        ...(worktreeName ? { worktreeName } : {}),
-        returnAfterDirectoryCreated: true,
-      };
-      if (git.validateGitWorktree) {
-        const validation = await git.validateGitWorktree(params.intent.sourceDirectory, createInput);
-        if (!validation.ok) {
-          throw new Error(validation.errors.map((error) => error.message).filter(Boolean).join('\n') || 'The worktree request is invalid.');
-        }
+      const receipt = await useWorktreeCreationStore.getState().request({
+        intent: params.intent,
+        prompt: params.prompt,
+        git,
+        refreshProject,
+      });
+      if (operationRef.current !== operation) {
+        // User navigated away — creation still completed in the background and
+        // is visible via the global banner. Don't auto-materialize.
+        return;
       }
-      if (operationRef.current !== operation || params.intent.runtimeKey !== getRuntimeKey()) return;
-
-      setState({ phase: 'creating', label: 'Creating worktree...' });
-      const created = await git.createGitWorktree(params.intent.sourceDirectory, createInput);
-      if (operationRef.current !== operation || params.intent.runtimeKey !== getRuntimeKey()) return;
-
-      let bootstrap = created.bootstrapStatus;
-      while (bootstrap.status === 'pending') {
-        setState(bootstrap.phase === 'directory-created'
-          ? { phase: 'checking-out', label: 'Checking out files...' }
-          : { phase: 'setting-up', label: 'Setting up project...' });
-        await delay(BOOTSTRAP_POLL_MS);
-        if (operationRef.current !== operation || params.intent.runtimeKey !== getRuntimeKey()) return;
-        bootstrap = await git.getGitWorktreeBootstrapStatus(created.path);
-      }
-      if (bootstrap.status === 'failed' || bootstrap.phase !== 'setup-ready') {
-        throw new Error(bootstrap.error || 'Worktree setup failed.');
-      }
-
-      await refreshProject(params.intent.projectRoot, git);
-      if (operationRef.current !== operation || params.intent.runtimeKey !== getRuntimeKey()) return;
-      const receipt: DraftWorktreeCreationReceipt = {
-        ...params.intent,
-        path: created.path,
-        branch: created.branch,
-      };
-      receiptRef.current = receipt;
-      setState(null);
+      if (params.intent.runtimeKey !== getRuntimeKey()) return;
       onReadyRef.current(params.continuation, receipt);
     } catch (error) {
       if (operationRef.current !== operation) return;
-      if (params.intent.runtimeKey === getRuntimeKey()) {
-        void refreshProject(params.intent.projectRoot, git);
-      }
-      setState({
-        phase: 'failed',
-        label: 'Worktree creation failed',
-        error: error instanceof Error ? error.message : 'Failed to create the worktree.',
-      });
+      // Error state is already stored globally; no local setState needed.
+      if (error instanceof Error && error.message === 'Worktree creation superseded.') return;
     }
-  }, [git, refreshProject, state]);
+  }, [git, refreshProject]);
+
+  const getReceipt = React.useCallback(
+    (candidate: DraftWorktreeIntent | null | undefined): DraftWorktreeCreationReceipt | null => {
+      if (!candidate) return null;
+      const key = getWorktreeCreationKey(candidate);
+      if (!key) return null;
+      const entry = useWorktreeCreationStore.getState().entries.get(key);
+      if (!entry?.receipt) return null;
+      return intentMatches(candidate, entry.receipt) ? entry.receipt : null;
+    },
+    [],
+  );
+
+  const clearReceipt = React.useCallback((): void => {
+    if (!intent) return;
+    const key = getWorktreeCreationKey(intent);
+    if (!key) return;
+    useWorktreeCreationStore.getState().clearReceipt(key);
+  }, [intent?.projectRoot, intent?.runtimeKey, intent?.sourceDirectory, intent?.startRef]);
+
+  const dismissFailed = React.useCallback((): void => {
+    if (!intent) return;
+    const key = getWorktreeCreationKey(intent);
+    if (!key) return;
+    useWorktreeCreationStore.getState().dismissFailed(key);
+  }, [intent?.projectRoot, intent?.runtimeKey, intent?.sourceDirectory, intent?.startRef]);
 
   return {
     state,
     request,
-    getReceipt: (candidate: DraftWorktreeIntent | null | undefined) => (
-      intentMatches(candidate, receiptRef.current) ? receiptRef.current : null
-    ),
-    clearReceipt: () => { receiptRef.current = null; },
+    getReceipt,
+    clearReceipt,
+    dismissFailed,
   };
 }
