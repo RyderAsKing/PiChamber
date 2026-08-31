@@ -56,6 +56,7 @@ import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { GitHubIssuePickerDialog } from '@/components/session/GitHubIssuePickerDialog';
 import { GitHubPrPickerDialog } from '@/components/session/GitHubPrPickerDialog';
 import { Icon } from "@/components/icon/Icon";
+import { Button } from "@/components/ui/button";
 import { DraftPresetChips } from './DraftPresetChips';
 import { useChatSearchDirectory } from '@/hooks/useChatSearchDirectory';
 import { useGitStore, useIsGitRepo } from '@/stores/useGitStore';
@@ -2338,14 +2339,15 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                             ) : null}
                         </div>
                         {draftWorktreeCreation.state.phase === 'failed' ? (
-                            <button
+                            <Button
                                 type="button"
+                                variant="ghost"
+                                size="xs"
                                 onClick={() => draftWorktreeCreation.dismissFailed()}
-                                className="shrink-0 rounded-md px-2 py-1 text-xs font-medium hover:bg-black/5 dark:hover:bg-white/10"
                                 aria-label="Dismiss error"
                             >
                                 Dismiss
-                            </button>
+                            </Button>
                         ) : null}
                     </div>
                 ) : null}

@@ -1,12 +1,12 @@
 import React from 'react';
 
-import { useWorktreeCreationStore, type WorktreeCreationEntry } from '@/stores/useWorktreeCreationStore';
+import { useWorktreeCreationStore, getWorktreeCreationKey, type WorktreeCreationEntry } from '@/stores/useWorktreeCreationStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useUIStore } from '@/stores/useUIStore';
 import { Icon } from '@/components/icon/Icon';
+import { Button } from '@/components/ui/button';
 import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
 import { cn } from '@/lib/utils';
-import { normalizePath } from '@/lib/pathNormalization';
 
 /**
  * Global persistent banner for worktree creation that survives navigation.
@@ -25,7 +25,7 @@ import { normalizePath } from '@/lib/pathNormalization';
  *   drawers. Uses the same spinner visual as the inline banner.
  */
 export const GlobalWorktreeCreationBanner: React.FC = () => {
-  const entries = useWorktreeCreationStore((state) => Array.from(state.entries.values()));
+  const entries = useWorktreeCreationStore((state) => state.entries);
   const isMobile = useUIStore((state) => state.isMobile);
   const activeMainTab = useUIStore((state) => state.activeMainTab);
   const draft = useSessionUIStore((state) => state.newSessionDraft);
@@ -34,38 +34,21 @@ export const GlobalWorktreeCreationBanner: React.FC = () => {
 
   const isChatVisible = activeMainTab === 'chat';
 
-  // Filter to entries that should be shown globally.
-  // - Active / failed entries are shown globally only when the inline composer
-  //   banner is not visible (different draft, or chat tab not active). This
-  //   keeps progress visible during background work and tab switches, while
-  //   avoiding duplicate banners when the inline one is already on screen.
-  // - Completed entries with a receipt but no longer tied to the open draft are
-  //   shown as "ready" so the orphaned worktree is discoverable.
   const visibleEntries = React.useMemo(() => {
-    const draftKey = draft?.worktreeIntent
-      ? JSON.stringify([
-          draft.worktreeIntent.runtimeKey,
-          normalizePath(draft.worktreeIntent.projectRoot),
-          normalizePath(draft.worktreeIntent.sourceDirectory),
-          draft.worktreeIntent.startRef,
-        ])
-      : null;
+    const draftKey = getWorktreeCreationKey(draft?.worktreeIntent);
     const draftOpen = Boolean(draft?.open);
 
-    return entries.filter((entry) => {
-      const key = entry.key;
-      const isCurrentDraft = draftOpen && key === draftKey;
+    const result: WorktreeCreationEntry[] = [];
+    for (const entry of entries.values()) {
+      const isCurrentDraft = draftOpen && entry.key === draftKey;
       const inlineVisible = isCurrentDraft && isChatVisible;
       if (entry.state) {
-        // Both active and failed share the same dedupe: hide globally when inline is visible
-        return !inlineVisible;
+        if (!inlineVisible) result.push(entry);
+        continue;
       }
-      // Completed (state null, receipt present) but orphaned — draft not open or different intent
-      if (entry.receipt) {
-        return !isCurrentDraft;
-      }
-      return false;
-    });
+      if (entry.receipt && !isCurrentDraft) result.push(entry);
+    }
+    return result;
   }, [entries, draft?.worktreeIntent, draft?.open, isChatVisible]);
 
   if (visibleEntries.length === 0) return null;
@@ -86,13 +69,8 @@ export const GlobalWorktreeCreationBanner: React.FC = () => {
             onDismissFailed={() => useWorktreeCreationStore.getState().dismissFailed(entry.key)}
             onDismissCompleted={() => useWorktreeCreationStore.getState().clearEntry(entry.key)}
             onOpenWorktree={() => {
-              // Navigate to the new worktree: open a draft pointed at it and close banner.
-              // If the worktree is already a known project worktree we could also switch directly,
-              // but opening a draft is the existing creation flow's next step.
               const receipt = entry.receipt;
               if (!receipt) return;
-              // Persist choice and open draft at the new worktree path so the user can start chatting there.
-              // Use setDraftTarget if a draft is already open, otherwise openNewSessionDraft.
               if (draft?.open) {
                 setDraftTarget({
                   directoryOverride: receipt.path,
@@ -102,7 +80,6 @@ export const GlobalWorktreeCreationBanner: React.FC = () => {
                 openDraft({ directoryOverride: receipt.path });
               }
               useWorktreeCreationStore.getState().clearEntry(entry.key);
-              // Also ensure chat tab is active on mobile where secondary views may be open.
               useUIStore.getState().setActiveMainTab('chat');
             }}
           />
@@ -137,9 +114,9 @@ const BannerRow: React.FC<{
       className={cn(
         'flex items-center gap-3 rounded-xl border px-3 py-2.5 shadow-lg backdrop-blur',
         isFailed
-          ? 'border-[var(--status-error-border,rgba(239,68,68,0.3))] bg-[var(--status-error-background)] text-[var(--status-error-foreground)]'
+          ? 'border-[var(--status-error-border)] bg-[var(--status-error-background)] text-[var(--status-error-foreground)]'
           : isCompleted
-            ? 'border-[var(--border)] bg-[var(--surface-raised,var(--background))] text-foreground'
+            ? 'border-[var(--border)] bg-[var(--surface-elevated)] text-foreground'
             : 'border-[var(--border)] bg-[var(--surface-muted)] text-muted-foreground',
       )}
       role={isFailed ? 'alert' : 'status'}
@@ -147,7 +124,7 @@ const BannerRow: React.FC<{
       {isActive ? (
         <AgentThinkingLoader variant="inline" text={null} animationType="spinner" />
       ) : isCompleted ? (
-        <Icon name="git-branch" className="h-4 w-4 shrink-0 text-[var(--status-success,#16a34a)]" />
+        <Icon name="git-branch" className="h-4 w-4 shrink-0 text-[var(--status-success)]" />
       ) : (
         <Icon name="alert" className="h-4 w-4 shrink-0" />
       )}
@@ -161,33 +138,19 @@ const BannerRow: React.FC<{
       </div>
 
       {isFailed ? (
-        <button
-          type="button"
-          onClick={onDismissFailed}
-          className="shrink-0 rounded-md px-2 py-1 text-xs font-medium hover:bg-black/5 dark:hover:bg-white/10"
-          aria-label="Dismiss error"
-        >
+        <Button type="button" variant="ghost" size="xs" onClick={onDismissFailed} aria-label="Dismiss error">
           Dismiss
-        </button>
+        </Button>
       ) : null}
 
       {isCompleted ? (
         <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={onOpenWorktree}
-            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-          >
+          <Button type="button" size="xs" onClick={onOpenWorktree}>
             Open
-          </button>
-          <button
-            type="button"
-            onClick={onDismissCompleted}
-            className="rounded-md px-2 py-1.5 text-xs hover:bg-black/5 dark:hover:bg-white/10"
-            aria-label="Dismiss"
-          >
+          </Button>
+          <Button type="button" variant="ghost" size="icon" className="size-6" onClick={onDismissCompleted} aria-label="Dismiss">
             <Icon name="close" className="h-3.5 w-3.5" />
-          </button>
+          </Button>
         </div>
       ) : null}
 
