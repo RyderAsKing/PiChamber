@@ -39,13 +39,26 @@ const foldDeltas = (left: PiSessionEvent, right: PiSessionEvent): PiSessionEvent
   };
 };
 
-/** Fold adjacent same-part deltas. Preserves interleaving with other sessions/parts. */
+const canFoldToolUpdates = (left: PiSessionEvent, right: PiSessionEvent): boolean => (
+  left.name === 'session.tool.update'
+  && right.name === 'session.tool.update'
+  && left.sessionId === right.sessionId
+  && left.payload.toolCallId === right.payload.toolCallId
+  && left.payload.partId === right.payload.partId
+  && left.payload.messageId === right.payload.messageId
+);
+
+/** Fold adjacent same-part deltas and cumulative tool snapshots. Preserves interleaving with other sessions/parts. */
 export const foldConsecutiveStreamDeltas = (events: readonly PiSessionEvent[]): PiSessionEvent[] => {
   const folded: PiSessionEvent[] = [];
   for (const event of events) {
     const previous = folded[folded.length - 1];
     if (previous && canFoldDeltas(previous, event)) {
       folded[folded.length - 1] = foldDeltas(previous, event);
+    } else if (previous && canFoldToolUpdates(previous, event)) {
+      // Tool updates carry cumulative snapshots, so only the newest adjacent
+      // update for a tool is observable at this frame boundary.
+      folded[folded.length - 1] = event;
     } else {
       folded.push(event);
     }

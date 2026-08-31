@@ -23,7 +23,7 @@ bun run --cwd packages/electron test:architecture
 bun run electron:build
 ```
 
-Packaging builds web assets, bundles the Electron main process, rebuilds native modules, and runs electron-builder. It stages only the web UI and native desktop resources; Pi sessions are served by the in-process PiChamber server. Local dictation uses the same in-process server and loads the packaged `sherpa-onnx` addon only in its forked STT worker.
+Packaging builds web assets, bundles the Electron main process, rebuilds native modules, and runs electron-builder. It stages only the web UI and native desktop resources; Pi sessions are served by the in-process PiChamber server. Local dictation uses the same in-process server and loads the packaged `sherpa-onnx` addon only in its forked STT worker. PiChamber's UI is currently English-only, so electron-builder retains only Chromium's English locale pack (`en-US` on Windows/Linux and `en` on macOS) instead of shipping every Chromium translation. The staged `resources/web-dist` is the packaged UI; build filters exclude `@pi-chamber/web/dist` from `app.asar` so those same assets are not shipped twice.
 
 Windows desktop uses the same Pi SDK as the [Pi CLI](https://pi.dev/docs/latest): sessions live under `%USERPROFILE%\.pi\agent`, private IPC is a named pipe, and the bash tool needs Git for Windows (or another `bash.exe` on PATH), matching [Pi's SDK](https://pi.dev/docs/latest/sdk).
 

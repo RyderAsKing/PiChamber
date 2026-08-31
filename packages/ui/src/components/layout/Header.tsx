@@ -1401,15 +1401,15 @@ export const Header: React.FC<HeaderProps> = ({
           of the overlay buttons — stays a window drag area. */}
       <div
         aria-hidden
-        className="shrink-0 self-stretch transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+        className="shrink-0 self-stretch"
         style={{ width: headerInsetSpacerWidth }}
       />
       {/* No-drag carve under the persistent TitlebarLeftControls overlay so its
-          buttons stay clickable. Width animates with the sidebar so the session
-          title slides in lockstep instead of snapping. */}
+          buttons stay clickable. The width changes once with layout instead of
+          triggering layout work on every sidebar animation frame. */}
       <div
         aria-hidden
-        className="app-region-no-drag shrink-0 self-stretch transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+        className="app-region-no-drag shrink-0 self-stretch"
         style={{ width: headerControlsSpacerWidth }}
       />
       {/* Window chrome and the collapsed-sidebar toggle live in the persistent
@@ -1583,12 +1583,12 @@ export const Header: React.FC<HeaderProps> = ({
         <>
           <div
             aria-hidden
-            className="shrink-0 self-stretch transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+            className="shrink-0 self-stretch"
             style={{ width: headerInsetSpacerWidth }}
           />
           <div
             aria-hidden
-            className="app-region-no-drag shrink-0 self-stretch transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+            className="app-region-no-drag shrink-0 self-stretch"
             style={{ width: headerControlsSpacerWidth }}
           />
         </>

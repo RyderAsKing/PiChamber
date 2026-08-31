@@ -590,6 +590,30 @@ describe('Pi runtime route', () => {
     expect(text).not.toContain('/private/socket');
   });
 
+  it('sends named SSE heartbeats that native EventSource clients can observe', async () => {
+    const runtime = {
+      subscribe: async () => () => {},
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, {
+      getPiSessionDaemonRuntime: () => runtime,
+      eventHeartbeatMs: 5,
+    });
+    server = await listen(app);
+
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events`);
+    const reader = response.body.getReader();
+    let text = '';
+    while (!text.includes('event: heartbeat')) {
+      const next = await reader.read();
+      if (next.done) break;
+      text += new TextDecoder().decode(next.value);
+    }
+    await reader.cancel();
+
+    expect(text).toContain('event: heartbeat\ndata: {}\n\n');
+  });
+
   it('projects session.updated titles onto the public event stream', async () => {
     const runtime = {
       health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),

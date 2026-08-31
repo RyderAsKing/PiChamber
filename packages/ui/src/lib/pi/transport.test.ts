@@ -139,6 +139,7 @@ describe("createPiEventStream", () => {
       onopen?: () => void
       onmessage?: (event: { data?: string }) => void
       onerror?: () => void
+      heartbeat?: () => void
       close: () => void
     }> = []
     class FakeEventSource {
@@ -147,9 +148,16 @@ describe("createPiEventStream", () => {
       onopen?: () => void
       onmessage?: (event: { data?: string }) => void
       onerror?: () => void
+      heartbeat?: () => void
       constructor(url: string) {
         this.url = url
         sources.push(this)
+      }
+      addEventListener(type: string, listener: EventListenerOrEventListenerObject) {
+        if (type === "heartbeat" && typeof listener === "function") this.heartbeat = () => listener(new Event(type))
+      }
+      removeEventListener(type: string) {
+        if (type === "heartbeat") this.heartbeat = undefined
       }
       close() { this.closed = true }
     }
@@ -198,14 +206,68 @@ describe("createPiEventStream", () => {
     }
   })
 
+  test("reconnects a silent foreground native EventSource after its heartbeat expires", async () => {
+    const originalEventSource = (globalThis as { EventSource?: unknown }).EventSource
+    const sources: Array<{
+      closed: boolean
+      onopen?: () => void
+      heartbeat?: () => void
+      close: () => void
+    }> = []
+    class FakeEventSource {
+      closed = false
+      onopen?: () => void
+      heartbeat?: () => void
+      constructor(url: string) {
+        void url
+        sources.push(this)
+      }
+      addEventListener(type: string, listener: EventListenerOrEventListenerObject) {
+        if (type === "heartbeat" && typeof listener === "function") this.heartbeat = () => listener(new Event(type))
+      }
+      removeEventListener(type: string) {
+        if (type === "heartbeat") this.heartbeat = undefined
+      }
+      close() { this.closed = true }
+    }
+    Object.defineProperty(globalThis, "EventSource", { configurable: true, value: FakeEventSource })
+    capacitor = true
+    refreshRuntimeUrlAuthToken.mockResolvedValue(undefined)
+
+    try {
+      const { createPiEventStream } = await import("./transport")
+      const handle = createPiEventStream({ onEvent: () => {} }, {
+        heartbeatTimeoutMs: 15,
+        reconnectDelayMs: 0,
+      })
+
+      await flush()
+      sources[0]?.onopen?.()
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      await flush()
+
+      expect(sources[0]?.closed).toBe(true)
+      expect(sources).toHaveLength(2)
+      handle.dispose()
+    } finally {
+      capacitor = false
+      Object.defineProperty(globalThis, "EventSource", {
+        configurable: true,
+        value: originalEventSource,
+      })
+    }
+  })
+
   test("uses EventSource on direct Capacitor runtimes instead of buffered fetch", async () => {
     const originalEventSource = (globalThis as { EventSource?: unknown }).EventSource
     const received: number[] = []
+    const reconnects: string[] = []
     const sources: Array<{
       url: string
       onopen?: () => void
       onmessage?: (event: { data?: string }) => void
       onerror?: () => void
+      heartbeat?: () => void
       close: () => void
     }> = []
     class FakeEventSource {
@@ -213,9 +275,16 @@ describe("createPiEventStream", () => {
       onopen?: () => void
       onmessage?: (event: { data?: string }) => void
       onerror?: () => void
+      heartbeat?: () => void
       constructor(url: string) {
         this.url = url
         sources.push(this)
+      }
+      addEventListener(type: string, listener: EventListenerOrEventListenerObject) {
+        if (type === "heartbeat" && typeof listener === "function") this.heartbeat = () => listener(new Event(type))
+      }
+      removeEventListener(type: string) {
+        if (type === "heartbeat") this.heartbeat = undefined
       }
       close() {}
     }
@@ -227,6 +296,7 @@ describe("createPiEventStream", () => {
       const { createPiEventStream } = await import("./transport")
       const handle = createPiEventStream({
         onEvent: (frame) => received.push(frame.sequence),
+        onReconnect: () => reconnects.push("healthy"),
       }, { sessionId: "session-1", fromSequence: 7 })
 
       await flush()
@@ -235,6 +305,9 @@ describe("createPiEventStream", () => {
       expect(sources).toHaveLength(1)
       expect(sources[0]?.url).toBe("http://runtime/api/pi/events")
       sources[0]?.onopen?.()
+      expect(reconnects).toEqual([])
+      sources[0]?.heartbeat?.()
+      expect(reconnects).toEqual(["healthy"])
       sources[0]?.onmessage?.({ data: JSON.stringify(event(8)) })
       expect(received).toEqual([8])
       handle.dispose()

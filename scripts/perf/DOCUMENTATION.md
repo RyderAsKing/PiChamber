@@ -71,10 +71,19 @@ metrics.
 bun run profile:session -- --url http://127.0.0.1:4599 --dir <project directory>
 # What an idle session costs while a different session is active elsewhere:
 bun run profile:session -- --view-session <idle session id> --expand-projects --expand-sessions
+# Hosted-mobile tablet capture with a tool-heavy prompt:
+bun run profile:session -- --url http://127.0.0.1:4599/mobile.html --viewport tablet \
+  --prompt "Inspect this repository using several small read and search tool calls, then summarize the findings."
 ```
 
+`--viewport` records the preset and its dimensions in `session-summary.json`,
+so desktop, phone, and tablet runs cannot be mistaken for the same scenario.
+Use `mobile.html` when measuring the hosted-mobile application rather than only
+the desktop application at a narrow viewport.
+
 This command calls a real model. Use a cheap one; `--model` overrides the
-configured selection.
+configured selection. The default prompt deliberately avoids tools, so mobile
+tool-card streaming requires an explicit tool-heavy prompt.
 
 ## profile:animation
 

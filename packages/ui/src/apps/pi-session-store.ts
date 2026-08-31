@@ -22,6 +22,7 @@ import { resolveCreateThinking } from '@/lib/pi/thinking';
 import { deriveSessionTitle } from '@/lib/chat/deriveSessionTitle';
 import { normalizePath } from '@/lib/pathNormalization';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import { getPiSessionCatalogCache, type PiSessionCatalogCache } from '@/sync/pi-session-catalog-cache';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { invalidateSkillsLoadCache, useSkillsStore } from '@/stores/useSkillsStore';
 import { adoptServerRunTiming, observeSessionActivityTiming, removeSessionActivityTiming } from '@/sync/session-activity-timing';
@@ -167,7 +168,7 @@ const RECOVERABLE_CONNECTION_CODES = new Set([
   'DAEMON_REQUEST_FAILED',
 ]);
 
-const initial = (): PiSessionStoreState => ({
+const initial = (catalog: PiSessionCatalogState = initialCatalog()): PiSessionStoreState => ({
   directory: null,
   sessions: [],
   selectedSessionId: null,
@@ -179,7 +180,7 @@ const initial = (): PiSessionStoreState => ({
   sessionLoadErrorById: new Map(),
   focusPending: false,
   sessionsListStatus: 'idle',
-  catalog: initialCatalog(),
+  catalog,
 });
 
 interface PendingFocus {
@@ -227,7 +228,7 @@ if (viteHot) {
  *  guarded so a stale hydrate cannot commit into a new runtime/focus.
  */
 export class PiSessionStore {
-  private state = initial();
+  private state: PiSessionStoreState;
   private listenersByTopic = new Map<string, Set<Listener>>();
   private stream: { dispose: () => void } | null = null;
   /** Identifies the currently owned stream so callbacks from a replaced
@@ -284,13 +285,20 @@ export class PiSessionStore {
   private navigationGenerationById = new Map<PiSessionId, number>();
   private navigationCounter = 0;
   private readonly cadence = new PiStreamCadence((events) => this.commitEvents(events));
-  private unsubscribeRuntime = subscribeRuntimeEndpointChanged((detail) => {
-    if (detail.runtimeKey === detail.previousRuntimeKey) {
-      this.reconnectAfterTransportSwitch();
-      return;
-    }
-    this.resetForRuntime();
-  });
+  private readonly catalogCache: PiSessionCatalogCache;
+  private unsubscribeRuntime: () => void;
+
+  constructor(catalogCache: PiSessionCatalogCache = getPiSessionCatalogCache()) {
+    this.catalogCache = catalogCache;
+    this.state = initial(this.readCachedCatalog(getRuntimeKey()));
+    this.unsubscribeRuntime = subscribeRuntimeEndpointChanged((detail) => {
+      if (detail.runtimeKey === detail.previousRuntimeKey) {
+        this.reconnectAfterTransportSwitch();
+        return;
+      }
+      this.resetForRuntime();
+    });
+  }
 
   /** Runtime generation. Stale after `clear()`/`dispose()`/`resetForRuntime()`/reconnect. */
   getRuntimeGeneration = (): number => this.runtimeGeneration;
@@ -322,6 +330,7 @@ export class PiSessionStore {
     };
   };
   dispose = () => {
+    this.catalogCache.flush();
     this.providerRefreshRevisionByDirectory.clear();
     this.runtimeGeneration += 1;
     this.focusGeneration += 1;
@@ -2284,6 +2293,7 @@ export class PiSessionStore {
     void this.reconnect(sessionId, this.runtimeGeneration, getRuntimeKey());
   }
   private resetForRuntime() {
+    this.catalogCache.flush();
     this.providerRefreshRevisionByDirectory.clear();
     this.runtimeGeneration += 1;
     this.focusGeneration += 1;
@@ -2305,7 +2315,7 @@ export class PiSessionStore {
     this.stream = null;
     this.streamGeneration += 1;
     this.streamReadyRevision += 1;
-    this.state = initial();
+    this.state = initial(this.readCachedCatalog(getRuntimeKey()));
     clearAllRevertNavigations();
     this.navigationGenerationById.clear();
     this.navigationCounter = 0;
@@ -2321,6 +2331,9 @@ export class PiSessionStore {
    */
   private emit(topics: readonly string[]): void {
     if (topics.length === 0) return;
+    if (topics.includes(TOPIC_CATALOG)) {
+      this.catalogCache.schedule(getRuntimeKey(), this.state.catalog);
+    }
     const seen = new Set<Listener>();
     for (const topic of topics) {
       const bucket = this.listenersByTopic.get(topic);
@@ -2337,6 +2350,13 @@ export class PiSessionStore {
       if (seen.has(listener)) continue;
       seen.add(listener);
       listener();
+    }
+  }
+  private readCachedCatalog(runtimeKey: string): PiSessionCatalogState {
+    try {
+      return this.catalogCache.read(runtimeKey) ?? initialCatalog();
+    } catch {
+      return initialCatalog();
     }
   }
   /** Broadcast the current state to every listener regardless of topic. */

@@ -37,6 +37,12 @@ const DEFAULT_PROMPT = "Write a technical explanation of how a bytecode virtual 
   + " a function call, about 800 words. Include three fenced code blocks in different languages"
   + " and a markdown table comparing stack and register machines. Do not use any tools."
 
+const VIEWPORTS = {
+  desktop: { width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false },
+  phone: { width: 390, height: 844, deviceScaleFactor: 3, mobile: true },
+  tablet: { width: 1024, height: 1366, deviceScaleFactor: 2, mobile: true },
+}
+
 const HELP = `Usage: bun run profile:session -- [options]
 
 Records what PiChamber costs while an assistant response streams in.
@@ -54,6 +60,7 @@ Options:
                            while a different session is active in the
                            background.
   --prompt <text>          Prompt to send (default: a long markdown+code answer)
+  --viewport <preset>      desktop, phone, or tablet (default: desktop)
   --model <provider/model> Model override (default: configured selection)
   --agent <id>             Agent override (default: configured selection)
   --settle <seconds>       Wait after load before recording (default: 12)
@@ -84,6 +91,7 @@ const parseArgs = (argv) => {
     expandProjects: false,
     expandSessions: false,
     prompt: DEFAULT_PROMPT,
+    viewport: "desktop",
     model: null,
     agent: null,
     settle: 12,
@@ -115,6 +123,7 @@ const parseArgs = (argv) => {
     else if (value === "--expand-projects") options.expandProjects = true
     else if (value === "--expand-sessions") options.expandSessions = true
     else if (value === "--prompt") options.prompt = argv[++index]
+    else if (value === "--viewport") options.viewport = argv[++index]
     else if (value === "--model") options.model = argv[++index]
     else if (value === "--agent") options.agent = argv[++index]
     else if (value === "--label") options.label = argv[++index]
@@ -129,6 +138,9 @@ const parseArgs = (argv) => {
     else if (value === "--budget-long-tasks") options.budgetLongTasks = Number(argv[++index])
     else if (value === "--budget-longest") options.budgetLongest = Number(argv[++index])
     else throw new Error(`Unknown option: ${value}`)
+  }
+  if (!Object.hasOwn(VIEWPORTS, options.viewport)) {
+    throw new Error("--viewport must be desktop, phone, or tablet")
   }
   const parsed = new URL(options.url)
   options.port = options.port ?? parsed.port ?? "3000"
@@ -358,8 +370,11 @@ const main = async () => {
     ])
     await client.send("Network.setBypassServiceWorker", { bypass: true })
     await client.send("Page.addScriptToEvaluateOnNewDocument", { source: buildIdleProbeSource() })
-    await client.send("Emulation.setDeviceMetricsOverride", {
-      width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false,
+    const viewport = VIEWPORTS[options.viewport]
+    await client.send("Emulation.setDeviceMetricsOverride", viewport)
+    await client.send("Emulation.setTouchEmulationEnabled", {
+      enabled: viewport.mobile,
+      maxTouchPoints: viewport.mobile ? 5 : 1,
     })
 
     const traceEvents = []
@@ -556,6 +571,7 @@ const main = async () => {
       recordedAt: new Date(startedAt).toISOString(),
       label: options.label,
       url: options.url,
+      viewport: { preset: options.viewport, ...VIEWPORTS[options.viewport] },
       sessionId,
       viewedSessionId: options.viewSession ?? sessionId,
       directory: options.dir,

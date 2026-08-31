@@ -3,6 +3,7 @@ import type { Message } from '@/lib/chat/types';
 
 import {
     isAssistantMessageCompleted,
+    isSessionAssistantWorking,
     isTurnAssistantWorking,
     resolveTurnStreamingAssistantId,
 } from './assistantWorkingState';
@@ -52,6 +53,19 @@ describe('assistantWorkingState', () => {
                 assistantMessages: [assistant('a1', { time: { created: 1, completed: 2 } })],
             }),
         ).toBeNull();
+    });
+
+    test('suppresses stale working state while the runtime connection is unavailable', () => {
+        expect(isSessionAssistantWorking({
+            connection: 'error',
+            authoritativeWorking: true,
+            hasPendingAssistant: true,
+        })).toBe(false);
+        expect(isSessionAssistantWorking({
+            connection: 'ready',
+            authoritativeWorking: true,
+            hasPendingAssistant: false,
+        })).toBe(true);
     });
 
     test('keeps a retry notice working while no token stream is active', () => {

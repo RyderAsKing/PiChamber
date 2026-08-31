@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { resolveStartupUrlProbePlan, shouldIgnoreLoopbackConnectionLimit } from './startup-url-selection.mjs';
+import {
+  resolveDesktopHostRuntimeConfig,
+  resolveStartupUrlProbePlan,
+  shouldIgnoreLoopbackConnectionLimit,
+} from './startup-url-selection.mjs';
 
 test('bundled development never probes HMR endpoints', () => {
   assert.deepEqual(resolveStartupUrlProbePlan({
@@ -44,6 +48,23 @@ test('production does not probe HMR endpoints', () => {
   }), {
     probeHmrApi: false,
     probeHmrUi: false,
+  });
+});
+
+test('restores the selected remote host token for an existing-window reload', () => {
+  assert.deepEqual(resolveDesktopHostRuntimeConfig({
+    hosts: [{
+      id: 'remote-a',
+      url: 'https://remote.example',
+      apiUrl: 'https://api.remote.example',
+      clientToken: 'remembered-token',
+      requestHeaders: { 'X-Forwarded-Host': 'remote.example' },
+    }],
+    defaultHostId: 'remote-a',
+  }), {
+    apiBaseUrl: 'https://api.remote.example',
+    clientToken: 'remembered-token',
+    requestHeaders: { 'X-Forwarded-Host': 'remote.example' },
   });
 });
 

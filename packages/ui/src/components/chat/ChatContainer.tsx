@@ -39,6 +39,7 @@ import { resolveDraftWelcomeProjectLabel } from './composer/state/draftTargetPro
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import {
     useSessionStreamingMessageId,
+    usePiConnectionState,
     useSessionMessageCount,
     useSessionMessageRecords,
     useSessionMessageLoadState,
@@ -60,6 +61,7 @@ import { findShellCommandForMessage, isUserShellMarkerMessage } from './lib/shel
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { createFirstVisibleSessionPerformanceTracker } from '@/sync/session-load-performance';
 import { hasActiveQuestionToolInCurrentTurn, recoverPendingQuestionWithRetry } from '@/sync/question-recovery';
+import { isSessionAssistantWorking } from './lib/turns/assistantWorkingState';
 import { useGlobalSyncStore } from '@/sync/global-sync-store';
 import { parseRoute } from '@/lib/router';
 
@@ -554,7 +556,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     // Streaming id comes from the Pi reducer, not the unused broad streaming store
     // streaming store. Transcript freeze is default in
     // `useSessionMessageRecords`; this id only drives the live-tail overlay.
-    const streamingMessageId = useSessionStreamingMessageId(currentSessionId ?? '');
+    const connection = usePiConnectionState();
+    const reducerStreamingMessageId = useSessionStreamingMessageId(currentSessionId ?? '');
+    const streamingMessageId = connection === 'ready' ? reducerStreamingMessageId : null;
     const activeStreamingPhase = streamingMessageId ? 'streaming' : null;
     const sessionMessageCount = useSessionMessageCount(currentSessionId ?? '', effectiveSessionDirectory);
     const hasRenderableSessionSnapshot = useSessionRenderable(currentSessionId ?? '', effectiveSessionDirectory);
@@ -609,22 +613,23 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         }
 
         const statusType = sessionStatusForCurrent.type ?? 'idle';
-        if (statusType === 'busy' || statusType === 'retry') {
-            return true;
-        }
-
         const lastMessage = sessionMessages[sessionMessages.length - 1]?.info as Message | undefined;
         const lastFinish = typeof (lastMessage as { finish?: string } | undefined)?.finish === 'string'
             ? (lastMessage as { finish?: string }).finish
             : undefined;
-        return Boolean(
+        const hasPendingAssistant = Boolean(
             lastMessage
             && lastMessage.role === 'assistant'
             && typeof (lastMessage as { time?: { completed?: number } }).time?.completed !== 'number'
             && lastFinish !== 'stop'
             && lastFinish !== 'error',
         );
-    }, [currentSessionId, sessionMessages, sessionPermissions.length, sessionQuestions.length, sessionStatusForCurrent.type]);
+        return isSessionAssistantWorking({
+            connection,
+            authoritativeWorking: statusType === 'busy' || statusType === 'retry',
+            hasPendingAssistant,
+        });
+    }, [connection, currentSessionId, sessionMessages, sessionPermissions.length, sessionQuestions.length, sessionStatusForCurrent.type]);
     const activeRetryStatus = React.useMemo(() => {
         if (!currentSessionId || sessionStatusForCurrent.type !== 'retry') {
             return null;

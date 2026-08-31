@@ -12,7 +12,11 @@ import { promisify } from 'node:util';
 import updaterPkg from 'electron-updater';
 import { ElectronSshManager } from './ssh-manager.mjs';
 import { createTrayController } from './tray.mjs';
-import { resolveStartupUrlProbePlan, shouldIgnoreLoopbackConnectionLimit } from './startup-url-selection.mjs';
+import {
+  resolveDesktopHostRuntimeConfig,
+  resolveStartupUrlProbePlan,
+  shouldIgnoreLoopbackConnectionLimit,
+} from './startup-url-selection.mjs';
 import { sanitizeRuntimeRequestHeaders } from './runtime-request-headers.mjs';
 import { resolveElectronUpdaterVersion } from './app-version.mjs';
 import { assertUpdaterCapability } from './updater-capability.mjs';
@@ -3972,8 +3976,15 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
       await writeDesktopHostsConfig(nextConfigInput);
       const updatedConfig = readDesktopHostsConfig();
       const envTarget = normalizeHostUrl(process.env.PICHAMBER_SERVER_URL || '');
-      if (Object.prototype.hasOwnProperty.call(nextConfigInput, 'localClientToken') && isLocalRuntimeUrl(state.apiBaseUrl || state.sidecarUrl || state.localOrigin || '')) {
+      const selectedRemoteRuntime = resolveDesktopHostRuntimeConfig(updatedConfig);
+      if (!envTarget && selectedRemoteRuntime) {
+        state.apiBaseUrl = selectedRemoteRuntime.apiBaseUrl;
+        state.clientToken = sanitizeClientTokenForStorage(selectedRemoteRuntime.clientToken) || '';
+        state.requestHeaders = sanitizeRuntimeRequestHeaders(selectedRemoteRuntime.requestHeaders);
+      } else if (!envTarget && updatedConfig.defaultHostId === LOCAL_HOST_ID) {
+        state.apiBaseUrl = state.sidecarUrl || state.localOrigin || '';
         state.clientToken = readDesktopLocalClientToken();
+        state.requestHeaders = {};
       }
       state.bootOutcome = computeBootOutcome({
         envTargetUrl: envTarget || null,
@@ -3982,6 +3993,14 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
         localAvailable: Boolean(state.sidecarUrl || state.localOrigin),
       });
       state.initScript = buildInitScript(state.localOrigin, state.bootOutcome, state.apiBaseUrl, state.clientToken, state.requestHeaders || {});
+      const mainWindow = state.mainWindow;
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.__ocRuntimeConfig = {
+          apiBaseUrl: state.apiBaseUrl,
+          clientToken: state.clientToken,
+          requestHeaders: state.requestHeaders,
+        };
+      }
       syncMainWindowInitScript(state.initScript);
       return null;
     }
