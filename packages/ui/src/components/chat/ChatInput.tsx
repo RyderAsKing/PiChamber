@@ -56,6 +56,7 @@ import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { GitHubIssuePickerDialog } from '@/components/session/GitHubIssuePickerDialog';
 import { GitHubPrPickerDialog } from '@/components/session/GitHubPrPickerDialog';
 import { Icon } from "@/components/icon/Icon";
+import { Button } from "@/components/ui/button";
 import { DraftPresetChips } from './DraftPresetChips';
 import { useChatSearchDirectory } from '@/hooks/useChatSearchDirectory';
 import { useGitStore, useIsGitRepo } from '@/stores/useGitStore';
@@ -2328,12 +2329,26 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         {draftWorktreeCreation.state.phase !== 'failed' ? (
                             <AgentThinkingLoader variant="inline" text={null} animationType="spinner" />
                         ) : null}
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                             <p className="typography-ui-label">{draftWorktreeCreation.state.label}</p>
+                            {draftWorktreeCreation.state.phase !== 'failed' ? (
+                                <p className="mt-0.5 text-xs opacity-70">Running in background — you can navigate away</p>
+                            ) : null}
                             {draftWorktreeCreation.state.error ? (
                                 <p className="mt-0.5 break-words">{draftWorktreeCreation.state.error}</p>
                             ) : null}
                         </div>
+                        {draftWorktreeCreation.state.phase === 'failed' ? (
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="xs"
+                                onClick={() => draftWorktreeCreation.dismissFailed()}
+                                aria-label="Dismiss error"
+                            >
+                                Dismiss
+                            </Button>
+                        ) : null}
                     </div>
                 ) : null}
                 <div
