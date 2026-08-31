@@ -804,16 +804,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
                 .map((group) => ({ group, pages: pagesByGroup.get(group) ?? [] }))
                 .filter((entry) => entry.pages.length > 0);
 
-              return visibleGroups.map(({ group, pages }, groupIndex) => (
+              return visibleGroups.map(({ group, pages }, groupIndex) => {
+                const groupLabel = group === 'projects' ? 'Workspace' : group === 'agent' ? 'Agent' : null;
+                return (
                 <div key={group} className="space-y-0.5">
+                  {groupLabel ? (
                   <div
                     className={cn(
                       'px-3 pb-1 typography-micro font-semibold uppercase tracking-wide text-muted-foreground sm:px-2 sm:pb-0.5',
                       groupIndex === 0 ? 'pt-1' : 'pt-4 sm:pt-3',
                     )}
                   >
-                    {group === 'general' ? 'PiChamber' : group === 'projects' ? 'Workspace' : 'Agent'}
+                    {groupLabel}
                   </div>
+                  ) : null}
                   {pages.map((page) => {
                     // On the mobile nav STAGE nothing is "current" — the user is
                     // choosing, and settingsSlug only remembers the last visited
@@ -851,7 +855,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
                     );
                   })}
                 </div>
-              ));
+                );
+              });
             })()}
           </div>
         </div>
