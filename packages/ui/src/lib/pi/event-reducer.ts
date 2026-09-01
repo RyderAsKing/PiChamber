@@ -1434,6 +1434,12 @@ export const hydrateSessionFromDetail = (
     lifecycle?: PiSessionLifecycleState;
     retry?: PiRetryInfo;
     compaction?: PiCompactionInfo;
+    extensionStatuses?: Array<{ key: string; text: string }>;
+    extensionWidgets?: Array<{ key: string; lines: string[]; placement?: 'aboveEditor' | 'belowEditor' }>;
+    extensionDialogs?: PiExtensionDialogPayload[];
+    extensionPanels?: PiExtensionPanelPayload[];
+    extensionApps?: PiExtensionAppPayload[];
+    extensionTitle?: string;
     messages: Array<{
       message: PiUserMessage | PiAssistantMessage | {
         id: string;
@@ -1468,6 +1474,31 @@ export const hydrateSessionFromDetail = (
   const state = createReducerState();
   const session = getOrCreateSession(state, detail.session.id, detail.session.directory);
   session.lastSequence = detail.lastSequence;
+  if (Array.isArray(detail.extensionStatuses)) {
+    session.extensionStatuses = new Map(detail.extensionStatuses.map((entry) => [entry.key, entry.text]));
+  }
+  if (Array.isArray(detail.extensionWidgets)) {
+    session.extensionWidgets = new Map(detail.extensionWidgets.map((entry) => [
+      entry.key,
+      { lines: entry.lines, placement: entry.placement === 'belowEditor' ? 'belowEditor' : 'aboveEditor' },
+    ]));
+  }
+  if (Array.isArray(detail.extensionDialogs)) {
+    session.extensionDialogs = detail.extensionDialogs.filter(
+      (dialog) => typeof dialog.requestId === 'string' && typeof dialog.method === 'string' && typeof dialog.title === 'string',
+    );
+  }
+  if (Array.isArray(detail.extensionPanels)) {
+    session.extensionPanels = new Map(detail.extensionPanels
+      .filter((panel) => typeof panel?.id === 'string' && panel.id.length > 0)
+      .map((panel) => [panel.id, panel]));
+  }
+  if (Array.isArray(detail.extensionApps)) {
+    session.extensionApps = new Map(detail.extensionApps
+      .filter((app) => typeof app?.appId === 'string' && app.appId.length > 0)
+      .map((app) => [app.appId, app]));
+  }
+  session.extensionTitle = detail.extensionTitle;
 
   for (const { message, parts } of detail.messages) {
     const isExtension = message.role === 'extension';

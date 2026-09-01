@@ -143,6 +143,12 @@ export const reconnectPiSession = async (
       ...(detail.lifecycle ? { lifecycle: detail.lifecycle } : {}),
       ...(detail.retry ? { retry: detail.retry } : {}),
       ...(detail.compaction ? { compaction: detail.compaction } : {}),
+      ...(detail.extensionStatuses ? { extensionStatuses: detail.extensionStatuses } : {}),
+      ...(detail.extensionWidgets ? { extensionWidgets: detail.extensionWidgets } : {}),
+      ...(detail.extensionDialogs ? { extensionDialogs: detail.extensionDialogs } : {}),
+      ...(detail.extensionPanels ? { extensionPanels: detail.extensionPanels } : {}),
+      ...(detail.extensionApps ? { extensionApps: detail.extensionApps } : {}),
+      ...(detail.extensionTitle ? { extensionTitle: detail.extensionTitle } : {}),
       messages: detail.messages.map((entry) => ({
         message: entry.message,
         parts: entry.parts.map((part) => ({

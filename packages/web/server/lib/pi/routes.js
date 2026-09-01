@@ -250,6 +250,7 @@ const projectSessionDetail = (value) => {
     ...(compaction ? { compaction } : {}),
     ...(Number.isFinite(value.runStartedAt) ? { runStartedAt: Math.floor(value.runStartedAt) } : {}),
     ...(Number.isFinite(value.serverNow) ? { serverNow: Math.floor(value.serverNow) } : {}),
+    ...projectExtensionSnapshotState(value),
   };
 };
 
@@ -443,6 +444,48 @@ export const projectExtensionList = (result) => {
   return { directory: result.directory, extensions, commands };
 };
 
+function projectExtensionSnapshotState(snapshot) {
+  const extensionStatuses = Array.isArray(snapshot.extensionStatuses)
+    ? snapshot.extensionStatuses.filter((entry) => entry && typeof entry.key === 'string' && typeof entry.text === 'string' && entry.key.length > 0 && entry.key.length <= 128 && entry.text.length <= 1000).slice(0, 50).map((entry) => ({ key: entry.key.slice(0, 128), text: entry.text.slice(0, 1000) }))
+    : undefined;
+  const extensionWidgets = Array.isArray(snapshot.extensionWidgets)
+    ? snapshot.extensionWidgets.filter((entry) => entry && typeof entry.key === 'string' && Array.isArray(entry.lines) && entry.key.length > 0 && entry.key.length <= 128 && entry.lines.length <= 100).slice(0, 50).map((entry) => ({
+        key: entry.key.slice(0, 128),
+        lines: entry.lines.filter((line) => typeof line === 'string').map((line) => line.slice(0, 2000)).slice(0, 100),
+        ...(entry.placement === 'belowEditor' ? { placement: 'belowEditor' } : { placement: 'aboveEditor' }),
+      }))
+    : undefined;
+  const extensionDialogs = Array.isArray(snapshot.extensionDialogs)
+    ? snapshot.extensionDialogs.filter((entry) => entry && typeof entry.requestId === 'string' && typeof entry.method === 'string' && typeof entry.title === 'string').slice(0, 20).map((entry) => ({
+        requestId: entry.requestId.slice(0, 512),
+        method: ['select', 'confirm', 'input', 'editor', 'form'].includes(entry.method) ? entry.method : 'confirm',
+        title: entry.title.slice(0, 512),
+        ...(typeof entry.message === 'string' ? { message: entry.message.slice(0, 2000) } : {}),
+        ...(Array.isArray(entry.options) ? { options: entry.options.filter((option) => typeof option === 'string').map((option) => option.slice(0, 256)).slice(0, 20) } : {}),
+        ...(typeof entry.placeholder === 'string' ? { placeholder: entry.placeholder.slice(0, 512) } : {}),
+        ...(typeof entry.prefill === 'string' ? { prefill: entry.prefill.slice(0, 10000) } : {}),
+        ...(Array.isArray(entry.fields) ? { fields: sanitizeExtensionFormFields(entry.fields) } : {}),
+        ...(Number.isFinite(entry.timeoutMs) ? { timeoutMs: Math.floor(entry.timeoutMs) } : {}),
+      }))
+    : undefined;
+  const extensionPanels = Array.isArray(snapshot.extensionPanels)
+    ? snapshot.extensionPanels.filter((entry) => entry && typeof entry.id === 'string' && entry.id.length > 0).slice(0, 24).map(projectExtensionPanelPayload)
+    : undefined;
+  const extensionApps = Array.isArray(snapshot.extensionApps)
+    ? snapshot.extensionApps.filter((entry) => entry && typeof entry.appId === 'string' && entry.appId.length > 0 && typeof entry.html === 'string' && entry.html.length > 0).slice(0, 8).map(projectExtensionAppPayload)
+    : undefined;
+  return {
+    ...(extensionStatuses ? { extensionStatuses } : {}),
+    ...(extensionWidgets ? { extensionWidgets } : {}),
+    ...(extensionDialogs ? { extensionDialogs } : {}),
+    ...(extensionPanels ? { extensionPanels } : {}),
+    ...(extensionApps ? { extensionApps } : {}),
+    ...(typeof snapshot.extensionTitle === 'string' && snapshot.extensionTitle.length > 0
+      ? { extensionTitle: snapshot.extensionTitle.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 256) }
+      : {}),
+  };
+}
+
 export const projectEventFrame = (frame) => {
   if (!frame || frame.kind !== 'event' || typeof frame.event !== 'string' || !Number.isSafeInteger(frame.sequence)
     || !frame.payload || typeof frame.payload.sessionId !== 'string' || typeof frame.payload.directory !== 'string') return null;
@@ -451,35 +494,7 @@ export const projectEventFrame = (frame) => {
   switch (frame.event) {
     case 'session.snapshot': {
       const snapshot = frame.payload;
-      const snapshotExtensionStatuses = Array.isArray(snapshot.extensionStatuses)
-        ? snapshot.extensionStatuses.filter((entry) => entry && typeof entry.key === 'string' && typeof entry.text === 'string' && entry.key.length > 0 && entry.key.length <= 128 && entry.text.length <= 1000).slice(0, 50).map((entry) => ({ key: entry.key.slice(0, 128), text: entry.text.slice(0, 1000) }))
-        : undefined;
-      const snapshotExtensionWidgets = Array.isArray(snapshot.extensionWidgets)
-        ? snapshot.extensionWidgets.filter((entry) => entry && typeof entry.key === 'string' && Array.isArray(entry.lines) && entry.key.length > 0 && entry.key.length <= 128 && entry.lines.length <= 100).slice(0, 50).map((entry) => ({
-            key: entry.key.slice(0, 128),
-            lines: entry.lines.filter((line) => typeof line === 'string').map((line) => line.slice(0, 2000)).slice(0, 100),
-            ...(entry.placement === 'belowEditor' ? { placement: 'belowEditor' } : { placement: 'aboveEditor' }),
-          }))
-        : undefined;
-      const snapshotExtensionDialogs = Array.isArray(snapshot.extensionDialogs)
-        ? snapshot.extensionDialogs.filter((entry) => entry && typeof entry.requestId === 'string' && typeof entry.method === 'string' && typeof entry.title === 'string').slice(0, 20).map((entry) => ({
-            requestId: entry.requestId.slice(0, 512),
-            method: ['select', 'confirm', 'input', 'editor', 'form'].includes(entry.method) ? entry.method : 'confirm',
-            title: entry.title.slice(0, 512),
-            ...(typeof entry.message === 'string' ? { message: entry.message.slice(0, 2000) } : {}),
-            ...(Array.isArray(entry.options) ? { options: entry.options.filter((option) => typeof option === 'string').map((option) => option.slice(0, 256)).slice(0, 20) } : {}),
-            ...(typeof entry.placeholder === 'string' ? { placeholder: entry.placeholder.slice(0, 512) } : {}),
-            ...(typeof entry.prefill === 'string' ? { prefill: entry.prefill.slice(0, 10000) } : {}),
-            ...(Array.isArray(entry.fields) ? { fields: sanitizeExtensionFormFields(entry.fields) } : {}),
-            ...(Number.isFinite(entry.timeoutMs) ? { timeoutMs: Math.floor(entry.timeoutMs) } : {}),
-          }))
-        : undefined;
-      const snapshotExtensionPanels = Array.isArray(snapshot.extensionPanels)
-        ? snapshot.extensionPanels.filter((entry) => entry && typeof entry.id === 'string' && entry.id.length > 0).slice(0, 24).map(projectExtensionPanelPayload)
-        : undefined;
-      const snapshotExtensionApps = Array.isArray(snapshot.extensionApps)
-        ? snapshot.extensionApps.filter((entry) => entry && typeof entry.appId === 'string' && entry.appId.length > 0 && typeof entry.html === 'string' && entry.html.length > 0).slice(0, 8).map(projectExtensionAppPayload)
-        : undefined;
+      const extensionSnapshot = projectExtensionSnapshotState(snapshot);
       const lifecycle = ['idle', 'busy', 'retry', 'error', 'interrupted'].includes(snapshot.lifecycle) ? snapshot.lifecycle : 'idle';
       const retry = lifecycle === 'retry' ? projectRetryInfo(snapshot.retry) : null;
       const compaction = projectCompactionInfo(snapshot.compaction);
@@ -496,14 +511,7 @@ export const projectEventFrame = (frame) => {
         ...(Number.isFinite(snapshot.runStartedAt) ? { runStartedAt: Math.floor(snapshot.runStartedAt) } : {}),
         ...(Number.isFinite(snapshot.serverNow) ? { serverNow: Math.floor(snapshot.serverNow) } : {}),
         lastSequence: Number.isSafeInteger(snapshot.lastSequence) ? snapshot.lastSequence : frame.sequence,
-        ...(snapshotExtensionStatuses ? { extensionStatuses: snapshotExtensionStatuses } : {}),
-        ...(snapshotExtensionWidgets ? { extensionWidgets: snapshotExtensionWidgets } : {}),
-        ...(snapshotExtensionDialogs ? { extensionDialogs: snapshotExtensionDialogs } : {}),
-        ...(snapshotExtensionPanels ? { extensionPanels: snapshotExtensionPanels } : {}),
-        ...(snapshotExtensionApps ? { extensionApps: snapshotExtensionApps } : {}),
-        ...(typeof snapshot.extensionTitle === 'string' && snapshot.extensionTitle.length > 0
-          ? { extensionTitle: snapshot.extensionTitle.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 256) }
-          : {}),
+        ...extensionSnapshot,
       } } };
     }
     case 'session.lifecycle': {
