@@ -11,7 +11,6 @@ import type {
   GitDeleteBranchPayload,
   GitDeleteRemoteBranchPayload,
   GitRemoveRemotePayload,
-  GeneratedCommitMessage,
   CreateGitCommitOptions,
   GitCommitResult,
   GitPushResult,
@@ -498,114 +497,6 @@ export async function removeRemote(directory: string, payload: GitRemoveRemotePa
 
   return response.json();
 }
-
-export async function generateCommitMessage(
-  directory: string,
-  files: string[],
-  options?: { zenModel?: string; providerId?: string; modelId?: string }
-): Promise<{ message: GeneratedCommitMessage }> {
-  if (!Array.isArray(files) || files.length === 0) {
-    throw new Error('No files provided to generate commit message');
-  }
-
-  const body: Record<string, unknown> = { files };
-  if (options?.zenModel) {
-    body.zenModel = options.zenModel;
-  }
-  if (options?.providerId) {
-    body.providerId = options.providerId;
-  }
-  if (options?.modelId) {
-    body.modelId = options.modelId;
-  }
-
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/commit-message`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    console.error('[git-generation][browser] http error', {
-      status: response.status,
-      statusText: response.statusText,
-      error,
-    });
-    const traceSuffix = typeof error?.traceId === 'string' && error.traceId
-      ? ` (traceId: ${error.traceId})`
-      : '';
-    throw new Error(`${error.error || 'Failed to generate commit message'}${traceSuffix}`);
-  }
-
-  const data = await response.json();
-
-  if (!data?.message || typeof data.message !== 'object') {
-    throw new Error('Malformed commit generation response');
-  }
-
-  const subject =
-    typeof data.message.subject === 'string' && data.message.subject.trim().length > 0
-      ? data.message.subject.trim()
-      : '';
-
-  const highlights: string[] = Array.isArray(data.message.highlights)
-    ? (data.message.highlights as unknown[])
-        .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-        .map((item) => (item as string).trim())
-    : [];
-
-  return {
-    message: {
-      subject,
-      highlights,
-    },
-  };
-}
-
-export async function generatePullRequestDescription(
-  directory: string,
-  payload: { base: string; head: string; context?: string; zenModel?: string; providerId?: string; modelId?: string }
-): Promise<{ title: string; body: string }> {
-  const { base, head, context, zenModel, providerId, modelId } = payload;
-  if (!base || !head) {
-    throw new Error('base and head are required');
-  }
-
-  const requestBody: { base: string; head: string; context?: string; zenModel?: string; providerId?: string; modelId?: string } = { base, head };
-  if (context?.trim()) {
-    requestBody.context = context.trim();
-  }
-  if (zenModel) {
-    requestBody.zenModel = zenModel;
-  }
-  if (providerId) {
-    requestBody.providerId = providerId;
-  }
-  if (modelId) {
-    requestBody.modelId = modelId;
-  }
-
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/pr-description`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(requestBody),
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to generate PR description');
-  }
-
-  const data = await response.json().catch(() => null);
-  const title = typeof data?.title === 'string' ? data.title : '';
-  const body = typeof data?.body === 'string' ? data.body : '';
-  if (!title && !body) {
-    throw new Error('Malformed PR description response');
-  }
-  return { title, body };
-}
-
 
 export async function createGitCommit(
   directory: string,

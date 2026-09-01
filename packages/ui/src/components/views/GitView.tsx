@@ -54,7 +54,6 @@ import { deriveBaseBranch, hasResolvableBaseBranch } from './git/baseBranch';
 import { createGitIndexMutationQueue, type GitIndexMutationDirection, type GitIndexMutationQueue } from './git/gitIndexMutationQueue';
 import type { GitRemote } from '@/lib/gitApi';
 import { cn } from '@/lib/utils';
-import { generateCommitMessage as generateSessionCommitMessage } from '@/lib/gitApi';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 
@@ -75,7 +74,6 @@ const GIT_RECONCILE_DELAY_MS = 15000;
 type GitViewSnapshot = {
   directory?: string;
   commitMessage: string;
-  generatedHighlights: string[];
 };
 
 type GitmojiEntry = {
@@ -381,11 +379,6 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
   const [movingChangePaths, setMovingChangePaths] = React.useState<Set<string>>(new Set());
   const [isRevertingAll, setIsRevertingAll] = React.useState(false);
   const [integrateRefreshKey, setIntegrateRefreshKey] = React.useState(0);
-  const [isGeneratingMessage, setIsGeneratingMessage] = React.useState(false);
-  const [generatedHighlights, setGeneratedHighlights] = React.useState<string[]>(
-    initialSnapshot?.generatedHighlights ?? []
-  );
-  const clearGeneratedHighlights = React.useCallback(() => setGeneratedHighlights([]), []);
   const [isUpdateBranchDialogOpen, setIsUpdateBranchDialogOpen] = React.useState(false);
   const hasPendingIndexMutation = movingChangePaths.size > 0 || gitIndexMutationQueue.size() > 0 || gitIndexMutationQueue.isRunning();
 
@@ -582,9 +575,8 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     rememberSnapshot(currentDirectory, {
       directory: currentDirectory,
       commitMessage,
-      generatedHighlights,
     });
-  }, [commitMessage, currentDirectory, generatedHighlights]);
+  }, [commitMessage, currentDirectory]);
 
   React.useEffect(() => {
     if (!isActive) return;
@@ -921,7 +913,6 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
       bumpIndexRevision(currentDirectory);
       toast.success("Commit created");
       setCommitMessage('');
-      clearGeneratedHighlights();
 
       await refreshStatusAndBranches();
 
@@ -973,54 +964,6 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
       }
     }
   };
-
-  const handleGenerateCommitMessage = React.useCallback(async () => {
-    if (!currentDirectory) return;
-    const selectedFilePaths = stagedChangeEntries.map((file) => file.path).sort();
-    if (selectedFilePaths.length === 0) {
-      toast.error("Stage at least one file to describe");
-      return;
-    }
-
-    console.error('[git-generation][browser] generate button clicked', {
-      directory: currentDirectory,
-      selectedFiles: selectedFilePaths.length,
-    });
-
-    setIsGeneratingMessage(true);
-    try {
-      const { message } = await generateSessionCommitMessage(currentDirectory, selectedFilePaths);
-      const subject = message.subject?.trim() ?? '';
-      const highlights = Array.isArray(message.highlights) ? message.highlights : [];
-
-      if (subject) {
-        let finalSubject = subject;
-        if (settingsGitmojiEnabled && gitmojiEmojis.length > 0) {
-          const match = matchGitmojiFromSubject(subject, gitmojiEmojis);
-          if (match) {
-            const { code, emoji } = match;
-            if (!subject.startsWith(code) && !subject.startsWith(emoji)) {
-              finalSubject = `${code} ${subject}`;
-            }
-          }
-        }
-        setCommitMessage(finalSubject);
-      }
-      setGeneratedHighlights(highlights);
-
-      scrollActionPanelToBottom();
-    } catch (error) {
-      console.error('[git-generation][browser] GitView generate handler failed', {
-        message: error instanceof Error ? error.message : String(error),
-        error,
-      });
-      const message =
-        error instanceof Error ? error.message : "Failed to generate commit message";
-      toast.error(message);
-    } finally {
-      setIsGeneratingMessage(false);
-    }
-  }, [currentDirectory, stagedChangeEntries, settingsGitmojiEnabled, gitmojiEmojis, scrollActionPanelToBottom]);
 
   const handleCreateBranch = async (branchName: string, remote?: GitRemote) => {
     if (!currentDirectory || !status) return;
@@ -1519,23 +1462,6 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
   );
 
   const openStashes = React.useCallback(() => setIsStashesDialogOpen(true), []);
-
-  const handleInsertHighlights = React.useCallback((sourceHighlights: string[]) => {
-    if (sourceHighlights.length === 0) return;
-    const normalizedHighlights = sourceHighlights
-      .map((text) => text.trim())
-      .filter(Boolean);
-    if (normalizedHighlights.length === 0) {
-      clearGeneratedHighlights();
-      return;
-    }
-    setCommitMessage((current) => {
-      const base = current.trim();
-      const separator = base.length > 0 ? '\n\n' : '';
-      return `${base}${separator}${normalizedHighlights.join('\n')}`.trim();
-    });
-    clearGeneratedHighlights();
-  }, [clearGeneratedHighlights]);
 
   const handleSelectGitmoji = React.useCallback((emoji: string, code: string) => {
     const token = code || emoji;
@@ -2072,10 +1998,6 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
                     stagedCount={stagedCount}
                     commitMessage={commitMessage}
                     onCommitMessageChange={setCommitMessage}
-                    generatedHighlights={generatedHighlights}
-                    onInsertHighlights={handleInsertHighlights}
-                    onGenerateMessage={handleGenerateCommitMessage}
-                    isGeneratingMessage={isGeneratingMessage}
                     onCommit={() => handleCommit({ pushAfter: false })}
                     onCommitAndPush={() => handleCommit({ pushAfter: true })}
                     commitAction={commitAction}

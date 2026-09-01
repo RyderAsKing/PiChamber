@@ -11,7 +11,7 @@ import { PierreDiffViewer } from '@/components/views/PierreDiffViewer';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import type { GitStatus } from '@/lib/api/types';
-import { generateCommitMessage, stageGitFile, stageGitFiles, unstageGitFile, unstageGitFiles } from '@/lib/gitApi';
+import { stageGitFile, stageGitFiles, unstageGitFile, unstageGitFiles } from '@/lib/gitApi';
 import type { GitRemote } from '@/lib/gitApi';
 import { getLanguageFromExtension, isImageFile } from '@/lib/toolHelpers';
 import {
@@ -89,8 +89,6 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
   const [commitMessage, setCommitMessage] = React.useState('');
   const [revertingPaths, setRevertingPaths] = React.useState<Set<string>>(new Set());
   const [isRevertingAll, setIsRevertingAll] = React.useState(false);
-  const [isGeneratingMessage, setIsGeneratingMessage] = React.useState(false);
-  const [generatedHighlights, setGeneratedHighlights] = React.useState<string[]>([]);
   const [visibleChangePaths, setVisibleChangePaths] = React.useState<string[]>([]);
   const [remotes, setRemotes] = React.useState<GitRemote[]>([]);
   const [remoteUrl, setRemoteUrl] = React.useState<string | null>(null);
@@ -326,35 +324,6 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
     }
   }, [currentDirectory, git, isRevertingAll, refreshStatusAndBranches]);
 
-  const handleInsertHighlights = React.useCallback((highlights: string[]) => {
-    const normalized = highlights.map((text) => text.trim()).filter(Boolean);
-    if (normalized.length === 0) {
-      setGeneratedHighlights([]);
-      return;
-    }
-    setCommitMessage((current) => `${current.trim()}${current.trim() ? '\n\n' : ''}${normalized.join('\n')}`.trim());
-    setGeneratedHighlights([]);
-  }, []);
-
-  const handleGenerateCommitMessage = React.useCallback(async () => {
-    if (!currentDirectory) return;
-    const selectedFilePaths = stagedChangeEntries.map((file) => file.path).sort();
-    if (selectedFilePaths.length === 0) {
-      toast.error("Select at least one file to describe");
-      return;
-    }
-    setIsGeneratingMessage(true);
-    try {
-      const { message } = await generateCommitMessage(currentDirectory, selectedFilePaths);
-      setCommitMessage(message.subject?.trim() ?? '');
-      setGeneratedHighlights(Array.isArray(message.highlights) ? message.highlights : []);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to generate commit message");
-    } finally {
-      setIsGeneratingMessage(false);
-    }
-  }, [currentDirectory, stagedChangeEntries]);
-
   const handleCommit = async (options: { pushAfter?: boolean } = {}) => {
     if (!currentDirectory) return;
     if (!commitMessage.trim()) {
@@ -372,7 +341,6 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
       await git.createGitCommit(currentDirectory, commitMessage.trim(), { files: filesToCommit });
       toast.success("Commit created");
       setCommitMessage('');
-      setGeneratedHighlights([]);
 
       if (options.pushAfter) {
         const trackingRemoteName = status?.tracking?.split('/')[0];
@@ -539,10 +507,6 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
               stagedCount={stagedChangeEntries.length}
               commitMessage={commitMessage}
               onCommitMessageChange={setCommitMessage}
-              generatedHighlights={generatedHighlights}
-              onInsertHighlights={handleInsertHighlights}
-              onGenerateMessage={handleGenerateCommitMessage}
-              isGeneratingMessage={isGeneratingMessage}
               onCommit={() => void handleCommit({ pushAfter: false })}
               onCommitAndPush={() => void handleCommit({ pushAfter: true })}
               commitAction={commitAction}
