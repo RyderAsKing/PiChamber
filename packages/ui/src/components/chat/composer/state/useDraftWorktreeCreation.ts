@@ -16,16 +16,12 @@ import type {
 
 export type { DraftWorktreeCreationState } from '@/stores/useWorktreeCreationStore';
 
-export function useDraftWorktreeCreation<T>(input: {
-  activeRuntimeKey: string;
+export function useDraftWorktreeCreation(input: {
   intent: DraftWorktreeIntent | null | undefined;
-  onReady: (continuation: T, receipt: DraftWorktreeCreationReceipt) => void;
 }) {
-  const { activeRuntimeKey, intent, onReady } = input;
+  const { intent } = input;
   const { git } = useRuntimeAPIs();
   const refreshProject = useWorktreeStore((state) => state.refreshProject);
-  const onReadyRef = React.useRef(onReady);
-  onReadyRef.current = onReady;
 
   const entryKey = getWorktreeCreationKey(intent);
   const storeEntry = useWorktreeCreationStore(
@@ -34,19 +30,11 @@ export function useDraftWorktreeCreation<T>(input: {
 
   const state = storeEntry?.state ?? null;
 
-  const operationRef = React.useRef(0);
-  React.useEffect(() => {
-    operationRef.current += 1;
-  }, [activeRuntimeKey, intent?.projectRoot, intent?.runtimeKey, intent?.sourceDirectory, intent?.startRef]);
-
   const request = React.useCallback(async (params: {
     intent: DraftWorktreeIntent;
     prompt: string;
-    continuation: T;
-  }): Promise<void> => {
-    if (!git) return;
-    const operation = operationRef.current + 1;
-    operationRef.current = operation;
+  }): Promise<DraftWorktreeCreationReceipt | null> => {
+    if (!git) return null;
     try {
       const receipt = await useWorktreeCreationStore.getState().request({
         intent: params.intent,
@@ -54,12 +42,11 @@ export function useDraftWorktreeCreation<T>(input: {
         git,
         refreshProject,
       });
-      if (operationRef.current !== operation) return;
-      if (params.intent.runtimeKey !== getRuntimeKey()) return;
-      onReadyRef.current(params.continuation, receipt);
+      if (params.intent.runtimeKey !== getRuntimeKey()) return null;
+      return receipt;
     } catch (error) {
-      if (operationRef.current !== operation) return;
-      if (error instanceof Error && error.message === WORKTREE_CREATION_SUPERSEDED) return;
+      if (error instanceof Error && error.message === WORKTREE_CREATION_SUPERSEDED) return null;
+      return null;
     }
   }, [git, refreshProject]);
 
