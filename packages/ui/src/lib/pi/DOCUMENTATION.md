@@ -18,7 +18,7 @@ This directory owns the Pi-native runtime boundary. It defines:
 - The configured-provider helper for selection catalogs (`configured-providers.ts`).
 - Hidden-model selection filtering (`hidden-models.ts`).
 - Session default helpers (`session-defaults.ts`) and Pi thinking-level rules (`thinking.ts`).
-- Composer thinking apply/rollback (`apply-composer-thinking.ts`).
+- Composer thinking override (`apply-composer-thinking.ts`). Picker changes stay local; `routeMessage` commits them on send.
 
 The module uses native `Response` parsing through `runtimeFetch` so callers
 can distinguish failure from a successful empty result. `MainLayout` is the
@@ -350,14 +350,18 @@ opt-in and `null` map entries hidden). Only the explicit new-session
 overrides are passed to the daemon, so Pi's normal settings fallback remains
 authoritative otherwise. Composer thinking next to the model name is driven
 from catalog `thinkingLevels` (hidden when the model only offers `off`).
-Choosing a level updates the composer override immediately and calls
-`sessions.setThinking` for an open session; a failed write rolls back the
-override instead of looking like success. Unset/Default does not invent a
-level. Opening an existing session restores the composer to that session's
-last used model and thinking (latest assistant turn, then live
-`session.model` / `session.thinking`) instead of the globally last-selected
-model. The user can still change them manually; existing session thinking
-then stays until the user changes model or thinking.
+Choosing a level updates the composer override immediately and does not
+call `sessions.setThinking`. Unset/Default does not invent a level. Opening
+an existing session restores the composer to that session's last used model
+and thinking (latest assistant turn, then live `session.model` /
+`session.thinking`) instead of the globally last-selected model. Manual
+composer changes stay pending until send: `routeMessage` applies model then
+thinking, then prompts, so extensions that key off the committed triple see
+it on that turn. A failed apply aborts the send instead of prompting with
+the previous session selection. Slash commands, the Pi TUI, and other tabs
+still mutate the live session immediately; the composer adopts those
+authoritative changes. Existing session thinking stays until the user sends
+a new selection or an external command changes it.
 Composer attachments are uploaded before prompt dispatch and the returned opaque identifiers are forwarded with that captured send. Attachment uploads return opaque identifiers; their temporary paths cross only
 the private daemon IPC and are redacted from public transcript/event output.
 The browser never receives a path, endpoint, credential, or daemon identity.

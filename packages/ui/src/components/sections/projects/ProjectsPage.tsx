@@ -52,6 +52,24 @@ export const ProjectsPage: React.FC = () => {
     [selectedProject, updateProjectMeta],
   );
 
+  const sortedProjects = React.useMemo(() => {
+    return [...projects].sort((a, b) => {
+      const aLabel = (a.label?.trim() || a.path).toLowerCase();
+      const bLabel = (b.label?.trim() || b.path).toLowerCase();
+      return aLabel.localeCompare(bLabel, undefined, { sensitivity: 'base' });
+    });
+  }, [projects]);
+
+  const filteredProjects = React.useMemo(() => {
+    const q = projectQuery.trim().toLowerCase();
+    if (!q) return sortedProjects;
+    return sortedProjects.filter((p) => {
+      const label = (p.label ?? '').toLowerCase();
+      const path = p.path.toLowerCase();
+      return label.includes(q) || path.includes(q);
+    });
+  }, [sortedProjects, projectQuery]);
+
   // ── Detail view ──────────────────────────────────────────────────────────
   if (selectedProject) {
     const label = selectedProject.label?.trim() || selectedProject.path.split('/').pop()?.trim() || selectedProject.path;
@@ -81,24 +99,6 @@ export const ProjectsPage: React.FC = () => {
   }
 
   // ── Browse grid ──────────────────────────────────────────────────────────
-  const sortedProjects = React.useMemo(() => {
-    return [...projects].sort((a, b) => {
-      const aLabel = (a.label?.trim() || a.path).toLowerCase();
-      const bLabel = (b.label?.trim() || b.path).toLowerCase();
-      return aLabel.localeCompare(bLabel, undefined, { sensitivity: 'base' });
-    });
-  }, [projects]);
-
-  const filteredProjects = React.useMemo(() => {
-    const q = projectQuery.trim().toLowerCase();
-    if (!q) return sortedProjects;
-    return sortedProjects.filter((p) => {
-      const label = (p.label ?? '').toLowerCase();
-      const path = p.path.toLowerCase();
-      return label.includes(q) || path.includes(q);
-    });
-  }, [sortedProjects, projectQuery]);
-
   // Empty state — no projects at all
   if (projects.length === 0) {
     return (

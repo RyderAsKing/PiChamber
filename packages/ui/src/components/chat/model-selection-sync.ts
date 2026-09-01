@@ -31,9 +31,9 @@ export const classifyAuthoritativeComposerSelection = ({
   const composerUsesDifferentModel = composer.providerId !== authoritative.providerId
     || composer.modelId !== authoritative.modelId;
   if (authoritativeModelWasAlreadyObserved && composerUsesDifferentModel) {
-    // Model picks are local until send, while thinking changes are applied live.
-    // A thinking echo therefore still references the previous authoritative
-    // model and must not restore it over the newer manual composer choice.
+    // Model and thinking picks are local until send. A later thinking echo
+    // still references the previous committed model and must not restore it
+    // over the newer manual composer choice.
     return 'observe';
   }
 

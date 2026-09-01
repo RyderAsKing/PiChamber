@@ -26,4 +26,20 @@ describe('classifyAuthoritativeComposerSelection', () => {
       composer: { providerId: 'provider', modelId: 'model-a', thinking: 'low' },
     })).toBe('ignore');
   });
+
+  test('keeps pending composer thinking when the committed session has not changed', () => {
+    expect(classifyAuthoritativeComposerSelection({
+      authoritative: { providerId: 'provider', modelId: 'model-a', thinking: 'xhigh' },
+      observed: { providerId: 'provider', modelId: 'model-a', thinking: 'xhigh' },
+      composer: { providerId: 'provider', modelId: 'model-a', thinking: 'low' },
+    })).toBe('ignore');
+  });
+
+  test('applies an external thinking change on the same already-observed model', () => {
+    expect(classifyAuthoritativeComposerSelection({
+      authoritative: { providerId: 'provider', modelId: 'model-a', thinking: 'max' },
+      observed: { providerId: 'provider', modelId: 'model-a', thinking: 'xhigh' },
+      composer: { providerId: 'provider', modelId: 'model-a', thinking: 'low' },
+    })).toBe('apply');
+  });
 });
