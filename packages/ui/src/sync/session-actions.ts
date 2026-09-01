@@ -14,13 +14,18 @@ export async function createSession(
   title?: string,
   directoryOverride?: string | null,
   _parentID?: string | null,
-  creationOptions?: { model?: { providerId: string; modelId: string }; thinking?: PiThinkingLevel }
+  creationOptions?: {
+    model?: { providerId: string; modelId: string };
+    thinking?: PiThinkingLevel;
+    select?: boolean;
+  }
 ): Promise<Session | null> {
   void _parentID;
   const newId = await store().create(title, {
     ...(directoryOverride ? { directory: directoryOverride } : {}),
     ...(creationOptions?.model ? { model: creationOptions.model } : {}),
     ...(creationOptions?.thinking ? { thinking: creationOptions.thinking } : {}),
+    ...(creationOptions?.select === false ? { select: false } : {}),
   });
   const selected = store().getState().sessions.find((item) => item.session.id === newId || item.session.id === store().getState().selectedSessionId);
   return selected ? piSessionToUiSession(selected.session) : null;

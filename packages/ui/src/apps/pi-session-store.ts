@@ -1112,7 +1112,12 @@ export class PiSessionStore {
     await this.hydrate(sessionId, this.runtimeGeneration);
   }
 
-  async create(title?: string, options?: { directory?: string; model?: { providerId: string; modelId: string }; thinking?: PiThinkingLevel }): Promise<string> {
+  async create(title?: string, options?: {
+    directory?: string;
+    model?: { providerId: string; modelId: string };
+    thinking?: PiThinkingLevel;
+    select?: boolean;
+  }): Promise<string> {
     const directory = options?.directory || this.directory(); const expected = this.runtimeGeneration;
     // PiChamber defaults are authoritative only when explicitly configured;
     // otherwise Pi's settings/model runtime performs its normal fallback.
@@ -1133,7 +1138,11 @@ export class PiSessionStore {
       ...(thinking ? { thinking } : {}),
     }, { directory, runtimeKey: getRuntimeKey() });
     if (expected !== this.runtimeGeneration) return detail.session.id;
-    this.state = { ...this.state, sessions: [{ session: detail.session, updatedAt: detail.session.updatedAt }, ...this.state.sessions], selectedSessionId: detail.session.id };
+    this.state = {
+      ...this.state,
+      sessions: [{ session: detail.session, updatedAt: detail.session.updatedAt }, ...this.state.sessions],
+      selectedSessionId: options?.select === false ? this.state.selectedSessionId : detail.session.id,
+    };
     // Seed the catalog with the freshly created row before hydration so
     // sidebar / header surfaces see the new session without waiting for
     // the SSE echo. `upsertRecord` is a no-op when the row already exists
@@ -1429,6 +1438,12 @@ export class PiSessionStore {
       ...(detail.lifecycle ? { lifecycle: detail.lifecycle } : {}),
       ...(detail.retry ? { retry: detail.retry } : {}),
       ...(detail.compaction ? { compaction: detail.compaction } : {}),
+      ...(detail.extensionStatuses ? { extensionStatuses: detail.extensionStatuses } : {}),
+      ...(detail.extensionWidgets ? { extensionWidgets: detail.extensionWidgets } : {}),
+      ...(detail.extensionDialogs ? { extensionDialogs: detail.extensionDialogs } : {}),
+      ...(detail.extensionPanels ? { extensionPanels: detail.extensionPanels } : {}),
+      ...(detail.extensionApps ? { extensionApps: detail.extensionApps } : {}),
+      ...(detail.extensionTitle ? { extensionTitle: detail.extensionTitle } : {}),
       messages: detail.messages,
     }).session;
   }

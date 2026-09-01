@@ -12,6 +12,7 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 
 const store = getPiSessionStore();
+const originalCreateSession = useSessionUIStore.getState().createSession;
 const originals = {
   upload: store.upload,
   uploadFile: store.uploadFile,
@@ -32,6 +33,16 @@ afterEach(() => {
   store.setThinking = originals.setThinking;
   store.fork = originals.fork;
   store.navigate = originals.navigate;
+  useSessionUIStore.setState({
+    createSession: originalCreateSession,
+    currentSessionId: null,
+    currentSessionDirectory: null,
+    newSessionDraft: {
+      open: false,
+      directoryOverride: null,
+      parentID: null,
+    },
+  });
   clearAllRevertNavigations();
 });
 
@@ -147,6 +158,76 @@ describe('routeMessage', () => {
 
     expect(uploads).toEqual([]);
     expect(prompts).toEqual([['session-2', 'How hard will it be for us to update @PiChamber/ entirely with this kind of UI: https://github.com/zeronsh/comet', 'prompt', undefined]]);
+  });
+
+  test('commits model then thinking before prompting', async () => {
+    const calls: string[] = [];
+    store.setModel = async () => { calls.push('setModel'); };
+    store.setThinking = async () => { calls.push('setThinking'); };
+    store.upload = async () => ({ id: 'attachment-1', name: 'x', mime: 'text/plain', size: 1 });
+    store.prompt = async () => {
+      calls.push('prompt');
+      return { accepted: true, messageId: 'message-3' };
+    };
+
+    await routeMessage({
+      sessionId: 'session-3',
+      directory: '/workspace',
+      content: 'hello',
+      providerID: 'opencode-go',
+      modelID: 'muse-spark-1.2-contributor',
+      variant: 'xhigh',
+    });
+
+    expect(calls).toEqual(['setModel', 'setThinking', 'prompt']);
+  });
+
+  test('does not prompt when setThinking fails', async () => {
+    const prompts: unknown[][] = [];
+    store.setModel = async () => undefined;
+    store.setThinking = async () => {
+      throw new Error('thinking rejected');
+    };
+    store.prompt = async (...args) => {
+      prompts.push(args);
+      return { accepted: true, messageId: 'message-4' };
+    };
+
+    await expect(routeMessage({
+      sessionId: 'session-4',
+      directory: '/workspace',
+      content: 'hello',
+      providerID: 'provider',
+      modelID: 'model',
+      variant: 'high',
+    })).rejects.toThrow('thinking rejected');
+    expect(prompts).toEqual([]);
+  });
+
+  test('does not prompt when setModel fails', async () => {
+    const prompts: unknown[][] = [];
+    const thinkingCalls: unknown[][] = [];
+    store.setModel = async () => {
+      throw new Error('model rejected');
+    };
+    store.setThinking = async (...args) => {
+      thinkingCalls.push(args);
+    };
+    store.prompt = async (...args) => {
+      prompts.push(args);
+      return { accepted: true, messageId: 'message-5' };
+    };
+
+    await expect(routeMessage({
+      sessionId: 'session-5',
+      directory: '/workspace',
+      content: 'hello',
+      providerID: 'provider',
+      modelID: 'model',
+      variant: 'high',
+    })).rejects.toThrow('model rejected');
+    expect(thinkingCalls).toEqual([]);
+    expect(prompts).toEqual([]);
   });
 
   test('forkFromMessage calls the backend even when the session catalog has no row and waits for it to resolve', async () => {
@@ -266,6 +347,69 @@ describe('routeMessage', () => {
       providerID: 'provider',
       modelID: 'model',
     })).rejects.toThrow('Create the selected worktree');
+  });
+
+  test('routes a completed worktree draft to its created session after navigation', async () => {
+    const prompts: unknown[][] = [];
+    const creationMetadata: Array<Record<string, unknown> | undefined> = [];
+    store.setModel = async () => undefined;
+    store.setThinking = async () => undefined;
+    store.prompt = async (...args) => {
+      prompts.push(args);
+      return { accepted: true, messageId: 'message-1' };
+    };
+
+    const worktreeIntent = {
+      runtimeKey: getRuntimeKey(),
+      projectRoot: '/workspace/proj-1',
+      sourceDirectory: '/workspace/proj-1',
+      startRef: 'main',
+    };
+    useSessionUIStore.getState().openNewSessionDraft({
+      selectedProjectId: 'proj-1',
+      directoryOverride: '/workspace/proj-1',
+      worktreeIntent,
+    });
+    const draftSnapshot = useSessionUIStore.getState().newSessionDraft;
+
+    useSessionUIStore.getState().setCurrentSession('session-other', '/workspace/other');
+    useSessionUIStore.setState({
+      createSession: async (_title, directoryOverride, _parentId, metadata) => {
+        creationMetadata.push(metadata);
+        return {
+          id: 'session-worktree',
+          directory: directoryOverride ?? '/worktrees/new',
+        };
+      },
+    });
+
+    await useSessionUIStore.getState().sendMessage(
+      'initial worktree prompt',
+      'provider',
+      'model',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        worktreeCreationReceipt: {
+          ...worktreeIntent,
+          path: '/worktrees/new',
+          branch: 'pichamber/new',
+        },
+        draftSnapshot,
+      },
+    );
+
+    expect(creationMetadata).toEqual([{
+      model: { providerId: 'provider', modelId: 'model' },
+      thinking: undefined,
+      select: false,
+    }]);
+    expect(prompts).toEqual([['session-worktree', 'initial worktree prompt', 'prompt', undefined]]);
+    expect(useSessionUIStore.getState().currentSessionId).toBe('session-other');
   });
 
   test('stores a worktree intent and clears it when the draft directory changes', () => {

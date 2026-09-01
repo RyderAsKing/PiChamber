@@ -11,14 +11,14 @@ This directory owns the Pi-native runtime boundary. It defines:
 - Stream cadence (`stream-cadence.ts`): adjacent same-part token deltas fold, then flush on `requestAnimationFrame` together with live `session.tool.update` frames; boundary events flush pending stream frames first.
 - The service facade that wraps every `/api/pi/*` call (`client.ts`).
 - The snapshot reducer helpers (`snapshot.ts`).
-- The event reducer helpers (`event-reducer.ts`). `projectSession` is incremental: pass the previous session and projection so unchanged historical messages and parts keep their object identity, and a no-op live-tail remap returns the previous projection object. Ordered message lists are cached on the reducer `messages` Map; projected parts are cached on reducer part identity. `parts` is a copy-on-write map (`CowMap`): token/tool deltas `fork()` a snapshot-private overlay instead of cloning every historical part, and flatten after a bounded depth. Each applied event records `lastMutatedMessageId` / `lastMutationKind` so live-tail freeze can skip an O(session) part walk. Extension events append extension-role transcript items, maintain live status/widget maps and the blocking-dialog queue, and keep bounded notice/error feeds. The selected session's footer statuses render as a single horizontal, touch-scrollable strip rather than wrapping into stacked rows. Standard Pi RPC editor updates replace only the owning visible session's composer; background-session events stay resident until that session is selected. Session-scoped extension titles flow through the shared window-title owner on web, desktop, mini-chat, hosted mobile, and Capacitor. Extension catalog invalidations refresh provider/resource data without clearing the previous authoritative snapshot on failure, while command autocomplete keys its refetch to a low-frequency per-session revision. `extension.dialog.dismiss` removes answered, timed-out, aborted, or disposed requests on every client; an authoritative snapshot replaces the pending-dialog queue rather than preserving requests the daemon omitted. `dismissExtensionDialog` removes a successfully answered request locally without touching sequence bookkeeping.
+- The event reducer helpers (`event-reducer.ts`). `projectSession` is incremental: pass the previous session and projection so unchanged historical messages and parts keep their object identity, and a no-op live-tail remap returns the previous projection object. Ordered message lists are cached on the reducer `messages` Map; projected parts are cached on reducer part identity. `parts` is a copy-on-write map (`CowMap`): token/tool deltas `fork()` a snapshot-private overlay instead of cloning every historical part, and flatten after a bounded depth. Each applied event records `lastMutatedMessageId` / `lastMutationKind` so live-tail freeze can skip an O(session) part walk. Extension events append extension-role transcript items, maintain live status/widget maps and the blocking-dialog queue, and keep bounded notice/error feeds. The selected session's footer statuses render as a single horizontal, touch-scrollable strip rather than wrapping into stacked rows. Standard Pi RPC editor updates replace only the owning visible session's composer; background-session events stay resident until that session is selected. Session-scoped extension titles flow through the shared window-title owner on web, desktop, mini-chat, hosted mobile, and Capacitor. Extension catalog invalidations refresh provider/resource data without clearing the previous authoritative snapshot on failure, while command autocomplete keys its refetch to a low-frequency per-session revision. `extension.dialog.dismiss` removes answered, timed-out, aborted, or disposed requests on every client; authoritative `getSession` hydration and stream snapshots restore extension statuses, widgets, dialogs, panels, apps, and titles through the same sequence watermark instead of preserving requests the daemon omitted or skipping one-time startup state. `dismissExtensionDialog` removes a successfully answered request locally without touching sequence bookkeeping.
 - The bootstrap owner (`bootstrap.ts`).
 - The reconnect owner (`reconnect.ts`).
 - The attachment helpers (`attachments.ts`).
 - The configured-provider helper for selection catalogs (`configured-providers.ts`).
 - Hidden-model selection filtering (`hidden-models.ts`).
 - Session default helpers (`session-defaults.ts`) and Pi thinking-level rules (`thinking.ts`).
-- Composer thinking apply/rollback (`apply-composer-thinking.ts`).
+- Composer thinking override (`apply-composer-thinking.ts`). Picker changes stay local; `routeMessage` commits them on send.
 
 The module uses native `Response` parsing through `runtimeFetch` so callers
 can distinguish failure from a successful empty result. `MainLayout` is the
@@ -350,14 +350,18 @@ opt-in and `null` map entries hidden). Only the explicit new-session
 overrides are passed to the daemon, so Pi's normal settings fallback remains
 authoritative otherwise. Composer thinking next to the model name is driven
 from catalog `thinkingLevels` (hidden when the model only offers `off`).
-Choosing a level updates the composer override immediately and calls
-`sessions.setThinking` for an open session; a failed write rolls back the
-override instead of looking like success. Unset/Default does not invent a
-level. Opening an existing session restores the composer to that session's
-last used model and thinking (latest assistant turn, then live
-`session.model` / `session.thinking`) instead of the globally last-selected
-model. The user can still change them manually; existing session thinking
-then stays until the user changes model or thinking.
+Choosing a level updates the composer override immediately and does not
+call `sessions.setThinking`. Unset/Default does not invent a level. Opening
+an existing session restores the composer to that session's last used model
+and thinking (latest assistant turn, then live `session.model` /
+`session.thinking`) instead of the globally last-selected model. Manual
+composer changes stay pending until send: `routeMessage` applies model then
+thinking, then prompts, so extensions that key off the committed triple see
+it on that turn. A failed apply aborts the send instead of prompting with
+the previous session selection. Slash commands, the Pi TUI, and other tabs
+still mutate the live session immediately; the composer adopts those
+authoritative changes. Existing session thinking stays until the user sends
+a new selection or an external command changes it.
 Composer attachments are uploaded before prompt dispatch and the returned opaque identifiers are forwarded with that captured send. Attachment uploads return opaque identifiers; their temporary paths cross only
 the private daemon IPC and are redacted from public transcript/event output.
 The browser never receives a path, endpoint, credential, or daemon identity.

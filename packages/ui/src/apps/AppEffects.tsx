@@ -13,6 +13,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { isNewSessionDraftActive } from '@/lib/router/session-intent';
+import { normalizePath } from '@/lib/pathNormalization';
 import { PiSessionCatalogFeeder } from '@/sync/pi-session-catalog-feeder';
 import { WorktreeDiscovery } from '@/sync/worktree-discovery';
 
@@ -98,7 +99,8 @@ const PiSessionBootstrapBridge: React.FC = () => {
 
   React.useEffect(() => {
     if (!directory) return;
-    if (useDirectoryStore.getState().currentDirectory !== directory) {
+    const currentDirectory = useDirectoryStore.getState().currentDirectory;
+    if (normalizePath(currentDirectory) !== normalizePath(directory)) {
       useDirectoryStore.getState().setDirectory(directory, { showOverlay: false });
     }
     void useConfigStore.getState().activateDirectory(directory);

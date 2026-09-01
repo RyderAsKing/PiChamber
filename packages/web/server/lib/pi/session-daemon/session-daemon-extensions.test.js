@@ -295,6 +295,8 @@ describe('Pi session daemon extension bridging', () => {
     ui.setStatus('my-ext', 'Processing…');
     const status = await client.next((message) => message.event === 'extension.status');
     expect(status.payload).toMatchObject({ key: 'my-ext', text: 'Processing…' });
+    const opened = await client.request('sessions.open', { sessionId: session.sessionId });
+    expect(opened.result.extensionStatuses).toEqual([{ key: 'my-ext', text: 'Processing…' }]);
     ui.setStatus('my-ext', undefined);
     const cleared = await client.next((message) => message.event === 'extension.status' && !message.payload?.text);
     expect(cleared.payload.key).toBe('my-ext');

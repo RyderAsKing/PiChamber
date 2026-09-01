@@ -87,6 +87,16 @@ export type { AttachedFile }
 // Send routing — shell mode, slash commands, or normal prompt
 // ---------------------------------------------------------------------------
 
+function committedSessionSelection(sessionId: string) {
+  const state = getPiSessionStore().getState()
+  const live = state.reducer.bySession.get(sessionId)
+  const listed = state.sessions.find((item) => item.session.id === sessionId)?.session
+  return {
+    model: live?.model ?? listed?.model,
+    thinking: live?.thinking ?? listed?.thinking,
+  }
+}
+
 export async function routeMessage(params: {
   runtimeKey?: string
   sessionId: string
@@ -105,28 +115,15 @@ export async function routeMessage(params: {
   const delivery = params.delivery === 'steer' || params.delivery === 'followUp' ? params.delivery : 'prompt'
   const sessionStore = getPiSessionStore()
   if (params.sessionId && params.providerID && params.modelID) {
-    const currentSession = sessionStore.getState().sessions.find((s) => s.session.id === params.sessionId)?.session
-    const currentModel = currentSession?.model
+    const currentModel = committedSessionSelection(params.sessionId).model
     if (!currentModel || currentModel.providerId !== params.providerID || currentModel.modelId !== params.modelID) {
-      try {
-        await sessionStore.setModel(params.sessionId, params.providerID, params.modelID)
-      } catch (err) {
-        console.warn("Failed to set model before sending prompt:", err)
-      }
+      await sessionStore.setModel(params.sessionId, params.providerID, params.modelID)
     }
   }
-  if (
-    params.sessionId
-    && isPiThinkingLevel(params.variant)
-  ) {
-    const currentSession = sessionStore.getState().sessions.find((s) => s.session.id === params.sessionId)?.session
-    const currentThinking = currentSession?.thinking
+  if (params.sessionId && isPiThinkingLevel(params.variant)) {
+    const currentThinking = committedSessionSelection(params.sessionId).thinking
     if (currentThinking !== params.variant) {
-      try {
-        await sessionStore.setThinking(params.sessionId, params.variant)
-      } catch (err) {
-        console.warn("Failed to set thinking before sending prompt:", err)
-      }
+      await sessionStore.setThinking(params.sessionId, params.variant)
     }
   }
   const outgoingFiles = [
@@ -186,6 +183,7 @@ type SendMessageOptions = {
   delivery?: 'steer'
   branchCheckoutReceipt?: DraftBranchCheckoutReceipt
   worktreeCreationReceipt?: DraftWorktreeCreationReceipt
+  draftSnapshot?: NewSessionDraftState
 }
 
 type AssistantMessageSessionExecution = {
@@ -295,7 +293,13 @@ type SessionUIState = {
     options?: SendMessageOptions,
   ) => Promise<void>
 
-  createSession: (title?: string, directoryOverride?: string | null, parentID?: string | null, metadata?: Record<string, unknown>) => Promise<Session | null>
+  createSession: (
+    title?: string,
+    directoryOverride?: string | null,
+    parentID?: string | null,
+    metadata?: Record<string, unknown>,
+    options?: { draftSnapshot?: NewSessionDraftState; closeDraft?: boolean },
+  ) => Promise<Session | null>
   deleteSession: (id: string, options?: DeleteSessionOptions) => Promise<boolean>
   deleteSessions: (ids: string[], options?: DeleteSessionsOptions) => Promise<{ deletedIds: string[]; failedIds: string[] }>
   archiveSession: (id: string) => Promise<boolean>
@@ -480,9 +484,10 @@ export async function materializeOpenDraftSession(selection: {
   initialPrompt?: string
   branchCheckoutReceipt?: DraftBranchCheckoutReceipt
   worktreeCreationReceipt?: DraftWorktreeCreationReceipt
+  draftSnapshot?: NewSessionDraftState
 }): Promise<MaterializedDraftSession | null> {
   const store = useSessionUIStore.getState()
-  const draft = store.newSessionDraft
+  const draft = selection.draftSnapshot ?? store.newSessionDraft
   if (!draft?.open) return null
   if (draft.branchIntent) {
     const branchDirectory = normalizePath(draft.branchIntent.directory)
@@ -524,22 +529,35 @@ export async function materializeOpenDraftSession(selection: {
     {
       model: selection.providerID && selection.modelID ? { providerId: selection.providerID, modelId: selection.modelID } : undefined,
       thinking: isPiThinkingLevel(selection.variant) ? selection.variant : undefined,
-    } as any
+      select: false,
+    },
+    {
+      draftSnapshot: draft,
+      closeDraft: false,
+    },
   )
   if (!created?.id) throw new Error("Failed to create session")
 
   const createdDirectory = normalizePath(created.directory ?? draftDirectoryOverride ?? null)
+  const shouldActivateCreatedSession = (
+    useSessionUIStore.getState().newSessionDraft === draft
+    && useSessionUIStore.getState().currentSessionId === null
+  )
 
-  persistDraftTarget({
-    projectId: draftProjectId,
-    directory: createdDirectory,
-  })
+  if (shouldActivateCreatedSession) {
+    persistDraftTarget({
+      projectId: draftProjectId,
+      directory: createdDirectory,
+    })
+  }
 
   const draftSyntheticParts = draft.syntheticParts
   const configState = useConfigStore.getState()
-  void activateConfigForDirectory(createdDirectory).catch((error) => {
-    console.warn("Failed to activate directory after creating session:", error)
-  })
+  if (shouldActivateCreatedSession) {
+    void activateConfigForDirectory(createdDirectory).catch((error) => {
+      console.warn("Failed to activate directory after creating session:", error)
+    })
+  }
 
   const effectiveDraftAgent = trimmedAgent ?? configState.currentAgentName
 
@@ -553,7 +571,9 @@ export async function materializeOpenDraftSession(selection: {
 
   store.initializeNewPiChamberSession(created.id, configState.agents ?? [])
 
-  store.setCurrentSession(created.id, createdDirectory)
+  if (shouldActivateCreatedSession) {
+    store.setCurrentSession(created.id, createdDirectory)
+  }
 
   if (draftPermissionAutoAcceptEnabled) {
     void import("@/stores/permissionStore")
@@ -1074,8 +1094,11 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       throw new Error("Message was not sent because the runtime changed.")
     }
 
-    // Clear non-Git changed-files bar on new user message for current session
-    const sid = capturedTarget?.sessionId ?? options?.sessionId ?? get().currentSessionId;
+    // Clear non-Git changed-files bar on new user message for current session.
+    // A captured draft owns its destination even if another session is current now.
+    const sid = capturedTarget?.sessionId
+      ?? options?.sessionId
+      ?? (options?.draftSnapshot ? null : get().currentSessionId);
     if (sid) {
       const map = new Map(get().pendingChangesBarDismissed);
       map.delete(sid);
@@ -1086,7 +1109,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const trimmedAgent = typeof agent === "string" && agent.trim().length > 0 ? agent.trim() : undefined
 
     // ---- New session from draft ----
-    if (!capturedTarget && !options?.sessionId && draft?.open) {
+    if (!capturedTarget && !options?.sessionId && (options?.draftSnapshot?.open || draft?.open)) {
       const createdDraftSession = await materializeOpenDraftSession({
         providerID,
         modelID,
@@ -1095,6 +1118,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         initialPrompt: content,
         branchCheckoutReceipt: options?.branchCheckoutReceipt,
         worktreeCreationReceipt: options?.worktreeCreationReceipt,
+        draftSnapshot: options?.draftSnapshot,
       })
       if (!createdDraftSession) throw new Error("Failed to create session")
 
@@ -1219,8 +1243,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   // ---------------------------------------------------------------------------
   // createSession
   // ---------------------------------------------------------------------------
-  createSession: async (title, directoryOverride, parentID, metadata) => {
-    const draft = get().newSessionDraft
+  createSession: async (title, directoryOverride, parentID, metadata, options) => {
+    const draft = options?.draftSnapshot ?? get().newSessionDraft
     const targetFolderId = draft.targetFolderId
 
     try {
@@ -1228,7 +1252,9 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       const session = await createSessionAction(title, dir, parentID ?? null, metadata)
       if (!session) return null
 
-      get().closeNewSessionDraft()
+      if (options?.closeDraft !== false && get().newSessionDraft === draft) {
+        get().closeNewSessionDraft()
+      }
 
       if (targetFolderId) {
         const scopeKey = directoryOverride || get().lastLoadedDirectory || session.directory

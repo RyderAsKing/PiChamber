@@ -279,6 +279,12 @@ describe("hydrateSessionFromDetail with extension content", () => {
     const { state, session } = hydrateSessionFromDetail({
       session: { id: "sess-1", directory: "/work" },
       lastSequence: 7,
+      extensionStatuses: [{ key: "mode", text: "mode:economy/xhigh" }],
+      extensionWidgets: [{ key: "todo", lines: ["one"], placement: "belowEditor" }],
+      extensionDialogs: [{ requestId: "r1", method: "confirm", title: "Continue?" }],
+      extensionPanels: [{ id: "panel-1", component: "progress", props: { value: 50 } }],
+      extensionApps: [{ appId: "app-1", html: "<p>app</p>" }],
+      extensionTitle: "Economy mode",
       messages: [
         {
           message: {
@@ -304,6 +310,12 @@ describe("hydrateSessionFromDetail with extension content", () => {
       ],
     })
     expect(session.lastSequence).toBe(7)
+    expect([...session.extensionStatuses.entries()]).toEqual([["mode", "mode:economy/xhigh"]])
+    expect(session.extensionWidgets.get("todo")).toEqual({ lines: ["one"], placement: "belowEditor" })
+    expect(session.extensionDialogs.map((dialog) => dialog.requestId)).toEqual(["r1"])
+    expect([...session.extensionPanels.keys()]).toEqual(["panel-1"])
+    expect([...session.extensionApps.keys()]).toEqual(["app-1"])
+    expect(session.extensionTitle).toBe("Economy mode")
     const projection = projectSession(state.bySession.get("sess-1")!)
     expect(projection.messages.map((message) => message.id)).toEqual(["e1", "cm1"])
     const [entry, message] = projection.messages

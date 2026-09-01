@@ -424,12 +424,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             void handleSubmitRef.current(continuation);
         },
     });
-    const draftWorktreeCreation = useDraftWorktreeCreation<SubmitOptions | undefined>({
-        activeRuntimeKey,
+    const draftWorktreeCreation = useDraftWorktreeCreation({
         intent: newSessionDraft?.worktreeIntent,
-        onReady: (continuation) => {
-            void handleSubmitRef.current(continuation);
-        },
     });
     const [isNarrowComposer, setIsNarrowComposer] = React.useState(false);
     const [attachmentPreview, setAttachmentPreview] = React.useState<ToolPopupContent>({
@@ -966,13 +962,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             && !commandStopsBeforeMaterialization
                 ? draftAtSend.worktreeIntent
                 : null;
-        if (worktreeIntent && !draftWorktreeCreation.getReceipt(worktreeIntent)) {
-            await draftWorktreeCreation.request({
+        let worktreeCreationReceipt = draftWorktreeCreation.getReceipt(worktreeIntent);
+        if (worktreeIntent && !worktreeCreationReceipt) {
+            worktreeCreationReceipt = await draftWorktreeCreation.request({
                 intent: worktreeIntent,
                 prompt: inputSnapshot.message,
-                continuation: options,
             });
-            return;
+            if (!worktreeCreationReceipt) return;
         }
 
         const branchIntent = !capturedTarget
@@ -1013,14 +1009,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         }
 
         const branchCheckoutReceipt = draftBranchCheckout.getReceipt(branchIntent);
-        const worktreeCreationReceipt = draftWorktreeCreation.getReceipt(worktreeIntent);
         const sendMessageOptions = capturedTarget
             ? { target: capturedTarget, ...(delivery ? { delivery } : {}) }
             : delivery || branchCheckoutReceipt || worktreeCreationReceipt
                 ? {
                     ...(delivery ? { delivery } : {}),
                     ...(branchCheckoutReceipt ? { branchCheckoutReceipt } : {}),
-                    ...(worktreeCreationReceipt ? { worktreeCreationReceipt } : {}),
+                    ...(worktreeCreationReceipt ? {
+                        worktreeCreationReceipt,
+                        draftSnapshot: draftAtSend,
+                    } : {}),
                 }
                 : undefined;
 
@@ -1067,20 +1065,27 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
         if (outgoing.isEmpty) return;
 
-        // Clear text optimistically. Queued messages and attachments stay put
-        // until prompt dispatch succeeds.
+        const capturedWorktreeDraftIsCurrent = !worktreeCreationReceipt || (
+            useSessionUIStore.getState().newSessionDraft === draftAtSend
+            && useSessionUIStore.getState().currentSessionId === null
+        );
         if (!queuedOnly) {
-            setMessage('');
-            confirmedMentionsRef.current.clear();
-            // Clear per-session draft on submit
+            // Always consume the captured draft. If navigation happened while
+            // the worktree was being created, leave the newly selected
+            // session's composer alone. Text is cleared optimistically while
+            // queued messages and attachments stay put until prompt dispatch
+            // succeeds (cleared in the success handler).
             persistDraftImmediately(chatDraftIdentity, '');
-            messageHistory.reset();
-            // Attachments stay visible until prompt dispatch succeeds.
-            // Close expanded input overlay when submitting
-            setExpandedInput(false);
+            if (capturedWorktreeDraftIsCurrent) {
+                setMessage('');
+                confirmedMentionsRef.current.clear();
+                messageHistory.reset();
+                // Attachments stay visible until prompt dispatch succeeds.
+                setExpandedInput(false);
+            }
         }
 
-        if (isMobile) {
+        if (isMobile && capturedWorktreeDraftIsCurrent) {
             composerRef.current?.blur();
         }
 

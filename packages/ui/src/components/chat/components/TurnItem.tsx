@@ -7,6 +7,7 @@ interface TurnItemProps {
     turn: Turn;
     stickyUserHeader?: boolean;
     renderMessage: (message: ChatMessageEntry) => React.ReactNode;
+    deferEarlierAssistantMessages: boolean;
 }
 
 /**
@@ -44,7 +45,12 @@ const TurnUserSlot = React.memo(function TurnUserSlot({
     && previous.stickyUserHeader === next.stickyUserHeader
 ));
 
-const TurnItem: React.FC<TurnItemProps> = ({ turn, stickyUserHeader = true, renderMessage }) => {
+const TurnItem: React.FC<TurnItemProps> = ({
+    turn,
+    stickyUserHeader = true,
+    renderMessage,
+    deferEarlierAssistantMessages,
+}) => {
     return (
         <section
             className="relative w-full"
@@ -58,7 +64,12 @@ const TurnItem: React.FC<TurnItemProps> = ({ turn, stickyUserHeader = true, rend
                 renderMessage={renderMessage}
             />
 
-            <TurnAssistantBlock assistantMessages={turn.assistantMessages} renderMessage={renderMessage} />
+            <TurnAssistantBlock
+                turnId={turn.turnId}
+                assistantMessages={turn.assistantMessages}
+                renderMessage={renderMessage}
+                deferEarlierMessages={deferEarlierAssistantMessages}
+            />
         </section>
     );
 };
