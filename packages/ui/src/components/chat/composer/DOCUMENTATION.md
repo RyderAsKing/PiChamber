@@ -92,10 +92,8 @@ and the send path reading the same grammar.
   drawn caret through a class it only writes while applying an update, so the
   selection has to be the update that follows the focus.
 - `submit/buildOutgoingMessage.ts` flattens queued messages, the composer text,
-  inline comments and context into OpenCode's one-primary-plus-parts shape. The
-  oldest queued message becomes primary; **inline comments attach to the last
-  body the user authored** rather than becoming their own part; PR instructions
-  precede the PR diff.
+  synthetic context, attachments, and skill instructions into OpenCode's
+  one-primary-plus-parts shape. The oldest queued message becomes primary.
 - `state/useComposerDraft.ts` — a draft belongs to a (runtime, directory,
   session) identity. Writes are debounced while typing but forced at every edge
   where the page may stop running, because a pending timer is not a saved
@@ -125,7 +123,7 @@ and the send path reading the same grammar.
   worktrees, and warns that checkout may disrupt or conflict with their work.
   If another session starts while the dialog is open, the dialog updates and
   requires a fresh confirmation instead of opening a second dialog. Checkout
-  failure preserves the draft, prompt, attachments, and inline comments.
+  failure preserves the draft, prompt, and attachments.
   PiChamber never auto-stashes, force-checks out, or rolls back a later branch
   change.
 

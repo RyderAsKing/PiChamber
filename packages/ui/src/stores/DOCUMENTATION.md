@@ -9,7 +9,7 @@ Use a store only for state shared across distant component trees or for a cache 
 - `useUIStore.ts`: local UI layout, dialogs, and presentation preferences.
 - `useDirectoryStore.ts`, `useProjectsStore.ts`, `useGitStore.ts`, `useWorktreeStore.ts`, `useWorktreeCreationStore.ts`, `useTerminalStore.ts`, `useFilesStore.ts`: workspace chrome for Files/Git/Terminal against `/api/fs`, `/api/git`, `/api/terminal`. `useWorktreeStore` owns runtime-scoped authoritative Git worktree topology per registered project; refresh failure preserves the previous list and remains distinct from successful empty discovery. `useWorktreeCreationStore` owns in-memory, runtime-scoped draft worktree creation progress so naming/create/bootstrap polling survives composer unmounts; concurrent requests for the same intent share one in-flight promise, stale generations never overwrite a newer entry, and a successful `setup-ready` worktree still records a receipt if project refresh fails. Automatic PiChamber-era project-icon discovery is an intentional unsupported no-op until Pi-native icon storage has an owning contract.
 - `useSkillsStore.ts`: Pi resource-discovery state. Skill paths are opaque daemon identifiers, never filesystem paths.
-- `useSnippetsStore.ts` and `useMagicPromptsStore.ts`: Pi prompt-template and PiChamber magic-prompt UI state.
+- `useSnippetsStore.ts`: Pi prompt-template UI state.
 
 `useSessionFoldersStore.ts` keeps a runtime-scoped browser snapshot for immediate continuity and reconciles it with the active server's validated `/api/pi/session-folders` sidecar. Missing server state is not authoritative empty state, and in-flight hydration cannot replace newer local mutations.
 

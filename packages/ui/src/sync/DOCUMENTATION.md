@@ -190,7 +190,7 @@ recover its referenced parent instead of exposing an orphan-only snapshot.
 
 Session message loads use runtime, normalized directory, session ID, SDK epoch, and loader generation as commit authority. Eviction, archive, delete, move, directory disposal, and runtime switching invalidate the applicable loader generation before stale in-flight work can publish. A move invalidates both source and destination loader targets.
 
-An authoritative `session.deleted` event also clears persisted UI state before routing metadata can be removed. Confirmed local deletion and accepted `404` deletion do the same directly instead of depending on the event echo. Cleanup is identity-owned by runtime, normalized directory, and session ID: queued messages, persisted todos, composer drafts, inline-comment drafts, and pins clear only that tuple, while the active runtime's folder store removes the session from every active or archived folder scope. Stale-runtime events and unresolved/global directory identities do not mutate persisted state.
+An authoritative `session.deleted` event also clears persisted UI state before routing metadata can be removed. Confirmed local deletion and accepted `404` deletion do the same directly instead of depending on the event echo. Cleanup is identity-owned by runtime, normalized directory, and session ID: queued messages, composer drafts, and pins clear only that tuple, while the active runtime's folder store removes the session from every active or archived folder scope. Stale-runtime events and unresolved/global directory identities do not mutate persisted state.
 
 Persisted sidebar state is never reconciled destructively from the first successful startup list. That list establishes an authoritative active+archived baseline. Only a session present in that baseline and omitted from a later complete snapshot is treated as a missed external deletion. Archive and directory moves retain the session ID across snapshots and are not deletion cleanup. This favors harmless hidden stale metadata over irreversible user-state loss when startup data is incomplete.
 
@@ -406,8 +406,7 @@ Deletion needs this guard more than archiving does. Session IDs are not unique
 across runtimes, and a committed deletion does more than hide a row: it evicts
 the session from every live store, removes it from the global cache, clears the
 current-session pointer, and calls `cleanupPersistedSessionState`, which erases
-that session's queued messages, todos, folder membership, inline-comment drafts,
-chat draft, and pins. Committing a stale deletion can therefore destroy user
+that session's queued messages, folder membership, chat draft, and pins. Committing a stale deletion can therefore destroy user
 state belonging to an unrelated session on the new runtime.
 
 `cleanupPersistedSessionState` already refuses an identity whose runtime is no

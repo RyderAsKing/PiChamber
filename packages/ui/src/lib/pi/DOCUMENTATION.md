@@ -324,8 +324,8 @@ the composer. Providers settings still lists the
 full catalog so unconfigured providers can be logged in. Composer chrome does not expose an agent selector.
 Chat, sidebar, and composer mutations go through `PiSessionStore` and `/api/pi/*`. Pi assistant projections preserve their owning user-message id end to end because the restored chat renderer groups assistant output into user turns by that identity. Tool parts preserve input, cumulative partial output, final output, error text, metadata, and start/end timestamps through the reducer. `pi-to-renderable` keeps that contract for live and expanded tools; settled historical tools whose output or patch exceeds a character budget become preview stubs (`state.deferredBody`) so transcript records do not retain full bodies. Expanding a tool hydrates the canonical part through `useSessionReducerPart`. A completed tool needs an end time and keeps its status verbatim, including `cancelled`. `pi-to-renderable` also copies the producing `providerId`/`modelId` onto both nested `info.model` and top-level `info.providerID`/`info.modelID` so the assistant message footer can show the model name without guessing from the current composer selection.
 Settings chrome is the restored PiChamber hub limited to Pi-owned pages
-(Providers, Skills, Snippets, Behavior/`AGENTS.md`, Magic Prompts, appearance
-and other PiChamber pages). A failed daemon probe must show an error banner,
+(Providers, Skills, Snippets, Behavior/`AGENTS.md`, appearance, and other
+PiChamber pages). A failed daemon probe must show an error banner,
 never an empty idle session list.
 
 Native resource discovery is projected from Pi's resource loader without filesystem paths. Skills are browse-only; Pi prompt templates and applicable global/project instruction files are edited only through opaque daemon identifiers. Project-local resources remain hidden until the browser makes an explicit persisted Pi trust decision; extensions remain disabled by the daemon.
