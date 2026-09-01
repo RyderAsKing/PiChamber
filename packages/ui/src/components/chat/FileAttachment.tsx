@@ -9,6 +9,7 @@ import { isDrawioFile } from '@/lib/toolHelpers';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { Icon } from "@/components/icon/Icon";
+import { Button } from '@/components/ui/button';
 import { useDeviceInfo } from '@/lib/device';
 
 import type { ToolPopupContent } from './message/types';
@@ -22,15 +23,14 @@ const FileAttachmentButton = memo(() => {
   const iconSizeClass = isMobile ? 'h-5 w-5' : 'h-[18px] w-[18px]';
 
   const attachFiles = async (files: FileList | File[]) => {
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    await Promise.all(Array.from(files).map(async (file) => {
       try {
         await addAttachedFile(file);
       } catch (error) {
         console.error('File attach failed', error);
         toast.error(error instanceof Error ? error.message : "Failed to attach file");
       }
-    }
+    }));
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -77,197 +77,166 @@ const FileAttachmentButton = memo(() => {
 
 FileAttachmentButton.displayName = 'FileAttachmentButton';
 
-interface ImagePreviewProps {
+const formatFileSize = (bytes: number): string => {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const getFileExtension = (filename: string): string => {
+  const parts = filename.split('.');
+  return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : '';
+};
+
+interface DraftAttachmentCardProps {
   file: AttachedFile;
   onRemove: () => void;
+  onRetry: () => void;
   onShowPopup?: (content: ToolPopupContent) => void;
-  gallery?: NonNullable<ToolPopupContent['image']>['gallery'];
-  index?: number;
+  gallery: NonNullable<ToolPopupContent['image']>['gallery'];
+  galleryIndex: number;
 }
 
-const ImagePreview = memo(({ file, onRemove, onShowPopup, gallery, index = 0 }: ImagePreviewProps) => {
-  
+const DraftAttachmentCard = memo(({
+  file,
+  onRemove,
+  onRetry,
+  onShowPopup,
+  gallery,
+  galleryIndex,
+}: DraftAttachmentCardProps) => {
   const { isMobile, isTablet } = useDeviceInfo();
   const alwaysShowActions = isMobile || isTablet;
-  const isLocalImagePreview =
-    file.source !== 'server' &&
-    file.mimeType.startsWith('image/') &&
-    typeof file.dataUrl === 'string' &&
-    file.dataUrl.startsWith('data:image/');
-
-  const imageUrl = isLocalImagePreview ? file.dataUrl : (file.serverPath || '');
-
-  const extractFilename = (path: string): string => {
-    const normalized = path.replace(/\\/g, '/');
-    const parts = normalized.split('/');
-    return parts[parts.length - 1] || path;
-  };
-
-  const getFileExtension = (filename: string): string => {
-    const parts = filename.split('.');
-    return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : '';
-  };
-
-  const displayName = extractFilename(file.filename);
+  const state = file.uploadState;
+  const isExpired = state?.status === 'ready' && state.expiresAt <= Date.now();
+  const isImage = file.mimeType.startsWith('image/');
+  const imageUrl = isImage && file.previewUrl
+    ? file.previewUrl
+    : isImage && file.dataUrl.startsWith('data:image/')
+      ? file.dataUrl
+      : isImage ? file.serverPath || '' : '';
   const extension = getFileExtension(file.filename);
-  const handleOpenPreview = React.useCallback(() => {
+  const size = formatFileSize(file.size);
+  const stateLabel = state?.status === 'preparing'
+    ? 'Preparing attachment'
+    : state?.status === 'uploading'
+      ? 'Uploading attachment'
+      : state?.status === 'failed' || isExpired
+        ? 'Attachment upload failed'
+        : state?.status === 'ready'
+          ? 'Attachment ready'
+          : 'Server attachment ready';
+  const progress = state?.status === 'uploading' ? state.progress : null;
+  const openPreview = () => {
     if (!onShowPopup || !imageUrl) return;
-
     onShowPopup({
       open: true,
-      title: displayName || 'Image',
+      title: file.filename || 'Image',
       content: '',
-      metadata: {
-        tool: 'image-preview',
-        filename: displayName,
-        mime: file.mimeType,
-        size: file.size,
-      },
+      metadata: { tool: 'image-preview', filename: file.filename, mime: file.mimeType, size: file.size },
       image: {
         url: imageUrl,
         mimeType: file.mimeType,
-        filename: displayName,
+        filename: file.filename,
         size: file.size,
         gallery,
-        index,
+        index: galleryIndex,
       },
     });
-  }, [displayName, file.mimeType, file.size, gallery, imageUrl, index, onShowPopup]);
+  };
 
-  if (!imageUrl) {
-    // Fallback to text-only for server images without preview
-    return (
-      <button
-        type="button"
-        className="flex items-center gap-1.5 text-sm hover:opacity-80 transition-opacity text-left h-5"
-      >
-        <FileTypeIcon filePath={file.filename} extension={extension} className="h-4 w-4" />
-        <span className="text-foreground truncate max-w-[200px]">
-          {displayName}
-        </span>
-        <span
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove();
+  return (
+    <article className={cn(
+      'group relative flex-none overflow-hidden rounded-xl border bg-[var(--surface-elevated)]',
+      isImage ? 'w-40' : 'w-56',
+      state?.status === 'failed' || isExpired ? 'border-[var(--status-error)]' : 'border-border/60',
+    )}>
+      <span className="sr-only" aria-live="polite">{stateLabel}</span>
+      {isImage ? (
+        <div
+          role={imageUrl && onShowPopup ? 'button' : undefined}
+          tabIndex={imageUrl && onShowPopup ? 0 : undefined}
+          onClick={openPreview}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              openPreview();
+            }
           }}
-          className="flex items-center justify-center h-5 w-5 flex-shrink-0 hover:bg-[var(--interactive-hover)] rounded-full transition-colors cursor-pointer"
-          aria-label={`Remove ${displayName}`}
+          className="relative aspect-[8/5] bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          aria-label={imageUrl ? `Preview ${file.filename}` : undefined}
         >
-          <Icon name="close" className="h-4 w-4 text-muted-foreground" />
-        </span>
-      </button>
-    );
-  }
+          {imageUrl ? (
+            <img src={imageUrl} alt={file.filename} className="h-full w-full object-cover" loading="lazy" />
+          ) : (
+            <div className="flex h-full items-center justify-center text-muted-foreground">
+              <Icon name="file-image" className="size-7" />
+            </div>
+          )}
+          {state?.status === 'uploading' || state?.status === 'preparing' ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-background/70 typography-meta text-foreground">
+              {state.status === 'preparing' ? 'Preparing…' : progress === null ? 'Uploading…' : `${progress}%`}
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="flex min-h-16 items-center gap-2 px-3 py-2 pr-8">
+          <FileTypeIcon filePath={file.filename} extension={extension} className="size-6 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate typography-ui-label text-foreground" title={file.filename}>{file.filename}</p>
+            <p className="typography-meta text-muted-foreground">
+              {[extension.toUpperCase(), size].filter(Boolean).join(' · ')}
+            </p>
+            {state?.status === 'preparing' ? <p className="typography-meta text-muted-foreground">Preparing…</p> : null}
+            {state?.status === 'uploading' ? <p className="typography-meta text-muted-foreground">{progress === null ? 'Uploading…' : `Uploading ${progress}%`}</p> : null}
+          </div>
+        </div>
+      )}
 
-  return (
-    <div
-      role={onShowPopup ? 'button' : undefined}
-      tabIndex={onShowPopup ? 0 : undefined}
-      onClick={handleOpenPreview}
-      onKeyDown={(event) => {
-        if (!onShowPopup) return;
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          handleOpenPreview();
-        }
-      }}
-      className="relative h-10 w-10 rounded-lg border border-border/40 bg-muted/10 overflow-hidden flex-shrink-0 group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-      aria-label={displayName}
-    >
-      <img
-        src={imageUrl}
-        alt={displayName}
-        className="h-full w-full object-cover"
-        loading="lazy"
-      />
-      <button
-        onClick={(event) => {
-          event.stopPropagation();
-          onRemove();
-        }}
+      {state?.status === 'uploading' && progress !== null ? (
+        <div
+          role="progressbar"
+          aria-label={`Uploading ${file.filename}`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={progress}
+          className="absolute inset-x-0 bottom-0 h-1 bg-muted"
+        >
+          <div className="h-full bg-primary" style={{ width: `${progress}%` }} />
+        </div>
+      ) : null}
+
+      <Button
+        variant="ghost"
+        size="xs"
+        onClick={onRemove}
         className={cn(
-          "absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-background/80 text-foreground hover:text-destructive flex items-center justify-center transition-opacity focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-          alwaysShowActions ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          'absolute right-1 top-1 size-6 px-0 bg-[var(--surface-elevated)]/90',
+          alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
         )}
-        title={"Remove image"}
-        aria-label={`Remove ${displayName}`}
+        aria-label={`Remove ${file.filename}`}
+        title={`Remove ${file.filename}`}
       >
-        <Icon name="close" className="h-2.5 w-2.5" />
-      </button>
-    </div>
+        <Icon name="close" className="size-3.5" />
+      </Button>
+
+      {state?.status === 'failed' || isExpired ? (
+        <div className="flex items-start justify-between gap-2 border-t border-[var(--status-error)]/30 bg-[var(--status-error-background)] px-2 py-1.5">
+          <p className="min-w-0 flex-1 typography-meta text-[var(--status-error-foreground)]" title={state?.status === 'failed' ? state.error : 'Upload expired.'}>{state?.status === 'failed' ? state.error : 'Upload expired.'}</p>
+          <Button variant="outline" size="xs" onClick={onRetry}>Retry</Button>
+        </div>
+      ) : isImage ? (
+        <div className="px-2 py-1.5">
+          <p className="truncate typography-meta text-foreground" title={file.filename}>{file.filename}</p>
+          {size ? <p className="typography-micro text-muted-foreground">{size}</p> : null}
+        </div>
+      ) : null}
+    </article>
   );
 });
 
-ImagePreview.displayName = 'ImagePreview';
-
-const useFileDetails = (file: AttachedFile) => {
-  const getFileExtension = (filename: string): string => {
-    const parts = filename.split('.');
-    return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : '';
-  };
-
-  const formatFileSize = (bytes: number) => {
-    if (!Number.isFinite(bytes) || bytes <= 0) return '';
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  };
-
-  const extractFilename = (path: string): string => {
-    const normalized = path.replace(/\\/g, '/');
-    const parts = normalized.split('/');
-    const filename = parts[parts.length - 1];
-    return filename || path;
-  };
-
-  return {
-    displayName: extractFilename(file.filename),
-    fileSize: formatFileSize(file.size),
-    extension: getFileExtension(file.filename),
-  };
-};
-
-interface FileChipProps {
-  file: AttachedFile;
-  onRemove: () => void;
-}
-
-const FileChip = memo(({ file, onRemove }: FileChipProps) => {
-  
-  const { displayName, fileSize, extension } = useFileDetails(file);
-
-  return (
-    <button
-      type="button"
-      onClick={(e) => {
-        // Prevent click from bubbling if clicking the remove button
-        if ((e.target as HTMLElement).closest('[data-remove-button]')) {
-          return;
-        }
-      }}
-      className="flex items-center gap-1.5 text-sm hover:opacity-80 transition-opacity text-left h-5"
-    >
-      <FileTypeIcon filePath={file.filename} extension={extension} className="h-4 w-4" />
-      <span className="text-foreground truncate max-w-[200px]">
-        {displayName}
-        {fileSize && <span className="text-muted-foreground ml-1">({fileSize})</span>}
-      </span>
-      <span
-        data-remove-button
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemove();
-        }}
-        className="flex items-center justify-center h-5 w-5 flex-shrink-0 hover:bg-[var(--interactive-hover)] rounded-full transition-colors cursor-pointer"
-        aria-label={`Remove ${displayName}`}
-      >
-        <Icon name="close" className="h-4 w-4 text-muted-foreground" />
-      </span>
-    </button>
-  );
-});
-
-FileChip.displayName = 'FileChip';
+DraftAttachmentCard.displayName = 'DraftAttachmentCard';
 
 interface AttachedFilesListProps {
   onShowPopup?: (content: ToolPopupContent) => void;
@@ -276,50 +245,44 @@ interface AttachedFilesListProps {
 export const AttachedFilesList = memo(({ onShowPopup }: AttachedFilesListProps) => {
   const attachedFiles = useInputStore((state) => state.attachedFiles);
   const removeAttachedFile = useInputStore((state) => state.removeAttachedFile);
+  const retryAttachmentUpload = useInputStore((state) => state.retryAttachmentUpload);
+  const [, setExpiryTick] = React.useState(0);
 
-  const localFiles = attachedFiles.filter((file) => file.source !== 'server');
+  React.useEffect(() => {
+    const nextExpiry = attachedFiles.reduce<number | null>((nearest, file) => {
+      if (file.uploadState?.status !== 'ready' || file.uploadState.expiresAt <= Date.now()) return nearest;
+      return nearest === null ? file.uploadState.expiresAt : Math.min(nearest, file.uploadState.expiresAt);
+    }, null);
+    if (nextExpiry === null) return;
+    const timer = setTimeout(() => setExpiryTick((value) => value + 1), Math.max(0, nextExpiry - Date.now() + 1));
+    return () => clearTimeout(timer);
+  }, [attachedFiles]);
 
-  if (localFiles.length === 0) return null;
+  if (attachedFiles.length === 0) return null;
 
-  const images = localFiles.filter((f) => f.mimeType.startsWith('image/'));
-  const otherFiles = localFiles.filter((f) => !f.mimeType.startsWith('image/'));
-  const imageGallery = images.map((file) => ({
-    url: file.dataUrl || file.serverPath || '',
-    mimeType: file.mimeType,
-    filename: file.filename,
-    size: file.size,
-  })).filter((image) => image.url);
+  const images = attachedFiles.filter((file) => file.mimeType.startsWith('image/'));
+  const galleryEntries = images.flatMap((file) => {
+    const url = file.previewUrl || file.dataUrl || file.serverPath || '';
+    return url ? [{ file, image: { url, mimeType: file.mimeType, filename: file.filename, size: file.size } }] : [];
+  });
+  const imageGallery = galleryEntries.map((entry) => entry.image);
+  const imageIndexById = new Map(galleryEntries.map((entry, index) => [entry.file.id, index]));
 
   return (
-    <div className="pb-4 w-full px-1 space-y-3">
-      {/* Images row - inline with previews */}
-      {images.length > 0 && (
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {images.map((file, index) => (
-            <ImagePreview
-              key={file.id}
-              file={file}
-              onRemove={() => removeAttachedFile(file.id)}
-              onShowPopup={onShowPopup}
-              gallery={imageGallery}
-              index={index}
-            />
-          ))}
-        </div>
-      )}
-      
-      {/* Other files row - inline text-only */}
-      {otherFiles.length > 0 && (
-        <div className="flex items-center gap-x-3 gap-y-1 flex-wrap">
-          {otherFiles.map((file) => (
-            <FileChip
-              key={file.id}
-              file={file}
-              onRemove={() => removeAttachedFile(file.id)}
-            />
-          ))}
-        </div>
-      )}
+    <div className="w-full overflow-x-auto px-3 pb-2 pt-2 scrollbar-thin" data-no-drawer-swipe="true">
+      <div className="flex w-max gap-2 sm:w-full sm:flex-wrap">
+        {attachedFiles.map((file) => (
+          <DraftAttachmentCard
+            key={file.id}
+            file={file}
+            onRemove={() => removeAttachedFile(file.id)}
+            onRetry={() => retryAttachmentUpload(file.id)}
+            onShowPopup={onShowPopup}
+            gallery={imageGallery}
+            galleryIndex={imageIndexById.get(file.id) ?? 0}
+          />
+        ))}
+      </div>
     </div>
   );
 });

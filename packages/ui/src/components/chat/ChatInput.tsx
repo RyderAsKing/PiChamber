@@ -9,13 +9,13 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { useSelectionStore } from '@/sync/selection-store';
-import { useInputStore } from '@/sync/input-store';
+import { serializeAttachmentsForQueue, useInputStore } from '@/sync/input-store';
 import {
     ATTACHMENT_ACCEPT,
     getUnsupportedAttachmentInputs,
     type AttachmentInputModality,
 } from '@/sync/attachment-files';
-import type { AttachedFile } from '@/stores/types/sessionTypes';
+import { areAttachmentsReadyToSend, hasFailedAttachmentUploads, hasPendingAttachmentUploads, type AttachedFile } from '@/stores/types/sessionTypes';
 import * as sessionActions from '@/sync/session-actions';
 import { buildLinkedIssue } from '@/lib/linkedIssues';
 import { useUserMessageHistory } from "@/sync/sync-context";
@@ -357,7 +357,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const clearAbortPrompt = useSessionUIStore((s) => s.clearAbortPrompt);
     const attachedFiles = useInputStore((s) => s.attachedFiles);
     const addAttachedFile = useInputStore((s) => s.addAttachedFile);
-    const clearAttachedFiles = useInputStore((s) => s.clearAttachedFiles);
+    const detachAttachedFiles = useInputStore((s) => s.detachAttachedFiles);
     const consumePendingInputText = useInputStore((s) => s.consumePendingInputText);
     const pendingPresetSubmit = useInputStore((s) => s.pendingPresetSubmit);
     const pendingInputText = useInputStore((s) => s.pendingInputText);
@@ -816,7 +816,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const hasContent = message.trim().length > 0 || attachedFiles.length > 0 || hasDrafts;
     const hasQueuedMessages = queuedMessages.length > 0;
     const hasUsableModel = Boolean(currentProviderId && currentModelId);
-    const canSend = (hasContent || hasQueuedMessages) && hasUsableModel;
+    const attachmentsReady = areAttachmentsReadyToSend(attachedFiles);
+    const attachmentGateMessage = hasPendingAttachmentUploads(attachedFiles)
+        ? "Uploading attachments…"
+        : hasFailedAttachmentUploads(attachedFiles) || (attachedFiles.length > 0 && !attachmentsReady)
+            ? "Retry or remove failed attachments"
+            : null;
+    const canSend = (hasContent || hasQueuedMessages) && hasUsableModel && attachmentsReady;
 
     const canAbort = sessionPhase !== 'idle';
 
@@ -829,17 +835,24 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     }, [attachedFiles.length, hasDrafts, message]);
 
     // Add message to queue instead of sending
-    const handleQueueMessage = React.useCallback(() => {
+    const queueInFlightRef = React.useRef(false);
+    const handleQueueMessage = React.useCallback(async () => {
         const inputSnapshot = getCurrentInputSnapshot();
-        if (!inputSnapshot.hasContent || !currentSessionId || !messageQueueTarget) return;
+        if (queueInFlightRef.current || !inputSnapshot.hasContent || !currentSessionId || !messageQueueTarget || !areAttachmentsReadyToSend(attachedFiles)) return;
+
+        queueInFlightRef.current = true;
+        let attachmentsToQueue: AttachedFile[];
+        try {
+            attachmentsToQueue = await serializeAttachmentsForQueue(sanitizeAttachmentsForSend(attachedFiles));
+        } catch {
+            toast.error("Attachment data could not be saved for the queue.");
+            queueInFlightRef.current = false;
+            return;
+        }
 
         const drafts = inlineDraftTarget ? consumeDrafts(inlineDraftTarget) : [];
-
         let messageToQueue = inputSnapshot.message.replace(/^\n+|\n+$/g, '');
-        if (drafts.length > 0) {
-            messageToQueue = appendInlineComments(messageToQueue, drafts);
-        }
-        const attachmentsToQueue = sanitizeAttachmentsForSend(attachedFiles);
+        if (drafts.length > 0) messageToQueue = appendInlineComments(messageToQueue, drafts);
 
         addToQueue(messageQueueTarget, {
             content: messageToQueue,
@@ -856,15 +869,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         // Note: confirmedMentionsRef is NOT cleared here because queued messages
         // are processed later in handleSubmit which reads the ref via extractInlineFileMentions.
         // The ref is cleared in handleSubmit after all queued messages are sent.
-        setMessage('');
+        if ((composerRef.current?.getValue() ?? messageRef.current) === inputSnapshot.message) setMessage('');
         if (attachmentsToQueue.length > 0) {
-            clearAttachedFiles();
+            detachAttachedFiles(attachmentsToQueue.map((attachment) => attachment.id));
         }
 
+        queueInFlightRef.current = false;
         if (!isMobile) {
             composerRef.current?.focus();
         }
-    }, [getCurrentInputSnapshot, currentSessionId, messageQueueTarget, inlineDraftTarget, attachedFiles, sanitizeAttachmentsForSend, addToQueue, clearAttachedFiles, isMobile, consumeDrafts, currentProviderId, currentModelId, currentAgentName, currentVariant]);
+    }, [getCurrentInputSnapshot, currentSessionId, messageQueueTarget, inlineDraftTarget, attachedFiles, sanitizeAttachmentsForSend, addToQueue, detachAttachedFiles, isMobile, consumeDrafts, currentProviderId, currentModelId, currentAgentName, currentVariant]);
 
     const handleQueuedMessageEdit = React.useCallback((content: string) => {
         setMessage(content);
@@ -898,6 +912,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         const queuedMessageId = options?.queuedMessageId;
         const delivery = options?.delivery === 'steer' && sessionPhase !== 'idle' ? 'steer' : undefined;
         const capturedTarget = messageQueueTarget;
+        if (!areAttachmentsReadyToSend(attachedFiles)) {
+            if (hasPendingAttachmentUploads(attachedFiles)) toast.info("Uploading attachments…");
+            else toast.error("Retry or remove failed attachments");
+            return;
+        }
         const inputSnapshot = options?.presetText != null
             ? {
                 message: options.presetText,
@@ -984,7 +1003,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 sessionActions.dismissOpenQuestionsForSession(currentSessionId),
             ]);
             if (deniedPermissions || dismissedQuestions) {
-                handleQueueMessage();
+                await handleQueueMessage();
                 return;
             }
         }
@@ -1046,12 +1065,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
         if (outgoing.isEmpty) return;
 
-        // Clear queue and input
-        if (capturedTarget && queuedMessageId) {
-            removeFromQueue(capturedTarget, queuedMessageId);
-        } else if (capturedTarget && hasQueuedMessages) {
-            clearQueue(capturedTarget);
-        }
         const capturedWorktreeDraftIsCurrent = !worktreeCreationReceipt || (
             useSessionUIStore.getState().newSessionDraft === draftAtSend
             && useSessionUIStore.getState().currentSessionId === null
@@ -1059,22 +1072,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         if (!queuedOnly) {
             // Always consume the captured draft. If navigation happened while
             // the worktree was being created, leave the newly selected
-            // session's composer alone and remove only the attachments sent by
-            // this operation.
+            // session's composer alone. Text is cleared optimistically while
+            // queued messages and attachments stay put until prompt dispatch
+            // succeeds (cleared in the success handler).
             persistDraftImmediately(chatDraftIdentity, '');
             if (capturedWorktreeDraftIsCurrent) {
                 setMessage('');
                 confirmedMentionsRef.current.clear();
                 messageHistory.reset();
-                if (attachedFiles.length > 0) {
-                    clearAttachedFiles();
-                }
+                // Attachments stay visible until prompt dispatch succeeds.
                 setExpandedInput(false);
-            } else {
-                const inputStore = useInputStore.getState();
-                for (const attachment of attachedFiles) {
-                    inputStore.removeAttachedFile(attachment.id);
-                }
             }
         }
 
@@ -1182,6 +1189,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             ...primaryAttachments,
             ...additionalParts.flatMap(p => p.attachments ?? []),
         ];
+        const composerAttachmentIds = attachedFiles.map((attachment) => attachment.id);
 
         const sendPromise = sendMessage(
             primaryText,
@@ -1212,6 +1220,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
         void sendPromise.then(() => {
             draftWorktreeCreation.clearReceipt();
+            if (capturedTarget && queuedMessageId) {
+                removeFromQueue(capturedTarget, queuedMessageId);
+            } else if (capturedTarget && hasQueuedMessages) {
+                clearQueue(capturedTarget);
+            }
+            if (composerAttachmentIds.length > 0) detachAttachedFiles(composerAttachmentIds);
             // Record what this session was pointed at. A snapshot only —
             // never re-fetched, never authoritative.
             // Failures are swallowed: the message went out, and a missing
@@ -1288,32 +1302,20 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
             if (normalized.includes('payload too large') || normalized.includes('413') || normalized.includes('entity too large')) {
                 toast.error("Attachments are too large to send. Please try reducing the number or size of images.");
-                if (allAttachments.length > 0) {
-                    useInputStore.getState().setAttachedFiles(allAttachments);
-                }
                 return;
             }
 
             if (isSoftNetworkError) {
-                if (allAttachments.length > 0) {
-                    useInputStore.getState().setAttachedFiles(allAttachments);
-                    toast.error("Failed to send attachments. Try fewer files or smaller images.");
-                }
+                if (allAttachments.length > 0) toast.error("Failed to send attachments. Try fewer files or smaller images.");
                 return;
             }
 
             if (normalized.includes('runtime changed')) {
-                if (allAttachments.length > 0) {
-                    useInputStore.getState().setAttachedFiles(allAttachments);
-                }
-                toast.error("Message failed to send. Attachments restored.");
+                toast.error("Message failed to send. Attachments remain available.");
                 return;
             }
 
-            if (allAttachments.length > 0) {
-                useInputStore.getState().setAttachedFiles(allAttachments);
-            }
-            toast.error(rawMessage || "Message failed to send. Attachments restored.");
+            toast.error(rawMessage || "Message failed to send. Attachments remain available.");
         });
 
         if (!isMobile) {
@@ -1329,7 +1331,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         const inputSnapshot = getCurrentInputSnapshot();
         const canQueue = inputMode === 'normal' && inputSnapshot.hasContent && currentSessionId && sessionPhase !== 'idle';
         if (followUpBehavior === 'queue' && canQueue) {
-            handleQueueMessage();
+            void handleQueueMessage();
         } else if (followUpBehavior === 'steer' && canQueue) {
             void handleSubmitRef.current({ delivery: 'steer' });
         } else {
@@ -1497,7 +1499,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 if (isCtrlEnter || !canQueue) {
                     handleSubmit();
                 } else {
-                    handleQueueMessage();
+                    void handleQueueMessage();
                 }
             } else {
                 // steer: Enter steers into the running turn, Ctrl+Enter sends now.
@@ -1754,9 +1756,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
         insertTextAtSelection(insertionText, getFileMentionInputSourceForInsertedText(insertionText));
 
-        for (let index = 0; index < imageFiles.length; index += 1) {
+        await Promise.all(imageFiles.map(async (imageFile, index) => {
             const filename = assignedFilenames[index];
-            const file = renameFileForAttachmentCitation(imageFiles[index], filename);
+            const file = renameFileForAttachmentCitation(imageFile, filename);
             pendingPastedAttachmentFilenamesRef.current.add(filename);
             try {
                 await addAttachedFile(file);
@@ -1766,7 +1768,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             } finally {
                 pendingPastedAttachmentFilenamesRef.current.delete(filename);
             }
-        }
+        }));
     }, [addAttachedFile, attachedFiles, currentSessionId, inputMode, markFileMentionPasteSuppression, message, newSessionDraftOpen, insertTextAtSelection, setMessage, updateAutocompleteState]);
 
     const handleFileSelect = (file: { name: string; path: string; relativePath?: string }) => {
@@ -2041,15 +2043,15 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         const files = collectDroppedFiles(e.dataTransfer);
 
         if (files.length > 0) {
-            let attached = false;
-            for (const file of files) {
+            const results = await Promise.all(files.map(async (file) => {
                 try {
-                    attached = (await addAttachedFile(file)) || attached;
+                    return await addAttachedFile(file);
                 } catch (error) {
                     console.error('File attach failed', error);
+                    return false;
                 }
-            }
-            if (!attached) toast.error("Failed to attach file");
+            }));
+            if (!results.some(Boolean)) toast.error("Failed to attach file");
         }
     };
 
@@ -2065,16 +2067,15 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
     const attachFiles = React.useCallback(async (files: FileList | File[]) => {
         const list = Array.isArray(files) ? files : Array.from(files);
-        let attached = false;
-
-        for (const file of list) {
+        const results = await Promise.all(list.map(async (file) => {
             try {
-                attached = (await addAttachedFile(file)) || attached;
+                return await addAttachedFile(file);
             } catch (error) {
                 console.error('File attach failed', error);
+                return false;
             }
-        }
-        if (list.length > 0 && !attached) {
+        }));
+        if (list.length > 0 && !results.some(Boolean)) {
             toast.error("Failed to attach file");
         }
     }, [addAttachedFile]);
@@ -2234,7 +2235,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             style={isMobile && inputBarOffset > 0 ? { marginBottom: `${inputBarOffset}px` } : undefined}
         >
             <div className={cn('chat-input-column relative overflow-visible', isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
-                <AttachedFilesList onShowPopup={handleShowAttachmentPreview} />
                 <QueuedMessageChips
                     onEditMessage={handleQueuedMessageEdit}
                     onSendMessage={handleQueuedMessageSend}
@@ -2495,6 +2495,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         sendIconSizeClass={sendIconSizeClass}
                         stopIconSizeClass={stopIconSizeClass}
                         canSend={canSend && !Boolean(draftWorktreeCreation.state && draftWorktreeCreation.state.phase !== 'failed')}
+                        disabledReason={attachmentGateMessage}
                         canAbort={canAbort}
                         hasContent={Boolean(hasContent)}
                         onOpenSettings={onOpenSettings}

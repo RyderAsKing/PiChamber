@@ -110,6 +110,29 @@ describe("PiService", () => {
     expect(JSON.parse(call.init?.body as string)).toEqual({ cwd: "/work", title: "demo" })
   })
 
+  test("uploads raw attachment bytes with metadata and progress", async () => {
+    const progress: number[] = []
+    installFetchMock(async (call) => {
+      expect(call.url).toBe("/api/pi/attachments")
+      expect(call.init?.method).toBe("POST")
+      const headers = new Headers(call.init?.headers)
+      expect(headers.get("content-type")).toBe("application/octet-stream")
+      expect(decodeURIComponent(headers.get("x-pichamber-filename") || "")).toBe("notes ü.txt")
+      expect(headers.get("x-pichamber-mime")).toBe("text/plain")
+      const body = call.init?.body as ReadableStream<Uint8Array>
+      const bytes = new Uint8Array(await new Response(body).arrayBuffer())
+      expect(new TextDecoder().decode(bytes)).toBe("hello")
+      return jsonResponse({ attachment: { id: "a1", name: "notes_.txt", mime: "text/plain", size: 5, expiresAt: 10 } }, { status: 201 })
+    })
+
+    const attachment = await new PiService().uploadAttachment(
+      new Blob(["hello"], { type: "text/plain" }),
+      { filename: "notes ü.txt", mime: "text/plain", onProgress: ({ loaded }) => progress.push(loaded) },
+    )
+    expect(attachment.id).toBe("a1")
+    expect([0, 5]).toContain(progress.at(-1))
+  })
+
   test("deleteSession returns true on 204 and 404", async () => {
     const client = new PiService()
     expect(await client.deleteSession({ sessionId: "s1" })).toBe(true)

@@ -6,7 +6,7 @@
  * Pi-style name, and the daemon hands the path to Pi tools. The helpers
  * here are the browser-side boundary:
  *
- * - `bytesToBase64` produces the JSON-safe payload the server expects.
+ * - `bytesToBase64` supports persisted legacy attachment tests and conversion.
  * - `sanitizeFilename` strips path components and control characters so
  *   the server can hand the result to `path.join` without traversal risk.
  * - `buildAttachmentPromptLine` produces a Pi-readable one-line summary
@@ -53,23 +53,6 @@ export const bytesToBase64 = (bytes: Uint8Array): string => {
     return BufferCtor.from(bytes).toString('base64');
   }
   throw new Error('No base64 encoder available in this runtime');
-};
-
-/** File → base64 with explicit mime handling. */
-export const fileToBase64 = async (file: { mime: string; url?: string }): Promise<string> => {
-  if (file.url && file.url.startsWith('data:')) {
-    const commaIndex = file.url.indexOf(',');
-    if (commaIndex !== -1) {
-      return file.url.slice(commaIndex + 1);
-    }
-  }
-  // For callers that hand us a Blob-like with arrayBuffer().
-  const maybeArrayBuffer = (file as { arrayBuffer?: () => Promise<ArrayBuffer> }).arrayBuffer;
-  if (typeof maybeArrayBuffer === 'function') {
-    const buffer = await maybeArrayBuffer.call(file);
-    return bytesToBase64(new Uint8Array(buffer));
-  }
-  throw new Error('fileToBase64 requires a Blob-like object with arrayBuffer()');
 };
 
 /** Sanitize a filename so the server can hand it to `path.join` safely. */

@@ -4,6 +4,7 @@ import { createDeferredSafeJSONStorage } from './utils/safeStorage';
 import type { AttachedFile } from './types/sessionTypes';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import { piClient } from '@/lib/pi/client';
 import { normalizePath } from '@/lib/pathNormalization';
 
 export type FollowUpBehavior = 'steer' | 'queue';
@@ -62,6 +63,15 @@ export type MessageQueueTarget = {
 
 const MAX_QUEUE_TARGETS = 50;
 const MAX_MESSAGES_PER_QUEUE = 20;
+
+const deleteUnusedQueuedAttachments = (target: MessageQueueTarget, messages: readonly QueuedMessage[]): void => {
+    if (target.runtimeKey !== getRuntimeKey()) return;
+    const ids = messages.flatMap((message) => (message.attachments ?? []).flatMap((attachment) =>
+        attachment.uploadState?.status === 'ready' ? [attachment.uploadState.attachmentId] : []));
+    for (const id of new Set(ids)) {
+        void piClient.deleteAttachment(id, { runtimeKey: target.runtimeKey }).catch(() => undefined);
+    }
+};
 
 export const createMessageQueueTarget = (
     sessionId: string,
@@ -147,6 +157,10 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
 
                 addToQueue: (target, message) => {
                     const key = getMessageQueueKey(target);
+                    const currentQueue = get().queuedMessages[key] ?? [];
+                    if (currentQueue.length >= MAX_MESSAGES_PER_QUEUE) {
+                        deleteUnusedQueuedAttachments(target, currentQueue.slice(0, currentQueue.length - MAX_MESSAGES_PER_QUEUE + 1));
+                    }
                     const id = `queued-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
                     const queuedMessage: QueuedMessage = {
                         id,
@@ -177,6 +191,8 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
 
                 removeFromQueue: (target, messageId) => {
                     const key = getMessageQueueKey(target);
+                    const removed = (get().queuedMessages[key] ?? []).filter((message) => message.id === messageId);
+                    deleteUnusedQueuedAttachments(target, removed);
                     set((state) => {
                         const currentQueue = state.queuedMessages[key] ?? [];
                         const newQueue = currentQueue.filter((m) => m.id !== messageId);
@@ -253,6 +269,9 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
 
                 clearQueue: (target) => {
                     const key = getMessageQueueKey(target);
+                    const state = get();
+                    const sending = state.sendingIds[key] ?? [];
+                    deleteUnusedQueuedAttachments(target, (state.queuedMessages[key] ?? []).filter((message) => !sending.includes(message.id)));
                     set((state) => {
                         // Clearing drops what is still queued, never a message
                         // already handed to the server: that send will resolve
@@ -269,6 +288,11 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                 },
 
                 clearAllQueues: () => {
+                    const state = get();
+                    for (const [key, messages] of Object.entries(state.queuedMessages)) {
+                        const target = parseMessageQueueKey(key);
+                        if (target) deleteUnusedQueuedAttachments(target, messages);
+                    }
                     set({ queuedMessages: {}, sendingIds: {} });
                 },
 

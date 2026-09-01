@@ -445,7 +445,7 @@ export interface PiAttachmentCreateInput {
 }
 
 export interface PiAttachmentCreateResponse {
-  attachment: PiAttachment;
+  attachment: PiAttachment & { expiresAt: number };
 }
 
 // ---------------------------------------------------------------------------

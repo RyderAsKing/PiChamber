@@ -329,7 +329,7 @@ describe('Pi runtime route', () => {
   it('uploads opaque attachments and resolves them only across the private prompt adapter', async () => {
     const calls = [];
     const attachmentStore = {
-      create: async (input) => ({ id: 'attachment-1', name: input.filename, mime: input.mime, size: 3, path: '/never-public' }),
+      create: async (input) => ({ id: 'attachment-1', name: input.filename, mime: input.mime, size: 3, expiresAt: 3_600_000, path: '/never-public' }),
       resolve: async (ids) => {
         expect(ids).toEqual(['attachment-1']);
         return [{ id: 'attachment-1', name: 'note.txt', mime: 'text/plain', size: 3, path: '/private/upload' }];
@@ -349,10 +349,47 @@ describe('Pi runtime route', () => {
 
     const upload = await fetch(`${base}/attachments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: 'note.txt', mime: 'text/plain', base64: 'YWJj' }) });
     expect(upload.status).toBe(201);
-    await expect(upload.json()).resolves.toEqual({ attachment: { id: 'attachment-1', name: 'note.txt', mime: 'text/plain', size: 3 } });
+    await expect(upload.json()).resolves.toEqual({ attachment: { id: 'attachment-1', name: 'note.txt', mime: 'text/plain', size: 3, expiresAt: 3_600_000 } });
     const prompt = await fetch(`${base}/sessions/session-1/prompt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'read this', attachments: [{ id: 'attachment-1' }] }) });
     expect(prompt.status).toBe(202);
     expect(calls).toEqual([{ command: 'sessions.prompt', payload: { sessionId: 'session-1', text: 'read this', attachments: [{ id: 'attachment-1', name: 'note.txt', mime: 'text/plain', size: 3, path: '/private/upload' }] } }]);
+  });
+
+  it('streams binary attachments with bounded metadata and deletes unused uploads', async () => {
+    const calls = [];
+    const attachmentStore = {
+      createFromStream: async ({ filename, mime, stream }) => {
+        const chunks = [];
+        for await (const chunk of stream) chunks.push(chunk);
+        calls.push({ filename, mime, body: Buffer.concat(chunks).toString('utf8') });
+        return { id: 'binary-1', name: filename, mime, size: 5, expiresAt: 4_000 };
+      },
+      remove: async (id) => calls.push({ removed: id }),
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => null, attachmentStore });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi/attachments`;
+
+    const upload = await fetch(base, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-PiChamber-Filename': encodeURIComponent('notes ü.txt'),
+        'X-PiChamber-Mime': 'text/plain',
+      },
+      body: 'hello',
+    });
+    expect(upload.status).toBe(201);
+    await expect(upload.json()).resolves.toEqual({
+      attachment: { id: 'binary-1', name: 'notes ü.txt', mime: 'text/plain', size: 5, expiresAt: 4_000 },
+    });
+    expect((await fetch(`${base}/binary-1`, { method: 'DELETE' })).status).toBe(204);
+    expect(calls).toEqual([
+      { filename: 'notes ü.txt', mime: 'text/plain', body: 'hello' },
+      { removed: 'binary-1' },
+    ]);
   });
 
   it('proxies a cwd-scoped session collection without exposing private daemon details', async () => {

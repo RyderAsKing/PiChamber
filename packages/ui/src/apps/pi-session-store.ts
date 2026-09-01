@@ -1408,6 +1408,8 @@ export class PiSessionStore {
   tree = (sessionId: string) => piClient.getSessionTree(sessionId, this.scope());
   providers = () => piClient.listProviders({ runtimeKey: getRuntimeKey() });
   upload = (input: { filename: string; mime: string; base64: string }) => piClient.createAttachment(input, this.scope());
+  uploadFile = (file: Blob, input: { filename: string; mime: string; signal?: AbortSignal }) => piClient.uploadAttachment(file, input, this.scope());
+  deleteUpload = (id: string) => piClient.deleteAttachment(id, this.scope());
   selected(): PiProjectedSession | null { const id = this.state.selectedSessionId; const session = id ? this.state.reducer.bySession.get(id) : undefined; return session ? projectSession(session) : null; }
 
   /** Consume a live editor replacement once so remount/revisit cannot replay it. */

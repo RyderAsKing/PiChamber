@@ -37,6 +37,7 @@ export interface ComposerFooterProps {
     stopIconSizeClass: string;
 
     canSend: boolean;
+    disabledReason?: string | null;
     canAbort: boolean;
     hasContent: boolean;
 
@@ -68,6 +69,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
         sendIconSizeClass,
         stopIconSizeClass,
         canSend,
+        disabledReason,
         canAbort,
         hasContent,
         onOpenSettings,
@@ -100,6 +102,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
             sendIconSizeClass={sendIconSizeClass}
             stopIconSizeClass={stopIconSizeClass}
             canSend={canSend}
+            disabledReason={disabledReason}
             canAbort={canAbort}
             hasContent={hasContent}
             currentSessionId={currentSessionId}

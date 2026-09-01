@@ -1,16 +1,36 @@
+export type AttachmentUploadState =
+    | { status: "preparing" }
+    | { status: "uploading"; progress: number | null }
+    | { status: "ready"; attachmentId: string; expiresAt: number }
+    | { status: "failed"; error: string };
+
 export interface AttachedFile {
     id: string;
     file: File;
+    /** Kept for local preview and persisted queue refreshes. Never sent in the normal prompt path. */
     dataUrl: string;
+    /** Ephemeral object URL for draft image previews. Never persisted or sent. */
+    previewUrl?: string;
     mimeType: string;
     filename: string;
     size: number;
     source: "local" | "server";
+    /** Local files use the upload lifecycle. Omitted only by legacy persisted queue entries. */
+    uploadState?: AttachmentUploadState;
     serverPath?: string;
     /** Shared ID linking entries extracted from the same document (PPTX, DOCX, etc.).
      *  Removing any entry with this ID cascades to all entries in the group. */
     sourceDocumentId?: string;
 }
+
+export const hasPendingAttachmentUploads = (files: readonly AttachedFile[]): boolean =>
+    files.some((file) => file.source === "local" && (file.uploadState?.status === "preparing" || file.uploadState?.status === "uploading"));
+
+export const hasFailedAttachmentUploads = (files: readonly AttachedFile[]): boolean =>
+    files.some((file) => file.source === "local" && file.uploadState?.status === "failed");
+
+export const areAttachmentsReadyToSend = (files: readonly AttachedFile[], now = Date.now()): boolean =>
+    files.every((file) => file.source === "server" || (file.uploadState?.status === "ready" && file.uploadState.expiresAt > now));
 
 export type EditPermissionMode = 'allow' | 'ask' | 'deny' | 'full';
 

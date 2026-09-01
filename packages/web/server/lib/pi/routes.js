@@ -43,7 +43,17 @@ const UNAVAILABLE_CODES = new Set([
 
 const writeDaemonError = (res, error) => {
   const code = typeof error?.code === 'string' ? error.code : 'DAEMON_REQUEST_FAILED';
-  const status = UNAVAILABLE_CODES.has(code) ? 503 : code === 'INVALID_SESSION' ? 404 : 400;
+  const status = UNAVAILABLE_CODES.has(code)
+    ? 503
+    : code === 'INVALID_SESSION'
+      ? 404
+      : code === 'ATTACHMENT_TOO_LARGE'
+        ? 413
+        : code === 'ATTACHMENT_LIMIT_REACHED'
+          ? 429
+          : code === 'ATTACHMENT_MISSING'
+            ? 410
+            : 400;
   res.status(status).json({ error: { code } });
 };
 
@@ -1325,10 +1335,12 @@ export const registerPiRuntimeRoutes = (app, {
   for (const [suffix, command] of [['prompt', 'sessions.prompt'], ['steer', 'sessions.steer'], ['follow-up', 'sessions.followUp']]) {
     app.post(`/api/pi/sessions/:sessionId/${suffix}`, async (req, res) => {
       let payload = req.body && typeof req.body === 'object' ? req.body : {};
+      let attachmentIds = [];
       try {
         if (payload.attachments !== undefined) {
           if (!Array.isArray(payload.attachments) || payload.attachments.some((attachment) => !attachment || typeof attachment.id !== 'string')) throw protocolMismatch();
-          const attachments = await attachmentStore.resolve(payload.attachments.map((attachment) => attachment.id));
+          attachmentIds = payload.attachments.map((attachment) => attachment.id);
+          const attachments = await attachmentStore.resolve(attachmentIds);
           payload = { ...payload, attachments };
         }
       } catch (error) {
@@ -1341,6 +1353,7 @@ export const registerPiRuntimeRoutes = (app, {
           writeDaemonError(res, protocolMismatch());
           return;
         }
+        await attachmentStore.consume?.(attachmentIds);
         res.status(202).json({ accepted: true, messageId: result.messageId });
       }
     });
@@ -1365,10 +1378,41 @@ export const registerPiRuntimeRoutes = (app, {
 
   app.post('/api/pi/attachments', async (req, res) => {
     try {
-      const attachment = await attachmentStore.create(req.body ?? {});
+      const isBinary = req.is('application/octet-stream');
+      let attachment;
+      if (isBinary) {
+        const encodedFilename = req.get('x-pichamber-filename');
+        const mime = req.get('x-pichamber-mime');
+        if (!encodedFilename || encodedFilename.length > 2_048 || !mime || mime.length > 200) throw Object.assign(new Error('Invalid attachment metadata'), { code: 'ATTACHMENT_FAILED' });
+        let filename;
+        try {
+          filename = decodeURIComponent(encodedFilename);
+        } catch {
+          throw Object.assign(new Error('Invalid attachment metadata'), { code: 'ATTACHMENT_FAILED' });
+        }
+        attachment = await attachmentStore.createFromStream({ filename, mime, stream: req });
+      } else {
+        attachment = await attachmentStore.create(req.body ?? {});
+      }
       if (!attachment || typeof attachment.id !== 'string' || typeof attachment.name !== 'string'
-        || typeof attachment.mime !== 'string' || !Number.isSafeInteger(attachment.size)) throw protocolMismatch();
-      res.status(201).json({ attachment: { id: attachment.id, name: attachment.name, mime: attachment.mime, size: attachment.size } });
+        || typeof attachment.mime !== 'string' || !Number.isSafeInteger(attachment.size)
+        || !Number.isFinite(attachment.expiresAt)) throw protocolMismatch();
+      res.status(201).json({ attachment: {
+        id: attachment.id,
+        name: attachment.name,
+        mime: attachment.mime,
+        size: attachment.size,
+        expiresAt: attachment.expiresAt,
+      } });
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.delete('/api/pi/attachments/:attachmentId', async (req, res) => {
+    try {
+      await attachmentStore.remove(req.params.attachmentId);
+      res.status(204).end();
     } catch (error) {
       writeDaemonError(res, error);
     }
