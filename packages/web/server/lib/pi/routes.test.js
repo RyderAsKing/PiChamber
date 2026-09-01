@@ -84,6 +84,8 @@ describe('Pi runtime route', () => {
       },
       listCustomThemes: async () => [{ metadata: { id: 'custom' } }],
       updateChecker: async () => ({ available: false, currentVersion: '1.0.0' }),
+      resolveUpdatePackageManager: () => 'npm',
+      updateLauncher: () => ({ success: true }),
     });
     server = await listen(app);
     const base = `http://127.0.0.1:${server.address().port}`;
@@ -98,6 +100,26 @@ describe('Pi runtime route', () => {
     })).json()).resolves.toEqual({ exists: true, version: 1, foldersMap: {}, collapsedFolderIds: [], updatedAt: 1 });
     await expect((await fetch(`${base}/api/pi/themes`)).json()).resolves.toEqual({ themes: [{ metadata: { id: 'custom' } }] });
     await expect((await fetch(`${base}/api/pi/update-check`)).json()).resolves.toEqual({ available: false, currentVersion: '1.0.0' });
+    const installResponse = await fetch(`${base}/api/pi/update-install`, { method: 'POST' });
+    expect(installResponse.status).toBe(200);
+    await expect(installResponse.json()).resolves.toEqual({ success: true, autoRestart: true });
+  });
+
+  it('rejects web updates when the current install is not owned by a trusted package manager', async () => {
+    const app = express();
+    registerPiRuntimeRoutes(app, {
+      getPiSessionDaemonRuntime: () => null,
+      resolveUpdatePackageManager: () => null,
+      updateLauncher: () => { throw new Error('must not run'); },
+    });
+    server = await listen(app);
+
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/update-install`, { method: 'POST' });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      success: false,
+      error: 'This PiChamber copy is not a supported global package-manager install. Run: pichamber update',
+    });
   });
 
   it('generates a task name with the configured small model without exposing model details', async () => {
