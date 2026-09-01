@@ -8,8 +8,9 @@ This directory contains non-entrypoint PiChamber CLI implementation. `../cli.js`
 - `commands-lifecycle.js`: stop and restart behavior.
 - `commands-status.js`: running-instance and tunnel status presentation.
 - `commands-logs.js`: log discovery, tailing, and follow behavior.
-- `commands-startup.js`: native startup service management. `startup enable` stores serve flags (`--port`, `--lan`/`--host`, `--ui-password`, `--api-only`) in the login service. `pichamber startup --help` documents those flags. LAN binds require a UI password, matching `pichamber serve`.
+- `commands-startup.js`: native startup service management. Interactive `startup enable` walks through access, port, authentication, and confirmation when no setup flags are supplied. Flag-driven, non-TTY, `--quiet`, and `--json` runs remain non-interactive. The command stores serve flags (`--port`, `--lan`/`--host`, `--ui-password`, `--api-only`) in the native service. Re-running enable rewrites and restarts a systemd unit so the new settings take effect immediately. LAN binds require a UI password, matching `pichamber serve`.
 - `commands-connect-url.js`: authenticated direct/relay pairing links.
+- `pichamber version` and `pichamber --version`: print the installed package version; `--json` returns the same value as JSON.
 - `commands-update.js`: package update and restart coordination. Updates only a global install owned by the running CLI. A Linux user systemd unit is restarted in place; the command does not spawn a replacement server on the same port.
 - `commands-tunnel.js`: tunnel lifecycle and profile management.
 

@@ -195,7 +195,7 @@ async function main() {
   const { command, subcommand, tunnelAction, startupAction, options, removedFlagErrors, helpRequested, versionRequested } = parsed;
   activeCommandOptions = options;
 
-  if (versionRequested) {
+  if (versionRequested || command === 'version') {
     if (isJsonMode(options)) {
       printJson({ version: PACKAGE_JSON.version });
     } else {
@@ -245,7 +245,7 @@ async function main() {
   }
 
   if (!commands[command]) {
-    const knownCommands = ['serve', 'stop', 'restart', 'status', 'tunnel', 'startup', 'logs', 'update'];
+    const knownCommands = ['serve', 'stop', 'restart', 'status', 'tunnel', 'startup', 'logs', 'update', 'version'];
     const suggestion = findClosestMatch(command, knownCommands);
     const hint = suggestion ? ` Did you mean '${suggestion}'?` : '';
     if (isJsonMode(options)) {

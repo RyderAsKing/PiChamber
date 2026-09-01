@@ -317,6 +317,14 @@ function runStartupCommand(command, args, options = {}) {
   return result;
 }
 
+function activateSystemdStartupService(isRoot, run = runStartupCommand) {
+  const userArgs = isRoot ? [] : ['--user'];
+  run('systemctl', [...userArgs, 'daemon-reload']);
+  run('systemctl', [...userArgs, 'enable', 'pichamber.service']);
+  // restart also starts an inactive unit and guarantees rewritten settings take effect.
+  run('systemctl', [...userArgs, 'restart', 'pichamber.service']);
+}
+
 function getStartupStatus() {
   const paths = getStartupServicePaths();
   if (!paths.servicePath) {
@@ -389,13 +397,7 @@ function enableStartupService(options = {}) {
     writeStartupEnvFile(serveOptions, { quoteValue: systemdEnvFileQuote });
     fs.mkdirSync(path.dirname(paths.servicePath), { recursive: true, mode: 0o700 });
     fs.writeFileSync(paths.servicePath, buildSystemdUserService(serveOptions), { mode: 0o600 });
-    if (isRoot) {
-      runStartupCommand('systemctl', ['daemon-reload']);
-      runStartupCommand('systemctl', ['enable', '--now', 'pichamber.service']);
-    } else {
-      runStartupCommand('systemctl', ['--user', 'daemon-reload']);
-      runStartupCommand('systemctl', ['--user', 'enable', '--now', 'pichamber.service']);
-    }
+    activateSystemdStartupService(isRoot);
     return finish(getStartupStatus());
   }
 
@@ -453,6 +455,7 @@ function disableStartupService() {
 
 export {
   getStartupServicePaths,
+  activateSystemdStartupService,
   getStartupStatus,
   enableStartupService,
   disableStartupService,

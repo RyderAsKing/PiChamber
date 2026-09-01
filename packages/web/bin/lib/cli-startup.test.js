@@ -4,6 +4,34 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 
+describe('systemd startup activation', () => {
+  it('enables and restarts a system service so updated settings take effect', async () => {
+    const { activateSystemdStartupService } = await import('./cli-startup.js');
+    const calls = [];
+
+    activateSystemdStartupService(true, (command, args) => calls.push([command, args]));
+
+    expect(calls).toEqual([
+      ['systemctl', ['daemon-reload']],
+      ['systemctl', ['enable', 'pichamber.service']],
+      ['systemctl', ['restart', 'pichamber.service']],
+    ]);
+  });
+
+  it('enables and restarts a user service so updated settings take effect', async () => {
+    const { activateSystemdStartupService } = await import('./cli-startup.js');
+    const calls = [];
+
+    activateSystemdStartupService(false, (command, args) => calls.push([command, args]));
+
+    expect(calls).toEqual([
+      ['systemctl', ['--user', 'daemon-reload']],
+      ['systemctl', ['--user', 'enable', 'pichamber.service']],
+      ['systemctl', ['--user', 'restart', 'pichamber.service']],
+    ]);
+  });
+});
+
 describe('startup service paths', () => {
   const originalPlatform = process.platform;
   const originalGetuid = process.getuid;

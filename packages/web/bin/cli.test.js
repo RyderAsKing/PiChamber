@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import { createServer } from 'http';
 import net from 'net';
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import { pathToFileURL } from 'url';
 
 import { isModuleCliExecution, normalizeCliEntryPath } from './cli-entry.js';
@@ -331,6 +331,79 @@ describe('cli args', () => {
 });
 
 describe('startup enable command helper', () => {
+  it('collects LAN, port, and generated-password choices interactively', async () => {
+    const { collectInteractiveStartupOptions } = await import('./lib/commands-startup.js');
+    const answers = ['lan', '8080', 'generate', true];
+    const prompts = {
+      select: async () => answers.shift(),
+      text: async () => answers.shift(),
+      password: async () => answers.shift(),
+      confirm: async () => answers.shift(),
+      isCancel: () => false,
+      cancel: () => {},
+    };
+
+    const result = await collectInteractiveStartupOptions({ port: 3000 }, prompts);
+
+    expect(result).toMatchObject({
+      host: '0.0.0.0',
+      lan: true,
+      port: 8080,
+      explicitPort: true,
+      uiPassword: '',
+      explicitUiPassword: true,
+    });
+  });
+
+  it('collects and confirms a user-entered password', async () => {
+    const { collectInteractiveStartupOptions } = await import('./lib/commands-startup.js');
+    const answers = ['local', '3000', 'enter', 'secret', 'secret', true];
+    const prompts = {
+      select: async () => answers.shift(),
+      text: async () => answers.shift(),
+      password: async () => answers.shift(),
+      confirm: async () => answers.shift(),
+      isCancel: () => false,
+      cancel: () => {},
+    };
+
+    const result = await collectInteractiveStartupOptions({ port: 3000 }, prompts);
+
+    expect(result).toMatchObject({
+      port: 3000,
+      uiPassword: 'secret',
+      explicitUiPassword: true,
+    });
+    expect(result.host).toBe('127.0.0.1');
+    expect(result.lan).toBe(false);
+  });
+
+  it('cancels interactive setup without returning service options', async () => {
+    const { collectInteractiveStartupOptions } = await import('./lib/commands-startup.js');
+    const cancelled = Symbol('cancelled');
+    let cancellationMessage = '';
+    const prompts = {
+      select: async () => cancelled,
+      text: async () => '',
+      password: async () => '',
+      confirm: async () => false,
+      isCancel: (value) => value === cancelled,
+      cancel: (message) => { cancellationMessage = message; },
+    };
+
+    await expect(collectInteractiveStartupOptions({ port: 3000 }, prompts)).resolves.toBeNull();
+    expect(cancellationMessage).toBe('Startup setup cancelled.');
+  });
+
+  it('keeps flag-driven startup enable non-interactive', async () => {
+    const { hasExplicitStartupConfiguration } = await import('./lib/commands-startup.js');
+
+    expect(hasExplicitStartupConfiguration({ explicitPort: true })).toBe(true);
+    expect(hasExplicitStartupConfiguration({ lan: true })).toBe(true);
+    expect(hasExplicitStartupConfiguration({ explicitUiPassword: true })).toBe(true);
+    expect(hasExplicitStartupConfiguration({ port: 3000 })).toBe(false);
+  });
+
   it('formats stored serve flags for a local port', async () => {
     const { formatStartupServeCommand } = await import('./lib/cli-startup.js');
     expect(formatStartupServeCommand({ port: 8080 })).toBe('pichamber serve --foreground --port 8080');
@@ -364,6 +437,30 @@ describe('startup enable command helper', () => {
     expect(text).toContain('--port <port>');
     expect(text).toContain('--ui-password');
     expect(text).toContain('pichamber startup enable --lan --port 3002 --ui-password');
+  });
+});
+
+describe('version command', () => {
+  it('prints the installed package version', () => {
+    const packageJson = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    const result = spawnSync(process.execPath, [new URL('./cli.js', import.meta.url).pathname, 'version'], {
+      encoding: 'utf8',
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe(packageJson.version);
+    expect(result.stderr).toBe('');
+  });
+
+  it('prints the installed package version as JSON', () => {
+    const packageJson = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    const result = spawnSync(process.execPath, [new URL('./cli.js', import.meta.url).pathname, 'version', '--json'], {
+      encoding: 'utf8',
+    });
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ status: 'ok', version: packageJson.version });
+    expect(result.stderr).toBe('');
   });
 });
 

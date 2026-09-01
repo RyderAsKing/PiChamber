@@ -492,6 +492,7 @@ COMMANDS:
   logs           Tail PiChamber logs
   connect-url    Generate URL/QR for connecting another client
   update         Check for and install updates
+  version        Show the installed PiChamber version
 
 OPTIONS:
   -p, --port              Web server port (default: ${DEFAULT_PORT})
@@ -526,6 +527,7 @@ EXAMPLES:
                                # Login service on LAN at 0.0.0.0:3002
   pichamber tunnel help        # Show tunnel lifecycle help
   pichamber logs               # Follow logs for latest running instance
+  pichamber version            # Show the installed version
 `);
 }
 
@@ -537,14 +539,15 @@ USAGE:
   pichamber startup <SUBCOMMAND> [OPTIONS]
 
 DESCRIPTION:
-  Installs a user-login service that runs pichamber serve --foreground.
-  Flags passed to startup enable are stored in that service. Re-run enable
-  to replace the stored command.
+  Installs a native startup service that runs pichamber serve --foreground.
+  In an interactive terminal, enable walks through access, port, and password
+  setup. Supplied flags keep the command non-interactive. Re-run enable to
+  replace the stored command.
 
 SUBCOMMANDS:
   status      Show startup integration status
-  enable      Install and start native user startup integration
-  disable     Stop and remove native user startup integration
+  enable      Configure, install, and start native startup integration
+  disable     Stop and remove native startup integration
 
 ENABLE FLAGS:
   These become the serve command the login service runs.
