@@ -10,6 +10,7 @@ const ALLOWED_CORS_HEADER_NAMES = new Set([
   'cache-control',
   'content-type',
   'x-pichamber-directory',
+  'x-pichamber-filename',
   'x-requested-with',
 ]);
 
@@ -20,6 +21,7 @@ const DEFAULT_ALLOWED_CORS_HEADERS = [
   'X-Requested-With',
   'Cache-Control',
   'x-pichamber-directory',
+  'x-pichamber-filename',
 ].join(',');
 
 export const isAllowedUiCorsOrigin = (origin) => (

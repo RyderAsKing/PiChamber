@@ -12,26 +12,27 @@ describe('packaged UI CORS', () => {
     expect(isAllowedUiCorsOrigin('https://example.test')).toBe(false);
   });
 
-  it('allows the workspace directory header used by packaged filesystem fetches', () => {
+  it('allows the custom headers used by packaged filesystem and attachment fetches', () => {
     expect(resolveAllowedCorsHeaders('x-pichamber-directory,authorization')).toBe('x-pichamber-directory,authorization');
     expect(resolveAllowedCorsHeaders('x-pichamber-directory')).toBe('x-pichamber-directory');
+    expect(resolveAllowedCorsHeaders('x-pichamber-filename')).toBe('x-pichamber-filename');
     expect(resolveAllowedCorsHeaders('x-evil')).toBe(
-      'Content-Type,Authorization,Accept,X-Requested-With,Cache-Control,x-pichamber-directory',
+      'Content-Type,Authorization,Accept,X-Requested-With,Cache-Control,x-pichamber-directory,x-pichamber-filename',
     );
   });
 
-  it('answers Electron preflight with the requested directory header', () => {
+  it('answers Electron preflight with the requested custom headers', () => {
     const headers = {};
     const res = { setHeader(name, value) { headers[name] = value; } };
     const ended = applyUiCorsHeaders({
       method: 'OPTIONS',
       headers: {
         origin: 'pichamber-ui://app',
-        'access-control-request-headers': 'x-pichamber-directory,authorization',
+        'access-control-request-headers': 'x-pichamber-directory,x-pichamber-filename,authorization',
       },
     }, res);
     expect(ended).toBe(true);
     expect(headers['Access-Control-Allow-Origin']).toBe('pichamber-ui://app');
-    expect(headers['Access-Control-Allow-Headers']).toBe('x-pichamber-directory,authorization');
+    expect(headers['Access-Control-Allow-Headers']).toBe('x-pichamber-directory,x-pichamber-filename,authorization');
   });
 });
