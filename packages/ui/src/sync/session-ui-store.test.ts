@@ -12,6 +12,7 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 
 const store = getPiSessionStore();
+const originalCreateSession = useSessionUIStore.getState().createSession;
 const originals = {
   upload: store.upload,
   prompt: store.prompt,
@@ -28,6 +29,16 @@ afterEach(() => {
   store.setThinking = originals.setThinking;
   store.fork = originals.fork;
   store.navigate = originals.navigate;
+  useSessionUIStore.setState({
+    createSession: originalCreateSession,
+    currentSessionId: null,
+    currentSessionDirectory: null,
+    newSessionDraft: {
+      open: false,
+      directoryOverride: null,
+      parentID: null,
+    },
+  });
   clearAllRevertNavigations();
 });
 
@@ -203,6 +214,69 @@ describe('routeMessage', () => {
       providerID: 'provider',
       modelID: 'model',
     })).rejects.toThrow('Create the selected worktree');
+  });
+
+  test('routes a completed worktree draft to its created session after navigation', async () => {
+    const prompts: unknown[][] = [];
+    const creationMetadata: Array<Record<string, unknown> | undefined> = [];
+    store.setModel = async () => undefined;
+    store.setThinking = async () => undefined;
+    store.prompt = async (...args) => {
+      prompts.push(args);
+      return { accepted: true, messageId: 'message-1' };
+    };
+
+    const worktreeIntent = {
+      runtimeKey: getRuntimeKey(),
+      projectRoot: '/workspace/proj-1',
+      sourceDirectory: '/workspace/proj-1',
+      startRef: 'main',
+    };
+    useSessionUIStore.getState().openNewSessionDraft({
+      selectedProjectId: 'proj-1',
+      directoryOverride: '/workspace/proj-1',
+      worktreeIntent,
+    });
+    const draftSnapshot = useSessionUIStore.getState().newSessionDraft;
+
+    useSessionUIStore.getState().setCurrentSession('session-other', '/workspace/other');
+    useSessionUIStore.setState({
+      createSession: async (_title, directoryOverride, _parentId, metadata) => {
+        creationMetadata.push(metadata);
+        return {
+          id: 'session-worktree',
+          directory: directoryOverride ?? '/worktrees/new',
+        };
+      },
+    });
+
+    await useSessionUIStore.getState().sendMessage(
+      'initial worktree prompt',
+      'provider',
+      'model',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        worktreeCreationReceipt: {
+          ...worktreeIntent,
+          path: '/worktrees/new',
+          branch: 'pichamber/new',
+        },
+        draftSnapshot,
+      },
+    );
+
+    expect(creationMetadata).toEqual([{
+      model: { providerId: 'provider', modelId: 'model' },
+      thinking: undefined,
+      select: false,
+    }]);
+    expect(prompts).toEqual([['session-worktree', 'initial worktree prompt', 'prompt', undefined]]);
+    expect(useSessionUIStore.getState().currentSessionId).toBe('session-other');
   });
 
   test('stores a worktree intent and clears it when the draft directory changes', () => {
