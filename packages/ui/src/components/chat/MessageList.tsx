@@ -15,6 +15,7 @@ import { applyCompactionOverlay } from './lib/turns/applyCompactionOverlay';
 import { applyRetryOverlay } from './lib/turns/applyRetryOverlay';
 import { isTurnAssistantWorking, resolveTurnStreamingAssistantId } from './lib/turns/assistantWorkingState';
 import { buildLiveStreamingEntry, type StreamingTailEntry } from './lib/turns/streamingTailEntry';
+import { revealTurnAssistantMessage } from './lib/turns/turnAssistantReveal';
 import { getNormalizedMessageForDisplay, hasCompactionPart } from './lib/messageDisplayNormalization';
 import { useUIStore } from '@/stores/useUIStore';
 import { isHiddenUserMessage } from './message/hiddenUserMessage';
@@ -691,11 +692,17 @@ const TurnBlock = React.memo(({
         ]
     );
 
+    // Only the authoritative live message keeps a large turn fully mounted.
+    // Catalog busy and incomplete historical timestamps must not make settled
+    // sessions pay the full remount cost on every navigation.
+    const deferEarlierAssistantMessages = !turnContainsMessageId(turn, activeStreamingMessageId);
+
     return (
         <TurnItem
             turn={turn}
             stickyUserHeader={stickyUserHeader && !userMessageHidden}
             renderMessage={renderMessage}
+            deferEarlierAssistantMessages={deferEarlierAssistantMessages}
         />
     );
 });
@@ -1685,6 +1692,29 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         return true;
     }, [findMessageElement, resolveScrollContainer]);
 
+    const scheduleDeferredMessageScroll = React.useCallback((
+        turnId: string,
+        messageId: string,
+        behavior: ScrollBehavior,
+    ): boolean => {
+        if (typeof window === 'undefined') return false;
+
+        // The target turn may itself be folded or outside the virtual window.
+        // Retry for a bounded number of frames while the outer list mounts the
+        // turn and its local response gate reveals the requested message.
+        let attempts = 0;
+        const revealAndScroll = () => {
+            revealTurnAssistantMessage(turnId, messageId);
+            if (scrollMessageElementIntoView(messageId, behavior)) return;
+            attempts += 1;
+            if (attempts < 60) {
+                window.requestAnimationFrame(revealAndScroll);
+            }
+        };
+        window.requestAnimationFrame(revealAndScroll);
+        return true;
+    }, [scrollMessageElementIntoView]);
+
     React.useEffect(() => {
         if (!ref) {
             return;
@@ -1743,12 +1773,19 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
                     }
                 }
 
-                return scrollMessageElementIntoView(messageId, behavior)
-                    || (
-                        trailingStreamingEntry !== undefined && index >= historyEntries.length
-                            ? false
-                            : scrollHistoryIndexIntoView(index)
-                    );
+                if (scrollMessageElementIntoView(messageId, behavior)) {
+                    return true;
+                }
+
+                const targetIsTail = trailingStreamingEntry !== undefined && index >= historyEntries.length;
+                if (!targetIsTail) {
+                    scrollHistoryIndexIntoView(index);
+                }
+
+                const turnId = projection.indexes.messageToTurnId.get(messageId);
+                return turnId
+                    ? scheduleDeferredMessageScroll(turnId, messageId, behavior)
+                    : false;
             },
 
             holdViewportAnchor: (anchor) => {
@@ -1888,7 +1925,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         return () => {
             objectRef.current = null;
         };
-    }, [allEntries, findMessageElement, historyEntries, messageIndexMap, resolveScrollContainer, revealFoldedTurn, scrollHistoryIndexIntoView, scrollMessageElementIntoView, shouldVirtualizeHistory, trailingStreamingEntry, turnIndexMap, ref]);
+    }, [allEntries, findMessageElement, historyEntries, messageIndexMap, projection.indexes.messageToTurnId, resolveScrollContainer, revealFoldedTurn, scheduleDeferredMessageScroll, scrollHistoryIndexIntoView, scrollMessageElementIntoView, shouldVirtualizeHistory, trailingStreamingEntry, turnIndexMap, ref]);
 
     const disableFadeIn = false;
 
