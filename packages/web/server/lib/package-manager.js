@@ -1,4 +1,4 @@
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -775,6 +775,37 @@ export async function checkForUpdates(options = {}) {
 /**
  * Execute the update (used by CLI)
  */
+export function launchUpdateCommand(options = {}) {
+  const isContainer = options.isContainer ?? (fs.existsSync('/.dockerenv') || Boolean(process.env.CONTAINER) || process.env.container === 'docker');
+  const isSystemd = options.isSystemd ?? Boolean(process.env.INVOCATION_ID || process.env.PICHAMBER_SYSTEMD_UNIT);
+  if (isContainer) {
+    return {
+      success: false,
+      error: 'Docker deployments must be updated by deploying a new container image. Run: pichamber update',
+    };
+  }
+  if (isSystemd) {
+    return {
+      success: false,
+      error: 'This PiChamber server runs as a systemd service. Run from a terminal: pichamber update',
+    };
+  }
+
+  const cliPath = path.resolve(__dirname, '..', '..', 'bin', 'cli.js');
+  try {
+    const child = (options.spawnProcess || spawn)(process.execPath, [cliPath, 'update', '--quiet'], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    child.once?.('error', () => {});
+    child.unref();
+    return { success: true };
+  } catch {
+    return { success: false, error: 'Could not start the updater. Run: pichamber update' };
+  }
+}
+
 export function executeUpdate(pm = detectPackageManager(), options = {}) {
   const command = getUpdateCommand(pm);
   if (!options?.silent) {

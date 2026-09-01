@@ -5,7 +5,11 @@
 
 import { createPiArchiveStore } from './archive-store.js';
 import { createPiAttachmentStore } from './attachment-store.js';
-import { checkForUpdates } from '../package-manager.js';
+import {
+  checkForUpdates,
+  launchUpdateCommand,
+  resolveTrustedUpdatePackageManager,
+} from '../package-manager.js';
 import { listPiCustomThemes } from './custom-themes.js';
 import { createPiSettingsStore } from './settings-store.js';
 import { isPiThinkingLevel } from './thinking-levels.js';
@@ -726,6 +730,8 @@ export const registerPiRuntimeRoutes = (app, {
   uiSettingsStore = createPiUiSettingsStore(),
   listCustomThemes = listPiCustomThemes,
   updateChecker = checkForUpdates,
+  updateLauncher = launchUpdateCommand,
+  resolveUpdatePackageManager = resolveTrustedUpdatePackageManager,
   smallModelGenerator = async (input) => (await import('./small-model-generation.js')).generateWithSmallModel(input),
   eventHeartbeatMs = 15_000,
 }) => {
@@ -775,10 +781,29 @@ export const registerPiRuntimeRoutes = (app, {
         currentVersion: typeof req.query.currentVersion === 'string' ? req.query.currentVersion : undefined,
         appType: typeof req.query.appType === 'string' ? req.query.appType : undefined,
         platform: typeof req.query.platform === 'string' ? req.query.platform : undefined,
+        instanceMode: typeof req.query.instanceMode === 'string' ? req.query.instanceMode : undefined,
       }));
     } catch {
       res.status(503).json({ error: 'Update check unavailable' });
     }
+  });
+
+  app.post('/api/pi/update-install', (_req, res) => {
+    const packageManager = resolveUpdatePackageManager();
+    if (!packageManager) {
+      res.status(409).json({
+        success: false,
+        error: 'This PiChamber copy is not a supported global package-manager install. Run: pichamber update',
+      });
+      return;
+    }
+
+    const result = updateLauncher();
+    if (!result.success) {
+      res.status(409).json({ success: false, error: result.error });
+      return;
+    }
+    res.json({ success: true, autoRestart: true });
   });
 
   app.get('/api/pi/runtime', async (_req, res) => {

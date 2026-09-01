@@ -22,7 +22,7 @@ Use `--api-only` for a host intended to be paired from a PiChamber desktop or mo
 ## Runtime contract
 
 - Pi session state and actions are served only through `/api/pi/*`.
-- PiChamber-owned UI settings, custom themes, and update metadata use `/api/pi/ui-settings`, `/api/pi/themes`, and `/api/pi/update-check`; removed `/api/config/*` and `/api/pichamber/*` aliases are not required.
+- PiChamber-owned UI settings, custom themes, and updates use `/api/pi/ui-settings`, `/api/pi/themes`, `/api/pi/update-check`, and `/api/pi/update-install`; removed `/api/config/*` and `/api/pichamber/*` aliases are not required.
 - Final-only speech-to-text uses authenticated `/api/stt/*` routes and `/api/stt/ws`. Local model inference runs in a forked worker, while remote provider credentials remain in server configuration.
 - Browser and paired clients authenticate with UI sessions or scoped client credentials.
 - `connect-url` creates a one-time pairing link; credentials are not written to URLs or logs.

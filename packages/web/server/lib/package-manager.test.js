@@ -11,6 +11,7 @@ const {
   detectPackageManager,
   executeUpdate,
   getCurrentVersion,
+  launchUpdateCommand,
   resolveTrustedUpdatePackageManager,
 } = await import('./package-manager.js');
 
@@ -360,6 +361,26 @@ describe('getCurrentVersion', () => {
   it('is exported for the CLI update command', () => {
     expect(typeof getCurrentVersion).toBe('function');
     expect(getCurrentVersion()).toMatch(/^\d+\.\d+\.\d+|unknown$/);
+  });
+});
+
+describe('launchUpdateCommand', () => {
+  it('starts the CLI updater detached so the live server can respond before shutdown', () => {
+    const unref = vi.fn();
+    const spawnProcess = vi.fn(() => ({ unref }));
+
+    expect(launchUpdateCommand({ isContainer: false, isSystemd: false, spawnProcess })).toEqual({ success: true });
+    expect(spawnProcess).toHaveBeenCalledWith(
+      process.execPath,
+      [expect.stringMatching(/bin[\\/]cli\.js$/), 'update', '--quiet'],
+      { detached: true, stdio: 'ignore', windowsHide: true },
+    );
+    expect(unref).toHaveBeenCalledOnce();
+  });
+
+  it('refuses deployment types that the CLI cannot safely replace in-process', () => {
+    expect(launchUpdateCommand({ isContainer: true, isSystemd: false }).success).toBe(false);
+    expect(launchUpdateCommand({ isContainer: false, isSystemd: true }).success).toBe(false);
   });
 });
 
