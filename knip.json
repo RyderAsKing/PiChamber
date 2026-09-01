@@ -48,7 +48,6 @@
         "main.mjs",
         "preload.mjs",
         "tray.mjs",
-        "ssh-manager.mjs",
         "*.{test,spec}.{js,cjs,mjs}",
         "scripts/**/*.{js,cjs,mjs}"
       ],

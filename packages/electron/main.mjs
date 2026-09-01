@@ -10,7 +10,6 @@ import { execFile, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import updaterPkg from 'electron-updater';
-import { ElectronSshManager } from './ssh-manager.mjs';
 import { createTrayController } from './tray.mjs';
 import {
   resolveDesktopHostRuntimeConfig,
@@ -263,7 +262,6 @@ const state = {
   quitInProgress: false,
   quitConfirmationPending: false,
   backgroundShutdownComplete: false,
-  sshShutdownPromise: null,
   installingUpdate: false,
   pendingUpdate: null,
   unreachableHosts: new Set(),
@@ -272,8 +270,6 @@ const state = {
   windowGeometryRevisions: new Map(),
   windowGeometryTimers: new Map(),
   miniChatWindowsBySession: new Map(),
-  sshStatuses: new Map(),
-  sshLogs: new Map(),
   trayController: null,
   trayFocusListener: null,
   lastFocusedWindowId: null,
@@ -333,7 +329,7 @@ const quitConfirmationMessage = () => {
     reasons.push('an active tunnel');
   }
   if (reasons.length === 0) {
-    return 'Background processes (sidecar, SSH sessions) will be stopped.';
+    return 'Background processes (sidecar) will be stopped.';
   }
   return `PiChamber detected ${reasons.join(', ')}. Quitting now will stop sidecar/background processes and may interrupt pending work.`;
 };
@@ -344,24 +340,6 @@ const shutdownBackgroundServices = () => {
   setDesktopKeepAwakeActive(false);
   if (state.installingUpdate) return;
   killSidecar();
-  setImmediate(() => {
-    void shutdownSshSessions();
-  });
-};
-
-const shutdownSshSessions = async () => {
-  if (state.sshShutdownPromise) {
-    await state.sshShutdownPromise;
-    return;
-  }
-
-  state.sshShutdownPromise = sshManager.shutdownAll().catch((error) => {
-    log.warn('[electron] failed to stop SSH sessions:', error);
-  }).finally(() => {
-    state.sshShutdownPromise = null;
-  });
-
-  await state.sshShutdownPromise;
 };
 
 const prepareForQuit = ({ installingUpdate = false } = {}) => {
@@ -501,12 +479,6 @@ const refreshQuitRiskFlags = async () => {
 const settingsFilePath = () => {
   return resolvePiChamberDataPath('settings.json');
 };
-
-const sshManager = new ElectronSshManager({
-  settingsFilePath: settingsFilePath(),
-  appVersion: APP_VERSION,
-  emit: (event, detail) => emitToAllWindows(event, detail),
-});
 
 const readJsonFile = (filePath) => {
   try {
@@ -3073,49 +3045,6 @@ const runLinuxSpecChain = async (specs, appName) => {
   throw new Error(`Failed to open in ${appName}: ${failures.join('; ')}`);
 };
 
-const parseSshConfigImports = () => {
-  const sshConfigPath = path.join(os.homedir(), '.ssh', 'config');
-  if (!fs.existsSync(sshConfigPath)) return [];
-  const lines = fs.readFileSync(sshConfigPath, 'utf8').split(/\r?\n/);
-  const results = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#') || !trimmed.toLowerCase().startsWith('host ')) {
-      continue;
-    }
-    const hosts = trimmed.slice(5).trim().split(/\s+/).filter(Boolean);
-    for (const host of hosts) {
-      results.push({
-        host,
-        pattern: /[*?]/.test(host),
-        source: sshConfigPath,
-        sshCommand: `ssh ${host}`,
-      });
-    }
-  }
-  return results;
-};
-
-const readDesktopSshInstances = () => {
-  const root = readSettingsRoot();
-  return { instances: Array.isArray(root.desktopSshInstances) ? root.desktopSshInstances : [] };
-};
-
-const writeDesktopSshInstances = async (config) => {
-  const nextInstances = Array.isArray(config?.instances) ? config.instances : [];
-  await mutateSettingsRoot((root) => {
-    root.desktopSshInstances = nextInstances;
-  });
-  return { instances: nextInstances };
-};
-
-const updateHostUrlForSshInstance = async (id, label, localUrl) => {
-  const config = readDesktopHostsConfig();
-  const nextHosts = config.hosts.filter((entry) => entry.id !== id);
-  nextHosts.push({ id, label, url: localUrl });
-  await writeDesktopHostsConfig({ hosts: nextHosts, defaultHostId: config.defaultHostId });
-};
-
 const JETBRAINS_APP_IDS = new Set([
   'pycharm',
   'intellij',
@@ -4341,40 +4270,6 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
       menu.popup({ window: browserWindow });
       return null;
     }
-
-    case 'desktop_ssh_instances_get':
-      return sshManager.readInstances();
-
-    case 'desktop_ssh_instances_set':
-      await sshManager.setInstances(args.config || {});
-      return null;
-
-    case 'desktop_ssh_import_hosts':
-      return await sshManager.importHosts();
-
-    case 'desktop_ssh_connect': {
-      const id = String(args.id || '').trim();
-      await sshManager.connect(id);
-      return null;
-    }
-
-    case 'desktop_ssh_disconnect': {
-      const id = String(args.id || '').trim();
-      await sshManager.disconnect(id);
-      return null;
-    }
-
-    case 'desktop_ssh_status': {
-      const id = String(args.id || '').trim();
-      return await sshManager.statusesWithDefaults(id || undefined);
-    }
-
-    case 'desktop_ssh_logs':
-      return sshManager.logsForInstance(String(args.id || '').trim(), Number(args.limit) || 200);
-
-    case 'desktop_ssh_logs_clear':
-      sshManager.clearLogsForInstance(String(args.id || '').trim());
-      return null;
 
     default:
       throw new Error(`Unknown desktop command: ${command}`);
