@@ -1,14 +1,25 @@
 /**
  * Input Store — pending input text, synthetic parts, and attached files.
- * Extracted from session-ui-store for subscription isolation.
+ * Attachment preparation and upload live here so every composer ingress follows
+ * the same lifecycle and runtime-generation checks.
  */
 
 import { create } from "zustand"
-import type { AttachedFile } from "@/stores/types/sessionTypes"
+import { piClient } from "@/lib/pi/client"
+import { getRuntimeKey, subscribeRuntimeEndpointWillChange } from "@/lib/runtime-switch"
+import type { AttachedFile, AttachmentUploadState } from "@/stores/types/sessionTypes"
 import { prepareAttachmentFiles } from "./attachment-files"
 
 const MAX_ATTACHMENT_PREPARATION_ATTEMPTS = 3
+const MAX_CONCURRENT_UPLOADS = 3
+const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024
+const MAX_ATTACHMENTS_PER_MESSAGE = 20
 let attachmentReadGeneration = 0
+let activeUploads = 0
+const uploadQueue: string[] = []
+const uploadControllers = new Map<string, AbortController>()
+const uploadGenerations = new Map<string, number>()
+const expiryTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 const hasGeneratedFilenameCollision = (filenames: string[], attachedFiles: AttachedFile[]): boolean => {
   if (filenames.length === 0) return false
@@ -16,7 +27,14 @@ const hasGeneratedFilenameCollision = (filenames: string[], attachedFiles: Attac
   return filenames.some((filename) => attachedFilenames.has(filename.toLowerCase()))
 }
 
-const readFileAsDataUrl = (file: File, mime: string): Promise<string> => new Promise((resolve, reject) => {
+const createId = (prefix = "attachment") => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+const createPreviewUrl = (file: File, mime: string): string | undefined => {
+  if (!mime.startsWith("image/") || typeof URL.createObjectURL !== "function") return undefined
+  return URL.createObjectURL(file)
+}
+
+const readFileAsDataUrl = (file: Blob, mime: string): Promise<string> => new Promise((resolve, reject) => {
   const reader = new FileReader()
   reader.onload = () => {
     const value = typeof reader.result === "string" ? reader.result : ""
@@ -28,6 +46,14 @@ const readFileAsDataUrl = (file: File, mime: string): Promise<string> => new Pro
   reader.readAsDataURL(file)
 })
 
+export const serializeAttachmentsForQueue = async (files: readonly AttachedFile[]): Promise<AttachedFile[]> =>
+  Promise.all(files.map(async (file) => {
+    if (file.source !== "local" || file.dataUrl.startsWith("data:")) return file
+    const blob = file.file instanceof Blob ? file.file : null
+    if (!blob) throw new Error("Attachment data is unavailable")
+    return { ...file, dataUrl: await readFileAsDataUrl(blob, file.mimeType), previewUrl: undefined }
+  }))
+
 const getDataUrlByteSize = (url: string): number => {
   if (!url.startsWith("data:")) return 0
   const commaIndex = url.indexOf(",")
@@ -36,12 +62,139 @@ const getDataUrlByteSize = (url: string): number => {
   const payload = url.slice(commaIndex + 1)
   if (!metadata.endsWith(";base64")) return 0
   let padding = 0
-  if (payload.endsWith("==")) {
-    padding = 2
-  } else if (payload.endsWith("=")) {
-    padding = 1
-  }
+  if (payload.endsWith("==")) padding = 2
+  else if (payload.endsWith("=")) padding = 1
   return Math.max(0, Math.floor((payload.length * 3) / 4) - padding)
+}
+
+const dataUrlToBlob = (dataUrl: string, fallbackMime: string): Blob | null => {
+  const comma = dataUrl.indexOf(",")
+  if (!dataUrl.startsWith("data:") || comma < 0) return null
+  const metadata = dataUrl.slice(5, comma)
+  if (!metadata.toLowerCase().endsWith(";base64")) return null
+  try {
+    const binary = atob(dataUrl.slice(comma + 1))
+    const bytes = new Uint8Array(binary.length)
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+    return new Blob([bytes], { type: metadata.slice(0, -7) || fallbackMime })
+  } catch {
+    return null
+  }
+}
+
+const safeUploadError = (error: unknown): string => {
+  const code = typeof error === "object" && error && "code" in error ? String(error.code) : ""
+  if (code === "ATTACHMENT_TOO_LARGE") return "File exceeds the 100 MB upload limit."
+  if (code === "ATTACHMENT_LIMIT_REACHED") return "Too many unused uploads. Remove a file and retry."
+  if (code === "DAEMON_UNAVAILABLE") return "The runtime changed or is unavailable. Retry the upload."
+  if (error instanceof DOMException && error.name === "AbortError") return "Upload canceled."
+  return "Upload failed. Retry or remove this file."
+}
+
+const updateAttachment = (id: string, update: (file: AttachedFile) => AttachedFile): boolean => {
+  let found = false
+  useInputStore.setState((state) => ({
+    attachedFiles: state.attachedFiles.map((file) => {
+      if (file.id !== id) return file
+      found = true
+      return update(file)
+    }),
+  }))
+  return found
+}
+
+const startQueuedUploads = (): void => {
+  while (activeUploads < MAX_CONCURRENT_UPLOADS && uploadQueue.length > 0) {
+    const id = uploadQueue.shift()
+    if (!id) continue
+    const file = useInputStore.getState().attachedFiles.find((candidate) => candidate.id === id)
+    if (!file || file.source !== "local" || file.uploadState?.status !== "preparing") continue
+    activeUploads += 1
+    void uploadAttachment(id).finally(() => {
+      activeUploads -= 1
+      startQueuedUploads()
+    })
+  }
+}
+
+const enqueueUpload = (id: string): void => {
+  if (uploadQueue.includes(id) || uploadControllers.has(id)) return
+  uploadQueue.push(id)
+  startQueuedUploads()
+}
+
+const uploadAttachment = async (id: string): Promise<void> => {
+  const initial = useInputStore.getState().attachedFiles.find((file) => file.id === id)
+  if (!initial || initial.source !== "local") return
+  const blob = initial.file instanceof Blob ? initial.file : dataUrlToBlob(initial.dataUrl, initial.mimeType)
+  if (!blob || blob.size === 0) {
+    updateAttachment(id, (file) => ({ ...file, uploadState: { status: "failed", error: "The file data is no longer available." } }))
+    return
+  }
+
+  const runtimeKey = getRuntimeKey()
+  const generation = (uploadGenerations.get(id) ?? 0) + 1
+  uploadGenerations.set(id, generation)
+  const controller = new AbortController()
+  uploadControllers.set(id, controller)
+  let lastProgress = -1
+  updateAttachment(id, (file) => ({ ...file, uploadState: { status: "uploading", progress: blob.size > 0 ? 0 : null } }))
+
+  try {
+    const attachment = await piClient.uploadAttachment(blob, {
+      filename: initial.filename,
+      mime: initial.mimeType,
+      signal: controller.signal,
+      onProgress: ({ loaded, total }) => {
+        const progress = total > 0 ? Math.min(99, Math.floor((loaded / total) * 100)) : null
+        if (progress === lastProgress) return
+        lastProgress = progress ?? lastProgress
+        if (uploadGenerations.get(id) !== generation || runtimeKey !== getRuntimeKey()) return
+        updateAttachment(id, (file) => file.uploadState?.status === "uploading"
+          ? { ...file, uploadState: { status: "uploading", progress } }
+          : file)
+      },
+    }, { runtimeKey })
+    if (uploadGenerations.get(id) !== generation || runtimeKey !== getRuntimeKey()) {
+      void piClient.deleteAttachment(attachment.id, { runtimeKey }).catch(() => undefined)
+      return
+    }
+    updateAttachment(id, (file) => ({
+      ...file,
+      uploadState: { status: "ready", attachmentId: attachment.id, expiresAt: attachment.expiresAt },
+    }))
+    const expiryTimer = setTimeout(() => {
+      expiryTimers.delete(id)
+      updateAttachment(id, (file) => file.uploadState?.status === "ready" && file.uploadState.attachmentId === attachment.id
+        ? { ...file, uploadState: { status: "failed", error: "Upload expired. Retry the upload." } }
+        : file)
+    }, Math.max(0, attachment.expiresAt - Date.now() + 1))
+    expiryTimers.set(id, expiryTimer)
+  } catch (error) {
+    if (uploadGenerations.get(id) !== generation) return
+    updateAttachment(id, (file) => ({ ...file, uploadState: { status: "failed", error: safeUploadError(error) } }))
+  } finally {
+    if (uploadControllers.get(id) === controller) uploadControllers.delete(id)
+  }
+}
+
+const cancelAttachment = (file: AttachedFile, deleteRemote: boolean): void => {
+  uploadGenerations.set(file.id, (uploadGenerations.get(file.id) ?? 0) + 1)
+  uploadControllers.get(file.id)?.abort()
+  uploadControllers.delete(file.id)
+  const expiryTimer = expiryTimers.get(file.id)
+  if (expiryTimer) clearTimeout(expiryTimer)
+  expiryTimers.delete(file.id)
+  const queuedIndex = uploadQueue.indexOf(file.id)
+  if (queuedIndex >= 0) uploadQueue.splice(queuedIndex, 1)
+  if (file.previewUrl && typeof URL.revokeObjectURL === "function") URL.revokeObjectURL(file.previewUrl)
+  if (deleteRemote && file.uploadState?.status === "ready") {
+    void piClient.deleteAttachment(file.uploadState.attachmentId, { runtimeKey: getRuntimeKey() }).catch(() => undefined)
+  }
+}
+
+const cancelFiles = (files: readonly AttachedFile[], deleteRemote: boolean): void => {
+  for (const file of files) cancelAttachment(file, deleteRemote)
 }
 
 export type SyntheticContextPart = {
@@ -53,14 +206,8 @@ export type SyntheticContextPart = {
 export type InputState = {
   pendingInputText: string | null
   pendingInputMode: "replace" | "append" | "append-inline"
-  /** Revert navigation text: only consumed if composer is currently empty. */
   pendingRevertText: string | null
   pendingSyntheticParts: SyntheticContextPart[] | null
-  /**
-   * Text a draft preset chip asked to submit immediately. Set by surfaces that
-   * render the chips outside ChatInput (e.g. under the welcome message on
-   * narrow layouts); consumed by ChatInput, which owns the command-aware submit.
-   */
   pendingPresetSubmit: { text: string; type: "command" | "skill" } | null
   attachedFiles: AttachedFile[]
 
@@ -73,10 +220,11 @@ export type InputState = {
   setPendingSyntheticParts: (parts: SyntheticContextPart[] | null) => void
   consumePendingSyntheticParts: () => SyntheticContextPart[] | null
   addAttachedFile: (file: File) => Promise<boolean>
+  retryAttachmentUpload: (id: string) => void
   removeAttachedFile: (id: string) => void
+  detachAttachedFiles: (ids: readonly string[]) => void
   setAttachedFiles: (files: AttachedFile[]) => void
   clearAttachedFiles: () => void
-  /** Add attachments restored from a reverted message (file already on server) */
   addRestoredAttachment: (file: { url: string; mimeType: string; filename: string }) => void
 }
 
@@ -88,120 +236,186 @@ export const useInputStore = create<InputState>()((set, get) => ({
   pendingPresetSubmit: null,
   attachedFiles: [],
 
-  setPendingInputText: (text, mode = "replace") =>
-    set({ pendingInputText: text, pendingInputMode: mode }),
-
+  setPendingInputText: (text, mode = "replace") => set({ pendingInputText: text, pendingInputMode: mode }),
   consumePendingInputText: () => {
     const { pendingInputText, pendingInputMode } = get()
     if (pendingInputText === null) return null
     set({ pendingInputText: null, pendingInputMode: "replace" })
     return { text: pendingInputText, mode: pendingInputMode }
   },
-
   setPendingRevertText: (text) => set({ pendingRevertText: text }),
-
   consumePendingRevertText: () => {
     const { pendingRevertText } = get()
     if (pendingRevertText === null) return null
     set({ pendingRevertText: null })
     return pendingRevertText
   },
-
   requestPresetSubmit: (text, type) => set({ pendingPresetSubmit: { text, type } }),
-
   consumePendingPresetSubmit: () => {
     const { pendingPresetSubmit } = get()
     if (pendingPresetSubmit === null) return null
     set({ pendingPresetSubmit: null })
     return pendingPresetSubmit
   },
-
   setPendingSyntheticParts: (parts) => set({ pendingSyntheticParts: parts }),
-
   consumePendingSyntheticParts: () => {
     const { pendingSyntheticParts } = get()
-    if (pendingSyntheticParts !== null) {
-      set({ pendingSyntheticParts: null })
-    }
+    if (pendingSyntheticParts !== null) set({ pendingSyntheticParts: null })
     return pendingSyntheticParts
   },
 
   addAttachedFile: async (file: File) => {
     const generation = attachmentReadGeneration
+    const placeholderId = createId("preparing")
+    const placeholder: AttachedFile = {
+      id: placeholderId,
+      file,
+      dataUrl: "",
+      mimeType: file.type || "application/octet-stream",
+      filename: file.name,
+      size: file.size,
+      source: "local",
+      uploadState: { status: "preparing" },
+    }
+    set((state) => ({ attachedFiles: [...state.attachedFiles, placeholder] }))
+    if (get().attachedFiles.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+      updateAttachment(placeholderId, (item) => ({ ...item, uploadState: { status: "failed", error: `You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files to one message.` } }))
+      return false
+    }
+
     for (let attempt = 0; attempt < MAX_ATTACHMENT_PREPARATION_ATTEMPTS; attempt += 1) {
-      const reservedFilenames = get().attachedFiles.map((attachment) => attachment.filename)
-      const preparedOrPending = prepareAttachmentFiles(file, reservedFilenames)
-      const preparedFiles = preparedOrPending instanceof Promise ? await preparedOrPending : preparedOrPending
-      if (!preparedFiles || preparedFiles.length === 0 || generation !== attachmentReadGeneration) return false
-
-      const generatedFilenames = preparedFiles.slice(1).map((prepared) => prepared.file.name)
-      if (hasGeneratedFilenameCollision(generatedFilenames, get().attachedFiles)) continue
-
-      const attachedFiles: AttachedFile[] = []
-      const isDocumentExtraction = preparedFiles.length > 1
-      const sourceDocumentId = isDocumentExtraction ? `${Date.now()}-${Math.random().toString(36).slice(2)}` : undefined
-      for (const prepared of preparedFiles) {
-        let dataUrl: string
-        try {
-          dataUrl = await readFileAsDataUrl(prepared.file, prepared.mimeType)
-        } catch {
-          return false
-        }
-        if (!dataUrl || generation !== attachmentReadGeneration) return false
-        attachedFiles.push({
-          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-          file: prepared.file,
-          dataUrl,
-          mimeType: prepared.mimeType,
-          filename: prepared.file.name,
-          size: prepared.file.size,
-          source: "local",
-          sourceDocumentId,
-        })
+      const reservedFilenames = get().attachedFiles.filter((attachment) => attachment.id !== placeholderId).map((attachment) => attachment.filename)
+      let preparedFiles
+      try {
+        const preparedOrPending = prepareAttachmentFiles(file, reservedFilenames)
+        preparedFiles = preparedOrPending instanceof Promise ? await preparedOrPending : preparedOrPending
+      } catch {
+        preparedFiles = null
+      }
+      if (generation !== attachmentReadGeneration || !get().attachedFiles.some((item) => item.id === placeholderId)) return false
+      if (!preparedFiles || preparedFiles.length === 0) {
+        updateAttachment(placeholderId, (item) => ({ ...item, uploadState: { status: "failed", error: "This file could not be prepared." } }))
+        return false
+      }
+      if (get().attachedFiles.length - 1 + preparedFiles.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+        updateAttachment(placeholderId, (item) => ({ ...item, uploadState: { status: "failed", error: `You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files to one message.` } }))
+        return false
+      }
+      if (preparedFiles.some((prepared) => prepared.file.size > MAX_ATTACHMENT_BYTES)) {
+        updateAttachment(placeholderId, (item) => ({ ...item, uploadState: { status: "failed", error: "File exceeds the 100 MB upload limit." } }))
+        return false
       }
 
-      if (hasGeneratedFilenameCollision(generatedFilenames, get().attachedFiles)) continue
-      set((state) => ({ attachedFiles: [...state.attachedFiles, ...attachedFiles] }))
+      const generatedFilenames = preparedFiles.slice(1).map((prepared) => prepared.file.name)
+      if (hasGeneratedFilenameCollision(generatedFilenames, get().attachedFiles.filter((item) => item.id !== placeholderId))) continue
+
+      const sourceDocumentId = preparedFiles.length > 1 ? createId("document") : undefined
+      const attachedFiles: AttachedFile[] = preparedFiles.map((prepared) => ({
+        id: createId(),
+        file: prepared.file,
+        dataUrl: "",
+        previewUrl: createPreviewUrl(prepared.file, prepared.mimeType),
+        mimeType: prepared.mimeType,
+        filename: prepared.file.name,
+        size: prepared.file.size,
+        source: "local" as const,
+        uploadState: { status: "preparing" } as const,
+        sourceDocumentId,
+      }))
+
+      if (generation !== attachmentReadGeneration) {
+        cancelFiles(attachedFiles, false)
+        return false
+      }
+      if (hasGeneratedFilenameCollision(generatedFilenames, get().attachedFiles.filter((item) => item.id !== placeholderId))) {
+        cancelFiles(attachedFiles, false)
+        continue
+      }
+      set((state) => ({
+        attachedFiles: state.attachedFiles.flatMap((item) => item.id === placeholderId ? attachedFiles : [item]),
+      }))
+      for (const attached of attachedFiles) enqueueUpload(attached.id)
       return true
     }
+
+    updateAttachment(placeholderId, (item) => ({ ...item, uploadState: { status: "failed", error: "Generated filenames conflict with existing attachments." } }))
     return false
   },
 
-  removeAttachedFile: (id) =>
-    set((s) => {
-      const target = s.attachedFiles.find((f) => f.id === id)
-      if (target?.sourceDocumentId) {
-        return { attachedFiles: s.attachedFiles.filter((f) => f.sourceDocumentId !== target.sourceDocumentId) }
+  retryAttachmentUpload: (id) => {
+    const file = get().attachedFiles.find((item) => item.id === id)
+    if (!file || file.source !== "local") return
+    if (file.sourceDocumentId) {
+      for (const member of get().attachedFiles.filter((item) => item.sourceDocumentId === file.sourceDocumentId)) {
+        if (member.uploadState?.status === "failed" || (member.uploadState?.status === "ready" && member.uploadState.expiresAt <= Date.now())) {
+          updateAttachment(member.id, (item) => ({ ...item, uploadState: { status: "preparing" } }))
+          enqueueUpload(member.id)
+        }
       }
-      return { attachedFiles: s.attachedFiles.filter((f) => f.id !== id) }
-    }),
+      return
+    }
+    updateAttachment(id, (item) => ({ ...item, uploadState: { status: "preparing" } }))
+    enqueueUpload(id)
+  },
+
+  removeAttachedFile: (id) => {
+    const target = get().attachedFiles.find((file) => file.id === id)
+    if (!target) return
+    const removed = target.sourceDocumentId
+      ? get().attachedFiles.filter((file) => file.sourceDocumentId === target.sourceDocumentId)
+      : [target]
+    cancelFiles(removed, true)
+    const removedIds = new Set(removed.map((file) => file.id))
+    set((state) => ({ attachedFiles: state.attachedFiles.filter((file) => !removedIds.has(file.id)) }))
+  },
+
+  detachAttachedFiles: (ids) => {
+    const idSet = new Set(ids)
+    const removed = get().attachedFiles.filter((file) => idSet.has(file.id))
+    cancelFiles(removed, false)
+    set((state) => ({ attachedFiles: state.attachedFiles.filter((file) => !idSet.has(file.id)) }))
+  },
 
   setAttachedFiles: (files) => {
     attachmentReadGeneration += 1
-    set({ attachedFiles: files })
+    cancelFiles(get().attachedFiles, false)
+    set({
+      attachedFiles: files.map((file): AttachedFile => file.source === "local" && file.uploadState === undefined
+        ? { ...file, uploadState: { status: "failed", error: "Upload needs to be refreshed. Retry the upload." } }
+        : file),
+    })
   },
 
   clearAttachedFiles: () => {
     attachmentReadGeneration += 1
+    cancelFiles(get().attachedFiles, true)
     set({ attachedFiles: [] })
   },
 
   addRestoredAttachment: ({ url, mimeType, filename }) => {
-    const id = `restored-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    // Use "local" source so the file renders in AttachedFilesList.
-    // Set serverPath to the URL so ImagePreview can use it as the img src
-    // when dataUrl is not a data: URL. sanitizeAttachmentsForSend leaves
-    // dataUrl alone for non-server sources, so the URL stays intact on send.
+    const id = createId("restored")
+    const file = new File([], filename, { type: mimeType })
     const attached: AttachedFile = {
       id,
-      file: new File([], filename, { type: mimeType }),
+      file,
       dataUrl: url,
       mimeType,
       filename,
       size: getDataUrlByteSize(url),
-      source: "local",
+      source: "server",
       serverPath: url,
     }
-    set((s) => ({ attachedFiles: [...s.attachedFiles, attached] }))
+    set((state) => ({ attachedFiles: [...state.attachedFiles, attached] }))
   },
 }))
+
+subscribeRuntimeEndpointWillChange(() => {
+  attachmentReadGeneration += 1
+  const files = useInputStore.getState().attachedFiles
+  cancelFiles(files, false)
+  useInputStore.setState({
+    attachedFiles: files.map((file): AttachedFile => file.source === "local"
+      ? { ...file, uploadState: { status: "failed", error: "The runtime changed. Retry the upload." } satisfies AttachmentUploadState }
+      : file),
+  })
+})

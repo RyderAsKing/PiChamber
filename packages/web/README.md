@@ -22,6 +22,7 @@ Use `--api-only` for a host intended to be paired from a PiChamber desktop or mo
 ## Runtime contract
 
 - Pi session state and actions are served only through `/api/pi/*`.
+- `POST /api/pi/attachments` accepts raw `application/octet-stream` bodies with bounded `X-PiChamber-Filename` and `X-PiChamber-Mime` metadata. It returns opaque attachment metadata plus `expiresAt`; filesystem paths remain private. The legacy base64 JSON body remains available for persisted clients. `DELETE /api/pi/attachments/:id` removes an unused upload. Prompt routes accept at most 20 attachment IDs and retire accepted uploads from the active 32-upload map while retaining their files until the one-hour expiry.
 - PiChamber-owned UI settings, custom themes, and update metadata use `/api/pi/ui-settings`, `/api/pi/themes`, and `/api/pi/update-check`; removed `/api/config/*` and `/api/pichamber/*` aliases are not required.
 - Final-only speech-to-text uses authenticated `/api/stt/*` routes and `/api/stt/ws`. Local model inference runs in a forked worker, while remote provider credentials remain in server configuration.
 - Browser and paired clients authenticate with UI sessions or scoped client credentials.

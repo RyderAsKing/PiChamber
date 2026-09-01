@@ -79,7 +79,7 @@ import { setSessionOpener } from "./session-navigation"
 import { getRuntimeKey } from "@/lib/runtime-switch"
 import { clearLastActiveSession, persistLastActiveSession, readLastActiveSession } from "./last-session-cache"
 import { rememberRuntimeLiveStatus } from "./runtime-live-memory"
-import { fileToBase64, sanitizeFilename } from "@/lib/pi/attachments"
+import { sanitizeFilename } from "@/lib/pi/attachments"
 
 export type { AttachedFile }
 
@@ -98,8 +98,8 @@ export async function routeMessage(params: {
   agentMentionName?: string
   variant?: string
   inputMode?: "normal" | "shell"
-  files?: Array<{ type: "file"; mime: string; url: string; filename: string }>
-  additionalParts?: Array<{ text: string; synthetic?: boolean; files?: Array<{ type: "file"; mime: string; url: string; filename: string }> }>
+  files?: Array<{ type: "file"; mime: string; url: string; filename: string; uploadState?: AttachedFile["uploadState"] }>
+  additionalParts?: Array<{ text: string; synthetic?: boolean; files?: Array<{ type: "file"; mime: string; url: string; filename: string; uploadState?: AttachedFile["uploadState"] }> }>
   delivery?: 'steer' | 'followUp' | 'prompt'
 }): Promise<void> {
   const delivery = params.delivery === 'steer' || params.delivery === 'followUp' ? params.delivery : 'prompt'
@@ -132,21 +132,39 @@ export async function routeMessage(params: {
   const outgoingFiles = [
     ...(params.files ?? []),
     ...(params.additionalParts ?? []).flatMap((part) => part.files ?? []),
-  ].filter((file) => {
-    if (!file || typeof file !== 'object') return false;
-    if (typeof file.url === 'string' && file.url.startsWith('data:')) return true;
-    if (typeof (file as { arrayBuffer?: unknown }).arrayBuffer === 'function') return true;
-    return false;
-  });
-  const attachments = await Promise.all(outgoingFiles.map(async (file) => {
-    const attachment = await sessionStore.upload({
-      filename: sanitizeFilename(file.filename),
-      mime: file.mime,
-      base64: await fileToBase64(file),
-    })
-    return { id: attachment.id }
-  }))
-  await sessionStore.prompt(params.sessionId, params.content, delivery, attachments.length > 0 ? attachments : undefined)
+  ].filter((file) => file.uploadState !== undefined || file.url.startsWith('data:'));
+  const refreshedIds: string[] = [];
+  try {
+    const attachments = await Promise.all(outgoingFiles.map(async (file) => {
+      const state = file.uploadState;
+      if (state?.status === 'preparing' || state?.status === 'uploading') {
+        throw new Error('Attachments are still uploading.');
+      }
+      if (state?.status === 'failed') {
+        throw new Error('Retry or remove failed attachments.');
+      }
+      if (state?.status === 'ready' && state.expiresAt > Date.now()) {
+        return { id: state.attachmentId };
+      }
+      // Persisted queue entries from before the upload lifecycle retain a data
+      // URL. Refresh those, and expired ready entries, over the binary route.
+      if (typeof file.url === 'string' && file.url.startsWith('data:')) {
+        const response = await fetch(file.url);
+        const blob = await response.blob();
+        const attachment = await sessionStore.uploadFile(blob, {
+          filename: sanitizeFilename(file.filename),
+          mime: file.mime,
+        });
+        refreshedIds.push(attachment.id);
+        return { id: attachment.id };
+      }
+      throw new Error('Attachment data is unavailable. Remove the attachment and add it again.');
+    }));
+    await sessionStore.prompt(params.sessionId, params.content, delivery, attachments.length > 0 ? attachments : undefined);
+  } catch (error) {
+    await Promise.all(refreshedIds.map((id) => sessionStore.deleteUpload(id).catch(() => undefined)));
+    throw error;
+  }
 }
 
 type CapturedSendTarget = {
@@ -1091,6 +1109,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         mime: a.mimeType,
         url: a.dataUrl,
         filename: a.filename,
+        uploadState: a.uploadState,
       }))
 
       await routeMessage({
@@ -1113,6 +1132,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
             mime: a.mimeType,
             url: a.dataUrl,
             filename: a.filename,
+            uploadState: a.uploadState,
           })),
         })),
       })
@@ -1166,6 +1186,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       mime: a.mimeType,
       url: a.dataUrl,
       filename: a.filename,
+      uploadState: a.uploadState,
     }))
 
     await routeMessage({
@@ -1189,6 +1210,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
           mime: a.mimeType,
           url: a.dataUrl,
           filename: a.filename,
+          uploadState: a.uploadState,
         })),
       })),
     })

@@ -14,6 +14,8 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 const store = getPiSessionStore();
 const originals = {
   upload: store.upload,
+  uploadFile: store.uploadFile,
+  deleteUpload: store.deleteUpload,
   prompt: store.prompt,
   setModel: store.setModel,
   setThinking: store.setThinking,
@@ -23,6 +25,8 @@ const originals = {
 
 afterEach(() => {
   store.upload = originals.upload;
+  store.uploadFile = originals.uploadFile;
+  store.deleteUpload = originals.deleteUpload;
   store.prompt = originals.prompt;
   store.setModel = originals.setModel;
   store.setThinking = originals.setThinking;
@@ -37,9 +41,9 @@ describe('routeMessage', () => {
     const prompts: unknown[][] = [];
     store.setModel = async () => undefined;
     store.setThinking = async () => undefined;
-    store.upload = async (input) => {
-      uploads.push(input);
-      return { id: `attachment-${uploads.length}`, name: input.filename, mime: input.mime, size: 3 };
+    store.uploadFile = async (file, input) => {
+      uploads.push({ filename: input.filename, mime: input.mime, base64: Buffer.from(await file.arrayBuffer()).toString('base64') });
+      return { id: `attachment-${uploads.length}`, name: input.filename, mime: input.mime, size: file.size, expiresAt: Date.now() + 60_000 };
     };
     store.prompt = async (...args) => {
       prompts.push(args);
@@ -57,6 +61,65 @@ describe('routeMessage', () => {
 
     expect(uploads).toEqual([{ filename: '__screen.png', mime: 'image/png', base64: 'AQID' }]);
     expect(prompts).toEqual([['session-1', 'hello', 'prompt', [{ id: 'attachment-1' }]]]);
+  });
+
+  test('deletes compatibility refreshes when prompt dispatch fails', async () => {
+    const deleted: string[] = [];
+    store.setModel = async () => undefined;
+    store.setThinking = async () => undefined;
+    store.uploadFile = async (file, input) => ({
+      id: 'refreshed-1', name: input.filename, mime: input.mime, size: file.size, expiresAt: Date.now() + 60_000,
+    });
+    store.deleteUpload = async (id) => { deleted.push(id); };
+    store.prompt = async () => { throw new Error('prompt failed'); };
+
+    await expect(routeMessage({
+      sessionId: 'session-legacy', directory: '/workspace', content: 'hello', providerID: 'provider', modelID: 'model',
+      files: [{ type: 'file', mime: 'text/plain', filename: 'legacy.txt', url: 'data:text/plain;base64,aGVsbG8=' }],
+    })).rejects.toThrow('prompt failed');
+    expect(deleted).toEqual(['refreshed-1']);
+  });
+
+  test('forwards ready attachment ids without uploading again', async () => {
+    const prompts: unknown[][] = [];
+    store.setModel = async () => undefined;
+    store.setThinking = async () => undefined;
+    store.upload = async () => { throw new Error('ready attachments must not upload again'); };
+    store.prompt = async (...args) => {
+      prompts.push(args);
+      return { accepted: true, messageId: 'message-ready' };
+    };
+
+    await routeMessage({
+      sessionId: 'session-ready',
+      directory: '/workspace',
+      content: 'hello',
+      providerID: 'provider',
+      modelID: 'model',
+      files: [{
+        type: 'file', mime: 'text/plain', filename: 'note.txt', url: 'data:text/plain;base64,aGVsbG8=',
+        uploadState: { status: 'ready', attachmentId: 'opaque-1', expiresAt: Date.now() + 60_000 },
+      }],
+    });
+
+    expect(prompts).toEqual([['session-ready', 'hello', 'prompt', [{ id: 'opaque-1' }]]]);
+  });
+
+  test('rejects pending and failed attachments before prompt dispatch', async () => {
+    let prompted = false;
+    store.setModel = async () => undefined;
+    store.setThinking = async () => undefined;
+    store.prompt = async () => {
+      prompted = true;
+      return { accepted: true, messageId: 'message-never' };
+    };
+    const base = {
+      sessionId: 'session-1', directory: '/workspace', content: 'hello', providerID: 'provider', modelID: 'model',
+    };
+
+    await expect(routeMessage({ ...base, files: [{ type: 'file', mime: 'text/plain', filename: 'a', url: '', uploadState: { status: 'uploading', progress: 10 } }] })).rejects.toThrow('still uploading');
+    await expect(routeMessage({ ...base, files: [{ type: 'file', mime: 'text/plain', filename: 'a', url: '', uploadState: { status: 'failed', error: 'nope' } }] })).rejects.toThrow('Retry or remove');
+    expect(prompted).toBe(false);
   });
 
   test('filters out non-data/server file references without throwing base64 errors', async () => {

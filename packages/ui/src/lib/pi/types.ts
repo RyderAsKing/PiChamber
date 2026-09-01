@@ -176,6 +176,8 @@ export interface PiAttachment {
   mime: string;
   /** Local size in bytes after sanitization. */
   size: number;
+  /** Time when an unused upload stops being available for prompt dispatch. */
+  expiresAt?: number;
   /**
    * Server-local absolute path. Browsers never receive this value through
    * `getMessage`; the daemon hands it only to Pi tools.

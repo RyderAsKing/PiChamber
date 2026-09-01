@@ -18,6 +18,7 @@
  */
 
 import { runtimeFetch } from '@/lib/runtime-fetch';
+import { runtimeUpload, type RuntimeUploadProgress } from '@/lib/runtime-upload';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import {
   type PiError,
@@ -568,6 +569,31 @@ export class PiService {
       { method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
     );
     return response.attachment;
+  }
+
+  async uploadAttachment(
+    file: Blob,
+    input: { filename: string; mime: string; signal?: AbortSignal; onProgress?: (progress: RuntimeUploadProgress) => void },
+    scope?: PiClientScope,
+  ): Promise<PiAttachment & { expiresAt: number }> {
+    assertRuntimeUnchanged(scope);
+    const response = await runtimeUpload('/api/pi/attachments', file, input);
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { error?: PiError } | null;
+      const error = body?.error ?? { code: 'ATTACHMENT_FAILED' };
+      throw new PiRequestError(error.code, error.message, response.status);
+    }
+    const result = (await response.json()) as PiAttachmentCreateResponse;
+    assertRuntimeUnchanged(scope);
+    return result.attachment;
+  }
+
+  async deleteAttachment(id: string, scope?: PiClientScope): Promise<void> {
+    assertRuntimeUnchanged(scope);
+    await jsonRequest<undefined, undefined>(`/api/pi/attachments/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
   }
 
   // ----- Extensions -------------------------------------------------------

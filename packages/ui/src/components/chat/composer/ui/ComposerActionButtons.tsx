@@ -18,6 +18,7 @@ type ComposerActionButtonsProps = {
     sendIconSizeClass: string;
     stopIconSizeClass: string;
     canSend: boolean;
+    disabledReason?: string | null;
     canAbort: boolean;
     hasContent: boolean;
     currentSessionId: string | null;
@@ -34,6 +35,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
         sendIconSizeClass,
         stopIconSizeClass,
         canSend,
+        disabledReason,
         canAbort,
         hasContent,
         currentSessionId,
@@ -62,7 +64,8 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
                     ? 'text-primary hover:text-primary'
                     : 'opacity-30'
             )}
-            aria-label={"Send message"}
+            aria-label={disabledReason || "Send message"}
+            title={disabledReason || undefined}
         >
             <Icon name="send-plane-2" className={cn(sendIconSizeClass)} />
         </button>
@@ -77,7 +80,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
             {hasContent ? (
                 <button
                     type="button"
-                    disabled={!currentSessionId}
+                    disabled={!currentSessionId || !canSend}
                     onClick={(event) => {
                         if (isMobile) {
                             event.preventDefault();
@@ -87,9 +90,10 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
                     className={cn(
                         footerIconButtonClass,
                         'absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-1',
-                        currentSessionId ? 'text-primary hover:text-primary' : 'opacity-30'
+                        currentSessionId && canSend ? 'text-primary hover:text-primary' : 'opacity-30'
                     )}
-                    aria-label={"Queue message"}
+                    aria-label={disabledReason || "Queue message"}
+                    title={disabledReason || undefined}
                 >
                     <Icon name="send-plane-2" className={cn(sendIconSizeClass, '-rotate-90')} />
                 </button>
@@ -113,6 +117,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
     && prev.sendIconSizeClass === next.sendIconSizeClass
     && prev.stopIconSizeClass === next.stopIconSizeClass
     && prev.canSend === next.canSend
+    && prev.disabledReason === next.disabledReason
     && prev.canAbort === next.canAbort
     && prev.hasContent === next.hasContent
     && prev.currentSessionId === next.currentSessionId
