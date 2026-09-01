@@ -998,6 +998,7 @@ export function createSessionDaemon({
     const isStreaming = session.isStreaming === true;
     const retry = retryStateBySession.get(session.sessionId);
     const compaction = compactionStateFor(session);
+    const extensionSnapshot = extensionBridge.getSnapshotState(session.sessionId);
     return {
       session: {
         id: session.sessionId, directory: targetDir, createdAt, updatedAt: createdAt,
@@ -1014,6 +1015,12 @@ export function createSessionDaemon({
       ...(compaction ? { compaction } : {}),
       ...(activeRunStartedAt.has(session.sessionId) ? { runStartedAt: activeRunStartedAt.get(session.sessionId) } : {}),
       serverNow: Date.now(),
+      ...(extensionSnapshot.statuses ? { extensionStatuses: extensionSnapshot.statuses } : {}),
+      ...(extensionSnapshot.widgets ? { extensionWidgets: extensionSnapshot.widgets } : {}),
+      ...(extensionSnapshot.dialogs ? { extensionDialogs: extensionSnapshot.dialogs } : {}),
+      ...(extensionSnapshot.panels ? { extensionPanels: extensionSnapshot.panels } : {}),
+      ...(extensionSnapshot.apps ? { extensionApps: extensionSnapshot.apps } : {}),
+      ...(extensionSnapshot.title ? { extensionTitle: extensionSnapshot.title } : {}),
     };
   };
 

@@ -135,7 +135,15 @@ export interface PiSessionCreateInput {
   thinking?: PiThinkingLevel;
 }
 
-export interface PiSessionDetailResponse {
+export interface PiSessionDetailResponse extends Pick<
+  PiSessionSnapshot,
+  | 'extensionStatuses'
+  | 'extensionWidgets'
+  | 'extensionDialogs'
+  | 'extensionPanels'
+  | 'extensionApps'
+  | 'extensionTitle'
+> {
   session: PiSession;
   messages: PiMessageView[];
   /** Last sequence number the daemon has published for this session. */

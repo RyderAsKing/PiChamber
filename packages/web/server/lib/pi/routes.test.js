@@ -474,6 +474,7 @@ describe('Pi runtime route', () => {
       isStreaming: true,
       lifecycle: 'retry',
       retry: { attempt: 2, next: 5_000, message: 'provider request timed out' },
+      extensionStatuses: [{ key: 'mode', text: 'mode:economy/xhigh' }],
     };
     const runtime = {
       health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
@@ -501,6 +502,7 @@ describe('Pi runtime route', () => {
       isStreaming: true,
       lifecycle: 'retry',
       retry: { attempt: 2, next: 5_000, message: 'provider request timed out' },
+      extensionStatuses: [{ key: 'mode', text: 'mode:economy/xhigh' }],
     });
     const promptResponse = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions/pi-session-4/prompt`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other', text: 'hello' }),
