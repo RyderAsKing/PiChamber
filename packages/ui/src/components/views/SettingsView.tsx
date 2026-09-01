@@ -13,8 +13,6 @@ import { SkillsPage } from '@/components/sections/skills/SkillsPage';
 import { ProjectsPage } from '@/components/sections/projects/ProjectsPage';
 import { RemoteInstancesPage } from '@/components/sections/remote-instances/RemoteInstancesPage';
 import { ProvidersPage } from '@/components/sections/providers/ProvidersPage';
-import { MagicPromptsSidebar } from '@/components/sections/magic-prompts/MagicPromptsSidebar';
-import { MagicPromptsPage } from '@/components/sections/magic-prompts/MagicPromptsPage';
 import { SnippetsPage } from '@/components/sections/snippets/SnippetsPage';
 import { GitPage } from '@/components/sections/git-identities/GitPage';
 import type { PiChamberSection } from '@/components/sections/pichamber/types';
@@ -80,7 +78,6 @@ const pageOrder: SettingsPageSlug[] = [
   'git',
   'providers',
   'behavior',
-  'magic-prompts',
   'snippets',
   'skills.installed',
 ];
@@ -294,8 +291,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         return "Shortcuts";
       case 'sessions':
         return "Sessions";
-      case 'magic-prompts':
-        return "PiChamber Utility Prompts";
       case 'snippets':
         return "Snippets";
       case 'notifications':
@@ -470,8 +465,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
 
   const renderPageSidebar = React.useCallback((slug: SettingsPageSlug, opts: { onItemSelect?: () => void }) => {
     switch (slug) {
-      case 'magic-prompts':
-        return <MagicPromptsSidebar onItemSelect={opts.onItemSelect} />;
       default:
         return null;
     }
@@ -502,8 +495,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
             <AboutSettings />
           </SettingsPageLayout>
         );
-      case 'magic-prompts':
-        return <MagicPromptsPage />;
       case 'snippets':
         return <SnippetsPage />;
       case 'dictation':

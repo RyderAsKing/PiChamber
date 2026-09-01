@@ -10,7 +10,6 @@ import { useMobileAppActions } from '@/apps/mobileAppContext';
 import { openSkillSettings } from '@/lib/skills/openSkillSettings';
 import { parseSkillHref } from '@/lib/messages/inlineMessageLinks';
 import { prepareUserMarkdownContent, SKILL_TOKEN_PATTERN } from './userTextPartContent';
-import { extractTerminalContexts } from '@/lib/messages/terminalContext';
 
 type PartWithText = Part & { text?: string; content?: string; value?: string };
 
@@ -29,8 +28,7 @@ const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMenti
     const partWithText = part as PartWithText;
     const rawText = partWithText.text;
     const serializedText = typeof rawText === 'string' ? rawText : partWithText.content || partWithText.value || '';
-    const terminalContextState = React.useMemo(() => extractTerminalContexts(serializedText), [serializedText]);
-    const textContent = terminalContextState.visibleText;
+    const textContent = serializedText;
 
     const [isExpanded, setIsExpanded] = React.useState(false);
     const [isTruncated, setIsTruncated] = React.useState(false);
@@ -180,7 +178,7 @@ const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMenti
         });
     }, [agentMention, openSkill, skillByName, textContent]);
 
-    if ((!textContent || textContent.trim().length === 0) && terminalContextState.contexts.length === 0) {
+    if (!textContent || textContent.trim().length === 0) {
         return null;
     }
 
@@ -235,18 +233,6 @@ const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMenti
                     plainTextContent
                 )}
             </div>
-            {terminalContextState.contexts.length > 0 ? (
-                <div className="mt-2 space-y-1.5">
-                    {terminalContextState.contexts.map((context, index) => (
-                        <details key={`${context.terminalLabel}-${context.startLine}-${index}`} className="rounded-md border border-[var(--interactive-border)] bg-[var(--surface-elevated)] px-2 py-1.5 text-xs">
-                            <summary className="cursor-pointer text-[var(--surface-mutedForeground)]">
-                                {`${context.terminalLabel}, lines ${context.startLine}-${context.endLine}`}
-                            </summary>
-                            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[var(--surface-foreground)]">{context.text}</pre>
-                        </details>
-                    ))}
-                </div>
-            ) : null}
         </div>
     );
 };

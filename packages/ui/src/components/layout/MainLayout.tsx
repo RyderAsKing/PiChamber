@@ -3,7 +3,6 @@ import { animate, motion, useMotionValue } from 'motion/react';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { TitlebarLeftControls } from './TitlebarLeftControls';
-import { ProjectContextPanel } from './RightSidebarTabs';
 import { ContextPanel } from './ContextPanel';
 import { ContextPanelRail } from './ContextPanelRail';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
@@ -376,8 +375,6 @@ export const MainLayout: React.FC = () => {
                 return <TerminalView />;
             case 'files':
                 return <React.Suspense fallback={null}><FilesView /></React.Suspense>;
-            case 'context':
-                return <React.Suspense fallback={null}><ProjectContextPanel /></React.Suspense>;
             case 'diagram':
                 return <React.Suspense fallback={null}><DiagramView /></React.Suspense>;
             default:

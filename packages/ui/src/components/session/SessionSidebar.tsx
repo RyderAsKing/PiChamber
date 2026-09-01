@@ -81,7 +81,6 @@ import {
 import {
   resolveGlobalSessionDirectory,
 } from '@/stores/useGlobalSessionsStore';
-import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
 import { useNotificationStore } from '@/sync/notification-store';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useMobileAppActions } from '@/apps/mobileAppContext';

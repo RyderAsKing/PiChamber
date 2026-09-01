@@ -13,7 +13,6 @@ import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 const DiffView = lazyWithChunkRecovery(() => import('@/components/views/DiffView').then((m) => ({ default: m.DiffView })));
 const FilesView = lazyWithChunkRecovery(() => import('@/components/views/FilesView').then((m) => ({ default: m.FilesView })));
 const GitView = lazyWithChunkRecovery(() => import('@/components/views/GitView').then((m) => ({ default: m.GitView })));
-import { ProjectContextPanel } from './RightSidebarTabs';
 import { SidebarFilesTree } from './SidebarFilesTree';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { openExternalUrl } from '@/lib/url';
@@ -24,7 +23,6 @@ import { useFilesViewTabsStore } from '@/stores/useFilesViewTabsStore';
 import { useUIStore, type ContextPanelMode, type PendingDiffScope } from '@/stores/useUIStore';
 import { getGitRailPresentation } from '@/lib/surfaces/registry';
 import { useIsGitRepo } from '@/stores/useGitStore';
-import { useInlineCommentDraftStore } from '@/stores/useInlineCommentDraftStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useInputStore } from '@/sync/input-store';
 import { ContextPanelContent } from './ContextSidebarTab';
@@ -151,9 +149,16 @@ const getModeLabel = (mode: ContextPanelMode, isGitRepo: boolean | null = null):
   if (mode === 'preview') return "Preview";
   if (mode === 'browser') return "Browser";
   if (mode === 'git') return getGitRailPresentation(isGitRepo).label;
-  if (mode === 'notes') return "Project notes";
   if (mode === 'terminal') return "Terminal";
   return "Context";
+};
+
+const appendPendingSyntheticText = (text: string): void => {
+  const input = useInputStore.getState();
+  input.setPendingSyntheticParts([
+    ...(input.pendingSyntheticParts ?? []),
+    { text, synthetic: true },
+  ]);
 };
 
 const getFileNameFromPath = (path: string | null): string | null => {
@@ -222,9 +227,6 @@ const getTabIcon = (tab: { mode: ContextPanelMode; targetPath: string | null }, 
     return <Icon name={getGitRailPresentation(isGitRepo).icon} className="h-3.5 w-3.5" />;
   }
 
-  if (tab.mode === 'notes') {
-    return <Icon name="sticky-note" className="h-3.5 w-3.5" />;
-  }
 
   if (tab.mode === 'terminal') {
     return <Icon name="terminal-box" className="h-3.5 w-3.5" />;
@@ -598,7 +600,6 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const newSessionDraftOpen = useSessionUIStore((state) => state.newSessionDraft?.open);
   const effectiveDirectory = useEffectiveDirectory();
-  const addInlineCommentDraft = useInlineCommentDraftStore((state) => state.addDraft);
   const addAttachedFile = useInputStore((state) => state.addAttachedFile);
 
   let parsedUrl: URL | null = null;
@@ -768,25 +769,17 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
         attachedScreenshot = false;
       }
 
-      addInlineCommentDraft({ directory: effectiveDirectory, sessionKey }, {
-        source: 'preview-annotation',
-        fileLabel: pageUrl || 'preview',
-        startLine: 1,
-        endLine: 1,
-        code: formatPreviewAnnotationMarkdown({
-          pageUrl,
-          viewport,
-          devicePixelRatio,
-          target,
-          screenshotAttached: attachedScreenshot,
-          intro: "This is a selected DOM element from the in-app preview.",
-        }),
-        language: 'markdown',
-        text: '',
-      });
+      appendPendingSyntheticText(formatPreviewAnnotationMarkdown({
+        pageUrl,
+        viewport,
+        devicePixelRatio,
+        target,
+        screenshotAttached: attachedScreenshot,
+        intro: "This is a selected DOM element from the in-app preview.",
+      }));
       toast.success("Preview annotation attached to chat");
     })();
-  }, [addAttachedFile, addInlineCommentDraft, currentSessionId, effectiveDirectory, effectiveSrc, newSessionDraftOpen, rawUrl]);
+  }, [addAttachedFile, currentSessionId, effectiveDirectory, effectiveSrc, newSessionDraftOpen, rawUrl]);
 
   React.useEffect(() => {
     setBridgeReady(false);
@@ -992,17 +985,9 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
       return `[${timestamp}] [${event.level}] ${event.message}${details}`;
     }).join('\n');
 
-    addInlineCommentDraft({ directory: effectiveDirectory, sessionKey }, {
-      source: 'preview-console',
-      fileLabel: rawUrl || effectiveSrc || 'preview',
-      startLine: 1,
-      endLine: Math.max(1, consoleEvents.length),
-      code: `${header}${text}`,
-      language: 'text',
-      text: "These are browser console logs from the dev server running for this project.",
-    });
+    appendPendingSyntheticText(`These are browser console logs from the dev server running for this project.\n\n${header}${text}`);
     toast.success("Preview console attached to chat");
-  }, [addInlineCommentDraft, consoleEvents, currentSessionId, effectiveDirectory, effectiveSrc, newSessionDraftOpen, rawUrl]);
+  }, [consoleEvents, currentSessionId, effectiveDirectory, effectiveSrc, newSessionDraftOpen, rawUrl]);
 
   // Out-of-band upstream probe: iframes don't expose HTTP status to the parent,
   // so when the proxy returns a 502 (upstream dev server is offline) the iframe
@@ -1394,7 +1379,6 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
   const [urlAuthReadyKey, setUrlAuthReadyKey] = React.useState('');
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const newSessionDraftOpen = useSessionUIStore((state) => state.newSessionDraft?.open);
-  const addInlineCommentDraft = useInlineCommentDraftStore((state) => state.addDraft);
   const addAttachedFile = useInputStore((state) => state.addAttachedFile);
 
   const persistUrl = React.useCallback((url: string) => {
@@ -1643,24 +1627,16 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
       await addAttachedFile(file);
     }
 
-    addInlineCommentDraft({ directory, sessionKey }, {
-      source: 'preview-annotation',
-      fileLabel: currentUrl || 'browser',
-      startLine: 1,
-      endLine: 1,
-      code: formatPreviewAnnotationMarkdown({
-        pageUrl: currentUrl,
-        viewport,
-        devicePixelRatio: window.devicePixelRatio || 1,
-        target,
-        screenshotAttached,
-        intro: (screenshotAttached ? "This is a selected DOM element from the in-app preview. A screenshot of the visible preview area with the selected element highlighted is attached." : "This is a selected DOM element from the in-app preview."),
-      }),
-      language: 'markdown',
-      text: '',
-    });
+    appendPendingSyntheticText(formatPreviewAnnotationMarkdown({
+      pageUrl: currentUrl,
+      viewport,
+      devicePixelRatio: window.devicePixelRatio || 1,
+      target,
+      screenshotAttached,
+      intro: (screenshotAttached ? "This is a selected DOM element from the in-app preview. A screenshot of the visible preview area with the selected element highlighted is attached." : "This is a selected DOM element from the in-app preview."),
+    }));
     toast.success("Preview annotation attached to chat");
-  }, [addAttachedFile, addInlineCommentDraft, currentSessionId, currentUrl, directory, newSessionDraftOpen]);
+  }, [addAttachedFile, currentSessionId, currentUrl, newSessionDraftOpen]);
 
   const cancelInspect = React.useCallback(() => {
     const iframe = iframeRef.current;
@@ -1881,7 +1857,6 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
   }, [directory, tabID, setContextPanelTabTargetPath]);
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const newSessionDraftOpen = useSessionUIStore((state) => state.newSessionDraft?.open);
-  const addInlineCommentDraft = useInlineCommentDraftStore((state) => state.addDraft);
   const addAttachedFile = useInputStore((state) => state.addAttachedFile);
 
   // Listen to webview navigation events
@@ -2047,26 +2022,18 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
           await addAttachedFile(file);
         }
 
-        addInlineCommentDraft({ directory, sessionKey }, {
-          source: 'preview-annotation',
-          fileLabel: currentUrl || 'browser',
-          startLine: 1,
-          endLine: 1,
-          code: formatPreviewAnnotationMarkdown({
-            pageUrl: currentUrl,
-            viewport: { width: cssWidth, height: cssHeight },
-            devicePixelRatio: window.devicePixelRatio || 1,
-            target,
-            screenshotAttached,
-            intro: "This is a selected DOM element from the in-app preview. A screenshot of the visible preview area with the selected element highlighted is attached.",
-          }),
-          language: 'markdown',
-          text: '',
-        });
+        appendPendingSyntheticText(formatPreviewAnnotationMarkdown({
+          pageUrl: currentUrl,
+          viewport: { width: cssWidth, height: cssHeight },
+          devicePixelRatio: window.devicePixelRatio || 1,
+          target,
+          screenshotAttached,
+          intro: "This is a selected DOM element from the in-app preview. A screenshot of the visible preview area with the selected element highlighted is attached.",
+        }));
         toast.success("Preview annotation attached to chat");
       })
       .catch(() => setIsInspecting(false));
-  }, [addAttachedFile, addInlineCommentDraft, currentSessionId, currentUrl, directory, isInspecting, newSessionDraftOpen]);
+  }, [addAttachedFile, currentSessionId, currentUrl, isInspecting, newSessionDraftOpen]);
 
   return (
     <div className="absolute inset-0 flex flex-col bg-background">
@@ -2396,8 +2363,6 @@ export const ContextPanel: React.FC = () => {
         ? <ContextPanelContent />
         : activeTab?.mode === 'git'
             ? <React.Suspense fallback={null}><GitView isActive={isOpen} /></React.Suspense>
-            : activeTab?.mode === 'notes'
-                ? <ProjectContextPanel />
             : activeTab?.mode === 'preview'
                 ? <PreviewPane rawUrl={activeTab.targetPath ?? ''} onNavigate={(url) => openContextPreview(effectiveDirectory, url)} />
                 : (

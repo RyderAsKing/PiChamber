@@ -61,7 +61,6 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useFilesViewTabsStore } from '@/stores/useFilesViewTabsStore';
 import { useGitStatus } from '@/stores/useGitStore';
 import { useConfigStore } from '@/stores/useConfigStore';
-import { buildCodeMirrorCommentWidgets, normalizeLineRange, useInlineCommentController } from '@/components/comments';
 import { listLocalDirectory } from '@/lib/fsApi';
 import { useDirectoryShowHidden } from '@/lib/directoryShowHidden';
 import { useFilesViewShowGitignored } from '@/lib/filesViewShowGitignored';
@@ -88,11 +87,6 @@ type FileStatSnapshot = {
   path: string;
   size: number;
   mtimeMs?: number;
-};
-
-type SelectedLineRange = {
-  start: number;
-  end: number;
 };
 
 const getParentDirectoryPath = (path: string): string => {
@@ -1006,13 +1000,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     setIsDialogSubmitting(false);
   }, []);
 
-  // Line selection state for commenting
-  const [lineSelection, setLineSelection] = React.useState<SelectedLineRange | null>(null);
-  const isSelectingRef = React.useRef(false);
-  const selectionStartRef = React.useRef<number | null>(null);
-  const [isDragging, setIsDragging] = React.useState(false);
-
-  // Session/config for sending comments
+  // File navigation/editor state
   const setMainTabGuard = useUIStore((state) => state.setMainTabGuard);
   const pendingFileNavigation = useUIStore((state) => state.pendingFileNavigation);
   const setPendingFileNavigation = useUIStore((state) => state.setPendingFileNavigation);
@@ -1022,17 +1010,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
   const fileEditorKeymap = useUIStore((state) => state.fileEditorKeymap);
   const settingsDefaultFileViewerPreview = useConfigStore((state) => state.settingsDefaultFileViewerPreview);
   const settingsExpandedEditorToolbar = useUIStore((state) => state.expandedEditorToolbar);
-
-  // Global mouseup to end drag selection
-  React.useEffect(() => {
-    const handleGlobalMouseUp = () => {
-      isSelectingRef.current = false;
-      selectionStartRef.current = null;
-      setIsDragging(false);
-    };
-    document.addEventListener('mouseup', handleGlobalMouseUp);
-    return () => document.removeEventListener('mouseup', handleGlobalMouseUp);
-  }, []);
 
   React.useEffect(() => {
     return () => {
@@ -1045,83 +1022,11 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     };
   }, []);
 
-  // Extract selected code
-  const extractSelectedCode = React.useCallback((content: string, range: SelectedLineRange): string => {
-    const lines = content.split('\n');
-    const startLine = Math.max(1, range.start);
-    const endLine = Math.min(lines.length, range.end);
-    if (startLine > endLine) return '';
-    return lines.slice(startLine - 1, endLine).join('\n');
-  }, []);
-
-  const fileCommentController = useInlineCommentController<SelectedLineRange>({
-    source: 'file',
-    fileLabel: selectedFile?.path ?? null,
-    language: selectedFile?.path ? getLanguageFromExtension(selectedFile.path) || 'text' : 'text',
-    getCodeForRange: (range) => extractSelectedCode(fileContent, normalizeLineRange(range)),
-    toStoreRange: (range) => ({ startLine: range.start, endLine: range.end }),
-    fromDraftRange: (draft) => ({ start: draft.startLine, end: draft.endLine }),
-  });
-
-  const {
-    drafts: filesFileDrafts,
-    commentText,
-    setCommentText,
-    editingDraftId,
-    setSelection: setCommentSelection,
-    saveComment,
-    cancel,
-    reset,
-    startEdit,
-    deleteDraft,
-  } = fileCommentController;
-
   React.useEffect(() => {
-    setLineSelection(null);
-    reset();
     setMainTabGuard(null);
     setDraftContent('');
     setIsSaving(false);
-  }, [selectedFile?.path, reset, setMainTabGuard]);
-
-  React.useEffect(() => {
-    setCommentSelection(lineSelection);
-  }, [lineSelection, setCommentSelection]);
-
-  React.useEffect(() => {
-    if (!lineSelection && !editingDraftId) return;
-
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-
-      if (target.closest('[data-comment-input="true"]') || target.closest('[data-comment-card="true"]')) return;
-      if (target.closest('.cm-gutterElement')) return;
-      if (target.closest('[data-sonner-toast]') || target.closest('[data-sonner-toaster]')) return;
-
-      if (!commentText.trim()) {
-        setLineSelection(null);
-        cancel();
-      }
-    };
-
-    const timeoutId = setTimeout(() => {
-      document.addEventListener('click', handleClickOutside);
-    }, 100);
-
-    return () => {
-      clearTimeout(timeoutId);
-      document.removeEventListener('click', handleClickOutside);
-    };
-  }, [cancel, commentText, editingDraftId, lineSelection]);
-
-  const handleSaveComment = React.useCallback((text: string, range?: { start: number; end: number }) => {
-    const finalRange = range ?? lineSelection ?? undefined;
-    if (range) {
-      setLineSelection(range);
-    }
-    saveComment(text, finalRange);
-    setLineSelection(null);
-  }, [lineSelection, saveComment]);
+  }, [selectedFile?.path, setMainTabGuard]);
 
   const mapDirectoryEntries = React.useCallback((dirPath: string, entries: Array<{ name: string; path: string; isDirectory: boolean }>): FileNode[] => {
     const nodes: FileNode[] = [];
@@ -3135,30 +3040,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
 
   const handleCloseDialog = React.useCallback(() => setActiveDialog(null), []);
 
-  const blockWidgets = React.useMemo(() => {
-    return buildCodeMirrorCommentWidgets({
-      drafts: filesFileDrafts,
-      editingDraftId,
-      commentText,
-      onTextChange: setCommentText,
-      selection: lineSelection,
-      isDragging,
-      fileLabel: selectedFile?.path ?? '',
-      newWidgetId: 'files-new-comment-input',
-      mapDraftToRange: (draft) => ({ start: draft.startLine, end: draft.endLine }),
-      onSave: handleSaveComment,
-      onCancel: () => {
-        setLineSelection(null);
-        cancel();
-      },
-      onEdit: (draft) => {
-        startEdit(draft);
-        setLineSelection({ start: draft.startLine, end: draft.endLine });
-      },
-      onDelete: deleteDraft,
-    });
-  }, [cancel, commentText, deleteDraft, editingDraftId, filesFileDrafts, handleSaveComment, isDragging, lineSelection, selectedFile?.path, setCommentText, startEdit]);
-
   const renderShikiFileView = React.useCallback((file: FileNode, content: string) => {
     return (
       <div className="h-full">
@@ -3957,7 +3838,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                   vimMode={fileEditorKeymap === 'vim'}
                   extensions={editorExtensions}
                   className="h-full"
-                  blockWidgets={blockWidgets}
                   onViewReady={(view) => {
                     editorViewRef.current = view;
                     setEditorViewReadyNonce((value) => value + 1);
@@ -3974,90 +3854,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
                   enableSearch
                   searchOpen={isSearchOpen}
                   onSearchOpenChange={setIsSearchOpen}
-                  highlightLines={lineSelection
-                    ? {
-                      start: Math.min(lineSelection.start, lineSelection.end),
-                      end: Math.max(lineSelection.start, lineSelection.end),
-                    }
-                    : undefined}
-                  lineNumbersConfig={{
-                    domEventHandlers: {
-                      mousedown: (view: EditorView, line: { from: number; to: number }, event: Event) => {
-                        if (!(event instanceof MouseEvent)) {
-                          return false;
-                        }
-                        if (event.button !== 0) {
-                          return false;
-                        }
-                        event.preventDefault();
-
-                        const lineNumber = view.state.doc.lineAt(line.from).number;
-
-                        if (
-                          lineSelection &&
-                          !event.shiftKey &&
-                          Math.min(lineSelection.start, lineSelection.end) === lineNumber &&
-                          Math.max(lineSelection.start, lineSelection.end) === lineNumber
-                        ) {
-                          setLineSelection(null);
-                          cancel();
-                          isSelectingRef.current = false;
-                          selectionStartRef.current = null;
-                          setIsDragging(false);
-                          return true;
-                        }
-
-                        // Mobile: tap-to-extend selection
-                          if (isMobile && lineSelection && !event.shiftKey) {
-                            const start = Math.min(lineSelection.start, lineSelection.end, lineNumber);
-                            const end = Math.max(lineSelection.start, lineSelection.end, lineNumber);
-                            setLineSelection({ start, end });
-                            isSelectingRef.current = false;
-                            selectionStartRef.current = null;
-                            setIsDragging(false);
-                            return true;
-                          }
-
-                          isSelectingRef.current = true;
-                          selectionStartRef.current = lineNumber;
-                          setIsDragging(true);
-
-                          if (lineSelection && event.shiftKey) {
-                          const start = Math.min(lineSelection.start, lineNumber);
-                          const end = Math.max(lineSelection.end, lineNumber);
-                          setLineSelection({ start, end });
-                        } else {
-                          setLineSelection({ start: lineNumber, end: lineNumber });
-                        }
-
-                        return true;
-                      },
-                      mouseover: (view: EditorView, line: { from: number; to: number }, event: Event) => {
-                        if (!(event instanceof MouseEvent)) {
-                          return false;
-                        }
-                        if (event.buttons !== 1) {
-                          return false;
-                        }
-                        if (!isSelectingRef.current || selectionStartRef.current === null) {
-                          return false;
-                        }
-
-                        const lineNumber = view.state.doc.lineAt(line.from).number;
-                          const start = Math.min(selectionStartRef.current, lineNumber);
-                          const end = Math.max(selectionStartRef.current, lineNumber);
-                          setLineSelection({ start, end });
-                          setIsDragging(true);
-                          return false;
-                        },
-                        mouseup: () => {
-                          isSelectingRef.current = false;
-                          selectionStartRef.current = null;
-                          setIsDragging(false);
-                          return false;
-                        },
-                      },
-                  }}
                 />
               </div>
               {shouldMaskEditorForPendingNavigation && (

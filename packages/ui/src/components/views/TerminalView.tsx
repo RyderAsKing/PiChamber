@@ -20,7 +20,6 @@ import { useDeviceInfo } from '@/lib/device';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { extractTerminalPreviewUrl, isTerminalPreviewUrlAvailable } from '@/lib/terminalPreview';
 import { PROJECT_ACTION_ICON_MAP, type ProjectActionIconKey } from '@/lib/projectActions';
-import { useInlineCommentDraftStore } from '@/stores/useInlineCommentDraftStore';
 import { applyTerminalModifier, terminalControlCharacter, terminalSequenceForKey, type TerminalModifier as Modifier, type TerminalQuickKey as MobileKey } from '@/lib/terminalInput';
 
 type TerminalViewProps = {
@@ -62,7 +61,6 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
     const appendToBuffer = useTerminalStore((s) => s.appendToBuffer);
     const replaceBuffer = useTerminalStore((s) => s.replaceBuffer);
     const setTabPreviewUrl = useTerminalStore((s) => s.setTabPreviewUrl);
-    const addContextDraft = useInlineCommentDraftStore((s) => s.addDraft);
 
     const openContextPreview = useUIStore((state) => state.openContextPreview);
 
@@ -624,21 +622,6 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
         disconnectStream();
     }, [createTab, disconnectStream, effectiveDirectory, setActiveTab]);
 
-    const handleAttachSelection = React.useCallback(() => {
-        const selection = terminalControllerRef.current?.getSelection();
-        const sessionKey = currentSessionId ?? (newSessionDraft?.open ? 'draft' : null);
-        if (!selection || !sessionKey || !activeTab || !effectiveDirectory) return;
-        addContextDraft({ directory: effectiveDirectory, sessionKey }, {
-            source: 'terminal',
-            fileLabel: activeTab.label,
-            startLine: selection.startLine,
-            endLine: selection.endLine,
-            code: selection.text,
-            language: activeTab.terminalSessionId ?? activeTab.id,
-            text: '',
-        });
-    }, [activeTab, addContextDraft, currentSessionId, effectiveDirectory, newSessionDraft?.open]);
-
     const handleSelectTab = React.useCallback(
         (tabId: string) => {
             if (!effectiveDirectory) return;
@@ -1026,17 +1009,6 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
                         <div className="flex shrink-0 items-center gap-1 overflow-visible">
                             <Button type="button" size="xs" variant="ghost" className="h-7 w-7 p-0" onClick={() => void handleRestart()} disabled={isRestarting} title={"Restart terminal"} aria-label={"Restart terminal"}>
                                 <Icon name="restart" className="h-4 w-4" />
-                            </Button>
-                            <Button
-                                type="button"
-                                size="xs"
-                                variant="ghost"
-                                className="h-7 w-7 p-0"
-                                onClick={handleAttachSelection}
-                                title={"Attach selected output"}
-                                aria-label={"Attach selected output"}
-                            >
-                                <Icon name="attachment-2" className="h-4 w-4" />
                             </Button>
                             {previewUrl ? (
                                 <Button

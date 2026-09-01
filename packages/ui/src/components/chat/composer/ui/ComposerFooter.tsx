@@ -43,8 +43,6 @@ export interface ComposerFooterProps {
 
     onOpenSettings?: () => void;
     onPickLocalFiles: () => void;
-    onOpenIssuePicker: () => void;
-    onOpenPrPicker: () => void;
     onOpenAttachSheet: () => void;
     onPrimaryAction: () => void;
     onQueueMessage: () => void;
@@ -74,8 +72,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
         hasContent,
         onOpenSettings,
         onPickLocalFiles,
-        onOpenIssuePicker,
-        onOpenPrPicker,
         onOpenAttachSheet,
         onPrimaryAction,
         onQueueMessage,
@@ -87,8 +83,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
             footerIconButtonClass={footerIconButtonClass}
             iconSizeClass={iconSizeClass}
             handlePickLocalFiles={onPickLocalFiles}
-            openIssuePicker={onOpenIssuePicker}
-            openPrPicker={onOpenPrPicker}
             onOpenSettings={onOpenSettings}
             onOpenMobileSheet={isMobile ? onOpenAttachSheet : undefined}
             hideAddButton={isMobile}

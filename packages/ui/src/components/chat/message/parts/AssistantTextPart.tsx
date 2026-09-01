@@ -6,8 +6,6 @@ import type { ContentChangeReason } from '@/hooks/useChatAutoFollow';
 import { useStreamingTextThrottle } from '../../hooks/useStreamingTextThrottle';
 import { resolveAssistantDisplayText, shouldRenderAssistantText } from './assistantTextVisibility';
 import { streamPerfCount, streamPerfObserve } from '@/stores/utils/streamDebug';
-import { GeneratedJsonResultCard } from './GeneratedJsonResultCard';
-import { parseGeneratedJsonResult } from './generatedJsonResult';
 
 type PartWithText = Part & { text?: string; content?: string; value?: string; time?: { start?: number; end?: number } };
 
@@ -71,18 +69,6 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
         isFinalized,
     })) {
         return null;
-    }
-
-    const generatedResult = !isStreaming && isFinalized ? parseGeneratedJsonResult(displayTextContent) : null;
-    if (generatedResult) {
-        return (
-            <div
-                className="group/assistant-text relative my-1 w-full min-w-0 break-words"
-                key={part.id || `${messageId}-text`}
-            >
-                <GeneratedJsonResultCard result={generatedResult} />
-            </div>
-        );
     }
 
     return (

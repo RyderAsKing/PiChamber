@@ -580,24 +580,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['skills', 'agent skills', 'project resources'],
   },
   {
-    id: 'magic-prompts.visible-prompt',
-    page: 'magic-prompts',
-    title: "Visible Prompt",
-    keywords: ['prompt text', 'user message', 'template'],
-  },
-  {
-    id: 'magic-prompts.instructions',
-    page: 'magic-prompts',
-    title: "Instructions",
-    keywords: ['hidden prompt', 'instructions', 'template'],
-  },
-  {
-    id: 'magic-prompts.reset-overrides',
-    page: 'magic-prompts',
-    title: "Reset All Overrides",
-    keywords: ['reset', 'default prompts', 'overrides'],
-  },
-  {
     id: 'shortcuts.keyboard-shortcuts',
     page: 'shortcuts',
     title: "Keyboard Shortcuts",

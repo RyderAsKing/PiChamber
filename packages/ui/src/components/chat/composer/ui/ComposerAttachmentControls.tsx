@@ -20,8 +20,6 @@ type ComposerAttachmentControlsProps = {
     footerIconButtonClass: string;
     iconSizeClass: string;
     handlePickLocalFiles: () => void;
-    openIssuePicker: () => void;
-    openPrPicker: () => void;
     onOpenSettings?: () => void;
     onMenuOpenChange?: (open: boolean) => void;
     /** Mobile: open the attachment bottom sheet instead of the dropdown menu. */
@@ -36,8 +34,6 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
         footerIconButtonClass,
         iconSizeClass,
         handlePickLocalFiles,
-        openIssuePicker,
-        openPrPicker,
         onOpenSettings,
         hideAddButton = false,
     } = props;
@@ -89,22 +85,6 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                             >
                                 <Icon name="attachment-2"/>
                                 {"Attach files"}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                onSelect={() => {
-                                    requestAnimationFrame(openIssuePicker);
-                                }}
-                            >
-                                <Icon name="github"/>
-                                {"Link GitHub Issue"}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                onSelect={() => {
-                                    requestAnimationFrame(openPrPicker);
-                                }}
-                            >
-                                <Icon name="git-pull-request"/>
-                                {"Link GitHub PR"}
                             </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>

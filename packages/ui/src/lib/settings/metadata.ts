@@ -15,7 +15,6 @@ export type SettingsPageSlug =
   | 'dictation'
   | 'shortcuts'
   | 'sessions'
-  | 'magic-prompts'
   | 'snippets'
   | 'notifications'
   | 'tunnel'
@@ -137,14 +136,6 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
     keywords: ['defaults', 'default agent', 'default model', 'retention', 'memory', 'limits', 'zen'],
   },
   {
-    slug: 'magic-prompts',
-    title: 'PiChamber Utility Prompts',
-    group: 'agent',
-    kind: 'split',
-    keywords: ['prompts', 'templates', 'git', 'github', 'review', 'commit', 'pull request', 'utility'],
-    isAvailable: () => false,
-  },
-  {
     slug: 'snippets',
     title: 'Snippets',
     group: 'agent',
@@ -206,8 +197,6 @@ export function getSettingsNavIcon(slug: SettingsPageSlug): IconName | null {
       return 'chat-ai-3';
     case 'dictation':
       return 'mic';
-    case 'magic-prompts':
-      return 'ai-generate-2';
     case 'snippets':
       return 'chat-thread';
     case 'notifications':

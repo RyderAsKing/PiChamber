@@ -27,7 +27,6 @@ import { useGitBranchLabel } from '@/stores/useGitStore';
 import { getAllSyncSessions } from '@/sync/sync-refs';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 
-import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useDesktopWindowControlsLayout } from '@/hooks/useDesktopWindowControlsLayout';
 import { WindowsWindowControls } from '@/components/desktop/WindowsWindowControls';
@@ -401,7 +400,7 @@ interface TabConfig {
   showDot?: boolean;
 }
 
-type TabletWorkspaceTab = 'changes' | 'files' | 'terminal' | 'notes';
+type TabletWorkspaceTab = 'changes' | 'files' | 'terminal';
 
 interface HeaderProps {
   onToggleLeftDrawer?: () => void;
@@ -485,7 +484,6 @@ export const Header: React.FC<HeaderProps> = ({
     { id: 'changes', label: "Changes", icon: "git-branch" },
     { id: 'files', label: "Files", icon: "file-text" },
     { id: 'terminal', label: "Terminal", icon: "terminal-box" },
-    { id: 'notes', label: "Notes", icon: "sticky-note" },
   ], []);
   const [tabletMetadataOpen, setTabletMetadataOpen] = React.useState(false);
   const githubAuthStatus = null;

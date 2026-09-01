@@ -686,7 +686,6 @@ export const HistoryCommitRow = React.memo(({
                               fileName={file.path}
                               renderSideBySide={false}
                               layout="inline"
-                              enableComments={false}
                             />
                         );
                       })()}

@@ -31,7 +31,6 @@ import { clearLastActiveSession, readLastActiveSession } from '@/sync/last-sessi
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -760,7 +759,6 @@ export function MobileApp({ apis }: MobileAppProps) {
   const error = useSessionUIStore((state) => state.error);
   const clearError = useSessionUIStore((state) => state.clearError);
   const setIsMobile = useUIStore((state) => state.setIsMobile);
-  const refreshGitHubAuthStatus = useGitHubAuthStore((state) => state.refreshStatus);
   const [connectionEpoch, setConnectionEpoch] = React.useState(0);
   const [runtimeEndpointEpoch, setRuntimeEndpointEpoch] = React.useState(0);
   const [showConnectionRecovery, setShowConnectionRecovery] = React.useState(false);
@@ -804,7 +802,6 @@ export function MobileApp({ apis }: MobileAppProps) {
     // only refresh in place when the transport is 'unchanged'.
     const refreshInPlace = () => {
       void initializeApp();
-      void refreshGitHubAuthStatus(apis.github, { force: true });
       if (providersCount === 0) void loadProviders({ source: 'mobileApp:nativeResume' });
       if (agentsCount === 0) void loadAgents({ source: 'mobileApp:nativeResume' });
     };
@@ -858,7 +855,7 @@ export function MobileApp({ apis }: MobileAppProps) {
       lastNativeResumeSyncEventAtRef.current = now;
       window.dispatchEvent(new Event('pichamber:system-resume'));
     }
-  }, [agentsCount, apis.github, initializeApp, loadAgents, loadProviders, providersCount, refreshGitHubAuthStatus]);
+  }, [agentsCount, initializeApp, loadAgents, loadProviders, providersCount]);
 
   useNativeMobileChrome();
   useNativeMobileLifecycle(handleNativeResume);
@@ -1099,16 +1096,6 @@ export function MobileApp({ apis }: MobileAppProps) {
     if (!isConnected) return;
     void getPiSessionStore().focusProject(currentDirectory, null);
   }, [currentDirectory, isConnected]);
-
-  // Gated on isConnected (and re-run on reconnect/instance switch): probing the
-  // GitHub auth status before the runtime is reachable cached a "not connected"
-  // answer that stuck until something else forced a re-check.
-  React.useEffect(() => {
-    if (!isConnected) return;
-    void refreshGitHubAuthStatus(apis.github, { force: true });
-  }, [apis.github, isConnected, refreshGitHubAuthStatus]);
-
-
 
   React.useEffect(() => {
     if (!error) return;

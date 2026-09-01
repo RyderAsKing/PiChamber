@@ -30,8 +30,6 @@ export interface MobilePillComposerProps {
     onExpand: () => void;
     onNewSession: () => void;
     onPickLocalFiles: () => void;
-    onOpenIssuePicker: () => void;
-    onOpenPrPicker: () => void;
     onOpenAttachSheet: () => void;
     onAbort: () => void;
 }
@@ -50,8 +48,6 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
         onExpand,
         onNewSession,
         onPickLocalFiles,
-        onOpenIssuePicker,
-        onOpenPrPicker,
         onOpenAttachSheet,
         onAbort,
     } = props;
@@ -67,8 +63,6 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
                     footerIconButtonClass={footerIconButtonClass}
                     iconSizeClass={iconSizeClass}
                     handlePickLocalFiles={onPickLocalFiles}
-                    openIssuePicker={onOpenIssuePicker}
-                    openPrPicker={onOpenPrPicker}
                     onOpenMobileSheet={onOpenAttachSheet}
                 />
                 <button

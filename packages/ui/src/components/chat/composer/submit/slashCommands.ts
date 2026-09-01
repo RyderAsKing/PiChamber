@@ -13,95 +13,6 @@
  * open UI rather than producing a message.
  */
 
-import type { MagicPromptId } from '@/lib/magicPrompts';
-
-/** What a command needs before it can run. */
-export type CommandRequirement = 'session' | 'session-or-draft';
-
-export interface MagicPromptCommand {
-    /** The name typed after the slash. */
-    name: string;
-    /** Magic prompt shown to the user as their message. */
-    visiblePrompt: MagicPromptId;
-    /** Magic prompt attached as synthetic instructions for the model. */
-    instructionsPrompt: MagicPromptId;
-    /** Fallback message shown when the command fails. */
-    errorToastKey: string;
-    requires: CommandRequirement;
-    /**
-     * Turn the text typed after the command name into template variables.
-     * Commands without an argument omit this.
-     */
-    buildVariables?: (argument: string) => {
-        visible?: Record<string, string>;
-        instructions?: Record<string, string>;
-    };
-}
-
-/**
- * `/summary rate limiting` focuses the summary on that topic. The topic is
- * woven into the visible message as a phrase and into the instructions as a
- * directive, so both read naturally when it is absent.
- */
-const summaryVariables = (topic: string) => ({
-    visible: { topic_line: topic ? ` focused on: ${topic}` : '' },
-    instructions: {
-        topic_block: topic
-            ? `The user asked you to focus this summary on: ${topic}. Prioritize that topic; mention unrelated threads only in passing.`
-            : '',
-    },
-});
-
-
-export const MAGIC_PROMPT_COMMANDS: readonly MagicPromptCommand[] = [
-    {
-        name: 'summary',
-        visiblePrompt: 'session.summary.visible',
-        instructionsPrompt: 'session.summary.instructions',
-        errorToastKey: "Failed to generate summary",
-        // Summarizing needs a conversation to summarize.
-        requires: 'session',
-        buildVariables: summaryVariables,
-    },
-    {
-        name: 'plan-feature',
-        visiblePrompt: 'session.plan.visible',
-        instructionsPrompt: 'session.plan.instructions',
-        errorToastKey: "Failed to start feature planning",
-        requires: 'session-or-draft',
-    },
-    {
-        name: 'catch-up',
-        visiblePrompt: 'session.catchup.visible',
-        instructionsPrompt: 'session.catchup.instructions',
-        errorToastKey: "Failed to catch up",
-        requires: 'session-or-draft',
-    },
-    {
-        name: 'debug',
-        visiblePrompt: 'session.debug.visible',
-        instructionsPrompt: 'session.debug.instructions',
-        errorToastKey: "Failed to start debugging",
-        requires: 'session-or-draft',
-    },
-    {
-        name: 'weigh',
-        visiblePrompt: 'session.weigh.visible',
-        instructionsPrompt: 'session.weigh.instructions',
-        errorToastKey: "Failed to weigh options",
-        requires: 'session-or-draft',
-    },
-    {
-        name: 'explore',
-        visiblePrompt: 'session.explore.visible',
-        instructionsPrompt: 'session.explore.instructions',
-        errorToastKey: "Failed to start the tour",
-        requires: 'session-or-draft',
-    },
-];
-
-const COMMANDS_BY_NAME = new Map(MAGIC_PROMPT_COMMANDS.map((command) => [command.name, command]));
-
 export interface ParsedSlashCommand {
     name: string;
     /** Everything typed after the command name, trimmed. */
@@ -123,32 +34,5 @@ export function parseSlashCommand(text: string): ParsedSlashCommand | null {
     return {
         name,
         argument: withoutSlash.slice(name.length).trim(),
-    };
-}
-
-/** The prompt-pair command for `name`, or null when it is not one. */
-export function findMagicPromptCommand(name: string): MagicPromptCommand | null {
-    return COMMANDS_BY_NAME.get(name) ?? null;
-}
-
-/** Whether the current session state satisfies the command's requirement. */
-export function canRunCommand(
-    command: MagicPromptCommand,
-    state: { hasSession: boolean; hasDraft: boolean },
-): boolean {
-    return command.requires === 'session'
-        ? state.hasSession
-        : state.hasSession || state.hasDraft;
-}
-
-/** The template variables for both prompts of a command invocation. */
-export function buildCommandVariables(
-    command: MagicPromptCommand,
-    argument: string,
-): { visible: Record<string, string>; instructions: Record<string, string> } {
-    const built = command.buildVariables?.(argument) ?? {};
-    return {
-        visible: built.visible ?? {},
-        instructions: built.instructions ?? {},
     };
 }
