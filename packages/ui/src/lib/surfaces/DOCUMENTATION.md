@@ -25,8 +25,7 @@ edge (`components/layout/ContextPanelRail.tsx`) and rendered by
   registry's default order and appends any missing surfaces.
 - `getVisibleContextRailSurfaces` is the single visibility filter shared by the
   rail and the global surface-switch shortcut (`switch_context_surface` in
-  `lib/shortcuts.ts`): it always hides plan and walkthrough on the Pi-backed
-  shell, and hides `has-content` surfaces until a tab of their mode exists. Both consumers use
+  `lib/shortcuts.ts`): it hides `has-content` surfaces until a tab of their mode exists. Both consumers use
   it so the digit shown on a rail badge always maps to the same surface the
   shortcut opens.
 
@@ -49,7 +48,7 @@ the `openContext*` actions in `useUIStore`.
 - Multi-instance and stateful surfaces (file/editor, browser, terminal) are
   keep-alive panes in `ContextPanel.tsx`: switching surfaces must not reset
   their state (open tabs, xterm session, scroll positions).
-  Singleton surfaces (git, notes, context) and preview tabs intentionally
+  Singleton surfaces (git, context) and preview tabs intentionally
   remount on switch and must restore themselves from their stores/snapshots
   instead. Git embeds a stacked diff list of changed files, collapsed until
   the user expands a file.

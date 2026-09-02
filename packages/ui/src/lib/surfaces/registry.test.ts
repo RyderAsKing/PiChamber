@@ -13,10 +13,12 @@ const baseOptions = {
 } as const;
 
 describe('getVisibleContextRailSurfaces', () => {
-  test('does not include removed surfaces like walkthrough', () => {
+  test('does not include removed surfaces like walkthrough or notes', () => {
     const surfaces = getVisibleContextRailSurfaces({ ...baseOptions, screenWidth: 2400 });
     expect(CONTEXT_SURFACES.some((surface: { id: string }) => surface.id === 'walkthrough')).toBe(false);
+    expect(CONTEXT_SURFACES.some((surface: { id: string }) => surface.id === 'notes')).toBe(false);
     expect(surfaces.some((surface) => surface.id === 'context')).toBe(true);
+    expect(surfaces.some((surface: { id: string }) => surface.id === 'notes')).toBe(false);
   });
 
   test('hides content-driven surfaces until a matching tab exists', () => {

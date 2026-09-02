@@ -124,8 +124,6 @@ interface UIStore {
   contextRailOrder: string[];
   contextEditorTreeVisible: boolean;
   contextEditorTreeWidth: number;
-  notesPanelHeight: number;
-  todoPanelHeight: number;
   isSessionSwitcherOpen: boolean;
   isSessionDropdownOpen: boolean;
   activeMainTab: MainTab;
@@ -268,8 +266,6 @@ interface UIStore {
   closeContextPanel: (directory: string) => void;
   toggleContextPanelExpanded: (directory: string) => void;
   setContextPanelWidth: (directory: string, width: number) => void;
-  setNotesPanelHeight: (height: number) => void;
-  setTodoPanelHeight: (height: number) => void;
   setSessionSwitcherOpen: (open: boolean) => void;
   setSessionDropdownOpen: (open: boolean) => void;
   setActiveMainTab: (tab: MainTab) => void;
@@ -411,8 +407,6 @@ export const useUIStore = create<UIStore>()(
         contextRailOrder: [],
         contextEditorTreeVisible: true,
         contextEditorTreeWidth: 240,
-        notesPanelHeight: 112,
-        todoPanelHeight: 259,
         isSessionSwitcherOpen: false,
         isSessionDropdownOpen: false,
         activeMainTab: 'chat',
@@ -909,15 +903,6 @@ export const useUIStore = create<UIStore>()(
 
             return { contextPanelByDirectory: clampContextPanelRoots(byDirectory, 20) };
           });
-        },
-
-        setNotesPanelHeight: (height) => {
-          set({ notesPanelHeight: height });
-        },
-
-
-        setTodoPanelHeight: (height) => {
-          set({ todoPanelHeight: height });
         },
 
         setSessionSwitcherOpen: (open) => {
@@ -1644,12 +1629,22 @@ export const useUIStore = create<UIStore>()(
       {
         name: 'ui-store',
         storage: createDeferredSafeJSONStorage(),
-        version: 17,
+        version: 18,
         migrate: (persistedState, version) => {
           if (!persistedState || typeof persistedState !== 'object') {
             return persistedState;
           }
           const state = persistedState as Record<string, unknown>;
+
+          // v17 -> v18: drop the removed notes surface, notes tabs, and legacy notes/todo heights.
+          if (version < 18) {
+            delete state.notesPanelHeight;
+            delete state.todoPanelHeight;
+            state.contextPanelByDirectory = sanitizeContextPanelByDirectory(state.contextPanelByDirectory);
+            if (Array.isArray(state.contextRailOrder)) {
+              state.contextRailOrder = (state.contextRailOrder as unknown[]).filter((id) => id !== 'notes');
+            }
+          }
 
           // v16 -> v17: re-sanitize persisted context-panel state.
           // The v15→v16 migration stripped the chat-mode tabs from
@@ -1816,7 +1811,7 @@ export const useUIStore = create<UIStore>()(
           }
 
           state.contextRailOrder = Array.isArray(state.contextRailOrder)
-            ? (state.contextRailOrder as unknown[]).filter((id): id is string => typeof id === 'string' && id.trim() !== '' && id !== 'pr' && id !== 'diff' && id !== 'chat')
+            ? (state.contextRailOrder as unknown[]).filter((id): id is string => typeof id === 'string' && id.trim() !== '' && id !== 'pr' && id !== 'diff' && id !== 'chat' && id !== 'notes')
             : [];
 
           return state;
@@ -1829,8 +1824,6 @@ export const useUIStore = create<UIStore>()(
           contextRailOrder: state.contextRailOrder,
           contextEditorTreeVisible: state.contextEditorTreeVisible,
           contextEditorTreeWidth: state.contextEditorTreeWidth,
-          notesPanelHeight: state.notesPanelHeight,
-          todoPanelHeight: state.todoPanelHeight,
           isSessionSwitcherOpen: state.isSessionSwitcherOpen,
           activeMainTab: state.activeMainTab,
           sidebarSection: state.sidebarSection,

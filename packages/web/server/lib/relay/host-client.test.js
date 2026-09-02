@@ -98,7 +98,11 @@ const startFakeRelay = () => {
         wsUrl: `ws://127.0.0.1:${port}`,
         state,
         stop: () => new Promise((r) => {
+          for (const client of wss.clients) {
+            try { client.terminate(); } catch {}
+          }
           wss.close();
+          server.closeAllConnections?.();
           server.close(() => r());
         }),
       });
@@ -129,7 +133,13 @@ const startLoopbackOrigin = () =>
       res.writeHead(404);
       res.end();
     });
-    server.listen(0, '127.0.0.1', () => resolve({ port: server.address().port, stop: () => new Promise((r) => server.close(() => r())) }));
+    server.listen(0, '127.0.0.1', () => resolve({
+      port: server.address().port,
+      stop: () => new Promise((r) => {
+        server.closeAllConnections?.();
+        server.close(() => r());
+      }),
+    }));
   });
 
 // Build the host identity around a fresh keypair (ECDH enc key + ECDSA sign key).
@@ -260,16 +270,19 @@ describe('relay host-client integration', () => {
 
   it('tunnels an HTTP GET /health with only binary frames post-handshake', async () => {
     const identity = await buildIdentity();
+    let resolveConnected;
+    const connected = new Promise((r) => { resolveConnected = r; });
     host = startRelayHost({
       relayUrl: `${relay.wsUrl}/`,
       identity,
       getLocalPort: () => origin.port,
-      onStatus: () => {},
+      onStatus: (status) => {
+        if (status?.state === 'connected') resolveConnected?.();
+      },
       logger: { warn: () => {} },
     });
 
-    // Give the control socket a moment to connect before the client arrives.
-    await new Promise((r) => setTimeout(r, 200));
+    await connected;
 
     const result = await runScriptedClient({
       relayUrl: relay.wsUrl,
@@ -288,5 +301,5 @@ describe('relay host-client integration', () => {
     const plaintextForwarded = forwarded.filter((f) => !f.isBinary);
     expect(plaintextForwarded.length).toBe(2); // hello + ready only
     expect(forwarded.filter((f) => f.isBinary).length).toBeGreaterThan(0);
-  });
+  }, 15000);
 });

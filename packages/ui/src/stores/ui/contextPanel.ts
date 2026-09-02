@@ -2,7 +2,7 @@ import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
 
 export type MainTab = 'chat' | 'git' | 'diff' | 'terminal' | 'files' | 'context' | 'diagram';
 export type PendingDiffScope = 'all' | 'working' | 'staged' | 'turn' | 'branch';
-export type ContextPanelMode = 'diff' | 'file' | 'context' | 'preview' | 'browser' | 'git' | 'notes' | 'terminal';
+export type ContextPanelMode = 'diff' | 'file' | 'context' | 'preview' | 'browser' | 'git' | 'terminal';
 
 export interface ContextPanelTab {
   id: string;
@@ -52,7 +52,6 @@ export const CONTEXT_PANEL_SHARED_WIDTH_FALLBACK_MODES: ContextPanelMode[] = [
   'context',
   'terminal',
   'browser',
-  'notes',
   'preview',
 ];
 
@@ -237,7 +236,6 @@ export const sanitizeContextPanelTabs = (tabs: unknown): ContextPanelTab[] => {
       candidate.mode !== 'preview' &&
       candidate.mode !== 'browser' &&
       candidate.mode !== 'git' &&
-      candidate.mode !== 'notes' &&
       candidate.mode !== 'terminal'
     ) {
       continue;
