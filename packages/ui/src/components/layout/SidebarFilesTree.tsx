@@ -45,47 +45,15 @@ import { Icon } from "@/components/icon/Icon";
 import { getContextFileOpenFailureMessage, validateContextFileOpen } from '@/lib/contextFileOpenGuard';
 import { isBrowserClientRuntime } from '@/lib/desktop';
 import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
-
-type FileNode = {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-  extension?: string;
-  relativePath?: string;
-};
-
-const sortNodes = (items: FileNode[]) =>
-  items.slice().sort((a, b) => {
-    if (a.type !== b.type) {
-      return a.type === 'directory' ? -1 : 1;
-    }
-    return a.name.localeCompare(b.name);
-  });
-
-const getRelativePath = (root: string, path: string): string => {
-  const normalizedPath = normalizeDirectoryPathKey(path);
-  const normalizedRoot = normalizeDirectoryPathKey(root).replace(/\/+$/, '');
-  if (normalizedPath === normalizedRoot) {
-    return '.';
-  }
-  if (!normalizedRoot || !normalizedPath.startsWith(`${normalizedRoot}/`)) {
-    return normalizedPath;
-  }
-  return normalizedPath.slice(normalizedRoot.length + 1);
-};
-
-const isAbsolutePath = (value: string): boolean => {
-  return value.startsWith('/') || value.startsWith('//') || /^[A-Za-z]:\//.test(value);
-};
-
-const DEFAULT_IGNORED_DIR_NAMES = new Set(['node_modules']);
-
-const shouldIgnoreEntryName = (name: string): boolean => DEFAULT_IGNORED_DIR_NAMES.has(name);
-
-const shouldIgnorePath = (path: string): boolean => {
-  const normalized = normalizeDirectoryPathKey(path);
-  return normalized === 'node_modules' || normalized.endsWith('/node_modules') || normalized.includes('/node_modules/');
-};
+import { useFileOperations } from '@/components/views/files/useFileOperations';
+import {
+  getDisplayPath,
+  isAbsolutePath,
+  shouldIgnoreEntryName,
+  shouldIgnorePath,
+  sortNodes,
+  type FileNode,
+} from '@/components/views/files/filesViewModel';
 
 // Module-level per-root cache for the file tree. After P1.1 the component
 // stays mounted across right-sidebar tab switches, so the cache also stays
@@ -307,8 +275,8 @@ const FileRow: React.FC<FileRowProps> = ({
   );
 
   const handleDragStart = React.useCallback((e: React.DragEvent) => {
-    const path = getRelativePath(root, node.path);
-    if (!path || path === '.') return;
+    const path = getDisplayPath(root, node.path);
+    if (!path) return;
     e.dataTransfer.setData('application/x-pichamber-file-path', path);
     e.dataTransfer.effectAllowed = 'copy';
   }, [node.path, root]);
@@ -512,36 +480,12 @@ export const SidebarFilesTree: React.FC = () => {
       .map((targetPath) => normalizeDirectoryPathKey(targetPath))
   ), [contextTabs]);
 
-  // Dialog state for CRUD operations
-  const [activeDialog, setActiveDialog] = React.useState<'createFile' | 'createFolder' | 'rename' | 'delete' | null>(null);
-  const [dialogData, setDialogData] = React.useState<{ path: string; name?: string; type?: 'file' | 'directory' } | null>(null);
-  const [dialogInputValue, setDialogInputValue] = React.useState('');
-  const [isDialogSubmitting, setIsDialogSubmitting] = React.useState(false);
-
-  const canCreateFile = Boolean(files.writeFile);
-  const canCreateFolder = Boolean(files.createDirectory);
-  const canRename = Boolean(files.rename);
-  const canDelete = Boolean(files.delete);
-  const canReveal = Boolean(files.revealPath);
-
-  const fileRowPermissions = React.useMemo(
-    () => ({ canRename, canCreateFile, canCreateFolder, canDelete, canReveal }),
-    [canRename, canCreateFile, canCreateFolder, canDelete, canReveal]
-  );
-
   const handleRevealPath = React.useCallback((targetPath: string) => {
     if (!files.revealPath) return;
     void files.revealPath(targetPath).catch(() => {
       toast.error("Failed to reveal path");
     });
   }, [files]);
-
-  const handleOpenDialog = React.useCallback((type: 'createFile' | 'createFolder' | 'rename' | 'delete', data: { path: string; name?: string; type?: 'file' | 'directory' }) => {
-    setActiveDialog(type);
-    setDialogData(data);
-    setDialogInputValue(type === 'rename' ? data.name || '' : '');
-    setIsDialogSubmitting(false);
-  }, []);
 
   const mapDirectoryEntries = React.useCallback((dirPath: string, entries: Array<{ name: string; path: string; isDirectory: boolean }>): FileNode[] => {
     const nodes = entries
@@ -689,6 +633,34 @@ export const SidebarFilesTree: React.FC = () => {
     inFlightDirsRef.current.delete(normalized);
     await loadDirectory(normalized);
   }, [loadDirectory, refreshRoot]);
+
+  const clearSelectedPath = React.useCallback(() => {
+    if (root) setSelectedPath(root, null);
+  }, [root, setSelectedPath]);
+  const {
+    operation: activeDialog,
+    target: dialogData,
+    inputValue: dialogInputValue,
+    setInputValue: setDialogInputValue,
+    submitting: isDialogSubmitting,
+    inputRef: dialogInputRef,
+    open: handleOpenDialog,
+    close: handleCloseDialog,
+    submit: handleDialogSubmit,
+    capabilities: { canCreateFile, canCreateFolder, canRename, canDelete },
+  } = useFileOperations({
+    files,
+    root,
+    selectedPath: selectedPath ?? '',
+    refreshDirectory,
+    removeOpenPathsByPrefix,
+    clearSelectedPath,
+  });
+  const canReveal = Boolean(files.revealPath);
+  const fileRowPermissions = React.useMemo(
+    () => ({ canRename, canCreateFile, canCreateFolder, canDelete, canReveal }),
+    [canRename, canCreateFile, canCreateFolder, canDelete, canReveal],
+  );
 
   React.useEffect(() => {
     if (!root) return;
@@ -876,136 +848,6 @@ export const SidebarFilesTree: React.FC = () => {
     }
   }, [loadDirectory, root, toggleExpandedPath]);
 
-  // --- Dialog submit (matching FilesView) ---
-
-  const handleDialogSubmit = React.useCallback(async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if (!dialogData || !activeDialog) return;
-
-    setIsDialogSubmitting(true);
-    const done = () => setIsDialogSubmitting(false);
-    const closeDialog = () => setActiveDialog(null);
-
-    if (activeDialog === 'createFile') {
-      if (!dialogInputValue.trim()) {
-        toast.error("Filename is required");
-        done();
-        return;
-      }
-      if (!files.writeFile) {
-        toast.error("Write not supported");
-        done();
-        return;
-      }
-
-      const parentPath = dialogData.path;
-      const prefix = parentPath ? `${parentPath}/` : '';
-      const newPath = normalizeDirectoryPathKey(`${prefix}${dialogInputValue.trim()}`);
-
-      await files.writeFile(newPath, '')
-        .then(async (result) => {
-          if (result.success) {
-            toast.success("File created");
-            await refreshDirectory(parentPath);
-          }
-          closeDialog();
-        })
-        .catch(() => toast.error("Operation failed"))
-        .finally(done);
-      return;
-    }
-
-    if (activeDialog === 'createFolder') {
-      if (!dialogInputValue.trim()) {
-        toast.error("Folder name is required");
-        done();
-        return;
-      }
-
-      const parentPath = dialogData.path;
-      const prefix = parentPath ? `${parentPath}/` : '';
-      const newPath = normalizeDirectoryPathKey(`${prefix}${dialogInputValue.trim()}`);
-
-      await files.createDirectory(newPath)
-        .then(async (result) => {
-          if (result.success) {
-            toast.success("Folder created");
-            await refreshDirectory(parentPath);
-          }
-          closeDialog();
-        })
-        .catch(() => toast.error("Operation failed"))
-        .finally(done);
-      return;
-    }
-
-    if (activeDialog === 'rename') {
-      if (!dialogInputValue.trim()) {
-        toast.error("Name is required");
-        done();
-        return;
-      }
-      if (!files.rename) {
-        toast.error("Rename not supported");
-        done();
-        return;
-      }
-
-      const oldPath = dialogData.path;
-      const parentDir = oldPath.split('/').slice(0, -1).join('/');
-      const prefix = parentDir ? `${parentDir}/` : '';
-      const newPath = normalizeDirectoryPathKey(`${prefix}${dialogInputValue.trim()}`);
-
-      await files.rename(oldPath, newPath)
-        .then(async (result) => {
-          if (result.success) {
-            toast.success("Renamed successfully");
-            await refreshDirectory(parentDir);
-            if (root) {
-              removeOpenPathsByPrefix(root, oldPath);
-            }
-            if (selectedPath === oldPath || (selectedPath && selectedPath.startsWith(`${oldPath}/`))) {
-              setSelectedPath(root, null);
-            }
-          }
-          closeDialog();
-        })
-        .catch(() => toast.error("Operation failed"))
-        .finally(done);
-      return;
-    }
-
-    if (activeDialog === 'delete') {
-      if (!files.delete) {
-        toast.error("Delete not supported");
-        done();
-        return;
-      }
-
-      const deletedPath = dialogData.path;
-      const parentDir = deletedPath.split('/').slice(0, -1).join('/');
-      await files.delete(deletedPath)
-        .then(async (result) => {
-          if (result.success) {
-            toast.success("Deleted successfully");
-            await refreshDirectory(parentDir);
-            if (root) {
-              removeOpenPathsByPrefix(root, deletedPath);
-            }
-            if (selectedPath === deletedPath || (selectedPath && selectedPath.startsWith(deletedPath + '/'))) {
-              setSelectedPath(root, null);
-            }
-          }
-          closeDialog();
-        })
-        .catch(() => toast.error("Operation failed"))
-        .finally(done);
-      return;
-    }
-
-    done();
-  }, [activeDialog, dialogData, dialogInputValue, files, refreshDirectory, removeOpenPathsByPrefix, root, selectedPath, setSelectedPath]);
-
   // --- Tree rendering (matching FilesView with indent guides) ---
 
   function renderTree(dirPath: string, depth: number): React.ReactNode {
@@ -1178,7 +1020,7 @@ export const SidebarFilesTree: React.FC = () => {
                     onClick={() => handleOpenFile(node)}
                     draggable
                     onDragStart={(e) => {
-                      const path = node.relativePath || getRelativePath(root ?? '', node.path);
+                      const path = node.relativePath || getDisplayPath(root ?? '', node.path);
                       if (!path || path === '.') return;
                       e.dataTransfer.setData('application/x-pichamber-file-path', path);
                       e.dataTransfer.effectAllowed = 'copy';
@@ -1217,7 +1059,7 @@ export const SidebarFilesTree: React.FC = () => {
       </ScrollableOverlay>
 
       {/* CRUD dialogs (matching FilesView) */}
-      <Dialog open={!!activeDialog} onOpenChange={(open) => !open && setActiveDialog(null)}>
+      <Dialog open={!!activeDialog} onOpenChange={(open) => !open && handleCloseDialog()}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
@@ -1237,6 +1079,7 @@ export const SidebarFilesTree: React.FC = () => {
           {activeDialog !== 'delete' && (
             <div className="py-4">
               <Input
+                ref={dialogInputRef}
                 value={dialogInputValue}
                 onChange={(e) => setDialogInputValue(e.target.value)}
                 placeholder={activeDialog === 'rename' ? "New name" : "Name"}
@@ -1251,7 +1094,7 @@ export const SidebarFilesTree: React.FC = () => {
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setActiveDialog(null)} disabled={isDialogSubmitting}>
+            <Button variant="outline" onClick={handleCloseDialog} disabled={isDialogSubmitting}>
               {"Cancel"}
             </Button>
             <Button
