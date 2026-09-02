@@ -78,6 +78,7 @@
 
 - UI feature code consumes the injected `RuntimeAPIs.git` contract directly. The old `lib/gitApi.ts` forwarding layer was removed because it duplicated the runtime-vs-HTTP decision for every method. React surfaces resolve Git through `useRuntimeAPIs()`; non-React callers that can run before a provider exists keep a narrow `gitApiHttp` fallback at the call site.
 - `git/gitStatusPredicates.ts` and `git/gitChangeDescriptors.ts` define the shared staged, working, and new-file classification and change descriptors used across `GitView`, `ChangeRow`, and `DiffView`; untracked `?` entries remain working changes rather than staged changes.
+- Diff presentation is modularized under `components/views/diff/`: scope filtering (`ChangeScopeSelector`), file list selection (`FileList`), diff presentation (`InlineDiffViewer`, `InlineImageDiffViewer`), per-file staging/revert controls (`FileDiffActions`), and stacked entry orchestration (`MultiFileDiffEntry`) isolate diff rendering concerns from `DiffView`.
 - Optional runtime capabilities such as commit-file diff and credential discovery fall back only for that capability; they do not reintroduce a broad compatibility adapter. Types come from `lib/api/types.ts`.
 
 ## Git View Lazy Mount
