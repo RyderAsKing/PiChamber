@@ -1,14 +1,6 @@
 /* eslint-disable */
 import React from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Session } from '@/lib/chat/types';
-
-// Archived buckets routinely grow into the hundreds/thousands; virtualize
-// when we cross this row count so the DOM stays bounded.
-const ARCHIVED_VIRTUALIZE_THRESHOLD = 50;
-// Compact rows in the archived bucket without nested subagents render
-// around 24-32px; virtua measures mounted rows and uses this as the initial hint.
-const ARCHIVED_ROW_ESTIMATE_PX = 28;
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
@@ -42,6 +34,11 @@ import {
   mergeCollapsedActivityStates,
   type CollapsedActivityState,
 } from './collapsedActivityState';
+import {
+  VirtualArchivedSessionList,
+  ARCHIVED_VIRTUALIZE_THRESHOLD,
+} from './VirtualArchivedSessionList';
+import { SessionGroupHeader } from './SessionGroupHeader';
 
 type DeleteFolderConfirm = {
   scopeKey: string;
@@ -625,107 +622,6 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
     return expandedParents.has(expansionKey);
   });
 
-  const archivedVirtualContainerRef = React.useRef<HTMLDivElement | null>(null);
-  const [archivedScrollEl, setArchivedScrollEl] = React.useState<HTMLElement | null>(null);
-  // Offset of the virtual container from the scroll element's content origin.
-  // virtua reads startMargin from Virtualizer options and uses it
-  // to translate scrollTop into container-relative coordinates. Without this,
-  // when the scroll element is an ancestor (the sidebar's ScrollableOverlay),
-  // the virtualizer assumes the container starts at the top of the scroll
-  // element and renders rows in the wrong subset / position.
-  const [archivedScrollMargin, setArchivedScrollMargin] = React.useState(0);
-
-  // Resolve the scrolling ancestor. When the parent has threaded a
-  // `scrollContainerRef` (Layer 1.4), use it directly to skip the
-  // `getComputedStyle` walk on every render of an expanded archived
-  // bucket — the walk is one of the more expensive operations in the
-  // hot path because it forces a style recalc on every parent up the
-  // tree. Fall back to the legacy walk only when the ref is missing.
-  //
-  // We also still re-run when the archive flips between expanded/collapsed,
-  // and on a ResizeObserver-driven layout change of the container, so a
-  // dep-gated effect that only fires when shouldVirtualizeArchived flips
-  // would miss the eventual mount and leave the scroll element null.
-  const [, setLayoutVersion] = React.useState(0);
-  React.useEffect(() => {
-    if (!shouldVirtualize) return;
-    const container = archivedVirtualContainerRef.current;
-    if (!container) return;
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => setLayoutVersion((v) => v + 1));
-    ro.observe(container);
-    return () => ro.disconnect();
-  }, [shouldVirtualize]);
-
-  React.useLayoutEffect(() => {
-    if (!shouldVirtualize) {
-      if (archivedScrollEl !== null) setArchivedScrollEl(null);
-      if (archivedScrollMargin !== 0) setArchivedScrollMargin(0);
-      return;
-    }
-    const container = archivedVirtualContainerRef.current;
-    if (!container) {
-      // Bucket still collapsed — body not mounted. We'll re-run on the
-      // render that mounts it.
-      return;
-    }
-    let scrollEl: HTMLElement | null = archivedScrollEl;
-    const providedScrollEl = scrollContainerRef?.current ?? null;
-    if (providedScrollEl && providedScrollEl.contains(container)) {
-      scrollEl = providedScrollEl;
-      if (scrollEl !== archivedScrollEl) {
-        setArchivedScrollEl(scrollEl);
-        return;
-      }
-    } else if (!scrollEl || !scrollEl.contains(container)) {
-      // Walk up to find the nearest scrolling ancestor. Only happens on
-      // first mount or if the DOM tree restructured.
-      let el: HTMLElement | null = container.parentElement;
-      while (el) {
-        const style = window.getComputedStyle(el);
-        if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
-          scrollEl = el;
-          break;
-        }
-        el = el.parentElement;
-      }
-      if (scrollEl !== archivedScrollEl) {
-        setArchivedScrollEl(scrollEl);
-        return;
-      }
-    }
-    if (!scrollEl) return;
-    const offset = container.getBoundingClientRect().top
-      - scrollEl.getBoundingClientRect().top
-      + scrollEl.scrollTop;
-    setArchivedScrollMargin((prev) => (Math.abs(prev - offset) < 1 ? prev : offset));
-  });
-
-  // The scroll element is an ANCESTOR of this section (the sidebar's
-  // ScrollableOverlay), so scrollMargin translates its scrollTop into
-  // container-relative coordinates — the tanstack equivalent of virtua's
-  // startMargin this replaces.
-  // Enable ONLY once the ancestor scroll element is resolved. While the
-  // virtualizer is disabled the core resets its cached scroll offset, so the
-  // first enabled read takes initialOffset() from the LIVE scrollTop below —
-  // making the core's attach-time scrollTo target the current position (a
-  // visual no-op) instead of a stale 0 that reset the sidebar to the top.
-  // The core only learns the offset from scroll events after that, so this
-  // initial seeding is what makes the first render window correct too.
-  const virtualizerReady = shouldVirtualize && archivedScrollEl !== null;
-  const sessionVirtualizer = useVirtualizer<HTMLElement, HTMLDivElement>({
-    count: visibleSessions.length,
-    enabled: virtualizerReady,
-    getScrollElement: () => archivedScrollEl,
-    initialOffset: () => archivedScrollEl?.scrollTop ?? 0,
-    estimateSize: () => ARCHIVED_ROW_ESTIMATE_PX,
-    // Expanded parents render children inline and dwarf the row estimate;
-    // widen the window so their extra height stays covered.
-    overscan: hasExpandedParent ? 20 : 8,
-    scrollMargin: archivedScrollMargin,
-    getItemKey: (index) => visibleSessions[index]?.session.id ?? index,
-  });
-
   // Hooks below MUST stay above the search-empty early-return so they
   // fire in the same order every render — rules-of-hooks.
   const collectGroupSessions = React.useCallback((nodes: SessionNode[]): Session[] => {
@@ -963,68 +859,23 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
       }}
     >
       {renderFolderItems()}
-      {shouldVirtualize ? (
-        <div ref={archivedVirtualContainerRef}>
-          {!virtualizerReady ? (
-            // At most one pre-paint frame: this wrapper must exist for the
-            // layout effect to resolve the ancestor scroll element, which
-            // re-renders synchronously before paint. Rendering the plain rows
-            // meanwhile keeps the container's height real so the scroller
-            // never collapses/clamps during the flip.
-            visibleSessions.map((node) => (
-              <React.Fragment key={node.session.id}>
-                {renderSessionNode(node, 0, group.directory, projectId, group.isArchivedBucket === true, undefined, 'project', {
-                  subtreeContainsEditing,
-                  menuOpenSessionId,
-                  nodeStructureKey: resolveNodeStructureKey(node),
-                  childRenderExtrasFor,
-                })}
-              </React.Fragment>
-            ))
-          ) : (
-          <div style={{ height: sessionVirtualizer.getTotalSize(), position: 'relative' }}>
-            {/* Absolutely positioned rows (canonical tanstack layout): with
-                variable-height rows, flow-stacking can drift from the computed
-                total height until measurements settle and overlap the content
-                below the group. Per-item offsets cannot drift. item.start
-                includes scrollMargin (ancestor-scroll offset), so subtract it. */}
-            {sessionVirtualizer.getVirtualItems().map((item) => {
-              const node = visibleSessions[item.index];
-              if (!node) return null;
-              return (
-                <div
-                  key={node.session.id}
-                  data-index={item.index}
-                  ref={sessionVirtualizer.measureElement}
-                  // Rows carry my-0.5 (2px), which COLLAPSES to 2px between
-                  // neighbors in normal flow but cannot collapse across
-                  // isolated virtualized wrappers — spacing doubles to 4px the
-                  // moment virtualization kicks in. Replace the row margin
-                  // with 1px per side (no collapse, 1+1 = the same visual 2px
-                  // gap). The [data-session-row] selector reaches the row
-                  // through the dnd/context-menu wrappers at any depth and
-                  // keeps nested child rows consistent too.
-                  className="[&_[data-session-row]]:my-px"
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    transform: `translateY(${item.start - archivedScrollMargin}px)`,
-                  }}
-                >
-                  {renderSessionNode(node, 0, group.directory, projectId, group.isArchivedBucket === true, undefined, 'project', {
-                    subtreeContainsEditing,
-                    menuOpenSessionId,
-                    nodeStructureKey: resolveNodeStructureKey(node),
-                    childRenderExtrasFor,
-                  })}
-                </div>
-              );
-            })}
-          </div>
-          )}
-        </div>
+      {group.isArchivedBucket ? (
+        <VirtualArchivedSessionList
+          visibleSessions={visibleSessions}
+          shouldVirtualize={shouldVirtualize}
+          hasExpandedParent={hasExpandedParent}
+          scrollContainerRef={scrollContainerRef}
+          groupDirectory={group.directory}
+          projectId={projectId}
+          isArchivedBucket={group.isArchivedBucket === true}
+          renderSessionNode={renderSessionNode}
+          getRenderExtras={(node) => ({
+            subtreeContainsEditing,
+            menuOpenSessionId,
+            nodeStructureKey: resolveNodeStructureKey(node),
+            childRenderExtrasFor,
+          })}
+        />
       ) : (
         visibleSessions.map((node) => (
           <React.Fragment key={node.session.id}>
@@ -1109,143 +960,29 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
 
   return (
     <div className="oc-group">
-      <div
-        className={cn('group/gh relative flex items-start justify-between gap-1 py-1 px-3 min-w-0 rounded-md', 'cursor-pointer')}
-        onClick={() => onToggleCollapsedGroup(groupKey)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            onToggleCollapsedGroup(groupKey);
-          }
-        }}
-        aria-label={isCollapsed
-          ? `Expand ${group.label}`
-          : `Collapse ${group.label}`}
-        aria-expanded={!isCollapsed}
-      >
-        <div
-          ref={dragHandleProps?.setActivatorNodeRef}
-          className={cn(
-            'min-w-0 flex flex-1 items-start gap-1 overflow-hidden transition-[padding]',
-            groupHeaderRightPadding,
-          )}
-          {...(dragHandleProps?.listeners ?? {})}
-        >
-          <div className="min-w-0 flex flex-1 flex-col justify-center gap-0.5 overflow-hidden">
-            <p className="typography-ui-label font-normal truncate text-foreground/92">
-              {group.isArchivedBucket ? (
-                <span className="inline-flex min-w-0 max-w-full items-center gap-1">
-                  <span className="inline-flex size-4 shrink-0 items-center justify-center">
-                    <Icon name="archive" className={cn('size-4 shrink-0 text-muted-foreground', alwaysShowActions ? 'hidden' : 'group-hover/gh:hidden')} />
-                    <span className={cn(
-                      'text-muted-foreground size-4 items-center justify-center',
-                      alwaysShowActions ? 'inline-flex' : 'hidden group-hover/gh:inline-flex',
-                    )}>
-                      {isCollapsed ? <Icon name="arrow-right-s" className="size-4" /> : <Icon name="arrow-down-s" className="size-4" />}
-                    </span>
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">{renderHighlightedText(group.label, normalizedSessionSearchQuery)}</span>
-                  {groupActivityIndicator}
-                </span>
-              ) : (!group.isMain || group.worktree) ? (
-                // Worktree sub-header in the flat visual language: slim
-                // folder-style row with a PR-tinted branch icon and PR badge.
-                <span className="flex w-full min-w-0 items-center gap-1.5">
-                  <span className="inline-flex size-4 shrink-0 items-center justify-center">
-                    <Icon name="git-branch"
-                      className={cn('size-4 shrink-0', !groupPrColor && 'text-muted-foreground', alwaysShowActions ? 'hidden' : 'group-hover/gh:hidden')}
-                      style={groupPrColor ? { color: groupPrColor } : undefined}
-                    />
-                    <span className={cn(
-                      'text-muted-foreground size-4 items-center justify-center',
-                      alwaysShowActions ? 'inline-flex' : 'hidden group-hover/gh:inline-flex',
-                    )}>
-                      {isCollapsed ? <Icon name="arrow-right-s" className="size-4" /> : <Icon name="arrow-down-s" className="size-4" />}
-                    </span>
-                  </span>
-                  <span className="min-w-0 truncate typography-ui-label font-normal text-muted-foreground">
-                    {renderHighlightedText(group.label, normalizedSessionSearchQuery)}
-                  </span>
-                  {groupActivityIndicator}
-                  {groupPrSummary ? (
-                    <span
-                      className="ml-auto flex-shrink-0 text-[0.72rem] font-medium leading-none"
-                      style={groupPrColor ? { color: groupPrColor } : undefined}
-                    >
-                      #{groupPrSummary.number}
-                    </span>
-                  ) : null}
-                </span>
-              ) : (
-                <span className="inline-flex min-w-0 max-w-full items-center gap-1">
-                  <span className="min-w-0 truncate">{renderHighlightedText(group.label, normalizedSessionSearchQuery)}</span>
-                  {groupActivityIndicator}
-                </span>
-              )}
-            </p>
-            {showBranchSubtitle && statusLine ? (
-              <span className="inline-flex min-w-0 items-center gap-1.5 leading-tight">
-                {group.isArchivedBucket ? (
-                  <Icon name="archive" className="size-4 flex-shrink-0 text-muted-foreground" />
-                ) : (
-                  <Icon name="git-branch" className="size-4 flex-shrink-0 text-muted-foreground" />
-                )}
-                <span className="min-w-0 truncate text-[11px] font-medium text-muted-foreground/80">
-                  {statusLine.label}
-                </span>
-              </span>
-            ) : null}
-          </div>
-        </div>
-        {group.isArchivedBucket && allGroupSessions.length > 0 ? (
-          <div className={cn('absolute right-0.5 top-1/2 -translate-y-1/2 z-10 transition-opacity', alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover/gh:opacity-100 group-focus-within/gh:opacity-100')}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    sessionEvents.requestDelete({
-                      sessions: allGroupSessions,
-                      mode: 'session',
-                    });
-                  }}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                  aria-label={`Delete archived sessions in ${group.label}`}
-                >
-                  <Icon name="delete-bin" className="h-4 w-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={4}><p>{"Delete archived sessions"}</p></TooltipContent>
-            </Tooltip>
-          </div>
-        ) : null}
-        {group.directory ? (
-          <div className={cn('absolute right-0.5 top-1/2 -translate-y-1/2 z-10 transition-opacity', alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover/gh:opacity-100 group-focus-within/gh:opacity-100')}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    if (projectId && projectId !== activeProjectId) setActiveProjectIdOnly(projectId);
-                    setActiveMainTab('chat');
-                    if (mobileVariant) setSessionSwitcherOpen(false);
-                    openNewSessionDraft({ selectedProjectId: projectId, directoryOverride: group.directory });
-                  }}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                  aria-label={`New draft session in ${group.label}`}
-                 >
-                   <Icon name="add" className="h-4 w-4" />
-                 </button>
-               </TooltipTrigger>
-               <TooltipContent side="bottom" sideOffset={4}><p>{"New draft session"}</p></TooltipContent>
-             </Tooltip>
-           </div>
-         ) : null}
-      </div>
+      <SessionGroupHeader
+        group={group}
+        groupKey={groupKey}
+        isCollapsed={isCollapsed}
+        onToggleCollapsedGroup={onToggleCollapsedGroup}
+        normalizedSessionSearchQuery={normalizedSessionSearchQuery}
+        alwaysShowActions={alwaysShowActions}
+        groupHeaderRightPadding={groupHeaderRightPadding}
+        dragHandleProps={dragHandleProps}
+        groupPrColor={groupPrColor}
+        groupPrSummary={groupPrSummary}
+        groupActivityIndicator={groupActivityIndicator}
+        showBranchSubtitle={showBranchSubtitle}
+        statusLine={statusLine}
+        allGroupSessions={allGroupSessions}
+        projectId={projectId}
+        activeProjectId={activeProjectId}
+        setActiveProjectIdOnly={setActiveProjectIdOnly}
+        setActiveMainTab={setActiveMainTab}
+        mobileVariant={mobileVariant}
+        setSessionSwitcherOpen={setSessionSwitcherOpen}
+        openNewSessionDraft={openNewSessionDraft}
+      />
       {!isCollapsed ? <div className="oc-group-body">{body}</div> : null}
     </div>
   );
