@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import type { Agent } from "@/lib/chat/types";
 
 interface AgentMentionSource {
@@ -30,7 +28,13 @@ export const parseAgentMentions = (rawText: string, agents: Agent[]): ParsedAgen
     return { sanitizedText: rawText, mention: null };
   }
 
-  const nonPrimaryAgents = agents.filter((agent) => agent.mode && agent.mode !== "primary");
+  const nonPrimaryAgents = agents.filter((agent): agent is Agent & { name: string; mode: string } => (
+    typeof agent.name === 'string'
+    && agent.name.length > 0
+    && typeof agent.mode === 'string'
+    && agent.mode.length > 0
+    && agent.mode !== 'primary'
+  ));
   if (nonPrimaryAgents.length === 0 || !rawText.includes("@")) {
     return { sanitizedText: rawText, mention: null };
   }

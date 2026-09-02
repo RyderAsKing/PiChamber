@@ -5,9 +5,14 @@ import { Icon } from '@/components/icon/Icon';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { TerminalView } from '@/components/views/TerminalView';
 import { cn } from '@/lib/utils';
-import { MobileChangesSurface } from './MobileChangesSurface';
-import { MobileFilesSurface } from './MobileFilesSurface';
 import { MOBILE_DRAWER_DURATION_MS, MOBILE_DRAWER_EASING, useDrawerSwipe } from './useDrawerSwipe';
+
+const LazyFilesView = React.lazy(() =>
+  import('@/components/views/FilesView').then((module) => ({ default: module.FilesView })),
+);
+const LazyGitView = React.lazy(() =>
+  import('@/components/views/GitView').then((module) => ({ default: module.GitView })),
+);
 
 const DRAWER_ROOT_ID = 'mobile-surface-root';
 const ENTER_DELAY_MS = 16;
@@ -203,17 +208,23 @@ export const MobileWorkspaceDrawer = React.memo(function MobileWorkspaceDrawer({
             className={cn('h-full', tab !== 'changes' && 'hidden')}
           >
             <ErrorBoundary>
-              <MobileChangesSurface
-                initialDiffPath={pendingChangesDiff?.path ?? null}
-                initialDiffStaged={pendingChangesDiff?.staged === true}
-              />
+              <React.Suspense fallback={null}>
+                <LazyGitView
+                  isActive={open && tab === 'changes'}
+                  chrome="mobile"
+                  initialDiffPath={pendingChangesDiff?.path ?? null}
+                  initialDiffStaged={pendingChangesDiff?.staged === true}
+                />
+              </React.Suspense>
             </ErrorBoundary>
           </div>
         ) : null}
         {visitedTabs.has('files') ? (
           <div className={cn('h-full', tab !== 'files' && 'hidden')}>
             <ErrorBoundary>
-              <MobileFilesSurface />
+              <React.Suspense fallback={null}>
+                <LazyFilesView chrome="mobile" mode="editor-only" />
+              </React.Suspense>
             </ErrorBoundary>
           </div>
         ) : null}

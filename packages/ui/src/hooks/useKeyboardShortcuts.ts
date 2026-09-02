@@ -1,5 +1,4 @@
 /* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import { isTerminalEventTarget } from '@/lib/terminalFocus';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -27,6 +26,7 @@ import { addSelectionToChat } from '@/lib/addSelectionToChat';
 import { hasOpenDropdown } from './keyboard-shortcut-dom';
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { triggerPromptText } from '@/lib/pi/command-triggers';
+import { focusChatInput } from '@/components/chat/composer/editor/dom';
 import type { CommandTrigger } from '@/lib/pi/command-triggers';
 
 /** Run a command trigger through the normal authenticated prompt path. */

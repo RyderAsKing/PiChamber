@@ -4,7 +4,6 @@ import '@/styles/fonts';
 import '@/index.css';
 import '@/lib/debug';
 import { SessionAuthGate } from '@/components/auth/SessionAuthGate';
-import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import { ThemeSystemProvider } from '@/contexts/ThemeSystemContext';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import type { RuntimeAPIs } from '@/lib/api/types';
@@ -48,12 +47,10 @@ export function renderElectronMiniChatApp(apis?: RuntimeAPIs) {
   createRoot(rootElement).render(
     <StrictMode>
         <ThemeSystemProvider>
-          <ThemeProvider>
-            <SessionAuthGate>
+              <SessionAuthGate>
               <ElectronMiniChatApp apis={resolved} />
             </SessionAuthGate>
-          </ThemeProvider>
-        </ThemeSystemProvider>
+          </ThemeSystemProvider>
     </StrictMode>,
   );
 }

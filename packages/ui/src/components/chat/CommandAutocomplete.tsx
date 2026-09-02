@@ -57,6 +57,53 @@ interface CommandAutocompleteProps {
   style?: React.CSSProperties;
 }
 
+const buildBuiltInCommands = (options: {
+  hasSession: boolean;
+  hasMessagesInCurrentSession: boolean;
+  canStartSessionCommand: boolean;
+}): CommandInfo[] => {
+  const { hasSession, hasMessagesInCurrentSession, canStartSessionCommand } = options;
+  return [
+    ...(hasSession && !hasMessagesInCurrentSession
+      ? [{ id: 'pichamber:init', name: 'init', source: 'pichamber' as const, description: "Create/update AGENTS.md file", isBuiltIn: true }]
+      : []
+    ),
+    ...(hasSession
+      ? [
+          { id: 'pichamber:undo', name: 'undo', source: 'pichamber' as const, description: "Undo the last message", isBuiltIn: true },
+          { id: 'pichamber:redo', name: 'redo', source: 'pichamber' as const, description: "Redo previously undone messages", isBuiltIn: true },
+          { id: 'pichamber:timeline', name: 'timeline', source: 'pichamber' as const, description: "Open the conversation timeline", isBuiltIn: true },
+        ]
+      : []
+    ),
+    { id: 'pichamber:compact', name: 'compact', source: 'pichamber' as const, description: "Compress session history using AI to reduce context size", isBuiltIn: true },
+    ...(hasSession
+      ? [{ id: 'pichamber:summary', name: 'summary', source: 'pichamber' as const, description: "Non-destructive session summary. Optional topic hint after the command.", isPiChamber: true }]
+      : []
+    ),
+    ...(canStartSessionCommand
+      ? [{ id: 'pichamber:plan-feature', name: 'plan-feature', source: 'pichamber' as const, description: "Start a guided, back-and-forth planning session for a new feature.", isPiChamber: true }]
+      : []
+    ),
+    ...(canStartSessionCommand
+      ? [{ id: 'pichamber:catch-up', name: 'catch-up', source: 'pichamber' as const, description: "Re-establish context: what you were doing and where to pick up.", isPiChamber: true }]
+      : []
+    ),
+    ...(canStartSessionCommand
+      ? [{ id: 'pichamber:debug', name: 'debug', source: 'pichamber' as const, description: "Guided root-cause investigation for a bug before proposing a fix.", isPiChamber: true }]
+      : []
+    ),
+    ...(canStartSessionCommand
+      ? [{ id: 'pichamber:weigh', name: 'weigh', source: 'pichamber' as const, description: "Weigh 2-3 approaches with trade-offs and a recommendation before you commit.", isPiChamber: true }]
+      : []
+    ),
+    ...(canStartSessionCommand
+      ? [{ id: 'pichamber:explore', name: 'explore', source: 'pichamber' as const, description: "Get oriented in this codebase: a high-level tour of the architecture and main parts.", isPiChamber: true }]
+      : []
+    ),
+  ];
+};
+
 export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, CommandAutocompleteProps>(({
   searchQuery,
   onCommandSelect,
@@ -75,7 +122,6 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
   const hasNewSessionDraft = useSessionUIStore((state) => Boolean(state.newSessionDraft?.open));
   const canStartSessionCommand = hasSession || hasNewSessionDraft;
   const isMobile = useUIStore((state) => state.isMobile);
-  const canUseReviewHandoffFlow = hasSession && !isMobile;
 
   const [commands, setCommands] = React.useState<CommandInfo[]>([]);
   const [loading, setLoading] = React.useState(false);
@@ -155,45 +201,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
           scope: skill.scope,
         }));
 
-        const builtInCommands: CommandInfo[] = [
-          ...(hasSession && !hasMessagesInCurrentSession
-            ? [{ id: 'pichamber:init', name: 'init', source: 'pichamber' as const, description: "Create/update AGENTS.md file", isBuiltIn: true }]
-            : []
-          ),
-          ...(hasSession  // Show when session exists, not when hasMessages
-            ? [
-                { id: 'pichamber:undo', name: 'undo', source: 'pichamber' as const, description: "Undo the last message", isBuiltIn: true },
-                { id: 'pichamber:redo', name: 'redo', source: 'pichamber' as const, description: "Redo previously undone messages", isBuiltIn: true },
-                { id: 'pichamber:timeline', name: 'timeline', source: 'pichamber' as const, description: "Open the conversation timeline", isBuiltIn: true },
-              ]
-            : []
-          ),
-          { id: 'pichamber:compact', name: 'compact', source: 'pichamber' as const, description: "Compress session history using AI to reduce context size", isBuiltIn: true },
-          ...(hasSession
-            ? [{ id: 'pichamber:summary', name: 'summary', source: 'pichamber' as const, description: "Non-destructive session summary. Optional topic hint after the command.", isPiChamber: true }]
-            : []
-          ),
-          ...(canStartSessionCommand
-            ? [{ id: 'pichamber:plan-feature', name: 'plan-feature', source: 'pichamber' as const, description: "Start a guided, back-and-forth planning session for a new feature.", isPiChamber: true }]
-            : []
-          ),
-          ...(canStartSessionCommand
-            ? [{ id: 'pichamber:catch-up', name: 'catch-up', source: 'pichamber' as const, description: "Re-establish context: what you were doing and where to pick up.", isPiChamber: true }]
-            : []
-          ),
-          ...(canStartSessionCommand
-            ? [{ id: 'pichamber:debug', name: 'debug', source: 'pichamber' as const, description: "Guided root-cause investigation for a bug before proposing a fix.", isPiChamber: true }]
-            : []
-          ),
-          ...(canStartSessionCommand
-            ? [{ id: 'pichamber:weigh', name: 'weigh', source: 'pichamber' as const, description: "Weigh 2-3 approaches with trade-offs and a recommendation before you commit.", isPiChamber: true }]
-            : []
-          ),
-          ...(canStartSessionCommand
-            ? [{ id: 'pichamber:explore', name: 'explore', source: 'pichamber' as const, description: "Get oriented in this codebase: a high-level tour of the architecture and main parts.", isPiChamber: true }]
-            : []
-          ),
-        ];
+        const builtInCommands = buildBuiltInCommands({ hasSession, hasMessagesInCurrentSession, canStartSessionCommand });
         const allCommands = mergeCommandAutocompleteItems(builtInCommands, [], skillCommands);
         const builtInNames = new Set(allCommands.map((cmd) => cmd.name));
         const withExtensions = [...allCommands, ...extensionCommands.filter((cmd) => !builtInNames.has(cmd.name))];
@@ -215,45 +223,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
       } catch {
 
         const allowInitCommand = !hasMessagesInCurrentSession;
-        const builtInCommands: CommandInfo[] = [
-          ...(hasSession && !hasMessagesInCurrentSession
-            ? [{ id: 'pichamber:init', name: 'init', source: 'pichamber' as const, description: "Create/update AGENTS.md file", isBuiltIn: true }]
-            : []
-          ),
-          ...(hasSession  // Show when session exists, not when hasMessages
-            ? [
-                { id: 'pichamber:undo', name: 'undo', source: 'pichamber' as const, description: "Undo the last message", isBuiltIn: true },
-                { id: 'pichamber:redo', name: 'redo', source: 'pichamber' as const, description: "Redo previously undone messages", isBuiltIn: true },
-                { id: 'pichamber:timeline', name: 'timeline', source: 'pichamber' as const, description: "Open the conversation timeline", isBuiltIn: true },
-              ]
-            : []
-          ),
-          { id: 'pichamber:compact', name: 'compact', source: 'pichamber' as const, description: "Compress session history using AI to reduce context size", isBuiltIn: true },
-          ...(hasSession
-            ? [{ id: 'pichamber:summary', name: 'summary', source: 'pichamber' as const, description: "Non-destructive session summary. Optional topic hint after the command.", isPiChamber: true }]
-            : []
-          ),
-          ...(canStartSessionCommand
-            ? [{ id: 'pichamber:plan-feature', name: 'plan-feature', source: 'pichamber' as const, description: "Start a guided, back-and-forth planning session for a new feature.", isPiChamber: true }]
-            : []
-          ),
-          ...(canStartSessionCommand
-            ? [{ id: 'pichamber:catch-up', name: 'catch-up', source: 'pichamber' as const, description: "Re-establish context: what you were doing and where to pick up.", isPiChamber: true }]
-            : []
-          ),
-          ...(canStartSessionCommand
-            ? [{ id: 'pichamber:debug', name: 'debug', source: 'pichamber' as const, description: "Guided root-cause investigation for a bug before proposing a fix.", isPiChamber: true }]
-            : []
-          ),
-          ...(canStartSessionCommand
-            ? [{ id: 'pichamber:weigh', name: 'weigh', source: 'pichamber' as const, description: "Weigh 2-3 approaches with trade-offs and a recommendation before you commit.", isPiChamber: true }]
-            : []
-          ),
-          ...(canStartSessionCommand
-            ? [{ id: 'pichamber:explore', name: 'explore', source: 'pichamber' as const, description: "Get oriented in this codebase: a high-level tour of the architecture and main parts.", isPiChamber: true }]
-            : []
-          ),
-        ];
+        const builtInCommands = buildBuiltInCommands({ hasSession, hasMessagesInCurrentSession, canStartSessionCommand });
 
         const filtered = (searchQuery
           ? builtInCommands.filter(cmd =>
@@ -269,7 +239,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
     };
 
     loadCommands();
-  }, [searchQuery, hasMessagesInCurrentSession, hasSession, canStartSessionCommand, canUseReviewHandoffFlow, skills, extensionCommands]);
+  }, [searchQuery, hasMessagesInCurrentSession, hasSession, canStartSessionCommand, skills, extensionCommands]);
 
   React.useEffect(() => {
     setSelectedIndex(0);

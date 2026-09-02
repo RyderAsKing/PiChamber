@@ -1,58 +1,20 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 
 import { toast } from '@/components/ui';
 import { copyTextToClipboard } from '@/lib/clipboard';
-
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from '@/components/ui/context-menu';
-import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { CodeMirrorEditor } from '@/components/ui/CodeMirrorEditor';
-import { GoToLineDialog } from './GoToLineDialog';
-import { PreviewToggleButton } from './PreviewToggleButton';
-import { JsonTreeView } from '@/components/ui/JsonTreeView';
-import { SimpleMarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { languageByExtension, loadLanguageByExtension } from '@/lib/codemirror/languageByExtension';
 import { createFlexokiCodeMirrorTheme } from '@/lib/codemirror/flexokiTheme';
 import { shikiHighlightExtension } from '@/lib/codemirror/shikiHighlight';
 import { getResolvedShikiTheme } from '@/lib/shiki/appThemeRegistry';
-import { File as PierreFile } from '@pierre/diffs/react';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { useDebouncedValue } from '@/hooks/useDebouncedValue';
-import { useFileSearchStore } from '@/stores/useFileSearchStore';
 import { useDeviceInfo } from '@/lib/device';
-import { cn, getModifierLabel, getRevealLabel, hasModifier } from '@/lib/utils';
-import { getLanguageFromExtension, getImageMimeType, isBinaryFile, isDrawioFile, isImageFile, isPdfFile, isSvgFile, looksLikeBinaryText } from '@/lib/toolHelpers';
-import { shouldAllowFileDraftSave, shouldScheduleFileAutosave } from '@/lib/fileEditorAutosave';
+import { cn, hasModifier } from '@/lib/utils';
+import { getLanguageFromExtension, getImageMimeType, isBinaryFile, isDrawioFile, isImageFile, isPdfFile, isSvgFile } from '@/lib/toolHelpers';
 import { getRuntimeUrlResolver } from '@/lib/runtime-url';
-import { acquireRuntimeUrlAuthToken, refreshRuntimeUrlAuthToken, subscribeRuntimeUrlAuthToken } from '@/lib/runtime-auth';
-import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
 import { getOutsideFileGrant } from '@/lib/outsideFileGrants';
-import { DiagramEditor } from '@/components/diagram';
+import { DiagramEditor } from '@/components/diagram/DiagramEditor';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { EditorView } from '@codemirror/view';
 import type { Extension } from '@codemirror/state';
@@ -61,12 +23,10 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useFilesViewTabsStore } from '@/stores/useFilesViewTabsStore';
 import { useGitStatus } from '@/stores/useGitStore';
 import { useConfigStore } from '@/stores/useConfigStore';
-import { listLocalDirectory } from '@/lib/fsApi';
 import { useDirectoryShowHidden } from '@/lib/directoryShowHidden';
 import { useFilesViewShowGitignored } from '@/lib/filesViewShowGitignored';
-import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
-import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
+import { useTransientValue } from '@/hooks/useTransientValue';
 import { Icon } from "@/components/icon/Icon";
 import { ensurePierreThemeRegistered } from '@/lib/shiki/appThemeRegistry';
 import { getDefaultTheme } from '@/lib/theme/themes';
@@ -74,646 +34,51 @@ import { isBrowserClientRuntime, openDesktopFileInApp, openDesktopPath } from '@
 import { useOpenInAppsStore } from '@/stores/useOpenInAppsStore';
 import { eventMatchesShortcut, getEffectiveShortcutCombo } from '@/lib/shortcuts';
 import { sessionEvents } from '@/lib/sessionEvents';
-
-type FileNode = {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-  extension?: string;
-  relativePath?: string;
-};
-
-type FileStatSnapshot = {
-  path: string;
-  size: number;
-  mtimeMs?: number;
-};
-
-const getParentDirectoryPath = (path: string): string => {
-  const normalized = normalizePath(path);
-  if (!normalized) return '';
-  if (normalized === '/' || /^[A-Za-z]:\/$/.test(normalized)) {
-    return normalized;
-  }
-
-  const lastSlash = normalized.lastIndexOf('/');
-  if (lastSlash < 0) {
-    return normalized;
-  }
-  if (lastSlash === 0) {
-    return '/';
-  }
-
-  const parent = normalized.slice(0, lastSlash);
-  if (/^[A-Za-z]:$/.test(parent)) {
-    return `${parent}/`;
-  }
-  return parent;
-};
-
-const OpenInAppListIcon = ({ label, iconDataUrl }: { label: string; iconDataUrl?: string }) => {
-  const [failed, setFailed] = React.useState(false);
-  const initial = label.trim().slice(0, 1).toUpperCase() || '?';
-
-  if (iconDataUrl && !failed) {
-    return (
-      <img
-        src={iconDataUrl}
-        alt=""
-        className="size-4 rounded-sm"
-        onError={() => setFailed(true)}
-      />
-    );
-  }
-
-  return (
-    <span
-      className={cn(
-        'size-4 rounded-sm flex items-center justify-center',
-        'bg-[var(--surface-muted)] text-[9px] font-medium text-muted-foreground'
-      )}
-    >
-      {initial}
-    </span>
-  );
-};
-
-const sortNodes = (items: FileNode[]) =>
-  items.slice().sort((a, b) => {
-    if (a.type !== b.type) {
-      return a.type === 'directory' ? -1 : 1;
-    }
-    return a.name.localeCompare(b.name);
-  });
-
-const normalizePath = (value: string): string => {
-  if (!value) return '';
-
-  const raw = value.replace(/\\/g, '/');
-  const hadUncPrefix = raw.startsWith('//');
-
-  let normalized = raw.replace(/\/+/g, '/');
-  if (hadUncPrefix && !normalized.startsWith('//')) {
-    normalized = `/${normalized}`;
-  }
-
-  const isUnixRoot = normalized === '/';
-  const isWindowsDriveRoot = /^[A-Za-z]:\/$/.test(normalized);
-  if (!isUnixRoot && !isWindowsDriveRoot) {
-    normalized = normalized.replace(/\/+$/, '');
-  }
-
-  return normalized;
-};
-
-const isAbsolutePath = (value: string): boolean => {
-  return value.startsWith('/') || value.startsWith('//') || /^[A-Za-z]:\//.test(value);
-};
-
-const toComparablePath = (value: string): string => {
-  if (/^[A-Za-z]:\//.test(value)) {
-    return value.toLowerCase();
-  }
-  return value;
-};
-
-const isPathWithinRoot = (path: string, root: string): boolean => {
-  const normalizedRoot = normalizePath(root);
-  const normalizedPath = normalizePath(path);
-  if (!normalizedRoot || !normalizedPath) return false;
-
-  const comparableRoot = toComparablePath(normalizedRoot);
-  const comparablePath = toComparablePath(normalizedPath);
-  return comparablePath === comparableRoot || comparablePath.startsWith(`${comparableRoot}/`);
-};
-
-const getAncestorPaths = (filePath: string, root: string): string[] => {
-  const normalizedRoot = normalizePath(root);
-  const normalizedFile = normalizePath(filePath);
-
-  // Ensure file is within root
-  if (!isPathWithinRoot(normalizedFile, normalizedRoot)) return [];
-
-  const relative = normalizedFile.slice(normalizedRoot.length).replace(/^\//, '');
-  const parts = relative.split('/');
-  const ancestors: string[] = [];
-  let current = normalizedRoot;
-
-  for (let i = 0; i < parts.length - 1; i++) {
-    current = current ? `${current}/${parts[i]}` : parts[i];
-    ancestors.push(current);
-  }
-  return ancestors;
-};
-
-const getDisplayPath = (root: string | null, path: string): string => {
-  if (!path) {
-    return '';
-  }
-
-  const normalizedFilePath = normalizePath(path);
-  if (!root || !isPathWithinRoot(normalizedFilePath, root)) {
-    return normalizedFilePath;
-  }
-
-  const relative = normalizedFilePath.slice(root.length);
-  return relative.startsWith('/') ? relative.slice(1) : relative;
-};
-
-const DEFAULT_IGNORED_DIR_NAMES = new Set(['node_modules']);
-
-type FileStatus = 'open' | 'modified' | 'git-modified' | 'git-added' | 'git-deleted';
-
-const FileStatusDot: React.FC<{ status: FileStatus }> = ({ status }) => {
-  const color = {
-    open: 'var(--status-info)',
-    modified: 'var(--status-warning)',
-    'git-modified': 'var(--status-warning)',
-    'git-added': 'var(--status-success)',
-    'git-deleted': 'var(--status-error)',
-  }[status];
-
-  return <span className="size-2 rounded-full" style={{ backgroundColor: color }} />;
-};
-
-const ScrollingFileName: React.FC<{ name: string }> = ({ name }) => {
-  const containerRef = React.useRef<HTMLSpanElement | null>(null);
-  const textRef = React.useRef<HTMLSpanElement | null>(null);
-  const [overflowing, setOverflowing] = React.useState(false);
-
-  React.useLayoutEffect(() => {
-    const container = containerRef.current;
-    const text = textRef.current;
-    if (!container || !text) {
-      return;
-    }
-
-    const updateOverflow = () => {
-      setOverflowing(text.scrollWidth > container.clientWidth + 1);
-    };
-
-    updateOverflow();
-    const resizeObserver = new ResizeObserver(updateOverflow);
-    resizeObserver.observe(container);
-    resizeObserver.observe(text);
-
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, [name]);
-
-  return (
-    <span ref={containerRef} className="relative block min-w-0 flex-1 overflow-hidden whitespace-nowrap">
-      <span ref={textRef} aria-hidden="true" className="invisible absolute whitespace-nowrap">{name}</span>
-      {overflowing ? (
-        <span className="open-file-name-marquee-track">
-          <span className="open-file-name-marquee-item">{name}</span>
-          <span className="open-file-name-marquee-item" aria-hidden="true">{name}</span>
-        </span>
-      ) : (
-        <span className="block min-w-0 truncate">{name}</span>
-      )}
-    </span>
-  );
-};
-
-const shouldIgnoreEntryName = (name: string): boolean => DEFAULT_IGNORED_DIR_NAMES.has(name);
-
-const shouldIgnorePath = (path: string): boolean => {
-  const normalized = normalizePath(path);
-  return normalized === 'node_modules' || normalized.endsWith('/node_modules') || normalized.includes('/node_modules/');
-};
-
-const isDirectoryReadError = (error: unknown): boolean => {
-  const message = error instanceof Error ? error.message : String(error ?? '');
-  const normalized = message.toLowerCase();
-  return normalized.includes('is a directory') || normalized.includes('eisdir');
-};
-
-const isFileMissingError = (error: unknown): boolean => {
-  const message = error instanceof Error ? error.message : String(error ?? '');
-  const normalized = message.toLowerCase();
-  return normalized.includes('file not found')
-    || normalized.includes('enoent')
-    || normalized.includes('no such file')
-    || normalized.includes('does not exist');
-};
-
-const MAX_VIEW_CHARS = 200_000;
-type FileLineEnding = '\n' | '\r\n';
-
-const detectFileLineEnding = (content: string): FileLineEnding => {
-  let crlf = 0;
-  let lf = 0;
-
-  for (let index = 0; index < content.length; index += 1) {
-    if (content.charCodeAt(index) !== 10) {
-      continue;
-    }
-    if (index > 0 && content.charCodeAt(index - 1) === 13) {
-      crlf += 1;
-    } else {
-      lf += 1;
-    }
-  }
-
-  return crlf > lf ? '\r\n' : '\n';
-};
-
-const normalizeEditorLineEndings = (content: string): string => content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-
-const serializeEditorContent = (content: string, lineEnding: FileLineEnding): string => {
-  const normalized = normalizeEditorLineEndings(content);
-  return lineEnding === '\r\n' ? normalized.replace(/\n/g, '\r\n') : normalized;
-};
-
-const getFileIcon = (filePath: string, extension?: string): React.ReactNode => {
-  return <FileTypeIcon filePath={filePath} extension={extension} />;
-};
-
-const isMarkdownFile = (path: string): boolean => {
-  if (!path) return false;
-  const ext = path.toLowerCase().split('.').pop();
-  return ext === 'md' || ext === 'markdown';
-};
-
-const isJsonFile = (path: string): boolean => {
-  if (!path) return false;
-  const ext = path.toLowerCase().split('.').pop();
-  return ext === 'json' || ext === 'jsonc' || ext === 'json5' || ext === 'geojson';
-};
-
-const isHtmlFile = (path: string): boolean => {
-  if (!path) return false;
-  const ext = path.toLowerCase().split('.').pop();
-  return ext === 'html' || ext === 'htm';
-};
-
-interface FileRowProps {
-  node: FileNode;
-  root: string;
-  isExpanded: boolean;
-  isActive: boolean;
-  isMobile: boolean;
-  isBrowserClient: boolean;
-  alwaysShowActions: boolean;
-  status?: FileStatus | null;
-  badge?: { modified: number; added: number } | null;
-  permissions: {
-    canRename: boolean;
-    canCreateFile: boolean;
-    canCreateFolder: boolean;
-    canDelete: boolean;
-    canReveal: boolean;
-  };
-  downloadFile?: (path: string) => Promise<void>;
-  contextMenuPath: string | null;
-  setContextMenuPath: (path: string | null) => void;
-  rightClickMenuPath: string | null;
-  setRightClickMenuPath: (path: string | null) => void;
-  onSelect: (node: FileNode) => void;
-  onToggle: (path: string) => void;
-  onRevealPath: (path: string) => void;
-  onOpenDialog: (type: 'createFile' | 'createFolder' | 'rename' | 'delete', data: { path: string; name?: string; type?: 'file' | 'directory' }) => void;
-}
-
-const FileRow: React.FC<FileRowProps> = ({
-  node,
-  root,
-  isExpanded,
-  isActive,
-  isMobile,
-  isBrowserClient,
-  alwaysShowActions,
-  status,
-  badge,
-  permissions,
-  downloadFile,
-  contextMenuPath,
-  setContextMenuPath,
-  rightClickMenuPath,
-  setRightClickMenuPath,
-  onSelect,
-  onToggle,
-  onRevealPath,
-  onOpenDialog,
-}) => {
-  const isDir = node.type === 'directory';
-  const { canRename, canCreateFile, canCreateFolder, canDelete, canReveal } = permissions;
-  const canDownload = !isDir && Boolean(downloadFile);
-  const canRevealPath = canReveal && !isBrowserClient;
-  const hasMenuActions = canRename || canCreateFile || canCreateFolder || canDelete || canDownload || canRevealPath;
-
-  const handleContextMenu = React.useCallback((event?: React.MouseEvent) => {
-    if (!hasMenuActions) {
-      return;
-    }
-    event?.preventDefault();
-    setRightClickMenuPath(node.path);
-  }, [hasMenuActions, node.path, setRightClickMenuPath]);
-
-  const handleInteraction = React.useCallback(() => {
-    if (isDir) {
-      onToggle(node.path);
-    } else {
-      onSelect(node);
-    }
-  }, [isDir, node, onSelect, onToggle]);
-
-  const handleMenuButtonClick = React.useCallback((event: React.MouseEvent) => {
-    event.stopPropagation();
-    setRightClickMenuPath(null);
-    setContextMenuPath(node.path);
-  }, [node.path, setContextMenuPath, setRightClickMenuPath]);
-
-  const renderMenuItems = ({
-    Item,
-    Separator,
-  }: {
-    Item: React.ElementType;
-    Separator: React.ElementType;
-  }) => (
-    <>
-      {canRename && (
-        <Item onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('rename', node); }}>
-          <Icon name="edit" className="mr-2 size-4" /> {"Rename"}
-        </Item>
-      )}
-      <Item onClick={(e: React.MouseEvent) => {
-        e.stopPropagation();
-        void copyTextToClipboard(node.path).then((result) => {
-          if (result.ok) {
-            toast.success("Path copied");
-            return;
-          }
-          toast.error("Copy failed");
-        });
-      }}>
-        <Icon name="file-copy" className="mr-2 size-4" /> {"Copy Path"}
-      </Item>
-      <Item onClick={(e: React.MouseEvent) => {
-        e.stopPropagation();
-        const relativePath = getDisplayPath(root, node.path) || node.path;
-        void copyTextToClipboard(relativePath).then((result) => {
-          if (result.ok) {
-            toast.success("Relative path copied");
-            return;
-          }
-          toast.error("Copy failed");
-        });
-      }}>
-        <Icon name="file-copy-2" className="mr-2 size-4" /> {"Copy Relative Path"}
-      </Item>
-      {!isDir && downloadFile && (
-        <Item onClick={(e: React.MouseEvent) => {
-          e.stopPropagation();
-          void downloadFile(node.path).catch((error) => {
-            console.error('Download failed:', error);
-            toast.error("Operation failed");
-          });
-        }}>
-          <Icon name="download" className="mr-2 size-4" /> {(isBrowserClient ? "Download" : "Save")}
-        </Item>
-      )}
-      {canRevealPath && (
-        <Item onClick={(e: React.MouseEvent) => { e.stopPropagation(); onRevealPath(node.path); }}>
-          <Icon name="folder-received" className="mr-2 size-4" /> {getRevealLabel()}
-        </Item>
-      )}
-      {isDir && (canCreateFile || canCreateFolder) && (
-        <>
-          <Separator />
-          {canCreateFile && (
-            <Item onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('createFile', node); }}>
-              <Icon name="file-add" className="mr-2 size-4" /> {"New File"}
-            </Item>
-          )}
-          {canCreateFolder && (
-            <Item onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('createFolder', node); }}>
-              <Icon name="folder-add" className="mr-2 size-4" /> {"New Folder"}
-            </Item>
-          )}
-        </>
-      )}
-      {canDelete && (
-        <>
-          <Separator />
-          <Item
-            onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('delete', node); }}
-            className="text-destructive focus:text-destructive"
-          >
-            <Icon name="delete-bin" className="mr-2 size-4" /> {"Delete"}
-          </Item>
-        </>
-      )}
-    </>
-  );
-
-  return (
-    <ContextMenu open={rightClickMenuPath === node.path} onOpenChange={(open) => setRightClickMenuPath(open ? node.path : null)}>
-      <ContextMenuTrigger render={<div className="group relative flex items-center" onContextMenu={!isMobile ? handleContextMenu : undefined} />}>
-      <button
-        type="button"
-        onClick={handleInteraction}
-        onContextMenu={!isMobile ? handleContextMenu : undefined}
-        className={cn(
-          'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-foreground transition-colors pr-8 select-none',
-          isActive ? 'bg-interactive-selection/70' : 'hover:bg-interactive-hover/40'
-        )}
-      >
-        {isDir ? (
-          isExpanded ? (
-            <Icon name="folder-open" className="size-4 flex-shrink-0 text-muted-foreground" />
-          ) : (
-            <Icon name="folder-3" className="size-4 flex-shrink-0 text-muted-foreground" />
-          )
-        ) : (
-          getFileIcon(node.path, node.extension)
-        )}
-        <span
-          className="min-w-0 flex-1 truncate typography-meta"
-          title={node.path}
-        >
-          {node.name}
-        </span>
-        {!isDir && status && <FileStatusDot status={status} />}
-        {isDir && badge && (
-          <span className="text-xs flex items-center gap-1 ml-auto mr-1">
-            {badge.modified > 0 && <span className="text-[var(--status-warning)]">M{badge.modified}</span>}
-            {badge.added > 0 && <span className="text-[var(--status-success)]">+{badge.added}</span>}
-          </span>
-        )}
-      </button>
-      {hasMenuActions && (
-        <div className={cn(
-          "absolute right-1 top-1/2 -translate-y-1/2",
-          alwaysShowActions ? "opacity-100" : "opacity-0 focus-within:opacity-100 group-hover:opacity-100"
-        )}>
-          <DropdownMenu
-            open={contextMenuPath === node.path}
-            onOpenChange={(open) => setContextMenuPath(open ? node.path : null)}
-          >
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-6"
-                onClick={handleMenuButtonClick}
-              >
-                <Icon name="more-2-fill" className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" side={isMobile ? "bottom" : "bottom"} onCloseAutoFocus={() => setContextMenuPath(null)}>
-              {renderMenuItems({ Item: DropdownMenuItem, Separator: DropdownMenuSeparator })}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      )}
-      </ContextMenuTrigger>
-      <ContextMenuContent className="min-w-[180px]">
-        {renderMenuItems({ Item: ContextMenuItem, Separator: ContextMenuSeparator })}
-      </ContextMenuContent>
-    </ContextMenu>
-  );
-};
-
-interface DialogsProps {
-  activeDialog: 'createFile' | 'createFolder' | 'rename' | 'delete' | null;
-  dialogData: { path: string; name?: string; type?: 'file' | 'directory' } | null;
-  dialogInputValue: string;
-  onDialogInputChange: (value: string) => void;
-  isDialogSubmitting: boolean;
-  onDialogSubmit: (e?: React.FormEvent) => Promise<void>;
-  onClose: () => void;
-  inputRef: React.RefObject<HTMLInputElement | null>;
-}
-
-const Dialogs: React.FC<DialogsProps> = ({
-  activeDialog,
-  dialogData,
-  dialogInputValue,
-  onDialogInputChange,
-  isDialogSubmitting,
-  onDialogSubmit,
-  onClose,
-  inputRef,
-}) => {
-
-  return (
-    <Dialog open={!!activeDialog} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent initialFocus={inputRef}>
-        <DialogHeader>
-          <DialogTitle>
-            {activeDialog === 'createFile' && "Create File"}
-            {activeDialog === 'createFolder' && "Create Folder"}
-            {activeDialog === 'rename' && "Rename"}
-            {activeDialog === 'delete' && "Delete"}
-          </DialogTitle>
-          <DialogDescription>
-            {activeDialog === 'createFile' && `Create a new file in ${dialogData?.path ?? "root"}`}
-            {activeDialog === 'createFolder' && `Create a new folder in ${dialogData?.path ?? "root"}`}
-            {activeDialog === 'rename' && `Rename ${dialogData?.name ?? ''}`}
-            {activeDialog === 'delete' && `Are you sure you want to delete ${dialogData?.name ?? ''}? This action cannot be undone.`}
-          </DialogDescription>
-        </DialogHeader>
-
-        {activeDialog !== 'delete' && (
-          <div className="py-4">
-            <Input
-              value={dialogInputValue}
-              onChange={(e) => onDialogInputChange(e.target.value)}
-              placeholder={activeDialog === 'rename' ? "New name" : "Name"}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  void onDialogSubmit();
-                }
-              }}
-              ref={inputRef}
-              />
-            </div>
-          )}
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={isDialogSubmitting}>
-            {"Cancel"}
-          </Button>
-          <Button
-            variant={activeDialog === 'delete' ? 'destructive' : 'default'}
-            onClick={() => void onDialogSubmit()}
-            disabled={isDialogSubmitting || (activeDialog !== 'delete' && !dialogInputValue.trim())}
-          >
-            {isDialogSubmitting ? <Icon name="loader-4" className="size-4 animate-spin" /> : (
-                activeDialog === 'delete' ? "Delete" : "Confirm"
-            )}
-          </Button>
-        </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    );
-};
+import { MobileFilesChrome } from './files/MobileFilesChrome';
+import { Dialogs } from './files/FilesViewDialogs';
+import { type FileStatus } from './files/FilesViewChrome';
+import {
+  MAX_VIEW_CHARS,
+  getAncestorPaths,
+  getDisplayPath,
+  getParentDirectoryPath,
+  isDirectoryReadError,
+  isFileMissingError,
+  isHtmlFile,
+  isJsonFile,
+  isMarkdownFile,
+  isPathWithinRoot,
+  normalizePath,
+  toComparablePath,
+  type FileLineEnding,
+  type FileNode,
+  type FileStatSnapshot,
+} from './files/filesViewModel';
+import { useAssetAuthRefresh } from './files/useAssetAuthRefresh';
+import { FileViewerContent } from './files/FileViewerContent';
+import { useFileOperations } from './files/useFileOperations';
+import { loadFileDocument } from './files/loadFileDocument';
+import { useDirtyFileNavigation, type DirtyFileNavigationIntent } from './files/useDirtyFileNavigation';
+import { useFileEditorNavigation } from './files/useFileEditorNavigation';
+import { useFileEditorSave } from './files/useFileEditorSave';
+import { useFileStatReconciliation } from './files/useFileStatReconciliation';
+import { useFileViewerModes } from './files/useFileViewerModes';
+import { useFilesTree } from './files/useFilesTree';
+import { useFilesViewSearch } from './files/useFilesViewSearch';
+import { FileTabsRow } from './files/FileTabsRow';
+import { FileViewerToolbar } from './files/FileViewerToolbar';
+import { UnsavedChangesDialog } from './files/UnsavedChangesDialog';
+import { FilesTreePanel } from './files/FilesTreePanel';
 
 interface FilesViewProps {
   mode?: 'full' | 'editor-only';
+  chrome?: 'desktop' | 'mobile';
+  onClose?: () => void;
 }
 
-/**
- * Keeps a token-bearing asset preview (image/HTML/PDF) authenticated. While
- * `assetKey` is set this registers an active url-token consumer (so runtime-auth
- * proactively refreshes the shared token before it expires) and subscribes to
- * token replacements, bumping `nonce` so the iframe/img remounts with the fresh
- * token — but only when the token actually changed, not on every interval.
- */
-const useAssetAuthRefresh = (
-  assetKey: string,
-  setFileError: React.Dispatch<React.SetStateAction<string | null>>,
-  errorFallback: string,
-): { readyKey: string; nonce: number } => {
-  const [readyKey, setReadyKey] = React.useState('');
-  const [nonce, setNonce] = React.useState(0);
-
-  React.useEffect(() => {
-    if (!assetKey) {
-      setReadyKey('');
-      return;
-    }
-
-    let cancelled = false;
-    setReadyKey('');
-    const apiBaseUrl = getRuntimeApiBaseUrl();
-    const release = acquireRuntimeUrlAuthToken(apiBaseUrl);
-
-    void refreshRuntimeUrlAuthToken(apiBaseUrl)
-      .then((token) => {
-        if (cancelled || !token) return;
-        setReadyKey(assetKey);
-        setFileError(null);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setFileError(error instanceof Error ? error.message : errorFallback);
-        setReadyKey(assetKey);
-      });
-
-    const unsubscribe = subscribeRuntimeUrlAuthToken(() => {
-      if (cancelled) return;
-      // Token was refreshed underneath us — remount the asset with the fresh URL.
-      setReadyKey(assetKey);
-      setNonce((n) => n + 1);
-      setFileError(null);
-    });
-
-    return () => {
-      cancelled = true;
-      release();
-      unsubscribe();
-    };
-  }, [assetKey, setFileError, errorFallback]);
-
-  return { readyKey, nonce };
-};
-
-export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
+export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'desktop', onClose }) => {
   const { files, runtime } = useRuntimeAPIs();
+  const mobileChrome = chrome === 'mobile';
   const { currentTheme, availableThemes, lightThemeId, darkThemeId } = useThemeSystem();
   const { isMobile, isTablet, screenWidth } = useDeviceInfo();
   const isBrowserClient = isBrowserClientRuntime(runtime.platform);
@@ -727,19 +92,26 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
   // their own chrome — the open-file tabs row is redundant there.
   const showEditorTabsRow = mode !== 'editor-only';
   const suppressFileLoadingIndicator = mode === 'editor-only' && !isMobile;
-  const searchFiles = useFileSearchStore((state) => state.searchFiles);
   const gitStatus = useGitStatus(currentDirectory);
 
   const [searchQuery, setSearchQuery] = React.useState('');
-  const debouncedSearchQuery = useDebouncedValue(searchQuery, 200);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
 
   const [showMobilePageContent, setShowMobilePageContent] = React.useState(false);
+  const [mobileDirectory, setMobileDirectory] = React.useState(root);
+  const [mobileRefreshing, setMobileRefreshing] = React.useState(false);
   const [wrapLines, setWrapLines] = React.useState(true);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const [isSearchOpen, setIsSearchOpen] = React.useState(false);
   const [isFloatingToolbarOpen, setIsFloatingToolbarOpen] = React.useState(false);
   const floatingToolbarRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    if (!mobileChrome) return;
+    setMobileDirectory(root);
+    setSearchQuery('');
+    setShowMobilePageContent(false);
+  }, [mobileChrome, root]);
   const toolbarDropdownOpenCountRef = React.useRef(0);
 
   const handleToolbarDropdownOpenChange = React.useCallback((open: boolean) => {
@@ -766,20 +138,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [isClickInsidePortalledMenu, isFloatingToolbarOpen]);
-  type TextViewMode = 'view' | 'edit';
-  type PreviewViewMode = 'preview' | 'edit';
-
-  const [textViewMode, setTextViewMode] = React.useState<TextViewMode>('edit');
-  const [mdViewMode, setMdViewMode] = React.useState<PreviewViewMode>('edit');
-  const [jsonViewMode, setJsonViewMode] = React.useState<'tree' | 'text'>('tree');
-  const [htmlViewMode, setHtmlViewMode] = React.useState<PreviewViewMode>('edit');
-  const [drawioViewMode, setDrawioViewMode] = React.useState<PreviewViewMode>('preview');
-  const [drawioRemountNonce, setDrawioRemountNonce] = React.useState(0);
-  const textViewModeByPathRef = React.useRef<Record<string, TextViewMode>>({});
-  const mdViewModeByPathRef = React.useRef<Record<string, PreviewViewMode>>({});
-  const htmlViewModeByPathRef = React.useRef<Record<string, PreviewViewMode>>({});
-  const drawioViewModeByPathRef = React.useRef<Record<string, PreviewViewMode>>({});
-
   const lightTheme = React.useMemo(
     () => availableThemes.find((theme) => theme.metadata.id === lightThemeId) ?? getDefaultTheme(false),
     [availableThemes, lightThemeId],
@@ -804,6 +162,23 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
   const setSelectedPath = useFilesViewTabsStore((state) => state.setSelectedPath);
   const toggleExpandedPath = useFilesViewTabsStore((state) => state.toggleExpandedPath);
   const expandPaths = useFilesViewTabsStore((state) => state.expandPaths);
+  const {
+    childrenByDir,
+    loadErrorsByDir,
+    isLoaded: isDirectoryLoaded,
+    loadDirectory,
+    refreshDirectory,
+    refreshRoot,
+  } = useFilesTree({
+    files,
+    root,
+    activeDirectory: mobileChrome ? mobileDirectory : undefined,
+    expandedPaths,
+    chrome,
+    showHidden,
+    showGitignored,
+    removeExpandedPathsByPrefix,
+  });
 
   const toFileNode = React.useCallback((path: string): FileNode => {
     const normalized = normalizePath(path);
@@ -878,16 +253,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     };
   }, [openFiles.length]);
 
-  const [childrenByDir, setChildrenByDir] = React.useState<Record<string, FileNode[]>>({});
-  const [loadErrorsByDir, setLoadErrorsByDir] = React.useState<Record<string, string>>({});
-  const loadedDirsRef = React.useRef<Set<string>>(new Set());
-  const inFlightDirsRef = React.useRef<Set<string>>(new Set());
-  const activeDirectoryLoadIdsRef = React.useRef<Map<string, number>>(new Map());
-  const nextDirectoryLoadIdRef = React.useRef(0);
-
-  const [searchResults, setSearchResults] = React.useState<FileNode[]>([]);
-  const [searching, setSearching] = React.useState(false);
-
   const [fileContent, setFileContent] = React.useState<string>('');
   const [fileLoading, setFileLoading] = React.useState(false);
   const [fileError, setFileError] = React.useState<string | null>(null);
@@ -897,60 +262,49 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
   const [loadedFilePath, setLoadedFilePath] = React.useState<string | null>(null);
 
   const [draftContent, setDraftContent] = React.useState('');
-  const [isSaving, setIsSaving] = React.useState(false);
   const [loadedFileLineEnding, setLoadedFileLineEnding] = React.useState<FileLineEnding>('\n');
-  const dialogInputRef = React.useRef<HTMLInputElement>(null);
-  const autoSaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const diagramAutoSaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const diagramXmlRef = React.useRef('');
-  const diagramSavedXmlRef = React.useRef('');
-  const pendingDrawioPreviewFrameRef = React.useRef<number | null>(null);
   const diagramEditorRef = React.useRef<React.ComponentRef<typeof DiagramEditor>>(null);
-  const lastLoadedFileStatRef = React.useRef<FileStatSnapshot | null>(null);
   const activeFileLoadIdRef = React.useRef(0);
   const loadingFilePathRef = React.useRef<string | null>(null);
-  const [autoSaveStatus, setAutoSaveStatus] = React.useState<'idle' | 'saved'>('idle');
-  const [diagramSaved, setDiagramSaved] = React.useState(false);
   const [contentDetectedBinary, setContentDetectedBinary] = React.useState(false);
   const autoSaveEnabled = useUIStore((state) => state.autoSaveEnabled);
   const setAutoSaveEnabled = useUIStore((state) => state.setAutoSaveEnabled);
 
-  const [confirmDiscardOpen, setConfirmDiscardOpen] = React.useState(false);
-  const pendingSelectFileRef = React.useRef<FileNode | null>(null);
-  const pendingTabRef = React.useRef<import('@/stores/useUIStore').MainTab | null>(null);
-  const pendingClosePathRef = React.useRef<string | null>(null);
-  const skipDirtyOnceRef = React.useRef(false);
-  const copiedContentTimeoutRef = React.useRef<number | null>(null);
-  const copiedPathTimeoutRef = React.useRef<number | null>(null);
-  const editorViewRef = React.useRef<EditorView | null>(null);
   const editorWrapperRef = React.useRef<HTMLDivElement | null>(null);
-  const [editorViewReadyNonce, setEditorViewReadyNonce] = React.useState(0);
-  const pendingNavigationRafRef = React.useRef<number | null>(null);
-  const pendingNavigationCycleRef = React.useRef<{ key: string; attempts: number }>({ key: '', attempts: 0 });
 
-  React.useEffect(() => {
-    return () => {
-      if (pendingNavigationRafRef.current !== null && typeof window !== 'undefined') {
-        window.cancelAnimationFrame(pendingNavigationRafRef.current);
-        pendingNavigationRafRef.current = null;
-      }
-    };
-  }, []);
-
-  const [activeDialog, setActiveDialog] = React.useState<'createFile' | 'createFolder' | 'rename' | 'delete' | null>(null);
-  const [dialogData, setDialogData] = React.useState<{ path: string; name?: string; type?: 'file' | 'directory' } | null>(null);
-  const [dialogInputValue, setDialogInputValue] = React.useState('');
-  const [isDialogSubmitting, setIsDialogSubmitting] = React.useState(false);
   const [contextMenuPath, setContextMenuPath] = React.useState<string | null>(null);
   const [rightClickMenuPath, setRightClickMenuPath] = React.useState<string | null>(null);
-  const [copiedContent, setCopiedContent] = React.useState(false);
-  const [copiedPath, setCopiedPath] = React.useState(false);
+  const { value: copiedContent, show: showCopiedContent } = useTransientValue(false, 1200);
+  const { value: copiedPath, show: showCopiedPath } = useTransientValue(false, 1200);
   const [isGoToLineOpen, setIsGoToLineOpen] = React.useState(false);
 
-  const canCreateFile = Boolean(files.writeFile);
-  const canCreateFolder = Boolean(files.createDirectory);
-  const canRename = Boolean(files.rename);
-  const canDelete = Boolean(files.delete);
+  const clearSelectedFile = React.useCallback(() => {
+    if (root) setSelectedPath(root, null);
+    setFileContent('');
+    setFileError(null);
+    setDesktopImageSrc('');
+    setLoadedFilePath(null);
+    if (isMobile) setShowMobilePageContent(false);
+  }, [isMobile, root, setSelectedPath]);
+  const {
+    operation: activeDialog,
+    target: dialogData,
+    inputValue: dialogInputValue,
+    setInputValue: setDialogInputValue,
+    submitting: isDialogSubmitting,
+    inputRef: dialogInputRef,
+    open: handleOpenDialog,
+    close: handleCloseDialog,
+    submit: handleDialogSubmit,
+    capabilities: { canCreateFile, canCreateFolder, canRename, canDelete },
+  } = useFileOperations({
+    files,
+    root,
+    selectedPath: selectedFile?.path ?? '',
+    refreshDirectory,
+    removeOpenPathsByPrefix,
+    clearSelectedPath: clearSelectedFile,
+  });
   const canReveal = Boolean(files.revealPath);
   const openInApps = useOpenInAppsStore((state) => state.availableApps);
   const openInCacheStale = useOpenInAppsStore((state) => state.isCacheStale);
@@ -993,455 +347,35 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     toast.error(`Failed to open in ${app.appName}`);
   }, [root, selectedFile?.path]);
 
-  const handleOpenDialog = React.useCallback((type: 'createFile' | 'createFolder' | 'rename' | 'delete', data: { path: string; name?: string; type?: 'file' | 'directory' }) => {
-    setActiveDialog(type);
-    setDialogData(data);
-    setDialogInputValue(type === 'rename' ? data.name || '' : '');
-    setIsDialogSubmitting(false);
-  }, []);
-
   // File navigation/editor state
-  const setMainTabGuard = useUIStore((state) => state.setMainTabGuard);
-  const pendingFileNavigation = useUIStore((state) => state.pendingFileNavigation);
-  const setPendingFileNavigation = useUIStore((state) => state.setPendingFileNavigation);
-  const pendingFileFocusPath = useUIStore((state) => state.pendingFileFocusPath);
-  const setPendingFileFocusPath = useUIStore((state) => state.setPendingFileFocusPath);
   const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
   const fileEditorKeymap = useUIStore((state) => state.fileEditorKeymap);
   const settingsDefaultFileViewerPreview = useConfigStore((state) => state.settingsDefaultFileViewerPreview);
   const settingsExpandedEditorToolbar = useUIStore((state) => state.expandedEditorToolbar);
 
   React.useEffect(() => {
-    return () => {
-      if (copiedContentTimeoutRef.current !== null) {
-        window.clearTimeout(copiedContentTimeoutRef.current);
-      }
-      if (copiedPathTimeoutRef.current !== null) {
-        window.clearTimeout(copiedPathTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  React.useEffect(() => {
-    setMainTabGuard(null);
     setDraftContent('');
-    setIsSaving(false);
-  }, [selectedFile?.path, setMainTabGuard]);
-
-  const mapDirectoryEntries = React.useCallback((dirPath: string, entries: Array<{ name: string; path: string; isDirectory: boolean }>): FileNode[] => {
-    const nodes: FileNode[] = [];
-    for (const entry of entries) {
-      if (!(entry && typeof entry.name === 'string' && entry.name.length > 0)) continue;
-      if (!showHidden && entry.name.startsWith('.')) continue;
-      if (!showGitignored && shouldIgnoreEntryName(entry.name)) continue;
-      const name = entry.name;
-      const normalizedEntryPath = normalizePath(entry.path || '');
-      const path = normalizedEntryPath
-        ? (isAbsolutePath(normalizedEntryPath)
-          ? normalizedEntryPath
-          : normalizePath(`${dirPath}/${normalizedEntryPath}`))
-        : normalizePath(`${dirPath}/${name}`);
-      const type = entry.isDirectory ? 'directory' : 'file';
-      const extension = type === 'file' && name.includes('.') ? name.split('.').pop()?.toLowerCase() : undefined;
-      nodes.push({ name, path, type, extension });
-    }
-
-    return sortNodes(nodes);
-  }, [showGitignored, showHidden]);
-
-  const loadDirectory = React.useCallback(async (dirPath: string) => {
-    const normalizedDir = normalizePath(dirPath.trim());
-    if (!normalizedDir) {
-      return;
-    }
-
-    if (loadedDirsRef.current.has(normalizedDir) || inFlightDirsRef.current.has(normalizedDir)) {
-      return;
-    }
-
-    inFlightDirsRef.current = new Set(inFlightDirsRef.current);
-    inFlightDirsRef.current.add(normalizedDir);
-    const requestId = nextDirectoryLoadIdRef.current + 1;
-    nextDirectoryLoadIdRef.current = requestId;
-    activeDirectoryLoadIdsRef.current = new Map(activeDirectoryLoadIdsRef.current);
-    activeDirectoryLoadIdsRef.current.set(normalizedDir, requestId);
-
-    const isCurrentRequest = () => activeDirectoryLoadIdsRef.current.get(normalizedDir) === requestId;
-
-    const listPromise = files.listDirectory
-      ? files.listDirectory(normalizedDir).then((result) => result.entries.map((entry) => ({
-        name: entry.name,
-        path: entry.path,
-        isDirectory: entry.isDirectory,
-      })))
-      : listLocalDirectory(normalizedDir).then((result) => result.map((entry) => ({
-        name: entry.name,
-        path: entry.path,
-        isDirectory: entry.isDirectory,
-      })));
-
-    await listPromise
-      .then((entries) => {
-        if (!isCurrentRequest()) {
-          return;
-        }
-
-        const mapped = mapDirectoryEntries(normalizedDir, entries);
-
-        loadedDirsRef.current = new Set(loadedDirsRef.current);
-        loadedDirsRef.current.add(normalizedDir);
-        setLoadErrorsByDir((prev) => {
-          if (!prev[normalizedDir]) return prev;
-          const next = { ...prev };
-          delete next[normalizedDir];
-          return next;
-        });
-        setChildrenByDir((prev) => ({ ...prev, [normalizedDir]: mapped }));
-      })
-      .catch((error) => {
-        if (!isCurrentRequest()) {
-          return;
-        }
-
-        const message = error instanceof Error ? error.message : String(error ?? '');
-        if (message === 'Directory not found' && root && normalizedDir !== root) {
-          removeExpandedPathsByPrefix(root, normalizedDir);
-          setLoadErrorsByDir((prev) => {
-            if (!prev[normalizedDir]) return prev;
-            const next = { ...prev };
-            delete next[normalizedDir];
-            return next;
-          });
-          return;
-        }
-        console.error('Failed to load files directory:', error);
-        setLoadErrorsByDir((prev) => ({
-          ...prev,
-          [normalizedDir]: message,
-        }));
-      })
-      .finally(() => {
-        if (!isCurrentRequest()) {
-          return;
-        }
-
-        activeDirectoryLoadIdsRef.current = new Map(activeDirectoryLoadIdsRef.current);
-        activeDirectoryLoadIdsRef.current.delete(normalizedDir);
-        inFlightDirsRef.current = new Set(inFlightDirsRef.current);
-        inFlightDirsRef.current.delete(normalizedDir);
-      });
-  }, [files, mapDirectoryEntries, removeExpandedPathsByPrefix, root]);
-
-  const refreshRoot = React.useCallback(async () => {
-    if (!root) {
-      return;
-    }
-
-    loadedDirsRef.current = new Set();
-    inFlightDirsRef.current = new Set();
-    activeDirectoryLoadIdsRef.current = new Map();
-    setLoadErrorsByDir({});
-    setChildrenByDir((prev) => (Object.keys(prev).length === 0 ? prev : {}));
-
-    await loadDirectory(root);
-  }, [loadDirectory, root]);
-
-  /**
-   * Incrementally refresh a single directory without nuking the rest of the
-   * tree.  After the operation the parent directory is reloaded in-place so
-   * the new/renamed/deleted entry becomes visible immediately while every
-   * other expanded directory keeps its cached children.
-   */
-  const refreshDirectory = React.useCallback(async (dirPath: string) => {
-    if (!dirPath) {
-      await refreshRoot();
-      return;
-    }
-    const normalized = normalizePath(dirPath);
-    // Remove from loaded set so loadDirectory will actually fetch again.
-    loadedDirsRef.current = new Set(loadedDirsRef.current);
-    loadedDirsRef.current.delete(normalized);
-    // Also cancel any in-flight request for this dir so the new fetch wins.
-    inFlightDirsRef.current = new Set(inFlightDirsRef.current);
-    inFlightDirsRef.current.delete(normalized);
-    await loadDirectory(normalized);
-  }, [loadDirectory, refreshRoot]);
+  }, [selectedFile?.path]);
 
   const lastFilesViewDirRef = React.useRef<string>('');
-  const lastFilesViewTreeKeyRef = React.useRef<string>('');
-
   React.useEffect(() => {
-    if (!root) {
-      return;
-    }
+    if (!root || lastFilesViewDirRef.current === root) return;
+    lastFilesViewDirRef.current = root;
+    setFileContent('');
+    setFileError(null);
+    setDesktopImageSrc('');
+    setLoadedFilePath(null);
+    setShowMobilePageContent(false);
+  }, [root]);
 
-    const treeKey = `${root}|h${showHidden ? '1' : '0'}|g${showGitignored ? '1' : '0'}`;
-    const dirChanged = lastFilesViewDirRef.current !== root;
-    const treeKeyChanged = lastFilesViewTreeKeyRef.current !== treeKey;
-
-    if (!dirChanged && !treeKeyChanged) {
-      return;
-    }
-
-    if (dirChanged) {
-      lastFilesViewDirRef.current = root;
-      setFileContent('');
-      setFileError(null);
-      setDesktopImageSrc('');
-      setLoadedFilePath(null);
-      setShowMobilePageContent(false);
-    }
-
-    if (treeKeyChanged) {
-      lastFilesViewTreeKeyRef.current = treeKey;
-      loadedDirsRef.current = new Set();
-      inFlightDirsRef.current = new Set();
-      activeDirectoryLoadIdsRef.current = new Map();
-      setLoadErrorsByDir({});
-      setChildrenByDir((prev) => (Object.keys(prev).length === 0 ? prev : {}));
-      void loadDirectory(root);
-    }
-  }, [loadDirectory, root, showGitignored, showHidden]);
-
-  // Auto-refresh expanded directories when user returns to the tab
-  React.useEffect(() => {
-    if (!files.listDirectory) return;
-
-    const handleVisibilityChange = () => {
-      if (!document.hidden && expandedPaths.length > 0) {
-        for (const dir of expandedPaths) {
-          void refreshDirectory(dir);
-        }
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [expandedPaths, files.listDirectory, refreshDirectory]);
-
-  // Poll expanded directories for external changes
-  React.useEffect(() => {
-    if (!files.listDirectory) return;
-    if (expandedPaths.length === 0) return;
-
-    const interval = setInterval(() => {
-      if (document.hidden) return;
-      for (const dir of expandedPaths) {
-        void refreshDirectory(dir);
-      }
-    }, 8000);
-
-    return () => clearInterval(interval);
-  }, [expandedPaths, files.listDirectory, refreshDirectory]);
-
-  const handleDialogSubmit = React.useCallback(async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if (!dialogData || !activeDialog) return;
-
-    setIsDialogSubmitting(true);
-    const finishDialogOperation = () => {
-      setActiveDialog(null);
-    };
-
-    const failDialogOperation = (message: string) => {
-      toast.error(message);
-    };
-
-    const done = () => {
-      setIsDialogSubmitting(false);
-    };
-
-    if (activeDialog === 'createFile') {
-      if (!dialogInputValue.trim()) {
-        failDialogOperation("Filename is required");
-        done();
-        return;
-      }
-      if (!files.writeFile) {
-        failDialogOperation("Write not supported");
-        done();
-        return;
-      }
-
-      const parentPath = dialogData.path;
-      const prefix = parentPath ? `${parentPath}/` : '';
-      const newPath = normalizePath(`${prefix}${dialogInputValue.trim()}`);
-      await files.writeFile(newPath, '')
-        .then(async (result) => {
-          if (result.success) {
-            toast.success("File created");
-            await refreshDirectory(parentPath);
-          }
-          finishDialogOperation();
-        })
-        .catch(() => failDialogOperation("Operation failed"))
-        .finally(done);
-      return;
-    }
-
-    if (activeDialog === 'createFolder') {
-      if (!dialogInputValue.trim()) {
-        failDialogOperation("Folder name is required");
-        done();
-        return;
-      }
-
-      const parentPath = dialogData.path;
-      const prefix = parentPath ? `${parentPath}/` : '';
-      const newPath = normalizePath(`${prefix}${dialogInputValue.trim()}`);
-      await files.createDirectory(newPath)
-        .then(async (result) => {
-          if (result.success) {
-            toast.success("Folder created");
-            await refreshDirectory(parentPath);
-          }
-          finishDialogOperation();
-        })
-        .catch(() => failDialogOperation("Operation failed"))
-        .finally(done);
-      return;
-    }
-
-    if (activeDialog === 'rename') {
-      if (!dialogInputValue.trim()) {
-        failDialogOperation("Name is required");
-        done();
-        return;
-      }
-
-      if (!files.rename) {
-        failDialogOperation("Rename not supported");
-        done();
-        return;
-      }
-
-      const oldPath = dialogData.path;
-      const parentDir = oldPath.split('/').slice(0, -1).join('/');
-      const prefix = parentDir ? `${parentDir}/` : '';
-      const newPath = normalizePath(`${prefix}${dialogInputValue.trim()}`);
-
-      await files.rename(oldPath, newPath)
-        .then(async (result) => {
-          if (result.success) {
-            toast.success("Renamed successfully");
-            await refreshDirectory(parentDir);
-            if (root) {
-              removeOpenPathsByPrefix(root, oldPath);
-            }
-            if (selectedFile?.path === oldPath || selectedFile?.path.startsWith(`${oldPath}/`)) {
-              if (root) {
-                setSelectedPath(root, null);
-              }
-              setFileContent('');
-              setFileError(null);
-              setDesktopImageSrc('');
-              setLoadedFilePath(null);
-              if (isMobile) {
-                setShowMobilePageContent(false);
-              }
-            }
-          }
-          finishDialogOperation();
-        })
-        .catch(() => failDialogOperation("Operation failed"))
-        .finally(done);
-      return;
-    }
-
-    if (activeDialog === 'delete') {
-      if (!files.delete) {
-        failDialogOperation("Delete not supported");
-        done();
-        return;
-      }
-
-      const deletedPath = dialogData.path;
-      const parentDir = deletedPath.split('/').slice(0, -1).join('/');
-      await files.delete(deletedPath)
-        .then(async (result) => {
-          if (result.success) {
-            toast.success("Deleted successfully");
-            await refreshDirectory(parentDir);
-            if (root) {
-              removeOpenPathsByPrefix(root, deletedPath);
-            }
-            if (selectedFile?.path === deletedPath || selectedFile?.path.startsWith(`${deletedPath}/`)) {
-              if (root) {
-                setSelectedPath(root, null);
-              }
-              setFileContent('');
-              setFileError(null);
-              setDesktopImageSrc('');
-              setLoadedFilePath(null);
-              if (isMobile) {
-                setShowMobilePageContent(false);
-              }
-            }
-          }
-          finishDialogOperation();
-        })
-        .catch(() => failDialogOperation("Operation failed"))
-        .finally(done);
-      return;
-    }
-
-    done();
-  }, [activeDialog, dialogData, dialogInputValue, files, refreshDirectory, isMobile, removeOpenPathsByPrefix, root, selectedFile?.path, setSelectedPath]);
-
-  React.useEffect(() => {
-    if (!currentDirectory) {
-      setSearchResults([]);
-      setSearching(false);
-      return;
-    }
-
-    const trimmedQuery = debouncedSearchQuery.trim();
-    if (!trimmedQuery) {
-      setSearchResults([]);
-      setSearching(false);
-      return;
-    }
-
-    let cancelled = false;
-    setSearching(true);
-
-    searchFiles(currentDirectory, trimmedQuery, 150, {
-      includeHidden: showHidden,
-      respectGitignore: !showGitignored,
-      type: 'file',
-    })
-      .then((hits) => {
-        if (cancelled) {
-          return;
-        }
-
-        const filtered = hits.filter((hit) => showGitignored || !shouldIgnorePath(hit.path));
-
-        const mapped: FileNode[] = filtered.map((hit) => ({
-          name: hit.name,
-          path: normalizePath(hit.path),
-          type: 'file',
-          extension: hit.extension,
-          relativePath: hit.relativePath,
-        }));
-
-        setSearchResults(mapped);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setSearchResults([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setSearching(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [currentDirectory, debouncedSearchQuery, searchFiles, showHidden, showGitignored]);
+  const searchDirectory = mobileChrome ? mobileDirectory : currentDirectory;
+  const { results: searchResults, searching } = useFilesViewSearch({
+    directory: searchDirectory,
+    query: searchQuery,
+    chrome,
+    showHidden,
+    showGitignored,
+  });
 
   const readFile = React.useCallback(async (path: string, options?: { allowOutsideWorkspace?: boolean; outsideFileGrant?: string; optional?: boolean }): Promise<string> => {
     if (files.readFile) {
@@ -1518,154 +452,95 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
   );
 
   const isDirty = draftContent !== displayedContent;
+  const readSelectedFileStat = React.useCallback(
+    (path: string) => readFileStat(path, selectedFileReadOptions),
+    [readFileStat, selectedFileReadOptions],
+  );
+  const reloadExternallyChangedFile = React.useCallback(() => {
+    // The selection effect observes this reset and performs exactly one reload.
+    setLoadedFilePath(null);
+  }, []);
+  const { recordStat: recordLoadedFileStat } = useFileStatReconciliation({
+    selectedPath: selectedFile?.path ?? null,
+    loadedPath: loadedFilePath,
+    isDirty,
+    readStat: readSelectedFileStat,
+    onExternalChange: reloadExternallyChangedFile,
+  });
+  const {
+    clearDiagramContent,
+    diagramEditorXml,
+    diagramSaved,
+    drawioRemountNonce,
+    drawioViewMode,
+    handleDiagramChange,
+    htmlViewMode,
+    jsonViewMode,
+    mdViewMode,
+    recordDiagramContent,
+    saveDiagramNow,
+    saveDrawioViewMode,
+    saveJsonViewMode,
+    saveMdViewMode,
+    saveTextViewMode,
+    setTextViewMode,
+    textViewMode,
+  } = useFileViewerModes({
+    root,
+    openPaths,
+    selectedPath: selectedFile?.path ?? null,
+    defaultPreview: settingsDefaultFileViewerPreview,
+    fileContent,
+    draftContent,
+    setDraftContent,
+    autoSaveEnabled,
+    writeFile: files.writeFile,
+    readStat: readSelectedFileStat,
+    recordStat: recordLoadedFileStat,
+  });
+  const getMdViewMode = React.useCallback(() => mdViewMode, [mdViewMode]);
 
-  const saveDraft = React.useCallback(async () => {
-    if (!selectedFile || !files.writeFile) {
-      toast.error("Saving not supported");
-      return false;
-    }
-
-    const selectedIsBinary = isBinaryFile(selectedFile.path) || contentDetectedBinary;
-    if (!shouldAllowFileDraftSave({
-      selectedFilePath: selectedFile.path,
-      loadedFilePath,
-      fileLoading,
-      isDirty,
-      draftContent,
-      fileContent,
-      isNonEditableBinary: selectedIsBinary,
-    })) {
-      if (selectedIsBinary) {
-        console.warn(`[saveDraft] refusing to save binary file "${selectedFile.path}".`);
-      } else if (draftContent === '' && fileContent !== '' && loadedFilePath !== selectedFile.path) {
-        console.warn(
-          `[saveDraft] refusing to save empty draft for "${selectedFile.path}" (${fileContent.length} bytes were expected). ` +
-          'The file may have been read during a concurrent write (O_TRUNC race). ' +
-          'Try again after content finishes loading if the save was intentional.',
-        );
+  const handleFileSaved = React.useCallback((path: string, content: string) => {
+    setFileContent(content);
+    if (root && isPathWithinRoot(path, root)) {
+      const relativePath = getDisplayPath(root, path);
+      if (relativePath) {
+        sessionEvents.requestGitRefresh({ directory: root, paths: [relativePath] });
       }
-      return false;
     }
-
-    // Clean draft: treat as success so discard/save dialogs and Ctrl+S are not stranded.
-    if (!isDirty) {
-      return true;
-    }
-
-    setIsSaving(true);
-
-    try {
-      const contentToWrite = serializeEditorContent(draftContent, loadedFileLineEnding);
-      const result = await files.writeFile(selectedFile.path, contentToWrite);
-      if (!result?.success) {
-        toast.error("Failed to write file");
-        return false;
-      }
-      setFileContent(draftContent);
-      if (root && isPathWithinRoot(selectedFile.path, root)) {
-        const relativePath = getDisplayPath(root, selectedFile.path);
-        if (relativePath) {
-          sessionEvents.requestGitRefresh({ directory: root, paths: [relativePath] });
-        }
-      }
-      if (selectedFile?.path && isDrawioFile(selectedFile.path)) {
-        diagramXmlRef.current = draftContent;
-        diagramSavedXmlRef.current = draftContent;
-      }
-      // Refresh stat after write so polling doesn't see a stale metadata change.
-      void readFileStat(selectedFile.path)
-        .then((stat) => {
-          if (stat) {
-            lastLoadedFileStatRef.current = stat;
-          }
-        })
-        .catch(() => {});
-      return true;
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Save failed");
-      return false;
-    } finally {
-      setIsSaving(false);
-    }
-  }, [contentDetectedBinary, draftContent, fileContent, fileLoading, files, isDirty, loadedFileLineEnding, loadedFilePath, readFileStat, root, selectedFile]);
-
-  React.useEffect(() => {
-    if (!isDirty) {
-      setMainTabGuard(null);
-      return;
-    }
-
-    const guard = (_nextTab: import('@/stores/useUIStore').MainTab) => {
-      if (skipDirtyOnceRef.current) {
-        skipDirtyOnceRef.current = false;
-        return true;
-      }
-      setConfirmDiscardOpen(true);
-      pendingTabRef.current = _nextTab;
-      return false;
-    };
-
-    setMainTabGuard(guard);
-
-    return () => {
-      const currentGuard = useUIStore.getState().mainTabGuard;
-      if (currentGuard === guard) {
-        setMainTabGuard(null);
-      }
-    };
-  }, [isDirty, setMainTabGuard]);
-
-  React.useEffect(() => {
-    if (autoSaveEnabled) {
-      return;
-    }
-
-    setAutoSaveStatus('idle');
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current);
-      autoSaveTimerRef.current = null;
-    }
-  }, [autoSaveEnabled]);
-
-  // Auto-save: debounce 1.5s after user stops typing
-  const AUTO_SAVE_DELAY = 1500;
-
-  React.useEffect(() => {
-    const canWrite = Boolean(selectedFile && files.writeFile);
-    const selectedIsBinary = Boolean(selectedFile?.path && (isBinaryFile(selectedFile.path) || contentDetectedBinary));
-    if (!shouldScheduleFileAutosave({
-      autoSaveEnabled,
-      isDirty,
-      canWrite,
-      isSaving,
-      fileLoading,
-      selectedFilePath: selectedFile?.path,
-      loadedFilePath,
-      isNonEditableBinary: selectedIsBinary,
-    })) {
-      return;
-    }
-
-    autoSaveTimerRef.current = setTimeout(() => {
-      void saveDraft().then((saved) => {
-        if (!saved) return;
-        setAutoSaveStatus('saved');
-        setTimeout(() => setAutoSaveStatus('idle'), 2000);
-      });
-    }, AUTO_SAVE_DELAY);
-
-    return () => {
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current);
-        autoSaveTimerRef.current = null;
-      }
-    };
-  }, [autoSaveEnabled, contentDetectedBinary, draftContent, fileLoading, isDirty, loadedFilePath, selectedFile, files.writeFile, isSaving, saveDraft]);
-
-  // Reset auto-save status when switching files
-  React.useEffect(() => {
-    setAutoSaveStatus('idle');
-  }, [selectedFile?.path]);
+    if (isDrawioFile(path)) recordDiagramContent(content);
+    // Refresh stat after write so polling does not observe our own stale metadata.
+    void readFileStat(path)
+      .then((stat) => {
+        if (stat) recordLoadedFileStat(stat);
+      })
+      .catch(() => {});
+  }, [readFileStat, recordDiagramContent, recordLoadedFileStat, root]);
+  const {
+    autoSaveStatus,
+    isSaving,
+    saveDraft,
+    saveNow,
+  } = useFileEditorSave({
+    autoSaveEnabled,
+    selectedPath: selectedFile?.path ?? null,
+    loadedPath: loadedFilePath,
+    fileLoading,
+    isDirty,
+    draftContent,
+    fileContent,
+    lineEnding: loadedFileLineEnding,
+    isNonEditableBinary: Boolean(selectedFile?.path && (isBinaryFile(selectedFile.path) || contentDetectedBinary)),
+    writeFile: files.writeFile,
+    onSaved: handleFileSaved,
+  });
+  const {
+    confirmOpen: confirmDiscardOpen,
+    discardAndTakeIntent,
+    keepModalOpen: keepDiscardModalOpen,
+    requestNavigation,
+    saveAndTakeIntent,
+  } = useDirtyFileNavigation({ isDirty, saveDraft });
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1675,18 +550,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
 
       if (e.key.toLowerCase() === 's') {
         e.preventDefault();
-        // Cancel pending auto-save; user wants immediate save
-        if (autoSaveTimerRef.current) {
-          clearTimeout(autoSaveTimerRef.current);
-          autoSaveTimerRef.current = null;
-        }
-        if (!isSaving) {
-          void saveDraft().then((saved) => {
-            if (!saved) return;
-            setAutoSaveStatus('saved');
-            setTimeout(() => setAutoSaveStatus('idle'), 2000);
-          });
-        }
+        void saveNow();
       } else if (e.key.toLowerCase() === 'f') {
         e.preventDefault();
         setIsSearchOpen(true);
@@ -1695,7 +559,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSaving, saveDraft]);
+  }, [saveNow]);
 
   const loadSelectedFile = React.useCallback(async (node: FileNode) => {
     const loadId = activeFileLoadIdRef.current + 1;
@@ -1712,83 +576,49 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     setLoadedFilePath(null);
     setContentDetectedBinary(false);
 
-    const selectedIsImage = isImageFile(node.path);
-    const isSvg = isSvgFile(node.path);
-    const selectedIsPdf = isPdfFile(node.path);
-    const selectedIsBinary = isBinaryFile(node.path);
-
     if (isMobile) {
       setShowMobilePageContent(true);
     }
-
-    // Desktop: binary images are loaded via readFileBinary (data URL).
-    if (runtime.isDesktop && selectedIsImage && !isSvg) {
-      setFileContent('');
-      setDraftContent('');
-      setFileLoading(true);
-      return;
-    }
-
-    // Web: binary images should not be read as utf8.
-    if (!runtime.isDesktop && selectedIsImage && !isSvg) {
-      setFileContent('');
-      setDraftContent('');
-      setLoadedFilePath(node.path);
-      setFileLoading(false);
-      return;
-    }
-
-    if (selectedIsPdf) {
-      setFileContent('');
-      setDraftContent('');
-      setLoadedFilePath(node.path);
-      setFileLoading(false);
-      return;
-    }
-
-    // Other known binaries (docx/xlsx/zip/…) must never be opened as text —
-    // a later autosave would corrupt them.
-    if (selectedIsBinary) {
-      setFileContent('');
-      setDraftContent('');
-      setLoadedFilePath(node.path);
-      setFileLoading(false);
-      return;
-    }
-
-    setFileLoading(true);
 
     const outsideFileGrant = getOutsideFileGrant(node.path);
     const readOptions = {
       allowOutsideWorkspace: mode === 'editor-only' && Boolean(root) && !isPathWithinRoot(node.path, root),
       outsideFileGrant,
     };
+    let keepDesktopImageLoading = false;
+    setFileLoading(true);
 
-    await readFile(node.path, readOptions)
-      .then((content) => {
-        if (!isCurrentLoad()) {
-          return;
-        }
-        if (looksLikeBinaryText(content)) {
-          setContentDetectedBinary(true);
+    await loadFileDocument(
+      node.path,
+      runtime.isDesktop,
+      (path) => readFile(path, readOptions),
+    )
+      .then((result) => {
+        if (!isCurrentLoad()) return;
+
+        if (result.kind !== 'text') {
           setFileContent('');
           setDraftContent('');
+          if (result.kind === 'desktop-image') {
+            keepDesktopImageLoading = true;
+            return;
+          }
+          if (result.kind === 'binary') {
+            setContentDetectedBinary(result.detectedFromContent);
+          }
           setLoadedFilePath(node.path);
           return;
         }
-        const editorContent = normalizeEditorLineEndings(content);
-        setLoadedFileLineEnding(detectFileLineEnding(content));
-        setFileContent(editorContent);
-        diagramXmlRef.current = editorContent;
-        diagramSavedXmlRef.current = editorContent;
-        setDraftContent(editorContent.length > MAX_VIEW_CHARS
-          ? `${editorContent.slice(0, MAX_VIEW_CHARS)}\n\n… truncated …`
-          : editorContent);
+
+        setLoadedFileLineEnding(result.lineEnding);
+        setFileContent(result.content);
+        recordDiagramContent(result.content);
+        setDraftContent(result.draft);
         setLoadedFilePath(node.path);
         void readFileStat(node.path, readOptions)
           .then((stat) => {
             if (stat && isCurrentLoad()) {
-              lastLoadedFileStatRef.current = stat;
+              recordLoadedFileStat(stat);
             }
           })
           .catch(() => {});
@@ -1806,7 +636,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
           setFileContent('');
           setDraftContent('');
           setLoadedFilePath(null);
-          lastLoadedFileStatRef.current = null;
+          recordLoadedFileStat(null);
           if (searchQuery.trim().length > 0) {
             setSearchQuery('');
           }
@@ -1820,7 +650,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
               expandPaths(root, pathsToExpand);
             }
             for (const path of pathsToExpand) {
-              if (!loadedDirsRef.current.has(path)) {
+              if (!isDirectoryLoaded(path)) {
                 void loadDirectory(path);
               }
             }
@@ -1834,7 +664,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
           setFileContent('');
           setDraftContent('');
           setFileError(null);
-          lastLoadedFileStatRef.current = null;
+          recordLoadedFileStat(null);
           if (isMobile) {
             setShowMobilePageContent(false);
           }
@@ -1843,14 +673,14 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
         setFileContent('');
         setDraftContent('');
         setFileError(error instanceof Error ? error.message : "Failed to read file");
-        lastLoadedFileStatRef.current = null;
+        recordLoadedFileStat(null);
       })
       .finally(() => {
-        if (isCurrentLoad()) {
+        if (isCurrentLoad() && !keepDesktopImageLoading) {
           setFileLoading(false);
         }
       });
-  }, [expandPaths, isMobile, loadDirectory, mode, readFile, readFileStat, removeOpenPathsByPrefix, root, runtime.isDesktop, searchQuery, setSelectedPath]);
+  }, [expandPaths, isDirectoryLoaded, isMobile, loadDirectory, mode, readFile, readFileStat, recordDiagramContent, recordLoadedFileStat, removeOpenPathsByPrefix, root, runtime.isDesktop, searchQuery, setSelectedPath]);
 
   const ensurePathVisible = React.useCallback(async (targetPath: string, includeTarget: boolean) => {
     if (!root) {
@@ -1865,13 +695,13 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     }
 
     const loadPromises = pathsToExpand.map((path) => {
-      if (!loadedDirsRef.current.has(path)) {
+      if (!isDirectoryLoaded(path)) {
         return loadDirectory(path);
       }
       return undefined;
     }).filter(Boolean);
     await Promise.all(loadPromises);
-  }, [expandPaths, loadDirectory, root]);
+  }, [expandPaths, isDirectoryLoaded, loadDirectory, root]);
 
   const getNextOpenFile = React.useCallback((path: string, filesList: FileNode[]) => {
     const index = filesList.findIndex((file) => file.path === path);
@@ -1882,13 +712,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
   }, []);
 
   const handleSelectFile = React.useCallback(async (node: FileNode) => {
-    if (skipDirtyOnceRef.current) {
-      skipDirtyOnceRef.current = false;
-    } else if (isDirty) {
-      setConfirmDiscardOpen(true);
-      pendingSelectFileRef.current = node;
-      return;
-    }
+    if (requestNavigation({ kind: 'select', file: node })) return;
 
     if (root) {
       setSelectedPath(root, node.path);
@@ -1898,14 +722,42 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     setFileError(null);
     setDesktopImageSrc('');
     setFileContent('');
-    diagramXmlRef.current = '';
-    diagramSavedXmlRef.current = '';
+    clearDiagramContent();
     setDraftContent('');
     setLoadedFilePath(null);
     if (isMobile) {
       setShowMobilePageContent(true);
     }
-  }, [ensurePathVisible, isDirty, isMobile, root, setSelectedPath]);
+  }, [clearDiagramContent, ensurePathVisible, isMobile, requestNavigation, root, setSelectedPath]);
+
+  const handleSelectFilePath = React.useCallback((path: string) => {
+    void handleSelectFile(toFileNode(path));
+  }, [handleSelectFile, toFileNode]);
+
+  const handleMobileOpenDirectory = React.useCallback((directory: string) => {
+    const normalized = normalizePath(directory);
+    if (!normalized) return;
+    setSearchQuery('');
+    setMobileDirectory(normalized);
+    setShowMobilePageContent(false);
+  }, []);
+
+  const handleMobileOpenFile = React.useCallback((path: string) => {
+    const normalized = normalizePath(path);
+    if (!normalized) return;
+    setShowMobilePageContent(true);
+    void handleSelectFile(toFileNode(normalized));
+  }, [handleSelectFile, toFileNode]);
+
+  const handleMobileRefresh = React.useCallback(async () => {
+    if (!mobileDirectory || mobileRefreshing) return;
+    setMobileRefreshing(true);
+    try {
+      await refreshDirectory(mobileDirectory);
+    } finally {
+      setMobileRefreshing(false);
+    }
+  }, [mobileDirectory, mobileRefreshing, refreshDirectory]);
 
   React.useEffect(() => {
     if (!selectedFile?.path) {
@@ -1937,203 +789,47 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     });
   }, [loadSelectedFile, loadedFilePath, selectedFile]);
 
-  // Sync isDirty to a ref so the polling interval can read the latest value
-  // without isDirty in its dependency array (avoids interval restart on every edit/save).
-  const isDirtyRef = React.useRef(isDirty);
-  isDirtyRef.current = isDirty;
-
-  // Poll open file for external changes.
-  // When a change is detected, reset loadedFilePath so the effect above
-  // triggers a single reload — no double-load.
-  React.useEffect(() => {
-    if (!selectedFile?.path || loadedFilePath !== selectedFile.path) {
+  const continueNavigation = React.useCallback(async (intent: DirtyFileNavigationIntent) => {
+    if (intent.kind === 'select') {
+      await handleSelectFile(intent.file);
+      return;
+    }
+    if (intent.kind === 'tab') {
+      useUIStore.getState().setActiveMainTab(intent.tab);
       return;
     }
 
-    let cancelled = false;
-    const interval = window.setInterval(() => {
-      if (document.hidden) {
-        return;
-      }
-
-      void readFileStat(selectedFile.path, selectedFileReadOptions)
-        .then((latestStat) => {
-          if (cancelled || !latestStat) {
-            return;
-          }
-
-          const previousStat = lastLoadedFileStatRef.current;
-          if (!previousStat || previousStat.path !== selectedFile.path) {
-            lastLoadedFileStatRef.current = latestStat;
-            return;
-          }
-
-          const changedByMtime = latestStat.mtimeMs !== undefined
-            && previousStat.mtimeMs !== undefined
-            && latestStat.mtimeMs !== previousStat.mtimeMs;
-          const changedBySize = latestStat.size !== previousStat.size;
-
-          if (!changedByMtime && !changedBySize) {
-            return;
-          }
-
-          if (isDirtyRef.current) {
-            return;
-          }
-
-          lastLoadedFileStatRef.current = latestStat;
-          // Reset loadedFilePath so the effect above triggers a single reload.
-          setLoadedFilePath(null);
-        })
-        .catch(() => {});
-    }, 2000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [loadedFilePath, readFileStat, selectedFile?.path, selectedFileReadOptions]);
+    if (root) removeOpenPath(root, intent.path);
+    if (selectedFile?.path !== intent.path) return;
+    if (intent.nextFile) {
+      await handleSelectFile(intent.nextFile);
+    } else {
+      clearSelectedFile();
+    }
+  }, [clearSelectedFile, handleSelectFile, removeOpenPath, root, selectedFile?.path]);
 
   const discardAndContinue = React.useCallback(() => {
-    const nextFile = pendingSelectFileRef.current;
-    const nextTab = pendingTabRef.current;
-    const closePath = pendingClosePathRef.current;
-
-    pendingSelectFileRef.current = null;
-    pendingTabRef.current = null;
-    pendingClosePathRef.current = null;
-
-    // Allow one guarded navigation (tab/file) without re-opening dialog.
-    skipDirtyOnceRef.current = true;
-
-    setConfirmDiscardOpen(false);
-
-    // Discard draft by reverting back to last loaded content
+    const intent = discardAndTakeIntent();
+    // Discard the draft by reverting to the last loaded content.
     setDraftContent(displayedContent);
-
-    if (closePath) {
-      if (root) {
-        removeOpenPath(root, closePath);
-      }
-      if (selectedFile?.path === closePath) {
-        if (nextFile) {
-          void handleSelectFile(nextFile);
-        } else {
-          if (root) {
-            setSelectedPath(root, null);
-          }
-          setFileContent('');
-          setFileError(null);
-          setDesktopImageSrc('');
-          setLoadedFilePath(null);
-          if (isMobile) {
-            setShowMobilePageContent(false);
-          }
-        }
-      }
-      return;
-    }
-
-    if (nextFile) {
-      void handleSelectFile(nextFile);
-      return;
-    }
-
-    if (nextTab) {
-      setMainTabGuard(null);
-      useUIStore.getState().setActiveMainTab(nextTab);
-    }
-  }, [displayedContent, handleSelectFile, isMobile, removeOpenPath, root, selectedFile?.path, setMainTabGuard, setSelectedPath]);
+    if (intent) void continueNavigation(intent);
+  }, [continueNavigation, discardAndTakeIntent, displayedContent]);
 
   const saveAndContinue = React.useCallback(async () => {
-    const nextFile = pendingSelectFileRef.current;
-    const nextTab = pendingTabRef.current;
-    const closePath = pendingClosePathRef.current;
-
-    const saved = await saveDraft();
-    if (!saved) {
-      skipDirtyOnceRef.current = false;
-      return;
-    }
-
-    pendingSelectFileRef.current = null;
-    pendingTabRef.current = null;
-    pendingClosePathRef.current = null;
-
-    // We'll proceed after saving; suppress guard reopening.
-    skipDirtyOnceRef.current = true;
-
-    setConfirmDiscardOpen(false);
-
-    if (closePath) {
-      if (root) {
-        removeOpenPath(root, closePath);
-      }
-      if (selectedFile?.path === closePath) {
-        if (nextFile) {
-          await handleSelectFile(nextFile);
-        } else {
-          if (root) {
-            setSelectedPath(root, null);
-          }
-          setFileContent('');
-          setFileError(null);
-          setDesktopImageSrc('');
-          setLoadedFilePath(null);
-          if (isMobile) {
-            setShowMobilePageContent(false);
-          }
-        }
-      }
-      return;
-    }
-
-    if (nextFile) {
-      await handleSelectFile(nextFile);
-      return;
-    }
-
-    if (nextTab) {
-      setMainTabGuard(null);
-      useUIStore.getState().setActiveMainTab(nextTab);
-    }
-  }, [handleSelectFile, isMobile, removeOpenPath, root, saveDraft, selectedFile?.path, setMainTabGuard, setSelectedPath]);
+    const intent = await saveAndTakeIntent();
+    if (intent) await continueNavigation(intent);
+  }, [continueNavigation, saveAndTakeIntent]);
 
   const handleCloseFile = React.useCallback((path: string) => {
     const isActive = selectedFile?.path === path;
-    const nextFile = getNextOpenFile(path, openFiles);
-
-    if (isActive && isDirty) {
-      setConfirmDiscardOpen(true);
-      pendingSelectFileRef.current = nextFile;
-      pendingClosePathRef.current = path;
-      return;
-    }
-
-    if (root) {
-      removeOpenPath(root, path);
-    }
-
-    if (!isActive) {
-      return;
-    }
-
-    if (nextFile) {
-      void handleSelectFile(nextFile);
-      return;
-    }
-
-    if (root) {
-      setSelectedPath(root, null);
-    }
-    setFileContent('');
-    setFileError(null);
-    setDesktopImageSrc('');
-    setLoadedFilePath(null);
-    if (isMobile) {
-      setShowMobilePageContent(false);
-    }
-  }, [getNextOpenFile, handleSelectFile, isDirty, isMobile, openFiles, removeOpenPath, root, selectedFile?.path, setSelectedPath]);
+    const intent: DirtyFileNavigationIntent = {
+      kind: 'close',
+      path,
+      nextFile: getNextOpenFile(path, openFiles),
+    };
+    if (isActive && requestNavigation(intent)) return;
+    void continueNavigation(intent);
+  }, [continueNavigation, getNextOpenFile, openFiles, requestNavigation, selectedFile?.path]);
 
   const getFileStatus = React.useCallback((path: string): FileStatus | null => {
     // Check open status
@@ -2173,74 +869,15 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
 
     toggleExpandedPath(root, normalized);
 
-    if (!loadedDirsRef.current.has(normalized)) {
+    if (!isDirectoryLoaded(normalized)) {
       await loadDirectory(normalized);
     }
-  }, [loadDirectory, root, toggleExpandedPath]);
+  }, [isDirectoryLoaded, loadDirectory, root, toggleExpandedPath]);
 
   const fileRowPermissions = React.useMemo(
     () => ({ canRename, canCreateFile, canCreateFolder, canDelete, canReveal }),
     [canRename, canCreateFile, canCreateFolder, canDelete, canReveal]
   );
-
-  function renderTree(dirPath: string, depth: number): React.ReactNode {
-    const nodes = childrenByDir[dirPath] ?? [];
-
-    return nodes.map((node, index) => {
-      const isDir = node.type === 'directory';
-      const isExpanded = isDir && expandedPaths.includes(node.path);
-      const isActive = selectedFile?.path === node.path;
-      const isLast = index === nodes.length - 1;
-
-      return (
-        <li key={node.path} className="relative">
-          {depth > 0 && (
-            <>
-              <span className="absolute top-3.5 left-[-12px] w-3 h-px bg-border/40" />
-              {isLast && (
-                <span className="absolute top-3.5 bottom-0 left-[-13px] w-[2px] bg-background" />
-              )}
-            </>
-          )}
-          <FileRow
-            node={node}
-            root={root}
-            isExpanded={isExpanded}
-            isActive={isActive}
-            isMobile={isMobile}
-            isBrowserClient={isBrowserClient}
-            alwaysShowActions={alwaysShowActions}
-            status={!isDir ? getFileStatus(node.path) : undefined}
-            badge={isDir ? getFolderBadge(node.path) : undefined}
-            permissions={fileRowPermissions}
-            downloadFile={files.downloadFile}
-            contextMenuPath={contextMenuPath}
-            setContextMenuPath={setContextMenuPath}
-            rightClickMenuPath={rightClickMenuPath}
-            setRightClickMenuPath={setRightClickMenuPath}
-            onSelect={handleSelectFile}
-            onToggle={toggleDirectory}
-            onRevealPath={handleRevealPath}
-            onOpenDialog={handleOpenDialog}
-          />
-          {isDir && isExpanded && (
-            <ul className="flex flex-col gap-1 ml-3 pl-3 border-l border-border/40 relative">
-              {loadErrorsByDir[node.path] ? (
-                <li className="flex items-center gap-2 px-2 py-1 typography-meta text-muted-foreground">
-                  <span className="min-w-0 flex-1 truncate text-[var(--status-error)]" title={loadErrorsByDir[node.path]}>{loadErrorsByDir[node.path]}</span>
-                  <Button variant="ghost" size="xs" className="h-6 gap-1" onClick={() => void refreshDirectory(node.path)}>
-                    <Icon name="refresh" className="size-3.5" />
-                    {"Refresh"}
-                  </Button>
-                </li>
-              ) : null}
-              {renderTree(node.path, depth + 1)}
-            </ul>
-          )}
-        </li>
-      );
-    });
-  }
 
   const isSelectedImage = Boolean(selectedFile?.path && isImageFile(selectedFile.path));
   const isSelectedSvg = Boolean(selectedFile?.path && isSvgFile(selectedFile.path));
@@ -2250,21 +887,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     && (isBinaryFile(selectedFile.path) || contentDetectedBinary)
   );
   const isUnsupportedBinary = isSelectedBinary && !isSelectedImage && !isSelectedPdf;
-  const pendingNavigationTargetPath = React.useMemo(
-    () => normalizePath(pendingFileNavigation?.path ?? ''),
-    [pendingFileNavigation?.path],
-  );
-  const shouldMaskEditorForPendingNavigation = Boolean(
-    pendingFileNavigation
-      && pendingNavigationTargetPath
-      && selectedFilePath
-      && selectedFilePath === pendingNavigationTargetPath
-      && !fileLoading
-      && !fileError
-      && !isSelectedImage
-      && !isSelectedPdf
-      && !isUnsupportedBinary,
-  );
 
   const displaySelectedPath = React.useMemo(() => {
     return getDisplayPath(root, selectedFilePath);
@@ -2280,6 +902,26 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
   const isHtml = Boolean(selectedFile?.path && isHtmlFile(selectedFile.path));
   const isDrawio = Boolean(selectedFile?.path && isDrawioFile(selectedFile.path));
   const isTextFile = Boolean(selectedFile && !isSelectedBinary && !isSelectedImage);
+  const {
+    editorViewRef,
+    notifyEditorViewChanged,
+    shouldMaskEditor: shouldMaskEditorForPendingNavigation,
+  } = useFileEditorNavigation({
+    root,
+    selectedPath: selectedFilePath || null,
+    loadedPath: loadedFilePath,
+    fileLoading,
+    fileError,
+    isImage: isSelectedImage,
+    isPdf: isSelectedPdf,
+    isUnsupportedBinary,
+    canEdit,
+    textViewMode,
+    setTextViewMode,
+    draftContent,
+    confirmDiscardOpen,
+    selectFilePath: handleSelectFilePath,
+  });
   const canUseShikiFileView = isTextFile && !isMarkdown && !isDrawio && !(isHtml && htmlViewMode === 'preview');
   const isEditingFile = (isMarkdown && mdViewMode === 'edit')
     || (isHtml && htmlViewMode === 'edit')
@@ -2316,442 +958,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     if (!canEdit && textViewMode === 'edit') {
       setTextViewMode('view');
     }
-  }, [canEdit, textViewMode]);
-
-  const MD_VIEWER_MODE_KEY = 'pichamber:files:md-viewer-mode';
-  const HTML_VIEWER_MODE_KEY = 'pichamber:files:html-viewer-mode';
-  const JSON_VIEWER_MODE_KEY = 'pichamber:files:json-viewer-mode';
-
-  React.useEffect(() => {
-    const selectedPath = selectedFile?.path;
-    if (!selectedPath) {
-      return;
-    }
-
-    setTextViewMode(textViewModeByPathRef.current[selectedPath] ?? 'edit');
-
-    // Respect per-type localStorage preference when available,
-    // falling back to the setting-derived default when nothing is stored.
-    let mdDefault: PreviewViewMode = settingsDefaultFileViewerPreview ? 'preview' : 'edit';
-    try {
-      const stored = localStorage.getItem(MD_VIEWER_MODE_KEY);
-      if (stored === 'preview' || stored === 'edit') {
-        mdDefault = stored;
-      }
-    } catch {
-      // Ignore localStorage errors
-    }
-    setMdViewMode(mdViewModeByPathRef.current[selectedPath] ?? mdDefault);
-
-    let htmlDefault: PreviewViewMode = settingsDefaultFileViewerPreview ? 'preview' : 'edit';
-    try {
-      const stored = localStorage.getItem(HTML_VIEWER_MODE_KEY);
-      if (stored === 'preview' || stored === 'edit') {
-        htmlDefault = stored;
-      }
-    } catch {
-      // Ignore localStorage errors
-    }
-    setHtmlViewMode(htmlViewModeByPathRef.current[selectedPath] ?? htmlDefault);
-    setDrawioViewMode(drawioViewModeByPathRef.current[selectedPath] ?? (settingsDefaultFileViewerPreview ? 'preview' : 'edit'));
-
-    let jsonDefault: 'tree' | 'text' = settingsDefaultFileViewerPreview ? 'tree' : 'text';
-    try {
-      const stored = localStorage.getItem(JSON_VIEWER_MODE_KEY);
-      if (stored === 'tree' || stored === 'text') {
-        jsonDefault = stored;
-      }
-    } catch {
-      // Ignore localStorage errors
-    }
-    setJsonViewMode(jsonDefault);
-  }, [selectedFile?.path, settingsDefaultFileViewerPreview]);
-
-  const saveTextViewMode = React.useCallback((mode: TextViewMode) => {
-    const selectedPath = selectedFile?.path;
-    if (selectedPath) {
-      textViewModeByPathRef.current[selectedPath] = mode;
-    }
-    setTextViewMode(mode);
-  }, [selectedFile?.path]);
-
-  const saveMdViewMode = React.useCallback((mode: PreviewViewMode) => {
-    const selectedPath = selectedFile?.path;
-    if (selectedPath) {
-      mdViewModeByPathRef.current[selectedPath] = mode;
-    }
-    setMdViewMode(mode);
-    try {
-      localStorage.setItem(MD_VIEWER_MODE_KEY, mode);
-    } catch {
-      // Ignore localStorage errors
-    }
-  }, [selectedFile?.path]);
-
-  const getMdViewMode = React.useCallback((): PreviewViewMode => {
-    return mdViewMode;
-  }, [mdViewMode]);
-
-  const saveJsonViewMode = React.useCallback((mode: 'tree' | 'text') => {
-    setJsonViewMode(mode);
-    try {
-      localStorage.setItem(JSON_VIEWER_MODE_KEY, mode);
-    } catch {
-      // Ignore localStorage errors
-    }
-  }, []);
-
-  const saveHtmlViewMode = React.useCallback((mode: PreviewViewMode) => {
-    const selectedPath = selectedFile?.path;
-    if (selectedPath) {
-      htmlViewModeByPathRef.current[selectedPath] = mode;
-    }
-    setHtmlViewMode(mode);
-    try {
-      localStorage.setItem(HTML_VIEWER_MODE_KEY, mode);
-    } catch {
-      // Ignore localStorage errors
-    }
-  }, [selectedFile?.path]);
-
-  const saveDrawioViewMode = React.useCallback((mode: PreviewViewMode) => {
-    const selectedPath = selectedFile?.path;
-    if (selectedPath) {
-      drawioViewModeByPathRef.current[selectedPath] = mode;
-    }
-    if (diagramAutoSaveTimerRef.current) {
-      clearTimeout(diagramAutoSaveTimerRef.current);
-      diagramAutoSaveTimerRef.current = null;
-    }
-    if (pendingDrawioPreviewFrameRef.current !== null) {
-      cancelAnimationFrame(pendingDrawioPreviewFrameRef.current);
-      pendingDrawioPreviewFrameRef.current = null;
-    }
-    if (mode === 'edit') {
-      setDraftContent(diagramXmlRef.current || fileContent);
-      setDrawioViewMode(mode);
-    } else {
-      diagramXmlRef.current = draftContent;
-      const pathAtToggle = selectedPath;
-      setDrawioViewMode('edit');
-      pendingDrawioPreviewFrameRef.current = requestAnimationFrame(() => {
-        pendingDrawioPreviewFrameRef.current = requestAnimationFrame(() => {
-          pendingDrawioPreviewFrameRef.current = null;
-          if (root && pathAtToggle && useFilesViewTabsStore.getState().byRoot[root]?.selectedPath !== pathAtToggle) {
-            return;
-          }
-          setDrawioRemountNonce((value) => value + 1);
-          setDrawioViewMode('preview');
-        });
-      });
-      return;
-    }
-  }, [draftContent, fileContent, root, selectedFile?.path]);
-
-  const saveDiagramXml = React.useCallback(async (path: string, xml: string) => {
-    if (!files.writeFile || xml === diagramSavedXmlRef.current) {
-      return false;
-    }
-
-    const result = await files.writeFile(path, xml);
-    if (!result?.success) {
-      toast.error("Failed to write file");
-      return false;
-    }
-
-    diagramXmlRef.current = xml;
-    diagramSavedXmlRef.current = xml;
-    setDraftContent(xml);
-    const stat = await readFileStat(path, selectedFileReadOptions).catch(() => null);
-    if (stat) {
-      lastLoadedFileStatRef.current = stat;
-    }
-    return true;
-  }, [files, readFileStat, selectedFileReadOptions]);
-
-  React.useEffect(() => {
-    return () => {
-      if (diagramAutoSaveTimerRef.current) {
-        clearTimeout(diagramAutoSaveTimerRef.current);
-        diagramAutoSaveTimerRef.current = null;
-      }
-      if (pendingDrawioPreviewFrameRef.current !== null) {
-        cancelAnimationFrame(pendingDrawioPreviewFrameRef.current);
-        pendingDrawioPreviewFrameRef.current = null;
-      }
-    };
-  }, [drawioViewMode, selectedFile?.path]);
-
-  const handleDiagramChange = React.useCallback((xml: string) => {
-    diagramXmlRef.current = xml;
-    if (!autoSaveEnabled || !selectedFile?.path || drawioViewMode !== 'preview' || !files.writeFile) {
-      return;
-    }
-
-    if (diagramAutoSaveTimerRef.current) {
-      clearTimeout(diagramAutoSaveTimerRef.current);
-    }
-
-    const path = selectedFile.path;
-    diagramAutoSaveTimerRef.current = setTimeout(() => {
-      diagramAutoSaveTimerRef.current = null;
-      void saveDiagramXml(path, xml).then((saved) => {
-        if (!saved) return;
-        setDiagramSaved(true);
-        setTimeout(() => setDiagramSaved(false), 1500);
-      }).catch((error) => {
-        toast.error(error instanceof Error ? error.message : "Save failed");
-      });
-    }, AUTO_SAVE_DELAY);
-  }, [autoSaveEnabled, drawioViewMode, files.writeFile, saveDiagramXml, selectedFile?.path]);
-
-  const diagramEditorXml = React.useMemo(() => {
-    if (!isDrawio) {
-      return fileContent;
-    }
-    return diagramXmlRef.current || draftContent || fileContent;
-  }, [draftContent, fileContent, isDrawio]);
-
-  const getHtmlViewMode = React.useCallback((): PreviewViewMode => {
-    return htmlViewMode;
-  }, [htmlViewMode]);
-
-  React.useEffect(() => {
-    const applyDefaultFileViewerMode = (enabled: boolean) => {
-      const previewMode: PreviewViewMode = enabled ? 'preview' : 'edit';
-      const nextJsonMode: 'tree' | 'text' = enabled ? 'tree' : 'text';
-
-      for (const path of openPaths) {
-        textViewModeByPathRef.current[path] = 'edit';
-        if (isMarkdownFile(path)) {
-          mdViewModeByPathRef.current[path] = previewMode;
-        }
-        if (isHtmlFile(path)) {
-          htmlViewModeByPathRef.current[path] = previewMode;
-        }
-        if (isDrawioFile(path)) {
-          drawioViewModeByPathRef.current[path] = previewMode;
-        }
-      }
-
-      setTextViewMode('edit');
-      setMdViewMode(previewMode);
-      setHtmlViewMode(previewMode);
-      setDrawioViewMode(previewMode);
-      setJsonViewMode(nextJsonMode);
-
-      try {
-        localStorage.setItem(MD_VIEWER_MODE_KEY, previewMode);
-        localStorage.setItem(HTML_VIEWER_MODE_KEY, previewMode);
-        localStorage.setItem(JSON_VIEWER_MODE_KEY, nextJsonMode);
-      } catch {
-        // Ignore localStorage errors
-      }
-    };
-
-    const handleFileViewerModeChanged = (event: Event) => {
-      const enabled = Boolean((event as CustomEvent<{ enabled?: boolean }>).detail?.enabled);
-      applyDefaultFileViewerMode(enabled);
-    };
-
-    window.addEventListener('pichamber:file-viewer-preview-mode-changed', handleFileViewerModeChanged);
-    return () => {
-      window.removeEventListener('pichamber:file-viewer-preview-mode-changed', handleFileViewerModeChanged);
-    };
-  }, [openPaths]);
-
-  React.useEffect(() => {
-    if (!pendingFileNavigation || !root) {
-      return;
-    }
-
-    const scheduleNavigationRetry = () => {
-      if (typeof window === 'undefined') {
-        return;
-      }
-      if (pendingNavigationRafRef.current !== null) {
-        return;
-      }
-
-      pendingNavigationRafRef.current = window.requestAnimationFrame(() => {
-        pendingNavigationRafRef.current = null;
-        setEditorViewReadyNonce((value) => value + 1);
-      });
-    };
-
-    const isEditorSyncedWithDraft = (view: EditorView, expectedContent: string): boolean => {
-      if (view.state.doc.length !== expectedContent.length) {
-        return false;
-      }
-
-      if (expectedContent.length === 0) {
-        return true;
-      }
-
-      const sampleSize = Math.min(128, expectedContent.length);
-      const startSample = view.state.sliceDoc(0, sampleSize);
-      if (startSample !== expectedContent.slice(0, sampleSize)) {
-        return false;
-      }
-
-      const endFrom = Math.max(0, expectedContent.length - sampleSize);
-      const endSample = view.state.sliceDoc(endFrom, expectedContent.length);
-      return endSample === expectedContent.slice(endFrom);
-    };
-
-    const targetPath = normalizePath(pendingFileNavigation.path);
-    if (!targetPath) {
-      setPendingFileNavigation(null);
-      pendingNavigationCycleRef.current = { key: '', attempts: 0 };
-      return;
-    }
-
-    const navigationKey = `${targetPath}:${pendingFileNavigation.line}:${pendingFileNavigation.column ?? 1}`;
-    if (pendingNavigationCycleRef.current.key !== navigationKey) {
-      pendingNavigationCycleRef.current = { key: navigationKey, attempts: 0 };
-    }
-
-    if (selectedFile?.path !== targetPath) {
-      if (confirmDiscardOpen) {
-        return;
-      }
-      void handleSelectFile(toFileNode(targetPath));
-      return;
-    }
-
-    if (fileLoading || loadedFilePath !== targetPath) {
-      return;
-    }
-
-    if (fileError || isSelectedImage || isSelectedPdf || isUnsupportedBinary) {
-      setPendingFileNavigation(null);
-      pendingNavigationCycleRef.current = { key: '', attempts: 0 };
-      return;
-    }
-
-    if (!canEdit) {
-      return;
-    }
-
-    if (textViewMode !== 'edit') {
-      setTextViewMode('edit');
-      return;
-    }
-
-    const view = editorViewRef.current;
-    if (!view) {
-      scheduleNavigationRetry();
-      return;
-    }
-
-    if (!isEditorSyncedWithDraft(view, draftContent)) {
-      scheduleNavigationRetry();
-      return;
-    }
-
-    const targetLineNumber = Math.max(1, Math.min(pendingFileNavigation.line, view.state.doc.lines));
-    const targetLine = view.state.doc.line(targetLineNumber);
-    const targetColumn = Math.max(1, pendingFileNavigation.column || 1);
-    const lineLength = Math.max(0, targetLine.to - targetLine.from);
-    const clampedColumnOffset = Math.min(lineLength, targetColumn - 1);
-    const targetPosition = targetLine.from + clampedColumnOffset;
-    const isAtTarget = view.state.selection.main.head === targetPosition;
-    const shouldDispatch = !isAtTarget || pendingNavigationCycleRef.current.attempts === 0;
-
-    if (shouldDispatch) {
-      pendingNavigationCycleRef.current.attempts += 1;
-      view.dispatch({
-        selection: { anchor: targetPosition },
-        effects: EditorView.scrollIntoView(targetPosition, { y: 'center' }),
-      });
-      view.focus();
-      scheduleNavigationRetry();
-      return;
-    }
-
-    if (typeof window !== 'undefined') {
-      window.requestAnimationFrame(() => {
-        const syncedView = editorViewRef.current;
-        if (!syncedView) {
-          return;
-        }
-
-        syncedView.dispatch({
-          selection: { anchor: targetPosition },
-          effects: EditorView.scrollIntoView(targetPosition, { y: 'center' }),
-        });
-        syncedView.focus();
-      });
-    }
-
-    setPendingFileNavigation(null);
-    pendingNavigationCycleRef.current = { key: '', attempts: 0 };
-  }, [
-    canEdit,
-    confirmDiscardOpen,
-    draftContent,
-    editorViewReadyNonce,
-    fileError,
-    fileLoading,
-    isSelectedImage,
-    isSelectedPdf,
-    isUnsupportedBinary,
-    loadedFilePath,
-    handleSelectFile,
-    pendingFileNavigation,
-    root,
-    selectedFile?.path,
-    setPendingFileNavigation,
-    textViewMode,
-    toFileNode,
-  ]);
-
-  React.useEffect(() => {
-    if (!pendingFileFocusPath || !root) {
-      return;
-    }
-
-    const targetPath = normalizePath(pendingFileFocusPath);
-    if (!targetPath) {
-      setPendingFileFocusPath(null);
-      return;
-    }
-
-    if (selectedFile?.path !== targetPath) {
-      // Selection is owned by the tab sync / user. A pending focus request must
-      // not steal selection back (e.g. after the user switched to another tab
-      // while this file was still loading). Wait; clear once it loads or the
-      // request is superseded.
-      return;
-    }
-
-    if (fileLoading || loadedFilePath !== targetPath) {
-      return;
-    }
-
-    // Best-effort focus: preview renderers (markdown/html preview, drawio,
-    // JSON tree, images, PDFs) never mount a CodeMirror editor, so the request
-    // must clear regardless — otherwise it lingers and replays on every
-    // dependency change.
-    if (!fileError && !isSelectedImage && !isSelectedPdf && !isUnsupportedBinary && canEdit && textViewMode === 'edit') {
-      editorViewRef.current?.focus();
-    }
-
-    setPendingFileFocusPath(null);
-  }, [
-    canEdit,
-    fileError,
-    fileLoading,
-    isSelectedImage,
-    isSelectedPdf,
-    isUnsupportedBinary,
-    loadedFilePath,
-    pendingFileFocusPath,
-    root,
-    selectedFile?.path,
-    setPendingFileFocusPath,
-    textViewMode,
-  ]);
+  }, [canEdit, setTextViewMode, textViewMode]);
 
   const nudgeEditorSelectionAboveKeyboard = React.useCallback((view: EditorView | null) => {
     if (!isMobile || !view || !view.hasFocus || typeof window === 'undefined') {
@@ -2806,7 +1013,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
       viewport?.removeEventListener('scroll', runNudge);
       document.removeEventListener('selectionchange', runNudge);
     };
-  }, [isMobile, nudgeEditorSelectionAboveKeyboard]);
+  }, [editorViewRef, isMobile, nudgeEditorSelectionAboveKeyboard]);
 
   React.useEffect(() => {
     if (!canEdit || textViewMode !== 'edit' || isMobile) {
@@ -2942,16 +1149,12 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     })
     : '';
 
-  const renderPdfPreview = React.useCallback((file: FileNode) => (
-    <div className="h-full overflow-hidden bg-[var(--surface-background)]">
-      <iframe
-        key={pdfPreviewNonce}
-        src={pdfSrc}
-        className="h-full w-full border-0"
-        title={file.name}
-      />
-    </div>
-  ), [pdfSrc, pdfPreviewNonce]);
+  const htmlPreviewSrc = htmlAssetAuthKey && htmlAssetAuthReadyKey === htmlAssetAuthKey && selectedFile?.path
+    ? (() => {
+      const encoded = selectedFile.path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
+      return getRuntimeUrlResolver().authenticatedAsset(`/api/fs/serve${encoded.startsWith('/') ? encoded : `/${encoded}`}`);
+    })()
+    : undefined;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -3038,584 +1241,189 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
     };
   }, []);
 
-  const handleCloseDialog = React.useCallback(() => setActiveDialog(null), []);
-
-  const renderShikiFileView = React.useCallback((file: FileNode, content: string) => {
-    return (
-      <div className="h-full">
-        <PierreFile
-          file={{
-            name: file.name,
-            contents: content,
-            lang: getLanguageFromExtension(file.path) || undefined,
-          }}
-          options={{
-            disableFileHeader: true,
-            overflow: wrapLines ? 'wrap' : 'scroll',
-            theme: pierreTheme,
-            themeType: currentTheme.metadata.variant === 'dark' ? 'dark' : 'light',
-          }}
-          className="block h-full w-full"
-          style={{ height: '100%' }}
-        />
-      </div>
-    );
-  }, [currentTheme.metadata.variant, pierreTheme, wrapLines]);
+  const handleDownloadSelectedFile = React.useCallback(() => {
+    const downloadFile = files.downloadFile;
+    const path = selectedFile?.path;
+    if (!downloadFile || !path) return;
+    void downloadFile(path).catch((error) => {
+      console.error('Download failed:', error);
+      toast.error("Operation failed");
+    });
+  }, [files.downloadFile, selectedFile?.path]);
 
   const renderFloatingFileControls = ({
     exitFullscreenOnly = false,
     layout = 'floating',
   }: { exitFullscreenOnly?: boolean; layout?: 'floating' | 'docked' } = {}) => {
-    if (!selectedFile) {
-      return null;
-    }
-
-    const docked = layout === 'docked';
-    const wrapperCls = docked
-      ? 'pointer-events-auto flex flex-wrap items-center gap-1'
-      : 'pointer-events-auto flex items-center gap-1 rounded-lg border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-1 shadow-sm';
-
-    const withTooltip = (label: React.ReactNode, trigger: React.ReactElement) => (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="inline-flex">
-            {trigger}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" sideOffset={6}>{label}</TooltipContent>
-      </Tooltip>
-    );
-
     return (
-      <div className={wrapperCls}>
-        {canEdit && isEditingFile && (
-          <>
-            {isSaving ? (
-              <span className="flex items-center gap-1 px-1 text-muted-foreground typography-meta">
-                <Icon name="loader-4" className="size-3.5 animate-spin" />
-                {"Saving..."}
-              </span>
-            ) : autoSaveEnabled && autoSaveStatus === 'saved' && !isDirty ? (
-              <span className="flex items-center gap-1 px-1 text-[color:var(--status-success)] typography-meta">
-                <Icon name="check" className="size-3.5" />
-                {"Saved"}
-              </span>
-            ) : isDirty ? withTooltip((autoSaveEnabled ? `Save now (${getModifierLabel()}+S) - auto-saves after 1.5s` : `Save now (${getModifierLabel()}+S)`),
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => void saveDraft()}
-                className="h-6 gap-1 px-1 text-muted-foreground opacity-80 hover:bg-transparent hover:opacity-100 focus-visible:bg-transparent active:bg-transparent"
-                title={(autoSaveEnabled ? `Save now (${getModifierLabel()}+S) - auto-saves after 1.5s` : `Save now (${getModifierLabel()}+S)`)}
-                aria-label={`Save (${getModifierLabel()}+S)`}
-              >
-                <Icon name="save-3" className="size-4" />
-              </Button>
-            ) : null}
-            {withTooltip(autoSaveEnabled ? "Auto-save on" : "Manual save",
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setAutoSaveEnabled(!autoSaveEnabled)}
-                className={cn(
-                  'size-6 p-0 transition-opacity hover:bg-transparent focus-visible:bg-transparent active:bg-transparent',
-                  autoSaveEnabled ? 'text-foreground opacity-100' : 'text-muted-foreground opacity-65 hover:opacity-100'
-                )}
-                title={autoSaveEnabled ? "Auto-save on" : "Manual save"}
-                aria-label={autoSaveEnabled ? "Auto-save on" : "Manual save"}
-              >
-                {autoSaveEnabled ? <Icon name="file-check-fill" className="size-4" /> : <Icon name="file-check" className="size-4" />}
-              </Button>
-            )}
-          </>
-        )}
-
-        <DropdownMenu onOpenChange={handleToolbarDropdownOpenChange}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex">
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="size-6 p-0 text-foreground opacity-100 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-                    title={"Open in desktop app"}
-                    aria-label={"Open in desktop app"}
-                  >
-                    <Icon name="file-transfer" className="size-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>{"Open in desktop app"}</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="end" className="w-56 max-h-[70vh] overflow-y-auto">
-            {openInApps.map((app) => (
-              <DropdownMenuItem
-                key={app.id}
-                className="flex items-center gap-2"
-                onClick={() => void handleOpenInApp(app)}
-              >
-                <OpenInAppListIcon label={app.label} iconDataUrl={app.iconDataUrl} />
-                <span className="typography-ui-label text-foreground">{app.label}</span>
-              </DropdownMenuItem>
-            ))}
-            {openInCacheStale ? (
-              <DropdownMenuItem
-                className="flex items-center gap-2"
-                onClick={() => void loadOpenInApps(true)}
-              >
-                <Icon name="refresh" className="size-4" />
-                <span className="typography-ui-label text-foreground">{"Refresh Apps"}</span>
-              </DropdownMenuItem>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        {!isSelectedImage && !isSelectedPdf && !isUnsupportedBinary && (
-          <>
-            {withTooltip(wrapLines ? "Disable line wrap" : "Enable line wrap",
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setWrapLines(!wrapLines)}
-                className={cn(
-                  'size-6 p-0 transition-opacity hover:bg-transparent focus-visible:bg-transparent active:bg-transparent',
-                  wrapLines ? 'text-foreground opacity-100' : 'text-muted-foreground opacity-65 hover:opacity-100'
-                )}
-                title={wrapLines ? "Disable line wrap" : "Enable line wrap"}
-              >
-                <Icon name="text-wrap" className="size-4" />
-              </Button>
-            )}
-            {textViewMode === 'edit' && (
-              <>
-                {withTooltip("Find in file",
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={(event) => {
-                      setIsSearchOpen(!isSearchOpen);
-                      event.currentTarget.blur();
-                    }}
-                    className="size-6 p-0 text-foreground opacity-100 transition-opacity hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-                    title={"Find in file"}
-                  >
-                    <Icon name="search" className="size-4" />
-                  </Button>
-                )}
-                {withTooltip("Go to line",
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={(event) => {
-                      setIsGoToLineOpen((open) => !open);
-                      event.currentTarget.blur();
-                    }}
-                    className="size-6 p-0 text-foreground opacity-100 transition-opacity hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-                    title={"Go to line"}
-                  >
-                    <Icon name="menu-fold-2" className="size-4" />
-                  </Button>
-                )}
-                <GoToLineDialog
-                  open={isGoToLineOpen}
-                  onOpenChange={setIsGoToLineOpen}
-                  view={editorViewRef.current}
-                  variant="inline"
-                />
-              </>
-            )}
-          </>
-        )}
-
-        {canUseShikiFileView && canEdit && !isJson && !isHtml && (
-          <PreviewToggleButton
-            currentMode={textViewMode === 'view' ? 'preview' : 'edit'}
-            onToggle={() => {
-              saveTextViewMode(textViewMode === 'view' ? 'edit' : 'view');
-            }}
-          />
-        )}
-
-        {isMarkdown && (
-          withTooltip(
-            (getMdViewMode() === 'preview' ? "Switch to edit mode" : "Switch to preview mode"),
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => saveMdViewMode(getMdViewMode() === 'preview' ? 'edit' : 'preview')}
-              className={cn(
-                'size-6 p-0 transition-colors hover:bg-[var(--interactive-hover)] focus-visible:bg-[var(--interactive-hover)] active:bg-[var(--interactive-hover)]',
-                getMdViewMode() === 'preview'
-                  ? 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)] hover:bg-[var(--interactive-selection)] focus-visible:bg-[var(--interactive-selection)] active:bg-[var(--interactive-selection)]'
-                  : 'text-muted-foreground opacity-65 hover:opacity-100'
-              )}
-              title={(getMdViewMode() === 'preview' ? "Switch to edit mode" : "Switch to preview mode")}
-              aria-label={(getMdViewMode() === 'preview' ? "Switch to edit mode" : "Switch to preview mode")}
-            >
-              <Icon name={getMdViewMode() === 'preview' ? 'eye' : 'eye-off'} className="size-4" />
-            </Button>
-          )
-        )}
-
-        {isHtmlFile(selectedFile?.path ?? '') && (
-          <PreviewToggleButton
-            currentMode={getHtmlViewMode()}
-            onToggle={() => {
-              saveHtmlViewMode(getHtmlViewMode() === 'preview' ? 'edit' : 'preview');
-            }}
-          />
-        )}
-
-        {isDrawio && (
-          <>
-            <PreviewToggleButton
-              currentMode={drawioViewMode}
-              onToggle={() => saveDrawioViewMode(drawioViewMode === 'preview' ? 'edit' : 'preview')}
-            />
-            {drawioViewMode === 'preview' && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={async () => {
-                  const xml = diagramEditorRef.current?.getXml();
-                  if (diagramAutoSaveTimerRef.current) {
-                    clearTimeout(diagramAutoSaveTimerRef.current);
-                    diagramAutoSaveTimerRef.current = null;
-                  }
-                  if (selectedFile?.path && xml) {
-                    const saved = await saveDiagramXml(selectedFile.path, xml);
-                    if (!saved) return;
-                    setDiagramSaved(true);
-                    setTimeout(() => setDiagramSaved(false), 1500);
-                  }
-                }}
-                className="size-6 p-0 text-foreground hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-                title={"Save diagram"}
-              >
-                {diagramSaved ? (
-                  <Icon name="check" className="size-4 text-[color:var(--status-success)]" />
-                ) : (
-                  <Icon name="save-3" className="size-4" />
-                )}
-              </Button>
-            )}
-          </>
-        )}
-
-        {isJson && (
-          withTooltip(jsonViewMode === 'tree' ? "Switch to Text View" : "Switch to Tree View",
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => saveJsonViewMode(jsonViewMode === 'tree' ? 'text' : 'tree')}
-              className="size-6 p-0 text-muted-foreground opacity-65 hover:bg-transparent hover:opacity-100 focus-visible:bg-transparent active:bg-transparent"
-              title={jsonViewMode === 'tree' ? "Switch to Text View" : "Switch to Tree View"}
-            >
-              {jsonViewMode === 'tree' ? (
-                <Icon name="code-sslash" className="size-4" />
-              ) : (
-                <Icon name="node-tree" className="size-4" />
-              )}
-            </Button>
-          )
-        )}
-
-        {canCopy && (
-          withTooltip("Copy file contents",
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={async () => {
-                const result = await copyTextToClipboard(fileContent);
-                if (result.ok) {
-                  setCopiedContent(true);
-                  if (copiedContentTimeoutRef.current !== null) {
-                    window.clearTimeout(copiedContentTimeoutRef.current);
-                  }
-                  copiedContentTimeoutRef.current = window.setTimeout(() => {
-                    setCopiedContent(false);
-                  }, 1200);
-                } else {
-                  toast.error("Copy failed");
-                }
-              }}
-              className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-              title={"Copy file contents"}
-              aria-label={"Copy file contents"}
-            >
-              {copiedContent ? (
-                <Icon name="check" className="size-4 text-[color:var(--status-success)]" />
-              ) : (
-                <Icon name="clipboard" className="size-4" />
-              )}
-            </Button>
-          )
-        )}
-
-        {canCopyPath && (
-          withTooltip(`Copy file path (${displaySelectedPath})`,
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={async () => {
-                const result = await copyTextToClipboard(displaySelectedPath);
-                if (result.ok) {
-                  setCopiedPath(true);
-                  if (copiedPathTimeoutRef.current !== null) {
-                    window.clearTimeout(copiedPathTimeoutRef.current);
-                  }
-                  copiedPathTimeoutRef.current = window.setTimeout(() => {
-                    setCopiedPath(false);
-                  }, 1200);
-                } else {
-                  toast.error("Copy failed");
-                }
-              }}
-              className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-              title={`Copy file path (${displaySelectedPath})`}
-              aria-label={`Copy file path (${displaySelectedPath})`}
-            >
-              {copiedPath ? (
-                <Icon name="check" className="size-4 text-[color:var(--status-success)]" />
-              ) : (
-                <Icon name="file-copy-2" className="size-4" />
-              )}
-            </Button>
-          )
-        )}
-
-        {files.downloadFile && (
-          withTooltip("Save file",
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                const fn = files.downloadFile;
-                if (fn) void fn(selectedFile.path).catch((error) => {
-                  console.error('Download failed:', error);
-                  toast.error("Operation failed");
-                });
-              }}
-              className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-              title={"Save file"}
-              aria-label={"Save file"}
-            >
-              <Icon name="download" className="size-4" />
-            </Button>
-          )
-        )}
-
-        {exitFullscreenOnly ? (
-          withTooltip("Exit fullscreen",
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsFullscreen(false)}
-              className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-              title={"Exit fullscreen"}
-              aria-label={"Exit fullscreen"}
-            >
-              <Icon name="fullscreen-exit" className="size-4" />
-            </Button>
-          )
-        ) : (!isMobile && mode === 'full' && (
-          withTooltip(isFullscreen ? "Exit fullscreen" : "Fullscreen",
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsFullscreen(!isFullscreen)}
-              className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-              title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-              aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-            >
-              {isFullscreen ? (
-                <Icon name="fullscreen-exit" className="size-4" />
-              ) : (
-                <Icon name="fullscreen" className="size-4" />
-              )}
-            </Button>
-          )
-        ))}
-      </div>
+      <FileViewerToolbar
+        selectedFile={selectedFile}
+        displaySelectedPath={displaySelectedPath}
+        layout={layout}
+        exitFullscreenOnly={exitFullscreenOnly}
+        canEdit={canEdit}
+        isEditingFile={isEditingFile}
+        isSaving={isSaving}
+        autoSaveEnabled={autoSaveEnabled}
+        autoSaveStatus={autoSaveStatus}
+        isDirty={isDirty}
+        onSaveDraft={saveDraft}
+        onToggleAutoSave={() => setAutoSaveEnabled(!autoSaveEnabled)}
+        openInApps={openInApps}
+        openInCacheStale={openInCacheStale}
+        onOpenInApp={handleOpenInApp}
+        onRefreshOpenInApps={() => loadOpenInApps(true)}
+        onToolbarDropdownOpenChange={handleToolbarDropdownOpenChange}
+        isSelectedImage={isSelectedImage}
+        isSelectedPdf={isSelectedPdf}
+        isUnsupportedBinary={isUnsupportedBinary}
+        wrapLines={wrapLines}
+        onToggleWrapLines={() => setWrapLines(!wrapLines)}
+        textViewMode={textViewMode}
+        onToggleSearch={() => setIsSearchOpen(!isSearchOpen)}
+        isGoToLineOpen={isGoToLineOpen}
+        onOpenGoToLineChange={setIsGoToLineOpen}
+        editorView={editorViewRef.current}
+        canUseShikiFileView={canUseShikiFileView}
+        isJson={isJson}
+        isHtml={isHtml}
+        onToggleTextViewMode={() => {
+          saveTextViewMode(textViewMode === 'view' ? 'edit' : 'view');
+        }}
+        isMarkdown={isMarkdown}
+        mdViewMode={getMdViewMode()}
+        onToggleMdViewMode={() => saveMdViewMode(getMdViewMode() === 'preview' ? 'edit' : 'preview')}
+        isDrawio={isDrawio}
+        drawioViewMode={drawioViewMode}
+        onToggleDrawioViewMode={() => saveDrawioViewMode(drawioViewMode === 'preview' ? 'edit' : 'preview')}
+        diagramSaved={diagramSaved}
+        onSaveDiagram={async () => {
+          const xml = diagramEditorRef.current?.getXml();
+          if (selectedFile?.path && xml) {
+            await saveDiagramNow(selectedFile.path, xml);
+          }
+        }}
+        jsonViewMode={jsonViewMode}
+        onToggleJsonViewMode={() => saveJsonViewMode(jsonViewMode === 'tree' ? 'text' : 'tree')}
+        canCopy={canCopy}
+        copiedContent={copiedContent}
+        onCopyContent={async () => {
+          const result = await copyTextToClipboard(fileContent);
+          if (result.ok) {
+            showCopiedContent(true);
+          } else {
+            toast.error("Copy failed");
+          }
+        }}
+        canCopyPath={canCopyPath}
+        copiedPath={copiedPath}
+        onCopyPath={async () => {
+          const result = await copyTextToClipboard(displaySelectedPath);
+          if (result.ok) {
+            showCopiedPath(true);
+          } else {
+            toast.error("Copy failed");
+          }
+        }}
+        onDownloadFile={files.downloadFile && selectedFile ? handleDownloadSelectedFile : undefined}
+        isMobile={isMobile}
+        mode={mode}
+        isFullscreen={isFullscreen}
+        onToggleFullscreen={() => setIsFullscreen(!isFullscreen)}
+        onExitFullscreen={() => setIsFullscreen(false)}
+      />
     );
+  };
+
+  const handleEmbeddedEditorViewReady = React.useCallback((view: EditorView) => {
+    editorViewRef.current = view;
+    notifyEditorViewChanged();
+    window.requestAnimationFrame(() => {
+      nudgeEditorSelectionAboveKeyboard(view);
+    });
+  }, [editorViewRef, notifyEditorViewChanged, nudgeEditorSelectionAboveKeyboard]);
+
+  const handleEmbeddedEditorViewDestroy = React.useCallback(() => {
+    if (editorViewRef.current) editorViewRef.current = null;
+    notifyEditorViewChanged();
+  }, [editorViewRef, notifyEditorViewChanged]);
+
+  const handleFullscreenEditorViewReady = React.useCallback((view: EditorView) => {
+    editorViewRef.current = view;
+    window.requestAnimationFrame(() => {
+      nudgeEditorSelectionAboveKeyboard(view);
+    });
+  }, [editorViewRef, nudgeEditorSelectionAboveKeyboard]);
+
+  const handleFullscreenEditorViewDestroy = React.useCallback(() => {
+    if (editorViewRef.current) editorViewRef.current = null;
+  }, [editorViewRef]);
+
+  const fileViewerContentProps = {
+    selectedFile,
+    loading: fileLoading || isImageAssetAuthLoading || isPdfAssetAuthLoading,
+    suppressLoadingIndicator: suppressFileLoadingIndicator,
+    fileError,
+    isSelectedImage,
+    imageSrc,
+    imagePreviewNonce,
+    isSelectedPdf,
+    pdfSrc,
+    pdfPreviewNonce,
+    isUnsupportedBinary,
+    onDownload: files.downloadFile && selectedFile ? handleDownloadSelectedFile : undefined,
+    drawioViewMode,
+    drawioRemountNonce,
+    diagramEditorRef,
+    diagramEditorXml,
+    onDiagramChange: handleDiagramChange,
+    jsonViewMode,
+    markdownViewMode: mdViewMode,
+    htmlViewMode,
+    htmlLoading: isHtmlAssetAuthLoading,
+    htmlPreviewNonce,
+    htmlPreviewSrc,
+    fileContent,
+    canUseShikiFileView,
+    textViewMode,
+    draftContent,
+    onDraftChange: setDraftContent,
+    canEdit,
+    vimMode: fileEditorKeymap === 'vim',
+    editorExtensions,
+    shouldMaskEditorForPendingNavigation,
+    pierreTheme,
+    shikiThemeType: currentTheme.metadata.variant === 'dark' ? 'dark' as const : 'light' as const,
+    wrapLines,
   };
 
   const fileViewer = (
     <div
       className="relative flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden"
     >
-      <Dialog open={confirmDiscardOpen} onOpenChange={(open) => {
-        // Intentionally no "cancel" action. Keep dialog modal.
-        if (!open) {
-          setConfirmDiscardOpen(true);
-        }
-      }}>
-        <DialogContent showCloseButton={false} className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{"Unsaved changes"}</DialogTitle>
-            <DialogDescription>
-              {"Save your edits before continuing?"}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => void saveAndContinue()}
-              disabled={isSaving}
-              className="border-[var(--status-success-border)] bg-[var(--status-success-background)] text-[var(--status-success)] hover:bg-[rgb(var(--status-success)/0.2)]"
-            >
-              {"Save changes"}
-            </Button>
-            <Button variant="destructive" onClick={discardAndContinue}>{"Discard"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <UnsavedChangesDialog
+        open={confirmDiscardOpen}
+        onOpenChange={keepDiscardModalOpen}
+        isSaving={isSaving}
+        onSaveAndContinue={() => void saveAndContinue()}
+        onDiscardAndContinue={discardAndContinue}
+      />
       <div className={cn('flex flex-col flex-shrink-0', showEditorTabsRow && 'border-b border-border/40')}>
         {/* Row 1: Tabs */}
-        {showEditorTabsRow ? (
-        <div className="flex min-w-0 items-center px-3 py-1.5">
-          {isMobile && showMobilePageContent && (
-            <button
-              type="button"
-              onClick={() => setShowMobilePageContent(false)}
-              aria-label={"Back"}
-              className="inline-flex size-7 flex-shrink-0 items-center justify-center mr-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              <Icon name="arrow-left-s" className="size-5" />
-            </button>
-          )}
-
-          {isMobile ? (
-            selectedFile ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="inline-flex min-w-0 max-w-full items-center gap-1 text-left typography-ui-label font-medium"
-                    aria-label={"Open files"}
-                  >
-                    <FileTypeIcon filePath={selectedFile.path} extension={selectedFile.extension} className="size-3.5 flex-shrink-0" />
-                    <ScrollingFileName name={selectedFile.name} />
-                    <Icon name="arrow-down-s" className="size-4 flex-shrink-0 text-muted-foreground" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-[min(24rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)]">
-                  {openFiles.map((file) => {
-                    const isActive = selectedFile?.path === file.path;
-                    return (
-                      <DropdownMenuItem
-                        key={file.path}
-                        onSelect={(event) => {
-                          const target = event.target as HTMLElement;
-                          if (target.closest('[data-close-open-file]')) {
-                            event.preventDefault();
-                            return;
-                          }
-                          if (!isActive) {
-                            void handleSelectFile(file);
-                          }
-                        }}
-                        className={cn(
-                          'flex min-w-0 items-center justify-between gap-2 overflow-hidden',
-                          isActive && 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]'
-                        )}
-                      >
-                        <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-                          <FileTypeIcon filePath={file.path} extension={file.extension} className="size-3.5 flex-shrink-0" />
-                          <ScrollingFileName name={file.name} />
-                        </span>
-                        <button
-                          type="button"
-                          data-close-open-file
-                          onPointerDown={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                          }}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            handleCloseFile(file.path);
-                          }}
-                          className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--surface-muted-foreground)] hover:text-[var(--surface-foreground)]"
-                          aria-label={`Close ${file.name}`}
-                        >
-                          <Icon name="close" className="size-3.5" />
-                        </button>
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <div className="typography-ui-label font-medium truncate">{"Select a file"}</div>
-            )
-          ) : (
-            openFiles.length > 0 ? (
-              <div className="relative min-w-0 flex-1">
-                {editorTabsOverflow.left && (
-                  <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-6 z-10 bg-gradient-to-r from-background to-transparent" />
-                )}
-                {editorTabsOverflow.right && (
-                  <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-6 z-10 bg-gradient-to-l from-background to-transparent" />
-                )}
-                <div
-                  ref={editorTabsScrollRef}
-                  className="flex min-w-0 items-center gap-1 overflow-x-auto scrollbar-none"
-                  style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-                  data-no-drawer-swipe="true"
-                >
-                  {openFiles.map((file) => {
-                    const isActive = selectedFile?.path === file.path;
-                    return (
-                      <div
-                        key={file.path}
-                        title={getDisplayPath(root, file.path)}
-                        className={cn(
-                          'group inline-flex items-center gap-1 rounded-md border px-2 py-1 typography-ui-label transition-colors whitespace-nowrap',
-                          isActive
-                            ? 'bg-[var(--interactive-selection)] border-[var(--primary-muted)] text-[var(--interactive-selection-foreground)]'
-                            : 'bg-transparent border-[var(--interactive-border)] text-[var(--surface-muted-foreground)] hover:bg-[var(--interactive-hover)] hover:text-[var(--surface-foreground)]'
-                        )}
-                      >
-                        <FileTypeIcon filePath={file.path} extension={file.extension} className="size-3.5 flex-shrink-0" />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!isActive) {
-                              void handleSelectFile(file);
-                            }
-                          }}
-                          className="max-w-[12rem] truncate text-left"
-                        >
-                          {file.name}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleCloseFile(file.path);
-                          }}
-                          className={cn(
-                            'rounded-sm p-0.5 text-[var(--surface-muted-foreground)] hover:text-[var(--surface-foreground)]',
-                            !isActive && !alwaysShowActions && 'opacity-0 group-hover:opacity-100'
-                          )}
-                          aria-label={`Close ${file.name}`}
-                        >
-                          <Icon name="close" className="size-3.5" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <div className="typography-ui-label font-medium truncate">{"Select a file"}</div>
-            )
-          )}
-        </div>
-        ) : null}
+        <FileTabsRow
+          showEditorTabsRow={showEditorTabsRow}
+          isMobile={isMobile}
+          showMobilePageContent={showMobilePageContent}
+          onBackMobile={() => setShowMobilePageContent(false)}
+          selectedFile={selectedFile}
+          openFiles={openFiles}
+          root={root}
+          alwaysShowActions={alwaysShowActions}
+          editorTabsOverflow={editorTabsOverflow}
+          editorTabsScrollRef={editorTabsScrollRef}
+          onSelectFile={handleSelectFile}
+          onCloseFile={handleCloseFile}
+        />
 
         {/* Row 2: Docked editor toolbar (expanded). Desktop opt-in; ALWAYS on
             for mobile — floating hover controls don't work with touch. */}
@@ -3703,302 +1511,52 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
             )}
           </div>
         )}
-        <ScrollableOverlay outerClassName="h-full min-w-0" className="h-full min-w-0">
-          {!selectedFile ? (
-            <div className="p-3 typography-ui text-muted-foreground">{"Pick a file from the tree."}</div>
-          ) : (fileLoading || isImageAssetAuthLoading || isPdfAssetAuthLoading) ? (
-            suppressFileLoadingIndicator
-              ? <div className="p-3" />
-              : (
-                <div className="p-3 flex items-center gap-2 typography-ui text-muted-foreground">
-                  <Icon name="loader-4" className="size-4 animate-spin" />
-                  {"Loading..."}
-                </div>
-              )
-          ) : fileError ? (
-            <div className="p-3 typography-ui text-[color:var(--status-error)]">{fileError}</div>
-          ) : isSelectedImage ? (
-            <div className="flex h-full items-center justify-center p-3">
-              <img
-                key={imagePreviewNonce}
-                src={imageSrc}
-                alt={selectedFile?.name ?? "Image"}
-                className="max-w-full max-h-[70vh] object-contain rounded-md border border-border/30 bg-primary/10"
-              />
-            </div>
-          ) : isSelectedPdf ? (
-            renderPdfPreview(selectedFile)
-          ) : isUnsupportedBinary ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-              <div className="typography-ui-header text-foreground">{"Cannot preview binary file"}</div>
-              <div className="max-w-md typography-ui text-muted-foreground">{"This file is binary and cannot be edited in PiChamber. Download it to open with another app."}</div>
-              {files.downloadFile ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const fn = files.downloadFile;
-                    if (!fn || !selectedFile) return;
-                    void fn(selectedFile.path).catch((error) => {
-                      console.error('Download failed:', error);
-                      toast.error("Operation failed");
-                    });
-                  }}
-                >
-                  <Icon name="download" className="mr-2 size-4" />
-                  {"Save file"}
-                </Button>
-              ) : null}
-            </div>
-          ) : selectedFile && isDrawio && drawioViewMode === 'preview' ? (
-            <div className="h-full overflow-hidden" style={{ minHeight: '400px' }}>
-              <DiagramEditor
-                key={`${selectedFile.path}:${drawioRemountNonce}`}
-                ref={diagramEditorRef}
-                xml={diagramEditorXml}
-                onChange={handleDiagramChange}
-              />
-            </div>
-          ) : selectedFile && isJson && jsonViewMode === 'tree' ? (
-            <ErrorBoundary
-              fallback={
-                <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2">
-                  <div className="mb-1 font-medium text-destructive">{"JSON viewer unavailable"}</div>
-                  <div className="text-sm text-muted-foreground">
-                    {"Switch to text mode to view raw content."}
-                  </div>
-                </div>
-              }
-            >
-              <div className="h-full overflow-auto">
-                <JsonTreeView
-                  jsonString={fileContent}
-                  maxHeight="100%"
-                  initiallyExpandedDepth={2}
-                />
-              </div>
-            </ErrorBoundary>
-          ) : selectedFile && isMarkdown && getMdViewMode() === 'preview' ? (
-            <div className="h-full overflow-auto p-3">
-              {fileContent.length > 500 * 1024 && (
-                <div className="mb-3 rounded-md border border-status-warning/20 bg-status-warning/10 px-3 py-2 text-sm text-status-warning">
-                  {`This file is large (${Math.round(fileContent.length / 1024)}KB). Preview may be limited.`}
-                </div>
-              )}
-              <ErrorBoundary
-                fallback={
-                  <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2">
-                    <div className="mb-1 font-medium text-destructive">{"Preview unavailable"}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {"Switch to edit mode to fix the issue."}
-                    </div>
-                  </div>
-                }
-              >
-                <SimpleMarkdownRenderer
-                  content={fileContent}
-                  className="typography-markdown-body"
-                  stripFrontmatter
-                  enableFileReferences={false}
-                />
-              </ErrorBoundary>
-            </div>
-          ) : selectedFile && isHtml && htmlViewMode === 'preview' ? (
-            isHtmlAssetAuthLoading ? (
-              <div className="flex h-full items-center justify-center text-muted-foreground typography-ui-label">
-                {"Loading..."}
-              </div>
-            ) : (
-            <div className="h-full overflow-hidden">
-              <iframe
-                key={htmlPreviewNonce}
-                src={htmlAssetAuthReadyKey === htmlAssetAuthKey ? (() => {
-                  const encoded = selectedFile.path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
-                  return getRuntimeUrlResolver().authenticatedAsset(`/api/fs/serve${encoded.startsWith('/') ? encoded : `/${encoded}`}`);
-                })() : undefined}
-                className="w-full h-full border-none"
-                sandbox="allow-scripts allow-same-origin allow-forms"
-                title={"HTML Preview"}
-              />
-            </div>
-            )
-          ) : selectedFile && canUseShikiFileView && textViewMode === 'view' ? (
-            renderShikiFileView(selectedFile, draftContent)
-          ) : (
-            <div
-              className={cn('relative h-full', shouldMaskEditorForPendingNavigation && 'overflow-hidden')}
-              ref={editorWrapperRef}
-            >
-              <div className={cn('h-full', shouldMaskEditorForPendingNavigation && 'invisible')}>
-                <CodeMirrorEditor
-                  value={draftContent}
-                  onChange={setDraftContent}
-                  readOnly={!canEdit}
-                  vimMode={fileEditorKeymap === 'vim'}
-                  extensions={editorExtensions}
-                  className="h-full"
-                  onViewReady={(view) => {
-                    editorViewRef.current = view;
-                    setEditorViewReadyNonce((value) => value + 1);
-                    window.requestAnimationFrame(() => {
-                      nudgeEditorSelectionAboveKeyboard(view);
-                    });
-                  }}
-                  onViewDestroy={() => {
-                    if (editorViewRef.current) {
-                      editorViewRef.current = null;
-                    }
-                    setEditorViewReadyNonce((value) => value + 1);
-                  }}
-                  enableSearch
-                  searchOpen={isSearchOpen}
-                  onSearchOpenChange={setIsSearchOpen}
-                />
-              </div>
-              {shouldMaskEditorForPendingNavigation && (
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background">
-                  <div className="flex items-center gap-2 typography-ui text-muted-foreground">
-                    <Icon name="loader-4" className="size-4 animate-spin" />
-                    {"Opening file at change..."}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </ScrollableOverlay>
+        <FileViewerContent
+          variant="embedded"
+          {...fileViewerContentProps}
+          enableRichPreviews
+          editorWrapperRef={editorWrapperRef}
+          onEditorViewReady={handleEmbeddedEditorViewReady}
+          onEditorViewDestroy={handleEmbeddedEditorViewDestroy}
+          enableSearch
+          searchOpen={isSearchOpen}
+          onSearchOpenChange={setIsSearchOpen}
+        />
       </div>
     </div>
   );
 
-  const hasTree = Boolean(root && childrenByDir[root]);
-  const rootLoadError = root ? loadErrorsByDir[root] : null;
-
   const treePanel = (
-    <section className={cn(
-      "flex min-h-0 flex-col overflow-hidden",
-      isMobile ? "h-full w-full bg-background" : "h-full rounded-xl border border-border/60 bg-background/70"
-    )}>
-      <div className={cn("flex flex-col gap-2 py-2", isMobile ? "px-3" : "px-2")}>
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1 min-w-0">
-            <Icon name="search" className="pointer-events-none absolute left-2 top-2 size-4 text-muted-foreground" />
-            <Input
-              ref={searchInputRef}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={"Search files..."}
-              className="h-8 pl-8 pr-8 typography-meta"
-            />
-            {searchQuery.trim().length > 0 && (
-              <button
-                type="button"
-                aria-label={"Clear search"}
-                className="absolute right-2 top-2 inline-flex size-4 items-center justify-center text-muted-foreground hover:text-foreground"
-                onClick={() => {
-                  setSearchQuery('');
-                  searchInputRef.current?.focus();
-                }}
-              >
-                <Icon name="close" className="size-4" />
-              </button>
-            )}
-          </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex flex-shrink-0">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleOpenDialog('createFile', { path: currentDirectory, type: 'directory' })}
-                  className="size-8 p-0 flex-shrink-0"
-                  title={"New File"}
-                  aria-label={"New File"}
-                >
-                  <Icon name="file-add" className="size-4" />
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>{"New File"}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex flex-shrink-0">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleOpenDialog('createFolder', { path: currentDirectory, type: 'directory' })}
-                  className="size-8 p-0 flex-shrink-0"
-                  title={"New Folder"}
-                  aria-label={"New Folder"}
-                >
-                  <Icon name="folder-add" className="size-4" />
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>{"New Folder"}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex flex-shrink-0">
-                <Button variant="ghost" size="sm" onClick={() => void refreshRoot()} className="size-8 p-0 flex-shrink-0" title={"Refresh"} aria-label={"Refresh"}>
-                  <Icon name="refresh" className="size-4" />
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>{"Refresh"}</TooltipContent>
-          </Tooltip>
-        </div>
-      </div>
-
-      <ScrollableOverlay outerClassName="flex-1 min-h-0" className={cn("py-2", isMobile ? "px-3" : "px-2")}>
-        <ul className="flex flex-col">
-          {searching ? (
-            <li className="flex items-center gap-1.5 px-2 py-1 typography-meta text-muted-foreground">
-              <Icon name="loader-4" className="size-4 animate-spin" />
-              {"Searching..."}
-            </li>
-          ) : searchResults.length > 0 ? (
-            searchResults.map((node) => {
-              const isActive = selectedFile?.path === node.path;
-              return (
-                <li key={node.path}>
-                  <button
-                    type="button"
-                    onClick={() => void handleSelectFile(node)}
-                    className={cn(
-                      'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-foreground transition-colors',
-                      isActive ? 'bg-interactive-selection/70' : 'hover:bg-interactive-hover/40'
-                    )}
-                  >
-                    {getFileIcon(node.path, node.extension)}
-                    <span
-                      className="min-w-0 flex-1 truncate typography-meta"
-                      style={{ direction: 'rtl', textAlign: 'left' }}
-                      title={node.path}
-                    >
-                      {node.relativePath ?? node.path}
-                    </span>
-                  </button>
-                </li>
-              );
-            })
-          ) : rootLoadError ? (
-            <li className="flex flex-col gap-2 px-2 py-1 typography-meta text-muted-foreground">
-              <span className="text-[var(--status-error)]">{rootLoadError}</span>
-              <Button variant="outline" size="xs" className="w-fit gap-1.5" onClick={() => void refreshRoot()}>
-                <Icon name="refresh" className="size-3.5" />
-                {"Refresh"}
-              </Button>
-            </li>
-          ) : hasTree ? (
-            renderTree(root, 0)
-          ) : (
-            <li className="px-2 py-1 typography-meta text-muted-foreground">{"Loading..."}</li>
-          )}
-        </ul>
-      </ScrollableOverlay>
-    </section>
+    <FilesTreePanel
+      root={root}
+      isMobile={isMobile}
+      searchQuery={searchQuery}
+      onSearchQueryChange={setSearchQuery}
+      searchInputRef={searchInputRef}
+      searching={searching}
+      searchResults={searchResults}
+      selectedFile={selectedFile}
+      onSelectFile={handleSelectFile}
+      onOpenDialog={handleOpenDialog}
+      currentDirectory={currentDirectory}
+      refreshRoot={refreshRoot}
+      childrenByDir={childrenByDir}
+      loadErrorsByDir={loadErrorsByDir}
+      expandedPaths={expandedPaths}
+      isBrowserClient={isBrowserClient}
+      alwaysShowActions={alwaysShowActions}
+      getFileStatus={getFileStatus}
+      getFolderBadge={getFolderBadge}
+      fileRowPermissions={fileRowPermissions}
+      downloadFile={files.downloadFile}
+      contextMenuPath={contextMenuPath}
+      setContextMenuPath={setContextMenuPath}
+      rightClickMenuPath={rightClickMenuPath}
+      setRightClickMenuPath={setRightClickMenuPath}
+      toggleDirectory={toggleDirectory}
+      handleRevealPath={handleRevealPath}
+      refreshDirectory={refreshDirectory}
+    />
   );
 
   // Fullscreen file viewer overlay
@@ -4009,116 +1567,39 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full' }) => {
         <div className="absolute right-4 top-4 z-30">
           {renderFloatingFileControls({ exitFullscreenOnly: true })}
         </div>
-        <ScrollableOverlay outerClassName="h-full min-w-0" className="h-full min-w-0">
-          {(fileLoading || isImageAssetAuthLoading || isPdfAssetAuthLoading) ? (
-            suppressFileLoadingIndicator
-              ? <div className="p-4" />
-              : (
-                <div className="p-4 flex items-center gap-2 typography-ui text-muted-foreground">
-                  <Icon name="loader-4" className="size-4 animate-spin" />
-                  Loading…
-                </div>
-              )
-          ) : fileError ? (
-            <div className="p-4 typography-ui text-[color:var(--status-error)]">{fileError}</div>
-          ) : isSelectedImage ? (
-            <div className="flex h-full items-center justify-center p-4">
-              <img
-                key={imagePreviewNonce}
-                src={imageSrc}
-                alt={selectedFile.name}
-                className="max-w-full max-h-full object-contain rounded-md border border-border/30 bg-primary/10"
-              />
-            </div>
-          ) : isSelectedPdf ? (
-            renderPdfPreview(selectedFile)
-          ) : isUnsupportedBinary ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-              <div className="typography-ui-header text-foreground">{"Cannot preview binary file"}</div>
-              <div className="max-w-md typography-ui text-muted-foreground">{"This file is binary and cannot be edited in PiChamber. Download it to open with another app."}</div>
-              {files.downloadFile ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const fn = files.downloadFile;
-                    if (!fn || !selectedFile) return;
-                    void fn(selectedFile.path).catch((error) => {
-                      console.error('Download failed:', error);
-                      toast.error("Operation failed");
-                    });
-                  }}
-                >
-                  <Icon name="download" className="mr-2 size-4" />
-                  {"Save file"}
-                </Button>
-              ) : null}
-            </div>
-          ) : isMarkdown && getMdViewMode() === 'preview' ? (
-            <div className="h-full overflow-auto p-4">
-              {fileContent.length > 500 * 1024 && (
-                  <div className="mb-3 rounded-md border border-status-warning/20 bg-status-warning/10 px-3 py-2 text-sm text-status-warning">
-                    {`This file is large (${Math.round(fileContent.length / 1024)}KB). Preview may be limited.`}
-                  </div>
-                )}
-              <ErrorBoundary
-                fallback={
-                  <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2">
-                    <div className="mb-1 font-medium text-destructive">{"Preview unavailable"}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {"Switch to edit mode to fix the issue."}
-                    </div>
-                  </div>
-                }
-              >
-                <SimpleMarkdownRenderer
-                  content={fileContent}
-                  className="typography-markdown-body"
-                  stripFrontmatter
-                  enableFileReferences={false}
-                />
-              </ErrorBoundary>
-            </div>
-          ) : canUseShikiFileView && textViewMode === 'view' ? (
-            renderShikiFileView(selectedFile, draftContent)
-          ) : (
-            <div className={cn('relative h-full', shouldMaskEditorForPendingNavigation && 'overflow-hidden')}>
-              <div className={cn('h-full', shouldMaskEditorForPendingNavigation && 'invisible')}>
-              <CodeMirrorEditor
-                value={draftContent}
-                onChange={setDraftContent}
-                readOnly={!canEdit}
-                vimMode={fileEditorKeymap === 'vim'}
-                extensions={editorExtensions}
-                className="h-full"
-                onViewReady={(view) => {
-                  editorViewRef.current = view;
-                  window.requestAnimationFrame(() => {
-                    nudgeEditorSelectionAboveKeyboard(view);
-                  });
-                }}
-                onViewDestroy={() => {
-                  if (editorViewRef.current) {
-                    editorViewRef.current = null;
-                  }
-                }}
-              />
-              </div>
-              {shouldMaskEditorForPendingNavigation && (
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background">
-                  <div className="flex items-center gap-2 typography-ui text-muted-foreground">
-                    <Icon name="loader-4" className="size-4 animate-spin" />
-                    {"Opening file at change..."}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </ScrollableOverlay>
+        <FileViewerContent
+          variant="fullscreen"
+          {...fileViewerContentProps}
+          enableRichPreviews={false}
+          onEditorViewReady={handleFullscreenEditorViewReady}
+          onEditorViewDestroy={handleFullscreenEditorViewDestroy}
+        />
       </div>
     </div>
   );
+
+  if (mobileChrome) {
+    return (
+      <MobileFilesChrome
+        root={root}
+        directory={mobileDirectory || root}
+        entries={(mobileDirectory || root) ? childrenByDir[mobileDirectory || root] : undefined}
+        query={searchQuery}
+        searchResults={searchResults}
+        isSearching={searching}
+        directoryError={(mobileDirectory || root) ? loadErrorsByDir[mobileDirectory || root] ?? null : null}
+        refreshing={mobileRefreshing}
+        editorPath={showMobilePageContent ? selectedFile?.path ?? null : null}
+        editor={fileViewer}
+        onClose={onClose}
+        onQueryChange={setSearchQuery}
+        onOpenDirectory={handleMobileOpenDirectory}
+        onOpenFile={handleMobileOpenFile}
+        onBackFromEditor={() => setShowMobilePageContent(false)}
+        onRefresh={() => void handleMobileRefresh()}
+      />
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden bg-background relative">

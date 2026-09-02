@@ -446,17 +446,10 @@ export function isRiskyBrowserShortcut(combo: ShortcutCombo): boolean {
   return dangerousPrimary.has(key) && !parsed.modifiers.has('shift') && !parsed.modifiers.has('alt');
 }
 
-export function eventMatchesShortcut(
+const eventMatchesParsedModifiers = (
   event: KeyboardEvent | React.KeyboardEvent,
-  shortcut: ShortcutAction | ShortcutCombo
-): boolean {
-  const combo = typeof shortcut === 'string' ? shortcut : shortcut.defaultCombo;
-  if (isUnassignedShortcut(combo)) {
-    return false;
-  }
-
-  const parsed = parseShortcut(combo);
-
+  parsed: ParsedShortcut,
+): boolean => {
   const expectedMod = parsed.modifiers.has('mod');
   const expectedShift = parsed.modifiers.has('shift');
   const expectedAlt = parsed.modifiers.has('alt');
@@ -470,31 +463,29 @@ export function eventMatchesShortcut(
       ? (event.metaKey || event.ctrlKey)
       : event.ctrlKey;
 
-  if (expectedMod && !modMatches) {
+  if (expectedMod && !modMatches) return false;
+  if (!expectedMod && event.metaKey) return false;
+  if (expectedShift !== event.shiftKey) return false;
+  if (expectedAlt !== event.altKey) return false;
+
+  if (expectedCtrl) return event.ctrlKey;
+  const ctrlUsedAsMod = expectedMod && !isDesktopMac && event.ctrlKey;
+  return !event.ctrlKey || ctrlUsedAsMod;
+};
+
+export function eventMatchesShortcut(
+  event: KeyboardEvent | React.KeyboardEvent,
+  shortcut: ShortcutAction | ShortcutCombo
+): boolean {
+  const combo = typeof shortcut === 'string' ? shortcut : shortcut.defaultCombo;
+  if (isUnassignedShortcut(combo)) {
     return false;
   }
 
-  if (!expectedMod && event.metaKey) {
-    return false;
-  }
+  const parsed = parseShortcut(combo);
 
-  if (expectedShift !== event.shiftKey) {
+  if (!eventMatchesParsedModifiers(event, parsed)) {
     return false;
-  }
-
-  if (expectedAlt !== event.altKey) {
-    return false;
-  }
-
-  if (expectedCtrl) {
-    if (!event.ctrlKey) {
-      return false;
-    }
-  } else {
-    const ctrlUsedAsMod = expectedMod && !isDesktopMac && event.ctrlKey;
-    if (event.ctrlKey && !ctrlUsedAsMod) {
-      return false;
-    }
   }
 
   let eventKeyRaw = event.key;
@@ -592,44 +583,8 @@ export function eventMatchesShortcutPrefix(
 
   const parsed = parseShortcut(prefixCombo);
 
-  const expectedMod = parsed.modifiers.has('mod');
-  const expectedShift = parsed.modifiers.has('shift');
-  const expectedAlt = parsed.modifiers.has('alt');
-  const expectedCtrl = parsed.modifiers.has('ctrl');
-  const isDesktopMac = isMacOS() && isDesktopShell();
-  const isMac = isMacOS();
-
-  const modMatches = isDesktopMac
-    ? event.metaKey
-    : isMac
-      ? (event.metaKey || event.ctrlKey)
-      : event.ctrlKey;
-
-  if (expectedMod && !modMatches) {
+  if (!eventMatchesParsedModifiers(event, parsed)) {
     return false;
-  }
-
-  if (!expectedMod && event.metaKey) {
-    return false;
-  }
-
-  if (expectedShift !== event.shiftKey) {
-    return false;
-  }
-
-  if (expectedAlt !== event.altKey) {
-    return false;
-  }
-
-  if (expectedCtrl) {
-    if (!event.ctrlKey) {
-      return false;
-    }
-  } else {
-    const ctrlUsedAsMod = expectedMod && !isDesktopMac && event.ctrlKey;
-    if (event.ctrlKey && !ctrlUsedAsMod) {
-      return false;
-    }
   }
 
   if (parsed.key && (!heldKeys || !heldKeys.has(parsed.key.toLowerCase()))) {

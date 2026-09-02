@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- **Architecture consolidation preserving behavior.** Stacked on `pichamber/reduce-size-p1`, this is a behavior-preserving consolidation that merges duplicated mobile/desktop Files and Git implementations, decomposes large config, UI, Git, session, persistence, chat, message, tool, and composer modules into focused owners (including shared Files/Git mobile chrome), cleans up the runtime Git contract, and removes shallow/dead wrappers; review fixes restore private relay client URL parameters (`v`, `role`, `serverId`, optional `grant`) and retryable handshake timeouts with regression tests.
+
 ## [0.7.2] - 2026-09-01
 
 Attachments, worktree, extension, and startup reliability release.

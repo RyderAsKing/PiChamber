@@ -478,6 +478,27 @@ export const SortableTabsStrip: React.FC<SortableTabsStripProps> = ({
                 }
               }
             : undefined;
+          const renderTabIcon = (className: string) => shouldShowIcon ? (
+            <span className={className}>
+              <span className={cn('flex items-center justify-center transition-opacity', closeReplacesIcon && (alwaysShowCloseControls ? 'opacity-0' : 'group-hover:opacity-0'))}>{item.icon}</span>
+              {closeReplacesIcon ? (
+                <span
+                  role="button"
+                  tabIndex={-1}
+                  className={cn('absolute inset-0 z-20 flex !min-h-0 !min-w-0 items-center justify-center rounded-sm text-muted-foreground transition-opacity hover:text-foreground', alwaysShowCloseControls ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onClose?.(item.id);
+                  }}
+                  aria-label={item.closeLabel ?? `Close ${item.label} tab`}
+                  title={item.closeLabel ?? `Close ${item.label} tab`}
+                >
+                  <Icon name="close" className="h-3.5 w-3.5" />
+                </span>
+              ) : null}
+            </span>
+          ) : null;
           return (
             <Wrapper key={item.id} id={item.id} className={wrapperClassName}>
               <div
@@ -546,61 +567,15 @@ export const SortableTabsStrip: React.FC<SortableTabsStripProps> = ({
                 >
                   {usesActivePillIndicator ? (
                     <>
-                      {shouldShowIcon ? (
-                        <span className="relative flex h-4 w-4 shrink-0 items-center justify-center">
-                          <span className={cn('flex items-center justify-center transition-opacity', closeReplacesIcon && (alwaysShowCloseControls ? 'opacity-0' : 'group-hover:opacity-0'))}>{item.icon}</span>
-                          {closeReplacesIcon ? (
-                            <span
-                              role="button"
-                              tabIndex={-1}
-                              className={cn('absolute inset-0 z-20 flex !min-h-0 !min-w-0 items-center justify-center rounded-sm text-muted-foreground transition-opacity hover:text-foreground', alwaysShowCloseControls ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')}
-                              onPointerDown={(event) => {
-                                event.stopPropagation();
-                              }}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                onClose?.(item.id);
-                              }}
-                              aria-label={item.closeLabel ?? `Close ${item.label} tab`}
-                              title={item.closeLabel ?? `Close ${item.label} tab`}
-                            >
-                              <Icon name="close" className="h-3.5 w-3.5" />
-                            </span>
-                          ) : null}
-                        </span>
-                      ) : null}
+                      {renderTabIcon('relative flex h-4 w-4 shrink-0 items-center justify-center')}
                       {shouldShowLabel ? <span className="animated-tabs__label truncate">{item.label}</span> : null}
                     </>
                   ) : (
                     <span className={cn('flex min-w-0 flex-nowrap items-center gap-1.5', !isScrollable && 'justify-center')}>
-                      {shouldShowIcon ? (
-                        <span
-                          className={cn(
-                            'relative flex h-4 w-4 shrink-0 items-center justify-center transition-colors duration-200 ease-out',
-                            isActive ? 'text-[var(--primary-base)]' : 'text-muted-foreground'
-                          )}
-                        >
-                          <span className={cn('flex items-center justify-center transition-opacity', closeReplacesIcon && (alwaysShowCloseControls ? 'opacity-0' : 'group-hover:opacity-0'))}>{item.icon}</span>
-                          {closeReplacesIcon ? (
-                            <span
-                              role="button"
-                              tabIndex={-1}
-                              className={cn('absolute inset-0 z-20 flex !min-h-0 !min-w-0 items-center justify-center rounded-sm text-muted-foreground transition-opacity hover:text-foreground', alwaysShowCloseControls ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')}
-                              onPointerDown={(event) => {
-                                event.stopPropagation();
-                              }}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                onClose?.(item.id);
-                              }}
-                              aria-label={item.closeLabel ?? `Close ${item.label} tab`}
-                              title={item.closeLabel ?? `Close ${item.label} tab`}
-                            >
-                              <Icon name="close" className="h-3.5 w-3.5" />
-                            </span>
-                          ) : null}
-                        </span>
-                      ) : null}
+                      {renderTabIcon(cn(
+                        'relative flex h-4 w-4 shrink-0 items-center justify-center transition-colors duration-200 ease-out',
+                        isActive ? 'text-[var(--primary-base)]' : 'text-muted-foreground'
+                      ))}
                       <span className="truncate leading-[1.2]">{item.label}</span>
                     </span>
                   )}

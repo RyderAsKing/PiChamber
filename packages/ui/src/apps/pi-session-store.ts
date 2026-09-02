@@ -1,10 +1,8 @@
 import {
   applyPiEvent,
-  createReducerState,
   dismissExtensionDialog,
   hydrateSessionFromDetail,
   projectSession,
-  aliasSyntheticUserIfPersisted,
   createReducerPartMap,
   type PiProjectedSession,
   type PiReducerSessionState,
@@ -17,7 +15,7 @@ import { reconnectPiSession } from '@/lib/pi/reconnect';
 import { PiStreamCadence } from '@/lib/pi/stream-cadence';
 import { createPiEventStream, type PiStreamHandle } from '@/lib/pi/transport';
 import type { PiSessionEvent, PiSessionListItem } from '@/lib/pi/protocol';
-import type { PiSession, PiSessionId, PiSessionLifecycleState, PiThinkingLevel } from '@/lib/pi/types';
+import type { PiSession, PiSessionId, PiThinkingLevel } from '@/lib/pi/types';
 import { resolveCreateThinking } from '@/lib/pi/thinking';
 import { deriveSessionTitle } from '@/lib/chat/deriveSessionTitle';
 import { normalizePath } from '@/lib/pathNormalization';
@@ -43,165 +41,55 @@ import {
   upsertRecord,
   upsertStubRecord,
   touchRecordUpdatedAt,
-  type LiveSessionLifecycle,
   type LiveSessionRecord,
   type PiSessionCatalogState,
 } from '@/sync/pi-session-catalog';
 
-/**
- * Narrow the reducer's `PiSessionLifecycleState` to the catalog's
- * `LiveSessionLifecycle`. The reducer carries `'interrupted'` for sessions
- * whose assistant turn ended without a final tool (e.g. daemon crash); the
- * catalog treats those as `'idle'` because the session is no longer
- * running. Any unknown future state falls back to `'idle'` rather than
- * claiming authoritative activity.
- */
-const catalogLifecycleFromReducer = (
-  lifecycle: PiSessionLifecycleState,
-): LiveSessionLifecycle => {
-  if (lifecycle === 'busy' || lifecycle === 'retry') return lifecycle;
-  if (lifecycle === 'error') return 'error';
-  return 'idle';
+import {
+  type PiSessionTopic,
+  TOPIC_BROADCAST,
+  TOPIC_CATALOG,
+  TOPIC_DIALOGS,
+  TOPIC_CHROME,
+  type PiConnectionState,
+  type PiSessionsListStatus,
+  type PiSessionStoreState,
+  type Listener,
+  PI_TRANSCRIPT_EVICTION_SOFT_CAP,
+  RECOVERABLE_CONNECTION_CODES,
+  type PendingFocus,
+} from '@/sync/pi-session-store-types';
+import {
+  catalogLifecycleFromReducer,
+  lifecycleFromEvent,
+  asError,
+  isInvalidSessionError,
+  isSessionRuntimeConflictError,
+  delayBeforeRetry,
+  initialSessionStoreState,
+  createRecordFromPiSession,
+  mergeHydratedSession,
+} from '@/sync/pi-session-store-helpers';
+
+export {
+  TOPIC_BROADCAST,
+  TOPIC_CATALOG,
+  TOPIC_DIALOGS,
+  TOPIC_CHROME,
+  PI_TRANSCRIPT_EVICTION_SOFT_CAP,
+  catalogLifecycleFromReducer,
+  lifecycleFromEvent,
+  asError,
+  isInvalidSessionError,
+  isSessionRuntimeConflictError,
+  delayBeforeRetry,
 };
 
-/**
- * Extract the catalog lifecycle a stub row should carry when an event
- * arrives for an unlisted session. `session.lifecycle` is the authoritative
- * source; `assistant.message.start` implies busy; everything else returns
- * `undefined` so we do not synthesize stubs from token deltas.
- */
-const lifecycleFromEvent = (event: PiSessionEvent): LiveSessionLifecycle | undefined => {
-  if (event.name === 'session.lifecycle') {
-    const state = event.payload.state;
-    if (state === 'busy' || state === 'retry' || state === 'error') return state;
-    if (state === 'idle') return 'idle';
-    return undefined;
-  }
-  if (event.name === 'assistant.message.start') return 'busy';
-  if (event.name === 'session.error') return 'error';
-  return undefined;
-};
-
-/**
- * Topic keys for `PiSessionStore.subscribe(listener, topic)`. The store
- * publishes one notification per topic touched by a commit so a token
- * delta in session B does not wake session A's chat transcript selectors.
- *
- * - `session:{id}`: that session's reducer record changed (messages,
- *   parts, lifecycle on the transcript). Token deltas that leave the
- *   record reference-equal do **not** emit this.
- * - `catalog`: `state.catalog` identity changed (lifecycle, title,
- *   membership, stub insert). Token deltas that leave the catalog ref
- *   unchanged do **not** emit this.
- * - `dialogs`: runtime-wide pending extension-dialog membership. It changes
- *   only when dialogs open, settle, or reconcile from authoritative state.
- * - `chrome`: cluster UI — `connection`, `error`, `directory`,
-   *   `selectedSessionId`, `sessions[]`, `sessionsListStatus`,
-   *   `focusPending`, `hydratedSessionIds`, `sessionLoadErrorById`.
- * - `*` (default when `subscribe` is called without a topic): broadcast
- *   to every listener regardless of topic. Kept for tests and any
- *   unmigrated caller; production hooks pass an explicit topic so the
- *   broadcast path is unused on the token hot path.
- */
-export type PiSessionTopic = `session:${PiSessionId}` | 'catalog' | 'chrome' | 'dialogs' | '*';
-const TOPIC_BROADCAST = '*';
-const TOPIC_CATALOG = 'catalog';
-const TOPIC_DIALOGS = 'dialogs';
-const TOPIC_CHROME = 'chrome';
-
-export type PiConnectionState = 'loading' | 'ready' | 'unavailable' | 'error';
-export type PiSessionsListStatus = 'idle' | 'loading' | 'ready' | 'failed';
-export interface PiSessionStoreState {
-  /** Currently focused project directory. Switching folders updates this without
-   *  disposing the live event stream or clearing the resident session cluster. */
-  directory: string | null;
-  sessions: readonly PiSessionListItem[];
-  selectedSessionId: PiSessionId | null;
-  reducer: PiReducerState;
-  connection: PiConnectionState;
-  error: PiRequestError | null;
-  showArchived: boolean;
-  hydratedSessionIds: ReadonlySet<PiSessionId>;
-  /**
-   * Per-session hydrate failures. A missing or unreadable session must not
-   * take the cluster to `connection: 'error'` (that looks like a daemon
-   * outage) and must not leave the chat on the PiChamber logo forever.
-   * `useSessionMessageLoadState` maps this to the existing
-   * "Session could not be loaded" block.
-   */
-  sessionLoadErrorById: ReadonlyMap<PiSessionId, PiRequestError>;
-  /** True while a `focusProject` is in flight (between pointer swap and
-   *  list/hydrate settle or fail). Chat uses this to keep the existing
-   *  chat visible — the PiChamber logo replaces an empty draft on a cold
-   *  transition, but the bare `ChatEmptyState` must never appear. */
-  focusPending: boolean;
-  /** Discriminates loading / ready / failed for the *focused folder's*
-   *  `sessions[]`. `ready` covers both populated and authoritative-empty
-   *  (zero-session new project). `failed` keeps the previous folder
-   *  alive and surfaces a Try-again block in the chat rather than an
-   *  empty success. */
-  sessionsListStatus: PiSessionsListStatus;
-  /** Runtime-scoped live catalog — metadata for every Pi session this
-   *  runtime has surfaced, kept in lockstep with the SSE event stream
-   *  and per-directory listings. Transcripts stay in `reducer.bySession`
-   *  (LRU-capped); the catalog is metadata-only. See
-   *  `pi-session-catalog.ts` for membership, lifecycle, and reference-
-   *  hygiene rules. */
-  catalog: PiSessionCatalogState;
-}
-type Listener = () => void;
-
-/** Soft cap for resident transcripts kept in `reducer.bySession`. Idle
- *  transcripts can be evicted; `lastSequence` survives the eviction so
- *  reconnect/rehydrate resumes without rewinding past accepted events. */
-export const PI_TRANSCRIPT_EVICTION_SOFT_CAP = 16;
-
-/** Single automatic retry delay for transient focus-list failures. Short
- *  enough that the chat loader does not visibly stall, long enough that we
- *  do not pile onto a 5xx storm. */
-const FOCUS_RETRY_DELAY_MS = 300;
-
-const RECOVERABLE_CONNECTION_CODES = new Set([
-  'DAEMON_UNAVAILABLE',
-  'DAEMON_TIMEOUT',
-  'DAEMON_START_TIMEOUT',
-  'DAEMON_REQUEST_FAILED',
-]);
-
-const initial = (catalog: PiSessionCatalogState = initialCatalog()): PiSessionStoreState => ({
-  directory: null,
-  sessions: [],
-  selectedSessionId: null,
-  reducer: createReducerState(),
-  connection: 'loading',
-  error: null,
-  showArchived: false,
-  hydratedSessionIds: new Set(),
-  sessionLoadErrorById: new Map(),
-  focusPending: false,
-  sessionsListStatus: 'idle',
-  catalog,
-});
-
-interface PendingFocus {
-  directory: string;
-  expected: number;
-  /** Session id the caller wants selected after the focus resolves. */
-  preferredSessionId?: PiSessionId | null;
-}
-const asError = (error: unknown) => error instanceof PiRequestError ? error : new PiRequestError('DAEMON_REQUEST_FAILED', error instanceof Error ? error.message : undefined);
-
-const isInvalidSessionError = (error: unknown): error is PiRequestError => (
-  error instanceof PiRequestError && error.code === 'INVALID_SESSION'
-);
-
-const isSessionRuntimeConflictError = (error: unknown): error is PiRequestError => (
-  error instanceof PiRequestError && error.code === 'SESSION_RUNTIME_CONFLICT'
-);
-
-const delayBeforeRetry = async (): Promise<void> => {
-  if (FOCUS_RETRY_DELAY_MS <= 0) return;
-  await new Promise<void>((resolve) => setTimeout(resolve, FOCUS_RETRY_DELAY_MS));
+export type {
+  PiSessionTopic,
+  PiConnectionState,
+  PiSessionsListStatus,
+  PiSessionStoreState,
 };
 
 let sharedStore: PiSessionStore | null = null;
@@ -290,7 +178,7 @@ export class PiSessionStore {
 
   constructor(catalogCache: PiSessionCatalogCache = getPiSessionCatalogCache()) {
     this.catalogCache = catalogCache;
-    this.state = initial(this.readCachedCatalog(getRuntimeKey()));
+    this.state = initialSessionStoreState(this.readCachedCatalog(getRuntimeKey()));
     this.unsubscribeRuntime = subscribeRuntimeEndpointChanged((detail) => {
       if (detail.runtimeKey === detail.previousRuntimeKey) {
         this.reconnectAfterTransportSwitch();
@@ -329,8 +217,7 @@ export class PiSessionStore {
       if (bucket) bucket.delete(listener);
     };
   };
-  dispose = () => {
-    this.catalogCache.flush();
+  private resetLiveRuntimeState(): void {
     this.providerRefreshRevisionByDirectory.clear();
     this.runtimeGeneration += 1;
     this.focusGeneration += 1;
@@ -352,13 +239,18 @@ export class PiSessionStore {
     this.stream = null;
     this.streamGeneration += 1;
     this.streamReadyRevision += 1;
+  }
+
+  dispose = () => {
+    this.catalogCache.flush();
+    this.resetLiveRuntimeState();
     this.unsubscribeRuntime();
     clearAllRevertNavigations();
     this.navigationGenerationById.clear();
     this.navigationCounter = 0;
     // Broadcast the reset so any mounted consumer sees the empty state
     // before the listener sets are torn down.
-    this.state = initial();
+    this.state = initialSessionStoreState();
     this.emitBroadcast();
     this.listenersByTopic.clear();
   };
@@ -441,27 +333,8 @@ export class PiSessionStore {
     this.emitChrome();
   }
   clear = () => {
-    this.providerRefreshRevisionByDirectory.clear();
-    this.runtimeGeneration += 1;
-    this.focusGeneration += 1;
-    this.pendingFocus = null;
-    this.pendingPreferredSessionId = null;
-    this.hydratedSessionIds.clear();
-    this.activityPhaseById.clear();
-    this.pendingPromptById.clear();
-    this.promptGenerationById.clear();
-    this.lastAccessById.clear();
-    this.lastAccessClock = 0;
-    this.lastSelectedByDirectory.clear();
-    this.directoryRefreshGenerationByDirectory.clear();
-    this.evictionScheduled = false;
-    this.restoringTranscriptById.clear();
-    this.hydrateInflightById.clear();
-    this.cadence.dispose();
-    this.stream?.dispose(); this.stream = null;
-    this.streamGeneration += 1;
-    this.streamReadyRevision += 1;
-    this.state = { ...initial(), connection: 'ready' };
+    this.resetLiveRuntimeState();
+    this.state = { ...initialSessionStoreState(), connection: 'ready' };
     clearAllRevertNavigations();
     this.navigationGenerationById.clear();
     this.navigationCounter = 0;
@@ -1431,98 +1304,18 @@ export class PiSessionStore {
   }
 
   private sessionFromDetail(detail: Awaited<ReturnType<typeof piClient.getSession>>) {
-    return hydrateSessionFromDetail({
-      session: detail.session,
-      lastSequence: detail.lastSequence,
-      ...(detail.isStreaming !== undefined ? { isStreaming: detail.isStreaming } : {}),
-      ...(detail.lifecycle ? { lifecycle: detail.lifecycle } : {}),
-      ...(detail.retry ? { retry: detail.retry } : {}),
-      ...(detail.compaction ? { compaction: detail.compaction } : {}),
-      ...(detail.extensionStatuses ? { extensionStatuses: detail.extensionStatuses } : {}),
-      ...(detail.extensionWidgets ? { extensionWidgets: detail.extensionWidgets } : {}),
-      ...(detail.extensionDialogs ? { extensionDialogs: detail.extensionDialogs } : {}),
-      ...(detail.extensionPanels ? { extensionPanels: detail.extensionPanels } : {}),
-      ...(detail.extensionApps ? { extensionApps: detail.extensionApps } : {}),
-      ...(detail.extensionTitle ? { extensionTitle: detail.extensionTitle } : {}),
-      messages: detail.messages,
-    }).session;
+    return hydrateSessionFromDetail(detail).session;
   }
 
-  /**
-   * Build a `LiveSessionRecord` from a server-confirmed `PiSession` for
-   * catalog seeding. Preserves an existing row's `lifecycle` and
-   * `hydrated` flag so the event-driven mirrors win over the listing's
-   * snapshot of the moment.
-   */
   private recordFromPiSession(session: PiSession, options?: { now?: number }): LiveSessionRecord {
-    const now = options?.now ?? Date.now();
-    const existing = this.state.catalog.byId.get(session.id);
-    const directory = normalizePath(session.directory) ?? session.directory;
-    // `timeArchived === 0` is the restored-session convention (see
-    // `sync/DOCUMENTATION.md`); treat as active even when `archived`
-    // is true so the catalog matches the UI archive split.
-    const isArchived = typeof session.timeArchived === 'number'
-      ? session.timeArchived > 0
-      : Boolean(session.archived);
-    return {
-      id: session.id,
-      directory,
-      parentId: session.parentId ?? null,
-      title: session.title ?? '',
-      archived: isArchived,
-      createdAt: session.createdAt,
-      updatedAt: typeof session.updatedAt === 'number' && Number.isFinite(session.updatedAt)
-        ? session.updatedAt
-        : now,
-      ...(typeof session.messageCount === 'number' ? { messageCount: session.messageCount } : {}),
-      lifecycle: existing?.lifecycle ?? 'idle',
-      hydrated: existing?.hydrated ?? false,
-    };
+    return createRecordFromPiSession(session, this.state.catalog, options);
   }
 
   private mergeHydratedSession(
     fetched: PiReducerSessionState,
     existing: PiReducerSessionState | undefined,
   ): PiReducerSessionState {
-    if (!existing) return fetched;
-    if (existing.sessionId !== fetched.sessionId) return fetched;
-    const liveTurn = existing.lifecycle === 'busy' || existing.lifecycle === 'retry';
-    const preserveExisting = liveTurn || existing.lastSequence > fetched.lastSequence;
-    if (existing.messages.size === 0 && !preserveExisting) return fetched;
-
-    // A live turn or a sequence-newer resident reducer may contain events that
-    // the request did not observe, so it overlays the fetched history. Once the
-    // resident turn has settled and the fetch is at least as new, the fetched
-    // transcript is authoritative for overlapping messages and parts. Always
-    // preferring resident objects left restarted clients permanently stuck on
-    // the partial text they had before snapshot recovery.
-    const session: PiReducerSessionState = {
-      ...fetched,
-      lifecycle: preserveExisting ? existing.lifecycle : fetched.lifecycle,
-      lastSequence: Math.max(fetched.lastSequence, existing.lastSequence),
-      messages: new Map(fetched.messages),
-      partOrder: new Map(fetched.partOrder),
-      parts: createReducerPartMap(fetched.parts),
-      toolsByCallId: new Map(fetched.toolsByCallId),
-      streamingMessages: new Set(preserveExisting ? existing.streamingMessages : fetched.streamingMessages),
-      queue: existing.queue.steering > 0 || existing.queue.followUp > 0 ? existing.queue : fetched.queue,
-      ...(existing.model && (preserveExisting || !fetched.model) ? { model: existing.model } : {}),
-      ...(existing.thinking && (preserveExisting || !fetched.thinking) ? { thinking: existing.thinking } : {}),
-    };
-    if (preserveExisting) {
-      for (const [id, message] of existing.messages) {
-        aliasSyntheticUserIfPersisted(session, id, message);
-      }
-      for (const [id, order] of existing.partOrder) {
-        session.partOrder.set(id, order);
-        for (const partId of order) {
-          const part = existing.parts.get(partId);
-          if (part) session.parts.set(partId, part);
-        }
-      }
-      for (const [callId, messageId] of existing.toolsByCallId) session.toolsByCallId.set(callId, messageId);
-    }
-    return session;
+    return mergeHydratedSession(fetched, existing);
   }
 
   /** Records that a session was just touched — selected, hydrated, or
@@ -2311,28 +2104,8 @@ export class PiSessionStore {
   }
   private resetForRuntime() {
     this.catalogCache.flush();
-    this.providerRefreshRevisionByDirectory.clear();
-    this.runtimeGeneration += 1;
-    this.focusGeneration += 1;
-    this.pendingFocus = null;
-    this.pendingPreferredSessionId = null;
-    this.hydratedSessionIds.clear();
-    this.activityPhaseById.clear();
-    this.pendingPromptById.clear();
-    this.promptGenerationById.clear();
-    this.lastAccessById.clear();
-    this.lastAccessClock = 0;
-    this.lastSelectedByDirectory.clear();
-    this.directoryRefreshGenerationByDirectory.clear();
-    this.evictionScheduled = false;
-    this.restoringTranscriptById.clear();
-    this.hydrateInflightById.clear();
-    this.cadence.dispose();
-    this.stream?.dispose();
-    this.stream = null;
-    this.streamGeneration += 1;
-    this.streamReadyRevision += 1;
-    this.state = initial(this.readCachedCatalog(getRuntimeKey()));
+    this.resetLiveRuntimeState();
+    this.state = initialSessionStoreState(this.readCachedCatalog(getRuntimeKey()));
     clearAllRevertNavigations();
     this.navigationGenerationById.clear();
     this.navigationCounter = 0;

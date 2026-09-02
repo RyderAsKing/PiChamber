@@ -15,7 +15,7 @@
 
 import { create } from "zustand"
 import type { Session, Part, Message, TextPart } from "@/lib/chat/types"
-import type { AttachedFile, SessionContextUsage } from "@/stores/types/sessionTypes"
+import type { SessionContextUsage } from "@/stores/types/sessionTypes"
 import { getPiSessionStore } from "@/apps/pi-session-store"
 import { isPiThinkingLevel } from "@/lib/pi/thinking"
 import { runtimeFetch } from "@/lib/runtime-fetch"
@@ -72,409 +72,66 @@ import {
   type DeleteSessionsOptions,
   type UnarchiveSessionsOptions,
 } from "./session-actions"
-import { useInputStore, type SyntheticContextPart } from "./input-store"
+import { useInputStore } from "./input-store"
 import { useSelectionStore } from "./selection-store"
 import { getViewportSessionMemory, useViewportStore, viewportSessionKey } from "./viewport-store"
-import { setSessionOpener } from "./session-navigation"
 import { getRuntimeKey } from "@/lib/runtime-switch"
-import { clearLastActiveSession, persistLastActiveSession, readLastActiveSession } from "./last-session-cache"
-import { rememberRuntimeLiveStatus } from "./runtime-live-memory"
-import { sanitizeFilename } from "@/lib/pi/attachments"
+import { clearLastActiveSession, persistLastActiveSession } from "./last-session-cache"
+import {
+  type AttachedFile,
+  type DraftBranchCheckoutReceipt,
+  type DraftBranchIntent,
+  type DraftWorktreeIntent,
+  type DraftWorktreeCreationReceipt,
+  type SendMessageOptions,
+  type AssistantMessageSessionExecution,
+  type NewSessionDraftState,
+  type ViewportAnchor,
+  type SessionHistoryMeta,
+  type SessionUIState,
+} from "./session-ui-types"
+import { routeMessage } from "./session-ui-message-routing"
+import {
+  DEFAULT_DRAFT,
+  readPersistedDraftTarget,
+  persistDraftTarget,
+  getRememberedSessionDirectory,
+  resolveSessionDirectory,
+  resolveDirectoryKey,
+  getAuthoritativeSessionDirectory,
+  activateConfigForDirectory,
+  draftBranchCheckoutReceiptMatches,
+  runtimeMemoryKey,
+  cloneDraft,
+  writeRuntimeSessionMemory,
+  setGuessedSelectionSessionId,
+  getGuessedSelectionSessionId,
+  clearGuessedSelectionSessionId,
+  activeSessionByRuntime,
+  runtimeSessionMemory,
+  materializeOpenDraftSession as materializeOpenDraftSessionHelper,
+  type MaterializedDraftSession,
+} from "./session-ui-draft-helpers"
 
-export type { AttachedFile }
-
-// ---------------------------------------------------------------------------
-// Send routing — shell mode, slash commands, or normal prompt
-// ---------------------------------------------------------------------------
-
-function committedSessionSelection(sessionId: string) {
-  const state = getPiSessionStore().getState()
-  const live = state.reducer.bySession.get(sessionId)
-  const listed = state.sessions.find((item) => item.session.id === sessionId)?.session
-  return {
-    model: live?.model ?? listed?.model,
-    thinking: live?.thinking ?? listed?.thinking,
-  }
+export type {
+  AttachedFile,
+  DraftBranchCheckoutReceipt,
+  DraftBranchIntent,
+  DraftWorktreeIntent,
+  DraftWorktreeCreationReceipt,
+  SendMessageOptions,
+  AssistantMessageSessionExecution,
+  NewSessionDraftState,
+  ViewportAnchor,
+  SessionHistoryMeta,
+  SessionUIState,
 }
 
-export async function routeMessage(params: {
-  runtimeKey?: string
-  sessionId: string
-  directory?: string | null
-  content: string
-  providerID: string
-  modelID: string
-  agent?: string
-  agentMentionName?: string
-  variant?: string
-  inputMode?: "normal" | "shell"
-  files?: Array<{ type: "file"; mime: string; url: string; filename: string; uploadState?: AttachedFile["uploadState"] }>
-  additionalParts?: Array<{ text: string; synthetic?: boolean; files?: Array<{ type: "file"; mime: string; url: string; filename: string; uploadState?: AttachedFile["uploadState"] }> }>
-  delivery?: 'steer' | 'followUp' | 'prompt'
-}): Promise<void> {
-  const delivery = params.delivery === 'steer' || params.delivery === 'followUp' ? params.delivery : 'prompt'
-  const sessionStore = getPiSessionStore()
-  if (params.sessionId && params.providerID && params.modelID) {
-    const currentModel = committedSessionSelection(params.sessionId).model
-    if (!currentModel || currentModel.providerId !== params.providerID || currentModel.modelId !== params.modelID) {
-      await sessionStore.setModel(params.sessionId, params.providerID, params.modelID)
-    }
-  }
-  if (params.sessionId && isPiThinkingLevel(params.variant)) {
-    const currentThinking = committedSessionSelection(params.sessionId).thinking
-    if (currentThinking !== params.variant) {
-      await sessionStore.setThinking(params.sessionId, params.variant)
-    }
-  }
-  const outgoingFiles = [
-    ...(params.files ?? []),
-    ...(params.additionalParts ?? []).flatMap((part) => part.files ?? []),
-  ].filter((file) => file.uploadState !== undefined || file.url.startsWith('data:'));
-  const refreshedIds: string[] = [];
-  try {
-    const attachments = await Promise.all(outgoingFiles.map(async (file) => {
-      const state = file.uploadState;
-      if (state?.status === 'preparing' || state?.status === 'uploading') {
-        throw new Error('Attachments are still uploading.');
-      }
-      if (state?.status === 'failed') {
-        throw new Error('Retry or remove failed attachments.');
-      }
-      if (state?.status === 'ready' && state.expiresAt > Date.now()) {
-        return { id: state.attachmentId };
-      }
-      // Persisted queue entries from before the upload lifecycle retain a data
-      // URL. Refresh those, and expired ready entries, over the binary route.
-      if (typeof file.url === 'string' && file.url.startsWith('data:')) {
-        const response = await fetch(file.url);
-        const blob = await response.blob();
-        const attachment = await sessionStore.uploadFile(blob, {
-          filename: sanitizeFilename(file.filename),
-          mime: file.mime,
-        });
-        refreshedIds.push(attachment.id);
-        return { id: attachment.id };
-      }
-      throw new Error('Attachment data is unavailable. Remove the attachment and add it again.');
-    }));
-    await sessionStore.prompt(params.sessionId, params.content, delivery, attachments.length > 0 ? attachments : undefined);
-  } catch (error) {
-    await Promise.all(refreshedIds.map((id) => sessionStore.deleteUpload(id).catch(() => undefined)));
-    throw error;
-  }
+export {
+  routeMessage,
+  getRememberedSessionDirectory,
+  draftBranchCheckoutReceiptMatches,
 }
-
-type CapturedSendTarget = {
-  runtimeKey: string
-  sessionId: string
-  directory: string
-}
-
-export type DraftBranchCheckoutReceipt = {
-  runtimeKey: string
-  directory: string
-  branch: string
-}
-
-type SendMessageOptions = {
-  target?: CapturedSendTarget
-  sessionId?: string
-  directory?: string
-  delivery?: 'steer'
-  branchCheckoutReceipt?: DraftBranchCheckoutReceipt
-  worktreeCreationReceipt?: DraftWorktreeCreationReceipt
-  draftSnapshot?: NewSessionDraftState
-}
-
-type AssistantMessageSessionExecution = {
-  providerID: string
-  modelID: string
-  variant: string
-  agent: string
-  instructions: string
-}
-
-// ---------------------------------------------------------------------------
-
-export type DraftBranchIntent = {
-  runtimeKey: string
-  directory: string
-  branch: string
-}
-
-export type DraftWorktreeIntent = {
-  runtimeKey: string
-  projectRoot: string
-  sourceDirectory: string
-  startRef: string
-}
-
-export type DraftWorktreeCreationReceipt = DraftWorktreeIntent & {
-  path: string
-  branch: string
-}
-
-type NewSessionDraftState = {
-  open: boolean
-  selectedProjectId?: string | null
-  directoryOverride: string | null
-  branchIntent?: DraftBranchIntent | null
-  worktreeIntent?: DraftWorktreeIntent | null
-  permissionAutoAcceptEnabled?: boolean
-  preserveDirectoryOverride?: boolean
-  parentID: string | null
-  title?: string
-  initialPrompt?: string
-  syntheticParts?: SyntheticContextPart[]
-  targetFolderId?: string
-}
-
-type ViewportAnchor = {
-  sessionId: string
-  value: number
-}
-
-type SessionHistoryMeta = {
-  limit: number
-  hasMore: boolean
-  complete: boolean
-  isLoading: boolean
-  loading?: boolean
-  nextCursor?: string
-}
-
-type SessionUIState = {
-  currentSessionId: string | null
-  currentSessionDirectory: string | null
-  newSessionDraft: NewSessionDraftState
-  abortPromptSessionId: string | null
-  abortPromptExpiresAt: number | null
-  error: string | null
-  webUICreatedSessions: Set<string>
-  sessionAbortFlags: Map<string, { timestamp: number; acknowledged: boolean }>
-  abortControllers: Map<string, AbortController>
-  isLoading: boolean
-  lastLoadedDirectory: string | null
-
-  // Non-Git mode: dismissed signature hash per session, hides bar until new turn arrives
-  pendingChangesBarDismissed: Map<string, string>
-  dismissPendingChangesBar: (sessionId: string, signature: string | null) => void
-
-  // Actions — UI state management
-  setCurrentSession: (id: string | null, directoryHint?: string | null) => void
-  prepareForRuntimeSwitch: (apiBaseUrl?: string | null) => void
-  restoreForRuntimeSwitch: (apiBaseUrl?: string | null) => void
-  openNewSessionDraft: (options?: Partial<NewSessionDraftState> & { automatic?: boolean }) => void
-  closeNewSessionDraft: () => void
-  setNewSessionDraftTarget: (target: { projectId?: string | null; selectedProjectId?: string | null; directoryOverride?: string | null; branchIntent?: DraftBranchIntent | null; worktreeIntent?: DraftWorktreeIntent | null }) => void
-  setDraftPreserveDirectoryOverride: (value: boolean) => void
-  setDraftPermissionAutoAcceptEnabled: (enabled: boolean) => void
-  acknowledgeSessionAbort: (sessionId: string) => void
-  clearAbortPrompt: () => void
-  armAbortPrompt: (durationMs?: number) => number | null
-  clearError: () => void
-  markSessionAsPiChamberCreated: (sessionId: string) => void
-  isPiChamberCreatedSession: (sessionId: string) => boolean
-  getContextUsage: (contextLimit: number, outputLimit: number) => SessionContextUsage | null
-  initializeNewPiChamberSession: (sessionId: string, agents: unknown[]) => void
-  overrideNewSessionDraftTarget: (options: Record<string, unknown>) => void
-
-  // Actions — Pi API operations (read domain data from sync-refs)
-  sendMessage: (
-    content: string,
-    providerID: string,
-    modelID: string,
-    agent?: string,
-    attachments?: AttachedFile[],
-    agentMentionName?: string,
-    additionalParts?: Array<{ text: string; attachments?: AttachedFile[]; synthetic?: boolean }>,
-    variant?: string,
-    inputMode?: "normal" | "shell",
-    options?: SendMessageOptions,
-  ) => Promise<void>
-
-  createSession: (
-    title?: string,
-    directoryOverride?: string | null,
-    parentID?: string | null,
-    metadata?: Record<string, unknown>,
-    options?: { draftSnapshot?: NewSessionDraftState; closeDraft?: boolean },
-  ) => Promise<Session | null>
-  deleteSession: (id: string, options?: DeleteSessionOptions) => Promise<boolean>
-  deleteSessions: (ids: string[], options?: DeleteSessionsOptions) => Promise<{ deletedIds: string[]; failedIds: string[] }>
-  archiveSession: (id: string) => Promise<boolean>
-  archiveSessions: (ids: string[], options?: ArchiveSessionsOptions) => Promise<{ archivedIds: string[]; failedIds: string[] }>
-  unarchiveSession: (id: string) => Promise<boolean>
-  unarchiveSessions: (ids: string[], options?: UnarchiveSessionsOptions) => Promise<{ restoredIds: string[]; failedIds: string[] }>
-  updateSessionTitle: (sessionId: string, title: string) => Promise<void>
-  shareSession: (sessionId: string) => Promise<Session | null>
-  unshareSession: (sessionId: string) => Promise<Session | null>
-  revertToMessage: (sessionId: string, messageId: string, options?: { skipRedoPush?: boolean }) => Promise<void>
-  restoreToMessage: (sessionId: string, messageId: string) => Promise<void>
-  forkFromMessage: (sessionId: string, messageId: string) => Promise<void>
-  handleSlashUndo: (sessionId: string) => Promise<void>
-  handleSlashRedo: (sessionId: string) => Promise<void>
-  createSessionFromAssistantMessage: (sourceMessageId: string, execution: AssistantMessageSessionExecution) => Promise<void>
-
-  // Data access helpers (read from sync)
-  getSessionsByDirectory: (directory: string) => Session[]
-  getDirectoryForSession: (sessionId: string) => string | null
-  getLastUserChoice: (sessionId: string) => { agent?: string; providerID?: string; modelID?: string; variant?: string } | null
-  getCurrentAgent: (sessionId: string) => string | undefined
-  debugSessionMessages: (sessionId: string) => Promise<void>
-  pollForTokenUpdates: () => void
-  setSessionDirectory: (sessionId: string, directory: string | null) => void
-  /**
-   * Replace a guessed selection directory with the authoritative one once sync
-   * has indexed the session. Safe to call at any time: it only ever promotes a
-   * guess, never overrides a confirmed selection.
-   */
-  adoptAuthoritativeSessionDirectory: (sessionId?: string) => void
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-
-const resolveDirectoryKey = (session: Session): string | null => {
-  const sessionRecord = session as Session & {
-    directory?: string | null
-  }
-  return normalizePath(sessionRecord.directory ?? null)
-}
-
-const safeStorage = getDeferredSafeStorage()
-const DRAFT_TARGET_STORAGE_KEY = "oc.chatInput.lastDraftTarget"
-
-type PersistedDraftTarget = { projectId: string | null; directory: string | null }
-
-const readPersistedDraftTarget = (): PersistedDraftTarget | null => {
-  try {
-    const raw = safeStorage.getItem(DRAFT_TARGET_STORAGE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as { projectId?: unknown; directory?: unknown }
-    return {
-      projectId: typeof parsed?.projectId === "string" ? parsed.projectId : null,
-      directory: normalizePath(typeof parsed?.directory === "string" ? parsed.directory : null),
-    }
-  } catch {
-    return null
-  }
-}
-
-const persistDraftTarget = (target: PersistedDraftTarget): void => {
-  try {
-    safeStorage.setItem(DRAFT_TARGET_STORAGE_KEY, JSON.stringify(target))
-  } catch { /* ignored */ }
-}
-
-const getAuthoritativeSessionDirectory = (sessionId: string): string | null => {
-  const target = getAllSyncSessions().find((s) => s.id === sessionId)
-  const recordDirectory = target ? resolveDirectoryKey(target) : null
-  if (recordDirectory) return normalizePath(recordDirectory)
-  const owningDirectory = getSyncSessionDirectory(sessionId)
-  return owningDirectory ? normalizePath(owningDirectory) : null
-}
-
-export const getRememberedSessionDirectory = (sessionId: string): {
-  runtime: string | null
-  persisted: string | null
-} => {
-  const key = runtimeMemoryKey()
-  const runtimeMemory = runtimeSessionMemory.get(key)
-  const persisted = readLastActiveSession(key)
-  return {
-    runtime: runtimeMemory?.sessionId === sessionId ? normalizePath(runtimeMemory.directory) : null,
-    persisted: persisted?.sessionId === sessionId ? normalizePath(persisted.directory) : null,
-  }
-}
-
-let guessedSelectionSessionId: string | null = null
-
-const collectSessionDirectorySources = (
-  sessionId: string,
-  selected: string | null,
-): SessionDirectorySources => ({
-  session: getAllSyncSessions().find((s) => s.id === sessionId) ?? null,
-  currentDirectory: sessionId === guessedSelectionSessionId ? null : normalizePath(selected),
-})
-
-const resolveSessionDirectory = (
-  sessionId: string | null | undefined,
-  selected: string | null = null,
-): string | null => {
-  if (!sessionId) return null
-  const resolution = resolveSessionDirectoryFromSources(
-    collectSessionDirectorySources(sessionId, selected),
-  )
-  return resolution?.directory ?? null
-}
-
-const activateConfigForDirectory = async (directory: string | null | undefined): Promise<void> => {
-  await useConfigStore.getState().activateDirectory(normalizePath(directory))
-}
-
-const DEFAULT_DRAFT: NewSessionDraftState = {
-  open: false,
-  directoryOverride: null,
-  branchIntent: null,
-  worktreeIntent: null,
-  parentID: null,
-}
-
-export const draftBranchCheckoutReceiptMatches = (
-  intent: DraftBranchIntent | null | undefined,
-  receipt: DraftBranchCheckoutReceipt | null | undefined,
-): boolean => {
-  if (!intent || !receipt) return false
-  return intent.runtimeKey === receipt.runtimeKey
-    && normalizePath(intent.directory) === normalizePath(receipt.directory)
-    && intent.branch === receipt.branch
-}
-
-const activeSessionByRuntime = new Map<string, string | null>()
-type RuntimeSessionMemory = {
-  sessionId: string | null
-  directory: string | null
-  draft: NewSessionDraftState
-}
-const runtimeSessionMemory = new Map<string, RuntimeSessionMemory>()
-
-const runtimeMemoryKey = (value?: string | null): string => {
-  const key = (value ?? getRuntimeKey()).trim()
-  return key || "default"
-}
-
-const cloneDraft = (draft: NewSessionDraftState): NewSessionDraftState => ({ ...draft })
-
-const writeRuntimeSessionMemory = (key: string, patch: Partial<RuntimeSessionMemory>): void => {
-  const current = runtimeSessionMemory.get(key)
-  runtimeSessionMemory.set(key, {
-    sessionId: current?.sessionId ?? null,
-    directory: current?.directory ?? null,
-    draft: current?.draft ? cloneDraft(current.draft) : { ...DEFAULT_DRAFT },
-    ...patch,
-  })
-}
-
-type MaterializedDraftSession = {
-  sessionId: string
-  directory: string | null
-  agent?: string
-  syntheticParts?: SyntheticContextPart[]
-}
-
-const resolveProjectRefForWorktreeDirectory = (_directory: string | null, projectId?: string | null): { id: string; path: string } | null => {
-  const projectsState = useProjectsStore.getState()
-  if (projectId) {
-    const project = projectsState.projects.find((entry) => entry.id === projectId)
-    if (project?.path) return { id: project.id, path: project.path }
-  }
-  return null
-}
-
-const waitForWorktreeBootstrapIfConfigured = async (_directory: string | null, _projectId?: string | null): Promise<void> => {}
 
 export async function materializeOpenDraftSession(selection: {
   providerID: string
@@ -486,109 +143,7 @@ export async function materializeOpenDraftSession(selection: {
   worktreeCreationReceipt?: DraftWorktreeCreationReceipt
   draftSnapshot?: NewSessionDraftState
 }): Promise<MaterializedDraftSession | null> {
-  const store = useSessionUIStore.getState()
-  const draft = selection.draftSnapshot ?? store.newSessionDraft
-  if (!draft?.open) return null
-  if (draft.branchIntent) {
-    const branchDirectory = normalizePath(draft.branchIntent.directory)
-    const draftDirectory = normalizePath(draft.directoryOverride)
-    if (draft.branchIntent.runtimeKey !== getRuntimeKey() || branchDirectory !== draftDirectory) {
-      throw new Error("The selected branch no longer matches this draft target.")
-    }
-    if (!draftBranchCheckoutReceiptMatches(draft.branchIntent, selection.branchCheckoutReceipt)) {
-      throw new Error("Confirm the selected branch before creating this session.")
-    }
-  }
-  if (draft.worktreeIntent) {
-    const receipt = selection.worktreeCreationReceipt
-    if (
-      !receipt
-      || receipt.runtimeKey !== draft.worktreeIntent.runtimeKey
-      || normalizePath(receipt.projectRoot) !== normalizePath(draft.worktreeIntent.projectRoot)
-      || normalizePath(receipt.sourceDirectory) !== normalizePath(draft.worktreeIntent.sourceDirectory)
-      || receipt.startRef !== draft.worktreeIntent.startRef
-      || !normalizePath(receipt.path)
-    ) {
-      throw new Error("Create the selected worktree before creating this session.")
-    }
-  }
-  const draftPermissionAutoAcceptEnabled = draft.permissionAutoAcceptEnabled === true
-
-  const trimmedAgent = typeof selection.agent === "string" && selection.agent.trim().length > 0
-    ? selection.agent.trim()
-    : undefined
-  const draftDirectoryOverride = selection.worktreeCreationReceipt?.path ?? draft.directoryOverride ?? null
-  const draftProjectId = draft.selectedProjectId ?? null
-
-  const derivedTitle = draft.title || (selection.initialPrompt ? deriveSessionTitle(selection.initialPrompt) : undefined)
-
-  const created = await store.createSession(
-    derivedTitle,
-    draftDirectoryOverride,
-    draft.parentID ?? null,
-    {
-      model: selection.providerID && selection.modelID ? { providerId: selection.providerID, modelId: selection.modelID } : undefined,
-      thinking: isPiThinkingLevel(selection.variant) ? selection.variant : undefined,
-      select: false,
-    },
-    {
-      draftSnapshot: draft,
-      closeDraft: false,
-    },
-  )
-  if (!created?.id) throw new Error("Failed to create session")
-
-  const createdDirectory = normalizePath(created.directory ?? draftDirectoryOverride ?? null)
-  const shouldActivateCreatedSession = (
-    useSessionUIStore.getState().newSessionDraft === draft
-    && useSessionUIStore.getState().currentSessionId === null
-  )
-
-  if (shouldActivateCreatedSession) {
-    persistDraftTarget({
-      projectId: draftProjectId,
-      directory: createdDirectory,
-    })
-  }
-
-  const draftSyntheticParts = draft.syntheticParts
-  const configState = useConfigStore.getState()
-  if (shouldActivateCreatedSession) {
-    void activateConfigForDirectory(createdDirectory).catch((error) => {
-      console.warn("Failed to activate directory after creating session:", error)
-    })
-  }
-
-  const effectiveDraftAgent = trimmedAgent ?? configState.currentAgentName
-
-  useSelectionStore.getState().saveSessionModelSelection(created.id, selection.providerID, selection.modelID)
-
-  if (effectiveDraftAgent) {
-    useSelectionStore.getState().saveSessionAgentSelection(created.id, effectiveDraftAgent)
-    useSelectionStore.getState().saveAgentModelForSession(created.id, effectiveDraftAgent, selection.providerID, selection.modelID)
-    useSelectionStore.getState().saveAgentModelVariantForSession(created.id, effectiveDraftAgent, selection.providerID, selection.modelID, selection.variant)
-  }
-
-  store.initializeNewPiChamberSession(created.id, configState.agents ?? [])
-
-  if (shouldActivateCreatedSession) {
-    store.setCurrentSession(created.id, createdDirectory)
-  }
-
-  if (draftPermissionAutoAcceptEnabled) {
-    void import("@/stores/permissionStore")
-      .then(({ usePermissionStore }) => usePermissionStore.getState().setSessionAutoAccept(created.id, true))
-      .catch((error) => {
-        console.warn("Failed to apply draft permission auto-accept to new session:", error)
-      })
-  }
-
-  return {
-    sessionId: created.id,
-    directory: createdDirectory,
-    agent: effectiveDraftAgent,
-    syntheticParts: draftSyntheticParts,
-  }
+  return materializeOpenDraftSessionHelper(selection, useSessionUIStore)
 }
 
 export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
@@ -636,7 +191,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     // Set the directory together with the session id so chat hooks read the
     // same child store that send/SSE events will update during startup races.
     set({ currentSessionId: id, currentSessionDirectory: id ? resolvedDir ?? null : null })
-    guessedSelectionSessionId = isGuessedDir && id ? id : null
+    setGuessedSelectionSessionId(isGuessedDir && id ? id : null)
     const rememberedDir = isGuessedDir ? null : resolvedDir ?? null
     writeRuntimeSessionMemory(key, { sessionId: id, directory: rememberedDir })
     // Keep the last NON-null session per runtime across app restarts (cold
@@ -697,13 +252,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const key = runtimeMemoryKey(apiBaseUrl)
     const directory = useDirectoryStore.getState().currentDirectory || null
     const currentSessionId = get().currentSessionId
-    const directorySnapshot = directory ? getDirectoryState(directory) : null
-    rememberRuntimeLiveStatus({
-      runtimeKey: key,
-      directory,
-      sessionId: currentSessionId,
-      status: currentSessionId ? directorySnapshot?.session_status?.[currentSessionId] : null,
-    })
     activeSessionByRuntime.set(key, get().currentSessionId)
     writeRuntimeSessionMemory(key, {
       sessionId: currentSessionId,
@@ -1479,7 +1027,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     // Only a guess is promoted. A confirmed selection outranks anything sync
     // learns later, and a selection that has since moved on must not be
     // rewritten by a directory that finished bootstrapping in the background.
-    if (!target || target !== guessedSelectionSessionId) return
+    if (!target || target !== getGuessedSelectionSessionId()) return
     if (target !== get().currentSessionId) return
 
     const authoritative = getAuthoritativeSessionDirectory(target)
@@ -1487,7 +1035,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
 
     // The selection stops being a guess even when the directory is unchanged:
     // the value has now been confirmed by the store that owns the session.
-    guessedSelectionSessionId = null
+    clearGuessedSelectionSessionId()
     if (authoritative !== get().currentSessionDirectory) {
       set({ currentSessionDirectory: authoritative })
     }
@@ -1498,8 +1046,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const normalized = normalizePath(directory)
     // Callers set this from a confirmed destination (a completed move, a
     // created worktree), so the selection is no longer a guess.
-    if (sessionId === guessedSelectionSessionId) {
-      guessedSelectionSessionId = null
+    if (sessionId === getGuessedSelectionSessionId()) {
+      clearGuessedSelectionSessionId()
     }
     if (sessionId === get().currentSessionId) {
       set({ currentSessionDirectory: normalized })
@@ -1507,7 +1055,3 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     }
   },
 }))
-
-setSessionOpener((sessionID, directory) => {
-  useSessionUIStore.getState().setCurrentSession(sessionID, directory)
-})

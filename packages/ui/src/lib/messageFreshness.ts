@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import type { Message } from '@/lib/chat/types';
 
 export class MessageFreshnessDetector {
@@ -35,16 +33,21 @@ export class MessageFreshnessDetector {
             return false;
         }
 
-        const sessionStartTime = this.sessionStartTimes.get(sessionId);
-
-        if (!sessionStartTime) {
-
+        const createdAt = message.time?.created;
+        if (typeof createdAt !== 'number' || !Number.isFinite(createdAt)) {
             this.seenMessageIds.add(message.id);
-            this.messageCreationTimes.set(message.id, message.time.created);
             return false;
         }
 
-        const isFresh = message.time.created > (sessionStartTime - 5000);
+        const sessionStartTime = this.sessionStartTimes.get(sessionId);
+
+        if (!sessionStartTime) {
+            this.seenMessageIds.add(message.id);
+            this.messageCreationTimes.set(message.id, createdAt);
+            return false;
+        }
+
+        const isFresh = createdAt > (sessionStartTime - 5000);
 
         // Record fresh messages too so they animate at most once per detector
         // lifetime. The detector is a module singleton that outlives ChatViewport
@@ -52,7 +55,7 @@ export class MessageFreshnessDetector {
         // message against the stale session start time (recordSessionStart runs
         // in an effect after the first render) and replays the entry animation.
         this.seenMessageIds.add(message.id);
-        this.messageCreationTimes.set(message.id, message.time.created);
+        this.messageCreationTimes.set(message.id, createdAt);
 
         return isFresh;
     }

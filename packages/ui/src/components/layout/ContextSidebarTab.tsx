@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import type { Message, Part } from '@/lib/chat/types';
 import { WorkerHighlightedCode } from '@/components/code/WorkerHighlightedCode';
@@ -18,6 +16,7 @@ import {
 } from '@/stores/utils/tokenUtils';
 import { useSessions, useSessionMessageRecords } from '@/sync/sync-context';
 import { copyTextToClipboard } from '@/lib/clipboard';
+import { useTransientValue } from '@/hooks/useTransientValue';
 import {
   derivePartsLabel,
   deriveUserSnippet,
@@ -231,11 +230,10 @@ const resolveProviderAndModel = (
 export const ContextPanelContent: React.FC = () => {
   const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
   const [expandedRawMessages, setExpandedRawMessages] = React.useState<Record<string, boolean>>({});
-  const [copiedRawMessageId, setCopiedRawMessageId] = React.useState<string | null>(null);
-  const copyResetTimeoutRef = React.useRef<number | null>(null);
+  const { value: copiedRawMessageId, show: showCopiedRawMessageId, clear: clearCopiedRawMessageId } = useTransientValue<string | null>(null, 2000);
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const currentSessionDirectory = useSessionUIStore((state) => state.currentSessionDirectory);
-  const sessions = useSessions(currentSessionDirectory ?? undefined);
+  const sessions = useSessions();
   const sessionMessages = useSessionMessageRecords(
     currentSessionId ?? '',
     currentSessionDirectory ?? undefined,
@@ -243,38 +241,15 @@ export const ContextPanelContent: React.FC = () => {
   const providers = useConfigStore((state) => state.providers);
 
   React.useEffect(() => {
-    if (copyResetTimeoutRef.current !== null) {
-      window.clearTimeout(copyResetTimeoutRef.current);
-      copyResetTimeoutRef.current = null;
-    }
     setExpandedRawMessages((prev) => (Object.keys(prev).length > 0 ? {} : prev));
-    setCopiedRawMessageId(null);
-  }, [currentSessionDirectory, currentSessionId]);
-
-  React.useEffect(() => {
-    return () => {
-      if (copyResetTimeoutRef.current !== null) {
-        window.clearTimeout(copyResetTimeoutRef.current);
-        copyResetTimeoutRef.current = null;
-      }
-    };
-  }, []);
+    clearCopiedRawMessageId();
+  }, [clearCopiedRawMessageId, currentSessionDirectory, currentSessionId]);
 
   const handleCopyRawMessage = React.useCallback(async (messageId: string, value: string) => {
     const result = await copyTextToClipboard(value);
-    if (result.ok) {
-      setCopiedRawMessageId(messageId);
-      if (copyResetTimeoutRef.current !== null) {
-        window.clearTimeout(copyResetTimeoutRef.current);
-      }
-      copyResetTimeoutRef.current = window.setTimeout(() => {
-        setCopiedRawMessageId((prev) => (prev === messageId ? null : prev));
-        copyResetTimeoutRef.current = null;
-      }, 2000);
-    } else {
-      setCopiedRawMessageId(null);
-    }
-  }, []);
+    if (result.ok) showCopiedRawMessageId(messageId);
+    else clearCopiedRawMessageId();
+  }, [clearCopiedRawMessageId, showCopiedRawMessageId]);
 
   const viewModel = React.useMemo(() => {
     const currentSession = currentSessionId ? sessions.find((session) => session.id === currentSessionId) ?? null : null;

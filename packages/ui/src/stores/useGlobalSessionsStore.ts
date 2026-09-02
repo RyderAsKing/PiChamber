@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import { create } from 'zustand';
 import type { Session } from '@/lib/chat/types';
 import { splitGlobalSessionsByArchived } from '@/stores/globalSessions';

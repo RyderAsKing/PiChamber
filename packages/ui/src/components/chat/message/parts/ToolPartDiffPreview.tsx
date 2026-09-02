@@ -6,28 +6,12 @@ import { ensurePierreThemeRegistered } from '@/lib/shiki/appThemeRegistry';
 import { getDefaultTheme } from '@/lib/theme/themes';
 import type { DiffViewMode } from '../DiffViewToggle';
 import { PlainDiffFallback } from './PlainDiffFallback';
+import { TOOL_DIFF_METRICS, TOOL_DIFF_UNSAFE_CSS } from './toolPartStyles';
 
 // Loaded lazily from ToolPart: this is the only part of the tool card that
 // needs @pierre/diffs' rendering stack (Shiki core + regex engines), so the
 // eager chat graph stays free of it and the chunk downloads on the first
 // rendered tool diff.
-
-const TOOL_DIFF_UNSAFE_CSS = `
-  [data-diff-header],
-  [data-diff] {
-    [data-separator] {
-      height: 24px !important;
-    }
-  }
-`;
-
-const TOOL_DIFF_METRICS = {
-    hunkLineCount: 50,
-    lineHeight: 24,
-    diffHeaderHeight: 44,
-    hunkSeparatorHeight: 24,
-    spacing: 0,
-};
 
 const usePierreThemeConfig = () => {
     const themeSystem = useOptionalThemeSystem();

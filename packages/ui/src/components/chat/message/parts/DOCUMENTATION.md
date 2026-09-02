@@ -7,23 +7,30 @@ Use this doc when you ask an agent to change tool/header/description behavior.
 ## High-level flow
 
 - Message parts are rendered from `MessageBody.tsx`.
+- `MessageBody.tsx` owns message-level orchestration only. User subtask/shell rendering lives in `../UserAuxiliaryParts.tsx` with pure classification in `../userAuxiliaryPartsModel.ts`; assistant copy/fork/revert/save-image controls live in `../AssistantMessageActionButtons.tsx`.
 - There are two tool rendering paths:
-  - **Static grouped tools** -> `StaticToolRow` in `ProgressiveGroup.tsx`
+  - **Static grouped tools** -> `StaticToolRow.tsx`
   - **Expandable tools** -> `ToolPart.tsx`
 - Shared tool icon mapping is centralized in `toolPresentation.tsx` (`getToolIcon`).
 
 ## Which file controls what
 
-- `ProgressiveGroup.tsx`
-  - Renders grouped Activity rows and grouped static tools.
-  - Contains `StaticToolRow`.
-  - Contains static tool short description logic (`getToolShortDescription`).
-  - If you want to change how `read/grep/perplexity/webfetch/...` look in compact/grouped mode, edit here.
+- `StaticToolRow.tsx`
+  - Owns compact static-tool presentation, short-description derivation, and file/skill navigation.
+  - Reuses the same tool-row typography constants as `ToolPart`.
+  - If you want to change how `read` or classified skill rows look in compact mode, edit here.
 
 - `ToolPart.tsx`
-  - Renders expandable tool rows (bash/edit/write/question/task + fallback).
-  - Controls expandable header title/description/diff stats/timer and expanded output body.
-  - If you want to change expandable tool layout, edit here.
+  - Orchestrates expandable tool rows (bash/edit/write/question/task + fallback).
+  - Owns row lifecycle, task/session projection, header composition, timer state, editor navigation, and Git refresh side effects.
+  - Keeps the entrypoint below the monolith threshold; expanded body rendering lives in `ToolExpandedContent.tsx`.
+
+- `ToolExpandedContent.tsx`
+  - Owns expanded tool input/output rendering, JSON views, diffs, diagnostics, attachments, and streaming bash output.
+  - Rich diff rendering remains lazy so the `@pierre/diffs` + Shiki stack stays out of the eager chat graph.
+
+- `useDeferredExpandedContent.ts`
+  - Owns staggered post-click body mounting while preserving synchronous first-mount measurement for default-open/virtualized rows.
 
 - `taskToolModel.ts`
   - Owns Task metadata parsing and child-session summary projection.
@@ -33,15 +40,11 @@ Use this doc when you ask an agent to change tool/header/description behavior.
 
 - `toolPresentation.tsx`
   - Shared icon mapping for tool names (`getToolIcon`).
-  - Used by both `ProgressiveGroup.tsx` and `ToolPart.tsx`.
+  - Used by both `StaticToolRow.tsx` and `ToolPart.tsx`.
 
 - `toolRenderUtils.ts`
-  - Core classification helpers:
-    - `isExpandableTool`
-    - `isStaticTool`
-    - `isStandaloneTool`
-    - `getStaticGroupToolName`
-  - If a tool should switch between static vs expandable, change it here.
+  - Owns core tool classification plus pure display derivation shared by the expandable row/body: normalized names, display paths/descriptions, diff/write stats, write previews, question parsing, and diagnostic normalization.
+  - If a tool should switch between static vs expandable, change its classification here.
 
 - `ReasoningPart.tsx`
   - Thinking block UI (`ReasoningTimelineBlock`), summary + optional duration.
@@ -63,7 +66,7 @@ Use this doc when you ask an agent to change tool/header/description behavior.
 - Closed timeline and context surfaces do not subscribe to the active transcript. Inactive context-panel diff tabs are unmounted; only the visible diff owns session-derived work.
 - The rich tool diff preview lives in `ToolPartDiffPreview.tsx` and is lazy-loaded from `ToolPart`. It is the only tool-card piece that imports the `@pierre/diffs` + Shiki rendering stack, keeping that stack out of the eager chat startup graph. While its chunk loads (first rendered diff only) the plain-text patch from `PlainDiffFallback.tsx` renders as the Suspense fallback, mirroring the preview's error fallback. `ToolPart` itself must not statically import `@pierre/diffs` runtime modules or `@/lib/shiki/appThemeRegistry`.
 - Running bash output falls back to `state.metadata.output` until canonical `state.output` arrives. Live output keeps at most 16 lines in the DOM (DeepSeek's terminal card cap) inside a compact viewport; it follows new output until the user scrolls up, then resumes following when the user returns to the bottom. Live output appends or replaces rewritten snapshots as plain text without worker highlighting; finalized output normalizes ANSI terminal controls with a bounded synthetic-cell budget, bypasses the throttle, and receives the normal one-time highlighted rendering.
-- Thinking and justification blocks show duration when timing is available (`ReasoningPart.tsx` + `JustificationBlock.tsx`).
+- Thinking blocks show duration when timing is available (`ReasoningPart.tsx`).
 - The last assistant message in a settled turn renders a footer in `MessageBody.tsx` (model name, optional thinking variant, duration, timestamp). It stays hidden while that assistant is in the live reducer `streamingMessages` set or while an explicit `SessionRetry` notice represents the active retry. Catalog or generic session `busy` after the stream ends must not keep the last-turn footer unmounted; older turns already skipped that heuristic because they are not the latest turn.
 - Thinking blocks auto-expand while their own part is streaming, inside a `max-h-80` pane that scrolls internally (plain text, not markdown). They collapse as soon as that part's `streaming` flag clears (the next text or tool part starts). **Collapsed by Default** off keeps a one-line header during stream and after unless the user expands it. Markdown mounts only after the part settles.
 
@@ -71,7 +74,7 @@ Use this doc when you ask an agent to change tool/header/description behavior.
 
 If task is: "change text shown near Read or Skill in compact mode":
 
-1. Edit `ProgressiveGroup.tsx` -> `getToolShortDescription(activity)`.
+1. Edit `StaticToolRow.tsx` -> `getToolShortDescription(activity)`.
 2. Update the branch that handles file reads or classified skill reads in `StaticToolRow`.
 3. Keep all other tool header/output behavior in `ToolPart.tsx`.
 4. Keep icon changes (if any) in `toolPresentation.tsx`.
@@ -88,8 +91,8 @@ Why: only navigation tools use the compact static path; all other tools need obs
 ## Safe editing checklist
 
 - Do not duplicate icon logic; keep it in `toolPresentation.tsx`.
-- For static tool copy changes, prefer `ProgressiveGroup.tsx` first.
-- For expanded output changes, edit `ToolPart.tsx`.
+- For static tool copy/navigation changes, edit `StaticToolRow.tsx`.
+- For expanded output changes, edit `ToolExpandedContent.tsx`; keep row lifecycle/header changes in `ToolPart.tsx`.
 - After edits run:
   - `bun run type-check`
   - `bun run lint`
@@ -98,7 +101,7 @@ Why: only navigation tools use the compact static path; all other tools need obs
 ## Quick map of files in this folder
 
 - Text: `AssistantTextPart.tsx`, `UserTextPart.tsx`
-- Tools: `ToolPart.tsx`, `ToolPartDiffPreview.tsx`, `PlainDiffFallback.tsx`, `ProgressiveGroup.tsx`, `toolPresentation.tsx`, `toolRenderUtils.ts`, `ToolRevealOnMount.tsx`
-- Reasoning/justification: `ReasoningPart.tsx`, `JustificationBlock.tsx`
+- Tools: `ToolPart.tsx`, `ToolExpandedContent.tsx`, `useDeferredExpandedContent.ts`, `ToolPartDiffPreview.tsx`, `PlainDiffFallback.tsx`, `StaticToolRow.tsx`, `toolPresentation.tsx`, `toolRenderUtils.ts`, `ToolRevealOnMount.tsx`
+- Reasoning: `ReasoningPart.tsx`
 - Status/placeholders: `WorkingPlaceholder.tsx`, `SessionActiveSpinner.tsx`, `MigratingPart.tsx`, `BusyDots.tsx`
 - Utility renderers: `VirtualizedCodeBlock.tsx`, `MinDurationShineText.tsx`

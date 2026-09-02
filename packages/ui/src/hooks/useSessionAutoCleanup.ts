@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import type { Session } from '@/lib/chat/types';
 import { getPiSessionStore } from '@/apps/pi-session-store';

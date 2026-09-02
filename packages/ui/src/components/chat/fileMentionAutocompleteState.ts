@@ -1,5 +1,9 @@
 export type FileMentionAutocompleteInputSource = 'manual' | 'paste';
 
+export const getFileMentionInputSourceForInsertedText = (insertedText: string): FileMentionAutocompleteInputSource => (
+    insertedText.includes('@') ? 'paste' : 'manual'
+);
+
 export const getFileMentionAutocompleteQuery = ({
     value,
     cursorPosition,

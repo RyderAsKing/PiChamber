@@ -1,17 +1,13 @@
 import React from 'react';
 import { focusChatInput } from './composer/editor/dom';
-import type { ModelMetadata } from '@/types';
 import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
-import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from "@/components/icon/Icon";
-import type { IconName } from "@/components/icon/icons";
 import { ModelPickerList, type ModelPickerEntry, type ModelPickerProvider } from '@/components/model-picker/ModelPickerList';
 import { isDesktopShell } from '@/lib/desktop';
 import { useDeviceInfo, useTabletLayout } from '@/lib/device';
@@ -27,8 +23,8 @@ import { useSync } from '@/sync/use-sync';
 import { useUIStore } from '@/stores/useUIStore';
 import { useModelLists } from '@/hooks/useModelLists';
 import { useIsTextTruncated } from '@/hooks/useIsTextTruncated';
-import { formatEffortLabel, type MobileControlsPanel } from './mobileControlsUtils';
-import { ThinkingLevelControl, ThinkingLevelPicker } from './ThinkingLevelControl';
+import type { MobileControlsPanel } from './mobileControlsUtils';
+import { ThinkingLevelControl } from './ThinkingLevelControl';
 import { usePiReadiness } from '@/hooks/usePiReadiness';
 import { markStartupTrace } from '@/lib/startupTrace';
 import { findLatestUserModelChoice } from '@/lib/messages/userModelChoice';
@@ -47,179 +43,19 @@ import {
 } from '@/lib/pi/thinking';
 import type { PiThinkingLevel } from '@/lib/pi/types';
 import { classifyAuthoritativeComposerSelection } from './model-selection-sync';
-
-type IconComponent = IconName;
+import { formatCost, formatTokens, getCapabilityIcons, getModalityIcons } from './modelControlsMetadata';
+import { ModelTooltipContent } from './controls/ModelTooltipContent';
+import { MobileModelTooltipPanel } from './controls/MobileModelTooltipPanel';
+import { MobileVariantPanel } from './controls/MobileVariantPanel';
+import { MobileModelPickerPanel } from './controls/MobileModelPickerPanel';
 
 type ProviderModel = Record<string, unknown> & { id?: string; name?: string };
 
 const buildModelRefKey = (providerID: string, modelID: string) => `${providerID}:${modelID}`;
 
-interface CapabilityDefinition {
-    key: 'tool_call' | 'reasoning';
-    icon: IconComponent;
-    label: string;
-    isActive: (metadata?: ModelMetadata) => boolean;
-}
-
-const CAPABILITY_DEFINITIONS: CapabilityDefinition[] = [
-    {
-        key: 'tool_call',
-        icon: "tools",
-        label: 'Tool calling',
-        isActive: (metadata) => metadata?.tool_call === true,
-    },
-    {
-        key: 'reasoning',
-        icon: "brain-ai-3",
-        label: 'Reasoning',
-        isActive: (metadata) => metadata?.reasoning === true,
-    },
-];
-
-interface ModalityIconDefinition {
-    icon: IconComponent;
-    label: string;
-}
-
-type ModalityIcon = {
-    key: string;
-    icon: IconComponent;
-    label: string;
-};
-
 type ModelApplyResult = 'applied' | 'provider-missing' | 'model-missing';
 
-const MODALITY_ICON_MAP: Record<string, ModalityIconDefinition> = {
-    text: { icon: "text", label: 'Text' },
-    image: { icon: "file-image", label: 'Image' },
-    video: { icon: "file-video", label: 'Video' },
-    audio: { icon: "file-music", label: 'Audio' },
-    pdf: { icon: "file-pdf", label: 'PDF' },
-};
-
-const normalizeModality = (value: string) => value.trim().toLowerCase();
-
-const getModalityIcons = (metadata: ModelMetadata | undefined, direction: 'input' | 'output'): ModalityIcon[] => {
-    const modalityList = direction === 'input' ? metadata?.modalities?.input : metadata?.modalities?.output;
-    if (!Array.isArray(modalityList) || modalityList.length === 0) {
-        return [];
-    }
-
-    const uniqueValues = Array.from(new Set(modalityList.map((item) => normalizeModality(item))));
-
-    const result: ModalityIcon[] = [];
-    for (const modality of uniqueValues) {
-        const definition = MODALITY_ICON_MAP[modality];
-        if (!definition) {
-            continue;
-        }
-        result.push({
-            key: modality,
-            icon: definition.icon,
-            label: definition.label,
-        });
-    }
-    return result;
-};
-
-const formatCompactNumber = (value: number) => new Intl.NumberFormat('en-US', {
-    notation: 'compact',
-    compactDisplay: 'short',
-    maximumFractionDigits: 1,
-    minimumFractionDigits: 0,
-}).format(value);
-
-const formatUsdCurrency = (value: number) => new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 4,
-    minimumFractionDigits: 2,
-}).format(value);
-
-const formatKnowledgeDate = (value: Date) => new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric' }).format(value);
-
-const formatReleaseDate = (value: Date) => new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-}).format(value);
-
 const ADD_PROVIDER_ID = '__add_provider__';
-
-const IconBadge: React.FC<{ iconName: IconComponent; label: string }> = ({ iconName, label }) => (
-    <span
-        className="flex size-5 items-center justify-center rounded-xl bg-muted/60 text-muted-foreground"
-        title={label}
-        aria-label={label}
-        role="img"
-    >
-        <Icon name={iconName} className="size-3.5" />
-    </span>
-);
-
-
-
-const formatTokens = (value?: number | null) => {
-    if (typeof value !== 'number' || Number.isNaN(value)) {
-        return '—';
-    }
-
-    if (value === 0) {
-        return '0';
-    }
-
-    const formatted = formatCompactNumber(value);
-    return formatted.endsWith('.0') ? formatted.slice(0, -2) : formatted;
-};
-
-const formatCost = (value?: number | null) => {
-    if (typeof value !== 'number' || !Number.isFinite(value)) {
-        return '—';
-    }
-
-    return formatUsdCurrency(value);
-};
-
-const getCapabilityIcons = (metadata?: ModelMetadata) => {
-    const result: { key: string; icon: IconComponent; label: string }[] = [];
-    for (const definition of CAPABILITY_DEFINITIONS) {
-        if (definition.isActive(metadata)) {
-            result.push({ key: definition.key, icon: definition.icon, label: definition.label });
-        }
-    }
-    return result;
-};
-
-const formatKnowledge = (knowledge?: string) => {
-    if (!knowledge) {
-        return '—';
-    }
-
-    const match = knowledge.match(/^(\d{4})-(\d{2})$/);
-    if (match) {
-        const year = Number.parseInt(match[1], 10);
-        const monthIndex = Number.parseInt(match[2], 10) - 1;
-        const knowledgeDate = new Date(Date.UTC(year, monthIndex, 1));
-        if (!Number.isNaN(knowledgeDate.getTime())) {
-            return formatKnowledgeDate(knowledgeDate);
-        }
-    }
-
-    return knowledge;
-};
-
-const formatDate = (value?: string) => {
-    if (!value) {
-        return '—';
-    }
-
-    const parsedDate = new Date(value);
-    if (Number.isNaN(parsedDate.getTime())) {
-        return value;
-    }
-
-    return formatReleaseDate(parsedDate);
-};
 
 interface ModelControlsProps {
     className?: string;
@@ -1058,89 +894,16 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         if (!isCompact || mobileTooltipOpen !== 'model') return null;
 
         return (
-            <MobileOverlayPanel
+            <MobileModelTooltipPanel
                 open={true}
                 onClose={closeMobileTooltip}
                 title={currentMetadata?.name || getCurrentModelDisplayName()}
-            >
-                <div className="flex flex-col gap-1.5">
-                    {}
-                    <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-                            <div className="typography-micro text-muted-foreground mb-0.5">{"Provider"}</div>
-                        <div className="typography-meta text-foreground font-medium">{getProviderDisplayName()}</div>
-                    </div>
-
-                    {}
-                    {currentCapabilityIcons.length > 0 && (
-                        <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-                            <div className="typography-micro text-muted-foreground mb-1">{"Capabilities"}</div>
-                            <div className="flex flex-wrap gap-1.5">
-                                {currentCapabilityIcons.map(({ key, icon, label }) => (
-                                    <div key={key} className="flex items-center gap-1.5">
-                                        <IconBadge key={`cap-${key}`} iconName={icon} label={label} />
-                                        <span className="typography-meta text-foreground">{label}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {}
-                    {(inputModalityIcons.length > 0 || outputModalityIcons.length > 0) && (
-                        <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-                            <div className="typography-micro text-muted-foreground mb-1">{"Modalities"}</div>
-                            <div className="flex flex-col gap-1">
-                                {inputModalityIcons.length > 0 && (
-                                    <div className="flex items-center gap-2">
-                                        <span className="typography-meta text-muted-foreground/80 w-12">{"Input"}</span>
-                                        <div className="flex gap-1">
-                                            {inputModalityIcons.map(({ key, icon, label }) => <IconBadge key={`input-${key}`} iconName={icon} label={`${label} input`} />)}
-                                        </div>
-                                    </div>
-                                )}
-                                {outputModalityIcons.length > 0 && (
-                                    <div className="flex items-center gap-2">
-                                        <span className="typography-meta text-muted-foreground/80 w-12">{"Output"}</span>
-                                        <div className="flex gap-1">
-                                            {outputModalityIcons.map(({ key, icon, label }) => <IconBadge key={`output-${key}`} iconName={icon} label={`${label} output`} />)}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    {}
-                    <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-                        <div className="typography-micro text-muted-foreground mb-1">{"Limits"}</div>
-                        <div className="flex flex-col gap-0.5">
-                            <div className="flex items-center justify-between">
-                                <span className="typography-meta text-muted-foreground/80">{"Context"}</span>
-                                <span className="typography-meta font-medium text-foreground">{formatTokens(currentMetadata?.limit?.context)}</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span className="typography-meta text-muted-foreground/80">{"Output"}</span>
-                                <span className="typography-meta font-medium text-foreground">{formatTokens(currentMetadata?.limit?.output)}</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {}
-                    <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-                        <div className="typography-micro text-muted-foreground mb-1">{"Metadata"}</div>
-                        <div className="flex flex-col gap-0.5">
-                            <div className="flex items-center justify-between">
-                                <span className="typography-meta text-muted-foreground/80">{"Knowledge"}</span>
-                                <span className="typography-meta font-medium text-foreground">{formatKnowledge(currentMetadata?.knowledge)}</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span className="typography-meta text-muted-foreground/80">{"Release"}</span>
-                                <span className="typography-meta font-medium text-foreground">{formatDate(currentMetadata?.release_date)}</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </MobileOverlayPanel>
+                providerDisplayName={getProviderDisplayName()}
+                currentCapabilityIcons={currentCapabilityIcons}
+                inputModalityIcons={inputModalityIcons}
+                outputModalityIcons={outputModalityIcons}
+                currentMetadata={currentMetadata}
+            />
         );
     };
 
@@ -1205,297 +968,43 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             requestAnimationFrame(focusChatInput);
         };
 
-        const renderMobileModelRow = ({
-            model,
-            providerId,
-            modelId,
-            showProviderLogo,
-        }: {
-            model: ProviderModel;
-            providerId: string;
-            modelId: string;
-            showProviderLogo: boolean;
-        }) => {
-            const rowKey = buildModelRefKey(providerId, modelId);
-            const isSelected = providerId === currentProviderId && modelId === currentModelId;
-            const metadata = mergeModelMetadataWithLiveModel(providerId, model, getModelMetadata(providerId, modelId));
-            const variantOptions = getModelVariantOptions(providerId, modelId);
-            const hasVariants = variantOptions.length > 0;
-            const resolvedVariant = resolveModelVariantSelection(providerId, modelId);
-            const pendingVariant = pendingThinkingVariants.get(rowKey);
-            const hasPendingForRow = pendingThinkingVariants.has(rowKey);
-            const effectiveVariant = hasPendingForRow ? pendingVariant : resolvedVariant;
-            const variantLabel = hasVariants ? formatEffortLabel(effectiveVariant) : null;
-            const isExpanded = expandedMobileModelKey === rowKey;
-            const capabilityIcons = getCapabilityIcons(metadata).map((icon) => ({
-                ...icon,
-                label: localizeMetaLabel(icon.label),
-            }));
-            const modalityIcons = [
-                ...getModalityIcons(metadata, 'input').map((icon) => ({ ...icon, label: localizeMetaLabel(icon.label) })),
-                ...getModalityIcons(metadata, 'output').map((icon) => ({ ...icon, label: localizeMetaLabel(icon.label) })),
-            ];
-            const indicatorIcons = Array.from(
-                new Map([...capabilityIcons, ...modalityIcons].map((icon) => [icon.key, icon])).values()
-            );
-            const contextText = metadata?.limit?.context ? `${formatTokens(metadata.limit.context)} ctx` : null;
-
-            return (
-                <div
-                    key={`mobile-model-${providerId}-${modelId}`}
-                    className={cn(
-                        'border-b border-border/30 last:border-b-0',
-                        isSelected && 'bg-interactive-selection/15 text-interactive-selection-foreground'
-                    )}
-                >
-                    <div className="flex items-center gap-2 px-2 py-1.5">
-                        <button
-                            type="button"
-                            onClick={() => handleMobileModelApply(providerId, modelId, effectiveVariant)}
-                            className={cn(
-                                'flex flex-1 min-w-0 items-start gap-2 text-left',
-                                'focus:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded-lg'
-                            )}
-                        >
-                            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                                <div className="flex min-w-0 items-center gap-1.5">
-                                    {showProviderLogo ? (
-                                        <ProviderLogo providerId={providerId} className="size-3.5 flex-shrink-0" />
-                                    ) : null}
-                                    <span className="typography-meta font-medium text-foreground truncate">
-                                        {getModelDisplayName(model)}
-                                    </span>
-                                    {isSelected ? <Icon name="check" className="size-4 flex-shrink-0 text-primary" /> : null}
-                                </div>
-                                {contextText || indicatorIcons.length > 0 ? (
-                                    <div className="flex min-w-0 items-center gap-1.5 overflow-hidden typography-micro text-muted-foreground">
-                                        {contextText ? (
-                                            <span className="whitespace-nowrap flex-shrink-0">
-                                                {contextText}
-                                            </span>
-                                        ) : null}
-                                        {contextText && indicatorIcons.length > 0 ? (
-                                            <span aria-hidden="true" className="h-3 w-px flex-shrink-0 bg-border/50" />
-                                        ) : null}
-                                        {indicatorIcons.length > 0 ? (
-                                            <div className="flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap pl-0.5">
-                                                {indicatorIcons.map(({ key, icon: iconName, label }) => (
-                                                <span
-                                                    key={`meta-${providerId}-${modelId}-${key}`}
-                                                    className="flex size-4 flex-shrink-0 items-center justify-center text-muted-foreground"
-                                                    title={label}
-                                                    aria-label={label}
-                                                >
-                                                    <Icon name={iconName} className="size-3" />
-                                                </span>
-                                            ))}
-                                            </div>
-                                        ) : null}
-                                    </div>
-                                ) : null}
-                            </div>
-                        </button>
-                        {hasVariants ? (
-                            <button
-                                type="button"
-                                onClick={() => setExpandedMobileModelKey((prev) => prev === rowKey ? null : rowKey)}
-                                className="flex items-center gap-0.5 typography-micro font-medium text-muted-foreground hover:text-foreground flex-shrink-0"
-                                aria-expanded={isExpanded}
-                                aria-label={isExpanded ? "Hide thinking modes" : "Show thinking modes"}
-                            >
-                                <span className="whitespace-nowrap">{variantLabel}</span>
-                                {isExpanded ? <Icon name="arrow-down-s" className="size-3.5" /> : <Icon name="arrow-right-s" className="size-3.5" />}
-                            </button>
-                        ) : null}
-                        <div className="flex flex-shrink-0 items-center gap-1.5">
-                            <button
-                                type="button"
-                                onClick={(event) => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    toggleFavoriteModel(providerId, modelId);
-                                }}
-                                className={cn(
-                                    'model-favorite-button flex size-5 items-center justify-center hover:text-primary/80 flex-shrink-0',
-                                    isFavoriteModel(providerId, modelId) ? 'text-primary' : 'text-muted-foreground'
-                                )}
-                                aria-label={isFavoriteModel(providerId, modelId)
-                                    ? "Unfavorite"
-                                    : "Favorite"}
-                                title={isFavoriteModel(providerId, modelId)
-                                    ? "Remove from favorites"
-                                    : "Add to favorites"}
-                            >
-                                {isFavoriteModel(providerId, modelId) ? (
-                                    <Icon name="star-fill" className="size-4" />
-                                ) : (
-                                    <Icon name="star" className="size-4" />
-                                )}
-                            </button>
-                        </div>
-                    </div>
-                    {isExpanded && hasVariants ? (
-                        <div className="border-t border-border/30 px-1 py-1" data-no-drawer-swipe="true">
-                            <ThinkingLevelPicker
-                                levels={variantOptions}
-                                value={parsePiThinkingLevel(effectiveVariant) ?? undefined}
-                                onChange={() => {}}
-                                onCommit={(next) => {
-                                    setPendingThinkingVariants((prev) => {
-                                        const nextMap = new Map(prev);
-                                        nextMap.set(rowKey, next as string | undefined);
-                                        return nextMap;
-                                    });
-                                    setAdjustedThinkingModels((prev) => {
-                                        const nextSet = new Set(prev);
-                                        nextSet.add(rowKey);
-                                        return nextSet;
-                                    });
-                                    setModelPickerRenderVersion((v) => v + 1);
-                                }}
-                            />
-                        </div>
-                    ) : null}
-                </div>
-            );
-        };
-
-        const hasResults = filteredFavorites.length > 0 || filteredRecents.length > 0 || filteredProviders.length > 0;
-
         return (
-            <MobileOverlayPanel
+            <MobileModelPickerPanel
                 open={activeMobilePanel === 'model'}
                 onClose={closeMobilePanel}
-                title={"Select model"}
-            >
-                <div className="flex flex-col gap-2">
-                    <div>
-                        <div className="relative">
-                            <Icon name="search" className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-                            <Input
-                                value={mobileModelQuery}
-                                onChange={(event) => {
-                                    setMobileModelQuery(event.target.value);
-                                    setExpandedMobileModelKey(null);
-                                }}
-                                        placeholder={"Search providers or models"}
-                                className="pl-7 h-9 rounded-xl border-border/40 bg-[var(--surface-elevated)] typography-meta"
-                            />
-                            {mobileModelQuery && (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setMobileModelQuery('');
-                                        setExpandedMobileModelKey(null);
-                                    }}
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                                    aria-label={"Clear search"}
-                                >
-                                    <Icon name="close-circle" className="size-4" />
-                                </button>
-                            )}
-                        </div>
-                    </div>
-
-                    {!hasResults && (
-                        <div className="px-3 py-8 text-center typography-meta text-muted-foreground">
-                            {"No providers or models match your search."}
-                        </div>
-                    )}
-
-                    {/* Favorites Section for Mobile */}
-                    {filteredFavorites.length > 0 && (
-                        <div className="rounded-xl border border-border/40 bg-[var(--surface-elevated)] overflow-hidden">
-                            <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                                <Icon name="star-fill" className="size-3 inline-block mr-1.5 text-primary" />
-                                {"Favorites"}
-                            </div>
-                            <div className="flex flex-col border-t border-border/30">
-                                {filteredFavorites.map(({ model, providerID, modelID }) => renderMobileModelRow({
-                                    model,
-                                    providerId: providerID,
-                                    modelId: modelID,
-                                    showProviderLogo: true,
-                                }))}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Recent Section for Mobile */}
-                    {filteredRecents.length > 0 && (
-                        <div className="rounded-xl border border-border/40 bg-[var(--surface-elevated)] overflow-hidden">
-                            <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                                <Icon name="time" className="size-3 inline-block mr-1.5" />
-                                {"Recent"}
-                            </div>
-                            <div className="flex flex-col border-t border-border/30">
-                                {filteredRecents.map(({ model, providerID, modelID }) => renderMobileModelRow({
-                                    model,
-                                    providerId: providerID,
-                                    modelId: modelID,
-                                    showProviderLogo: true,
-                                }))}
-                            </div>
-                        </div>
-                    )}
-
-                    {filteredProviders.map(({ provider, providerModels }) => {
-                        if (providerModels.length === 0) {
-                            return null;
-                        }
-
-                        const providerId = String(provider.id || '');
-                        const providerName = String(provider.name || providerId);
-                        const isActiveProvider = providerId === currentProviderId;
-                        const isExpanded = expandedMobileProviders.has(providerId) || normalizedQuery.length > 0;
-
-                         return (
-                             <div key={providerId} className="rounded-xl border border-border/40 bg-[var(--surface-elevated)] overflow-hidden">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        if (normalizedQuery.length > 0) {
-                                            return;
-                                        }
-                                        toggleMobileProviderExpansion(providerId);
-                                    }}
-                                    className="flex w-full items-center justify-between gap-1.5 px-2 py-1.5 text-left"
-                                    aria-expanded={isExpanded}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <ProviderLogo
-                                            providerId={providerId}
-                                            className="size-3.5"
-                                        />
-                                        <span className="typography-meta font-medium text-foreground">
-                                            {providerName}
-                                        </span>
-                                        {isActiveProvider && (
-                                            <span className="typography-micro text-primary/80">{"Current"}</span>
-                                        )}
-                                    </div>
-                                    {isExpanded ? (
-                                        <Icon name="arrow-down-s" className="size-3 text-muted-foreground" />
-                                    ) : (
-                                        <Icon name="arrow-right-s" className="size-3 text-muted-foreground" />
-                                    )}
-                                </button>
-
-                                {isExpanded && providerModels.length > 0 && (
-                                    <div className="flex flex-col border-t border-border/30">
-                                        {providerModels.map((model: ProviderModel) => renderMobileModelRow({
-                                            model,
-                                            providerId: provider.id as string,
-                                            modelId: model.id as string,
-                                            showProviderLogo: false,
-                                        }))}
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
-            </MobileOverlayPanel>
+                mobileModelQuery={mobileModelQuery}
+                onMobileModelQueryChange={setMobileModelQuery}
+                filteredFavorites={filteredFavorites}
+                filteredRecents={filteredRecents}
+                filteredProviders={filteredProviders}
+                expandedMobileProviders={expandedMobileProviders}
+                onToggleMobileProviderExpansion={toggleMobileProviderExpansion}
+                expandedMobileModelKey={expandedMobileModelKey}
+                onToggleExpandedMobileModelKey={setExpandedMobileModelKey}
+                currentProviderId={currentProviderId}
+                currentModelId={currentModelId}
+                getModelDisplayName={getModelDisplayName}
+                getModelMetadata={getModelMetadata}
+                getModelVariantOptions={getModelVariantOptions}
+                resolveModelVariantSelection={resolveModelVariantSelection}
+                pendingThinkingVariants={pendingThinkingVariants}
+                onUpdatePendingThinkingVariant={(rowKey, next) => {
+                    setPendingThinkingVariants((prev) => {
+                        const nextMap = new Map(prev);
+                        nextMap.set(rowKey, next);
+                        return nextMap;
+                    });
+                    setAdjustedThinkingModels((prev) => {
+                        const nextSet = new Set(prev);
+                        nextSet.add(rowKey);
+                        return nextSet;
+                    });
+                    setModelPickerRenderVersion((v) => v + 1);
+                }}
+                isFavoriteModel={isFavoriteModel}
+                onToggleFavoriteModel={toggleFavoriteModel}
+                onApplyModel={handleMobileModelApply}
+            />
         );
     };
 
@@ -1504,113 +1013,30 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         if (!currentProviderId || !currentModelId) return null;
 
         const targetVariants = getModelVariantOptions(currentProviderId, currentModelId);
-        if (targetVariants.length === 0) return null;
-
-        // Use the live composer variant directly so dragging to Default (undefined)
-        // stays on Default while dragging. The resolver would snap Default back to
-        // the model's configured default for new sessions, which caused the
-        // right-to-left glitch where the thumb jumped to the highest level.
-        const selectedVariant = currentVariant;
 
         return (
-            <MobileOverlayPanel
+            <MobileVariantPanel
                 open={activeMobilePanel === 'variant'}
                 onClose={closeMobilePanel}
-                title={"Thinking"}
-            >
-                <ThinkingLevelPicker
-                    levels={targetVariants}
-                    value={parsePiThinkingLevel(selectedVariant) ?? undefined}
-                    onChange={handleVariantLiveChange}
-                    onCommit={handleVariantCommit}
-                />
-            </MobileOverlayPanel>
+                targetVariants={targetVariants}
+                selectedVariant={currentVariant}
+                onVariantLiveChange={handleVariantLiveChange}
+                onVariantCommit={handleVariantCommit}
+            />
         );
     };
 
-
-
     const renderModelTooltipContent = () => (
-        <TooltipContent align="start" sideOffset={8} className="max-w-[320px]">
-            {currentMetadata ? (
-                <div className="flex min-w-[240px] flex-col gap-3">
-                    <div className="flex flex-col gap-0.5">
-                        <span className="typography-micro font-semibold text-foreground">
-                            {currentMetadata.name || getCurrentModelDisplayName()}
-                        </span>
-                        <span className="typography-meta text-muted-foreground">{getProviderDisplayName()}</span>
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                        <span className="typography-meta font-semibold uppercase tracking-wide text-muted-foreground/90">{"Capabilities"}</span>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                            {currentCapabilityIcons.length > 0 ? (
-                                currentCapabilityIcons.map(({ key, icon, label }) =>
-                                    <IconBadge key={`cap-${key}`} iconName={icon} label={label} />
-                                )
-                            ) : (
-                                <span className="typography-meta text-muted-foreground">{"—"}</span>
-                            )}
-                        </div>
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                        <span className="typography-meta font-semibold uppercase tracking-wide text-muted-foreground/90">{"Modalities"}</span>
-                        <div className="flex flex-col gap-1">
-                            <div className="flex items-center justify-between gap-3">
-                                <span className="typography-meta font-medium text-muted-foreground/80">{"Input"}</span>
-                                <div className="flex items-center gap-1.5">
-                                    {inputModalityIcons.length > 0
-                                        ? inputModalityIcons.map(({ key, icon, label }) =>
-                                              <IconBadge key={`input-${key}`} iconName={icon} label={`${label} input`} />
-                                          )
-                                        : <span className="typography-meta text-muted-foreground">-</span>}
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-between gap-3">
-                                <span className="typography-meta font-medium text-muted-foreground/80">{"Output"}</span>
-                                <div className="flex items-center gap-1.5">
-                                    {outputModalityIcons.length > 0
-                                        ? outputModalityIcons.map(({ key, icon, label }) =>
-                                              <IconBadge key={`output-${key}`} iconName={icon} label={`${label} output`} />
-                                          )
-                                        : <span className="typography-meta text-muted-foreground">-</span>}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                        <span className="typography-meta font-semibold uppercase tracking-wide text-muted-foreground/90">{"Cost ($/1M tokens)"}</span>
-                        {costRows.map((row) => (
-                            <div key={row.label} className="flex items-center justify-between gap-3">
-                                <span className="typography-meta font-medium text-muted-foreground/80">{row.label}</span>
-                                <span className="typography-meta font-medium text-foreground">{row.value}</span>
-                            </div>
-                        ))}
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                        <span className="typography-meta font-semibold uppercase tracking-wide text-muted-foreground/90">{"Limits"}</span>
-                        {limitRows.map((row) => (
-                            <div key={row.label} className="flex items-center justify-between gap-3">
-                                <span className="typography-meta font-medium text-muted-foreground/80">{row.label}</span>
-                                <span className="typography-meta font-medium text-foreground">{row.value}</span>
-                            </div>
-                        ))}
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                        <span className="typography-meta font-semibold uppercase tracking-wide text-muted-foreground/90">{"Metadata"}</span>
-                        <div className="flex items-center justify-between gap-3">
-                            <span className="typography-meta font-medium text-muted-foreground/80">{"Knowledge"}</span>
-                            <span className="typography-meta font-medium text-foreground">{formatKnowledge(currentMetadata.knowledge)}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-3">
-                            <span className="typography-meta font-medium text-muted-foreground/80">{"Release"}</span>
-                            <span className="typography-meta font-medium text-foreground">{formatDate(currentMetadata.release_date)}</span>
-                        </div>
-                    </div>
-                </div>
-            ) : (
-                <div className="min-w-[200px] typography-meta text-muted-foreground">{"Model metadata unavailable."}</div>
-            )}
-        </TooltipContent>
+        <ModelTooltipContent
+            currentMetadata={currentMetadata}
+            modelDisplayName={getCurrentModelDisplayName()}
+            providerDisplayName={getProviderDisplayName()}
+            currentCapabilityIcons={currentCapabilityIcons}
+            inputModalityIcons={inputModalityIcons}
+            outputModalityIcons={outputModalityIcons}
+            costRows={costRows}
+            limitRows={limitRows}
+        />
     );
 
     const renderModelSelector = () => {

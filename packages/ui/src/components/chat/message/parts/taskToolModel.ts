@@ -1,8 +1,8 @@
-/* eslint-disable */
-// @ts-nocheck
+import type { ToolPart } from '@/lib/chat/types';
 import type { MessageRecord } from '@/lib/messageCompletion';
 
 import { readTaskTagSessionIdFromOutput } from './taskSessionIdParser';
+import { normalizeToolName } from './toolRenderUtils';
 
 export type TaskToolSummaryEntry = {
     id?: string;
@@ -12,6 +12,35 @@ export type TaskToolSummaryEntry = {
         title?: string;
         input?: Record<string, unknown>;
     };
+};
+
+export const getTaskSummaryLabel = (entry: TaskToolSummaryEntry): string => {
+    const title = entry.state?.title;
+    if (typeof title === 'string' && title.trim().length > 0) {
+        return title;
+    }
+
+    const input = entry.state?.input;
+    if (input && typeof input === 'object') {
+        const pathCandidate = input.filePath ?? input.file_path ?? input.path;
+        if (typeof pathCandidate === 'string' && pathCandidate.trim().length > 0) {
+            return pathCandidate.trim();
+        }
+
+        const urlCandidate = input.url;
+        if (typeof urlCandidate === 'string' && urlCandidate.trim().length > 0) {
+            return urlCandidate.trim();
+        }
+    }
+
+    return '';
+};
+
+export const getTaskSummaryEntryRenderSignature = (entry: TaskToolSummaryEntry): string => {
+    const toolName = normalizeToolName(entry.tool);
+    const status = entry.state?.status ?? '';
+    const label = getTaskSummaryLabel(entry);
+    return `${entry.id ?? ''}\u0001${toolName}\u0001${status}\u0001${label}`;
 };
 
 export const shouldHydrateTaskChildSession = ({
@@ -115,6 +144,8 @@ export const readTaskSessionIdFromOutput = (output: string | undefined): string 
 
 const messageSummaryCache = new WeakMap<MessageRecord, TaskToolSummaryEntry[]>();
 
+const isToolPart = (part: MessageRecord['parts'][number]): part is ToolPart => part.type === 'tool';
+
 const projectMessageSummaryEntries = (message: MessageRecord): TaskToolSummaryEntry[] => {
     const cached = messageSummaryCache.get(message);
     if (cached) return cached;
@@ -122,7 +153,7 @@ const projectMessageSummaryEntries = (message: MessageRecord): TaskToolSummaryEn
     const entries: TaskToolSummaryEntry[] = [];
     if (message.info.role === 'assistant') {
         for (const part of message.parts) {
-            if (part.type !== 'tool') continue;
+            if (!isToolPart(part)) continue;
             const toolName = part.tool?.trim().toLowerCase();
             if (!toolName || toolName === 'task' || toolName === 'todowrite' || toolName === 'todoread') continue;
             const state = part.state as { status?: string; title?: string; input?: unknown } | undefined;

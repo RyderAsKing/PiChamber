@@ -1,7 +1,6 @@
-/* eslint-disable */
-// @ts-nocheck
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import type { Session } from "@/lib/chat/types"
+import type { PiSessionListItem } from "@/lib/pi/protocol"
 
 import { piClient } from "@/lib/pi/client"
 import { getPiSessionStore } from "@/apps/pi-session-store"
@@ -59,7 +58,7 @@ describe("global session mutation reconciliation", () => {
     // results into one another. The global store reads from the catalog
     // via the dedup check; a stale `'ready'` from a prior test would skip
     // this test's listing.
-    getPiSessionStore().resetForRuntime()
+    getPiSessionStore().clear()
   })
 
   afterEach(() => {
@@ -67,7 +66,7 @@ describe("global session mutation reconciliation", () => {
   })
 
   test("keeps a session created after a directory refresh starts", async () => {
-    const request = deferred()
+    const request = deferred<PiSessionListItem[]>()
     piClient.listSessions = async () => ({ sessions: await request.promise })
 
     const refreshing = useGlobalSessionsStore.getState().refreshSessionsForDirectories(["/source"])
@@ -80,7 +79,7 @@ describe("global session mutation reconciliation", () => {
   })
 
   test("does not resurrect a session deleted after a directory refresh starts", async () => {
-    const request = deferred()
+    const request = deferred<PiSessionListItem[]>()
     piClient.listSessions = async () => ({ sessions: await request.promise })
 
     const stale = withDirectory(session("deleted"), "/source")
@@ -96,7 +95,7 @@ describe("global session mutation reconciliation", () => {
   })
 
   test("keeps an archive mutation newer than the directory response", async () => {
-    const request = deferred()
+    const request = deferred<PiSessionListItem[]>()
     piClient.listSessions = async () => ({ sessions: await request.promise })
 
     const stale = withDirectory(session("archived"), "/source")
@@ -108,11 +107,11 @@ describe("global session mutation reconciliation", () => {
     await refreshing
 
     expect(useGlobalSessionsStore.getState().activeSessions).toEqual([])
-    expect(useGlobalSessionsStore.getState().archivedSessions[0]?.time.archived).toBe(10)
+    expect(useGlobalSessionsStore.getState().archivedSessions[0]?.time?.archived).toBe(10)
   })
 
   test("keeps a newer title when an older response finishes last", async () => {
-    const request = deferred()
+    const request = deferred<PiSessionListItem[]>()
     piClient.listSessions = async () => ({ sessions: await request.promise })
 
     const stale = withDirectory(session("updated", "Old"), "/source")
@@ -127,7 +126,7 @@ describe("global session mutation reconciliation", () => {
   })
 
   test("keeps commit-time state when a directory refresh fails", async () => {
-    const request = deferred()
+    const request = deferred<PiSessionListItem[]>()
     piClient.listSessions = async () => ({ sessions: await request.promise })
 
     const stale = withDirectory(session("stale"), "/source")

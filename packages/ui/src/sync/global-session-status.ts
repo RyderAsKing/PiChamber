@@ -1,22 +1,12 @@
-/* eslint-disable */
-// @ts-nocheck
 import { create } from 'zustand';
-import type { Event, SessionStatus } from '@/lib/chat/types';
+import type { SessionStatus } from '@/lib/chat/types';
 import { normalizeProjectPath } from '@/lib/projectResolution';
-import {
-  observeSessionActivityEvent,
-  reconcileSessionActivitySnapshot,
-  removeSessionOrdering,
-} from './session-ordering';
-import {
-  observeSessionActivityTiming,
-  reconcileSessionActivityTiming,
-  removeSessionActivityTiming,
-} from './session-activity-timing';
+import { reconcileSessionActivitySnapshot } from './session-ordering';
+import { reconcileSessionActivityTiming } from './session-activity-timing';
 
-// Shared live busy/retry index for every directory. Global events update it
-// incrementally and authoritative directory snapshots reconcile it, so each
-// sidebar row can subscribe to one leaf instead of every child store.
+// Shared live busy/retry index for every directory. Authoritative directory
+// snapshots reconcile it so consumers can subscribe to one leaf instead of
+// every child store.
 //
 // Only non-idle entries are kept; absence means idle. Entries carry their
 // directory so a polled per-directory snapshot can authoritatively replace
@@ -44,31 +34,10 @@ const statusesEqual = (left: SessionStatus, right: SessionStatus): boolean => (
   left.type === right.type && JSON.stringify(left) === JSON.stringify(right)
 );
 
-// Both write paths normalize the directory key, so a polled snapshot can
-// authoritatively replace entries written by events (and vice versa) even when
-// the two sources format the same path differently (trailing slash, …).
+// Normalize the directory key so snapshots reconcile equivalent paths even
+// when callers format them differently (trailing slash, …).
 const normalizeDirectory = (directory: string): string =>
   normalizeProjectPath(directory) ?? directory;
-
-const setStatus = (sessionId: string, directory: string, status: SessionStatus | { type: 'idle' }): void => {
-  useGlobalSessionStatusStore.setState((state) => {
-    const current = state.statusById.get(sessionId);
-    if (status.type === 'idle') {
-      if (!current) return state;
-      const next = new Map(state.statusById);
-      next.delete(sessionId);
-      return { statusById: next };
-    }
-    if (current && current.directory === directory && statusesEqual(current.status, status)) return state;
-    const next = new Map(state.statusById);
-    next.set(sessionId, { status, directory });
-    return { statusById: next };
-  });
-};
-
-// Event-driven path: called by the sync dispatcher for status-bearing events
-// whose directory has no child store. Mirrors the child reducer's semantics
-// (`session.idle` / `session.error` both resolve to idle).
 
 // Polled path: an authoritative `/session/status?directory=X` snapshot. Entries
 // missing from the snapshot are idle now — cleared both by directory key and by

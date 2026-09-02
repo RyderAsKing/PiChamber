@@ -2,38 +2,13 @@ import { create } from "zustand";
 import type { StoreApi, UseBoundStore } from "zustand";
 import { devtools, persist } from "zustand/middleware";
 import { createDeferredSafeJSONStorage } from "./utils/safeStorage";
-import {
-  getGitIdentities,
-  createGitIdentity,
-  updateGitIdentity,
-  deleteGitIdentity,
-  discoverGitCredentials,
-  getGlobalGitIdentity
-} from "@/lib/gitApi";
+import * as gitHttp from "@/lib/gitApiHttp";
+import type { DiscoveredGitCredential, GitIdentityProfile } from "@/lib/api/types";
 import { reportSettingsSaveState, updateDesktopSettings } from "@/lib/persistence";
 import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry";
 import { runtimeFetch } from "@/lib/runtime-fetch";
 
-export type GitIdentityAuthType = 'ssh' | 'token';
-
-export interface GitIdentityProfile {
-  id: string;
-  name: string;
-  userName: string;
-  userEmail: string;
-  authType?: GitIdentityAuthType;
-  sshKey?: string | null;
-  signCommits?: boolean;
-  signingKey?: string | null;
-  host?: string | null;
-  color?: string | null;
-  icon?: string | null;
-}
-
-export interface DiscoveredGitCredential {
-  host: string;
-  username: string;
-}
+export type { DiscoveredGitCredential, GitIdentityAuthType, GitIdentityProfile } from '@/lib/api/types';
 
 interface GitIdentitiesStore {
 
@@ -85,7 +60,10 @@ export const useGitIdentitiesStore = create<GitIdentitiesStore>()(
           const previousProfiles = get().profiles;
 
           try {
-            const profiles = await getGitIdentities();
+            const runtimeGit = getRegisteredRuntimeAPIs()?.git;
+            const profiles = runtimeGit
+              ? await runtimeGit.getGitIdentities()
+              : await gitHttp.getGitIdentities();
             set({ profiles, isLoading: false });
             return true;
           } catch (error) {
@@ -97,7 +75,10 @@ export const useGitIdentitiesStore = create<GitIdentitiesStore>()(
 
         loadGlobalIdentity: async () => {
           try {
-            const data = await getGlobalGitIdentity();
+            const runtimeGit = getRegisteredRuntimeAPIs()?.git;
+            const data = runtimeGit?.getGlobalGitIdentity
+              ? await runtimeGit.getGlobalGitIdentity()
+              : await gitHttp.getGlobalGitIdentity();
 
             if (data && data.userName && data.userEmail) {
               const globalProfile: GitIdentityProfile = {
@@ -125,7 +106,10 @@ export const useGitIdentitiesStore = create<GitIdentitiesStore>()(
 
         loadDiscoveredCredentials: async () => {
           try {
-            const credentials = await discoverGitCredentials();
+            const runtimeGit = getRegisteredRuntimeAPIs()?.git;
+            const credentials = runtimeGit?.discoverGitCredentials
+              ? await runtimeGit.discoverGitCredentials()
+              : await gitHttp.discoverGitCredentials();
             set({ discoveredCredentials: credentials });
             return true;
           } catch (error) {
@@ -207,7 +191,12 @@ export const useGitIdentitiesStore = create<GitIdentitiesStore>()(
             };
 
             reportSettingsSaveState('saving');
-            await createGitIdentity(profile);
+            const runtimeGit = getRegisteredRuntimeAPIs()?.git;
+            if (runtimeGit) {
+              await runtimeGit.createGitIdentity(profile);
+            } else {
+              await gitHttp.createGitIdentity(profile);
+            }
             reportSettingsSaveState('saved');
 
             await get().loadProfiles();
@@ -229,7 +218,12 @@ export const useGitIdentitiesStore = create<GitIdentitiesStore>()(
 
             const updated = { ...existing, ...updates };
             reportSettingsSaveState('saving');
-            await updateGitIdentity(id, updated);
+            const runtimeGit = getRegisteredRuntimeAPIs()?.git;
+            if (runtimeGit) {
+              await runtimeGit.updateGitIdentity(id, updated);
+            } else {
+              await gitHttp.updateGitIdentity(id, updated);
+            }
             reportSettingsSaveState('saved');
 
             await get().loadProfiles();
@@ -244,7 +238,12 @@ export const useGitIdentitiesStore = create<GitIdentitiesStore>()(
         deleteProfile: async (id) => {
           try {
             reportSettingsSaveState('saving');
-            await deleteGitIdentity(id);
+            const runtimeGit = getRegisteredRuntimeAPIs()?.git;
+            if (runtimeGit) {
+              await runtimeGit.deleteGitIdentity(id);
+            } else {
+              await gitHttp.deleteGitIdentity(id);
+            }
             reportSettingsSaveState('saved');
 
             if (get().selectedProfileId === id) {

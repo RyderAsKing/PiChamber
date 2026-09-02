@@ -1,12 +1,8 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
-import type { Provider } from '@/lib/chat/types';
-
-type ProviderModel = Provider["models"][string];
-type ProviderWithModelList = Omit<Provider, "models"> & { models: ProviderModel[] };
+type ProviderWithModelList = ReturnType<typeof useConfigStore.getState>['providers'][number];
+type ProviderModel = ProviderWithModelList['models'][number];
 
 export interface ModelListItem {
   provider: ProviderWithModelList;

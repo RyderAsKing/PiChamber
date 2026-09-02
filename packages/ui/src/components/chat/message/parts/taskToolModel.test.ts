@@ -1,7 +1,5 @@
-/* eslint-disable */
-// @ts-nocheck
 import { describe, expect, test } from 'bun:test';
-import type { Message, Part } from '@/lib/chat/types';
+import type { MessageRecord } from '@/lib/messageCompletion';
 
 import {
     buildTaskSummaryEntriesFromSession,
@@ -27,13 +25,13 @@ describe('taskToolModel', () => {
     });
 
     test('projects tool calls while excluding nested task and todo bookkeeping', () => {
-        const message = {
-            info: { id: 'message-1', role: 'assistant' } as Message,
+        const message: MessageRecord = {
+            info: { id: 'message-1', role: 'assistant' },
             parts: [
                 { id: 'read-1', type: 'tool', tool: 'read', state: { status: 'completed', input: { filePath: 'a.ts' } } },
                 { id: 'task-1', type: 'tool', tool: 'task', state: { status: 'running' } },
                 { id: 'todo-1', type: 'tool', tool: 'todowrite', state: { status: 'completed' } },
-            ] as unknown as Part[],
+            ],
         };
 
         expect(buildTaskSummaryEntriesFromSession([message])).toEqual([{

@@ -3,38 +3,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { Icon } from "@/components/icon/Icon";
 import type { GitStatus } from '@/lib/api/types';
-
-type ChangeDescriptor = {
-  code: string;
-  color: string;
-  description: string;
-};
-
-const CHANGE_DESCRIPTORS: Record<string, ChangeDescriptor> = {
-  '?': { code: '?', color: 'var(--status-info)', description: 'Untracked file' },
-  A: { code: 'A', color: 'var(--status-success)', description: 'New file' },
-  D: { code: 'D', color: 'var(--status-error)', description: 'Deleted file' },
-  R: { code: 'R', color: 'var(--status-info)', description: 'Renamed file' },
-  C: { code: 'C', color: 'var(--status-info)', description: 'Copied file' },
-  M: { code: 'M', color: 'var(--status-warning)', description: 'Modified file' },
-};
-
-const DEFAULT_DESCRIPTOR = CHANGE_DESCRIPTORS.M;
-
-function getChangeSymbol(file: GitStatus['files'][number]): string {
-  const indexCode = file.index?.trim();
-  const workingCode = file.working_dir?.trim();
-
-  if (indexCode && indexCode !== '?') return indexCode.charAt(0);
-  if (workingCode) return workingCode.charAt(0);
-
-  return indexCode?.charAt(0) || workingCode?.charAt(0) || 'M';
-}
-
-function describeChange(file: GitStatus['files'][number]): ChangeDescriptor {
-  const symbol = getChangeSymbol(file);
-  return CHANGE_DESCRIPTORS[symbol] ?? DEFAULT_DESCRIPTOR;
-}
+import { describeGitChange } from './gitChangeDescriptors';
 
 interface ChangeRowProps {
   file: GitStatus['files'][number];
@@ -66,7 +35,7 @@ export const ChangeRow = React.memo<ChangeRowProps>(function ChangeRow({
   actionAtStart = false,
   showRevert = true,
 }) {
-  const descriptor = useMemo(() => describeChange(file), [file]);
+  const descriptor = useMemo(() => describeGitChange(file), [file]);
   
   const indicatorLabel = descriptor.description;
   const insertions = stats?.insertions ?? 0;
