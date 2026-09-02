@@ -79,6 +79,7 @@ import { useAssetAuthRefresh } from './files/useAssetAuthRefresh';
 import { FileViewerContent } from './files/FileViewerContent';
 import { useFileOperations } from './files/useFileOperations';
 import { loadFileDocument } from './files/loadFileDocument';
+import { useFileStatReconciliation } from './files/useFileStatReconciliation';
 import { useFilesTree } from './files/useFilesTree';
 import { useFilesViewSearch } from './files/useFilesViewSearch';
 
@@ -296,7 +297,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   const diagramSavedXmlRef = React.useRef('');
   const pendingDrawioPreviewFrameRef = React.useRef<number | null>(null);
   const diagramEditorRef = React.useRef<React.ComponentRef<typeof DiagramEditor>>(null);
-  const lastLoadedFileStatRef = React.useRef<FileStatSnapshot | null>(null);
   const activeFileLoadIdRef = React.useRef(0);
   const loadingFilePathRef = React.useRef<string | null>(null);
   const [autoSaveStatus, setAutoSaveStatus] = React.useState<'idle' | 'saved'>('idle');
@@ -512,6 +512,21 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   );
 
   const isDirty = draftContent !== displayedContent;
+  const readSelectedFileStat = React.useCallback(
+    (path: string) => readFileStat(path, selectedFileReadOptions),
+    [readFileStat, selectedFileReadOptions],
+  );
+  const reloadExternallyChangedFile = React.useCallback(() => {
+    // The selection effect observes this reset and performs exactly one reload.
+    setLoadedFilePath(null);
+  }, []);
+  const { recordStat: recordLoadedFileStat } = useFileStatReconciliation({
+    selectedPath: selectedFile?.path ?? null,
+    loadedPath: loadedFilePath,
+    isDirty,
+    readStat: readSelectedFileStat,
+    onExternalChange: reloadExternallyChangedFile,
+  });
 
   const saveDraft = React.useCallback(async () => {
     if (!selectedFile || !files.writeFile) {
@@ -570,7 +585,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
       void readFileStat(selectedFile.path)
         .then((stat) => {
           if (stat) {
-            lastLoadedFileStatRef.current = stat;
+            recordLoadedFileStat(stat);
           }
         })
         .catch(() => {});
@@ -581,7 +596,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     } finally {
       setIsSaving(false);
     }
-  }, [contentDetectedBinary, draftContent, fileContent, fileLoading, files, isDirty, loadedFileLineEnding, loadedFilePath, readFileStat, root, selectedFile]);
+  }, [contentDetectedBinary, draftContent, fileContent, fileLoading, files, isDirty, loadedFileLineEnding, loadedFilePath, readFileStat, recordLoadedFileStat, root, selectedFile]);
 
   React.useEffect(() => {
     if (!isDirty) {
@@ -749,7 +764,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
         void readFileStat(node.path, readOptions)
           .then((stat) => {
             if (stat && isCurrentLoad()) {
-              lastLoadedFileStatRef.current = stat;
+              recordLoadedFileStat(stat);
             }
           })
           .catch(() => {});
@@ -767,7 +782,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
           setFileContent('');
           setDraftContent('');
           setLoadedFilePath(null);
-          lastLoadedFileStatRef.current = null;
+          recordLoadedFileStat(null);
           if (searchQuery.trim().length > 0) {
             setSearchQuery('');
           }
@@ -795,7 +810,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
           setFileContent('');
           setDraftContent('');
           setFileError(null);
-          lastLoadedFileStatRef.current = null;
+          recordLoadedFileStat(null);
           if (isMobile) {
             setShowMobilePageContent(false);
           }
@@ -804,14 +819,14 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
         setFileContent('');
         setDraftContent('');
         setFileError(error instanceof Error ? error.message : "Failed to read file");
-        lastLoadedFileStatRef.current = null;
+        recordLoadedFileStat(null);
       })
       .finally(() => {
         if (isCurrentLoad() && !keepDesktopImageLoading) {
           setFileLoading(false);
         }
       });
-  }, [expandPaths, isDirectoryLoaded, isMobile, loadDirectory, mode, readFile, readFileStat, removeOpenPathsByPrefix, root, runtime.isDesktop, searchQuery, setSelectedPath]);
+  }, [expandPaths, isDirectoryLoaded, isMobile, loadDirectory, mode, readFile, readFileStat, recordLoadedFileStat, removeOpenPathsByPrefix, root, runtime.isDesktop, searchQuery, setSelectedPath]);
 
   const ensurePathVisible = React.useCallback(async (targetPath: string, includeTarget: boolean) => {
     if (!root) {
@@ -922,63 +937,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
       }
     });
   }, [loadSelectedFile, loadedFilePath, selectedFile]);
-
-  // Sync isDirty to a ref so the polling interval can read the latest value
-  // without isDirty in its dependency array (avoids interval restart on every edit/save).
-  const isDirtyRef = React.useRef(isDirty);
-  isDirtyRef.current = isDirty;
-
-  // Poll open file for external changes.
-  // When a change is detected, reset loadedFilePath so the effect above
-  // triggers a single reload — no double-load.
-  React.useEffect(() => {
-    if (!selectedFile?.path || loadedFilePath !== selectedFile.path) {
-      return;
-    }
-
-    let cancelled = false;
-    const interval = window.setInterval(() => {
-      if (document.hidden) {
-        return;
-      }
-
-      void readFileStat(selectedFile.path, selectedFileReadOptions)
-        .then((latestStat) => {
-          if (cancelled || !latestStat) {
-            return;
-          }
-
-          const previousStat = lastLoadedFileStatRef.current;
-          if (!previousStat || previousStat.path !== selectedFile.path) {
-            lastLoadedFileStatRef.current = latestStat;
-            return;
-          }
-
-          const changedByMtime = latestStat.mtimeMs !== undefined
-            && previousStat.mtimeMs !== undefined
-            && latestStat.mtimeMs !== previousStat.mtimeMs;
-          const changedBySize = latestStat.size !== previousStat.size;
-
-          if (!changedByMtime && !changedBySize) {
-            return;
-          }
-
-          if (isDirtyRef.current) {
-            return;
-          }
-
-          lastLoadedFileStatRef.current = latestStat;
-          // Reset loadedFilePath so the effect above triggers a single reload.
-          setLoadedFilePath(null);
-        })
-        .catch(() => {});
-    }, 2000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [loadedFilePath, readFileStat, selectedFile?.path, selectedFileReadOptions]);
 
   const discardAndContinue = React.useCallback(() => {
     const nextFile = pendingSelectFileRef.current;
@@ -1450,10 +1408,10 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     setDraftContent(xml);
     const stat = await readFileStat(path, selectedFileReadOptions).catch(() => null);
     if (stat) {
-      lastLoadedFileStatRef.current = stat;
+      recordLoadedFileStat(stat);
     }
     return true;
-  }, [files, readFileStat, selectedFileReadOptions]);
+  }, [files, readFileStat, recordLoadedFileStat, selectedFileReadOptions]);
 
   React.useEffect(() => {
     return () => {
