@@ -77,6 +77,7 @@ import { useAssetAuthRefresh } from './files/useAssetAuthRefresh';
 import { FileViewerContent } from './files/FileViewerContent';
 import { useFileOperations } from './files/useFileOperations';
 import { loadFileDocument } from './files/loadFileDocument';
+import { useDirtyFileNavigation, type DirtyFileNavigationIntent } from './files/useDirtyFileNavigation';
 import { useFileEditorSave } from './files/useFileEditorSave';
 import { useFileStatReconciliation } from './files/useFileStatReconciliation';
 import { useFilesTree } from './files/useFilesTree';
@@ -303,11 +304,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   const autoSaveEnabled = useUIStore((state) => state.autoSaveEnabled);
   const setAutoSaveEnabled = useUIStore((state) => state.setAutoSaveEnabled);
 
-  const [confirmDiscardOpen, setConfirmDiscardOpen] = React.useState(false);
-  const pendingSelectFileRef = React.useRef<FileNode | null>(null);
-  const pendingTabRef = React.useRef<import('@/stores/useUIStore').MainTab | null>(null);
-  const pendingClosePathRef = React.useRef<string | null>(null);
-  const skipDirtyOnceRef = React.useRef(false);
   const editorViewRef = React.useRef<EditorView | null>(null);
   const editorWrapperRef = React.useRef<HTMLDivElement | null>(null);
   const [editorViewReadyNonce, setEditorViewReadyNonce] = React.useState(0);
@@ -399,7 +395,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   }, [root, selectedFile?.path]);
 
   // File navigation/editor state
-  const setMainTabGuard = useUIStore((state) => state.setMainTabGuard);
   const pendingFileNavigation = useUIStore((state) => state.pendingFileNavigation);
   const setPendingFileNavigation = useUIStore((state) => state.setPendingFileNavigation);
   const pendingFileFocusPath = useUIStore((state) => state.pendingFileFocusPath);
@@ -410,9 +405,8 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   const settingsExpandedEditorToolbar = useUIStore((state) => state.expandedEditorToolbar);
 
   React.useEffect(() => {
-    setMainTabGuard(null);
     setDraftContent('');
-  }, [selectedFile?.path, setMainTabGuard]);
+  }, [selectedFile?.path]);
 
   const lastFilesViewDirRef = React.useRef<string>('');
   React.useEffect(() => {
@@ -562,32 +556,13 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     writeFile: files.writeFile,
     onSaved: handleFileSaved,
   });
-
-  React.useEffect(() => {
-    if (!isDirty) {
-      setMainTabGuard(null);
-      return;
-    }
-
-    const guard = (_nextTab: import('@/stores/useUIStore').MainTab) => {
-      if (skipDirtyOnceRef.current) {
-        skipDirtyOnceRef.current = false;
-        return true;
-      }
-      setConfirmDiscardOpen(true);
-      pendingTabRef.current = _nextTab;
-      return false;
-    };
-
-    setMainTabGuard(guard);
-
-    return () => {
-      const currentGuard = useUIStore.getState().mainTabGuard;
-      if (currentGuard === guard) {
-        setMainTabGuard(null);
-      }
-    };
-  }, [isDirty, setMainTabGuard]);
+  const {
+    confirmOpen: confirmDiscardOpen,
+    discardAndTakeIntent,
+    keepModalOpen: keepDiscardModalOpen,
+    requestNavigation,
+    saveAndTakeIntent,
+  } = useDirtyFileNavigation({ isDirty, saveDraft });
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -760,13 +735,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   }, []);
 
   const handleSelectFile = React.useCallback(async (node: FileNode) => {
-    if (skipDirtyOnceRef.current) {
-      skipDirtyOnceRef.current = false;
-    } else if (isDirty) {
-      setConfirmDiscardOpen(true);
-      pendingSelectFileRef.current = node;
-      return;
-    }
+    if (requestNavigation({ kind: 'select', file: node })) return;
 
     if (root) {
       setSelectedPath(root, node.path);
@@ -783,7 +752,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     if (isMobile) {
       setShowMobilePageContent(true);
     }
-  }, [ensurePathVisible, isDirty, isMobile, root, setSelectedPath]);
+  }, [ensurePathVisible, isMobile, requestNavigation, root, setSelectedPath]);
 
   const handleMobileOpenDirectory = React.useCallback((directory: string) => {
     const normalized = normalizePath(directory);
@@ -840,146 +809,47 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     });
   }, [loadSelectedFile, loadedFilePath, selectedFile]);
 
+  const continueNavigation = React.useCallback(async (intent: DirtyFileNavigationIntent) => {
+    if (intent.kind === 'select') {
+      await handleSelectFile(intent.file);
+      return;
+    }
+    if (intent.kind === 'tab') {
+      useUIStore.getState().setActiveMainTab(intent.tab);
+      return;
+    }
+
+    if (root) removeOpenPath(root, intent.path);
+    if (selectedFile?.path !== intent.path) return;
+    if (intent.nextFile) {
+      await handleSelectFile(intent.nextFile);
+    } else {
+      clearSelectedFile();
+    }
+  }, [clearSelectedFile, handleSelectFile, removeOpenPath, root, selectedFile?.path]);
+
   const discardAndContinue = React.useCallback(() => {
-    const nextFile = pendingSelectFileRef.current;
-    const nextTab = pendingTabRef.current;
-    const closePath = pendingClosePathRef.current;
-
-    pendingSelectFileRef.current = null;
-    pendingTabRef.current = null;
-    pendingClosePathRef.current = null;
-
-    // Allow one guarded navigation (tab/file) without re-opening dialog.
-    skipDirtyOnceRef.current = true;
-
-    setConfirmDiscardOpen(false);
-
-    // Discard draft by reverting back to last loaded content
+    const intent = discardAndTakeIntent();
+    // Discard the draft by reverting to the last loaded content.
     setDraftContent(displayedContent);
-
-    if (closePath) {
-      if (root) {
-        removeOpenPath(root, closePath);
-      }
-      if (selectedFile?.path === closePath) {
-        if (nextFile) {
-          void handleSelectFile(nextFile);
-        } else {
-          if (root) {
-            setSelectedPath(root, null);
-          }
-          setFileContent('');
-          setFileError(null);
-          setDesktopImageSrc('');
-          setLoadedFilePath(null);
-          if (isMobile) {
-            setShowMobilePageContent(false);
-          }
-        }
-      }
-      return;
-    }
-
-    if (nextFile) {
-      void handleSelectFile(nextFile);
-      return;
-    }
-
-    if (nextTab) {
-      setMainTabGuard(null);
-      useUIStore.getState().setActiveMainTab(nextTab);
-    }
-  }, [displayedContent, handleSelectFile, isMobile, removeOpenPath, root, selectedFile?.path, setMainTabGuard, setSelectedPath]);
+    if (intent) void continueNavigation(intent);
+  }, [continueNavigation, discardAndTakeIntent, displayedContent]);
 
   const saveAndContinue = React.useCallback(async () => {
-    const nextFile = pendingSelectFileRef.current;
-    const nextTab = pendingTabRef.current;
-    const closePath = pendingClosePathRef.current;
-
-    const saved = await saveDraft();
-    if (!saved) {
-      skipDirtyOnceRef.current = false;
-      return;
-    }
-
-    pendingSelectFileRef.current = null;
-    pendingTabRef.current = null;
-    pendingClosePathRef.current = null;
-
-    // We'll proceed after saving; suppress guard reopening.
-    skipDirtyOnceRef.current = true;
-
-    setConfirmDiscardOpen(false);
-
-    if (closePath) {
-      if (root) {
-        removeOpenPath(root, closePath);
-      }
-      if (selectedFile?.path === closePath) {
-        if (nextFile) {
-          await handleSelectFile(nextFile);
-        } else {
-          if (root) {
-            setSelectedPath(root, null);
-          }
-          setFileContent('');
-          setFileError(null);
-          setDesktopImageSrc('');
-          setLoadedFilePath(null);
-          if (isMobile) {
-            setShowMobilePageContent(false);
-          }
-        }
-      }
-      return;
-    }
-
-    if (nextFile) {
-      await handleSelectFile(nextFile);
-      return;
-    }
-
-    if (nextTab) {
-      setMainTabGuard(null);
-      useUIStore.getState().setActiveMainTab(nextTab);
-    }
-  }, [handleSelectFile, isMobile, removeOpenPath, root, saveDraft, selectedFile?.path, setMainTabGuard, setSelectedPath]);
+    const intent = await saveAndTakeIntent();
+    if (intent) await continueNavigation(intent);
+  }, [continueNavigation, saveAndTakeIntent]);
 
   const handleCloseFile = React.useCallback((path: string) => {
     const isActive = selectedFile?.path === path;
-    const nextFile = getNextOpenFile(path, openFiles);
-
-    if (isActive && isDirty) {
-      setConfirmDiscardOpen(true);
-      pendingSelectFileRef.current = nextFile;
-      pendingClosePathRef.current = path;
-      return;
-    }
-
-    if (root) {
-      removeOpenPath(root, path);
-    }
-
-    if (!isActive) {
-      return;
-    }
-
-    if (nextFile) {
-      void handleSelectFile(nextFile);
-      return;
-    }
-
-    if (root) {
-      setSelectedPath(root, null);
-    }
-    setFileContent('');
-    setFileError(null);
-    setDesktopImageSrc('');
-    setLoadedFilePath(null);
-    if (isMobile) {
-      setShowMobilePageContent(false);
-    }
-  }, [getNextOpenFile, handleSelectFile, isDirty, isMobile, openFiles, removeOpenPath, root, selectedFile?.path, setSelectedPath]);
+    const intent: DirtyFileNavigationIntent = {
+      kind: 'close',
+      path,
+      nextFile: getNextOpenFile(path, openFiles),
+    };
+    if (isActive && requestNavigation(intent)) return;
+    void continueNavigation(intent);
+  }, [continueNavigation, getNextOpenFile, openFiles, requestNavigation, selectedFile?.path]);
 
   const getFileStatus = React.useCallback((path: string): FileStatus | null => {
     // Check open status
@@ -2328,12 +2198,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     <div
       className="relative flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden"
     >
-      <Dialog open={confirmDiscardOpen} onOpenChange={(open) => {
-        // Intentionally no "cancel" action. Keep dialog modal.
-        if (!open) {
-          setConfirmDiscardOpen(true);
-        }
-      }}>
+      <Dialog open={confirmDiscardOpen} onOpenChange={keepDiscardModalOpen}>
         <DialogContent showCloseButton={false} className="max-w-md">
           <DialogHeader>
             <DialogTitle>{"Unsaved changes"}</DialogTitle>
