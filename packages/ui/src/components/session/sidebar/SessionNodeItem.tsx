@@ -2,23 +2,9 @@
 import React from 'react';
 import type { Session } from '@/lib/chat/types';
 import { ContextMenu } from '@base-ui/react/context-menu';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { dropdownMenuItemClass, dropdownMenuPopupClass, dropdownMenuSeparatorClass, dropdownMenuSubTriggerClass } from '@/components/ui/dropdown-menu.styles';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn, formatDirectoryName } from '@/lib/utils';
 import { canUseElectronDesktopIPC, invokeDesktop } from '@/lib/desktop';
 import { toast } from '@/components/ui';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { isSessionPinned, type SessionPinnedTarget } from '@/stores/useSessionPinnedStore';
 import { Icon } from "@/components/icon/Icon";
 import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
@@ -42,12 +28,14 @@ import { useHasSessionActivityDuration } from '@/sync/session-activity-timing';
 import { SessionActivityDuration } from '@/components/session/SessionActivityDuration';
 import { SessionUnreadDot } from './SessionUnreadDot';
 import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore';
-import { useShiftKeyHeld } from '@/hooks/useShiftKeyHeld';
 import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { getForkBackgroundColor, getForkColor } from './forkColor';
+import { QuickSessionAction } from './QuickSessionAction';
+import { SessionNodeExportDialog } from './SessionNodeExportDialog';
+import { SessionNodeContextMenuContent, SessionNodeDropdownMenuContent } from './SessionNodeContextMenu';
 
 type Folder = { id: string; name: string; sessionIds: string[] };
 
@@ -188,68 +176,6 @@ const holdSessionRowPosition = (target: HTMLElement): void => {
   cancelScrollAnchorByContainer.set(container, cancel);
   frameId = window.requestAnimationFrame(restore);
 };
-
-type QuickSessionActionProps = {
-  archiveLabel: string;
-  deleteLabel: string;
-  buttonSizeClass: string;
-  iconSizeClass: string;
-  onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => void;
-  onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => void;
-  onArchive: (event: React.MouseEvent<HTMLButtonElement>) => void;
-  onDelete: (event: React.MouseEvent<HTMLButtonElement>) => void;
-};
-
-// Extracted so only this small button re-renders when Shift is pressed/released,
-// instead of every mounted session row.
-const QuickSessionAction = React.memo(function QuickSessionAction({
-  archiveLabel,
-  deleteLabel,
-  buttonSizeClass,
-  iconSizeClass,
-  onPointerDown,
-  onMouseDown,
-  onArchive,
-  onDelete,
-}: QuickSessionActionProps): React.ReactNode {
-  const shiftHeld = useShiftKeyHeld();
-  const label = shiftHeld ? deleteLabel : archiveLabel;
-
-  const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
-    if (shiftHeld || event.shiftKey) {
-      onDelete(event);
-      return;
-    }
-    onArchive(event);
-  };
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            'inline-flex items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 transition-opacity',
-            shiftHeld
-              ? 'text-destructive hover:text-destructive'
-              : 'text-muted-foreground hover:text-foreground',
-            buttonSizeClass,
-          )}
-          aria-label={label}
-          onPointerDown={onPointerDown}
-          onMouseDown={onMouseDown}
-          onClick={handleClick}
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <Icon name={shiftHeld ? 'delete-bin' : 'archive'} className={iconSizeClass} />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="left" sideOffset={8}>
-        {label}
-      </TooltipContent>
-    </Tooltip>
-  );
-});
 
 function SessionNodeItemComponent(props: Props): React.ReactNode {
   streamPerfCount('ui.sidebar_session_node.render');
@@ -745,137 +671,26 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     }
   };
 
-  const renderSessionMenuItems = ({
-    Item,
-    Separator,
-    Sub,
-    SubTrigger,
-    SubContent,
-  }: {
-    Item: React.ElementType;
-    Separator: React.ElementType;
-    Sub: React.ElementType;
-    SubTrigger: React.ElementType;
-    SubContent: React.ElementType;
-  }) => (
-    <>
-      <Item
-        onClick={() => {
-          // Defer rename until dropdown close transition completes.
-          // onOpenChangeComplete fires after animation + focus cleanup are done,
-          // avoiding focus stealing from Base UI's unmount cleanup.
-          pendingRenameRef.current = { id: session.id, title: sessionTitle };
-        }}
-        className="[&>svg]:mr-1"
-      >
-        <Icon name="pencil-ai" className="mr-1 h-4 w-4" />
-        {"Rename"}
-      </Item>
-      <Item onClick={() => handleCopySessionId(session.id)} className="[&>svg]:mr-1">
-        <Icon name="file-copy" className="mr-1 h-4 w-4" />
-        {"Copy session ID"}
-      </Item>
-      <Item onClick={() => sessionDirectory && togglePinnedSession({ directory: sessionDirectory, sessionId: session.id })} className="[&>svg]:mr-1">
-        {isPinnedSession ? <Icon name="unpin" className="mr-1 h-4 w-4" /> : <Icon name="pushpin" className="mr-1 h-4 w-4" />}
-        {isPinnedSession ? "Unpin session" : "Pin session"}
-      </Item>
+  const menuItemsProps = {
+    session,
+    sessionTitle,
+    sessionDirectory,
+    isPinnedSession,
+    archivedBucket,
+    isElectron,
+    renamingFolderId,
+    editingIdRef,
+    pendingRenameRef,
+    handleCopySessionId,
+    togglePinnedSession,
+    handleExportSession,
+    handleOpenMiniChatWindow,
+    handleDeleteSession,
+    handleRestoreSession,
+  };
 
-      <Item onClick={() => { void handleExportSession(); }} className="[&>svg]:mr-1">
-        <Icon name="download" className="mr-1 h-4 w-4" />
-        {"Export Markdown"}
-      </Item>
-
-
-      {isElectron ? (
-        <Item
-          disabled={!sessionDirectory}
-          onClick={handleOpenMiniChatWindow}
-          className="[&>svg]:mr-1"
-        >
-          <Icon name="window" className="mr-1 h-4 w-4" />
-          <span className="truncate">{"Open in Mini Chat Window"}</span>
-        </Item>
-      ) : null}
-
-      <Separator />
-      {!archivedBucket ? (
-        <Item className="[&>svg]:mr-1" onClick={() => handleDeleteSession(session, { archivedBucket })}>
-          <Icon name="inbox-archive" className="mr-1 h-4 w-4" />
-          {"Archive"}
-        </Item>
-      ) : null}
-      {archivedBucket ? (
-        <Item className="[&>svg]:mr-1" onClick={() => handleRestoreSession(session)}>
-          <Icon name="inbox-unarchive" className="mr-1 h-4 w-4" />
-          {"Restore"}
-        </Item>
-      ) : null}
-      <Item className="text-destructive focus:text-destructive [&>svg]:mr-1" onClick={() => handleDeleteSession(session, { archivedBucket, hardDelete: true })}>
-        <Icon name="delete-bin" className="mr-1 h-4 w-4" />
-        {"Delete"}
-      </Item>
-    </>
-  );
-
-  const sessionMenuContent = (
-    <DropdownMenuContent align="end" className="min-w-[180px]" finalFocus={() => (renamingFolderId || editingIdRef.current) ? false : true}>
-      {renderSessionMenuItems({
-        Item: DropdownMenuItem,
-        Separator: DropdownMenuSeparator,
-        Sub: DropdownMenuSub,
-        SubTrigger: DropdownMenuSubTrigger,
-        SubContent: DropdownMenuSubContent,
-      })}
-    </DropdownMenuContent>
-  );
-
-  const contextMenuContent = (
-    <ContextMenu.Portal>
-      <ContextMenu.Positioner className="app-region-no-drag z-50">
-        <ContextMenu.Popup
-          data-slot="dropdown-menu-content"
-          finalFocus={() => (renamingFolderId || editingIdRef.current) ? false : true}
-          style={{
-            color: 'var(--surface-elevated-foreground)',
-          }}
-          className={cn(dropdownMenuPopupClass, 'min-w-[180px]')}
-        >
-          {renderSessionMenuItems({
-            Item: ({ className, ...itemProps }: React.ComponentProps<typeof ContextMenu.Item>) => (
-              <ContextMenu.Item className={cn(dropdownMenuItemClass, className)} {...itemProps} />
-            ),
-            Separator: ({ className, ...separatorProps }: React.ComponentProps<typeof ContextMenu.Separator>) => (
-              <ContextMenu.Separator className={cn(dropdownMenuSeparatorClass, className)} {...separatorProps} />
-            ),
-            Sub: ContextMenu.SubmenuRoot,
-            SubTrigger: ({ className, children, ...triggerProps }: React.ComponentProps<typeof ContextMenu.SubmenuTrigger>) => (
-              <ContextMenu.SubmenuTrigger className={cn(dropdownMenuSubTriggerClass, className)} {...triggerProps}>
-                {children}
-                <Icon name="arrow-right-s" className="ml-auto size-3.5" />
-              </ContextMenu.SubmenuTrigger>
-            ),
-            SubContent: ({ className, children, ...popupProps }: React.ComponentProps<typeof ContextMenu.Popup>) => (
-              <ContextMenu.Portal>
-                <ContextMenu.Positioner className="app-region-no-drag z-50">
-                  <ContextMenu.Popup
-                    data-slot="dropdown-menu-sub-content"
-                    style={{
-                      backgroundColor: 'var(--surface-elevated)',
-                      color: 'var(--surface-elevated-foreground)',
-                    }}
-                    className={cn(dropdownMenuPopupClass, className)}
-                    {...popupProps}
-                  >
-                    {children}
-                  </ContextMenu.Popup>
-                </ContextMenu.Positioner>
-              </ContextMenu.Portal>
-            ),
-          })}
-        </ContextMenu.Popup>
-      </ContextMenu.Positioner>
-    </ContextMenu.Portal>
-  );
+  const sessionMenuContent = <SessionNodeDropdownMenuContent {...menuItemsProps} />;
+  const contextMenuContent = <SessionNodeContextMenuContent {...menuItemsProps} />;
 
   return (
     <React.Fragment key={session.id}>
@@ -1128,47 +943,14 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
           );
         })
         : null}
-      <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
-        <DialogContent showCloseButton={false} className="max-w-sm gap-5">
-          <DialogHeader>
-            <DialogTitle>{"Export Markdown"}</DialogTitle>
-            <DialogDescription>
-              {descendantCount === 1
-                ? `This session has ${descendantCount} sub-agent task. Include it in the export?`
-                : `This session has ${descendantCount} sub-agent tasks. Include them in the export?`}
-            </DialogDescription>
-          </DialogHeader>
-          <label className="flex items-center gap-2 typography-ui-label cursor-pointer">
-            <input
-              type="checkbox"
-              checked={exportIncludeSubtasks}
-              onChange={(e) => setExportIncludeSubtasks(e.target.checked)}
-              className="h-4 w-4 rounded border-border accent-primary"
-            />
-            {"Include sub-agent tasks"}
-          </label>
-          <DialogFooter>
-            <Button
-              type="button"
-              onClick={() => setExportDialogOpen(false)}
-              variant="outline"
-              size="sm"
-            >
-              {"Cancel"}
-            </Button>
-            <Button
-              type="button"
-              onClick={() => {
-                setExportDialogOpen(false);
-                void doExportSession(exportIncludeSubtasks);
-              }}
-              size="sm"
-            >
-              {"Export"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <SessionNodeExportDialog
+        open={exportDialogOpen}
+        onOpenChange={setExportDialogOpen}
+        descendantCount={descendantCount}
+        exportIncludeSubtasks={exportIncludeSubtasks}
+        setExportIncludeSubtasks={setExportIncludeSubtasks}
+        onExport={doExportSession}
+      />
     </React.Fragment>
   );
 }
