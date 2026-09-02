@@ -52,7 +52,8 @@ import { InProgressOperationBanner } from './git/InProgressOperationBanner';
 import { BranchIntegrationSection, type OperationLogEntry } from './git/BranchIntegrationSection';
 import { deriveBaseBranch, hasResolvableBaseBranch } from './git/baseBranch';
 import { createGitIndexMutationQueue, type GitIndexMutationDirection, type GitIndexMutationQueue } from './git/gitIndexMutationQueue';
-import type { GitRemote } from '@/lib/gitApi';
+import { MobileGitChrome } from './git/MobileGitChrome';
+import type { GitRemote } from '@/lib/api/types';
 import { cn } from '@/lib/utils';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
@@ -176,11 +177,25 @@ const isStagedStatusFile = (file: GitStatus['files'][number]): boolean => {
   return Boolean(indexStatus && indexStatus !== '?');
 };
 
-type GitViewProps = {
-  isActive: boolean;
+const isUnstagedStatusFile = (file: GitStatus['files'][number]): boolean => {
+  const workingStatus = file.working_dir?.trim();
+  const indexStatus = file.index?.trim();
+  return Boolean(workingStatus || indexStatus === '?');
 };
 
-export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
+type GitViewProps = {
+  isActive: boolean;
+  chrome?: 'desktop' | 'mobile';
+  initialDiffPath?: string | null;
+  initialDiffStaged?: boolean;
+};
+
+export const GitView: React.FC<GitViewProps> = ({
+  isActive,
+  chrome = 'desktop',
+  initialDiffPath = null,
+  initialDiffStaged = false,
+}) => {
   const { git } = useRuntimeAPIs();
   const currentDirectory = useEffectiveDirectory();
   const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
@@ -378,6 +393,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
   const [revertingPaths, setRevertingPaths] = React.useState<Set<string>>(new Set());
   const [movingChangePaths, setMovingChangePaths] = React.useState<Set<string>>(new Set());
   const [isRevertingAll, setIsRevertingAll] = React.useState(false);
+  const [mobileVisibleChangePaths, setMobileVisibleChangePaths] = React.useState<string[]>([]);
   const [integrateRefreshKey, setIntegrateRefreshKey] = React.useState(0);
   const [isUpdateBranchDialogOpen, setIsUpdateBranchDialogOpen] = React.useState(false);
   const hasPendingIndexMutation = movingChangePaths.size > 0 || gitIndexMutationQueue.size() > 0 || gitIndexMutationQueue.isRunning();
@@ -729,6 +745,11 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     [changeEntries]
   );
 
+  const unstagedChangeEntries = React.useMemo(
+    () => changeEntries.filter(isUnstagedStatusFile),
+    [changeEntries]
+  );
+
   React.useEffect(() => {
     if (!currentDirectory || changeEntries.length === 0) {
       return;
@@ -746,6 +767,9 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     };
 
     stagedChangeEntries.forEach((entry) => pushPath(entry.path));
+    if (chrome === 'mobile') {
+      mobileVisibleChangePaths.forEach(pushPath);
+    }
     changeEntries.slice(0, GIT_DIFF_PRIORITY_BASELINE_LIMIT).forEach((entry) => pushPath(entry.path));
 
     if (orderedPaths.length === 0) {
@@ -759,7 +783,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [changeEntries, currentDirectory, git, prefetchDiffs, stagedChangeEntries]);
+  }, [changeEntries, chrome, currentDirectory, git, mobileVisibleChangePaths, prefetchDiffs, stagedChangeEntries]);
 
   const getPushedRemoteName = (result?: Awaited<ReturnType<typeof git.gitPush>>) => {
     return result?.pushed[0]?.remote
@@ -860,6 +884,22 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
     }
   };
 
+  const loadMobileDiff = React.useCallback(async (path: string, staged: boolean) => {
+    if (!currentDirectory) {
+      throw new Error('No active directory');
+    }
+
+    const response = await git.getGitFileDiff(currentDirectory, {
+      path,
+      staged: staged || undefined,
+    });
+    return {
+      original: response.original ?? '',
+      modified: response.modified ?? '',
+      isBinary: response.isBinary,
+    };
+  }, [currentDirectory, git]);
+
   const handleRemoveRemote = React.useCallback(async (remote: GitRemote) => {
     if (!currentDirectory) return;
 
@@ -946,7 +986,9 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
           result = await git.gitPush(currentDirectory);
         }
         toast.success(`Pushed to ${getPushedRemoteName(result)}`);
-        triggerFireworks();
+        if (chrome !== 'mobile') {
+          triggerFireworks();
+        }
         await refreshStatusAndBranches(false);
       } else {
         await refreshStatusAndBranches(false);
@@ -1893,6 +1935,37 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
       persistConflictState(currentDirectory, result.conflictFiles ?? [], result.operation);
     }
   }, [ setConflictFiles, setConflictOperation, setConflictDialogOpen, persistConflictState, currentDirectory, fetchStatus, fetchBranches, fetchLog, logMaxCountLocal, git]);
+
+  if (chrome === 'mobile') {
+    return (
+      <MobileGitChrome
+        currentDirectory={currentDirectory ?? null}
+        status={status}
+        isGitRepo={isGitRepo}
+        isLoadingStatus={isLoading}
+        changeEntries={changeEntries}
+        stagedChangeEntries={stagedChangeEntries}
+        unstagedChangeEntries={unstagedChangeEntries}
+        effectiveRemotes={effectiveRemotes}
+        syncAction={syncAction}
+        commitAction={commitAction}
+        commitMessage={commitMessage}
+        hasPendingIndexMutation={hasPendingIndexMutation}
+        revertingPaths={revertingPaths}
+        isRevertingAll={isRevertingAll}
+        initialDiffPath={initialDiffPath}
+        initialDiffStaged={initialDiffStaged}
+        onSyncAction={(action, remote) => { void handleSyncAction(action, remote); }}
+        onMoveChangePaths={moveChangePaths}
+        onRevertFile={(path) => { void handleRevertFile(path); }}
+        onRevertAll={handleRevertAll}
+        onCommitMessageChange={setCommitMessage}
+        onCommit={(options) => { void handleCommit(options); }}
+        onVisiblePathsChange={setMobileVisibleChangePaths}
+        loadDiff={loadMobileDiff}
+      />
+    );
+  }
 
   if (!currentDirectory) {
     return (

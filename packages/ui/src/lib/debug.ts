@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useSessionUIStore, getRememberedSessionDirectory } from '@/sync/session-ui-store';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
@@ -7,7 +5,8 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { piClient } from '@/lib/pi/client';
 import { getRuntimeKey } from '@/lib/runtime-switch';
-import { checkIsGitRepository } from '@/lib/gitApi';
+import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
+import { checkIsGitRepository as checkIsGitRepositoryHttp } from '@/lib/gitApiHttp';
 import { streamDebugEnabled } from '@/stores/utils/streamDebug';
 import { copyTextToClipboard as copyPlainTextToClipboard } from '@/lib/clipboard';
 import { getSyncSessions, getSyncMessages, getSyncParts, getAllSyncSessions, getSyncSessionDirectory } from '@/sync/sync-refs';
@@ -18,7 +17,6 @@ import {
 import { getRecentSendFailures } from '@/sync/send-failure-log';
 import { useStreamingStore } from '@/sync/streaming';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 
 export interface DebugMessageInfo {
   messageId: string;
@@ -261,6 +259,7 @@ export const debugUtils = {
     let gitCheck: { isGitRepo: boolean | null; error?: string } = { isGitRepo: null };
     if (currentDirectory) {
       try {
+        const checkIsGitRepository = getRegisteredRuntimeAPIs()?.git.checkIsGitRepository ?? checkIsGitRepositoryHttp;
         gitCheck.isGitRepo = await checkIsGitRepository(currentDirectory);
       } catch (error) {
         gitCheck = {
@@ -376,13 +375,24 @@ export const debugUtils = {
 
     const resolution = resolveSessionDirectoryFromSources(sources);
     const routedDirectory = sessionState.getDirectoryForSession(targetSessionId);
+    const remembered = getRememberedSessionDirectory(targetSessionId);
+    const conflictCandidates = [
+      ['owning child store', owningStoreDirectory],
+      ['session record', recordDirectory],
+      ['current selection', selected],
+      ['runtime memory', remembered.runtime],
+      ['persisted memory', remembered.persisted],
+    ] as const;
+    const conflict = routedDirectory
+      ? conflictCandidates.find(([, value]) => value && value !== routedDirectory)
+      : undefined;
 
     const report = {
       sessionId: targetSessionId,
       isCurrentSession: targetSessionId === sessionState.currentSessionId,
       routedDirectory,
       resolvedFrom: resolution.source,
-      conflict: resolution.conflict,
+      conflict: conflict ? { source: conflict[0], directory: conflict[1] } : null,
       sources: describeSessionDirectorySources(sources),
       details: {
         owningChildStore: owningStoreDirectory,
@@ -397,10 +407,10 @@ export const debugUtils = {
     };
 
     console.log('[DEBUG] Session directory resolution:', report);
-    if (resolution.conflict) {
+    if (conflict) {
       console.warn(
-        `[ALERT] Directory sources disagree: using "${resolution.directory}" (${resolution.source}) `
-        + `while "${resolution.conflict.directory}" came from ${resolution.conflict.source}.`,
+        `[ALERT] Directory sources disagree: routing to "${routedDirectory}" `
+        + `while "${conflict[1]}" came from ${conflict[0]}.`,
       );
     } else if (!routedDirectory) {
       console.warn('[ALERT] No directory resolved for this session — sends fall back to the active directory.');

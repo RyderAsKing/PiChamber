@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Icon } from "@/components/icon/Icon";
-import type { GitRemote } from '@/lib/gitApi';
+import type { GitRemote } from '@/lib/api/types';
 import { cn } from '@/lib/utils';
 
 type SyncAction = 'fetch' | 'pull' | 'push' | 'sync' | null;

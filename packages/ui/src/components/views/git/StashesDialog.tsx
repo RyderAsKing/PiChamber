@@ -7,7 +7,7 @@ import { toast } from '@/components/ui';
 import { Icon } from "@/components/icon/Icon";
 import { cn } from '@/lib/utils';
 import type { GitStashEntry } from '@/lib/api/types';
-import { applyGitStash, countGitStashFiles, dropGitStash, listGitStashes, popGitStash, stashGitChanges } from '@/lib/gitApi';
+import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 
 interface StashesDialogProps {
   open: boolean;
@@ -30,6 +30,7 @@ export const StashesDialog: React.FC<StashesDialogProps> = ({
   uncommittedFileCount,
   onChanged,
 }) => {
+  const { git } = useRuntimeAPIs();
   const [stashes, setStashes] = React.useState<GitStashEntry[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
   const [query, setQuery] = React.useState('');
@@ -41,7 +42,7 @@ export const StashesDialog: React.FC<StashesDialogProps> = ({
     if (!directory) return;
     setIsLoading(true);
     try {
-      const result = await listGitStashes(directory);
+      const result = await git.listGitStashes(directory);
       setStashes(result.stashes);
       setFileCounts({});
     } catch (error) {
@@ -49,7 +50,7 @@ export const StashesDialog: React.FC<StashesDialogProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [directory]);
+  }, [directory, git]);
 
   React.useEffect(() => {
     if (open) void load();
@@ -59,13 +60,13 @@ export const StashesDialog: React.FC<StashesDialogProps> = ({
     if (!open || !directory || stashes.length === 0) return;
     let cancelled = false;
     const refs = stashes.map((stash) => stash.ref);
-    void countGitStashFiles(directory, refs).then((result) => {
+    void git.countGitStashFiles(directory, refs).then((result) => {
       if (!cancelled) setFileCounts(result.counts);
     }).catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [directory, open, stashes]);
+  }, [directory, git, open, stashes]);
 
   const filtered = React.useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -82,7 +83,7 @@ export const StashesDialog: React.FC<StashesDialogProps> = ({
     if (!directory || operation) return;
     setOperation('create');
     try {
-      const result = await stashGitChanges(directory, { message: message.trim() || undefined });
+      const result = await git.stashGitChanges(directory, { message: message.trim() || undefined });
       if (result.created) {
         toast.success("Changes stashed");
         setMessage('');
@@ -102,9 +103,9 @@ export const StashesDialog: React.FC<StashesDialogProps> = ({
     if (kind === 'drop' && !window.confirm(`Drop ${stash.ref}?`)) return;
     setOperation(`${kind}:${stash.ref}`);
     try {
-      if (kind === 'apply') await applyGitStash(directory, { ref: stash.ref });
-      if (kind === 'pop') await popGitStash(directory, { ref: stash.ref });
-      if (kind === 'drop') await dropGitStash(directory, { ref: stash.ref });
+      if (kind === 'apply') await git.applyGitStash(directory, { ref: stash.ref });
+      if (kind === 'pop') await git.popGitStash(directory, { ref: stash.ref });
+      if (kind === 'drop') await git.dropGitStash(directory, { ref: stash.ref });
       const successMessage = kind === 'apply' ? 'Stash applied' : kind === 'pop' ? 'Stash popped' : 'Stash dropped';
       toast.success(successMessage);
       await refreshAfterChange({ affectsIndex: kind !== 'drop' });

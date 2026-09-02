@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import type {
   GitStatus,
   GitDiffResponse,

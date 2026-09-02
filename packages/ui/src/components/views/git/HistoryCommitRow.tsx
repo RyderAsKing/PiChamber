@@ -9,13 +9,13 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from "@/components/icon/Icon";
 import { cn } from '@/lib/utils';
-import type { GitLogEntry, CommitFileEntry } from '@/lib/api/types';
-import { getCommitFileDiff, type CommitFileDiffResponse } from '@/lib/gitApi';
+import type { GitLogEntry, CommitFileEntry, CommitFileDiffResponse } from '@/lib/api/types';
 import { PierreDiffViewer } from '@/components/views/PierreDiffViewer';
 import { getLanguageFromExtension } from '@/lib/toolHelpers';
 import type { LanedCommit } from './gitGraph';
 import { GitGraphSegment } from './GitGraphSegment';
-import * as git from '@/lib/gitApi';
+import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
+import { getCommitFileDiff as getCommitFileDiffHttp } from '@/lib/gitApiHttp';
 import { toast } from '@/components/ui/toast';
 import { formatDateTimeForPreference } from '@/lib/timeFormat';
 import { useUIStore, type TimeFormatPreference } from '@/stores/useUIStore';
@@ -145,6 +145,7 @@ export const HistoryCommitRow = React.memo(({
   onConflict,
   onActionSuccess,
 }: HistoryCommitRowProps) => {
+  const { git } = useRuntimeAPIs();
   const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
   const isGraphMode = mode === 'graph';
   type PendingAction =
@@ -314,7 +315,8 @@ export const HistoryCommitRow = React.memo(({
 
     setDiffCache(prev => trimHistoryDiffCache(new Map(prev).set(key, 'loading')));
     try {
-      const fetchPromise = getCommitFileDiff(directory, entry.hash, file.path, false);
+      const fetchCommitFileDiff = git.getCommitFileDiff ?? getCommitFileDiffHttp;
+      const fetchPromise = fetchCommitFileDiff(directory, entry.hash, file.path, false);
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error(`Timed out after ${HISTORY_DIFF_REQUEST_TIMEOUT_MS}ms`)), HISTORY_DIFF_REQUEST_TIMEOUT_MS);
       });
@@ -323,7 +325,7 @@ export const HistoryCommitRow = React.memo(({
     } catch {
       setDiffCache(prev => new Map(prev).set(key, 'error'));
     }
-  }, [directory, entry.hash]);
+  }, [directory, entry.hash, git.getCommitFileDiff]);
 
   const toggleFileDiff = React.useCallback(async (file: CommitFileEntry) => {
     const key = file.path;

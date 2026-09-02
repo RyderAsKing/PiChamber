@@ -13,7 +13,8 @@ import { useInputStore } from '@/sync/input-store';
 import { useUIStore } from '@/stores/useUIStore';
 import { toast } from '@/components/ui';
 import { Icon } from "@/components/icon/Icon";
-import { getConflictDetails, type MergeConflictDetails } from '@/lib/gitApi';
+import type { MergeConflictDetails } from '@/lib/api/types';
+import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 
 interface ConflictDialogProps {
   open: boolean;
@@ -34,6 +35,7 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
   onAbort,
   onClearState,
 }) => {
+  const { git } = useRuntimeAPIs();
   const openNewSessionDraft = useSessionUIStore((state) => state.openNewSessionDraft);
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const setPendingInputText = useInputStore((state) => state.setPendingInputText);
@@ -52,7 +54,7 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
     setLoadError(null);
     setConflictDetails(null);
 
-    getConflictDetails(directory)
+    git.getConflictDetails(directory)
       .then((details) => {
         setConflictDetails(details);
       })
@@ -63,7 +65,7 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
       .finally(() => {
         setIsLoading(false);
       });
-  }, [open, directory]);
+  }, [directory, git, open]);
 
   const buildConflictContext = React.useCallback(async (): Promise<{
     visibleText: string;
