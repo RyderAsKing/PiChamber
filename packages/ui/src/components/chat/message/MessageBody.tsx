@@ -1,7 +1,6 @@
 import React from 'react';
 import type { Part } from '@/lib/chat/types';
 
-import UserTextPart from './parts/UserTextPart';
 import ToolPart from './parts/ToolPart';
 import AssistantTextPart from './parts/AssistantTextPart';
 import ReasoningPart from './parts/ReasoningPart';
@@ -11,7 +10,7 @@ import type { ToolPart as ToolPartType } from '@/lib/chat/types';
 import type { StreamPhase, ToolPopupContent, AgentMentionInfo } from './types';
 import type { TurnChangedFile, TurnGroupingContext } from '../lib/turns/types';
 import { cn } from '@/lib/utils';
-import { isEmptyTextPart, extractTextContent, filterRenderableAssistantParts } from './partUtils';
+import { extractTextContent, filterRenderableAssistantParts } from './partUtils';
 import { FadeInOnReveal } from './FadeInOnReveal';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -32,115 +31,15 @@ import { StaticToolRow } from './parts/StaticToolRow';
 import { isExpandableTool } from './parts/toolRenderUtils';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { extractLoopbackUrls } from '@/lib/url';
-import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { useProviderLogo } from '@/hooks/useProviderLogo';
 import { getAgentColor } from '@/lib/agentColors';
 import { AssistantMessageActionButtons } from './AssistantMessageActionButtons';
-import { UserShellActionPart, UserSubtaskPart } from './UserAuxiliaryParts';
-import { isShellActionPart, isSubtaskPart } from './userAuxiliaryPartsModel';
-
+import { TurnChangedFilePills, formatTurnDuration } from './TurnChangedFilesPills';
+import { UserMessageBody } from './UserMessageBody';
 
 const CONTAIN_LAYOUT_STYLE = { contain: 'layout' as const, transform: 'translateZ(0)' };
 const MESSAGE_FOOTER_CONTAINER_STYLE = { containerType: 'inline-size' as const, containerName: 'message-footer' };
 const INLINE_MESSAGE_ACTIONS_CLASS_NAME = 'mt-2 mb-1 flex items-center justify-start gap-1.5';
-
-const getDisplayFileName = (file: string): string => {
-    const normalized = file.replace(/\\/g, '/');
-    const segments = normalized.split('/').filter(Boolean);
-    return segments.at(-1) ?? file;
-};
-
-const TurnChangedFileChipContent = React.memo(({ file, interactive = false }: { file: TurnChangedFile; interactive?: boolean }) => (
-    <span
-        className={cn(
-            'inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border/30 bg-muted/30 px-2 py-1 text-xs text-muted-foreground',
-            interactive && 'transition-colors hover:border-border/60 hover:bg-interactive-hover'
-        )}
-        style={{ lineHeight: 'round(1.35em, 1px)' }}
-    >
-        <FileTypeIcon filePath={file.file} className="h-3.5 w-3.5 flex-shrink-0" />
-        <span className="max-w-52 truncate text-foreground/80" title={file.file}>{getDisplayFileName(file.file)}</span>
-        <span className="flex-shrink-0 inline-flex items-center gap-0 typography-meta" style={{ fontSize: '0.8rem', lineHeight: '1' }}>
-            <span style={{ color: 'var(--status-success)' }}>+{file.additions}</span>
-            <span className="text-muted-foreground/70">/</span>
-            <span style={{ color: 'var(--status-error)' }}>-{file.deletions}</span>
-        </span>
-    </span>
-));
-
-const TurnChangedFilePillButton = React.memo(({
-    file,
-    onOpen,
-}: {
-    file: TurnChangedFile;
-    onOpen: (file: string) => void;
-}) => {
-    return (
-        <button
-            type="button"
-            className="inline-flex h-8 max-w-full cursor-pointer items-center rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]"
-            aria-label={`Open ${file.file}`}
-            title={file.file}
-            onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onOpen(file.file);
-            }}
-        >
-            <TurnChangedFileChipContent file={file} interactive />
-        </button>
-    );
-});
-
-const StaticTurnChangedFilePills = React.memo(({ files }: { files: TurnChangedFile[] }) => (
-    <>
-        {files.map((file) => (
-            <span key={file.file} className="inline-flex h-8 max-w-full items-center" title={file.file}>
-                <TurnChangedFileChipContent file={file} />
-            </span>
-        ))}
-    </>
-));
-
-const InteractiveTurnChangedFilePills = React.memo(({ files }: { files: TurnChangedFile[] }) => {
-    const effectiveDirectory = useEffectiveDirectory();
-    const isMobile = useUIStore((state) => state.isMobile);
-    const navigateToDiff = useUIStore((state) => state.navigateToDiff);
-    const openContextDiff = useUIStore((state) => state.openContextDiff);
-
-    const openLastTurnDiff = React.useCallback((file: string) => {
-        if (!isMobile && effectiveDirectory) {
-            openContextDiff(effectiveDirectory, file, false, 'turn');
-            return;
-        }
-
-        navigateToDiff(file, false, 'turn');
-    }, [effectiveDirectory, isMobile, navigateToDiff, openContextDiff]);
-
-    return (
-        <>
-            {files.map((file) => (
-                <TurnChangedFilePillButton key={file.file} file={file} onOpen={openLastTurnDiff} />
-            ))}
-        </>
-    );
-});
-
-const TurnChangedFilePills = React.memo(({ files, isInteractive }: { files?: TurnChangedFile[]; isInteractive: boolean }) => {
-    if (!files || files.length === 0) return null;
-
-    return isInteractive ? <InteractiveTurnChangedFilePills files={files} /> : <StaticTurnChangedFilePills files={files} />;
-});
-
-const formatTurnDuration = (durationMs: number): string => {
-    const totalSeconds = Math.max(0.1, durationMs / 1000);
-    if (totalSeconds < 60) {
-        return `${totalSeconds.toFixed(1)}s`;
-    }
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = Math.round(totalSeconds % 60);
-    return `${minutes}m ${seconds}s`;
-};
 
 interface MessageBodyProps {
     sessionId?: string;
@@ -204,243 +103,7 @@ const writeRevealedToolIds = (messageId: string, value: Set<string>): void => {
     revealedToolIdsByMessage.set(messageId, new Set(value));
 };
 
-const UserMessageBody = React.memo(({ sessionId, messageId, parts, messageCreatedAt, isLatestMessage = false, isMobile, alwaysShowActions = isMobile, hasTouchInput, hasTextContent, onCopyMessage, copiedMessage, onShowPopup, agentMention, userActionsMode = 'inline', stickyUserHeaderEnabled = true }: {
-    sessionId?: string | null;
-    messageId: string;
-    parts: Part[];
-    messageCreatedAt?: number | null;
-    isLatestMessage?: boolean;
-    isMobile: boolean;
-    alwaysShowActions?: boolean;
-    hasTouchInput?: boolean;
-    hasTextContent?: boolean;
-    onCopyMessage?: () => void;
-    copiedMessage?: boolean;
-    onShowPopup: (content: ToolPopupContent) => void;
-    agentMention?: AgentMentionInfo;
-    userActionsMode?: 'inline' | 'external-content' | 'external-actions';
-    stickyUserHeaderEnabled?: boolean;
-}) => {
-    const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
-    const [copyHintVisible, setCopyHintVisible] = React.useState(false);
-    const copyHintTimeoutRef = React.useRef<number | null>(null);
 
-    const userContentParts = React.useMemo(() => {
-        return parts.filter((part) => {
-            if (part.type === 'text') {
-                return !isEmptyTextPart(part);
-            }
-            if (isSubtaskPart(part)) {
-                return true;
-            }
-            if (isShellActionPart(part)) {
-                return true;
-            }
-            return false;
-        });
-    }, [parts]);
-
-    const mentionToken = agentMention?.token;
-    let mentionInjected = false;
-
-    const canCopyMessage = Boolean(onCopyMessage);
-    const isMessageCopied = Boolean(copiedMessage);
-    const isTouchContext = Boolean(hasTouchInput ?? isMobile);
-    const hasCopyableText = Boolean(hasTextContent);
-    const showUserContent = userActionsMode !== 'external-actions';
-    const showUserActions = userActionsMode !== 'external-content';
-    const useStickyScrollableUserContent = stickyUserHeaderEnabled && userActionsMode === 'inline';
-
-    const clearCopyHintTimeout = React.useCallback(() => {
-        if (copyHintTimeoutRef.current !== null && typeof window !== 'undefined') {
-            window.clearTimeout(copyHintTimeoutRef.current);
-            copyHintTimeoutRef.current = null;
-        }
-    }, []);
-
-    const revealCopyHint = React.useCallback(() => {
-        if (!isTouchContext || !canCopyMessage || !hasCopyableText || typeof window === 'undefined') {
-            return;
-        }
-
-        clearCopyHintTimeout();
-        setCopyHintVisible(true);
-        copyHintTimeoutRef.current = window.setTimeout(() => {
-            setCopyHintVisible(false);
-            copyHintTimeoutRef.current = null;
-        }, 1800);
-    }, [canCopyMessage, clearCopyHintTimeout, hasCopyableText, isTouchContext]);
-
-    React.useEffect(() => {
-        if (!hasCopyableText) {
-            setCopyHintVisible(false);
-            clearCopyHintTimeout();
-        }
-    }, [clearCopyHintTimeout, hasCopyableText]);
-
-    const handleCopyButtonClick = React.useCallback(
-        (event: React.MouseEvent<HTMLButtonElement>) => {
-            if (!onCopyMessage || !hasCopyableText) {
-                return;
-            }
-
-            event.stopPropagation();
-            event.preventDefault();
-            onCopyMessage();
-
-            if (isTouchContext) {
-                revealCopyHint();
-            }
-        },
-        [hasCopyableText, isTouchContext, onCopyMessage, revealCopyHint]
-    );
-
-    const timestamp = React.useMemo(() => {
-        if (typeof messageCreatedAt !== 'number' || messageCreatedAt <= 0) return null;
-        const formatted = formatTimestampForDisplay(messageCreatedAt, timeFormatPreference);
-        return formatted.length > 0 ? formatted : null;
-    }, [ messageCreatedAt, timeFormatPreference]);
-    const useInFlowUserActions = isMobile || alwaysShowActions;
-    const actionsBlock = showUserActions ? (
-        <div className={cn(
-            'group/user-actions',
-            useInFlowUserActions
-                ? userActionsMode === 'inline'
-                    ? 'mt-2 mb-1 flex items-center justify-end'
-                    : stickyUserHeaderEnabled
-                        ? 'flex h-9 items-start justify-end pt-0'
-                        : 'flex h-11 items-start justify-end pt-0'
-                : userActionsMode === 'inline'
-                    ? 'absolute top-full left-0 right-0 z-10 pt-5'
-                    : 'flex h-8 items-start justify-end pt-2'
-        )}>
-            <div
-                className={cn(
-                    'flex items-center justify-end gap-1',
-                    isMobile
-                        ? userActionsMode === 'inline'
-                            ? 'translate-x-5'
-                            : 'translate-x-0'
-                        : userActionsMode === 'inline'
-                            ? 'translate-x-5'
-                            : 'translate-x-0',
-                    alwaysShowActions
-                        ? 'pointer-events-auto opacity-100'
-                        : 'pointer-events-none opacity-0 transition-opacity duration-150 group-hover/message:pointer-events-auto group-hover/message:opacity-100 group-hover/user-actions:pointer-events-auto group-hover/user-actions:opacity-100 group-hover/user-shell:pointer-events-auto group-hover/user-shell:opacity-100'
-                )}
-            >
-                {timestamp ? (
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <span
-                                className="mr-1 flex items-center gap-1 text-sm tabular-nums text-muted-foreground/60"
-                                aria-label={`Message time: ${timestamp}`}
-                            >
-                                <Icon name="time" className="h-3.5 w-3.5" />
-                                <span className="message-footer__label">{timestamp}</span>
-                            </span>
-                        </TooltipTrigger>
-                        <TooltipContent>{timestamp}</TooltipContent>
-                    </Tooltip>
-                ) : null}
-                {!isLatestMessage ? (
-                    <MessageRevertAction sessionId={sessionId ?? null} messageId={messageId} size="user" />
-                ) : null}
-                <MessageForkAction sessionId={sessionId ?? null} messageId={messageId} size="user" />
-                {canCopyMessage && hasCopyableText && (
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                data-visible={copyHintVisible || isMessageCopied ? 'true' : undefined}
-                                className="h-6 w-6 text-muted-foreground bg-transparent hover:text-foreground hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50"
-                                aria-label={"Copy message text"}
-                                onPointerDown={(event) => event.stopPropagation()}
-                                onClick={handleCopyButtonClick}
-                                onFocus={() => setCopyHintVisible(true)}
-                                onBlur={() => {
-                                    if (!isMessageCopied) {
-                                        setCopyHintVisible(false);
-                                    }
-                                }}
-                            >
-                                {isMessageCopied ? (
-                                    <Icon name="check" className="h-3 w-3 text-[color:var(--status-success)]" />
-                                ) : (
-                                    <Icon name="file-copy" className="h-3 w-3" />
-                                )}
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent sideOffset={6}>{"Copy message"}</TooltipContent>
-                    </Tooltip>
-                )}
-            </div>
-        </div>
-    ) : null;
-
-    if (!showUserContent) {
-        return <>{actionsBlock}</>;
-    }
-
-    return (
-        <div
-            className="relative w-full group/message"
-            style={CONTAIN_LAYOUT_STYLE}
-            onTouchStart={isTouchContext && canCopyMessage && hasCopyableText ? revealCopyHint : undefined}
-        >
-            <div
-                className={cn(
-                    'leading-relaxed text-foreground/90 text-base overflow-x-hidden',
-                    useStickyScrollableUserContent
-                        ? 'overflow-y-auto overscroll-contain scrollbar-none'
-                        : 'overflow-y-hidden'
-                )}
-                style={useStickyScrollableUserContent ? { maxHeight: 'calc(var(--chat-scroll-height, 100dvh) * 0.4)' } : undefined}
-            >
-                {userContentParts.map((part, index) => {
-                    if (isSubtaskPart(part)) {
-                        return (
-                            <React.Fragment key={part.id ?? `user-subtask-${index}`}>
-                                <UserSubtaskPart part={part} />
-                            </React.Fragment>
-                        );
-                    }
-
-                    if (isShellActionPart(part)) {
-                        return (
-                            <React.Fragment key={part.id ?? `user-shell-${index}`}>
-                                <UserShellActionPart part={part} />
-                            </React.Fragment>
-                        );
-                    }
-
-                    let mentionForPart: AgentMentionInfo | undefined;
-                    if (agentMention && mentionToken && !mentionInjected) {
-                        const candidateText = extractTextContent(part);
-                        if (candidateText.includes(mentionToken)) {
-                            mentionForPart = agentMention;
-                            mentionInjected = true;
-                        }
-                    }
-                    return (
-                        <React.Fragment key={part.id ?? `user-text-${index}`}>
-                            <UserTextPart
-                                part={part}
-                                messageId={messageId}
-                                isMobile={isMobile}
-                                agentMention={mentionForPart}
-                            />
-                        </React.Fragment>
-                    );
-                })}
-            </div>
-            <MessageFilesDisplay files={parts} onShowPopup={onShowPopup} compact />
-            {actionsBlock}
-        </div>
-    );
-});
 
 const AssistantMessageBody = React.memo(({
     sessionId,

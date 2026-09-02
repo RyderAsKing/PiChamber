@@ -1,0 +1,150 @@
+import React from 'react';
+import { cn } from '@/lib/utils';
+import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
+import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
+import { useUIStore } from '@/stores/useUIStore';
+import type { TurnChangedFile } from '../lib/turns/types';
+
+export const getDisplayFileName = (file: string): string => {
+  const normalized = file.replace(/\\/g, '/');
+  const segments = normalized.split('/').filter(Boolean);
+  return segments.at(-1) ?? file;
+};
+
+export const TurnChangedFileChipContent = React.memo(
+  ({
+    file,
+    interactive = false,
+  }: {
+    file: TurnChangedFile;
+    interactive?: boolean;
+  }) => (
+    <span
+      className={cn(
+        'inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border/30 bg-muted/30 px-2 py-1 text-xs text-muted-foreground',
+        interactive &&
+          'transition-colors hover:border-border/60 hover:bg-interactive-hover'
+      )}
+      style={{ lineHeight: 'round(1.35em, 1px)' }}
+    >
+      <FileTypeIcon filePath={file.file} className="h-3.5 w-3.5 flex-shrink-0" />
+      <span
+        className="max-w-52 truncate text-foreground/80"
+        title={file.file}
+      >
+        {getDisplayFileName(file.file)}
+      </span>
+      <span
+        className="flex-shrink-0 inline-flex items-center gap-0 typography-meta"
+        style={{ fontSize: '0.8rem', lineHeight: '1' }}
+      >
+        <span style={{ color: 'var(--status-success)' }}>+{file.additions}</span>
+        <span className="text-muted-foreground/70">/</span>
+        <span style={{ color: 'var(--status-error)' }}>-{file.deletions}</span>
+      </span>
+    </span>
+  )
+);
+
+export const TurnChangedFilePillButton = React.memo(
+  ({
+    file,
+    onOpen,
+  }: {
+    file: TurnChangedFile;
+    onOpen: (file: string) => void;
+  }) => {
+    return (
+      <button
+        type="button"
+        className="inline-flex h-8 max-w-full cursor-pointer items-center rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]"
+        aria-label={`Open ${file.file}`}
+        title={file.file}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpen(file.file);
+        }}
+      >
+        <TurnChangedFileChipContent file={file} interactive />
+      </button>
+    );
+  }
+);
+
+export const StaticTurnChangedFilePills = React.memo(
+  ({ files }: { files: TurnChangedFile[] }) => (
+    <>
+      {files.map((file) => (
+        <span
+          key={file.file}
+          className="inline-flex h-8 max-w-full items-center"
+          title={file.file}
+        >
+          <TurnChangedFileChipContent file={file} />
+        </span>
+      ))}
+    </>
+  )
+);
+
+export const InteractiveTurnChangedFilePills = React.memo(
+  ({ files }: { files: TurnChangedFile[] }) => {
+    const effectiveDirectory = useEffectiveDirectory();
+    const isMobile = useUIStore((state) => state.isMobile);
+    const navigateToDiff = useUIStore((state) => state.navigateToDiff);
+    const openContextDiff = useUIStore((state) => state.openContextDiff);
+
+    const openLastTurnDiff = React.useCallback(
+      (file: string) => {
+        if (!isMobile && effectiveDirectory) {
+          openContextDiff(effectiveDirectory, file, false, 'turn');
+          return;
+        }
+
+        navigateToDiff(file, false, 'turn');
+      },
+      [effectiveDirectory, isMobile, navigateToDiff, openContextDiff]
+    );
+
+    return (
+      <>
+        {files.map((file) => (
+          <TurnChangedFilePillButton
+            key={file.file}
+            file={file}
+            onOpen={openLastTurnDiff}
+          />
+        ))}
+      </>
+    );
+  }
+);
+
+export const TurnChangedFilePills = React.memo(
+  ({
+    files,
+    isInteractive,
+  }: {
+    files?: TurnChangedFile[];
+    isInteractive: boolean;
+  }) => {
+    if (!files || files.length === 0) return null;
+
+    return isInteractive ? (
+      <InteractiveTurnChangedFilePills files={files} />
+    ) : (
+      <StaticTurnChangedFilePills files={files} />
+    );
+  }
+);
+
+export const formatTurnDuration = (durationMs: number): string => {
+  const totalSeconds = Math.max(0.1, durationMs / 1000);
+  if (totalSeconds < 60) {
+    return `${totalSeconds.toFixed(1)}s`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.round(totalSeconds % 60);
+  return `${minutes}m ${seconds}s`;
+};
