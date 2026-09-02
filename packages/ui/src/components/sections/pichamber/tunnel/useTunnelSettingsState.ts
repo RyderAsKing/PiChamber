@@ -2,7 +2,6 @@ import React from 'react';
 import QRCode from 'qrcode';
 import { toast } from '@/components/ui';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { requestFileAccess } from '@/lib/desktop';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { openExternalUrl } from '@/lib/url';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
@@ -21,17 +20,17 @@ import type {
 } from './tunnelTypes';
 import {
   BOOTSTRAP_TTL_OPTIONS,
-  createPresetId,
   createTunnelDependencyInstallInfo,
   formatRemaining,
   hasAllowedManagedLocalConfigExtension,
-  MANAGED_LOCAL_CONFIG_EXTENSION_ERROR_KEY,
   normalizePresetHostname,
   sanitizePresets,
   SESSION_TTL_OPTIONS,
   toUiTunnelMode,
   TUNNEL_MODE_OPTIONS,
 } from './tunnelHelpers';
+import { useTunnelPresetsState } from './useTunnelPresetsState';
+import { useManagedLocalConfig } from './useManagedLocalConfig';
 
 export function useTunnelSettingsState() {
   const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
@@ -50,39 +49,100 @@ export function useTunnelSettingsState() {
   );
   const [providerCapabilities, setProviderCapabilities] = React.useState<TunnelProviderCapability[]>([]);
   const [tunnelMode, setTunnelMode] = React.useState<TunnelMode>('quick');
-  const [managedLocalConfigPath, setManagedLocalConfigPath] = React.useState<string | null>(null);
-  const [managedRemoteTunnelPresets, setManagedRemoteTunnelPresets] = React.useState<ManagedRemoteTunnelPreset[]>([]);
-  const [expandedManagedRemoteTunnels, setExpandedManagedRemoteTunnels] = React.useState<Record<string, boolean>>({});
-  const [selectedPresetId, setSelectedPresetId] = React.useState<string>('');
-  const [sessionTokensByPresetId, setSessionTokensByPresetId] = React.useState<Record<string, string>>({});
-  const [savedTokenPresetIds, setSavedTokenPresetIds] = React.useState<Set<string>>(new Set());
-  const [isAddingPreset, setIsAddingPreset] = React.useState(false);
-  const [newPresetName, setNewPresetName] = React.useState('');
-  const [newPresetHostname, setNewPresetHostname] = React.useState('');
-  const [newPresetToken, setNewPresetToken] = React.useState('');
   const [bootstrapTtlMs, setBootstrapTtlMs] = React.useState<number | null>(30 * 60 * 1000);
   const [sessionTtlMs, setSessionTtlMs] = React.useState<number>(8 * 60 * 60 * 1000);
   const [remainingText, setRemainingText] = React.useState<string>('');
   const [sessionRecords, setSessionRecords] = React.useState<TunnelSessionRecord[]>([]);
   const [nowTs, setNowTs] = React.useState<number>(() => Date.now());
   const [localPort, setLocalPort] = React.useState<number | null>(null);
-  const managedLocalConfigExtensionError = MANAGED_LOCAL_CONFIG_EXTENSION_ERROR_KEY;
-  const managedLocalConfigFileInputRef = React.useRef<HTMLInputElement>(null);
 
-  const isManagedLocalConfigPathInvalid = React.useMemo(() => {
-    if (!managedLocalConfigPath) {
-      return false;
-    }
-    return !hasAllowedManagedLocalConfigExtension(managedLocalConfigPath);
-  }, [managedLocalConfigPath]);
-
-  const selectedPreset = React.useMemo(
-    () =>
-      managedRemoteTunnelPresets.find((preset) => preset.id === selectedPresetId) ||
-      managedRemoteTunnelPresets[0] ||
-      null,
-    [managedRemoteTunnelPresets, selectedPresetId]
+  const saveTunnelSettings = React.useCallback(
+    async (payload: {
+      tunnelProvider?: string;
+      tunnelMode?: TunnelMode;
+      managedLocalTunnelConfigPath?: string | null;
+      managedRemoteTunnelPresets?: ManagedRemoteTunnelPreset[];
+      managedRemoteTunnelPresetTokens?: Record<string, string>;
+      tunnelBootstrapTtlMs?: number | null;
+      tunnelSessionTtlMs?: number;
+    }) => {
+      setIsSavingMode(true);
+      try {
+        await updateDesktopSettings(payload);
+        if (Object.prototype.hasOwnProperty.call(payload, 'tunnelMode') && payload.tunnelMode) {
+          setTunnelMode(payload.tunnelMode);
+        }
+        if (
+          Object.prototype.hasOwnProperty.call(payload, 'tunnelProvider') &&
+          typeof payload.tunnelProvider === 'string'
+        ) {
+          setTunnelProvider(payload.tunnelProvider);
+        }
+        if (Object.prototype.hasOwnProperty.call(payload, 'managedLocalTunnelConfigPath')) {
+          setManagedLocalConfigPath(payload.managedLocalTunnelConfigPath ?? null);
+        }
+        if (
+          Object.prototype.hasOwnProperty.call(payload, 'managedRemoteTunnelPresets') &&
+          payload.managedRemoteTunnelPresets
+        ) {
+          setManagedRemoteTunnelPresets(payload.managedRemoteTunnelPresets);
+        }
+      } catch {
+        toast.error('Failed to save tunnel settings');
+      } finally {
+        setIsSavingMode(false);
+      }
+    },
+    []
   );
+
+  const presetsState = useTunnelPresetsState({
+    saveTunnelSettings,
+    setManagedRemoteValidationError,
+  });
+
+  const {
+    managedRemoteTunnelPresets,
+    setManagedRemoteTunnelPresets,
+    expandedManagedRemoteTunnels,
+    setExpandedManagedRemoteTunnels,
+    selectedPresetId,
+    setSelectedPresetId,
+    sessionTokensByPresetId,
+    setSessionTokensByPresetId,
+    savedTokenPresetIds,
+    setSavedTokenPresetIds,
+    isAddingPreset,
+    setIsAddingPreset,
+    newPresetName,
+    setNewPresetName,
+    newPresetHostname,
+    setNewPresetHostname,
+    newPresetToken,
+    setNewPresetToken,
+    selectedPreset,
+    persistManagedRemoteTunnelToken,
+    handleSelectPreset,
+    handleSaveNewPreset,
+    handleRemovePreset,
+  } = presetsState;
+
+  const localConfigState = useManagedLocalConfig({
+    saveTunnelSettings,
+  });
+
+  const {
+    managedLocalConfigPath,
+    setManagedLocalConfigPath,
+    managedLocalConfigExtensionError,
+    managedLocalConfigFileInputRef,
+    isManagedLocalConfigPathInvalid,
+    handleBrowseManagedLocalConfig,
+    handleManagedLocalConfigInputChange,
+    handleManagedLocalConfigInputBlur,
+    handleManagedLocalConfigClear,
+    handleManagedLocalConfigFileSelected,
+  } = localConfigState;
 
   const renderedSessionRecords = React.useMemo(() => {
     return sessionRecords.map((record) => {
@@ -301,7 +361,13 @@ export function useTunnelSettingsState() {
         }
       }
     },
-    [applyDependencyCheck]
+    [
+      applyDependencyCheck,
+      setManagedLocalConfigPath,
+      setManagedRemoteTunnelPresets,
+      setSavedTokenPresetIds,
+      setSelectedPresetId,
+    ]
   );
 
   React.useEffect(() => {
@@ -467,47 +533,7 @@ export function useTunnelSettingsState() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [state]);
-
-  const saveTunnelSettings = React.useCallback(
-    async (payload: {
-      tunnelProvider?: string;
-      tunnelMode?: TunnelMode;
-      managedLocalTunnelConfigPath?: string | null;
-      managedRemoteTunnelPresets?: ManagedRemoteTunnelPreset[];
-      managedRemoteTunnelPresetTokens?: Record<string, string>;
-      tunnelBootstrapTtlMs?: number | null;
-      tunnelSessionTtlMs?: number;
-    }) => {
-      setIsSavingMode(true);
-      try {
-        await updateDesktopSettings(payload);
-        if (Object.prototype.hasOwnProperty.call(payload, 'tunnelMode') && payload.tunnelMode) {
-          setTunnelMode(payload.tunnelMode);
-        }
-        if (
-          Object.prototype.hasOwnProperty.call(payload, 'tunnelProvider') &&
-          typeof payload.tunnelProvider === 'string'
-        ) {
-          setTunnelProvider(payload.tunnelProvider);
-        }
-        if (Object.prototype.hasOwnProperty.call(payload, 'managedLocalTunnelConfigPath')) {
-          setManagedLocalConfigPath(payload.managedLocalTunnelConfigPath ?? null);
-        }
-        if (
-          Object.prototype.hasOwnProperty.call(payload, 'managedRemoteTunnelPresets') &&
-          payload.managedRemoteTunnelPresets
-        ) {
-          setManagedRemoteTunnelPresets(payload.managedRemoteTunnelPresets);
-        }
-      } catch {
-        toast.error('Failed to save tunnel settings');
-      } finally {
-        setIsSavingMode(false);
-      }
-    },
-    []
-  );
+  }, [setSavedTokenPresetIds, state]);
 
   const saveTtlSettings = React.useCallback(
     async (nextBootstrapTtlMs: number | null, nextSessionTtlMs: number) => {
@@ -524,93 +550,6 @@ export function useTunnelSettingsState() {
       }
     },
     []
-  );
-
-  const persistManagedRemoteTunnelToken = React.useCallback(
-    async (payload: { presetId: string; presetName: string; hostname: string; token: string }) => {
-      const token = payload.token.trim();
-      if (!token) {
-        return;
-      }
-
-      try {
-        const tokenMap = {
-          ...sessionTokensByPresetId,
-          [payload.presetId]: token,
-        };
-        await updateDesktopSettings({
-          managedRemoteTunnelPresetTokens: tokenMap,
-        });
-        setSavedTokenPresetIds((prev) => {
-          const next = new Set(prev);
-          next.add(payload.presetId);
-          return next;
-        });
-      } catch {
-        toast.error('Failed to save managed remote tunnel token');
-      }
-    },
-    [sessionTokensByPresetId]
-  );
-
-  const handleBrowseManagedLocalConfig = React.useCallback(async () => {
-    const result = await requestFileAccess({
-      filters: [{ name: 'Config', extensions: ['yml', 'yaml', 'json'] }],
-    });
-
-    if (result.success && typeof result.path === 'string' && result.path.trim().length > 0) {
-      const nextPath = result.path.trim();
-      if (!hasAllowedManagedLocalConfigExtension(nextPath)) {
-        toast.error(managedLocalConfigExtensionError);
-        return;
-      }
-      setManagedLocalConfigPath(nextPath);
-      await saveTunnelSettings({ managedLocalTunnelConfigPath: nextPath });
-      return;
-    }
-
-    managedLocalConfigFileInputRef.current?.click();
-  }, [managedLocalConfigExtensionError, saveTunnelSettings]);
-
-  const handleManagedLocalConfigInputChange = React.useCallback((value: string) => {
-    const trimmed = value.trim();
-    setManagedLocalConfigPath(trimmed.length > 0 ? trimmed : null);
-  }, []);
-
-  const handleManagedLocalConfigInputBlur = React.useCallback(async () => {
-    if (managedLocalConfigPath && !hasAllowedManagedLocalConfigExtension(managedLocalConfigPath)) {
-      toast.error(managedLocalConfigExtensionError);
-      return;
-    }
-    await saveTunnelSettings({ managedLocalTunnelConfigPath: managedLocalConfigPath });
-  }, [managedLocalConfigExtensionError, managedLocalConfigPath, saveTunnelSettings]);
-
-  const handleManagedLocalConfigClear = React.useCallback(async () => {
-    setManagedLocalConfigPath(null);
-    await saveTunnelSettings({ managedLocalTunnelConfigPath: null });
-  }, [saveTunnelSettings]);
-
-  const handleManagedLocalConfigFileSelected = React.useCallback(
-    async (event: React.ChangeEvent<HTMLInputElement>) => {
-      const selected = event.target.files?.[0];
-      if (!selected) {
-        return;
-      }
-
-      const fallbackPath = selected.name.trim();
-      if (fallbackPath.length === 0) {
-        return;
-      }
-      if (!hasAllowedManagedLocalConfigExtension(fallbackPath)) {
-        toast.error(managedLocalConfigExtensionError);
-        return;
-      }
-
-      setManagedLocalConfigPath(fallbackPath);
-      await saveTunnelSettings({ managedLocalTunnelConfigPath: fallbackPath });
-      event.target.value = '';
-    },
-    [managedLocalConfigExtensionError, saveTunnelSettings]
   );
 
   const handleStart = React.useCallback(async () => {
@@ -745,13 +684,15 @@ export function useTunnelSettingsState() {
     }
   }, [
     managedLocalConfigExtensionError,
+    managedLocalConfigPath,
     managedRemoteTunnelPresets,
     saveTunnelSettings,
     selectedPreset,
     sessionTokensByPresetId,
-    tunnelProvider,
+    setManagedRemoteValidationError,
+    setSavedTokenPresetIds,
     tunnelMode,
-    managedLocalConfigPath,
+    tunnelProvider,
   ]);
 
   const handleStop = React.useCallback(async () => {
@@ -782,7 +723,7 @@ export function useTunnelSettingsState() {
       setErrorMessage('Failed to stop tunnel');
       toast.error('Failed to stop tunnel');
     }
-  }, []);
+  }, [setSavedTokenPresetIds]);
 
   const handleCopyUrl = React.useCallback(async () => {
     if (!tunnelInfo?.connectUrl) {
@@ -836,144 +777,7 @@ export function useTunnelSettingsState() {
         managedRemoteTunnelPresets,
       });
     },
-    [managedRemoteTunnelPresets, saveTunnelSettings, state]
-  );
-
-  const persistSelectedPreset = React.useCallback(
-    async (_preset: ManagedRemoteTunnelPreset, presets: ManagedRemoteTunnelPreset[]) => {
-      try {
-        await updateDesktopSettings({
-          managedRemoteTunnelPresets: presets,
-        });
-      } catch {
-        toast.error('Failed to save selected managed remote tunnel');
-      }
-    },
-    []
-  );
-
-  const handleSelectPreset = React.useCallback(
-    (presetId: string) => {
-      const preset = managedRemoteTunnelPresets.find((entry) => entry.id === presetId);
-      if (!preset) {
-        return;
-      }
-
-      setSelectedPresetId(preset.id);
-      setManagedRemoteValidationError(null);
-      void persistSelectedPreset(preset, managedRemoteTunnelPresets);
-    },
-    [managedRemoteTunnelPresets, persistSelectedPreset]
-  );
-
-  const handleSaveNewPreset = React.useCallback(async () => {
-    const name = newPresetName.trim();
-    const hostname = normalizePresetHostname(newPresetHostname);
-    const token = newPresetToken.trim();
-
-    if (!name) {
-      toast.error('Tunnel name is required');
-      return;
-    }
-    if (!hostname) {
-      toast.error('Managed remote tunnel hostname is required');
-      return;
-    }
-    if (!token) {
-      toast.error('Managed remote tunnel token is required');
-      return;
-    }
-
-    if (managedRemoteTunnelPresets.some((preset) => preset.hostname === hostname)) {
-      toast.error('This hostname already exists');
-      return;
-    }
-
-    const nextPreset: ManagedRemoteTunnelPreset = {
-      id: createPresetId(),
-      name,
-      hostname,
-    };
-    const nextPresets = [...managedRemoteTunnelPresets, nextPreset];
-
-    setManagedRemoteTunnelPresets(nextPresets);
-    setSelectedPresetId(nextPreset.id);
-    setExpandedManagedRemoteTunnels((prev) => ({ ...prev, [nextPreset.id]: true }));
-    setSessionTokensByPresetId((prev) => ({ ...prev, [nextPreset.id]: token }));
-    setManagedRemoteValidationError(null);
-    setIsAddingPreset(false);
-    setNewPresetName('');
-    setNewPresetHostname('');
-    setNewPresetToken('');
-
-    await saveTunnelSettings({
-      tunnelMode: 'managed-remote',
-      managedRemoteTunnelPresets: nextPresets,
-      managedRemoteTunnelPresetTokens: {
-        ...sessionTokensByPresetId,
-        [nextPreset.id]: token,
-      },
-    });
-    await persistManagedRemoteTunnelToken({
-      presetId: nextPreset.id,
-      presetName: nextPreset.name,
-      hostname: nextPreset.hostname,
-      token,
-    });
-    toast.success('Managed remote tunnel saved');
-  }, [
-    managedRemoteTunnelPresets,
-    newPresetHostname,
-    newPresetName,
-    newPresetToken,
-    persistManagedRemoteTunnelToken,
-    saveTunnelSettings,
-    sessionTokensByPresetId,
-  ]);
-
-  const handleRemovePreset = React.useCallback(
-    async (presetId: string) => {
-      const preset = managedRemoteTunnelPresets.find((entry) => entry.id === presetId);
-      if (!preset) {
-        return;
-      }
-
-      const nextPresets = managedRemoteTunnelPresets.filter((entry) => entry.id !== preset.id);
-      const fallbackSelectedId = nextPresets[0]?.id || '';
-      const nextSelectedId = selectedPresetId === preset.id ? fallbackSelectedId : selectedPresetId;
-      const nextTokenMap = Object.fromEntries(
-        Object.entries(sessionTokensByPresetId).filter(
-          ([id, tokenValue]) => id !== preset.id && tokenValue.trim().length > 0
-        )
-      );
-
-      setManagedRemoteTunnelPresets(nextPresets);
-      setSelectedPresetId(nextSelectedId);
-      setExpandedManagedRemoteTunnels((prev) => {
-        const next = { ...prev };
-        delete next[preset.id];
-        return next;
-      });
-      setSessionTokensByPresetId((prev) => {
-        const next = { ...prev };
-        delete next[preset.id];
-        return next;
-      });
-      setSavedTokenPresetIds((prev) => {
-        const next = new Set(prev);
-        next.delete(preset.id);
-        return next;
-      });
-      setManagedRemoteValidationError(null);
-
-      await saveTunnelSettings({
-        managedRemoteTunnelPresets: nextPresets,
-        managedRemoteTunnelPresetTokens: nextTokenMap,
-      });
-
-      toast.success('Managed remote tunnel removed');
-    },
-    [managedRemoteTunnelPresets, saveTunnelSettings, selectedPresetId, sessionTokensByPresetId]
+    [managedRemoteTunnelPresets, saveTunnelSettings, setManagedRemoteValidationError, state]
   );
 
   return {
