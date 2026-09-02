@@ -1,25 +1,11 @@
 import React from 'react';
 import QRCode from 'qrcode';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
-import {
-  SettingsSection,
-  SettingsGroupTitle,
-} from '@/components/sections/shared/SettingsSection';
-import { SettingsInfoHint } from '@/components/sections/shared/SettingsInfoHint';
+import { SettingsSection } from '@/components/sections/shared/SettingsSection';
 import { useUIStore } from '@/stores/useUIStore';
 import { useDeviceInfo } from '@/lib/device';
 import { toast } from '@/components/ui';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Radio } from '@/components/ui/radio';
 import { Icon } from "@/components/icon/Icon";
 import { cn } from '@/lib/utils';
 import { formatDateTimeForPreference } from '@/lib/timeFormat';
@@ -43,134 +29,21 @@ import {
   type HostProbeResult,
 } from '@/lib/desktopHosts';
 import { createRelayTunnelClient } from '@/lib/relay/tunnel-client';
-import { getDesktopLanAddress, isDesktopLocalOriginActive, isDesktopShell } from '@/lib/desktop';
-import { runtimeFetch } from '@/lib/runtime-fetch';
+import { isDesktopShell } from '@/lib/desktop';
 import { getRuntimeApiBaseUrl, switchRuntimeEndpoint } from '@/lib/runtime-switch';
-
-// Platform this desktop reports about itself when redeeming a pairing link —
-// display-only metadata for the issuing server's device list.
-const desktopPlatformName = (): string | undefined => {
-  if (typeof navigator === 'undefined') return undefined;
-  const ua = (navigator.userAgent || '').toLowerCase();
-  if (ua.includes('mac')) return 'macos';
-  if (ua.includes('win')) return 'windows';
-  if (ua.includes('linux')) return 'linux';
-  return undefined;
-};
-
-// Friendly label for a device's self-reported platform in the device list.
-const devicePlatformLabel = (platform?: string | null): string | null => {
-  switch ((platform || '').toLowerCase()) {
-    case 'ios': return 'iOS';
-    case 'android': return 'Android';
-    case 'macos':
-    case 'darwin': return 'macOS';
-    case 'windows':
-    case 'win32': return 'Windows';
-    case 'linux': return 'Linux';
-    default: return null;
-  }
-};
-
-type HeaderDraft = {
-  id: string;
-  name: string;
-  value: string;
-};
-
-const createHeaderDraft = (name = '', value = ''): HeaderDraft => ({
-  id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : `header-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-  name,
-  value,
-});
-
-const isReservedRequestHeaderName = (name: string): boolean => name.trim().toLowerCase() === 'authorization';
-
-const buildRequestHeaders = (headers: HeaderDraft[]): Record<string, string> | undefined => {
-  const next: Record<string, string> = {};
-  for (const header of headers) {
-    const name = header.name.trim();
-    const value = header.value.trim();
-    if (name && value && !isReservedRequestHeaderName(name)) next[name] = value;
-  }
-  return Object.keys(next).length > 0 ? next : undefined;
-};
-
-const readRequestHeaderDrafts = (headers: Record<string, string> | undefined): HeaderDraft[] => {
-  return Object.entries(headers || {}).map(([name, value]) => createHeaderDraft(name, value));
-};
-
-const getRuntimePort = (): number | null => {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  const runtimeApiBaseUrl = getRuntimeApiBaseUrl();
-  const portSource = runtimeApiBaseUrl || window.location.href;
-  try {
-    const port = Number(new URL(portSource).port || window.location.port);
-    return Number.isFinite(port) && port > 0 ? port : null;
-  } catch {
-    const port = Number(window.location.port);
-    return Number.isFinite(port) && port > 0 ? port : null;
-  }
-};
-
-const isLoopbackUrl = (value: string): boolean => {
-  try {
-    const host = new URL(value).hostname.toLowerCase();
-    return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
-  } catch {
-    return false;
-  }
-};
-
-const resolvePairingServerUrl = async (): Promise<string> => {
-  const fallback = normalizeHostUrl(getRuntimeApiBaseUrl()) || window.location.origin;
-  if (!isDesktopShell() || !isDesktopLocalOriginActive()) {
-    return fallback;
-  }
-
-  let response: Response;
-  try {
-    response = await runtimeFetch('/api/pi/ui-settings', {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-    });
-  } catch {
-    return fallback;
-  }
-  if (!response.ok) return fallback;
-
-  const settings = (await response.json().catch(() => null)) as null | {
-    desktopLanAccessActive?: unknown;
-  };
-  if (settings?.desktopLanAccessActive !== true) {
-    return fallback;
-  }
-
-  const address = await getDesktopLanAddress();
-  const port = getRuntimePort();
-  if (!address || !port) {
-    return fallback;
-  }
-
-  return `http://${address}:${port}`;
-};
-
-const navigateToUrl = (rawUrl: string): void => {
-  const target = rawUrl.trim();
-  if (!target) {
-    return;
-  }
-  try {
-    window.location.assign(target);
-  } catch {
-    window.location.href = target;
-  }
-};
+import {
+  desktopPlatformName,
+  devicePlatformLabel,
+  type HeaderDraft,
+  buildRequestHeaders,
+  readRequestHeaderDrafts,
+  getRuntimePort,
+  isLoopbackUrl,
+  resolvePairingServerUrl,
+  navigateToUrl,
+} from './remoteInstanceHelpers';
+import { AddDeviceDialog } from './AddDeviceDialog';
+import { AddDirectHostDialog, EditDirectHostDialog, ImportDirectConnectDialog } from './DirectHostDialogs';
 
 export const RemoteInstancesPage: React.FC = () => {
     const { isMobile } = useDeviceInfo();
@@ -920,193 +793,70 @@ export const RemoteInstancesPage: React.FC = () => {
             {directError ? <p className="typography-meta text-[var(--status-error)]">{directError}</p> : null}
         </SettingsSection> : null}
 
-        {showInstanceManagement ? <Dialog open={directAddDialogOpen} onOpenChange={setDirectAddDialogOpen}>
-          <DialogContent className="sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle>{"Add Server"}</DialogTitle>
-              <DialogDescription>{"Add another PiChamber server by URL. Use this when the server is already running and you have a connection token."}</DialogDescription>
-            </DialogHeader>
-            <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void handleAddDirectHost(); }}>
-              <Input className="h-8" value={directLabel} onChange={(event) => setDirectLabel(event.target.value)} placeholder={"Label (optional)"} disabled={directSaving} />
-              <Input className="h-8" value={directUrl} onChange={(event) => setDirectUrl(event.target.value)} placeholder={"https://host:port"} disabled={directSaving} autoFocus />
-              <div className="space-y-1">
-                <Input className="h-8" value={directToken} onChange={(event) => setDirectToken(event.target.value)} placeholder={"Connection token (optional for trusted local servers)"} type="password" disabled={directSaving} />
-                <p className="px-1 typography-micro text-muted-foreground">{"Connection tokens are saved on this device and used only when this app connects to that server."}</p>
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <SettingsGroupTitle>{"Additional headers"}</SettingsGroupTitle>
-                  <SettingsInfoHint>{"Optional HTTP headers for desktop API requests. Authorization is reserved for the connection token."}</SettingsInfoHint>
-                </div>
-                {directHeaders.map((header) => (
-                  <div key={header.id} className="flex w-full gap-2">
-                    <Input className="h-8 font-mono text-xs" value={header.name} onChange={(event) => setDirectHeaders((headers) => headers.map((item) => item.id === header.id ? { ...item, name: event.target.value } : item))} placeholder={"Header name"} disabled={directSaving} />
-                    <Input className="h-8 font-mono text-xs" value={header.value} onChange={(event) => setDirectHeaders((headers) => headers.map((item) => item.id === header.id ? { ...item, value: event.target.value } : item))} placeholder={"Header value"} type="password" disabled={directSaving} />
-                    <button type="button" onClick={() => setDirectHeaders((headers) => headers.filter((item) => item.id !== header.id))} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--status-error-background)] hover:text-[var(--status-error)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]" aria-label={"Remove header"} disabled={directSaving}>
-                      <Icon name="close" className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
-                <Button type="button" variant="ghost" size="xs" className="!font-normal" onClick={() => setDirectHeaders((headers) => [...headers, createHeaderDraft()])} disabled={directSaving}>
-                  <Icon name="add" className="h-3.5 w-3.5" />
-                  {"Add header"}
-                </Button>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" size="xs" className="!font-normal" onClick={() => setDirectAddDialogOpen(false)} disabled={directSaving}>{"Cancel"}</Button>
-                <Button type="submit" size="xs" className="!font-normal" disabled={directSaving || !directUrl.trim()}>{"Add Server"}</Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog> : null}
+        {showInstanceManagement ? (
+          <>
+            <AddDirectHostDialog
+              open={directAddDialogOpen}
+              onOpenChange={setDirectAddDialogOpen}
+              label={directLabel}
+              onLabelChange={setDirectLabel}
+              url={directUrl}
+              onUrlChange={setDirectUrl}
+              token={directToken}
+              onTokenChange={setDirectToken}
+              headers={directHeaders}
+              onHeadersChange={setDirectHeaders}
+              saving={directSaving}
+              onAdd={handleAddDirectHost}
+            />
 
-        {showInstanceManagement ? <Dialog open={Boolean(directEditingId)} onOpenChange={(open) => { if (!open) setDirectEditingId(null); }}>
-          <DialogContent className="sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle>{"Edit"}</DialogTitle>
-              <DialogDescription>{"Servers this app can switch to. Import a pairing link from the other server, or add one by address."}</DialogDescription>
-            </DialogHeader>
-            <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void saveDirectHostEdit(); }}>
-              <Input className="h-8" value={directEditLabel} onChange={(event) => setDirectEditLabel(event.target.value)} placeholder={"Label (optional)"} disabled={directSaving} />
-              <Input className="h-8" value={directEditUrl} onChange={(event) => setDirectEditUrl(event.target.value)} placeholder={"https://host:port"} disabled={directSaving} autoFocus />
-              <Input className="h-8" value={directEditToken} onChange={(event) => setDirectEditToken(event.target.value)} placeholder={"Connection token (optional for trusted local servers)"} type="password" disabled={directSaving} />
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <SettingsGroupTitle>{"Additional headers"}</SettingsGroupTitle>
-                  <SettingsInfoHint>{"Optional HTTP headers for desktop API requests. Authorization is reserved for the connection token."}</SettingsInfoHint>
-                </div>
-                {directEditHeaders.map((header) => (
-                  <div key={header.id} className="flex w-full gap-2">
-                    <Input className="h-8 font-mono text-xs" value={header.name} onChange={(event) => setDirectEditHeaders((headers) => headers.map((item) => item.id === header.id ? { ...item, name: event.target.value } : item))} placeholder={"Header name"} disabled={directSaving} />
-                    <Input className="h-8 font-mono text-xs" value={header.value} onChange={(event) => setDirectEditHeaders((headers) => headers.map((item) => item.id === header.id ? { ...item, value: event.target.value } : item))} placeholder={"Header value"} type="password" disabled={directSaving} />
-                    <button type="button" onClick={() => setDirectEditHeaders((headers) => headers.filter((item) => item.id !== header.id))} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--status-error-background)] hover:text-[var(--status-error)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]" aria-label={"Remove header"} disabled={directSaving}>
-                      <Icon name="close" className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
-                <Button type="button" variant="ghost" size="xs" className="!font-normal" onClick={() => setDirectEditHeaders((headers) => [...headers, createHeaderDraft()])} disabled={directSaving}>
-                  <Icon name="add" className="h-3.5 w-3.5" />
-                  {"Add header"}
-                </Button>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" size="xs" className="!font-normal" onClick={() => setDirectEditingId(null)} disabled={directSaving}>{"Cancel"}</Button>
-                <Button type="submit" size="xs" className="!font-normal" disabled={directSaving}>{"Save Changes"}</Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog> : null}
+            <EditDirectHostDialog
+              open={Boolean(directEditingId)}
+              onOpenChange={(open) => {
+                if (!open) setDirectEditingId(null);
+              }}
+              label={directEditLabel}
+              onLabelChange={setDirectEditLabel}
+              url={directEditUrl}
+              onUrlChange={setDirectEditUrl}
+              token={directEditToken}
+              onTokenChange={setDirectEditToken}
+              headers={directEditHeaders}
+              onHeadersChange={setDirectEditHeaders}
+              saving={directSaving}
+              onSave={saveDirectHostEdit}
+            />
 
-        {showInstanceManagement ? <Dialog open={directImportDialogOpen} onOpenChange={setDirectImportDialogOpen}>
-          <DialogContent className="sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle>{"Import Link"}</DialogTitle>
-              <DialogDescription>{"Paste a connection link from another PiChamber server."}</DialogDescription>
-            </DialogHeader>
-            <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void importDirectConnectLink(); }}>
-              <Input className="h-8" value={directConnectLink} onChange={(event) => setDirectConnectLink(event.target.value)} placeholder={"pichamber://connect?..."} disabled={directSaving} autoFocus />
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" size="xs" className="!font-normal" onClick={() => setDirectImportDialogOpen(false)} disabled={directSaving}>{"Cancel"}</Button>
-                <Button type="submit" size="xs" className="!font-normal" disabled={directSaving || !directConnectLink.trim()}>{"Import Link"}</Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog> : null}
+            <ImportDirectConnectDialog
+              open={directImportDialogOpen}
+              onOpenChange={setDirectImportDialogOpen}
+              link={directConnectLink}
+              onLinkChange={setDirectConnectLink}
+              saving={directSaving}
+              onImport={importDirectConnectLink}
+            />
+          </>
+        ) : null}
 
-        <Dialog open={addDeviceOpen} onOpenChange={setAddDeviceOpen}>
-          <DialogContent className={addDevicePhase === 'result' ? 'sm:max-w-lg' : 'sm:max-w-md'}>
-            <DialogHeader>
-              <DialogTitle>{addDevicePhase === 'result' ? "Scan to connect" : "Add a device"}</DialogTitle>
-              {/* Configure phase: what this dialog will produce. Result phase: what
-                  to do with the QR code that is now on screen. */}
-              <DialogDescription>{addDevicePhase === 'result' ? "Scan this with the PiChamber app on your other device. It is single-use and expires." : "Create a one-time QR code that connects another device to this server."}</DialogDescription>
-            </DialogHeader>
-            {addDevicePhase === 'configure' ? (
-              <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void createPairingLink(); }}>
-                <Input
-                  className="h-8"
-                  value={remoteClientLabel}
-                  onChange={(event) => setRemoteClientLabel(event.target.value)}
-                  placeholder={"Device name — e.g. My iPhone"}
-                  autoFocus
-                />
-                <div className="space-y-1.5">
-                  <p className="typography-ui-label text-foreground">{"Where will you use this device?"}</p>
-                  {/* Ordered by how likely a first-time user is to want each option;
-                      "Anywhere" is the default. Every option explains its outcome in
-                      plain words — "relay" appears only inside the description. */}
-                  <div role="radiogroup" aria-label={"Where will you use this device?"} className="space-y-1.5">
-                    {([
-                      { key: 'relay' as const, label: "Anywhere", hint: "Works at home and away. Away traffic goes through PiChamber Private Relay — an end-to-end encrypted tunnel. No setup needed.", available: Boolean(transportOptions?.relayAvailable) },
-                      { key: 'lan' as const, label: "Home network only", hint: "Connects directly over your Wi-Fi. Does not work away from this network.", available: Boolean(transportOptions?.lanUrl) },
-                      { key: 'local' as const, label: "This computer only", hint: "For apps running on this same machine.", available: Boolean(transportOptions?.localUrl) },
-                    ]).map((option) => {
-                      const selected = addDeviceTransport === option.key;
-                      return (
-                        <div
-                          key={option.key}
-                          className={cn('flex items-start gap-2 py-0.5', option.available ? 'cursor-pointer' : 'opacity-45')}
-                          onClick={() => { if (option.available) setAddDeviceTransport(option.key); }}
-                          role="presentation"
-                        >
-                          <Radio
-                            checked={selected}
-                            disabled={!option.available}
-                            onChange={() => setAddDeviceTransport(option.key)}
-                            ariaLabel={option.label}
-                            className="mt-0.5"
-                          />
-                          <div className="min-w-0">
-                            <p className={cn('typography-ui-label font-normal', selected ? 'text-foreground' : 'text-foreground/70')}>{option.label}</p>
-                            <p className="typography-meta text-muted-foreground">{option.hint}</p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {addDeviceTransport === 'lan' ? (
-                    <label className="flex w-fit cursor-pointer items-center gap-2 pt-1">
-                      <Checkbox checked={addDeviceFallback} onChange={setAddDeviceFallback} ariaLabel={"Also allow the encrypted relay when away from home"} />
-                      <span className="typography-meta text-muted-foreground">{"Also allow the encrypted relay when away from home"}</span>
-                    </label>
-                  ) : null}
-                  {addDeviceTransport === 'relay' && transportOptions?.lanUrl ? (
-                    <label className="flex w-fit cursor-pointer items-center gap-2 pt-1">
-                      <Checkbox checked={addDeviceFallback} onChange={setAddDeviceFallback} ariaLabel={"Prefer the direct home connection when available"} />
-                      <span className="typography-meta text-muted-foreground">{"Prefer the direct home connection when available"}</span>
-                    </label>
-                  ) : null}
-                </div>
-                {remoteClientError ? <p className="typography-meta text-[var(--status-error)]">{remoteClientError}</p> : null}
-                <div className="flex justify-end gap-2">
-                  <Button type="button" variant="outline" size="xs" className="!font-normal" onClick={() => setAddDeviceOpen(false)} disabled={addDeviceCreating}>{"Cancel"}</Button>
-                  <Button type="submit" size="xs" className="!font-normal" disabled={addDeviceCreating || !transportOptions}>{"Create QR code"}</Button>
-                </div>
-              </form>
-            ) : (
-              <div className="space-y-3">
-                {pairingQrDataUrl ? (
-                  <div className="flex justify-center">
-                    <img src={pairingQrDataUrl} alt={"PiChamber connection QR code"} className="w-full max-w-[420px] rounded-md bg-white p-4" />
-                  </div>
-                ) : null}
-                {pairingUrl ? (
-                  <div className="flex items-center gap-2 rounded-md border border-[var(--interactive-border)] p-2">
-                    <code className="min-w-0 flex-1 truncate typography-code text-muted-foreground">{pairingUrl}</code>
-                    <Button type="button" variant="outline" size="xs" className="!font-normal shrink-0" onClick={handleCopyPairing}>
-                      <Icon name={pairingCopied ? 'check' : 'file-copy'} className={cn('h-3.5 w-3.5', pairingCopied && 'text-[var(--status-success)]')} />
-                      {pairingCopied ? "Copied" : "Copy all"}
-                    </Button>
-                  </div>
-                ) : null}
-                <div className="flex justify-end">
-                  <Button type="button" size="xs" className="!font-normal" onClick={() => setAddDeviceOpen(false)}>{"Done"}</Button>
-                </div>
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
-
+        <AddDeviceDialog
+          open={addDeviceOpen}
+          onOpenChange={setAddDeviceOpen}
+          phase={addDevicePhase}
+          remoteClientLabel={remoteClientLabel}
+          onRemoteClientLabelChange={setRemoteClientLabel}
+          remoteClientError={remoteClientError}
+          addDeviceTransport={addDeviceTransport}
+          onAddDeviceTransportChange={setAddDeviceTransport}
+          addDeviceFallback={addDeviceFallback}
+          onAddDeviceFallbackChange={setAddDeviceFallback}
+          transportOptions={transportOptions}
+          addDeviceCreating={addDeviceCreating}
+          onCreatePairingLink={createPairingLink}
+          pairingQrDataUrl={pairingQrDataUrl}
+          pairingUrl={pairingUrl}
+          pairingCopied={pairingCopied}
+          onCopyPairing={handleCopyPairing}
+        />
       </SettingsPageLayout>
   );
 };
