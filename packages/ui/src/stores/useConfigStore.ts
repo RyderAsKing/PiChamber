@@ -1,11 +1,7 @@
 import { create } from "zustand";
-import type { StoreApi, UseBoundStore } from "zustand";
 import { devtools, persist } from "zustand/middleware";
 import type { Agent, Config } from "@/lib/chat/types";
 import type { ModelMetadata } from "@/types";
-import { piClient } from "@/lib/pi/client";
-import { configuredProviders } from "@/lib/pi/configured-providers";
-import { scopeMatches, subscribeToConfigChanges } from "@/lib/configSync";
 import { createDeferredSafeJSONStorage } from "./utils/safeStorage";
 import { useSessionUIStore } from "@/sync/session-ui-store";
 import { useSelectionStore } from "@/sync/selection-store";
@@ -41,194 +37,25 @@ import {
     type ProviderModel,
     type ProviderWithModelList,
 } from "./config/selection";
+import {
+    type ConfigStore,
+    type DirectoryScopedConfig,
+    createEmptyDirectoryScopedConfig,
+    hydrateActiveDirectorySnapshot,
+    _providersLoadedAt,
+    _agentsLoadedAt,
+    isConfigFresh,
+    PROJECT_CONFIG_PREWARM_DELAY_MS,
+} from "./config/configTypes";
+import { checkPiHealth, probePiHealth } from "./config/configConnection";
+import { setupConfigStoreSubscribers } from "./config/configSubscribers";
+import { fetchAndProcessProviders } from "./config/configLoaders";
 import { markStartupTrace, measureStartupTrace } from "@/lib/startupTrace";
-import { getSyncConfig, subscribeToSyncConfigChanges } from "@/sync/sync-refs";
-import { getRuntimeKey } from "@/lib/runtime-switch";
+import { getSyncConfig } from "@/sync/sync-refs";
 
-// Sentinel selectedProviderId used by the providers UI while the "Add provider"
-// form is open. It is intentionally not a real provider id and must not be
-// persisted as a stable provider selection.
-const PROVIDER_CONFIG_REFRESH_CONCURRENCY = 4;
+export type { ConfigStore, DirectoryScopedConfig };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const CONNECTION_PROBE_TIMEOUT_MS = 800;
-
-const checkPiHealth = async (): Promise<boolean> => {
-    const health = await piClient.health({ runtimeKey: getRuntimeKey() });
-    return health.state === 'ready';
-};
-
-const probePiHealth = async (timeoutMs = CONNECTION_PROBE_TIMEOUT_MS): Promise<boolean> => {
-    return Promise.race([
-        checkPiHealth().catch(() => false),
-        sleep(Math.max(1, timeoutMs)).then(() => false),
-    ]);
-};
-
-// Runtime freshness tracking (NOT persisted) for the stale-while-revalidate
-// background refresh, keyed by config-directory key. Prevents re-fetching
-// project-scoped providers/agents we just loaded — e.g. initializeApp loading a
-// project, then activateDirectory firing for the same project moments later.
-const _providersLoadedAt = new Map<string, number>();
-const _agentsLoadedAt = new Map<string, number>();
-const CONFIG_REFRESH_TTL_MS = 30_000;
-const PROJECT_CONFIG_PREWARM_DELAY_MS = 1_000;
-const isConfigFresh = (loadedAt: Map<string, number>, key: string): boolean => {
-    const at = loadedAt.get(key);
-    return typeof at === 'number' && Date.now() - at < CONFIG_REFRESH_TTL_MS;
-};
-
-interface DirectoryScopedConfig {
-
-    providers: ProviderWithModelList[];
-    agents: Agent[];
-    currentProviderId: string;
-    currentModelId: string;
-    currentVariant?: string | undefined;
-    currentAgentName: string | undefined;
-    selectedProviderId: string;
-    agentModelSelections: { [agentName: string]: { providerId: string; modelId: string } };
-    defaultProviders: { [key: string]: string };
-    runtimeDefaultAgent?: string;
-    runtimeDefaultModel?: string;
-    selectionSource?: "auto" | "manual";
-}
-
-/**
- * Lift the active directory's cached provider/agent snapshot into the top-level
- * fields the pickers read (`providers`, `agents`, selections), so a cold start
- * paints instantly from persisted data. Falls back to whatever top-level data
- * was persisted; handles legacy persisted blobs that only stored directoryScoped.
- */
-const hydrateActiveDirectorySnapshot = <T extends Partial<ConfigStore>>(merged: T): T => {
-    const directoryScoped = merged.directoryScoped;
-    const activeKey = merged.activeDirectoryKey;
-    if (!directoryScoped || !activeKey) return merged;
-    const snapshot = directoryScoped[activeKey];
-    if (!snapshot) return merged;
-
-    const next: Partial<ConfigStore> = { ...merged };
-    if ((!merged.providers || merged.providers.length === 0) && snapshot.providers?.length) {
-        next.providers = snapshot.providers;
-    }
-    if ((!merged.agents || merged.agents.length === 0) && snapshot.agents?.length) {
-        next.agents = snapshot.agents;
-    }
-    if (!merged.defaultProviders || Object.keys(merged.defaultProviders).length === 0) {
-        if (snapshot.defaultProviders && Object.keys(snapshot.defaultProviders).length > 0) {
-            next.defaultProviders = snapshot.defaultProviders;
-        }
-    }
-    if (snapshot.runtimeDefaultAgent !== undefined) {
-        next.runtimeDefaultAgent = snapshot.runtimeDefaultAgent;
-    }
-    if (snapshot.runtimeDefaultModel !== undefined) {
-        next.runtimeDefaultModel = snapshot.runtimeDefaultModel;
-    }
-    if (snapshot.selectionSource) {
-        next.selectionSource = snapshot.selectionSource;
-    }
-    return next as T;
-};
-
-const createEmptyDirectoryScopedConfig = (
-    providers: ProviderWithModelList[] = [],
-    agents: Agent[] = [],
-): DirectoryScopedConfig => ({
-    providers,
-    agents,
-    currentProviderId: "",
-    currentModelId: "",
-    currentVariant: undefined,
-    currentAgentName: undefined,
-    selectedProviderId: "",
-    agentModelSelections: {},
-    defaultProviders: {},
-    runtimeDefaultAgent: undefined,
-    runtimeDefaultModel: undefined,
-    selectionSource: "auto",
-});
-
-interface ConfigStore {
-
-    activeDirectoryKey: string;
-    directoryScoped: Record<string, DirectoryScopedConfig>;
-
-    providers: ProviderWithModelList[];
-    agents: Agent[];
-    currentProviderId: string;
-    currentModelId: string;
-    currentVariant: string | undefined;
-    currentAgentName: string | undefined;
-    selectedProviderId: string;
-    agentModelSelections: { [agentName: string]: { providerId: string; modelId: string } };
-    defaultProviders: { [key: string]: string };
-    selectionSource: "auto" | "manual";
-    isConnected: boolean;
-    hasEverConnected: boolean;
-    connectionPhase: "connecting" | "connected" | "reconnecting";
-    lastDisconnectReason: string | null;
-    isInitialized: boolean;
-    modelsMetadata: Map<string, ModelMetadata>;
-    // PiChamber settings-based defaults (take precedence over agent preferences)
-    settingsDefaultModel: string | undefined; // format: "provider/model"
-    settingsDefaultVariant: string | undefined;
-    settingsDefaultThinking: string | undefined;
-    settingsDefaultThinkingByModel: Record<string, string>;
-    // Pi server's own `default_agent` config field (name of a primary agent), used as a
-    // fallback when our own settingsDefaultAgent is unset. Sourced from sync config.
-    runtimeDefaultAgent: string | undefined;
-    // Pi server's own global `model` config field ("provider/model"), used as a fallback
-    // when neither our settingsDefaultModel nor the resolved agent pins a model.
-    runtimeDefaultModel: string | undefined;
-    settingsAutoCreateWorktree: boolean;
-    settingsGitmojiEnabled: boolean;
-    settingsDefaultFileViewerPreview: boolean;
-    settingsZenModel: string | undefined;
-
-    activateDirectory: (directory: string | null | undefined) => Promise<void>;
-
-    loadProviders: (options?: { directory?: string | null; source?: string }) => Promise<void>;
-    loadAgents: (options?: { directory?: string | null; source?: string }) => Promise<boolean>;
-    invalidateModelMetadataCache: () => void;
-    invalidateProviderCache: (directory?: string | null) => void;
-    setProvider: (providerId: string) => void;
-    setModel: (modelId: string) => void;
-    setCurrentVariant: (variant: string | undefined) => void;
-    cycleCurrentVariant: () => void;
-    getCurrentModelVariants: () => string[];
-    setAgent: (agentName: string | undefined) => void;
-    applyDefaultModelAgentSelection: (options?: { projectDefaultModel?: string }) => void;
-    applyRuntimeConfigDefaults: (directory?: string | null, source?: string, config?: Config) => void;
-    setSelectedProvider: (providerId: string) => void;
-    setSettingsDefaultModel: (model: string | undefined) => void;
-    setSettingsDefaultVariant: (variant: string | undefined) => void;
-    setSettingsDefaultThinking: (thinking: string | undefined) => void;
-    setSettingsDefaultThinkingByModel: (map: Record<string, string>) => void;
-    setSettingsAutoCreateWorktree: (enabled: boolean) => void;
-    setSettingsGitmojiEnabled: (enabled: boolean) => void;
-    setSettingsDefaultFileViewerPreview: (enabled: boolean) => void;
-    setSettingsZenModel: (model: string | undefined) => void;
-    getResolvedGitGenerationModel: () => { providerId: string; modelId: string } | null;
-    saveAgentModelSelection: (agentName: string, providerId: string, modelId: string) => void;
-    getAgentModelSelection: (agentName: string) => { providerId: string; modelId: string } | null;
-    probeConnection: (options?: { timeoutMs?: number }) => Promise<boolean>;
-    checkConnection: () => Promise<boolean>;
-    initializeApp: () => Promise<void>;
-    prewarmProjectConfigs: (initialDirectory?: string | null) => Promise<void>;
-    getCurrentProvider: () => ProviderWithModelList | undefined;
-    getCurrentModel: () => ProviderModel | undefined;
-    getCurrentAgent: () => Agent | undefined;
-    getModelMetadata: (providerId: string, modelId: string) => ModelMetadata | undefined;
-    // Returns only visible agents (excludes hidden internal agents like title, compaction, summary)
-    getVisibleAgents: () => Agent[];
-}
-
-declare global {
-    interface Window {
-        __zustand_config_store__?: UseBoundStore<StoreApi<ConfigStore>>;
-    }
-}
 
 // In-flight dedup: prevent concurrent duplicate loadProviders/loadAgents calls for the same directory
 const _inFlightProviders = new Map<string, Promise<void>>();
@@ -271,10 +98,6 @@ export const useConfigStore = create<ConfigStore>()(
                 settingsZenModel: undefined,
 
                 activateDirectory: async (directory) => {
-                    // Resolve the worktree to its owning project up-front so the
-                    // active key + snapshot key always match and stay project-scoped.
-                    // Everything below operates on this key unchanged; the Pi session
-                    // working directory is tracked separately by the directory store.
                     const configDirectory = resolveConfigDirectory(directory);
                     if (!configDirectory) {
                         markStartupTrace('activateDirectory:skippedUnknownDirectory', { directory });
@@ -326,10 +149,6 @@ export const useConfigStore = create<ConfigStore>()(
                         return;
                     }
 
-                    // Stale-while-revalidate: when a cached snapshot already
-                    // populated the pickers, refresh in the background so the UI
-                    // stays instant but never shows stale provider/agent data for
-                    // longer than one fetch. Only block when there is nothing to show.
                     if (snapshotHadProviders) {
                         if (isConfigFresh(_providersLoadedAt, directoryKey)) {
                             markStartupTrace('activateDirectory:providersFresh', { directoryKey });
@@ -406,8 +225,6 @@ export const useConfigStore = create<ConfigStore>()(
 
                 loadProviders: async (options) => {
                     const requestedDirectory = options?.directory ?? fromDirectoryKey(get().activeDirectoryKey);
-                    // Providers are project-scoped: resolve a worktree to its project
-                    // so it reuses one shared snapshot instead of its own.
                     const configDirectory = resolveConfigDirectory(requestedDirectory);
                     if (!configDirectory) {
                         markStartupTrace('loadProviders:skippedUnknownDirectory', { requestedDirectory, source: options?.source ?? 'unknown' });
@@ -418,7 +235,6 @@ export const useConfigStore = create<ConfigStore>()(
                     const source = options?.source ?? 'unknown';
                     markStartupTrace('loadProviders:called', { directoryKey, source, requestedDirectory, effectiveDirectory });
 
-                    // Dedup: if a load is already in-flight for this directory, reuse it
                     const existing = _inFlightProviders.get(directoryKey);
                     if (existing) {
                         markStartupTrace('loadProviders:deduped', { directoryKey, source, requestedDirectory, effectiveDirectory });
@@ -441,41 +257,11 @@ export const useConfigStore = create<ConfigStore>()(
                             );
                             const apiResult = await measureStartupTrace(
                                 'loadProviders:api',
-                                async () => {
-                                    const response = await piClient.listProviders({ runtimeKey: getRuntimeKey() });
-                                    const providers = configuredProviders(response.providers).map((provider) => ({
-                                        id: provider.id,
-                                        name: provider.label ?? provider.id,
-                                        authenticated: provider.authenticated === true,
-                                        models: Object.fromEntries(provider.models.map((model) => [model.id, {
-                                            id: model.id,
-                                            name: model.label ?? model.id,
-                                            providerID: model.providerId,
-                                            reasoning: model.supportsThinking === true,
-                                            ...(Number.isSafeInteger(model.contextWindow) ? { limit: { context: model.contextWindow } } : {}),
-                                            ...(Array.isArray(model.thinkingLevels) && model.thinkingLevels.length > 0 ? { thinkingLevels: model.thinkingLevels } : {}),
-                                        }])),
-                                    }));
-                                    return {
-                                        providers,
-                                        default: response.default
-                                            ? { [response.default.providerId]: response.default.modelId }
-                                            : {},
-                                    };
-                                },
+                                async () => fetchAndProcessProviders(),
                                 { directoryKey, source, requestedDirectory, effectiveDirectory, attempt: attempt + 1 },
                             );
-                            const providers = Array.isArray(apiResult?.providers) ? apiResult.providers : [];
-                            const defaults = apiResult?.default || {};
-
-                            const processedProviders: ProviderWithModelList[] = providers.map((provider) => {
-                                const modelRecord = provider.models ?? {};
-                                const models: ProviderModel[] = Object.keys(modelRecord).map((modelId) => modelRecord[modelId]);
-                                return {
-                                    ...provider,
-                                    models,
-                                };
-                            });
+                            const processedProviders = apiResult?.providers ?? [];
+                            const defaults = apiResult?.defaults ?? {};
 
                             set((state) => {
                                 const baseSnapshot: DirectoryScopedConfig = state.directoryScoped[directoryKey] ?? {
@@ -509,8 +295,6 @@ export const useConfigStore = create<ConfigStore>()(
                                 const currentSelectedProviderId = state.activeDirectoryKey === directoryKey
                                     ? state.selectedProviderId
                                     : baseSnapshot.selectedProviderId;
-                                // Preserve the add-provider sentinel so a background refresh does not
-                                // navigate the user out of the in-progress add-provider form (issue #1765).
                                 const selectedProviderId = currentSelectedProviderId === ADD_PROVIDER_SENTINEL
                                     || processedProviders.some((provider) => provider.id === currentSelectedProviderId)
                                     ? currentSelectedProviderId
@@ -643,14 +427,14 @@ export const useConfigStore = create<ConfigStore>()(
                 setProvider: (providerId: string) => {
                     const { providers } = get();
                     const provider = providers.find((p) => p.id === providerId);
- 
+
                     if (!provider) {
                         return;
                     }
- 
+
                     const firstModel = provider.models[0];
                     const newModelId = firstModel?.id || "";
- 
+
                     set((state) => {
                         const directoryKey = state.activeDirectoryKey;
                         const baseSnapshot: DirectoryScopedConfig = state.directoryScoped[directoryKey] ?? {
@@ -700,13 +484,13 @@ export const useConfigStore = create<ConfigStore>()(
                             agentModelSelections: state.agentModelSelections,
                             defaultProviders: state.defaultProviders,
                         };
- 
+
                         const nextSnapshot: DirectoryScopedConfig = {
                             ...baseSnapshot,
                             currentModelId: modelId,
                             selectionSource: "manual",
                         };
- 
+
                         return {
                             currentModelId: modelId,
                             selectionSource: "manual",
@@ -760,7 +544,7 @@ export const useConfigStore = create<ConfigStore>()(
                     const next = cycleThinkingLevel(get().getCurrentModelVariants(), get().currentVariant, 1);
                     get().setCurrentVariant(next);
                 },
- 
+
                 setSelectedProvider: (providerId: string) => {
                     set((state) => {
                         const directoryKey = state.activeDirectoryKey;
@@ -835,8 +619,6 @@ export const useConfigStore = create<ConfigStore>()(
 
                 loadAgents: async (options) => {
                     const requestedDirectory = options?.directory ?? fromDirectoryKey(get().activeDirectoryKey);
-                    // Agents are project-scoped: resolve a worktree to its project
-                    // so it reuses one shared snapshot instead of its own.
                     const configDirectory = resolveConfigDirectory(requestedDirectory);
                     if (!configDirectory) {
                         markStartupTrace('loadAgents:skippedUnknownDirectory', { requestedDirectory, source: options?.source ?? 'unknown' });
@@ -847,7 +629,6 @@ export const useConfigStore = create<ConfigStore>()(
                     const source = options?.source ?? 'unknown';
                     markStartupTrace('loadAgents:called', { directoryKey, source, requestedDirectory, effectiveDirectory });
 
-                    // Dedup: if a load is already in-flight for this directory, reuse it
                     const existing = _inFlightAgents.get(directoryKey);
                     if (existing) {
                         markStartupTrace('loadAgents:deduped', { directoryKey, source, requestedDirectory, effectiveDirectory });
@@ -863,9 +644,6 @@ export const useConfigStore = create<ConfigStore>()(
 
                     for (let attempt = 0; attempt < 3; attempt++) {
                         try {
-                            // Fetch agents and PiChamber settings in parallel. Pi config
-                            // comes from sync state if it is already available; it must not block
-                            // the agent refresh path.
                             const configDirectoryPath = fromDirectoryKey(directoryKey);
                             const initialSyncedRuntimeConfig = getSyncConfig(requestedDirectory ?? undefined)
                                 ?? getSyncConfig(configDirectoryPath ?? undefined);
@@ -957,9 +735,7 @@ export const useConfigStore = create<ConfigStore>()(
                                     zenModel: resolvedZenModel,
                                     gitProviderId: '',
                                     gitModelId: '',
-                                }).catch(() => {
-                                    // Ignore errors - best effort cleanup
-                                });
+                                }).catch(() => {});
                             }
 
                             const loaderEnded = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -1062,6 +838,7 @@ export const useConfigStore = create<ConfigStore>()(
                             agents: state.agents,
                             currentProviderId: state.currentProviderId,
                             currentModelId: state.currentModelId,
+                            currentVariant: state.currentVariant,
                             currentAgentName: state.currentAgentName,
                             selectedProviderId: state.selectedProviderId,
                             agentModelSelections: state.agentModelSelections,
@@ -1171,11 +948,6 @@ export const useConfigStore = create<ConfigStore>()(
 
                         const agent = asConfigAgent(agents.find((candidate) => candidate.name === agentName));
 
-                        // Prefer a session-level manual override for this agent over the
-                        // agent's configured default. Re-applying setAgent after subtask
-                        // completion / rematerialization must not clobber the override
-                        // (issue #2404). Explicit agent-picker switches still force the
-                        // agent default via ModelControls' shouldPreferAgentModel path.
                         if (currentSessionId) {
                             const existingAgentModel = useSelectionStore.getState().getAgentModelForSession(currentSessionId, agentName);
                             if (existingAgentModel && hasProviderModel(providers, existingAgentModel.providerId, existingAgentModel.modelId)) {
@@ -1191,7 +963,6 @@ export const useConfigStore = create<ConfigStore>()(
                             }
                         }
 
-                        // No session override — use the agent's configured/pinned model.
                         const agentModelSelection = agent?.model;
                         if (agentModelSelection?.providerID && agentModelSelection?.modelID) {
                             const { providerID, modelID } = agentModelSelection;
@@ -1204,7 +975,6 @@ export const useConfigStore = create<ConfigStore>()(
                             }
                         }
 
-                        // If the agent has no preferred model, use settings default.
                         if (settingsDefaultModel) {
                             const parsed = parseModelString(settingsDefaultModel);
                             if (parsed) {
@@ -1215,16 +985,9 @@ export const useConfigStore = create<ConfigStore>()(
                                 }
                             }
                         }
-
-                        // Otherwise keep the current valid model selection unchanged.
                     }
                 },
 
-                // Re-applies the same priority cascade used at app startup (see loadAgents):
-                //   agent: settings.defaultAgent → build → first primary → first agent
-                //   model: project.defaultModel → settings.defaultModel → agent's preferred model → Pi/big-pickle → first
-                // Used when entering a fresh draft session so model/agent reset to defaults
-                // instead of sticking to the previously open session's selection.
                 applyDefaultModelAgentSelection: (options) => {
                     const {
                         agents,
@@ -1468,7 +1231,7 @@ export const useConfigStore = create<ConfigStore>()(
                  setSettingsDefaultThinkingByModel: (map: Record<string, string>) => {
                      set({ settingsDefaultThinkingByModel: map });
                  },
- 
+
                 setSettingsAutoCreateWorktree: (enabled: boolean) => {
                     set({ settingsAutoCreateWorktree: enabled });
                 },
@@ -1492,8 +1255,6 @@ export const useConfigStore = create<ConfigStore>()(
                         settingsZenModel: state.settingsZenModel,
                     });
                 },
-
-
 
                 probeConnection: async (options?: { timeoutMs?: number }) => {
                     const isHealthy = await probePiHealth(options?.timeoutMs);
@@ -1589,7 +1350,6 @@ export const useConfigStore = create<ConfigStore>()(
 
                             if (!isConnected) {
                                 if (debug) console.log("Server not connected");
-                                // checkConnection already set lastDisconnectReason; do not overwrite.
                                 set({
                                     isConnected: false,
                                     connectionPhase: get().hasEverConnected ? "reconnecting" : "connecting",
@@ -1600,16 +1360,6 @@ export const useConfigStore = create<ConfigStore>()(
                             if (debug) console.log("Initializing app...");
                             markStartupTrace('initApp:skipped', { reason: 'checkConnection already verified health' });
 
-                            // Stale-while-revalidate: do NOT invalidate the hydrated
-                            // provider snapshot here. The pickers keep showing the
-                            // last-known providers/agents while loadProviders/loadAgents
-                            // below fetch fresh data and overwrite on success. Clearing
-                            // first would blank the UI for the duration of the fetch.
-
-                            // Config (providers/agents/defaults) lives at the PROJECT level. If the
-                            // app starts on a worktree directory, load config under the owning
-                            // project's key so the initial draft — which activates the project — finds
-                            // a ready snapshot instead of triggering a second provider/agent load.
                             const initialDirectory = useDirectoryStore.getState().currentDirectory
                                 ?? fromDirectoryKey(get().activeDirectoryKey);
                             const resolvedProject = resolveProjectForSessionDirectory(
@@ -1759,11 +1509,6 @@ export const useConfigStore = create<ConfigStore>()(
                             ? (persistedState as Partial<ConfigStore>)
                             : {}),
                     }),
-                // Stale-while-revalidate: persist the last-known provider/agent
-                // snapshots so the model/agent pickers paint instantly on cold
-                // start. Freshness is guaranteed by the background refresh in
-                // initializeApp() / activateDirectory() (which overwrite these on
-                // success) and by the provider/agent config-change subscriptions.
                 partialize: (state) => ({
                     activeDirectoryKey: state.activeDirectoryKey,
                     directoryScoped: Object.fromEntries(
@@ -1798,75 +1543,4 @@ export const useConfigStore = create<ConfigStore>()(
     ),
 );
 
-if (typeof window !== "undefined") {
-    window.__zustand_config_store__ = useConfigStore;
-}
-
-const refreshKnownProviderDirectories = async (source: string): Promise<void> => {
-    const state = useConfigStore.getState();
-    const directoryKeys = Array.from(new Set([
-        state.activeDirectoryKey,
-        ...Object.keys(state.directoryScoped),
-    ])).filter((key) => key.length > 0);
-
-    state.invalidateProviderCache();
-
-    let nextIndex = 0;
-    const workerCount = Math.min(PROVIDER_CONFIG_REFRESH_CONCURRENCY, directoryKeys.length);
-    const workers = Array.from({ length: workerCount }, async () => {
-        while (nextIndex < directoryKeys.length) {
-            const directoryKey = directoryKeys[nextIndex];
-            nextIndex += 1;
-            await useConfigStore.getState().loadProviders({
-                directory: fromDirectoryKey(directoryKey),
-                source,
-            });
-        }
-    });
-
-    await Promise.all(workers);
-};
-
-let unsubscribeConfigStoreChanges: (() => void) | null = null;
-
-if (!unsubscribeConfigStoreChanges) {
-    unsubscribeConfigStoreChanges = subscribeToConfigChanges(async (event) => {
-            const tasks: Promise<void>[] = [];
-
-        if (scopeMatches(event, "agents")) {
-            const { loadAgents } = useConfigStore.getState();
-            tasks.push(loadAgents({ source: 'configChange:agents' }).then(() => {}));
-        }
-
-        if (scopeMatches(event, "providers")) {
-            tasks.push(refreshKnownProviderDirectories('configChange:providers'));
-        }
-
-        if (tasks.length > 0) {
-            await Promise.all(tasks);
-        }
-    });
-}
-
-let unsubscribeConfigStoreDirectoryChanges: (() => void) | null = null;
-
-let unsubscribeConfigStoreSyncConfigChanges: (() => void) | null = null;
-
-if (!unsubscribeConfigStoreSyncConfigChanges) {
-    unsubscribeConfigStoreSyncConfigChanges = subscribeToSyncConfigChanges((directory, config) => {
-        useConfigStore.getState().applyRuntimeConfigDefaults(directory, 'syncConfig', config);
-    });
-}
-
-if (typeof window !== "undefined" && !unsubscribeConfigStoreDirectoryChanges) {
-    unsubscribeConfigStoreDirectoryChanges = useDirectoryStore.subscribe((state, prevState) => {
-        const nextKey = toDirectoryKey(state.currentDirectory);
-        const prevKey = toDirectoryKey(prevState.currentDirectory);
-        if (nextKey === prevKey) {
-            return;
-        }
-
-        markStartupTrace('directoryStore:changed', { previous: prevKey, next: nextKey });
-        void useConfigStore.getState().activateDirectory(state.currentDirectory);
-    });
-}
+setupConfigStoreSubscribers(useConfigStore);
