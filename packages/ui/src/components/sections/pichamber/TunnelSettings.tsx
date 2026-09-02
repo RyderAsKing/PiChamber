@@ -3,9 +3,6 @@ import QRCode from 'qrcode';
 import { toast } from '@/components/ui';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from "@/components/icon/Icon";
 import { requestFileAccess } from '@/lib/desktop';
@@ -13,324 +10,42 @@ import { updateDesktopSettings } from '@/lib/persistence';
 import { cn } from '@/lib/utils';
 import { openExternalUrl } from '@/lib/url';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
-import { formatTimeForPreference } from '@/lib/timeFormat';
-import { useUIStore, type TimeFormatPreference } from '@/stores/useUIStore';
-import { SettingsSection, SettingsGroupTitle, SETTINGS_SELECT_SIZE, SETTINGS_FIELD_LABEL_CLASS, SETTINGS_CALLOUT_TITLE_CLASS } from '@/components/sections/shared/SettingsSection';
-import { SettingsInfoHint } from '@/components/sections/shared/SettingsInfoHint';
-
-type TunnelState =
-  | 'checking'
-  | 'not-available'
-  | 'idle'
-  | 'starting'
-  | 'active'
-  | 'stopping'
-  | 'error';
-
-type TtlOption = { value: string; label: string; ms: number | null };
-type TunnelMode = 'quick' | 'managed-remote' | 'managed-local';
-type ApiTunnelMode = TunnelMode;
-
-interface ManagedRemoteTunnelPreset {
-  id: string;
-  name: string;
-  hostname: string;
-}
-
-const BOOTSTRAP_TTL_OPTIONS: TtlOption[] = [
-  { value: '1800000', label: '30m', ms: 30 * 60 * 1000 },
-  { value: '180000', label: '3m', ms: 3 * 60 * 1000 },
-  { value: '7200000', label: '2h', ms: 2 * 60 * 60 * 1000 },
-  { value: '28800000', label: '8h', ms: 8 * 60 * 60 * 1000 },
-  { value: '86400000', label: '24h', ms: 24 * 60 * 60 * 1000 },
-];
-
-const SESSION_TTL_OPTIONS: TtlOption[] = [
-  { value: '3600000', label: '1h', ms: 60 * 60 * 1000 },
-  { value: '28800000', label: '8h', ms: 8 * 60 * 60 * 1000 },
-  { value: '43200000', label: '12h', ms: 12 * 60 * 60 * 1000 },
-  { value: '86400000', label: '24h', ms: 24 * 60 * 60 * 1000 },
-  { value: '604800000', label: '1w', ms: 7 * 24 * 60 * 60 * 1000 },
-  { value: '2592000000', label: '30d', ms: 30 * 24 * 60 * 60 * 1000 },
-];
-
-const MANAGED_REMOTE_TUNNEL_DOC_URL = 'https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/get-started/create-remote-tunnel/';
-const MANAGED_LOCAL_TUNNEL_DOC_URL = 'https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/configuration-file/';
-
-const TUNNEL_MODE_OPTIONS: Array<{ value: TunnelMode; label: string; tooltip: string; }> = [
-  {
-    value: 'quick',
-    label: "Quick",
-    tooltip: "Quick Tunnel is best effort and uptime is not guaranteed.",
-  },
-  {
-    value: 'managed-remote',
-    label: "Managed Remote",
-    tooltip: "Managed Remote uses your Cloudflare account and hostname for long-lived access.",
-  },
-  {
-    value: 'managed-local',
-    label: "Managed Local",
-    tooltip: "Managed Local uses your local cloudflared configuration file.",
-  },
-];
-
-const MANAGED_LOCAL_CONFIG_ALLOWED_EXTENSIONS = ['.yml', '.yaml', '.json'];
-const MANAGED_LOCAL_CONFIG_EXTENSION_ERROR_KEY = "Config file must use .yml, .yaml, or .json extension.";
-
-const hasAllowedManagedLocalConfigExtension = (filePath: string): boolean => {
-  const normalized = filePath.trim().toLowerCase();
-  return MANAGED_LOCAL_CONFIG_ALLOWED_EXTENSIONS.some((extension) => normalized.endsWith(extension));
-};
-
-interface TunnelInfo {
-  url: string;
-  connectUrl: string | null;
-  bootstrapExpiresAt: number | null;
-}
-
-interface TunnelSessionRecord {
-  sessionId: string;
-  mode: TunnelMode | null;
-  status: 'active' | 'inactive';
-  inactiveReason?: string | null;
-  createdAt: number;
-  lastSeenAt: number;
-  expiresAt: number;
-  publicUrl?: string | null;
-}
-
-interface TunnelStatusResponse {
-  active: boolean;
-  url: string | null;
-  mode?: ApiTunnelMode;
-  hasManagedRemoteTunnelToken?: boolean;
-  managedRemoteTunnelHostname?: string | null;
-  hasBootstrapToken?: boolean;
-  bootstrapExpiresAt?: number | null;
-  managedRemoteTunnelTokenPresetIds?: string[];
-  managedRemoteTunnelPresets?: ManagedRemoteTunnelPreset[];
-  activeTunnelMode?: ApiTunnelMode | null;
-  providerMetadata?: {
-    configPath?: string | null;
-    resolvedHostname?: string | null;
-  };
-  activeSessions?: TunnelSessionRecord[];
-  localPort?: number;
-  policy?: string;
-  ttlConfig?: {
-    bootstrapTtlMs?: number | null;
-    sessionTtlMs?: number;
-  };
-}
-
-interface TunnelStartResponse {
-  ok?: boolean;
-  error?: string;
-  url?: string;
-  connectUrl?: string | null;
-  bootstrapExpiresAt?: number | null;
-  activeTunnelMode?: ApiTunnelMode | null;
-  mode?: ApiTunnelMode;
-  activeSessions?: TunnelSessionRecord[];
-  managedRemoteTunnelTokenPresetIds?: string[];
-  localPort?: number;
-  replacedTunnel?: boolean;
-  revokedBootstrapCount?: number;
-  invalidatedSessionCount?: number;
-}
-
-interface TunnelProviderModeDescriptor {
-  key: TunnelMode;
-  label: string;
-}
-
-interface TunnelProviderCapability {
-  provider: string;
-  modes?: TunnelProviderModeDescriptor[];
-}
-
-interface TunnelCheckResponse {
-  available?: boolean;
-  provider?: string | null;
-  version?: string | null;
-  dependency?: string | null;
-  installCommand?: string | null;
-  platform?: string | null;
-}
-
-interface TunnelDependencyInstallInfo {
-  provider: string;
-  dependency: string;
-  installCommand: string;
-}
-
-const getProviderDependencyName = (): string => 'cloudflared';
-
-const getClientInstallPlatform = (): string => {
-  if (typeof window !== 'undefined' && typeof window.__PICHAMBER_PLATFORM__ === 'string') {
-    const platform = window.__PICHAMBER_PLATFORM__;
-    if (platform === 'win32' || platform === 'darwin' || platform === 'linux') {
-      return platform;
-    }
-  }
-
-  const browserPlatform = typeof navigator !== 'undefined'
-    ? `${navigator.platform || ''} ${navigator.userAgent || ''}`.toLowerCase()
-    : '';
-  if (browserPlatform.includes('win')) {
-    return 'win32';
-  }
-  if (browserPlatform.includes('mac')) {
-    return 'darwin';
-  }
-  return 'linux';
-};
-
-const getFallbackInstallCommand = (platform = getClientInstallPlatform()): string => {
-  if (platform === 'win32') {
-    return 'winget install --id Cloudflare.cloudflared';
-  }
-  if (platform === 'darwin') {
-    return 'brew install cloudflared';
-  }
-  return 'https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflared/downloads/';
-};
-
-const createTunnelDependencyInstallInfo = (provider: string, checkData?: TunnelCheckResponse): TunnelDependencyInstallInfo => {
-  const responseProvider = typeof checkData?.provider === 'string' && checkData.provider.trim().length > 0
-    ? checkData.provider.trim().toLowerCase()
-    : provider;
-  const dependency = typeof checkData?.dependency === 'string' && checkData.dependency.trim().length > 0
-    ? checkData.dependency.trim()
-    : getProviderDependencyName();
-  const platform = typeof checkData?.platform === 'string' && checkData.platform.trim().length > 0
-    ? checkData.platform.trim()
-    : getClientInstallPlatform();
-  const installCommand = typeof checkData?.installCommand === 'string' && checkData.installCommand.trim().length > 0
-    ? checkData.installCommand.trim()
-    : getFallbackInstallCommand(platform);
-
-  return {
-    provider: responseProvider,
-    dependency,
-    installCommand,
-  };
-};
-
-const getProviderLabel = (provider: string): string => {
-  if (provider === 'cloudflare') {
-    return 'Cloudflare';
-  }
-  return provider;
-};
-
-const ProviderOptionLabel: React.FC<{ provider: string }> = ({ provider }) => {
-  const label = getProviderLabel(provider);
-  const isCloudflare = provider === 'cloudflare';
-
-  return (
-    <span className="flex items-center gap-2">
-      <Icon name="cloud" className={cn('size-4 shrink-0', isCloudflare ? 'text-[var(--status-warning)]' : 'text-muted-foreground')} />
-      <span>{label}</span>
-    </span>
-  );
-};
-
-const toUiTunnelMode = (mode: string | null | undefined): TunnelMode => {
-  if (mode === 'quick') {
-    return 'quick';
-  }
-  if (mode === 'managed-remote') {
-    return 'managed-remote';
-  }
-  if (mode === 'managed-local') {
-    return 'managed-local';
-  }
-  return 'quick';
-};
-
-const ttlOptionValue = (options: TtlOption[], ttlMs: number | null, fallback: string) => {
-  const matched = options.find((entry) => entry.ms === ttlMs);
-  return matched?.value || fallback;
-};
-
-const ttlOptionLabel = (options: TtlOption[], ttlMs: number | null, fallback: string) => {
-  const value = ttlOptionValue(options, ttlMs, fallback);
-  return options.find((entry) => entry.value === value)?.label || value;
-};
-
-const formatRemaining = (remainingMs: number): string => {
-  const safeMs = Math.max(0, remainingMs);
-  const totalSeconds = Math.floor(safeMs / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  }
-  if (minutes > 0) {
-    return `${minutes}m ${seconds}s`;
-  }
-  return `${seconds}s`;
-};
-
-const formatAbsoluteTime = (timestamp: number, timeFormatPreference: TimeFormatPreference): string => {
-  return formatTimeForPreference(timestamp, timeFormatPreference, { hour: '2-digit', precision: 'second' });
-};
-
-const normalizePresetHostname = (value: string): string => {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return '';
-  }
-
-  try {
-    const parsed = trimmed.includes('://') ? new URL(trimmed) : new URL(`https://${trimmed}`);
-    return parsed.hostname.trim().toLowerCase();
-  } catch {
-    return trimmed.toLowerCase();
-  }
-};
-
-const sanitizePresets = (value: unknown): ManagedRemoteTunnelPreset[] => {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  const seenIds = new Set<string>();
-  const seenHosts = new Set<string>();
-  const result: ManagedRemoteTunnelPreset[] = [];
-
-  for (const entry of value) {
-    if (!entry || typeof entry !== 'object') {
-      continue;
-    }
-    const candidate = entry as Record<string, unknown>;
-    const id = typeof candidate.id === 'string' ? candidate.id.trim() : '';
-    const name = typeof candidate.name === 'string' ? candidate.name.trim() : '';
-    const hostname = normalizePresetHostname(typeof candidate.hostname === 'string' ? candidate.hostname : '');
-    if (!id || !name || !hostname) {
-      continue;
-    }
-    if (seenIds.has(id) || seenHosts.has(hostname)) {
-      continue;
-    }
-    seenIds.add(id);
-    seenHosts.add(hostname);
-    result.push({ id, name, hostname });
-  }
-
-  return result;
-};
-
-const createPresetId = (): string => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-};
+import { useUIStore } from '@/stores/useUIStore';
+import { SettingsSection, SETTINGS_FIELD_LABEL_CLASS } from '@/components/sections/shared/SettingsSection';
+import type {
+  ApiTunnelMode,
+  ManagedRemoteTunnelPreset,
+  TunnelCheckResponse,
+  TunnelDependencyInstallInfo,
+  TunnelInfo,
+  TunnelMode,
+  TunnelProviderCapability,
+  TunnelSessionRecord,
+  TunnelStartResponse,
+  TunnelState,
+  TunnelStatusResponse,
+} from './tunnel/tunnelTypes';
+import {
+  BOOTSTRAP_TTL_OPTIONS,
+  createPresetId,
+  createTunnelDependencyInstallInfo,
+  formatRemaining,
+  hasAllowedManagedLocalConfigExtension,
+  MANAGED_LOCAL_CONFIG_EXTENSION_ERROR_KEY,
+  normalizePresetHostname,
+  sanitizePresets,
+  SESSION_TTL_OPTIONS,
+  toUiTunnelMode,
+  TUNNEL_MODE_OPTIONS,
+} from './tunnel/tunnelHelpers';
+import { ProviderOptionLabel } from './tunnel/ProviderOptionLabel';
+import { TunnelAccessLinksCard } from './tunnel/TunnelAccessLinksCard';
+import { TunnelDependencyMissingCard } from './tunnel/TunnelDependencyMissingCard';
+import { TunnelTtlControls } from './tunnel/TunnelTtlControls';
+import { ManagedRemoteTunnelsPanel } from './tunnel/ManagedRemoteTunnelsPanel';
+import { ManagedLocalTunnelPanel } from './tunnel/ManagedLocalTunnelPanel';
+import { TunnelStartControls } from './tunnel/TunnelStartControls';
+import { TunnelActiveCard } from './tunnel/TunnelActiveCard';
 
 export const TunnelSettings: React.FC = () => {
     const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
@@ -1193,76 +908,15 @@ export const TunnelSettings: React.FC = () => {
       divider={false}
     >
       <div className="space-y-6">
-      {renderedSessionRecords.length > 0 && (
-        <section className="space-y-2 px-2 pb-2 pt-0">
-          <div className="rounded-lg border border-[var(--status-info-border)] bg-[var(--status-info-background)]/30 p-3">
-            <div className="mb-2 flex items-center gap-2">
-              <Icon name="information" className="size-4 text-[var(--status-info)]" />
-              <p className={SETTINGS_CALLOUT_TITLE_CLASS}>{"Redeemed access links"}</p>
-            </div>
-            <div className="space-y-1">
-              {renderedSessionRecords.map((record) => {
-                const isQuick = record.mode === 'quick';
-                const isManagedRemote = record.mode === 'managed-remote';
-                const modeBadgeClass = isQuick
-                  ? 'border-[var(--status-warning-border)] bg-[var(--status-warning-background)] text-[var(--status-warning)]'
-                  : isManagedRemote
-                    ? 'border-[var(--status-info-border)] bg-[var(--status-info-background)] text-[var(--status-info)]'
-                    : 'border-[var(--status-success-border)] bg-[var(--status-success-background)] text-[var(--status-success)]';
-                const statusDotClass = record.isActive
-                  ? (isQuick ? 'text-[var(--status-warning)]' : isManagedRemote ? 'text-[var(--status-info)]' : 'text-[var(--status-success)]')
-                  : 'text-muted-foreground/50';
-                const modeLabel = isQuick
-                  ? "QUICK"
-                  : isManagedRemote
-                    ? "REMOTE"
-                    : "LOCAL";
+        <TunnelAccessLinksCard
+          records={renderedSessionRecords}
+          timeFormatPreference={timeFormatPreference}
+        />
 
-                return (
-                  <div
-                    key={record.sessionId}
-                    className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded border border-[var(--surface-subtle)] bg-[var(--surface-elevated)] px-2 py-1.5"
-                  >
-                    <Icon name="checkbox-blank-circle-fill" className={cn('size-2.5 shrink-0', statusDotClass)} />
-                    <span className={cn('typography-micro rounded border px-1.5 py-0.5 uppercase', modeBadgeClass)}>
-                      {modeLabel}
-                    </span>
-                    <span className="typography-meta text-muted-foreground/80">
-                      {`Redeemed ${formatAbsoluteTime(record.createdAt, timeFormatPreference)}`}
-                    </span>
-                    <span className="typography-meta text-foreground">
-                      {record.isActive
-                        ? `Expires in ${record.remainingTextForSession}`
-                        : (record.inactiveLabel === "Inactive"
-                          ? "Inactive"
-                          : `Inactive (${record.inactiveLabel})`)}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-      )}
+        {state === 'not-available' && (
+          <TunnelDependencyMissingCard installInfo={displayedDependencyInstallInfo} />
+        )}
 
-      {state === 'not-available' && (
-        <section className="space-y-2 px-2 pb-2 pt-0">
-          <div className="flex items-start gap-2 rounded-lg border border-[var(--status-warning)]/30 bg-[var(--status-warning)]/5 p-3">
-            <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]" />
-            <div className="space-y-1">
-              <p className={SETTINGS_CALLOUT_TITLE_CLASS}>
-                {`${displayedDependencyInstallInfo.dependency} was not found.`}
-              </p>
-              <p className="typography-meta text-muted-foreground/70">{"Install it to enable remote tunnel access:"}</p>
-              <code className="typography-code block rounded bg-muted/50 px-2 py-1 text-xs text-foreground">
-                {displayedDependencyInstallInfo.installCommand}
-              </code>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {(
         <section className="space-y-4 px-2 pb-2 pt-0">
           <div className="space-y-3">
             <div data-settings-item="tunnel.provider" className="space-y-1.5">
@@ -1300,521 +954,135 @@ export const TunnelSettings: React.FC = () => {
             </div>
           </div>
 
-          <div data-settings-item="tunnel.ttl" className="mt-2 grid grid-cols-1 gap-2 py-1.5 md:grid-cols-[14rem_auto] md:gap-x-8 md:gap-y-2">
-            <div className="flex min-w-0 items-center gap-2">
-              <span className={cn(SETTINGS_FIELD_LABEL_CLASS, 'shrink-0')}>{"Connect link TTL"}</span>
-              <Select
-                value={ttlOptionValue(BOOTSTRAP_TTL_OPTIONS, bootstrapTtlMs, '1800000')}
-                onValueChange={(value) => {
-                  void handleBootstrapTtlChange(value);
-                }}
-                disabled={isSavingTtl || isSavingMode || state === 'starting' || state === 'stopping'}
-              >
-                <SelectTrigger size={SETTINGS_SELECT_SIZE} className="max-w-[11rem] min-w-0">
-                  <SelectValue className="truncate">
-                    {ttlOptionLabel(BOOTSTRAP_TTL_OPTIONS, bootstrapTtlMs, '1800000')}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {BOOTSTRAP_TTL_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex min-w-0 items-center gap-2">
-              <span className={cn(SETTINGS_FIELD_LABEL_CLASS, 'shrink-0')}>{"Tunnel session TTL"}</span>
-              <Select
-                value={ttlOptionValue(SESSION_TTL_OPTIONS, sessionTtlMs, '28800000')}
-                onValueChange={(value) => {
-                  void handleSessionTtlChange(value);
-                }}
-                disabled={isSavingTtl || isSavingMode || state === 'starting' || state === 'stopping'}
-              >
-                <SelectTrigger size={SETTINGS_SELECT_SIZE} className="max-w-[11rem] min-w-0">
-                  <SelectValue className="truncate">
-                    {ttlOptionLabel(SESSION_TTL_OPTIONS, sessionTtlMs, '28800000')}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {SESSION_TTL_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {tunnelMode === 'quick' && (
-            <div className="rounded-lg border border-[var(--status-warning)]/35 bg-[var(--status-warning)]/10 p-3">
-              <div className="flex items-start gap-2">
-                <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]" />
-                <div>
-                  <p className="typography-meta text-[var(--status-warning)]">
-                    {"Quick Tunnel is best effort and uptime is not guaranteed."}
-                  </p>
-                  {providerSupportsManagedModes && (
-                    <p className="typography-meta mt-1 text-[var(--status-warning)]">
-                      {"For more reliable long-lived access, switch to Managed Remote or Managed Local tunnel mode."}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
+          <TunnelTtlControls
+            bootstrapTtlMs={bootstrapTtlMs}
+            sessionTtlMs={sessionTtlMs}
+            tunnelMode={tunnelMode}
+            disabled={isSavingTtl || isSavingMode || state === 'starting' || state === 'stopping'}
+            providerSupportsManagedModes={providerSupportsManagedModes}
+            onBootstrapTtlChange={(value) => {
+              void handleBootstrapTtlChange(value);
+            }}
+            onSessionTtlChange={(value) => {
+              void handleSessionTtlChange(value);
+            }}
+          />
 
           {tunnelMode === 'managed-remote' && (
-            <div data-settings-item="tunnel.managed-remote" className="space-y-2 rounded-lg border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-3">
-              {typeof suggestedConnectorPort === 'number' && (
-                <div className="rounded-md border border-[var(--status-info-border)] bg-[var(--status-info-background)]/35 px-2 py-1.5">
-                  <p className="typography-meta text-[var(--status-info)]">
-                    {"Cloudflare connector target:"} <code>http://localhost:{suggestedConnectorPort}</code>
-                  </p>
-                </div>
-              )}
-
-              <div className="mb-1 flex items-center justify-between gap-3">
-                <SettingsGroupTitle>{"Saved managed remote tunnels"}</SettingsGroupTitle>
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  className="!font-normal"
-                  onClick={() => setIsAddingPreset((prev) => !prev)}
-                  disabled={state === 'starting' || state === 'stopping' || isSavingMode}
-                >
-                  <Icon name="add" className="h-3.5 w-3.5" />
-                  {"Create"}
-                </Button>
-              </div>
-
-              {managedRemoteTunnelPresets.length > 0 ? (
-                <div className="overflow-hidden rounded-md border border-[var(--surface-subtle)]">
-                  {managedRemoteTunnelPresets.map((preset, index) => {
-                    const rowToken = sessionTokensByPresetId[preset.id] || '';
-                    const hasSavedToken = savedTokenPresetIds.has(preset.id);
-                    const isOpen = expandedManagedRemoteTunnels[preset.id] ?? false;
-
-                    return (
-                      <div
-                        key={preset.id}
-                        className={cn(index < managedRemoteTunnelPresets.length - 1 && 'border-b border-[var(--surface-subtle)]')}
-                      >
-                        <Collapsible
-                          open={isOpen}
-                          onOpenChange={(open) => {
-                            setExpandedManagedRemoteTunnels((prev) => ({ ...prev, [preset.id]: open }));
-                            if (open) {
-                              void handleSelectPreset(preset.id);
-                            }
-                          }}
-                          className="py-1.5"
-                        >
-                          <div className="flex items-start gap-2 px-3">
-                            <CollapsibleTrigger
-                              type="button"
-                              className="group flex-1 justify-start gap-2 rounded-md px-0 py-1 pr-1 text-left hover:bg-[var(--interactive-hover)]"
-                              disabled={state === 'starting' || state === 'stopping' || isSavingMode}
-                            >
-                              {isOpen
-                                ? <Icon name="arrow-down-s" className="h-4 w-4 text-muted-foreground" />
-                                : <Icon name="arrow-right-s" className="h-4 w-4 text-muted-foreground" />}
-                              <span className="typography-ui-label min-w-0 flex-1 truncate text-foreground">{preset.name}</span>
-                            </CollapsibleTrigger>
-
-                            <Button
-                              variant="ghost"
-                              size="xs"
-                              className="h-7 w-7 p-0 text-muted-foreground hover:text-[var(--status-error)]"
-                              aria-label={`Remove ${preset.name}`}
-                              onClick={() => {
-                                void handleRemovePreset(preset.id);
-                              }}
-                              disabled={state === 'starting' || state === 'stopping' || isSavingMode}
-                            >
-                              <Icon name="delete-bin" className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-
-                          <CollapsibleContent className="pt-1.5">
-                            <div className="space-y-1 px-3 pb-2">
-                              <p className="typography-meta text-muted-foreground/70">{"Hostname:"} <code>{preset.hostname}</code></p>
-                              <Input
-                                type="password"
-                                value={rowToken}
-                                onChange={(event) => {
-                                  const nextValue = event.target.value;
-                                  setManagedRemoteValidationError(null);
-                                  setSessionTokensByPresetId((prev) => ({ ...prev, [preset.id]: nextValue }));
-                                }}
-                                onBlur={(event) => {
-                                  const tokenToSave = event.currentTarget.value.trim();
-                                  if (!tokenToSave) {
-                                    return;
-                                  }
-                                  void persistManagedRemoteTunnelToken({
-                                    presetId: preset.id,
-                                    presetName: preset.name,
-                                    hostname: preset.hostname,
-                                    token: tokenToSave,
-                                  });
-                                }}
-                                placeholder={hasSavedToken ? "Saved token available (optional to replace)" : "Paste token for this tunnel"}
-                                className="h-7"
-                                disabled={state === 'starting' || state === 'stopping'}
-                              />
-                              <div className="flex items-center justify-end">
-                                <Button
-                                  variant="ghost"
-                                  size="xs"
-                                  className="!font-normal"
-                                  disabled={state === 'starting' || state === 'stopping' || rowToken.trim().length === 0}
-                                  onClick={() => {
-                                    void persistManagedRemoteTunnelToken({
-                                      presetId: preset.id,
-                                      presetName: preset.name,
-                                      hostname: preset.hostname,
-                                      token: rowToken,
-                                    });
-                                  }}
-                                >
-                                  {"Save token"}
-                                </Button>
-                              </div>
-                            </div>
-                          </CollapsibleContent>
-                        </Collapsible>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="typography-meta text-muted-foreground/70">{"No managed remote tunnels saved yet."}</p>
-              )}
-
-              {isAddingPreset && (
-                <div className="space-y-2 rounded-md border border-[var(--surface-subtle)] p-2">
-                  <Input
-                    value={newPresetName}
-                    onChange={(event) => setNewPresetName(event.target.value)}
-                    placeholder={"Tunnel name (e.g. Production)"}
-                    className="h-7"
-                    disabled={isSavingMode || state === 'starting' || state === 'stopping'}
-                  />
-                  <Input
-                    value={newPresetHostname}
-                    onChange={(event) => setNewPresetHostname(event.target.value)}
-                    placeholder={"Hostname (e.g. oc.example.com)"}
-                    className="h-7"
-                    disabled={isSavingMode || state === 'starting' || state === 'stopping'}
-                  />
-                  <Input
-                    type="password"
-                    value={newPresetToken}
-                    onChange={(event) => setNewPresetToken(event.target.value)}
-                    placeholder={"Token"}
-                    className="h-7"
-                    disabled={isSavingMode || state === 'starting' || state === 'stopping'}
-                  />
-                  {typeof suggestedConnectorPort === 'number' && (
-                    <p className="typography-meta text-muted-foreground/70">
-                      {"For Cloudflare connector target, use"} <code>http://localhost:{suggestedConnectorPort}</code>.
-                    </p>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      className="!font-normal"
-                      onClick={() => {
-                        void handleSaveNewPreset();
-                      }}
-                      disabled={isSavingMode || state === 'starting' || state === 'stopping'}
-                    >
-                      {"Save Changes"}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      className="!font-normal"
-                      onClick={() => {
-                        setIsAddingPreset(false);
-                        setNewPresetName('');
-                        setNewPresetHostname('');
-                        setNewPresetToken('');
-                      }}
-                      disabled={isSavingMode || state === 'starting' || state === 'stopping'}
-                    >
-                      {"Cancel"}
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex items-center gap-1.5">
-                <p className="typography-meta text-muted-foreground/80">{"Tokens are saved per tunnel and reused from disk."}</p>
-                <SettingsInfoHint>
-                  {"Tokens are saved in ~/.config/pichamber/cloudflare-managed-remote-tunnels.json."}
-                </SettingsInfoHint>
-              </div>
-
-              {!selectedPreset && managedRemoteValidationError && (
-                <p className="typography-meta text-[var(--status-error)]">{managedRemoteValidationError}</p>
-              )}
-            </div>
+            <ManagedRemoteTunnelsPanel
+              suggestedConnectorPort={suggestedConnectorPort}
+              managedRemoteTunnelPresets={managedRemoteTunnelPresets}
+              expandedManagedRemoteTunnels={expandedManagedRemoteTunnels}
+              sessionTokensByPresetId={sessionTokensByPresetId}
+              savedTokenPresetIds={savedTokenPresetIds}
+              disabled={state === 'starting' || state === 'stopping' || isSavingMode}
+              isAddingPreset={isAddingPreset}
+              newPresetName={newPresetName}
+              newPresetHostname={newPresetHostname}
+              newPresetToken={newPresetToken}
+              managedRemoteValidationError={managedRemoteValidationError}
+              selectedPreset={selectedPreset}
+              onToggleAddPreset={() => setIsAddingPreset((prev) => !prev)}
+              onCancelAddPreset={() => {
+                setIsAddingPreset(false);
+                setNewPresetName('');
+                setNewPresetHostname('');
+                setNewPresetToken('');
+              }}
+              onNewPresetNameChange={setNewPresetName}
+              onNewPresetHostnameChange={setNewPresetHostname}
+              onNewPresetTokenChange={setNewPresetToken}
+              onSaveNewPreset={() => {
+                void handleSaveNewPreset();
+              }}
+              onTogglePresetCollapse={(presetId, open) => {
+                setExpandedManagedRemoteTunnels((prev) => ({ ...prev, [presetId]: open }));
+                if (open) {
+                  void handleSelectPreset(presetId);
+                }
+              }}
+              onRemovePreset={(presetId) => {
+                void handleRemovePreset(presetId);
+              }}
+              onPresetTokenChange={(presetId, nextValue) => {
+                setManagedRemoteValidationError(null);
+                setSessionTokensByPresetId((prev) => ({ ...prev, [presetId]: nextValue }));
+              }}
+              onPersistToken={(params) => {
+                void persistManagedRemoteTunnelToken(params);
+              }}
+            />
           )}
 
           {tunnelMode === 'managed-local' && (
-            <div data-settings-item="tunnel.managed-local-config" className="space-y-2 rounded-lg border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-3">
-              <div className="space-y-1.5">
-                <p className={SETTINGS_FIELD_LABEL_CLASS}>{"Configuration file"}</p>
-                <input
-                  ref={managedLocalConfigFileInputRef}
-                  type="file"
-                  accept=".yml,.yaml,.json"
-                  className="hidden"
-                  onChange={(event) => {
-                    void handleManagedLocalConfigFileSelected(event);
-                  }}
-                />
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={managedLocalConfigPath || ''}
-                    onChange={(event) => {
-                      handleManagedLocalConfigInputChange(event.target.value);
-                    }}
-                    onBlur={() => {
-                      void handleManagedLocalConfigInputBlur();
-                    }}
-                    placeholder={"Using default cloudflared config"}
-                    className="h-7"
-                    disabled={state === 'starting' || state === 'stopping' || isSavingMode}
-                  />
-                  <Button
-                    variant="outline"
-                    size="xs"
-                    className="h-7 w-7 p-0"
-                    aria-label={"Browse config file"}
-                    onClick={() => {
-                      void handleBrowseManagedLocalConfig();
-                    }}
-                    disabled={state === 'starting' || state === 'stopping' || isSavingMode}
-                  >
-                    <Icon name="folder" className="size-3.5" />
-                  </Button>
-                  {managedLocalConfigPath && (
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      className="h-7 w-7 p-0"
-                      aria-label={"Clear config file"}
-                      onClick={() => {
-                        void handleManagedLocalConfigClear();
-                      }}
-                      disabled={state === 'starting' || state === 'stopping' || isSavingMode}
-                    >
-                      <Icon name="close" className="size-3.5" />
-                    </Button>
-                  )}
-                </div>
-                <p className="typography-meta text-muted-foreground/70">
-                  {managedLocalConfigPath
-                    ? "Custom config file will be used when starting the tunnel."
-                    : "When empty, cloudflared uses its default config (~/.cloudflared/config.yml)."}
-                </p>
-                {isManagedLocalConfigPathInvalid && (
-                  <p className="typography-meta text-[var(--status-error)]">{managedLocalConfigExtensionError}</p>
-                )}
-              </div>
-            </div>
+            <ManagedLocalTunnelPanel
+              managedLocalConfigPath={managedLocalConfigPath}
+              isManagedLocalConfigPathInvalid={isManagedLocalConfigPathInvalid}
+              managedLocalConfigExtensionError={managedLocalConfigExtensionError}
+              disabled={state === 'starting' || state === 'stopping' || isSavingMode}
+              fileInputRef={managedLocalConfigFileInputRef}
+              onInputChange={handleManagedLocalConfigInputChange}
+              onInputBlur={() => {
+                void handleManagedLocalConfigInputBlur();
+              }}
+              onBrowse={() => {
+                void handleBrowseManagedLocalConfig();
+              }}
+              onClear={() => {
+                void handleManagedLocalConfigClear();
+              }}
+              onFileSelected={(event) => {
+                void handleManagedLocalConfigFileSelected(event);
+              }}
+            />
           )}
 
           {!isSelectedModeTunnelReady && (
-            <div data-settings-item="tunnel.start" className="space-y-6">
-              <div className="rounded-lg border border-[var(--status-info-border)] bg-[var(--status-info-background)] p-3">
-                <div className="flex items-start gap-2">
-                  <Icon name="information" className="mt-0.5 size-4 shrink-0 text-[var(--status-info)]" />
-                  <div className="space-y-1">
-                    {tunnelMode === 'managed-remote' && (
-                      <>
-                        <p className="typography-meta text-[var(--status-info)]">
-                          {"Managed remote tunnels require a purchased domain in your Cloudflare account."}
-                        </p>
-                        <button
-                          type="button"
-                          className="typography-meta inline-flex items-center gap-1 text-[var(--status-info)] underline underline-offset-2 hover:opacity-90"
-                          onClick={() => {
-                            void openExternal(MANAGED_REMOTE_TUNNEL_DOC_URL);
-                          }}
-                        >
-                          {"Check documentation on how to configure a managed remote tunnel"}
-                          <Icon name="external-link" className="size-3.5" />
-                        </button>
-                      </>
-                    )}
-                    {tunnelMode === 'managed-local' && (
-                      <>
-                        <p className="typography-meta text-[var(--status-info)]">
-                          {"Managed local tunnels use your local cloudflared configuration file."}
-                        </p>
-                        <button
-                          type="button"
-                          className="typography-meta inline-flex items-center gap-1 text-[var(--status-info)] underline underline-offset-2 hover:opacity-90"
-                          onClick={() => {
-                            void openExternal(MANAGED_LOCAL_TUNNEL_DOC_URL);
-                          }}
-                        >
-                          {"Check documentation on managed local tunnel configuration"}
-                          <Icon name="external-link" className="size-3.5" />
-                        </button>
-                      </>
-                    )}
-                    <p className="typography-meta text-[var(--status-info)]">
-                      {`Start a ${(TUNNEL_MODE_OPTIONS.find((option) => option.value === tunnelMode)?.label ?? 'Quick')} tunnel and generate a one-time connect link. Do not close the app while this tunnel is in use.`}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {tunnelMode === 'managed-remote' && (
-                <div className="space-y-1.5">
-                  <p className={SETTINGS_FIELD_LABEL_CLASS}>{"Managed remote tunnel to connect"}</p>
-                  <Select
-                    value={selectedPresetId || (managedRemoteTunnelPresets[0]?.id ?? '')}
-                    onValueChange={(presetId) => {
-                      void handleSelectPreset(presetId);
-                    }}
-                    disabled={
-                      isSavingMode
-                      || state === 'starting'
-                      || state === 'stopping'
-                      || managedRemoteTunnelPresets.length <= 1
-                    }
-                  >
-                    <SelectTrigger size={SETTINGS_SELECT_SIZE}>
-                      <SelectValue placeholder={"Select saved tunnel"}>
-                        {selectedPreset?.name}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent fitContent>
-                      {managedRemoteTunnelPresets.map((preset) => (
-                        <SelectItem key={preset.id} value={preset.id}>{preset.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
-              {willReplaceActiveTunnel && (
-                <div className="rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-background)] p-3">
-                  <div className="flex items-start gap-2">
-                    <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]" />
-                    <p className="typography-meta text-[var(--status-warning)]">
-                      {"Starting this tunnel replaces the active tunnel and revokes existing connect links and remote sessions."}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              <Button size="sm"
-                variant="outline"
-                onClick={handleStart}
-                disabled={
-                  state === 'starting'
-                  || isSavingMode
-                  || (tunnelMode === 'managed-remote' && !selectedPreset)
-                  || (tunnelMode === 'managed-local' && isManagedLocalConfigPathInvalid)
-                }
-                className={cn(primaryCtaClass, state === 'starting' && 'opacity-70')}
-              >
-                {state === 'starting'
-                  ? <><Icon name="loader-4" className="size-3.5 animate-spin" /> {"Starting tunnel..."}</>
-                  : "Start Tunnel"}
-              </Button>
-            </div>
+            <TunnelStartControls
+              tunnelMode={tunnelMode}
+              selectedPresetId={selectedPresetId}
+              managedRemoteTunnelPresets={managedRemoteTunnelPresets}
+              selectedPreset={selectedPreset}
+              willReplaceActiveTunnel={willReplaceActiveTunnel}
+              state={state}
+              isSavingMode={isSavingMode}
+              isManagedLocalConfigPathInvalid={isManagedLocalConfigPathInvalid}
+              primaryCtaClass={primaryCtaClass}
+              onSelectPreset={(presetId) => {
+                void handleSelectPreset(presetId);
+              }}
+              onStart={handleStart}
+              onOpenDocUrl={(url) => {
+                void openExternal(url);
+              }}
+            />
           )}
-
         </section>
-      )}
 
-      {isSelectedModeTunnelReady && tunnelInfo && (
-        <section data-settings-item="tunnel.start" className="space-y-4 px-2 pb-2 pt-0">
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <div className="size-2 shrink-0 rounded-full bg-[var(--status-success)]" />
-              <p className="typography-meta font-medium text-foreground">{"Tunnel ready"}</p>
-            </div>
+        {isSelectedModeTunnelReady && tunnelInfo && (
+          <TunnelActiveCard
+            tunnelInfo={tunnelInfo}
+            isConnectLinkLive={isConnectLinkLive}
+            copied={copied}
+            onCopyUrl={handleCopyUrl}
+            remainingText={remainingText}
+            qrDataUrl={qrDataUrl}
+            onNewConnectLink={handleStart}
+            onStop={handleStop}
+            stopping={state === 'stopping'}
+            isSavingMode={isSavingMode}
+            isManagedLocalConfigPathInvalid={isManagedLocalConfigPathInvalid}
+            tunnelMode={tunnelMode}
+            primaryCtaClass={primaryCtaClass}
+          />
+        )}
 
-            <div>
-              <p className="typography-meta mb-1 text-muted-foreground/70">{"Public URL (not accessible without a token)"}</p>
-              <code className="typography-code block truncate rounded bg-muted/50 px-2 py-1 text-xs text-foreground">
-                {tunnelInfo.url}
-              </code>
-            </div>
-
-            {isConnectLinkLive && tunnelInfo.connectUrl && (
-              <>
-                <div>
-                  <p className="typography-meta mb-1 text-muted-foreground/70">{"Connect link"}</p>
-                  <div className="flex items-center gap-2">
-                    <code className="typography-code flex-1 truncate rounded bg-muted/50 px-2 py-1 text-xs text-foreground">
-                      {tunnelInfo.connectUrl}
-                    </code>
-                    <Button size="sm" variant="ghost" onClick={handleCopyUrl} className="shrink-0 gap-1.5">
-                      {copied
-                        ? <Icon name="check" className="size-3.5 text-[var(--status-success)]" />
-                        : <Icon name="file-copy" className="size-3.5" />}
-                      {copied ? "Copied" : "Copy all"}
-                    </Button>
-                  </div>
-                  <p className="typography-meta mt-1 text-muted-foreground/70">
-                    {"Expires"}: {tunnelInfo.bootstrapExpiresAt ? remainingText : "Never"}
-                  </p>
-                </div>
-
-                <div className="flex flex-col items-center gap-2 rounded-lg border border-border/50 bg-[var(--surface-elevated)] p-4">
-                  {qrDataUrl
-                    ? <img src={qrDataUrl} alt={"Tunnel connect QR code"} className="size-48" />
-                    : <div className="size-48 rounded bg-muted/30" />}
-                  <p className="typography-meta text-muted-foreground">{"Scan with your phone to connect."}</p>
-                </div>
-              </>
-            )}
-          </div>
-
-          <div className="pt-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button size="sm"
-                variant="outline"
-                onClick={handleStart}
-                disabled={state === 'stopping' || isSavingMode || (tunnelMode === 'managed-local' && isManagedLocalConfigPathInvalid)}
-                className={primaryCtaClass}
-              >
-                <Icon name="restart" className="size-3.5" />
-                {"New connect link"}
-              </Button>
-
-              <Button size="sm"
-                variant="ghost"
-                onClick={handleStop}
-                disabled={state === 'stopping' || isSavingMode}
-                className="gap-2 text-[var(--status-error)]"
-              >
-                {state === 'stopping'
-                  ? <><Icon name="loader-4" className="size-3.5 animate-spin" /> {"Stopping..."}</>
-                  : "Stop Tunnel"}
-              </Button>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {state === 'error' && errorMessage && (
-        <section className="space-y-3 px-2 pb-2 pt-0">
-          <p className="typography-meta text-[var(--status-error)]">{errorMessage}</p>
-          <Button size="sm" variant="ghost" onClick={handleStart}>{"Retry"}</Button>
-        </section>
-      )}
+        {state === 'error' && errorMessage && (
+          <section className="space-y-3 px-2 pb-2 pt-0">
+            <p className="typography-meta text-[var(--status-error)]">{errorMessage}</p>
+            <Button size="sm" variant="ghost" onClick={handleStart}>{"Retry"}</Button>
+          </section>
+        )}
       </div>
     </SettingsSection>
   );
