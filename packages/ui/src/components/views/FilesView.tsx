@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/dialog';
 import { useDeviceInfo } from '@/lib/device';
 import { cn, getModifierLabel, hasModifier } from '@/lib/utils';
-import { getLanguageFromExtension, getImageMimeType, isBinaryFile, isDrawioFile, isImageFile, isPdfFile, isSvgFile, looksLikeBinaryText } from '@/lib/toolHelpers';
+import { getLanguageFromExtension, getImageMimeType, isBinaryFile, isDrawioFile, isImageFile, isPdfFile, isSvgFile } from '@/lib/toolHelpers';
 import { shouldAllowFileDraftSave, shouldScheduleFileAutosave } from '@/lib/fileEditorAutosave';
 import { getRuntimeUrlResolver } from '@/lib/runtime-url';
 import { getOutsideFileGrant } from '@/lib/outsideFileGrants';
@@ -59,7 +59,6 @@ import { Dialogs } from './files/FilesViewDialogs';
 import { FileIcon, FileRow, OpenInAppListIcon, ScrollingFileName, type FileStatus } from './files/FilesViewChrome';
 import {
   MAX_VIEW_CHARS,
-  detectFileLineEnding,
   getAncestorPaths,
   getDisplayPath,
   getParentDirectoryPath,
@@ -69,7 +68,6 @@ import {
   isJsonFile,
   isMarkdownFile,
   isPathWithinRoot,
-  normalizeEditorLineEndings,
   normalizePath,
   serializeEditorContent,
   toComparablePath,
@@ -80,6 +78,7 @@ import {
 import { useAssetAuthRefresh } from './files/useAssetAuthRefresh';
 import { FileViewerContent } from './files/FileViewerContent';
 import { useFileOperations } from './files/useFileOperations';
+import { loadFileDocument } from './files/loadFileDocument';
 import { useFilesTree } from './files/useFilesTree';
 import { useFilesViewSearch } from './files/useFilesViewSearch';
 
@@ -707,78 +706,45 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     setLoadedFilePath(null);
     setContentDetectedBinary(false);
 
-    const selectedIsImage = isImageFile(node.path);
-    const isSvg = isSvgFile(node.path);
-    const selectedIsPdf = isPdfFile(node.path);
-    const selectedIsBinary = isBinaryFile(node.path);
-
     if (isMobile) {
       setShowMobilePageContent(true);
     }
-
-    // Desktop: binary images are loaded via readFileBinary (data URL).
-    if (runtime.isDesktop && selectedIsImage && !isSvg) {
-      setFileContent('');
-      setDraftContent('');
-      setFileLoading(true);
-      return;
-    }
-
-    // Web: binary images should not be read as utf8.
-    if (!runtime.isDesktop && selectedIsImage && !isSvg) {
-      setFileContent('');
-      setDraftContent('');
-      setLoadedFilePath(node.path);
-      setFileLoading(false);
-      return;
-    }
-
-    if (selectedIsPdf) {
-      setFileContent('');
-      setDraftContent('');
-      setLoadedFilePath(node.path);
-      setFileLoading(false);
-      return;
-    }
-
-    // Other known binaries (docx/xlsx/zip/…) must never be opened as text —
-    // a later autosave would corrupt them.
-    if (selectedIsBinary) {
-      setFileContent('');
-      setDraftContent('');
-      setLoadedFilePath(node.path);
-      setFileLoading(false);
-      return;
-    }
-
-    setFileLoading(true);
 
     const outsideFileGrant = getOutsideFileGrant(node.path);
     const readOptions = {
       allowOutsideWorkspace: mode === 'editor-only' && Boolean(root) && !isPathWithinRoot(node.path, root),
       outsideFileGrant,
     };
+    let keepDesktopImageLoading = false;
+    setFileLoading(true);
 
-    await readFile(node.path, readOptions)
-      .then((content) => {
-        if (!isCurrentLoad()) {
-          return;
-        }
-        if (looksLikeBinaryText(content)) {
-          setContentDetectedBinary(true);
+    await loadFileDocument(
+      node.path,
+      runtime.isDesktop,
+      (path) => readFile(path, readOptions),
+    )
+      .then((result) => {
+        if (!isCurrentLoad()) return;
+
+        if (result.kind !== 'text') {
           setFileContent('');
           setDraftContent('');
+          if (result.kind === 'desktop-image') {
+            keepDesktopImageLoading = true;
+            return;
+          }
+          if (result.kind === 'binary') {
+            setContentDetectedBinary(result.detectedFromContent);
+          }
           setLoadedFilePath(node.path);
           return;
         }
-        const editorContent = normalizeEditorLineEndings(content);
-        setLoadedFileLineEnding(detectFileLineEnding(content));
-        setFileContent(editorContent);
-        diagramXmlRef.current = editorContent;
-        diagramSavedXmlRef.current = editorContent;
-        setDraftContent(editorContent.length > MAX_VIEW_CHARS
-          ? `${editorContent.slice(0, MAX_VIEW_CHARS)}\n\n… truncated …`
-          : editorContent);
+
+        setLoadedFileLineEnding(result.lineEnding);
+        setFileContent(result.content);
+        diagramXmlRef.current = result.content;
+        diagramSavedXmlRef.current = result.content;
+        setDraftContent(result.draft);
         setLoadedFilePath(node.path);
         void readFileStat(node.path, readOptions)
           .then((stat) => {
@@ -841,7 +807,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
         lastLoadedFileStatRef.current = null;
       })
       .finally(() => {
-        if (isCurrentLoad()) {
+        if (isCurrentLoad() && !keepDesktopImageLoading) {
           setFileLoading(false);
         }
       });
