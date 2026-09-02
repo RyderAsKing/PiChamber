@@ -8,10 +8,7 @@ import { toast } from '@/components/ui';
 import { isSessionPinned, type SessionPinnedTarget } from '@/stores/useSessionPinnedStore';
 import { Icon } from "@/components/icon/Icon";
 import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
-import { buildExportFilename, downloadAsMarkdown, formatSessionAsMarkdown, getExportRevealLabel, revealExportedMarkdown, saveAsMarkdownDesktop } from '@/lib/exportSession';
-import type { ChildSessionExport } from '@/lib/exportSession';
-import { buildSessionMessageRecordsSnapshot, useDirectoryStore, useGlobalSessionStatus, useSessionPermissions, useSessionQuestionCount } from '@/sync/sync-context';
-import { useSync } from '@/sync/use-sync';
+import { useGlobalSessionStatus, useSessionPermissions, useSessionQuestionCount } from '@/sync/sync-context';
 import { useViewportStore, viewportSessionKey } from '@/sync/viewport-store';
 import { DraggableSessionRow } from './sessionFolderDnd';
 import { nodeContainsSessionId, nodeHasPinnedMembershipChange, selectQuestionBadgeSessionScopes } from './sessionNodeItemUtils';
@@ -123,59 +120,8 @@ type Props = {
   childRenderExtrasFor?: (child: SessionNode) => SessionNodeChildRenderExtras;
 };
 
-// Shared row geometry: the gutter edge matches the zone-header band padding
-// (px-1.5 = 6px), the marker slot is icon-wide (14px) with a 6px gap, so row
-// text starts exactly where the zone-header label starts. Nested children
-// shift by one gutter step per depth level.
-const ROW_GUTTER_LEFT_PX = 6;
-const ROW_DEPTH_STEP_PX = 14;
-const ROW_TEXT_LEFT_PX = ROW_GUTTER_LEFT_PX + 14 + 6;
-
-const cancelScrollAnchorByContainer = new WeakMap<HTMLElement, () => void>();
-
-const holdSessionRowPosition = (target: HTMLElement): void => {
-  if (typeof window === 'undefined') return;
-  const row = target.closest<HTMLElement>('[data-session-row]');
-  const container = row?.closest<HTMLElement>('.overlay-scrollbar-container');
-  if (!row || !container) return;
-
-  cancelScrollAnchorByContainer.get(container)?.();
-
-  const initialTop = row.getBoundingClientRect().top;
-  let remainingFrames = 3;
-  let cancelled = false;
-  let frameId: number | null = null;
-  const cancel = () => {
-    cancelled = true;
-    if (frameId !== null) window.cancelAnimationFrame(frameId);
-    frameId = null;
-    cancelScrollAnchorByContainer.delete(container);
-    container.removeEventListener('wheel', cancel);
-    container.removeEventListener('touchstart', cancel);
-  };
-  const restore = () => {
-    if (cancelled || !row.isConnected || !container.isConnected) {
-      cancel();
-      return;
-    }
-    const delta = row.getBoundingClientRect().top - initialTop;
-    if (Math.abs(delta) > 0.5) {
-      container.scrollTop += delta;
-      streamPerfCount('ui.sidebar.selection_scroll_anchor_adjustment');
-    }
-    remainingFrames -= 1;
-    if (remainingFrames <= 0) {
-      cancel();
-      return;
-    }
-    frameId = window.requestAnimationFrame(restore);
-  };
-
-  container.addEventListener('wheel', cancel, { passive: true });
-  container.addEventListener('touchstart', cancel, { passive: true });
-  cancelScrollAnchorByContainer.set(container, cancel);
-  frameId = window.requestAnimationFrame(restore);
-};
+import { ROW_GUTTER_LEFT_PX, ROW_DEPTH_STEP_PX, ROW_TEXT_LEFT_PX, holdSessionRowPosition } from './sessionRowAnchor';
+import { collectNodeDescendantIds, collectNodeDescendantSessions, useSessionExport } from './useSessionExport';
 
 function SessionNodeItemComponent(props: Props): React.ReactNode {
   streamPerfCount('ui.sidebar_session_node.render');
@@ -303,10 +249,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   // selection must survive mixing sessions from different worktrees.
   const selectionScopeKey = projectId ?? sessionDirectory ?? null;
   // Directory bootstrap is scheduled once at sidebar level. A row only needs
-  // the lightweight store reference for scoped state and export actions.
-  const directoryStore = useDirectoryStore(sessionDirectory ?? undefined, { bootstrap: false });
-  const sync = useSync();
-
   const selectionModeEnabled = useSessionMultiSelectStore((state) => state.enabled);
   const isRowSelected = useSessionMultiSelectStore(
     React.useCallback((state) => state.selectedIds.has(session.id), [session.id]),
@@ -314,32 +256,15 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   const toggleRowSelected = useSessionMultiSelectStore((state) => state.toggleSelected);
   const setRowRange = useSessionMultiSelectStore((state) => state.setRange);
 
-  const collectNodeDescendantIds = React.useCallback((root: SessionNode): string[] => {
-    const out: string[] = [];
-    const walk = (n: SessionNode) => {
-      n.children.forEach((child) => {
-        out.push(child.session.id);
-        walk(child);
-      });
-    };
-    walk(root);
-    return out;
-  }, []);
-
-  const collectNodeDescendantSessions = React.useCallback((root: SessionNode): Session[] => {
-    const out: Session[] = [];
-    const walk = (current: SessionNode) => {
-      current.children.forEach((child) => {
-        out.push(child.session);
-        walk(child);
-      });
-    };
-    walk(root);
-    return out;
-  }, []);
-
-  const [exportDialogOpen, setExportDialogOpen] = React.useState(false);
-  const [exportIncludeSubtasks, setExportIncludeSubtasks] = React.useState(true);
+  const {
+    exportDialogOpen,
+    setExportDialogOpen,
+    exportIncludeSubtasks,
+    setExportIncludeSubtasks,
+    descendantCount,
+    handleExportSession,
+    doExportSession,
+  } = useSessionExport(node, sessionDirectory);
 
   const menuInstanceKey = `${renderContext}:${archivedBucket ? 'archived' : 'active'}:${session.id}`;
   const isZombie = useViewportStore(
@@ -383,100 +308,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     ? 'var(--surface-elevated)'
     : null;
   const rowBackground = forkBackground ?? globalBackground;
-  const descendantCount = React.useMemo(() => collectNodeDescendantIds(node).length, [collectNodeDescendantIds, node]);
-
-  const collectChildExports = React.useCallback(async (children: SessionNode[]): Promise<{ children: ChildSessionExport[]; skipped: number }> => {
-    const results: ChildSessionExport[] = [];
-    let skipped = 0;
-    for (const child of children) {
-      try {
-        if (!sessionDirectory) throw new Error('Session directory is required for export');
-        await (sync as any).loadCompleteHistory?.(child.session.id, sessionDirectory);
-        const childRecords = buildSessionMessageRecordsSnapshot(directoryStore.getState(), child.session.id).list;
-        const childTitle = child.session.title || "Untitled Sub-agent";
-        const childAgent = (child.session as Session & { agent?: string }).agent;
-        const grandChildren = await collectChildExports(child.children);
-        skipped += grandChildren.skipped;
-        results.push({
-          title: childTitle,
-          agent: childAgent,
-          records: childRecords,
-          children: grandChildren.children,
-        });
-      } catch {
-        skipped += collectNodeDescendantIds(child).length + 1;
-      }
-    }
-    return { children: results, skipped };
-  }, [collectNodeDescendantIds, directoryStore, sessionDirectory, sync]);
-
-  const showSkippedSubtasksWarning = React.useCallback((count: number) => {
-    if (count <= 0) return;
-    toast.warning(count === 1
-      ? `Exported session, but skipped ${count} sub-agent task that could not be loaded.`
-      : `Exported session, but skipped ${count} sub-agent tasks that could not be loaded.`);
-  }, []);
-
-  const doExportSession = React.useCallback(async (includeSubtasks: boolean) => {
-    if (!sessionDirectory) {
-      toast.error("Nothing to export");
-      return;
-    }
-
-    try {
-      await (sync as any).loadCompleteHistory?.(session.id, sessionDirectory);
-    } catch {
-      toast.error("Failed to load the complete session history");
-      return;
-    }
-
-    const records = buildSessionMessageRecordsSnapshot(directoryStore.getState(), session.id).list;
-    if (records.length === 0) {
-      toast.error("Nothing to export");
-      return;
-    }
-
-    let childExports: ChildSessionExport[] | undefined;
-    let skippedSubtaskCount = 0;
-    if (includeSubtasks && node.children.length > 0) {
-      const collected = await collectChildExports(node.children);
-      childExports = collected.children;
-      skippedSubtaskCount = collected.skipped;
-    }
-
-    const markdown = formatSessionAsMarkdown(records, resolvedSession.title ?? null, childExports);
-    const filename = buildExportFilename(resolvedSession.title ?? null);
-    const savedPath = await saveAsMarkdownDesktop(markdown, filename);
-
-    if (savedPath) {
-      toast.success("Session exported", {
-        action: {
-          label: getExportRevealLabel(),
-          onClick: () => {
-            void revealExportedMarkdown(savedPath).then((revealed) => {
-              if (!revealed) {
-                toast.error("Failed to reveal path");
-              }
-            });
-          },
-        },
-      });
-      showSkippedSubtasksWarning(skippedSubtaskCount);
-      return;
-    }
-
-    downloadAsMarkdown(markdown, filename);
-    toast.success("Session exported");
-    showSkippedSubtasksWarning(skippedSubtaskCount);
-  }, [collectChildExports, directoryStore, node.children, resolvedSession.title, session.id, sessionDirectory, showSkippedSubtasksWarning, sync]);
-  const handleExportSession = React.useCallback(async () => {
-    if (node.children.length > 0) {
-      setExportIncludeSubtasks(true);
-      setExportDialogOpen(true);
-      return;
-    }
-    await doExportSession(false);
-  }, [doExportSession, node.children.length]);
 
   const handleOpenMiniChatWindow = React.useCallback(() => {
     if (!sessionDirectory) return;
