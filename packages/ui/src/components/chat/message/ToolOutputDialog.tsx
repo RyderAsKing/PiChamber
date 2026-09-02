@@ -24,6 +24,7 @@ import {
 import type { ToolPopupContent, DiffViewMode } from './types';
 import { DiffViewToggle } from './DiffViewToggle';
 import { VirtualizedCodeBlock, type CodeLine } from './parts/VirtualizedCodeBlock';
+import { TOOL_DIFF_METRICS, TOOL_DIFF_UNSAFE_CSS } from './parts/toolPartStyles';
 import { JsonTreeView } from '@/components/ui/JsonTreeView';
 import { Icon } from "@/components/icon/Icon";
 import { runtimeFetch } from '@/lib/runtime-fetch';
@@ -104,23 +105,6 @@ const MERMAID_CONTROLS = { download: false, copy: false, showPanZoomControls: tr
 type PierreThemeConfig = {
     theme: { light: string; dark: string };
     themeType: 'light' | 'dark';
-};
-
-const TOOL_DIFF_UNSAFE_CSS = `
-  [data-diff-header],
-  [data-diff] {
-    [data-separator] {
-      height: 24px !important;
-    }
-  }
-`;
-
-const TOOL_DIFF_METRICS = {
-    hunkLineCount: 50,
-    lineHeight: 24,
-    diffHeaderHeight: 44,
-    hunkSeparatorHeight: 24,
-    spacing: 0,
 };
 
 const usePierreThemeConfig = (): PierreThemeConfig => {

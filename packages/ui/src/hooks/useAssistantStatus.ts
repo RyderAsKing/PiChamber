@@ -1,7 +1,5 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
-import type { Message, Part, ReasoningPart, TextPart, ToolPart } from '@/lib/chat/types';
+import type { Message, Part, TextPart, ToolPart } from '@/lib/chat/types';
 
 import type { MessageStreamPhase } from '@/stores/types/sessionTypes';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -140,6 +138,8 @@ const getStableWorkingPhrase = (key: string): string => {
     return WORKING_PHRASES[hashString(key) % WORKING_PHRASES.length] ?? 'working';
 };
 
+const isToolPart = (part: Part): part is ToolPart => part.type === 'tool';
+
 const createParsedStatus = (parts: Part[], genericKey: string): ParsedStatusResult => {
     let activePartType: ParsedStatusResult['activePartType'] = undefined;
     let activeToolName: string | undefined = undefined;
@@ -151,7 +151,7 @@ const createParsedStatus = (parts: Part[], genericKey: string): ParsedStatusResu
 
             switch (part.type) {
                 case 'reasoning': {
-                    const time = part.time ?? getPartTimeInfo(part);
+                    const time = getPartTimeInfo(part);
                     const stillRunning = !time || typeof time.end === 'undefined';
                     if (stillRunning && !activePartType) {
                         activePartType = 'reasoning';
@@ -159,6 +159,7 @@ const createParsedStatus = (parts: Part[], genericKey: string): ParsedStatusResu
                     break;
                 }
                 case 'tool': {
+                    if (!isToolPart(part)) break;
                     const toolStatus = part.state?.status;
                     if ((toolStatus === 'running' || toolStatus === 'pending') && !activePartType) {
                         const toolName = getToolDisplayName(part);
@@ -222,8 +223,6 @@ const decodeParsedStatus = (signature: string): ParsedStatusResult => {
     };
 };
 
-const isReasoningPart = (part: Part): part is ReasoningPart => part.type === 'reasoning';
-
 const isTextPart = (part: Part): part is TextPart => part.type === 'text';
 
 const getLegacyTextContent = (part: Part): string | undefined => {
@@ -244,11 +243,10 @@ const getLegacyTextContent = (part: Part): string | undefined => {
 };
 
 const getPartTimeInfo = (part: Part): { end?: number } | undefined => {
-    if (isTextPart(part) || isReasoningPart(part)) {
-        return part.time;
-    }
-    const candidate = part as Partial<{ time?: { end?: number } }>;
-    return candidate.time;
+    const rawTime = (part as { time?: unknown }).time;
+    if (!rawTime || typeof rawTime !== 'object') return undefined;
+    const end = (rawTime as Record<string, unknown>).end;
+    return { end: typeof end === 'number' ? end : undefined };
 };
 
 const getToolDisplayName = (part: ToolPart): string => {

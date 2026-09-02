@@ -1,5 +1,4 @@
 /* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 // sessionStore removed — currentSessionId comes from useSessionUIStore
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -40,7 +39,7 @@ import { ModelControls } from './ModelControls';
 import { parseAgentMentions } from '@/lib/messages/agentMentions';
 import { StatusRow } from './StatusRow';
 import { PendingChangesBar } from './PendingChangesBar';
-import { useChatSurfaceMode } from './useChatSurfaceMode';
+import { useChatSurfaceMode } from './chatSurfaceContext';
 import { useCurrentSessionActivity } from '@/hooks/useSessionActivity';
 import { toast } from '@/components/ui';
 import { useTabletLayout } from '@/lib/device';
@@ -67,13 +66,13 @@ import { eventMatchesShortcut, getEffectiveShortcutCombo, normalizeCombo } from 
 import {
     assignImageAttachmentFilenames,
     buildAttachmentCitationText,
+    renameFileForAttachmentCitation,
 } from './attachmentCitations';
-import type { FileMentionAutocompleteInputSource } from './fileMentionAutocompleteState';
+import { getFileMentionInputSourceForInsertedText, type FileMentionAutocompleteInputSource } from './fileMentionAutocompleteState';
 import {
     classifyMention,
     scanMentions,
 } from './composer/language/mentions';
-import { collectKnownTokenNames } from './composer/language/prefixTokens';
 import { resolveAutocompleteTrigger, type AutocompleteKind } from './composer/language/triggers';
 import { type ComposerLanguageContext } from './composer/language/tokenize';
 import {
@@ -98,7 +97,7 @@ import {
     toProjectRelativeMentionPath,
     toServerFileUrl,
 } from './composer/attachments/filePaths';
-import { buildOutgoingMessage } from './composer/submit/buildOutgoingMessage';
+import { buildOutgoingMessage, buildSkillMentionInstruction, collectInlineSkillMentions } from './composer/submit/buildOutgoingMessage';
 import { parseSlashCommand } from './composer/submit/slashCommands';
 import { useAutocompletePosition } from './composer/state/useAutocompletePosition';
 import { useMessageHistory } from './composer/state/useMessageHistory';
@@ -116,7 +115,6 @@ import {
 import { DraftBranchCheckoutDialog } from './composer/ui/DraftBranchCheckoutDialog';
 import { ComposerAutocompletePopups } from './composer/ui/ComposerAutocompletePopups';
 import { ComposerFooter } from './composer/ui/ComposerFooter';
-import { MobilePillComposer } from './composer/ui/MobilePillComposer';
 import { RevertedMessageDock } from './composer/ui/RevertedMessageDock';
 import { ComposerVoiceButton } from './composer/ui/ComposerVoiceButton';
 import { ComposerVoiceActions, ComposerVoiceInput } from './composer/ui/ComposerVoiceInput';
@@ -155,56 +153,6 @@ type SubmitOptions = {
     presetText?: string;
 };
 
-const renameFileForAttachmentCitation = (file: File, filename: string): File => {
-    if (file.name === filename) {
-        return file;
-    }
-
-    return new File([file], filename, {
-        type: file.type,
-        lastModified: file.lastModified,
-    });
-};
-
-const getFileMentionInputSourceForInsertedText = (insertedText: string): FileMentionAutocompleteInputSource => (
-    insertedText.includes('@') ? 'paste' : 'manual'
-);
-
-/**
- * Skills the user named inline with `/name`. Mobile keyboards auto-capitalize
- * and auto-correct the token after the slash ("/Skill"), so the match must be
- * case-insensitive. The canonical registry name is returned so the synthetic
- * instruction always names a real skill.
- */
-const collectInlineSkillMentions = (text: string, skillNames: Set<string>): string[] => {
-    if (skillNames.size === 0) return [];
-    const lowerSet = new Set<string>();
-    const canonicalByLower = new Map<string, string>();
-    for (const name of skillNames) {
-        const lower = name.toLowerCase();
-        lowerSet.add(lower);
-        if (!canonicalByLower.has(lower)) canonicalByLower.set(lower, name);
-    }
-    const matched = collectKnownTokenNames(text, '/', lowerSet, 'case-insensitive');
-    const canonical = matched.map((name) => canonicalByLower.get(name.toLowerCase()) ?? name);
-    // De-duplicate case-variant repeats of the same skill ("/Skill /skill" → one entry).
-    const seen = new Set<string>();
-    const deduped: string[] = [];
-    for (const name of canonical) {
-        const lower = name.toLowerCase();
-        if (seen.has(lower)) continue;
-        seen.add(lower);
-        deduped.push(name);
-    }
-    return deduped;
-};
-
-const buildSkillMentionInstruction = (skillNames: string[]): string | null => {
-    if (skillNames.length === 0) return null;
-    const formatted = skillNames.map((name) => `/${name}`).join(', ');
-    return `The user explicitly mentioned these skills in their message: ${formatted}. Use the corresponding skill tool when it is relevant to accomplishing the user's request.`;
-};
-
 const hasUserMessages = (sessionId: string, directory?: string) => {
     return getSyncMessages(sessionId, directory).some((message) => message.role === 'user');
 };
@@ -220,7 +168,7 @@ interface ChatInputProps {
 const resolveChatDraftIdentity = (sessionId: string | null): ChatDraftIdentity | null => {
     const sessionState = useSessionUIStore.getState();
     const newSessionDirectory = sessionState.newSessionDraft?.open
-        ? sessionState.newSessionDraft.bootstrapPendingDirectory ?? sessionState.newSessionDraft.directoryOverride
+        ? sessionState.newSessionDraft.directoryOverride
         : null;
     const directory = sessionId
         ? sessionState.getDirectoryForSession(sessionId) ?? sessionState.currentSessionDirectory
@@ -258,11 +206,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const [mobileDraftPickerQuery, setMobileDraftPickerQuery] = React.useState('');
     // Message history navigation state (up/down arrow to recall previous messages)
     const composerRef = React.useRef<ComposerEditorHandle>(null);
-    // The mobile composer swaps between the collapsed pill and the full
-    // composer, which unmounts the editor. Building a CodeMirror view is far
-    // from free, and it would happen inside the tap that expands the pill —
-    // before the browser may paint the swap. The store keeps one view alive for
-    // as long as the composer itself is mounted.
+    // Keep the CodeMirror view store stable for the lifetime of the composer.
     const composerViewStore = React.useRef(createComposerEditorViewStore()).current;
     React.useEffect(() => () => {
         composerViewStore.view?.destroy();
@@ -538,7 +482,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     }, []);
 
     const knownAgentNames = React.useMemo(
-        () => new Set(agents.map((agent) => agent.name.toLowerCase())),
+        () => new Set(agents.flatMap((agent) => agent.name ? [agent.name.toLowerCase()] : [])),
         [agents]
     );
     const knownAgentNamesRef = React.useRef(knownAgentNames);
@@ -1129,8 +1073,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     // Draft welcome presets: submit immediately.
     const submitPresetPrompt = React.useCallback((text: string, type: 'command' | 'skill') => {
         // The text goes straight into the submit (see SubmitOptions.presetText)
-        // instead of through the composer input — the collapsed mobile pill has
-        // no mounted textarea to stage it in.
+        // so preset chips do not need to stage text through the editor first.
         const draft = (composerRef.current?.getValue() ?? messageRef.current).trim();
         // Pi recognizes slash commands only when their arguments follow
         // the command on the same line. Skills retain the multiline prompt form.
@@ -1361,8 +1304,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
         const editor = composerRef.current;
         if (!editor) {
-            // No mounted editor (collapsed mobile pill): append to the state
-            // the editor will be seeded from.
+            // The editor may be temporarily unavailable during a surface remount;
+            // append to the state it will be seeded from.
             const nextValue = message + text;
             setMessage(nextValue);
             updateAutocompleteState(nextValue, nextValue.length, inputSource, text);
@@ -1914,37 +1857,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         : null;
 
 
-    // Mobile pill composer: the collapse/expand state machine and the
-    // platform corrections that keep it from fighting the soft keyboard.
+    // Mobile keeps one full composer mounted. The shell only owns platform
+    // focus/keyboard corrections and overlay hand-offs.
     const mobileShell = useMobileComposerShell({
         isMobile,
         editorRef: composerRef,
         formRef: composerFormRef,
-        setExpandedInput,
-        // Dedicated mobile keeps the full composer up so model / variant
-        // controls stay reachable. Tablets and hardware keyboards already
-        // skip the pill for the same reason.
-        alwaysExpanded: isMobile || hasHardwareKeyboard || isTabletLayout,
-        holders: {
-            controlsPanelOpen: Boolean(mobileControlsPanel),
-            attachMenuOpen: mobileAttachMenuOpen,
-            draftPickerOpen: mobileDraftPicker !== null,
-            isDragging,
-        },
+        controlsPanelOpen: Boolean(mobileControlsPanel),
+        attachMenuOpen: mobileAttachMenuOpen,
     });
-    const mobileComposerExpanded = mobileShell.expanded;
     const mobileTextareaFocused = mobileShell.focused;
 
-
-    const handleMobileNewSession = React.useCallback(() => {
-        if (newSessionDraftOpen) return;
-        openNewSessionDraft(currentDirectory ? { directoryOverride: currentDirectory } : undefined);
-    }, [newSessionDraftOpen, openNewSessionDraft, currentDirectory]);
 
 
 
     const openMobileAttachSheet = React.useCallback(() => {
-        // Mark the sheet open BEFORE the blur so the collapse watcher sees an
+        // Mark the sheet open BEFORE the blur so keyboard restoration sees the
         // overlay when the keyboard-close lands. The trigger button blocks the
         // tap's own focus transfer, so the keyboard must be dismissed here.
         setMobileAttachMenuOpen(true);
@@ -2113,24 +2041,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         isMobileExpanded && 'flex min-h-0 flex-1 flex-col',
                     )}
                 >
-                {isMobile && !mobileComposerExpanded ? (
-                    <MobilePillComposer
-                        message={message}
-                        sessionId={currentSessionId}
-                        directory={currentSessionDirectoryForSync ?? currentDirectory}
-                        newSessionDraftOpen={newSessionDraftOpen}
-                        canAbort={canAbort}
-                        footerIconButtonClass={footerIconButtonClass}
-                        iconSizeClass={iconSizeClass}
-                        stopIconSizeClass={stopIconSizeClass}
-                        theme={currentTheme}
-                        onExpand={mobileShell.expand}
-                        onNewSession={handleMobileNewSession}
-                        onPickLocalFiles={handlePickLocalFiles}
-                        onOpenAttachSheet={openMobileAttachSheet}
-                        onAbort={handleAbort}
-                    />
-                ) : (
                 <>
                 <div
                     className={cn(
@@ -2323,7 +2233,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
                 </div>
                 </>
-                )}
                 </div>
                 {isDesktopStackedComposer || isMobile ? null : (
                     <div className="mt-1.5 flex w-full shrink-0 items-center pl-2">
@@ -2349,12 +2258,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             </React.Suspense>
         ) : null}
 
-        {/* Single always-mounted picker input. It must NOT live inside
-            ComposerAttachmentControls: that component mounts once per composer
-            variant (pill / expanded footer), so a shared ref got nulled when a
-            variant unmounted, and a variant swap while the OS file picker was
-            open detached the clicked input — its change event was silently
-            lost and the picked files never attached. */}
+        {/* Single always-mounted picker input. Keeping it outside composer
+            controls prevents an overlay/control remount from detaching the native
+            file input while the OS picker is open. */}
         <input
             ref={fileInputRef}
             type="file"

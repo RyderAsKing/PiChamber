@@ -1,9 +1,6 @@
 /* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import type { Message, Part, Session } from '@/lib/chat/types';
-import type { PermissionRequest } from '@/types/permission';
-import type { QuestionRequest } from '@/types/question';
 
 import { ChatInput } from './ChatInput';
 import { ExtensionDialogOverlay } from './ExtensionDialogOverlay';
@@ -26,7 +23,7 @@ import { useChatAutoFollow, type AnimationHandlers, type ContentChangeReason } f
 import { useChatTimelineController } from './hooks/useChatTimelineController';
 import { TimelineDialog } from './TimelineDialog';
 import { useChatTurnNavigation } from './hooks/useChatTurnNavigation';
-import { useChatSurfaceMode } from './useChatSurfaceMode';
+import { useChatSurfaceMode } from './chatSurfaceContext';
 import { useDeviceInfo } from '@/lib/device';
 import { Button } from '@/components/ui/button';
 import { OverlayScrollbar } from '@/components/ui/OverlayScrollbar';
@@ -60,7 +57,6 @@ import { normalizeUserDisplayParts } from './message/normalizeUserDisplayParts';
 import { findShellCommandForMessage, isUserShellMarkerMessage } from './lib/shellBridge';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { createFirstVisibleSessionPerformanceTracker } from '@/sync/session-load-performance';
-import { hasActiveQuestionToolInCurrentTurn, recoverPendingQuestionWithRetry } from '@/sync/question-recovery';
 import { isSessionAssistantWorking } from './lib/turns/assistantWorkingState';
 import { useGlobalSyncStore } from '@/sync/global-sync-store';
 import { parseRoute } from '@/lib/router';
@@ -179,8 +175,6 @@ type ChatViewportProps = {
     getAnimationHandlers: (messageId: string) => AnimationHandlers;
     handleHistoryScroll: () => void;
     scrollToBottom: () => void;
-    sessionQuestions: QuestionRequest[];
-    sessionPermissions: PermissionRequest[];
     isProgrammaticFollowActive: boolean;
     showLoadOlderButton: boolean;
     onLoadOlder: () => void;
@@ -214,8 +208,6 @@ const ChatViewport = React.memo(({
     getAnimationHandlers,
     handleHistoryScroll,
     scrollToBottom,
-    sessionQuestions,
-    sessionPermissions,
     isProgrammaticFollowActive,
     showLoadOlderButton,
     onLoadOlder,
@@ -425,8 +417,6 @@ const ChatViewport = React.memo(({
         && prev.getAnimationHandlers === next.getAnimationHandlers
         && prev.handleHistoryScroll === next.handleHistoryScroll
         && prev.scrollToBottom === next.scrollToBottom
-        && prev.sessionQuestions === next.sessionQuestions
-        && prev.sessionPermissions === next.sessionPermissions
         && prev.isProgrammaticFollowActive === next.isProgrammaticFollowActive
         && prev.showLoadOlderButton === next.showLoadOlderButton
         && prev.onLoadOlder === next.onLoadOlder
@@ -538,12 +528,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         ? JSON.stringify([getRuntimeKey(), effectiveSessionDirectory, currentSessionId])
         : null;
     const ensureSessionRenderable = React.useCallback(
-        (sessionId: string) => sync.ensureSessionRenderable(sessionId, false, effectiveSessionDirectory),
-        [effectiveSessionDirectory, sync],
+        (sessionId: string) => sync.ensureSessionRenderable(sessionId),
+        [sync],
     );
     const loadMoreMessages = React.useCallback(
-        (sessionId: string, _direction: 'up' | 'down') => sync.loadMore(sessionId, effectiveSessionDirectory),
-        [effectiveSessionDirectory, sync],
+        (_sessionId: string, _direction: 'up' | 'down') => sync.loadMore(),
+        [sync],
     );
 
     // UI store
@@ -584,28 +574,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     // Scoped blocking requests — only subscribe to permissions/questions for
     // the current session + descendant subagent sessions, not all sessions in
     // the directory.
-    const sessionPermissions = useScopedBlockingPermissions(currentSessionId, effectiveSessionDirectory);
-    const sessionQuestions = useScopedBlockingQuestions(currentSessionId, effectiveSessionDirectory);
-
-    const hasUnreconciledQuestionTool = React.useMemo(
-        () => !sessionQuestions.some((question) => question.sessionID === currentSessionId)
-            && hasActiveQuestionToolInCurrentTurn(sessionMessages),
-        [currentSessionId, sessionMessages, sessionQuestions],
-    );
-
-    React.useEffect(() => {
-        if (!active || !currentSessionId || !effectiveSessionDirectory || !hasUnreconciledQuestionTool) return;
-        let cancelled = false;
-
-        void recoverPendingQuestionWithRetry(
-            () => sync.recoverPendingQuestions(currentSessionId, effectiveSessionDirectory),
-            { isCancelled: () => cancelled },
-        );
-
-        return () => {
-            cancelled = true;
-        };
-    }, [active, currentSessionId, effectiveSessionDirectory, hasUnreconciledQuestionTool, sync]);
+    const sessionPermissions = useScopedBlockingPermissions();
+    const sessionQuestions = useScopedBlockingQuestions();
 
     const sessionIsWorking = React.useMemo(() => {
         if (!currentSessionId || sessionPermissions.length > 0 || sessionQuestions.length > 0) {
@@ -697,7 +667,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 
     const messageListRef = React.useRef<MessageListHandle | null>(null);
     const currentSession = useSession(currentSessionId, effectiveSessionDirectory);
-    const parentSession = useParentSession(currentSessionId, effectiveSessionDirectory);
+    const parentSession = useParentSession();
 
     const handleReturnToParentSession = React.useCallback(() => {
         if (!parentSession) return;
@@ -922,8 +892,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         && (isSessionHydrating || sessionMessageLoadState.status === 'loading');
     const retrySessionLoad = React.useCallback(() => {
         if (!active || !currentSessionId) return;
-        void sync.ensureSessionRenderable(currentSessionId, true, effectiveSessionDirectory);
-    }, [active, currentSessionId, effectiveSessionDirectory, sync]);
+        void sync.ensureSessionRenderable(currentSessionId);
+    }, [active, currentSessionId, sync]);
 
     React.useEffect(() => {
         if (!active || !currentSessionId) return;
@@ -1091,8 +1061,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                 getAnimationHandlers={getAnimationHandlers}
                 handleHistoryScroll={timelineController.handleHistoryScroll}
                 scrollToBottom={resumeToLatestInstant}
-                sessionQuestions={sessionQuestions}
-                sessionPermissions={sessionPermissions}
                 isProgrammaticFollowActive={isFollowingProgrammatically}
                 showLoadOlderButton={showLoadOlderButton}
                 onLoadOlder={handleLoadOlderClick}

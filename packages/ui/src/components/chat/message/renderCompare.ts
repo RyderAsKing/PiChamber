@@ -197,6 +197,17 @@ const areTurnActivityRecordsEqual = (left: TurnActivityRecord, right: TurnActivi
     && areRenderRelevantPartsEqual([left.part], [right.part]);
 };
 
+export const areRenderRelevantActivityListsEqual = (left: TurnActivityRecord[], right: TurnActivityRecord[]): boolean => {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (!areTurnActivityRecordsEqual(left[index], right[index])) {
+      return false;
+    }
+  }
+  return true;
+};
+
 const areRelevantActivityPartsEqual = (
   left: TurnActivityRecord[] | undefined,
   right: TurnActivityRecord[] | undefined,

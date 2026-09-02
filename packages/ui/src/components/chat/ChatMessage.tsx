@@ -1,5 +1,4 @@
 /* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 import type { Message, Part } from '@/lib/chat/types';
 import { useShallow } from 'zustand/react/shallow';
@@ -520,10 +519,10 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     }, [themeVariant]);
 
     const shouldAnimateMessage = React.useMemo(() => {
-        if (isUser) return false;
+        if (isUser || !sessionId) return false;
         const freshnessDetector = MessageFreshnessDetector.getInstance();
-        return freshnessDetector.shouldAnimateMessage(message.info, message.info.sessionID);
-    }, [message.info, isUser]);
+        return freshnessDetector.shouldAnimateMessage(message.info, sessionId);
+    }, [message.info, isUser, sessionId]);
 
     const [hasStartedStreamingHeader, setHasStartedStreamingHeader] = React.useState(false);
 
@@ -1015,6 +1014,37 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         ? (stickyUserHeader ? (isMobile ? 'pt-4' : 'pt-6') : 'pt-0')
         : 'pt-0';
     const userMessageRadius = 'var(--radius-xl)';
+    const userMessageBodyProps = {
+        sessionId: message.info.sessionID,
+        messageId: message.info.id,
+        parts: displayParts,
+        isUser,
+        isMessageCompleted,
+        messageFinish,
+        messageCreatedAt: messageCreatedAt ?? undefined,
+        isMobile,
+        alwaysShowActions: alwaysShowMessageActions,
+        hasTouchInput,
+        copiedCode,
+        onCopyCode: handleCopyCode,
+        expandedTools,
+        onToggleTool: handleToggleTool,
+        onShowPopup: handleShowPopup,
+        streamPhase,
+        allowAnimation,
+        onContentChange,
+        shouldShowHeader: false,
+        hasTextContent,
+        onCopyMessage: handleCopyMessage,
+        copiedMessage,
+        showReasoningTraces,
+        onAuxiliaryContentComplete: handleAuxiliaryContentComplete,
+        agentMention,
+        errorMessage: assistantErrorText,
+        errorVariant: assistantErrorVariant,
+        isLatestMessage: !nextMessage,
+        stickyUserHeaderEnabled: stickyUserHeader,
+    };
 
     return (
         <>
@@ -1056,70 +1086,14 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                             )}
                                         >
                                             <MessageBody
-                                                sessionId={message.info.sessionID}
-                                                messageId={message.info.id}
-                                                parts={displayParts}
-                                                isUser={isUser}
-                                                isMessageCompleted={isMessageCompleted}
-                                                messageFinish={messageFinish}
-                                                messageCreatedAt={messageCreatedAt ?? undefined}
-                                                 isMobile={isMobile}
-                                                 alwaysShowActions={alwaysShowMessageActions}
-                                                 hasTouchInput={hasTouchInput}
-                                                copiedCode={copiedCode}
-                                                onCopyCode={handleCopyCode}
-                                                expandedTools={expandedTools}
-                                                onToggleTool={handleToggleTool}
-                                                onShowPopup={handleShowPopup}
-                                                streamPhase={streamPhase}
-                                                allowAnimation={allowAnimation}
-                                                onContentChange={onContentChange}
-                                                shouldShowHeader={false}
-                                                hasTextContent={hasTextContent}
-                                                onCopyMessage={handleCopyMessage}
-                                                copiedMessage={copiedMessage}
-                                                showReasoningTraces={showReasoningTraces}
-                                                onAuxiliaryContentComplete={handleAuxiliaryContentComplete}
-                                                agentMention={agentMention}
-                                                errorMessage={assistantErrorText}
-                                                errorVariant={assistantErrorVariant}
-                                                isLatestMessage={!nextMessage}
+                                                {...userMessageBodyProps}
                                                 userActionsMode={useExternalUserActionsRow ? 'external-content' : 'inline'}
-                                                stickyUserHeaderEnabled={stickyUserHeader}
                                             />
                                         </div>
                                         {useExternalUserActionsRow ? (
                                             <MessageBody
-                                                sessionId={message.info.sessionID}
-                                                messageId={message.info.id}
-                                                parts={displayParts}
-                                                isUser={isUser}
-                                                isMessageCompleted={isMessageCompleted}
-                                                messageFinish={messageFinish}
-                                                messageCreatedAt={messageCreatedAt ?? undefined}
-                                                 isMobile={isMobile}
-                                                 alwaysShowActions={alwaysShowMessageActions}
-                                                 hasTouchInput={hasTouchInput}
-                                                copiedCode={copiedCode}
-                                                onCopyCode={handleCopyCode}
-                                                expandedTools={expandedTools}
-                                                onToggleTool={handleToggleTool}
-                                                onShowPopup={handleShowPopup}
-                                                streamPhase={streamPhase}
-                                                allowAnimation={allowAnimation}
-                                                onContentChange={onContentChange}
-                                                shouldShowHeader={false}
-                                                hasTextContent={hasTextContent}
-                                                onCopyMessage={handleCopyMessage}
-                                                copiedMessage={copiedMessage}
-                                                showReasoningTraces={showReasoningTraces}
-                                                onAuxiliaryContentComplete={handleAuxiliaryContentComplete}
-                                                agentMention={agentMention}
-                                                errorMessage={assistantErrorText}
-                                                errorVariant={assistantErrorVariant}
-                                                isLatestMessage={!nextMessage}
+                                                {...userMessageBodyProps}
                                                 userActionsMode="external-actions"
-                                                stickyUserHeaderEnabled={stickyUserHeader}
                                             />
                                         ) : null}
                                     </div>

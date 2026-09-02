@@ -9,6 +9,8 @@ belongs to one of them. `ChatContainer` pins that chrome with `shrink-0` at the
 bottom of the overflow-hidden chat column so the transcript scroller cannot
 collapse the editor or the in-card footer.
 
+`ModelControls.tsx` owns model/thinking selection and synchronization. Pure capability, modality, cost, limit, and date formatting lives in `../modelControlsMetadata.ts` so picker state is not mixed with metadata derivation.
+
 ## Layers
 
 | Directory | Owns |

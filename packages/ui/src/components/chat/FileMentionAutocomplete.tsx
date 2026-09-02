@@ -441,6 +441,56 @@ export const FileMentionAutocomplete = React.forwardRef<FileMentionHandle, FileM
     }
   };
 
+
+  const renderFileRow = (file: FileInfo, rowIndex: number, key: React.Key) => {
+    const relativePath = file.relativePath || file.name;
+    const displayPath = truncatePathMiddle(relativePath, { maxLength: 60 });
+    const isSelected = selectedIndex === rowIndex;
+    const isOverflowing = overflowMap[rowIndex] ?? false;
+    const marqueeDuration = marqueeDurations[rowIndex] ?? 2.6;
+
+    return (
+      <div
+        key={key}
+        ref={(el) => { itemRefs.current[rowIndex] = el; }}
+        className={cn(
+          "flex items-center gap-2 px-3 py-1.5 cursor-pointer typography-ui-label rounded-lg",
+          isSelected && "bg-interactive-selection"
+        )}
+        onClick={() => handleFileSelect(file)}
+        onMouseMove={() => setSelectedIndex(rowIndex)}
+      >
+        {getFileIcon(file)}
+        <span
+          ref={(el) => { labelRefs.current[rowIndex] = el; }}
+          className="relative flex-1 min-w-0 overflow-hidden file-mention-marquee-container"
+          style={isSelected ? {
+            ['--file-mention-marquee-width' as string]: `${marqueeWidth}px`,
+            ['--file-mention-marquee-duration' as string]: `${marqueeDuration}s`
+          } : undefined}
+          aria-label={relativePath}
+        >
+          <span
+            ref={(el) => { measureRefs.current[rowIndex] = el; }}
+            className="absolute invisible whitespace-nowrap pointer-events-none"
+            aria-hidden
+          >
+            {relativePath}
+          </span>
+          {isOverflowing && isSelected ? (
+            <span className="inline-block whitespace-nowrap file-mention-marquee">
+              {relativePath}
+            </span>
+          ) : (
+            <span className="block truncate">
+              {displayPath}
+            </span>
+          )}
+        </span>
+      </div>
+    );
+  };
+
   return (
       <div
         ref={containerRef}
@@ -511,112 +561,15 @@ export const FileMentionAutocomplete = React.forwardRef<FileMentionHandle, FileM
             {visibleDirectories.length > 0 && (visibleRecentFiles.length > 0 || visibleFiles.length > 0) && (
               <div className="my-1 border-t border-border/60" />
             )}
-            {visibleRecentFiles.map((file, index) => {
-              const rowIndex = visibleAgents.length + visibleDirectories.length + index;
-              const relativePath = file.relativePath || file.name;
-              const displayPath = truncatePathMiddle(relativePath, { maxLength: 60 });
-              const isSelected = selectedIndex === rowIndex;
-              const isOverflowing = overflowMap[rowIndex] ?? false;
-              const marqueeDuration = marqueeDurations[rowIndex] ?? 2.6;
-
-              return (
-                <div
-                  key={`recent-${file.path}`}
-                  ref={(el) => { itemRefs.current[rowIndex] = el; }}
-                  className={cn(
-                    "flex items-center gap-2 px-3 py-1.5 cursor-pointer typography-ui-label rounded-lg",
-                    isSelected && "bg-interactive-selection"
-                  )}
-                  onClick={() => handleFileSelect(file)}
-                  onMouseMove={() => setSelectedIndex(rowIndex)}
-                >
-                  {getFileIcon(file)}
-                  <span
-                    ref={(el) => { labelRefs.current[rowIndex] = el; }}
-                    className="relative flex-1 min-w-0 overflow-hidden file-mention-marquee-container"
-                    style={isSelected ? {
-                      ['--file-mention-marquee-width' as string]: `${marqueeWidth}px`,
-                      ['--file-mention-marquee-duration' as string]: `${marqueeDuration}s`
-                    } : undefined}
-                    aria-label={relativePath}
-                  >
-                    <span
-                      ref={(el) => { measureRefs.current[rowIndex] = el; }}
-                      className="absolute invisible whitespace-nowrap pointer-events-none"
-                      aria-hidden
-                    >
-                      {relativePath}
-                    </span>
-                    {isOverflowing && isSelected ? (
-                      <span className="inline-block whitespace-nowrap file-mention-marquee">
-                        {relativePath}
-                      </span>
-                    ) : (
-                      <span className="block truncate">
-                        {displayPath}
-                      </span>
-                    )}
-                  </span>
-                </div>
-              );
-            })}
+            {visibleRecentFiles.map((file, index) =>
+              renderFileRow(file, visibleAgents.length + visibleDirectories.length + index, `recent-${file.path}`)
+            )}
             {visibleRecentFiles.length > 0 && visibleFiles.length > 0 && (
               <div className="my-1 border-t border-border/60" />
             )}
-            {visibleFiles.map((file, index) => {
-              const rowIndex = visibleAgents.length + visibleDirectories.length + visibleRecentFiles.length + index;
-              const relativePath = file.relativePath || file.name;
-              const displayPath = truncatePathMiddle(relativePath, { maxLength: 60 });
-              const isSelected = selectedIndex === rowIndex;
-              const isOverflowing = overflowMap[rowIndex] ?? false;
-              const marqueeDuration = marqueeDurations[rowIndex] ?? 2.6;
-
-              const item = (
-                <div
-                  ref={(el) => { itemRefs.current[rowIndex] = el; }}
-                    className={cn(
-                      "flex items-center gap-2 px-3 py-1.5 cursor-pointer typography-ui-label rounded-lg",
-                      isSelected && "bg-interactive-selection"
-                  )}
-                  onClick={() => handleFileSelect(file)}
-                  onMouseMove={() => setSelectedIndex(rowIndex)}
-                >
-                  {getFileIcon(file)}
-                  <span
-                    ref={(el) => { labelRefs.current[rowIndex] = el; }}
-                    className="relative flex-1 min-w-0 overflow-hidden file-mention-marquee-container"
-                    style={isSelected ? {
-                      ['--file-mention-marquee-width' as string]: `${marqueeWidth}px`,
-                      ['--file-mention-marquee-duration' as string]: `${marqueeDuration}s`
-                    } : undefined}
-                    aria-label={relativePath}
-                  >
-                    <span
-                      ref={(el) => { measureRefs.current[rowIndex] = el; }}
-                      className="absolute invisible whitespace-nowrap pointer-events-none"
-                      aria-hidden
-                    >
-                      {relativePath}
-                    </span>
-                    {isOverflowing && isSelected ? (
-                      <span className="inline-block whitespace-nowrap file-mention-marquee">
-                        {relativePath}
-                      </span>
-                    ) : (
-                      <span className="block truncate">
-                        {displayPath}
-                      </span>
-                    )}
-                  </span>
-                </div>
-              );
-
-              return (
-                <React.Fragment key={file.path}>
-                  {item}
-                </React.Fragment>
-              );
-            })}
+            {visibleFiles.map((file, index) =>
+              renderFileRow(file, visibleAgents.length + visibleDirectories.length + visibleRecentFiles.length + index, file.path)
+            )}
             {visibleFiles.length === 0 && visibleDirectories.length === 0 && visibleRecentFiles.length === 0 && visibleAgents.length === 0 && (
               <div className="px-3 py-2 typography-ui-label text-muted-foreground">
                 {"No matches found"}

@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import { describe, expect, test } from 'bun:test';
 import type { ChatMessageEntry } from '../lib/turns/types';
 
@@ -67,7 +65,7 @@ describe('baseDisplayMessages dedup', () => {
 
         expect(result).toHaveLength(2);
         expect(result[0]?.info.id).toBe('msg-1');
-        expect(result[0]?.info.time.created).toBe(3);
+        expect(result[0]?.info.time?.created).toBe(3);
         expect(result[1]?.info.id).toBe('msg-2');
     });
 
@@ -127,7 +125,7 @@ describe('baseDisplayMessages dedup', () => {
         expect(result).toHaveLength(1);
         expect(result[0]?.info.id).toBe('same-id');
         expect(result[0]?.info.role).toBe('user');
-        expect(result[0]?.info.time.created).toBe(3);
+        expect(result[0]?.info.time?.created).toBe(3);
     });
 
     test('deduplication scenario: prepend history with overlapping IDs', () => {
@@ -161,7 +159,7 @@ describe('baseDisplayMessages dedup', () => {
 
         expect(result).toHaveLength(1);
         expect(result[0]?.info.id).toBe('msg-1');
-        expect(result[0]?.info.time.created).toBe(3);
+        expect(result[0]?.info.time?.created).toBe(3);
     });
 
     test('preserves first position while using a later duplicate value', () => {
