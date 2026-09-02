@@ -57,6 +57,11 @@ import type { GitRemote } from '@/lib/api/types';
 import { cn } from '@/lib/utils';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
+import { normalizePath } from '@/lib/pathNormalization';
+import {
+  isStagedStatusFile,
+  isWorkingStatusFile as isUnstagedStatusFile,
+} from './git/gitStatusPredicates';
 
 const DiffView = lazyWithChunkRecovery(() => import('./DiffView').then((m) => ({ default: m.DiffView })));
 
@@ -167,20 +172,6 @@ const rememberSnapshot = (key: string, snapshot: GitViewSnapshot) => {
       gitViewSnapshots.delete(oldest);
     }
   }
-};
-
-const normalizePath = (value?: string | null): string =>
-  (value || '').replace(/\\/g, '/').replace(/\/+$/, '');
-
-const isStagedStatusFile = (file: GitStatus['files'][number]): boolean => {
-  const indexStatus = file.index?.trim();
-  return Boolean(indexStatus && indexStatus !== '?');
-};
-
-const isUnstagedStatusFile = (file: GitStatus['files'][number]): boolean => {
-  const workingStatus = file.working_dir?.trim();
-  const indexStatus = file.index?.trim();
-  return Boolean(workingStatus || indexStatus === '?');
 };
 
 type GitViewProps = {

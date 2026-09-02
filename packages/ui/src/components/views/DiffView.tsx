@@ -42,6 +42,12 @@ import { extractChangedFiles } from '@/components/chat/changedFiles';
 import { projectTurnRecords } from '@/components/chat/lib/turns/projectTurnRecords';
 import { getFirstChangedModifiedLineFromPatch } from './diffPatchUtils';
 import type { FileDiffMetadata } from '@pierre/diffs';
+import { normalizePath } from '@/lib/pathNormalization';
+import {
+    isNewStatusFile,
+    isStagedStatusFile,
+    isWorkingStatusFile,
+} from './git/gitStatusPredicates';
 
 // Minimum width for side-by-side diff view (px)
 const SIDE_BY_SIDE_MIN_WIDTH = 1100;
@@ -127,27 +133,9 @@ const describeChange = (file: GitStatus['files'][number]): ChangeDescriptor => {
     return CHANGE_DESCRIPTORS[symbol] ?? DEFAULT_CHANGE_DESCRIPTOR;
 };
 
-const isNewStatusFile = (file: GitStatus['files'][number]): boolean => {
-    const { index, working_dir: workingDir } = file;
-    return index === 'A' || workingDir === 'A' || index === '?' || workingDir === '?';
-};
-
-const isStagedStatusFile = (file: GitStatus['files'][number]): boolean => {
-    const indexCode = file.index?.trim();
-    return Boolean(indexCode && indexCode !== '?');
-};
-
-const isWorkingStatusFile = (file: GitStatus['files'][number]): boolean => {
-    const workingCode = file.working_dir?.trim();
-    return Boolean(workingCode) || file.index === '?';
-};
-
 const toAbsolutePath = (directory: string, filePath: string): string => {
     return toAbsoluteFilePath(directory, filePath);
 };
-
-const normalizePath = (value?: string | null): string =>
-    (value || '').replace(/\\/g, '/').replace(/\/+$/, '');
 
 const getFirstChangedModifiedLine = (original: string, modified: string): number => {
     const originalLines = original.split('\n');
