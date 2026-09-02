@@ -3,14 +3,12 @@ import React from 'react';
 import { Icon } from '@/components/icon/Icon';
 import type { IconName } from '@/components/icon/icons';
 import { ContextProgressIcon } from '@/components/ui/ContextProgressIcon';
-import { useTabletLayout } from '@/lib/device';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useSelectionStore } from '@/sync/selection-store';
 import { useSessionMessageRecords } from '@/sync/sync-context';
 import { computeCacheHitRate, computePiContextWindowTokens, extractSessionMessageBreakdown, type PiUsageLike } from '@/stores/utils/tokenUtils';
-
-const TABLET_METADATA_POPOVER_WIDTH = 380;
+import { MOBILE_HEADER_POPOVER_WIDTH, useMobileHeaderOverlay } from './useMobileHeaderOverlay';
 
 const getNumericLimit = (limit: unknown, key: 'context' | 'output'): number | undefined => {
   if (!limit || typeof limit !== 'object') return undefined;
@@ -57,84 +55,12 @@ const SessionMetadataOverlay: React.FC<{
   contextDisplay: ContextDisplay;
   cacheSubtitle?: string | null;
 }> = ({ open, onClose, anchorRef, contextDisplay }) => {
-  const panelRef = React.useRef<HTMLDivElement>(null);
-  const [shouldRender, setShouldRender] = React.useState(open);
-  const [isExiting, setIsExiting] = React.useState(false);
-  const { enabled: isTabletLayout } = useTabletLayout();
-  const wrapperRef = React.useRef<HTMLDivElement>(null);
-  const [anchorLeft, setIpadAnchorLeft] = React.useState<number | null>(null);
-
-  React.useLayoutEffect(() => {
-    if (!open || !isTabletLayout || !shouldRender) return;
-    const compute = () => {
-      const anchorRect = anchorRef.current?.getBoundingClientRect();
-      const wrapperRect = wrapperRef.current?.getBoundingClientRect();
-      if (!anchorRect || !wrapperRect) {
-        setIpadAnchorLeft(null);
-        return;
-      }
-      const relativeLeft = anchorRect.left - wrapperRect.left;
-      const left = Math.min(
-        Math.max(relativeLeft, 8),
-        Math.max(8, wrapperRect.width - TABLET_METADATA_POPOVER_WIDTH - 8),
-      );
-      setIpadAnchorLeft(left);
-    };
-    compute();
-    const wrapper = wrapperRef.current;
-    if (typeof ResizeObserver === 'undefined' || !wrapper) return;
-    const observer = new ResizeObserver(compute);
-    observer.observe(wrapper);
-    return () => observer.disconnect();
-  }, [anchorRef, isTabletLayout, open, shouldRender]);
-
-  const isPopover = isTabletLayout && anchorLeft !== null;
-
-  React.useEffect(() => {
-    if (open) {
-      setShouldRender(true);
-      setIsExiting(false);
-      return;
-    }
-
-    if (!shouldRender) return;
-    setIsExiting(true);
-    const timeoutId = window.setTimeout(() => {
-      setShouldRender(false);
-      setIsExiting(false);
-    }, 140);
-    return () => window.clearTimeout(timeoutId);
-  }, [open, shouldRender]);
-
-  React.useEffect(() => {
-    if (!open) return;
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handleKey);
-    return () => document.removeEventListener('keydown', handleKey);
-  }, [onClose, open]);
-
-  React.useEffect(() => {
-    if (!open) return;
-
-    const closeIfOutside = (event: PointerEvent | WheelEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) {
-        onClose();
-        return;
-      }
-      if (panelRef.current?.contains(target) || anchorRef.current?.contains(target)) return;
-      onClose();
-    };
-
-    document.addEventListener('pointerdown', closeIfOutside, true);
-    document.addEventListener('wheel', closeIfOutside, true);
-    return () => {
-      document.removeEventListener('pointerdown', closeIfOutside, true);
-      document.removeEventListener('wheel', closeIfOutside, true);
-    };
-  }, [anchorRef, onClose, open]);
+  const { panelRef, wrapperRef, shouldRender, isExiting, anchorLeft, isPopover } = useMobileHeaderOverlay({
+    open,
+    onClose,
+    anchorRef,
+    closeOnWheel: true,
+  });
 
   if (!shouldRender) return null;
 
@@ -156,7 +82,7 @@ const SessionMetadataOverlay: React.FC<{
             ? {
                 top: 8,
                 left: anchorLeft ?? 8,
-                width: `min(${TABLET_METADATA_POPOVER_WIDTH}px, calc(100% - 16px))`,
+                width: `min(${MOBILE_HEADER_POPOVER_WIDTH}px, calc(100% - 16px))`,
               }
             : null),
         }}
