@@ -39,7 +39,7 @@ export interface SessionNodeMenuItemsProps {
   handleRestoreSession: (session: Session) => void;
 }
 
-export function renderSessionMenuItems(
+function renderSessionMenuItems(
   props: SessionNodeMenuItemsProps,
   components: {
     Item: React.ElementType;

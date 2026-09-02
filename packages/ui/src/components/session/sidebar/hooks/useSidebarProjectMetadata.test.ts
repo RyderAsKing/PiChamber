@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import type { Session } from '@/lib/chat/types';
 import type { SessionGroup, SessionNode } from '../types';
 import type { ProjectSection } from './useSessionSidebarSections';
 import {
@@ -16,7 +17,7 @@ const createMockNode = (id: string, directory = '/workspace'): SessionNode => ({
     directory,
     title: `Session ${id}`,
     time: { created: Date.now(), updated: Date.now() },
-  } as any,
+  } satisfies Session,
   children: [],
 });
 

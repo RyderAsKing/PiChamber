@@ -18,13 +18,14 @@ import {
   resolveSettingsSlug,
   type SettingsPageSlug,
 } from '@/lib/settings/metadata';
-import { SettingsPageContent, isPageAvailable } from './settings/SettingsPageContent';
+import { SettingsPageContent } from './settings/SettingsPageContent';
 import { SettingsNav } from './settings/SettingsNav';
 import {
   SETTINGS_NAV_WIDTH,
   SETTINGS_SPLIT_SIDEBAR_WIDTH,
   pageOrder,
   buildRuntimeContext,
+  isPageAvailable,
   type MobileStage,
 } from './settings/settingsViewHelpers';
 import { useActiveRemoteLabel } from './settings/useActiveRemoteLabel';

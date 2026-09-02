@@ -17,16 +17,15 @@ import { cn } from '@/lib/utils';
 import { useModelPickerSectionsStore } from '@/stores/useModelPickerSectionsStore';
 import type { ModelMetadata } from '@/types';
 import {
-  createIndexSelectionStore,
   ModelPickerFooter,
   ModelPickerRowItem,
   SortableFavoriteModelRow,
   SortableProviderSection,
-  type IndexSelectionStore,
   type ModelPickerEntry,
   type ModelPickerProvider,
   type SortableFavoriteHandleProps,
 } from './ModelPickerRowItem';
+import { createIndexSelectionStore, type IndexSelectionStore } from './indexSelectionStore';
 import {
   useModelPickerFilter,
   type HiddenModel,

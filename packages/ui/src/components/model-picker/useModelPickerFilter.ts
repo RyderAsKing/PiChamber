@@ -1,6 +1,6 @@
 import React from 'react';
 import type { ModelPickerEntry, ModelPickerProvider } from './ModelPickerRowItem';
-import { getModelDisplayName } from './ModelPickerRowTooltip';
+import { getModelDisplayName } from './modelPickerRowHelpers';
 
 export type HiddenModel = { providerID: string; modelID: string };
 

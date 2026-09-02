@@ -5,12 +5,9 @@ import {
     DropdownMenuContent,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
-import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from "@/components/icon/Icon";
-import type { IconName } from "@/components/icon/icons";
 import { ModelPickerList, type ModelPickerEntry, type ModelPickerProvider } from '@/components/model-picker/ModelPickerList';
 import { isDesktopShell } from '@/lib/desktop';
 import { useDeviceInfo, useTabletLayout } from '@/lib/device';
@@ -26,8 +23,8 @@ import { useSync } from '@/sync/use-sync';
 import { useUIStore } from '@/stores/useUIStore';
 import { useModelLists } from '@/hooks/useModelLists';
 import { useIsTextTruncated } from '@/hooks/useIsTextTruncated';
-import { formatEffortLabel, type MobileControlsPanel } from './mobileControlsUtils';
-import { ThinkingLevelControl, ThinkingLevelPicker } from './ThinkingLevelControl';
+import type { MobileControlsPanel } from './mobileControlsUtils';
+import { ThinkingLevelControl } from './ThinkingLevelControl';
 import { usePiReadiness } from '@/hooks/usePiReadiness';
 import { markStartupTrace } from '@/lib/startupTrace';
 import { findLatestUserModelChoice } from '@/lib/messages/userModelChoice';
@@ -46,13 +43,11 @@ import {
 } from '@/lib/pi/thinking';
 import type { PiThinkingLevel } from '@/lib/pi/types';
 import { classifyAuthoritativeComposerSelection } from './model-selection-sync';
-import { formatCost, formatDate, formatKnowledge, formatTokens, getCapabilityIcons, getModalityIcons } from './modelControlsMetadata';
-import { IconBadge, ModelTooltipContent } from './controls/ModelTooltipContent';
+import { formatCost, formatTokens, getCapabilityIcons, getModalityIcons } from './modelControlsMetadata';
+import { ModelTooltipContent } from './controls/ModelTooltipContent';
 import { MobileModelTooltipPanel } from './controls/MobileModelTooltipPanel';
 import { MobileVariantPanel } from './controls/MobileVariantPanel';
 import { MobileModelPickerPanel } from './controls/MobileModelPickerPanel';
-
-type IconComponent = IconName;
 
 type ProviderModel = Record<string, unknown> & { id?: string; name?: string };
 

@@ -1,7 +1,7 @@
 import React from 'react';
 import { toast } from '@/components/ui';
 import { piClient } from '@/lib/pi/client';
-import { PI_CUSTOM_PROVIDER_SELECTION, usePiProviderSelectionStore } from '@/lib/pi/provider-selection';
+import { usePiProviderSelectionStore } from '@/lib/pi/provider-selection';
 import type { PiProviderLoginState } from '@/lib/pi/protocol';
 import type { PiProvider, PiThinkingLevel } from '@/lib/pi/types';
 import { getRuntimeKey } from '@/lib/runtime-switch';
@@ -9,7 +9,7 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { reportSettingsSaveState } from '@/lib/persistence';
 import { thinkingModelKey } from '@/lib/pi/thinking';
-import { providerScope, sortProviders } from './ProviderModelRow';
+import { providerScope, sortProviders } from './providerModelHelpers';
 import type { CustomProviderPersistPlan } from './custom-provider-form';
 
 export function useProvidersPageState() {

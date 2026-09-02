@@ -1,10 +1,8 @@
 import {
   applyPiEvent,
-  createReducerState,
   dismissExtensionDialog,
   hydrateSessionFromDetail,
   projectSession,
-  aliasSyntheticUserIfPersisted,
   createReducerPartMap,
   type PiProjectedSession,
   type PiReducerSessionState,
@@ -17,7 +15,7 @@ import { reconnectPiSession } from '@/lib/pi/reconnect';
 import { PiStreamCadence } from '@/lib/pi/stream-cadence';
 import { createPiEventStream, type PiStreamHandle } from '@/lib/pi/transport';
 import type { PiSessionEvent, PiSessionListItem } from '@/lib/pi/protocol';
-import type { PiSession, PiSessionId, PiSessionLifecycleState, PiThinkingLevel } from '@/lib/pi/types';
+import type { PiSession, PiSessionId, PiThinkingLevel } from '@/lib/pi/types';
 import { resolveCreateThinking } from '@/lib/pi/thinking';
 import { deriveSessionTitle } from '@/lib/chat/deriveSessionTitle';
 import { normalizePath } from '@/lib/pathNormalization';
@@ -43,7 +41,6 @@ import {
   upsertRecord,
   upsertStubRecord,
   touchRecordUpdatedAt,
-  type LiveSessionLifecycle,
   type LiveSessionRecord,
   type PiSessionCatalogState,
 } from '@/sync/pi-session-catalog';

@@ -1,5 +1,4 @@
 import React from 'react';
-import type { Part } from '@/lib/chat/types';
 import { elementScroll, useVirtualizer as useTanstackVirtualizer, type ReactVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 
 import FoldedHistoryGate from './components/FoldedHistoryGate';
@@ -31,12 +30,10 @@ import {
     getMessageId,
     getPartText,
     isInsideStuckSticky,
-    isSessionRetryMessage,
     isSyntheticSubtaskBridgeAssistant,
     isUserSubtaskMessage,
     normalizeCompactionSummaryMessage,
     resolveMessageRole,
-    turnContainsMessageId,
     withShellBridgeDetails,
     withSubtaskSessionId,
 } from './lib/messageListHelpers';

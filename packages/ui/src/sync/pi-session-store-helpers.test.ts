@@ -27,25 +27,25 @@ describe('pi-session-store-helpers', () => {
       lifecycleFromEvent({
         name: 'session.lifecycle',
         payload: { state: 'busy' },
-      } as any)
+      })
     ).toBe('busy');
     expect(
       lifecycleFromEvent({
         name: 'assistant.message.start',
         payload: {},
-      } as any)
+      })
     ).toBe('busy');
     expect(
       lifecycleFromEvent({
         name: 'session.error',
         payload: {},
-      } as any)
+      })
     ).toBe('error');
     expect(
       lifecycleFromEvent({
         name: 'message.part.delta',
         payload: {},
-      } as any)
+      })
     ).toBe(undefined);
   });
 

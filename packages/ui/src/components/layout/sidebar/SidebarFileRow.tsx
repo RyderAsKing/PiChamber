@@ -18,14 +18,12 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { cn, getRevealLabel } from '@/lib/utils';
-import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { Icon } from "@/components/icon/Icon";
+import { getFileIcon, type FileStatus } from './sidebarFileRowHelpers';
 import {
   getDisplayPath,
   type FileNode,
 } from '@/components/views/files/filesViewModel';
-
-export type FileStatus = 'open' | 'modified' | 'git-modified' | 'git-added' | 'git-deleted';
 
 export const FileStatusDot: React.FC<{ status: FileStatus }> = ({ status }) => {
   const color = {
@@ -37,10 +35,6 @@ export const FileStatusDot: React.FC<{ status: FileStatus }> = ({ status }) => {
   }[status];
 
   return <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />;
-};
-
-export const getFileIcon = (filePath: string, extension?: string): React.ReactNode => {
-  return <FileTypeIcon filePath={filePath} extension={extension} />;
 };
 
 export interface FileRowProps {
@@ -263,7 +257,7 @@ export const FileRow: React.FC<FileRowProps> = ({
   );
 };
 
-export const areFileRowPropsEqual = (prev: FileRowProps, next: FileRowProps): boolean => (
+const areFileRowPropsEqual = (prev: FileRowProps, next: FileRowProps): boolean => (
   prev.node === next.node
   && prev.root === next.root
   && prev.isExpanded === next.isExpanded

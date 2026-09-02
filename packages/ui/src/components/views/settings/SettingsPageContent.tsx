@@ -16,18 +16,8 @@ import {
   getSettingsPageMeta,
   type SettingsPageSlug,
   type SettingsRuntimeContext,
-  type SettingsPageMeta,
 } from '@/lib/settings/metadata';
-
-export function isPageAvailable(
-  page: SettingsPageMeta,
-  ctx: SettingsRuntimeContext
-): boolean {
-  if (!page.isAvailable) {
-    return true;
-  }
-  return page.isAvailable(ctx);
-}
+import { isPageAvailable } from './settingsViewHelpers';
 
 export function SettingsUnavailableView(): React.ReactNode {
   return (

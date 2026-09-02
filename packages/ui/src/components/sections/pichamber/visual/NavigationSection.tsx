@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { TerminalShellOption } from '@/lib/api/types';
+import type { TerminalShell, TerminalShellOption } from '@/lib/api/types';
 import { isTerminalShell } from '@/lib/terminalShell';
 import type { VisibleSetting } from './visualSettingsConstants';
 
@@ -34,7 +34,7 @@ export interface NavigationSectionProps {
   setShowTerminalQuickKeysOnDesktop: (show: boolean) => void;
   showTerminalShellSetting: boolean;
   terminalShell: string;
-  setTerminalShell: (shell: any) => void;
+  setTerminalShell: (shell: TerminalShell) => void;
   terminalShellOptions: TerminalShellOption[];
   terminalShellSupportsLogin: boolean;
   terminalLoginShellEnabled: boolean;

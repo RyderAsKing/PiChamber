@@ -3,10 +3,8 @@ import {
   createReducerPartMap,
   createReducerState,
   type PiReducerSessionState,
-  type PiReducerState,
 } from '@/lib/pi/event-reducer';
 import { PiRequestError } from '@/lib/pi/client';
-import type { PiSessionEvent } from '@/lib/pi/protocol';
 import type { PiSession, PiSessionLifecycleState } from '@/lib/pi/types';
 import { normalizePath } from '@/lib/pathNormalization';
 import {
@@ -43,10 +41,12 @@ export const catalogLifecycleFromReducer = (
  * `undefined` so we do not synthesize stubs from token deltas.
  */
 export const lifecycleFromEvent = (
-  event: PiSessionEvent
+  event: { name: string; payload: unknown }
 ): LiveSessionLifecycle | undefined => {
   if (event.name === 'session.lifecycle') {
-    const state = event.payload.state;
+    const state = event.payload && typeof event.payload === 'object'
+      ? (event.payload as { state?: unknown }).state
+      : undefined;
     if (state === 'busy' || state === 'retry' || state === 'error') return state;
     if (state === 'idle') return 'idle';
     return undefined;

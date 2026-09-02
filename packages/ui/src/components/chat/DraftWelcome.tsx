@@ -5,45 +5,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { resolveDraftWelcomeProjectLabel } from './composer/state/draftTargetProjects';
 
-export type HydratingToolSkeletonRow = {
-  id: string;
-  titleWidth: string;
-  detailWidth: string;
-};
-
-export const HYDRATING_SKELETON_ITEMS: Array<{
-  id: number;
-  toolRows: HydratingToolSkeletonRow[];
-  textWidths: [string, string, string];
-}> = [
-  {
-    id: 1,
-    toolRows: [
-      { id: 'search', titleWidth: 'w-24', detailWidth: 'w-52' },
-      { id: 'read', titleWidth: 'w-20', detailWidth: 'w-36' },
-      { id: 'edit', titleWidth: 'w-24', detailWidth: 'w-64' },
-    ],
-    textWidths: ['w-24', 'w-[92%]', 'w-[78%]'],
-  },
-  {
-    id: 2,
-    toolRows: [
-      { id: 'read', titleWidth: 'w-20', detailWidth: 'w-40' },
-      { id: 'search', titleWidth: 'w-24', detailWidth: 'w-48' },
-    ],
-    textWidths: ['w-20', 'w-[88%]', 'w-[70%]'],
-  },
-  {
-    id: 3,
-    toolRows: [
-      { id: 'shell', titleWidth: 'w-28', detailWidth: 'w-44' },
-      { id: 'edit', titleWidth: 'w-24', detailWidth: 'w-56' },
-    ],
-    textWidths: ['w-24', 'w-[84%]', 'w-[64%]'],
-  },
-];
-
-export const renderDraftTitle = (
+const renderDraftTitle = (
   title: string,
   projectLabel: string | null
 ): React.ReactNode => {

@@ -17,7 +17,6 @@ export function useTerminalSessionStream({
   enableTabs,
   hasActiveContext,
   focusTerminalWhenWindowActive,
-  useTouchTerminalInput,
 }: {
   terminal: TerminalAPI;
   effectiveDirectory: string | null;
@@ -32,7 +31,6 @@ export function useTerminalSessionStream({
   enableTabs: boolean;
   hasActiveContext: boolean;
   focusTerminalWhenWindowActive: () => void;
-  useTouchTerminalInput: boolean;
 }) {
   const ensureDirectory = useTerminalStore((s) => s.ensureDirectory);
   const setTabSessionId = useTerminalStore((s) => s.setTabSessionId);

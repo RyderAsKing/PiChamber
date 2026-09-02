@@ -17,12 +17,12 @@ import {
 } from './toolRenderers';
 import type { ToolPopupContent, DiffViewMode } from './types';
 import { DiffViewToggle } from './DiffViewToggle';
-import { VirtualizedCodeBlock } from './parts/VirtualizedCodeBlock';
 import { JsonTreeView } from '@/components/ui/JsonTreeView';
 import { Icon } from "@/components/icon/Icon";
 import { getToolIcon } from './ToolOutputDialogIcons';
 import { ImagePreviewDialog, MermaidPreviewDialog } from './ToolOutputPreviewDialogs';
-import { DialogUnifiedDiff, DialogReadContent, usePierreThemeConfig } from './ToolOutputDiffComponents';
+import { DialogUnifiedDiff, DialogReadContent } from './ToolOutputDiffComponents';
+import { usePierreThemeConfig } from './usePierreThemeConfig';
 
 interface ToolOutputDialogProps {
     popup: ToolPopupContent;

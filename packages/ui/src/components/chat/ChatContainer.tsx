@@ -37,7 +37,6 @@ import {
     useScopedBlockingPermissions,
     useScopedBlockingQuestions,
     useParentSession,
-    useSession,
 } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
@@ -85,7 +84,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         [sync],
     );
     const loadMoreMessages = React.useCallback(
-        (_sessionId: string, _direction: 'up' | 'down') => sync.loadMore(),
+        () => sync.loadMore(),
         [sync],
     );
 
@@ -219,7 +218,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     const useCompactDraftLayout = isMobile || chatSurfaceMode === 'mini-chat';
 
     const messageListRef = React.useRef<MessageListHandle | null>(null);
-    const currentSession = useSession(currentSessionId, effectiveSessionDirectory);
     const parentSession = useParentSession();
 
     const handleReturnToParentSession = React.useCallback(() => {

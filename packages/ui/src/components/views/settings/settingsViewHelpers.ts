@@ -1,5 +1,10 @@
 import { isWebRuntime } from '@/lib/desktop';
-import { resolveSettingsSlug, type SettingsPageSlug, type SettingsRuntimeContext } from '@/lib/settings/metadata';
+import {
+  resolveSettingsSlug,
+  type SettingsPageMeta,
+  type SettingsPageSlug,
+  type SettingsRuntimeContext,
+} from '@/lib/settings/metadata';
 
 export const SETTINGS_NAV_WIDTH = 256;
 export const SETTINGS_SPLIT_SIDEBAR_WIDTH = 280;
@@ -29,6 +34,13 @@ export const pageOrder: SettingsPageSlug[] = [
   'snippets',
   'skills.installed',
 ];
+
+export function isPageAvailable(
+  page: SettingsPageMeta,
+  context: SettingsRuntimeContext,
+): boolean {
+  return page.isAvailable?.(context) ?? true;
+}
 
 export function buildRuntimeContext(isDesktop: boolean, isMobile: boolean): SettingsRuntimeContext {
   const isWeb = !isDesktop && isWebRuntime();

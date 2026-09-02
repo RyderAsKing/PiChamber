@@ -15,7 +15,6 @@ import {
   buildSessionMessageRecordsSnapshot,
   useDirectoryStore,
 } from '@/sync/sync-context';
-import { useSync } from '@/sync/use-sync';
 
 export const collectNodeDescendantIds = (root: SessionNode): string[] => {
   const out: string[] = [];
@@ -45,7 +44,6 @@ export function useSessionExport(
   node: SessionNode,
   sessionDirectory: string | null
 ) {
-  const sync = useSync();
   const directoryStore = useDirectoryStore(sessionDirectory ?? undefined, {
     bootstrap: false,
   });
@@ -68,16 +66,12 @@ export function useSessionExport(
         try {
           if (!sessionDirectory)
             throw new Error('Session directory is required for export');
-          await (sync as any).loadCompleteHistory?.(
-            child.session.id,
-            sessionDirectory
-          );
           const childRecords = buildSessionMessageRecordsSnapshot(
             directoryStore.getState(),
             child.session.id
           ).list;
           const childTitle = child.session.title || "Untitled Sub-agent";
-          const childAgent = (child.session as Session & { agent?: string }).agent;
+          const childAgent = typeof child.session.agent === 'string' ? child.session.agent : undefined;
           const grandChildren = await collectChildExports(child.children);
           skipped += grandChildren.skipped;
           results.push({
@@ -92,7 +86,7 @@ export function useSessionExport(
       }
       return { children: results, skipped };
     },
-    [directoryStore, sessionDirectory, sync]
+    [directoryStore, sessionDirectory]
   );
 
   const showSkippedSubtasksWarning = React.useCallback((count: number) => {
@@ -108,13 +102,6 @@ export function useSessionExport(
     async (includeSubtasks: boolean) => {
       if (!sessionDirectory) {
         toast.error("Nothing to export");
-        return;
-      }
-
-      try {
-        await (sync as any).loadCompleteHistory?.(session.id, sessionDirectory);
-      } catch {
-        toast.error("Failed to load the complete session history");
         return;
       }
 
@@ -172,7 +159,6 @@ export function useSessionExport(
       session.title,
       sessionDirectory,
       showSkippedSubtasksWarning,
-      sync,
     ]
   );
 

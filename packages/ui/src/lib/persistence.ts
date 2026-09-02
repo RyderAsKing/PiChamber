@@ -13,7 +13,6 @@ import {
   subscribeToSettingsSaveState,
   reportSettingsSaveState,
   dispatchSettingsSaveState,
-  type SettingsSaveState,
 } from './persistence/settingsSaveState';
 import {
   applyPersistedHomeDirectoryToWindow,

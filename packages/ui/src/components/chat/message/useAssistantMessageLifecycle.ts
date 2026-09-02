@@ -4,7 +4,7 @@ import type { TurnGroupingContext } from '../lib/turns/types';
 import type { ContentChangeReason } from '@/hooks/useChatAutoFollow';
 import type { TimeFormatPreference } from '@/stores/useUIStore';
 import { extractLoopbackUrls } from '@/lib/url';
-import { formatTurnDuration } from './TurnChangedFilesPills';
+import { formatTurnDuration } from './turnDuration';
 import { formatTimestampForDisplay } from './timeFormat';
 
 const TOOL_REVEAL_CACHE_MAX = 200;

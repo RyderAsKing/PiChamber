@@ -29,7 +29,7 @@ describe('useGitIdentities helpers', () => {
       userName: 'globaluser',
       userEmail: 'global@example.com',
       authType: 'token',
-    } as any;
+    };
 
     const tokenProfile: GitIdentityProfile = {
       id: 'token-1',
@@ -38,7 +38,7 @@ describe('useGitIdentities helpers', () => {
       userEmail: 'gh@example.com',
       authType: 'token',
       host: 'github.com/user/repo',
-    } as any;
+    };
 
     const sshProfile: GitIdentityProfile = {
       id: 'ssh-1',
@@ -46,7 +46,7 @@ describe('useGitIdentities helpers', () => {
       userName: 'sshuser',
       userEmail: 'ssh@example.com',
       authType: 'ssh',
-    } as any;
+    };
 
     test('includes global identity and non-token profiles', () => {
       const result = deriveAvailableIdentities([sshProfile], globalId, null);
@@ -65,7 +65,7 @@ describe('useGitIdentities helpers', () => {
       name: 'Dev',
       userName: 'dev',
       userEmail: 'dev@example.com',
-    } as any;
+    };
 
     test('matches profiles by userName and userEmail', () => {
       const current: GitIdentitySummary = { userName: 'dev', userEmail: 'dev@example.com', sshCommand: null };
@@ -80,7 +80,12 @@ describe('useGitIdentities helpers', () => {
     });
 
     test('falls back to globalIdentity when currentIdentity is empty', () => {
-      const globalId: GitIdentityProfile = { id: 'global' } as any;
+      const globalId: GitIdentityProfile = {
+        id: 'global',
+        name: 'Global',
+        userName: '',
+        userEmail: '',
+      };
       expect(deriveActiveIdentityProfile(null, [profile], globalId)).toBe(globalId);
     });
   });

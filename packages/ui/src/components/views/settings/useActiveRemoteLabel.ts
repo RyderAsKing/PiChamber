@@ -1,5 +1,6 @@
 import React from 'react';
 import { getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import type { DesktopHost } from '@/lib/desktopHosts';
 
 export function useActiveRemoteLabel(mobileAppInstanceLabel?: string | null): string | null {
   const [activeRemoteLabel, setActiveRemoteLabel] = React.useState<string | null>(null);
@@ -16,7 +17,9 @@ export function useActiveRemoteLabel(mobileAppInstanceLabel?: string | null): st
           setActiveRemoteLabel(active.label);
           return;
         }
-      } catch {}
+      } catch {
+        // Fall through to the desktop-host and runtime-key labels.
+      }
       if (mobileAppInstanceLabel) {
         setActiveRemoteLabel(mobileAppInstanceLabel);
         return;
@@ -26,7 +29,7 @@ export function useActiveRemoteLabel(mobileAppInstanceLabel?: string | null): st
         const { buildLocalDesktopHost, getLocalDesktopOrigin, resolveCurrentDesktopHost } = await import(
           '@/lib/desktopCurrentHost'
         );
-        const cfg = await desktopHostsGet().catch(() => ({ hosts: [] as any[] }));
+        const cfg = await desktopHostsGet().catch(() => ({ hosts: [] as DesktopHost[] }));
         const local = buildLocalDesktopHost(getLocalDesktopOrigin());
         const all = [local, ...cfg.hosts];
         const resolved = resolveCurrentDesktopHost(all);
@@ -34,7 +37,9 @@ export function useActiveRemoteLabel(mobileAppInstanceLabel?: string | null): st
           setActiveRemoteLabel(resolved.label);
           return;
         }
-      } catch {}
+      } catch {
+        // Fall through to the runtime-key label.
+      }
       const url = getRuntimeApiBaseUrl();
       const key = getRuntimeKey();
       if (key === 'local') {

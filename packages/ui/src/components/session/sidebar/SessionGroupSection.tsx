@@ -1,4 +1,3 @@
-/* eslint-disable */
 import React from 'react';
 import type { Session } from '@/lib/chat/types';
 import { Button } from '@/components/ui/button';

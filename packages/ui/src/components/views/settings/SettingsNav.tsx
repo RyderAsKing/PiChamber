@@ -9,7 +9,7 @@ import {
 } from '@/lib/settings/metadata';
 import type { SettingsSearchResult } from '@/lib/settings/search';
 
-export const NAV_GROUP_ORDER = ['general', 'projects', 'agent'] as const;
+const NAV_GROUP_ORDER = ['general', 'projects', 'agent'] as const;
 
 export type SettingsNavProps = {
   isMobile: boolean;

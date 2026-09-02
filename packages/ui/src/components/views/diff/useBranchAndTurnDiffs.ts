@@ -1,6 +1,7 @@
 import React from 'react';
 import type { GitAPI } from '@/lib/api/types';
 import type { ToolPart } from '@/lib/chat/types';
+import type { ChatMessageEntry } from '@/components/chat/lib/turns/types';
 import { extractChangedFiles } from '@/components/chat/changedFiles';
 import { projectTurnRecords } from '@/components/chat/lib/turns/projectTurnRecords';
 import type { DiffData, DiffScope, TurnSnapshotDiff } from './diffTypes';
@@ -21,7 +22,7 @@ export function useBranchAndTurnDiffs({
   branchBase: string | null;
   branchHead: string | null;
   git: GitAPI;
-  sessionMessageRecords: any[];
+  sessionMessageRecords: ChatMessageEntry[];
 }) {
   const [branchDiffs, setBranchDiffs] = React.useState<TurnSnapshotDiff[]>([]);
   const [branchDiffError, setBranchDiffError] = React.useState<string | null>(null);

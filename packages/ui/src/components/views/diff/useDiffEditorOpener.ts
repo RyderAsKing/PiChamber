@@ -20,7 +20,7 @@ export function useDiffEditorOpener({
   activeDiffStaged: boolean;
   git: GitAPI;
   files: FilesAPI;
-  setDiff: (dir: string, path: string, diff: any, runtimeKey?: string) => void;
+  setDiff: (dir: string, path: string, diff: DiffData, runtimeKey?: string) => void;
   openContextFileAtLine: (dir: string, path: string, line: number, col?: number) => void;
 }) {
   const [openingEditorFilePath, setOpeningEditorFilePath] = React.useState<string | null>(null);

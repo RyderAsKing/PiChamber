@@ -205,6 +205,15 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
     }, delay);
   };
 
+  const buildRelayWsUrl = (): string => {
+    const url = new URL(options.relayUrl);
+    url.searchParams.set('v', String(RELAY_PROTOCOL_VERSION));
+    url.searchParams.set('role', 'client');
+    url.searchParams.set('serverId', options.serverId);
+    if (options.grant) url.searchParams.set('grant', options.grant);
+    return url.toString();
+  };
+
   const connect = async (): Promise<void> => {
     if (closed) return;
     const generation = ++attemptGeneration;
@@ -229,7 +238,7 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
 
     let wire: TunnelWireSocket;
     try {
-      wire = createWire(options.relayUrl);
+      wire = createWire(buildRelayWsUrl());
     } catch (error) {
       failAttempt(generation, toError(error));
       return;
@@ -270,7 +279,11 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
     };
     currentAttemptCleanup = cleanupAttempt;
 
-    const failAttemptLocal = (error: Error, terminal = false, asErrorState = false): void => {
+    const failAttemptLocal = (
+      error: Error,
+      failure: { terminal?: boolean; asErrorState?: boolean } = {},
+    ): void => {
+      const { terminal = false, asErrorState = false } = failure;
       if (settled || generation !== attemptGeneration) return;
       settled = true;
       cleanupAttempt();
@@ -494,8 +507,7 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
       const terminal = TERMINAL_RELAY_CLOSE_CODES.has(event.code);
       failAttemptLocal(
         new Error(RELAY_CLOSE_MESSAGES[event.code] ?? `relay socket closed (code ${event.code})`),
-        terminal,
-        terminal
+        { terminal, asErrorState: terminal },
       );
     };
 
@@ -505,7 +517,7 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
 
     helloDeadline = setTimeout(() => {
       helloDeadline = null;
-      failAttemptLocal(new Error('relay handshake timeout'), true);
+      failAttemptLocal(new Error('relay handshake timeout'), { asErrorState: true });
     }, helloTimeoutMs);
 
     function failAttempt(gen: number, error: Error, asErrorState = false): void {

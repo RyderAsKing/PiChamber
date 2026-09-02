@@ -2,7 +2,6 @@ import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 import type { TunnelInfo, TunnelMode } from './tunnelTypes';
 
 export interface TunnelActiveCardProps {

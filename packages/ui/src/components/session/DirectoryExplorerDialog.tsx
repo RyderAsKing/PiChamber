@@ -17,7 +17,6 @@ import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { Icon } from '@/components/icon/Icon';
 import { normalizeDirectoryPath, normalizeSeparators } from './directoryExplorerPaths';
 import {
-  type BrowseRow,
   type DirectoryExplorerDialogProps,
   focusPathInput,
   isPrimaryModifierPressed,

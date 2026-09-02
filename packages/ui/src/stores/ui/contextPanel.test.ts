@@ -3,7 +3,6 @@ import { describe, expect, test } from 'bun:test';
 import {
   buildContextPanelTabID,
   clampContextPanelRoots,
-  clampContextPanelTabs,
   clampContextPanelWidth,
   closeContextPanelTab,
   collapseDiffTabsToGit,
@@ -13,7 +12,6 @@ import {
   normalizePendingDiffScope,
   reorderContextPanelTabs,
   resolveSharedContextPanelWidth,
-  sanitizeContextPanelTabs,
   touchContextPanelState,
   upsertContextPanelTab,
   type ContextPanelDirectoryState,

@@ -126,4 +126,3 @@ export const EditorTreeColumn: React.FC<{ visible: boolean }> = ({ visible }) =>
     </div>
   );
 };
-

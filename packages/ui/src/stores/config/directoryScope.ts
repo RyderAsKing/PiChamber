@@ -164,4 +164,3 @@ export const resolveConfigDirectory = (directory: string | null | undefined): st
 
 export const toConfigDirectoryKey = (directory: string | null | undefined): string =>
     toDirectoryKey(resolveConfigDirectory(directory));
-

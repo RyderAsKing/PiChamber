@@ -1,12 +1,7 @@
 import React from 'react';
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type {
-  GitStatus,
-  GitBranch,
-  GitLogResponse,
-  GitIdentitySummary,
-} from '@/lib/api/types';
+import type { GitStatus } from '@/lib/api/types';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import {
   LOG_STALE_THRESHOLD,
@@ -19,15 +14,12 @@ import {
   DIFF_PREFETCH_CONCURRENCY,
   DIFF_PREFETCH_TIMEOUT_MS,
   DIFF_PREFETCH_LARGE_FILE_THRESHOLD,
-  DIFF_CACHE_MAX_ENTRIES,
   DIFF_CACHE_MAX_TOTAL_SIZE_BYTES,
-  DIFF_CACHE_MAX_GLOBAL_ENTRIES,
   type GitStatusFetchMode,
   type DirectoryGitState,
   type GitStore,
   type GitFileDiffResponse,
   type GitAPI,
-  type GitRequestToken,
   createEmptyDirectoryState,
 } from './git/gitStoreTypes';
 import {
@@ -48,8 +40,6 @@ import {
   isCleanStatusFile,
 } from './git/gitStatusAnalysis';
 import {
-  inFlightDiffFetchesByDirectory,
-  diffFetchGenerationByDirectory,
   inFlightStatusFetches,
   inFlightBranchFetches,
   inFlightEnsureAllByDirectory,

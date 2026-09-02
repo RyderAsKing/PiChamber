@@ -1,6 +1,7 @@
 import React from 'react';
 
-import type { CommitFileEntry } from '@/lib/api/types';
+import type { CommitFileEntry, GitLogResponse } from '@/lib/api/types';
+import type { GitmojiEntry } from '@/hooks/useGitmojiList';
 import type { OperationLogEntry } from './BranchIntegrationSection';
 import { ConflictDialog } from './ConflictDialog';
 import { GitHistoryDialog, type GitLogDialogMode, type HistoryBranchDivider } from './GitHistoryDialog';
@@ -34,7 +35,7 @@ export interface GitViewDialogsProps {
   setGitLogDialogMode: (mode: GitLogDialogMode | null) => void;
   onRefreshHistory: () => void;
   isLogRefreshing: boolean;
-  log: any;
+  log: GitLogResponse | null;
   maxCount: number;
   onMaxCountChange: (count: number) => void;
   expandedCommitHashes: Set<string>;
@@ -43,7 +44,11 @@ export interface GitViewDialogsProps {
   loadingCommitHashes: Set<string>;
   onCopyHash: (hash: string) => void;
   historyBranchDivider: HistoryBranchDivider | null;
-  onConflict?: (conflict: any) => void;
+  onConflict?: (conflict: {
+    conflict: boolean;
+    conflictFiles?: string[];
+    operation: 'cherry-pick' | 'revert' | 'merge' | 'rebase';
+  }) => void;
   onActionSuccess?: () => void;
 
   // StashesDialog props
@@ -57,7 +62,7 @@ export interface GitViewDialogsProps {
   // GitmojiPickerDialog props
   isGitmojiPickerOpen: boolean;
   setIsGitmojiPickerOpen: (open: boolean) => void;
-  gitmojiEmojis: any[];
+  gitmojiEmojis: GitmojiEntry[];
   onSelectGitmoji: (emoji: string, code: string) => void;
 
   // ConflictDialog props

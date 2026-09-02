@@ -40,7 +40,6 @@ export interface FileViewerToolbarProps {
   wrapLines: boolean;
   onToggleWrapLines: () => void;
   textViewMode: 'edit' | 'view';
-  isSearchOpen: boolean;
   onToggleSearch: () => void;
   isGoToLineOpen: boolean;
   onOpenGoToLineChange: (open: boolean) => void;
@@ -97,7 +96,6 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
   wrapLines,
   onToggleWrapLines,
   textViewMode,
-  isSearchOpen,
   onToggleSearch,
   isGoToLineOpen,
   onOpenGoToLineChange,

@@ -73,4 +73,3 @@ export const useDeferredExpandedContent = (isExpanded: boolean) => {
 
     return shouldRender;
 };
-

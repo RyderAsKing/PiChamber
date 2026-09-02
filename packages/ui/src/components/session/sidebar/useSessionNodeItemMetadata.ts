@@ -65,20 +65,21 @@ export function useSessionNodeItemMetadata({
   );
   const tooltipProjectLabel =
     secondaryMeta?.projectLabel ?? (projectLabelFromStore ? formatProjectLabel(projectLabelFromStore) : null);
+  const worktree = node.worktree;
   const resolvedBranchLabel =
     secondaryMeta?.branchLabel ??
-    (node as any).worktree?.branch ??
+    worktree?.branch ??
     (liveBranch && liveBranch !== 'HEAD' ? liveBranch : null);
   const tooltipBranchLabel = resolvedBranchLabel;
-  const isGitRepo = isGitRepoStatus === true || Boolean(resolvedBranchLabel || (node as any).worktree);
+  const isGitRepo = isGitRepoStatus === true || Boolean(resolvedBranchLabel || worktree);
   const subtaskCount = node.children.length;
   const agentName = (session as Session & { agent?: string }).agent;
 
   const prLookupKey = React.useMemo(() => {
-    const branch = (node as any).worktree?.branch?.trim() || resolvedBranchLabel?.trim();
-    const directory = normalizePath((node as any).worktree?.path ?? sessionDirectory);
+    const branch = worktree?.branch?.trim() || resolvedBranchLabel?.trim();
+    const directory = normalizePath(worktree?.path ?? sessionDirectory);
     return branch && directory ? getGitHubPrStatusKey() : null;
-  }, [(node as any).worktree, resolvedBranchLabel, sessionDirectory]);
+  }, [resolvedBranchLabel, sessionDirectory, worktree]);
   const prSummary = usePrVisualSummary(prLookupKey);
   const prIconColor = prSummary ? `var(--pr-${prSummary.visualState})` : undefined;
   const prStatusLabel = React.useMemo(() => {

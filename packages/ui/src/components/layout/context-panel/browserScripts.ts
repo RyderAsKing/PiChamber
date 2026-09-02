@@ -149,5 +149,3 @@ export const runIframeScript = async <T,>(iframe: HTMLIFrameElement, script: str
   const result = evaluate.call(frameWindow, script) as unknown;
   return await Promise.resolve(result) as T;
 };
-
-

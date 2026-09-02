@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { devtools, persist } from "zustand/middleware";
-import type { Agent, Config } from "@/lib/chat/types";
 import type { ModelMetadata } from "@/types";
 import { createDeferredSafeJSONStorage } from "./utils/safeStorage";
 import { useSessionUIStore } from "@/sync/session-ui-store";
@@ -34,8 +33,6 @@ import {
     resolveSelectionWithManualGuard,
     resolveThinkingVariant,
     sanitizePersistedSelectedProviderId,
-    type ProviderModel,
-    type ProviderWithModelList,
 } from "./config/selection";
 import {
     type ConfigStore,

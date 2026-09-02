@@ -1,13 +1,13 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 import { Icon } from '@/components/icon/Icon';
-import type { SettingsPageMeta } from '@/lib/settings/metadata';
+import type { SettingsPageMeta, SettingsPageSlug } from '@/lib/settings/metadata';
 import type { MobileStage } from './settingsViewHelpers';
 
 interface MobileSettingsHeaderProps {
   mobileStage: MobileStage;
   activePageMeta: SettingsPageMeta | null;
-  getPageTitle: (slug: any) => string;
+  getPageTitle: (slug: SettingsPageSlug) => string;
   showBackButton: boolean;
   mobileBackButtonLabel: string;
   onBack: () => void;

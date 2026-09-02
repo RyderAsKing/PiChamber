@@ -5,7 +5,7 @@ import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useUIStore } from '@/stores/useUIStore';
 import type { TurnChangedFile } from '../lib/turns/types';
 
-export const getDisplayFileName = (file: string): string => {
+const getDisplayFileName = (file: string): string => {
   const normalized = file.replace(/\\/g, '/');
   const segments = normalized.split('/').filter(Boolean);
   return segments.at(-1) ?? file;
@@ -138,13 +138,3 @@ export const TurnChangedFilePills = React.memo(
     );
   }
 );
-
-export const formatTurnDuration = (durationMs: number): string => {
-  const totalSeconds = Math.max(0.1, durationMs / 1000);
-  if (totalSeconds < 60) {
-    return `${totalSeconds.toFixed(1)}s`;
-  }
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = Math.round(totalSeconds % 60);
-  return `${minutes}m ${seconds}s`;
-};

@@ -2,21 +2,8 @@ import React from 'react';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 
 import { useThemeSystem } from '@/contexts/useThemeSystem';
-import type { ThemeMode } from '@/types/theme';
 import { useUIStore } from '@/stores/useUIStore';
-import { useMessageQueueStore, type FollowUpBehavior } from '@/stores/messageQueueStore';
-import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { NumberInput } from '@/components/ui/number-input';
-import { Input } from '@/components/ui/input';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
-import { Icon } from "@/components/icon/Icon";
+import { useMessageQueueStore } from '@/stores/messageQueueStore';
 import {
     isDesktopShell,
     isWebRuntime,
@@ -28,58 +15,24 @@ import { useDeviceInfo } from '@/lib/device';
 import { usePwaDetection } from '@/hooks/usePwaDetection';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { isPerfHudEnabled, setPerfHudEnabled, subscribePerfHudEnabled } from '@/lib/perf/perfFlags';
-import { CODE_FONT_OPTIONS, DEFAULT_MONO_FONT, DEFAULT_UI_FONT, UI_FONT_OPTIONS, type MonoFontOption, type UiFontOption } from '@/lib/fontOptions';
 import { useConfigStore } from '@/stores/useConfigStore';
-import { normalizeMobileKeyboardMode, supportsMobileKeyboardResizeContent, type MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
+import { normalizeMobileKeyboardMode, supportsMobileKeyboardResizeContent } from '@/lib/mobileKeyboardMode';
 import { getStoredMobileLayoutPreference, setStoredMobileLayoutPreference, type MobileLayoutPreference } from '@/lib/mobileLayoutPreference';
 import {
     setDirectoryShowHidden,
     useDirectoryShowHidden,
 } from '@/lib/directoryShowHidden';
-import {
-    SettingsSection,
-    SettingsTwoColumn,
-    SettingsControlGroup,
-    SettingsStackedField,
-    SettingsFieldRow,
-    SettingsInset,
-    SettingsCheckboxRow,
-    SettingsRadioGroup,
-    SettingsRadioOption,
-    SettingsChipGroup,
-    SETTINGS_SELECT_TRIGGER_CLASS,
-    SETTINGS_SELECT_SIZE,
-    SETTINGS_ICON_BUTTON_CLASS,
-    SETTINGS_CONTROL_CLUSTER_CLASS,
-    SETTINGS_CLUSTER_CONTROL_CLASS,
-    SETTINGS_NUMBER_STEPPER_ROW_CLASS,
-    SETTINGS_NUMBER_UNIT_CLASS,
-    SETTINGS_FIELDS_STACK_CLASS,
-    SETTINGS_OPTION_STACK_CLASS,
-} from '@/components/sections/shared/SettingsSection';
-import { SettingsInfoHint } from '@/components/sections/shared/SettingsInfoHint';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import type { TerminalShellOption } from '@/lib/api/types';
-import { isTerminalShell } from '@/lib/terminalShell';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 
 import {
   DEFAULT_PWA_INSTALL_NAME,
-  DIFF_LAYOUT_OPTIONS,
-  FOLLOW_UP_BEHAVIOR_OPTIONS,
-  MERMAID_RENDERING_OPTIONS,
   MOBILE_KEYBOARD_MODE_OPTIONS,
-  MOBILE_LAYOUT_OPTIONS,
   PWA_ORIENTATION_OPTIONS,
-  THEME_MODE_OPTIONS,
   TIME_FORMAT_OPTIONS,
-  USER_MESSAGE_RENDERING_OPTIONS,
   WEEK_START_OPTIONS,
-  WINDOW_CONTROLS_POSITION_OPTIONS,
-  WINDOW_CONTROLS_STYLE_OPTIONS,
   normalizePwaOrientation,
-  normalizeUserMessageRenderingMode,
-  type Option,
   type PwaInstallNameWindow,
   type VisibleSetting,
 } from './visual/visualSettingsConstants';

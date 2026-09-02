@@ -92,7 +92,7 @@ export function VirtualArchivedSessionList({
       scrollEl.getBoundingClientRect().top +
       scrollEl.scrollTop;
     setArchivedScrollMargin((prev) => (Math.abs(prev - offset) < 1 ? prev : offset));
-  });
+  }, [archivedScrollEl, archivedScrollMargin, scrollContainerRef, shouldVirtualize]);
 
   const virtualizerReady = shouldVirtualize && archivedScrollEl !== null;
   const sessionVirtualizer = useVirtualizer<HTMLElement, HTMLDivElement>({

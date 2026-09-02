@@ -7,6 +7,7 @@ import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { mergeModelMetadataWithLiveModel } from '@/lib/modelMetadata';
 import { parsePiThinkingLevel } from '@/lib/pi/thinking';
 import type { PiThinkingLevel } from '@/lib/pi/types';
+import type { ModelMetadata } from '@/types';
 import { cn } from '@/lib/utils';
 import { formatEffortLabel } from '../mobileControlsUtils';
 import { formatTokens, getCapabilityIcons, getModalityIcons } from '../modelControlsMetadata';
@@ -35,7 +36,7 @@ export interface MobileModelPickerPanelProps {
   currentProviderId?: string;
   currentModelId?: string;
   getModelDisplayName: (model: ProviderModel) => string;
-  getModelMetadata: (providerId: string, modelId: string) => any;
+  getModelMetadata: (providerId: string, modelId: string) => ModelMetadata | undefined;
   getModelVariantOptions: (providerId: string, modelId: string) => readonly PiThinkingLevel[];
   resolveModelVariantSelection: (providerId: string, modelId: string) => string | undefined;
   pendingThinkingVariants: Map<string, string | undefined>;

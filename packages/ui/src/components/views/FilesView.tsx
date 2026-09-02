@@ -3,12 +3,6 @@ import { runtimeFetch } from '@/lib/runtime-fetch';
 
 import { toast } from '@/components/ui';
 import { copyTextToClipboard } from '@/lib/clipboard';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { languageByExtension, loadLanguageByExtension } from '@/lib/codemirror/languageByExtension';
@@ -16,7 +10,7 @@ import { createFlexokiCodeMirrorTheme } from '@/lib/codemirror/flexokiTheme';
 import { shikiHighlightExtension } from '@/lib/codemirror/shikiHighlight';
 import { getResolvedShikiTheme } from '@/lib/shiki/appThemeRegistry';
 import { useDeviceInfo } from '@/lib/device';
-import { cn, getModifierLabel, hasModifier } from '@/lib/utils';
+import { cn, hasModifier } from '@/lib/utils';
 import { getLanguageFromExtension, getImageMimeType, isBinaryFile, isDrawioFile, isImageFile, isPdfFile, isSvgFile } from '@/lib/toolHelpers';
 import { getRuntimeUrlResolver } from '@/lib/runtime-url';
 import { getOutsideFileGrant } from '@/lib/outsideFileGrants';
@@ -31,7 +25,6 @@ import { useGitStatus } from '@/stores/useGitStore';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useDirectoryShowHidden } from '@/lib/directoryShowHidden';
 import { useFilesViewShowGitignored } from '@/lib/filesViewShowGitignored';
-import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useTransientValue } from '@/hooks/useTransientValue';
 import { Icon } from "@/components/icon/Icon";
@@ -487,7 +480,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     recordDiagramContent,
     saveDiagramNow,
     saveDrawioViewMode,
-    saveHtmlViewMode,
     saveJsonViewMode,
     saveMdViewMode,
     saveTextViewMode,
@@ -507,7 +499,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     recordStat: recordLoadedFileStat,
   });
   const getMdViewMode = React.useCallback(() => mdViewMode, [mdViewMode]);
-  const getHtmlViewMode = React.useCallback(() => htmlViewMode, [htmlViewMode]);
 
   const handleFileSaved = React.useCallback((path: string, content: string) => {
     setFileContent(content);
@@ -1289,7 +1280,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
         wrapLines={wrapLines}
         onToggleWrapLines={() => setWrapLines(!wrapLines)}
         textViewMode={textViewMode}
-        isSearchOpen={isSearchOpen}
         onToggleSearch={() => setIsSearchOpen(!isSearchOpen)}
         isGoToLineOpen={isGoToLineOpen}
         onOpenGoToLineChange={setIsGoToLineOpen}

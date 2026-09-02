@@ -81,15 +81,6 @@ export function useTunnelSettingsState() {
         ) {
           setTunnelProvider(payload.tunnelProvider);
         }
-        if (Object.prototype.hasOwnProperty.call(payload, 'managedLocalTunnelConfigPath')) {
-          setManagedLocalConfigPath(payload.managedLocalTunnelConfigPath ?? null);
-        }
-        if (
-          Object.prototype.hasOwnProperty.call(payload, 'managedRemoteTunnelPresets') &&
-          payload.managedRemoteTunnelPresets
-        ) {
-          setManagedRemoteTunnelPresets(payload.managedRemoteTunnelPresets);
-        }
       } catch {
         toast.error('Failed to save tunnel settings');
       } finally {

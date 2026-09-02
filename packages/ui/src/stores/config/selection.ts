@@ -358,4 +358,3 @@ export const resolveSelectionWithManualGuard = ({
         selectionSource: preserveManual ? "manual" as const : "auto" as const,
     };
 };
-

@@ -40,14 +40,9 @@ import {
   touchCache,
   getOrCreateCache,
   dropCacheForRoot,
-  type FileTreeCache,
 } from './sidebar/fileTreeCache';
-import {
-  FileRow,
-  MemoizedFileRow,
-  getFileIcon,
-  type FileStatus,
-} from './sidebar/SidebarFileRow';
+import { MemoizedFileRow } from './sidebar/SidebarFileRow';
+import { getFileIcon, type FileStatus } from './sidebar/sidebarFileRowHelpers';
 
 
 // --- Main component ---

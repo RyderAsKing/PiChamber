@@ -145,7 +145,6 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
         terminalControllerRef.current?.focus();
       }
     },
-    useTouchTerminalInput,
   });
 
   const {
@@ -251,7 +250,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
       };
     }
     fitOnce();
-  }, [focusTerminalWhenWindowActive, isTerminalVisible, useTouchTerminalInput, terminalViewportKey, terminalSessionId]);
+  }, [focusTerminalWhenWindowActive, isTerminalVisible, useTouchTerminalInput, terminalControllerRef, terminalViewportKey, terminalSessionId]);
 
   React.useEffect(() => {
     if (!isTerminalVisible || !useTouchTerminalInput) return;
@@ -268,7 +267,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
       window.removeEventListener('oc:keyboard-settled', handleKeyboardSettled);
       if (fitFrame !== null) window.cancelAnimationFrame(fitFrame);
     };
-  }, [isTerminalVisible, terminalViewportKey, useTouchTerminalInput]);
+  }, [isTerminalVisible, terminalControllerRef, terminalViewportKey, useTouchTerminalInput]);
 
   if (!hasActiveContext) {
     return (
