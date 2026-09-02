@@ -1,5 +1,4 @@
 import React from 'react';
-import QRCode from 'qrcode';
 import { toast } from '@/components/ui';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { updateDesktopSettings } from '@/lib/persistence';
@@ -19,42 +18,46 @@ import type {
   TunnelStatusResponse,
 } from './tunnelTypes';
 import {
-  BOOTSTRAP_TTL_OPTIONS,
   createTunnelDependencyInstallInfo,
   formatRemaining,
   hasAllowedManagedLocalConfigExtension,
   normalizePresetHostname,
   sanitizePresets,
-  SESSION_TTL_OPTIONS,
   toUiTunnelMode,
   TUNNEL_MODE_OPTIONS,
 } from './tunnelHelpers';
 import { useTunnelPresetsState } from './useTunnelPresetsState';
 import { useManagedLocalConfig } from './useManagedLocalConfig';
+import { useTunnelTtlConfig } from './useTunnelTtlConfig';
+import { useTunnelTimers } from './useTunnelTimers';
 
 export function useTunnelSettingsState() {
   const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
   const [state, setState] = React.useState<TunnelState>('checking');
   const [tunnelInfo, setTunnelInfo] = React.useState<TunnelInfo | null>(null);
   const [activeTunnelMode, setActiveTunnelMode] = React.useState<TunnelMode | null>(null);
-  const [qrDataUrl, setQrDataUrl] = React.useState<string | null>(null);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [managedRemoteValidationError, setManagedRemoteValidationError] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
-  const [isSavingTtl, setIsSavingTtl] = React.useState(false);
   const [isSavingMode, setIsSavingMode] = React.useState(false);
   const [tunnelProvider, setTunnelProvider] = React.useState<string>('cloudflare');
   const [dependencyInstallInfo, setDependencyInstallInfo] = React.useState<TunnelDependencyInstallInfo>(() =>
-    createTunnelDependencyInstallInfo('cloudflare')
+    createTunnelDependencyInstallInfo('cloudflare'),
   );
   const [providerCapabilities, setProviderCapabilities] = React.useState<TunnelProviderCapability[]>([]);
   const [tunnelMode, setTunnelMode] = React.useState<TunnelMode>('quick');
-  const [bootstrapTtlMs, setBootstrapTtlMs] = React.useState<number | null>(30 * 60 * 1000);
-  const [sessionTtlMs, setSessionTtlMs] = React.useState<number>(8 * 60 * 60 * 1000);
-  const [remainingText, setRemainingText] = React.useState<string>('');
   const [sessionRecords, setSessionRecords] = React.useState<TunnelSessionRecord[]>([]);
-  const [nowTs, setNowTs] = React.useState<number>(() => Date.now());
   const [localPort, setLocalPort] = React.useState<number | null>(null);
+
+  const {
+    bootstrapTtlMs,
+    setBootstrapTtlMs,
+    sessionTtlMs,
+    setSessionTtlMs,
+    isSavingTtl,
+    handleBootstrapTtlChange,
+    handleSessionTtlChange,
+  } = useTunnelTtlConfig();
 
   const saveTunnelSettings = React.useCallback(
     async (payload: {
@@ -93,7 +96,7 @@ export function useTunnelSettingsState() {
         setIsSavingMode(false);
       }
     },
-    []
+    [],
   );
 
   const presetsState = useTunnelPresetsState({
@@ -144,6 +147,21 @@ export function useTunnelSettingsState() {
     handleManagedLocalConfigFileSelected,
   } = localConfigState;
 
+  const setSavedTokenPresetIdsWrapper = React.useCallback(
+    (updater: (prev: Set<string>) => Set<string>) => {
+      setSavedTokenPresetIds(updater);
+    },
+    [setSavedTokenPresetIds],
+  );
+
+  const { qrDataUrl, remainingText, nowTs } = useTunnelTimers({
+    tunnelInfo,
+    state,
+    setSessionRecords,
+    setSavedTokenPresetIds: setSavedTokenPresetIdsWrapper,
+    setLocalPort,
+  });
+
   const renderedSessionRecords = React.useMemo(() => {
     return sessionRecords.map((record) => {
       const isExpired = record.expiresAt <= nowTs;
@@ -151,14 +169,14 @@ export function useTunnelSettingsState() {
       const remainingTextForSession = isActive
         ? formatRemaining(record.expiresAt - nowTs)
         : record.inactiveReason === 'expired' || isExpired
-        ? 'expired'
-        : 'inactive';
+          ? 'expired'
+          : 'inactive';
       const inactiveLabel =
         remainingTextForSession === 'expired'
           ? 'Expired'
           : record.inactiveReason === 'tunnel-revoked'
-          ? 'Revoked'
-          : 'Inactive';
+            ? 'Revoked'
+            : 'Inactive';
 
       const mode = toUiTunnelMode(record.mode);
       return {
@@ -230,7 +248,10 @@ export function useTunnelSettingsState() {
     const supportedModes = new Set(
       selectedProviderCapability?.modes
         ?.map((mode) => mode.key)
-        .filter((mode): mode is TunnelMode => mode === 'quick' || mode === 'managed-remote' || mode === 'managed-local')
+        .filter(
+          (mode): mode is TunnelMode =>
+            mode === 'quick' || mode === 'managed-remote' || mode === 'managed-local',
+        ),
     );
     if (supportedModes.size === 0) {
       return TUNNEL_MODE_OPTIONS;
@@ -239,8 +260,9 @@ export function useTunnelSettingsState() {
   }, [selectedProviderCapability]);
 
   const providerSupportsManagedModes = React.useMemo(
-    () => tunnelModeOptions.some((option) => option.value === 'managed-remote' || option.value === 'managed-local'),
-    [tunnelModeOptions]
+    () =>
+      tunnelModeOptions.some((option) => option.value === 'managed-remote' || option.value === 'managed-local'),
+    [tunnelModeOptions],
   );
 
   const displayedDependencyInstallInfo = React.useMemo(() => {
@@ -259,7 +281,7 @@ export function useTunnelSettingsState() {
       setDependencyInstallInfo(createTunnelDependencyInstallInfo(fallbackProvider, checkData));
       return checkData.available === true;
     },
-    []
+    [],
   );
 
   const checkAvailabilityAndStatus = React.useCallback(
@@ -282,14 +304,14 @@ export function useTunnelSettingsState() {
           (settingsData?.tunnelBootstrapTtlMs === null
             ? null
             : typeof settingsData?.tunnelBootstrapTtlMs === 'number'
-            ? settingsData.tunnelBootstrapTtlMs
-            : 30 * 60 * 1000);
+              ? settingsData.tunnelBootstrapTtlMs
+              : 30 * 60 * 1000);
         const loadedSessionTtl =
           typeof statusData.ttlConfig?.sessionTtlMs === 'number'
             ? statusData.ttlConfig.sessionTtlMs
             : typeof settingsData?.tunnelSessionTtlMs === 'number'
-            ? settingsData.tunnelSessionTtlMs
-            : 8 * 60 * 60 * 1000;
+              ? settingsData.tunnelSessionTtlMs
+              : 8 * 60 * 60 * 1000;
 
         const loadedMode: TunnelMode = toUiTunnelMode(statusData.mode ?? settingsData?.tunnelMode);
         const loadedProvider = 'cloudflare';
@@ -301,19 +323,21 @@ export function useTunnelSettingsState() {
 
         const loadedPresetsFromStatus = sanitizePresets(statusData?.managedRemoteTunnelPresets);
         const loadedHostname =
-          typeof statusData.managedRemoteTunnelHostname === 'string' ? statusData.managedRemoteTunnelHostname : '';
+          typeof statusData.managedRemoteTunnelHostname === 'string'
+            ? statusData.managedRemoteTunnelHostname
+            : '';
         const presets =
           loadedPresetsFromStatus.length > 0
             ? loadedPresetsFromStatus
             : loadedHostname
-            ? [
-                {
-                  id: `legacy-${normalizePresetHostname(loadedHostname)}`,
-                  name: loadedHostname,
-                  hostname: normalizePresetHostname(loadedHostname),
-                },
-              ]
-            : [];
+              ? [
+                  {
+                    id: `legacy-${normalizePresetHostname(loadedHostname)}`,
+                    name: loadedHostname,
+                    hostname: normalizePresetHostname(loadedHostname),
+                  },
+                ]
+              : [];
 
         const selectedId = presets[0]?.id || '';
 
@@ -330,15 +354,15 @@ export function useTunnelSettingsState() {
           statusData.activeTunnelMode
             ? toUiTunnelMode(statusData.activeTunnelMode)
             : statusData.active && statusData.mode
-            ? toUiTunnelMode(statusData.mode)
-            : null
+              ? toUiTunnelMode(statusData.mode)
+              : null,
         );
         setSavedTokenPresetIds(
           new Set(
             Array.isArray(statusData.managedRemoteTunnelTokenPresetIds)
               ? statusData.managedRemoteTunnelTokenPresetIds
-              : []
-          )
+              : [],
+          ),
         );
         setLocalPort(typeof statusData.localPort === 'number' ? statusData.localPort : null);
 
@@ -363,11 +387,13 @@ export function useTunnelSettingsState() {
     },
     [
       applyDependencyCheck,
+      setBootstrapTtlMs,
       setManagedLocalConfigPath,
       setManagedRemoteTunnelPresets,
       setSavedTokenPresetIds,
       setSelectedPresetId,
-    ]
+      setSessionTtlMs,
+    ],
   );
 
   React.useEffect(() => {
@@ -375,182 +401,6 @@ export function useTunnelSettingsState() {
     void checkAvailabilityAndStatus(controller.signal);
     return () => controller.abort();
   }, [checkAvailabilityAndStatus]);
-
-  React.useEffect(() => {
-    if (!tunnelInfo?.connectUrl) {
-      setQrDataUrl(null);
-      return;
-    }
-
-    let cancelled = false;
-    QRCode.toDataURL(tunnelInfo.connectUrl, {
-      width: 256,
-      margin: 2,
-      color: { dark: '#000000', light: '#ffffff' },
-    })
-      .then((dataUrl) => {
-        if (!cancelled) {
-          setQrDataUrl(dataUrl);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setQrDataUrl(null);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [tunnelInfo?.connectUrl]);
-
-  React.useEffect(() => {
-    if (!tunnelInfo?.bootstrapExpiresAt) {
-      setRemainingText('No expiry');
-      return;
-    }
-
-    let rafId: number | null = null;
-    let lastTime = Date.now();
-
-    const updateRemaining = () => {
-      const remaining = tunnelInfo.bootstrapExpiresAt ? tunnelInfo.bootstrapExpiresAt - Date.now() : 0;
-      if (remaining <= 0) {
-        setRemainingText('Expired');
-      } else {
-        setRemainingText(formatRemaining(remaining));
-      }
-    };
-
-    const tick = () => {
-      const now = Date.now();
-      if (now - lastTime >= 1_000) {
-        updateRemaining();
-        lastTime = now;
-      }
-      rafId = requestAnimationFrame(tick);
-    };
-
-    updateRemaining();
-
-    if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-      rafId = requestAnimationFrame(tick);
-    }
-
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible' && rafId === null) {
-        rafId = requestAnimationFrame(tick);
-      } else if (document.visibilityState !== 'visible' && rafId !== null) {
-        cancelAnimationFrame(rafId);
-        rafId = null;
-      }
-    };
-
-    document.addEventListener('visibilitychange', onVisibility);
-
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibility);
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
-      }
-    };
-  }, [tunnelInfo?.bootstrapExpiresAt]);
-
-  React.useEffect(() => {
-    let rafId: number | null = null;
-    let lastTime = Date.now();
-
-    const tick = () => {
-      const now = Date.now();
-      if (now - lastTime >= 1_000) {
-        setNowTs(now);
-        lastTime = now;
-      }
-      rafId = requestAnimationFrame(tick);
-    };
-
-    if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-      rafId = requestAnimationFrame(tick);
-    }
-
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible' && rafId === null) {
-        rafId = requestAnimationFrame(tick);
-      } else if (document.visibilityState !== 'visible' && rafId !== null) {
-        cancelAnimationFrame(rafId);
-        rafId = null;
-      }
-    };
-
-    document.addEventListener('visibilitychange', onVisibility);
-
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibility);
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
-      }
-    };
-  }, []);
-
-  React.useEffect(() => {
-    if (state === 'starting' || state === 'stopping' || state === 'checking') {
-      return;
-    }
-
-    let cancelled = false;
-    const refreshSessions = async () => {
-      try {
-        const statusRes = await runtimeFetch('/api/pichamber/tunnel/status');
-        if (!statusRes.ok || cancelled) {
-          return;
-        }
-        const statusData = (await statusRes.json()) as TunnelStatusResponse;
-        if (cancelled) {
-          return;
-        }
-        setSessionRecords(Array.isArray(statusData.activeSessions) ? statusData.activeSessions : []);
-        setSavedTokenPresetIds(
-          new Set(
-            Array.isArray(statusData.managedRemoteTunnelTokenPresetIds)
-              ? statusData.managedRemoteTunnelTokenPresetIds
-              : []
-          )
-        );
-        setLocalPort(typeof statusData.localPort === 'number' ? statusData.localPort : null);
-      } catch {
-        // ignore transient refresh failures
-      }
-    };
-
-    const timer = window.setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
-        return;
-      }
-      void refreshSessions();
-    }, 5000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [setSavedTokenPresetIds, state]);
-
-  const saveTtlSettings = React.useCallback(
-    async (nextBootstrapTtlMs: number | null, nextSessionTtlMs: number) => {
-      setIsSavingTtl(true);
-      try {
-        await updateDesktopSettings({
-          tunnelBootstrapTtlMs: nextBootstrapTtlMs,
-          tunnelSessionTtlMs: nextSessionTtlMs,
-        });
-      } catch {
-        toast.error('Failed to save tunnel TTL settings');
-      } finally {
-        setIsSavingTtl(false);
-      }
-    },
-    []
-  );
 
   const handleStart = React.useCallback(async () => {
     setErrorMessage(null);
@@ -644,8 +494,8 @@ export function useTunnelSettingsState() {
         data.activeTunnelMode
           ? toUiTunnelMode(data.activeTunnelMode)
           : data.mode
-          ? toUiTunnelMode(data.mode)
-          : tunnelMode
+            ? toUiTunnelMode(data.mode)
+            : tunnelMode,
       );
       setSessionRecords(Array.isArray(data.activeSessions) ? data.activeSessions : []);
       if (Array.isArray(data.managedRemoteTunnelTokenPresetIds)) {
@@ -671,7 +521,7 @@ export function useTunnelSettingsState() {
           toast.warning(`Replaced previous tunnel: revoked ${revokedBootstrapCount} links, invalidated 1 session.`);
         } else {
           toast.warning(
-            `Replaced previous tunnel: revoked ${revokedBootstrapCount} links, invalidated ${invalidatedSessionCount} sessions.`
+            `Replaced previous tunnel: revoked ${revokedBootstrapCount} links, invalidated ${invalidatedSessionCount} sessions.`,
           );
         }
       } else {
@@ -708,14 +558,13 @@ export function useTunnelSettingsState() {
           new Set(
             Array.isArray(statusData.managedRemoteTunnelTokenPresetIds)
               ? statusData.managedRemoteTunnelTokenPresetIds
-              : []
-          )
+              : [],
+          ),
         );
         setLocalPort(typeof statusData.localPort === 'number' ? statusData.localPort : null);
       }
       setTunnelInfo(null);
       setActiveTunnelMode(null);
-      setQrDataUrl(null);
       setState('idle');
       toast.success('Tunnel stopped');
     } catch {
@@ -740,30 +589,6 @@ export function useTunnelSettingsState() {
     }
   }, [tunnelInfo?.connectUrl]);
 
-  const handleBootstrapTtlChange = React.useCallback(
-    async (value: string) => {
-      const option = BOOTSTRAP_TTL_OPTIONS.find((entry) => entry.value === value);
-      if (!option) {
-        return;
-      }
-      setBootstrapTtlMs(option.ms);
-      await saveTtlSettings(option.ms, sessionTtlMs);
-    },
-    [saveTtlSettings, sessionTtlMs]
-  );
-
-  const handleSessionTtlChange = React.useCallback(
-    async (value: string) => {
-      const option = SESSION_TTL_OPTIONS.find((entry) => entry.value === value);
-      if (!option || option.ms === null) {
-        return;
-      }
-      setSessionTtlMs(option.ms);
-      await saveTtlSettings(bootstrapTtlMs, option.ms);
-    },
-    [bootstrapTtlMs, saveTtlSettings]
-  );
-
   const handleModeChange = React.useCallback(
     async (value: TunnelMode) => {
       setManagedRemoteValidationError(null);
@@ -777,7 +602,7 @@ export function useTunnelSettingsState() {
         managedRemoteTunnelPresets,
       });
     },
-    [managedRemoteTunnelPresets, saveTunnelSettings, setManagedRemoteValidationError, state]
+    [managedRemoteTunnelPresets, saveTunnelSettings, setManagedRemoteValidationError, state],
   );
 
   return {
