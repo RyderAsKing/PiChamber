@@ -1,5 +1,4 @@
 /* eslint-disable */
-// @ts-nocheck
 import React, { useMemo, useRef, useCallback, useEffect } from 'react';
 import {
   areFilesEqual,
@@ -40,7 +39,7 @@ interface PierreDiffViewerProps {
  * Base CSS injected into Pierre's Shadow DOM. Pins font-family/size to the
  * app tokens (so Files view and Diff view render at the same scale on mobile)
  * and enables touch-friendly line interactions. Re-exported so plain
- * <PierreFile> consumers (e.g. `MobileFilesSurface`) can inject the same.
+ * <PierreFile> consumers (e.g. the mobile `FilesView` chrome) can inject the same.
  */
 export const PIERRE_RUNTIME_BASE_CSS = `
   :host {
@@ -655,7 +654,6 @@ export const PierreDiffViewer: React.FC<PierreDiffViewerProps> = ({
           )
         : new PierreFileDiff(options as FileDiffOptions<unknown>, workerPool);
       diffInstanceRef.current = instance;
-      lastAppliedSelectionRef.current = null;
     } else {
       instance.setOptions(options as FileDiffOptions<unknown>);
     }

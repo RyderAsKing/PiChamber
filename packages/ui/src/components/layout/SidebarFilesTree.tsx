@@ -44,6 +44,7 @@ import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { Icon } from "@/components/icon/Icon";
 import { getContextFileOpenFailureMessage, validateContextFileOpen } from '@/lib/contextFileOpenGuard';
 import { isBrowserClientRuntime } from '@/lib/desktop';
+import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
 
 type FileNode = {
   name: string;
@@ -61,28 +62,9 @@ const sortNodes = (items: FileNode[]) =>
     return a.name.localeCompare(b.name);
   });
 
-const normalizePath = (value: string): string => {
-  if (!value) return '';
-
-  const raw = value.replace(/\\/g, '/');
-  const hadUncPrefix = raw.startsWith('//');
-
-  let normalized = raw.replace(/\/+$/g, '');
-  normalized = normalized.replace(/\/+/g, '/');
-  if (hadUncPrefix && !normalized.startsWith('//')) {
-    normalized = `/${normalized}`;
-  }
-
-  if (normalized === '') {
-    return raw.startsWith('/') ? '/' : '';
-  }
-
-  return normalized;
-};
-
 const getRelativePath = (root: string, path: string): string => {
-  const normalizedPath = normalizePath(path);
-  const normalizedRoot = normalizePath(root).replace(/\/+$/, '');
+  const normalizedPath = normalizeDirectoryPathKey(path);
+  const normalizedRoot = normalizeDirectoryPathKey(root).replace(/\/+$/, '');
   if (normalizedPath === normalizedRoot) {
     return '.';
   }
@@ -101,7 +83,7 @@ const DEFAULT_IGNORED_DIR_NAMES = new Set(['node_modules']);
 const shouldIgnoreEntryName = (name: string): boolean => DEFAULT_IGNORED_DIR_NAMES.has(name);
 
 const shouldIgnorePath = (path: string): boolean => {
-  const normalized = normalizePath(path);
+  const normalized = normalizeDirectoryPathKey(path);
   return normalized === 'node_modules' || normalized.endsWith('/node_modules') || normalized.includes('/node_modules/');
 };
 
@@ -429,7 +411,7 @@ export const SidebarFilesTree: React.FC = () => {
   const { files, runtime } = useRuntimeAPIs();
   const isBrowserClient = isBrowserClientRuntime(runtime.platform);
   const currentDirectory = useEffectiveDirectory() ?? '';
-  const root = normalizePath(currentDirectory.trim());
+  const root = normalizeDirectoryPathKey(currentDirectory.trim());
   const showHidden = useDirectoryShowHidden();
   const showGitignored = useFilesViewShowGitignored();
   const searchFiles = useFileSearchStore((state) => state.searchFiles);
@@ -527,7 +509,7 @@ export const SidebarFilesTree: React.FC = () => {
     contextTabs
       .map((tab) => (tab.mode === 'file' ? tab.targetPath : null))
       .filter((targetPath): targetPath is string => typeof targetPath === 'string' && targetPath.length > 0)
-      .map((targetPath) => normalizePath(targetPath))
+      .map((targetPath) => normalizeDirectoryPathKey(targetPath))
   ), [contextTabs]);
 
   // Dialog state for CRUD operations
@@ -568,12 +550,12 @@ export const SidebarFilesTree: React.FC = () => {
       .filter((entry) => showGitignored || !shouldIgnoreEntryName(entry.name))
       .map<FileNode>((entry) => {
         const name = entry.name;
-        const normalizedEntryPath = normalizePath(entry.path || '');
+        const normalizedEntryPath = normalizeDirectoryPathKey(entry.path || '');
         const path = normalizedEntryPath
           ? (isAbsolutePath(normalizedEntryPath)
             ? normalizedEntryPath
-            : normalizePath(`${dirPath}/${normalizedEntryPath}`))
-          : normalizePath(`${dirPath}/${name}`);
+            : normalizeDirectoryPathKey(`${dirPath}/${normalizedEntryPath}`))
+          : normalizeDirectoryPathKey(`${dirPath}/${name}`);
         const type = entry.isDirectory ? 'directory' : 'file';
         const extension = type === 'file' && name.includes('.') ? name.split('.').pop()?.toLowerCase() : undefined;
         return { name, path, type, extension };
@@ -583,7 +565,7 @@ export const SidebarFilesTree: React.FC = () => {
   }, [showGitignored, showHidden]);
 
   const loadDirectory = React.useCallback(async (dirPath: string, isCancelled?: () => boolean) => {
-    const normalizedDir = normalizePath(dirPath.trim());
+    const normalizedDir = normalizeDirectoryPathKey(dirPath.trim());
     if (!normalizedDir) return;
 
     if (loadedDirsRef.current.has(normalizedDir) || inFlightDirsRef.current.has(normalizedDir)) return;
@@ -647,7 +629,7 @@ export const SidebarFilesTree: React.FC = () => {
       // call time so this callback stays stable when directories are toggled.
       const currentExpanded = useFilesViewTabsStore.getState().byRoot[root]?.expandedPaths ?? [];
       const normalizedExpanded = currentExpanded
-        .map((p) => normalizePath(p))
+        .map((p) => normalizeDirectoryPathKey(p))
         .filter((normalized): normalized is string =>
           Boolean(normalized) && normalized !== root && normalized.startsWith(`${root}/`),
         );
@@ -700,7 +682,7 @@ export const SidebarFilesTree: React.FC = () => {
       await refreshRoot();
       return;
     }
-    const normalized = normalizePath(dirPath);
+    const normalized = normalizeDirectoryPathKey(dirPath);
     loadedDirsRef.current = new Set(loadedDirsRef.current);
     loadedDirsRef.current.delete(normalized);
     inFlightDirsRef.current = new Set(inFlightDirsRef.current);
@@ -726,7 +708,7 @@ export const SidebarFilesTree: React.FC = () => {
 
     // Sort by depth so parent dirs load before children
     const toLoad = expandedPaths
-      .map((p) => normalizePath(p))
+      .map((p) => normalizeDirectoryPathKey(p))
       .filter((normalized): normalized is string =>
         !!normalized &&
         normalized !== root &&
@@ -784,7 +766,7 @@ export const SidebarFilesTree: React.FC = () => {
 
         const mapped: FileNode[] = filtered.map((hit) => ({
           name: hit.name,
-          path: normalizePath(hit.path),
+          path: normalizeDirectoryPathKey(hit.path),
           type: 'file',
           extension: hit.extension,
           relativePath: hit.relativePath,
@@ -885,7 +867,7 @@ export const SidebarFilesTree: React.FC = () => {
   }, [addOpenPath, files, openContextFile, root, setSelectedPath]);
 
   const toggleDirectory = React.useCallback(async (dirPath: string) => {
-    const normalized = normalizePath(dirPath);
+    const normalized = normalizeDirectoryPathKey(dirPath);
     if (!root) return;
 
     toggleExpandedPath(root, normalized);
@@ -918,7 +900,7 @@ export const SidebarFilesTree: React.FC = () => {
 
       const parentPath = dialogData.path;
       const prefix = parentPath ? `${parentPath}/` : '';
-      const newPath = normalizePath(`${prefix}${dialogInputValue.trim()}`);
+      const newPath = normalizeDirectoryPathKey(`${prefix}${dialogInputValue.trim()}`);
 
       await files.writeFile(newPath, '')
         .then(async (result) => {
@@ -942,7 +924,7 @@ export const SidebarFilesTree: React.FC = () => {
 
       const parentPath = dialogData.path;
       const prefix = parentPath ? `${parentPath}/` : '';
-      const newPath = normalizePath(`${prefix}${dialogInputValue.trim()}`);
+      const newPath = normalizeDirectoryPathKey(`${prefix}${dialogInputValue.trim()}`);
 
       await files.createDirectory(newPath)
         .then(async (result) => {
@@ -972,7 +954,7 @@ export const SidebarFilesTree: React.FC = () => {
       const oldPath = dialogData.path;
       const parentDir = oldPath.split('/').slice(0, -1).join('/');
       const prefix = parentDir ? `${parentDir}/` : '';
-      const newPath = normalizePath(`${prefix}${dialogInputValue.trim()}`);
+      const newPath = normalizeDirectoryPathKey(`${prefix}${dialogInputValue.trim()}`);
 
       await files.rename(oldPath, newPath)
         .then(async (result) => {

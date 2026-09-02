@@ -1,7 +1,7 @@
 import React from 'react';
 import { useUIStore } from '@/stores/useUIStore';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
-import { DiagramEditor, type DiagramEditorHandle } from '@/components/diagram';
+import { DiagramEditor, type DiagramEditorHandle } from '@/components/diagram/DiagramEditor';
 import { Icon } from '@/components/icon/Icon';
 
 export function DiagramView() {

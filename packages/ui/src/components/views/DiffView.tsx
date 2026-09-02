@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
 
 import { useUIStore } from '@/stores/useUIStore';
@@ -1133,7 +1131,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
         });
     }, []);
 
-    const lastTurnDiffs = React.useMemo(() => {
+    const lastTurnDiffs = React.useMemo<TurnSnapshotDiff[]>(() => {
         const projection = projectTurnRecords(sessionMessageRecords, {
             showTextJustificationActivity: false,
             showTurnChangedFiles: true,
