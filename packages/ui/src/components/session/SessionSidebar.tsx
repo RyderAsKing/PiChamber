@@ -20,7 +20,6 @@ import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
 import { useGitStore, useGitAllBranches, useGitRepoStatusMap } from '@/stores/useGitStore';
 import { buildAvailableWorktreesByProject, useWorktreeStore } from '@/stores/useWorktreeStore';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useArchivedAutoFolders } from './sidebar/hooks/useArchivedAutoFolders';
@@ -36,8 +35,6 @@ import { useProjectRepoStatus } from './sidebar/hooks/useProjectRepoStatus';
 import { useProjectSessionLists } from './sidebar/hooks/useProjectSessionLists';
 import { useAuthoritativeSessionCleanup } from './sidebar/hooks/useAuthoritativeSessionCleanup';
 import { createSessionOwnershipIndex } from './sidebar/sessionOwnership';
-import { ProjectEditDialog } from '@/components/layout/ProjectEditDialog';
-import { UpdateDialog } from '@/components/ui/UpdateDialog';
 import { SessionGroupSection } from './sidebar/SessionGroupSection';
 import { SidebarHeader } from './sidebar/SidebarHeader';
 import { SidebarNav } from './sidebar/SidebarNav';
@@ -46,19 +43,19 @@ import { SidebarFooter } from './sidebar/SidebarFooter';
 import { isKnownActiveSessionDirectory } from './sidebar/sessionOwnership';
 import { SidebarProjectsList } from './sidebar/SidebarProjectsList';
 import { SessionNodeItem } from './sidebar/SessionNodeItem';
-import { buildSessionBootstrapDemands } from './sidebar/sessionBootstrapDemands';
 import type { SessionNodeRenderExtras } from './sidebar/sessionNodeItemUtils';
 import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useShallow } from 'zustand/react/shallow';
 import type { SortableDragHandleProps } from './sidebar/sortableItems';
-import {
-  BulkSessionDeleteConfirmDialog,
-  FolderDeleteConfirmDialog,
-  SessionDeleteConfirmDialog,
-  type BulkDeleteSessionsConfirmState,
-  type DeleteFolderConfirmState,
-  type DeleteSessionConfirmState,
+import type {
+  BulkDeleteSessionsConfirmState,
+  DeleteFolderConfirmState,
+  DeleteSessionConfirmState,
 } from './sidebar/ConfirmDialogs';
+import { SidebarDialogs } from './sidebar/SidebarDialogs';
+import { ProjectAggregateStatusIndicator } from './sidebar/ProjectAggregateStatusIndicator';
+import { SidebarBootstrapDemandEffect } from './sidebar/SidebarBootstrapDemandEffect';
+import { useSidebarProjectMetadata } from './sidebar/hooks/useSidebarProjectMetadata';
 import { BulkActionBar } from './sidebar/BulkActionBar';
 import { useSidebarBulkActions } from './sidebar/hooks/useSidebarBulkActions';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
@@ -118,94 +115,6 @@ interface SessionSidebarProps {
   hideDirectoryControls?: boolean;
   showOnlyMainWorkspace?: boolean;
 }
-
-const SidebarBootstrapDemandEffect: React.FC<{
-  owner: string;
-  childStores: ReturnType<typeof useChildStoreManager>;
-  projectSections: Parameters<typeof buildSessionBootstrapDemands>[0]['projectSections'];
-  activeProjectId: string | null;
-  collapsedProjects: ReadonlySet<string>;
-  collapsedGroups: ReadonlySet<string>;
-  currentDirectory: string | null;
-}> = ({
-  owner,
-  childStores,
-  projectSections,
-  activeProjectId,
-  collapsedProjects,
-  collapsedGroups,
-  currentDirectory,
-}) => {
-  const currentSessionDirectory = useSessionUIStore((state) => state.currentSessionDirectory);
-
-  React.useEffect(() => {
-    childStores.setBootstrapDemand(owner, buildSessionBootstrapDemands({
-      projectSections,
-      activeProjectId,
-      collapsedProjects,
-      collapsedGroups,
-      currentDirectory,
-      currentSessionDirectory,
-    }));
-  }, [
-    activeProjectId,
-    childStores,
-    collapsedGroups,
-    collapsedProjects,
-    currentDirectory,
-    currentSessionDirectory,
-    owner,
-    projectSections,
-  ]);
-
-  React.useEffect(
-    () => () => childStores.clearBootstrapDemand(owner),
-    [childStores, owner],
-  );
-
-  return null;
-};
-
-// Aggregated activity/attention dot for a collapsed project header. Only
-// mounted while the project is collapsed, so the per-status-event scans stay
-// rare and bounded by the project's directory count.
-const ProjectAggregateStatusIndicator: React.FC<{ directories: Array<string | null> }> = ({ directories }) => {
-  const directorySet = React.useMemo(() => {
-    const set = new Set<string>();
-    directories.forEach((directory) => {
-      const normalized = normalizePath(directory)?.toLowerCase();
-      if (normalized) set.add(normalized);
-    });
-    return set;
-  }, [directories]);
-  const hasBusySession = usePiSessionSnapshot((state) => {
-    for (const record of state.catalog.byId.values()) {
-      if (record.lifecycle !== 'busy' && record.lifecycle !== 'retry') continue;
-      const directory = normalizePath(record.directory)?.toLowerCase();
-      if (directory && directorySet.has(directory)) return true;
-    }
-    return false;
-  }, undefined, 'catalog');
-
-  if (hasBusySession) {
-    return (
-      <span
-        className="inline-flex items-center"
-        aria-label={"Session active"}
-        title={"Session active"}
-      >
-        <AgentThinkingLoader
-          variant="inline"
-          text={null}
-          animationType="spinner"
-          speedMs={80}
-          className="text-primary text-xs shrink-0"
-        />
-      </span>
-    );
-  }
-  return null;
-};
 
 const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   isVisible = true,
@@ -1015,140 +924,25 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     hasInitializedArchivedCollapseRef.current = true;
   }, [projectSections]);
 
-  const sessionSidebarMetaById = React.useMemo(() => {
-    const meta = new Map<string, {
-      node: SessionNode;
-      projectId: string | null;
-      groupDirectory: string | null;
-      secondaryMeta: {
-        projectLabel?: string | null;
-        branchLabel?: string | null;
-      } | null;
-    }>();
-    const projectPathLengthBySessionId = new Map<string, number>();
-
-    projectSections.forEach((section) => {
-      const projectLabel = formatProjectLabel(
-        section.project.label?.trim()
-        || formatDirectoryName(section.project.normalizedPath, homeDirectory)
-        || section.project.normalizedPath,
-      );
-      section.groups.forEach((group) => {
-        const branchCandidate = group.branch && group.branch !== 'HEAD' && group.branch !== projectLabel
-          ? group.branch
-          : null;
-        const secondaryMeta = { projectLabel, branchLabel: branchCandidate };
-
-        const visit = (nodes: SessionNode[]) => {
-          nodes.forEach((node) => {
-            const nextProjectPathLength = section.project.normalizedPath.length;
-            const currentProjectPathLength = projectPathLengthBySessionId.get(node.session.id) ?? -1;
-            if (nextProjectPathLength < currentProjectPathLength) {
-              return;
-            }
-
-            meta.set(node.session.id, {
-              node,
-              projectId: section.project.id,
-              groupDirectory: group.directory,
-              secondaryMeta,
-            });
-            projectPathLengthBySessionId.set(node.session.id, nextProjectPathLength);
-            if (node.children.length > 0) {
-              visit(node.children);
-            }
-          });
-        };
-
-        visit(group.sessions);
-      });
-    });
-
-    return meta;
-  }, [projectSections, homeDirectory]);
-
-  const sectionsForSidebarRender = React.useMemo(() => {
-    return flatSectionsForRender.map((section) => (
-        section.groups.some((group) => group.isArchivedBucket)
-          ? { ...section, groups: section.groups.filter((group) => !group.isArchivedBucket) }
-          : section
-      ));
-  }, [flatSectionsForRender]);
-
-  const filteredSectionsForSidebarRender = React.useMemo(() => {
-    if (!selectedSpaceId) return sectionsForSidebarRender;
-    const section = sectionsForRender.find((candidate) => candidate.project.id === selectedSpaceId);
-    if (!section) return [];
-    const targetDirectory = normalizePath(selectedWorktreePath ?? section.project.normalizedPath);
-    const selectedGroup = section.groups.find((group) => (
-      !group.isArchivedBucket && normalizePath(group.directory) === targetDirectory
-    ));
-    return selectedGroup ? [{ ...section, groups: [selectedGroup] }] : [];
-  }, [sectionsForRender, sectionsForSidebarRender, selectedSpaceId, selectedWorktreePath]);
-
-  const totalSessionCount = React.useMemo(() => {
-    let count = 0;
-    for (const section of projectSections) {
-      for (const group of section.groups) {
-        if (!group.isArchivedBucket) {
-          count += group.sessions.length;
-        }
-      }
-    }
-    return count;
-  }, [projectSections]);
-
-  const sessionCountByProject = React.useMemo(() => {
-    const map = new Map<string, number>();
-    for (const section of projectSections) {
-      let count = 0;
-      for (const group of section.groups) {
-        if (!group.isArchivedBucket) {
-          count += group.sessions.length;
-        }
-      }
-      map.set(section.project.id, count);
-    }
-    return map;
-  }, [projectSections]);
-
-  const hasActiveSessionByProject = React.useCallback((projectId: string) => {
-    const section = projectSections.find((s) => s.project.id === projectId);
-    if (!section) return false;
-    return section.groups.some((group) => {
-      if (group.isArchivedBucket) return false;
-      return group.sessions.some((node) => activeSessionIdSet.has(node.session.id));
-    });
-  }, [activeSessionIdSet, projectSections]);
-
-  // Per-directory active set: for each project, which group directories (root + worktrees)
-  // currently contain at least one busy session. This lets SidebarSpacesBar show the spinner
-  // on the primary worktree when expanded, or aggregated on the project row when collapsed.
-  const activeDirectoriesByProject = React.useMemo(() => {
-    const map = new Map<string, Set<string>>();
-    for (const section of projectSections) {
-      const dirs = new Set<string>();
-      for (const group of section.groups) {
-        if (group.isArchivedBucket) continue;
-        const hasActive = group.sessions.some((node) => activeSessionIdSet.has(node.session.id));
-        if (hasActive && group.directory) {
-          const normalized = normalizePath(group.directory)?.toLowerCase();
-          if (normalized) dirs.add(normalized);
-        }
-      }
-      if (dirs.size > 0) map.set(section.project.id, dirs);
-    }
-    return map as ReadonlyMap<string, ReadonlySet<string>>;
-  }, [activeSessionIdSet, projectSections]);
-
-  const hasUnseenByProject = React.useCallback((projectId: string) => {
-    const section = projectSections.find((s) => s.project.id === projectId);
-    if (!section) return false;
-    return section.groups.some((group) => {
-      if (group.isArchivedBucket) return false;
-      return group.sessions.some((node) => unreadSessionIdSet.has(node.session.id));
-    });
-  }, [projectSections, unreadSessionIdSet]);
+  const {
+    sessionSidebarMetaById,
+    sectionsForSidebarRender,
+    filteredSectionsForSidebarRender,
+    totalSessionCount,
+    sessionCountByProject,
+    hasActiveSessionByProject,
+    activeDirectoriesByProject,
+    hasUnseenByProject,
+  } = useSidebarProjectMetadata({
+    projectSections,
+    flatSectionsForRender,
+    sectionsForRender,
+    selectedSpaceId,
+    selectedWorktreePath,
+    homeDirectory,
+    activeSessionIdSet,
+    unreadSessionIdSet,
+  });
 
   // Discover/refresh PR status for expanded projects' worktree branches so
   // session rows can tint their branch marker and show PR state in tooltips.
@@ -1582,52 +1376,24 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       />
       ) : null}
 
-      <UpdateDialog
-        open={updateDialogOpen}
-        onOpenChange={setUpdateDialogOpen}
-        info={updateStore.info}
-        downloading={updateStore.downloading}
-        downloaded={updateStore.downloaded}
-        progress={updateStore.progress}
-        error={updateStore.error}
-        onDownload={updateStore.downloadUpdate}
-        onRestart={updateStore.restartToUpdate}
-        runtimeType={updateStore.runtimeType}
-      />
-
-      <ProjectEditDialog
-        open={Boolean(editingProject)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setEditingProjectDialogId(null);
-          }
-        }}
-        project={editingProject}
-        onSave={handleSaveProjectEdit}
-      />
-
-
-
-      <SessionDeleteConfirmDialog
-        value={deleteSessionConfirm}
-        setValue={setDeleteSessionConfirm}
+      <SidebarDialogs
+        updateDialogOpen={updateDialogOpen}
+        setUpdateDialogOpen={setUpdateDialogOpen}
+        updateStore={updateStore}
+        editingProject={editingProject}
+        setEditingProjectDialogId={setEditingProjectDialogId}
+        handleSaveProjectEdit={handleSaveProjectEdit}
+        deleteSessionConfirm={deleteSessionConfirm}
+        setDeleteSessionConfirm={setDeleteSessionConfirm}
         showDeletionDialog={showDeletionDialog}
         setShowDeletionDialog={setShowDeletionDialog}
-        onConfirm={confirmDeleteSession}
-      />
-
-      <FolderDeleteConfirmDialog
-        value={deleteFolderConfirm}
-        setValue={setDeleteFolderConfirm}
-        onConfirm={confirmDeleteFolder}
-      />
-
-      <BulkSessionDeleteConfirmDialog
-        value={bulkDeleteConfirm}
-        setValue={setBulkDeleteConfirm}
-        showDeletionDialog={showDeletionDialog}
-        setShowDeletionDialog={setShowDeletionDialog}
-        onConfirm={confirmBulkDelete}
+        confirmDeleteSession={confirmDeleteSession}
+        deleteFolderConfirm={deleteFolderConfirm}
+        setDeleteFolderConfirm={setDeleteFolderConfirm}
+        confirmDeleteFolder={confirmDeleteFolder}
+        bulkDeleteConfirm={bulkDeleteConfirm}
+        setBulkDeleteConfirm={setBulkDeleteConfirm}
+        confirmBulkDelete={confirmBulkDelete}
       />
     </div>
     </TooltipProvider>
