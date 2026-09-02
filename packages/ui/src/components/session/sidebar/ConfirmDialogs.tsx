@@ -13,6 +13,45 @@ export type DeleteSessionConfirmState = {
   archivedBucket: boolean;
 } | null;
 
+function SessionMutationDialogFooter(props: {
+  showDeletionDialog: boolean;
+  setShowDeletionDialog: (next: boolean) => void;
+  onCancel: () => void;
+  onConfirm: () => Promise<void> | void;
+  confirmLabel: 'Archive' | 'Delete';
+}): React.ReactNode {
+  const { showDeletionDialog, setShowDeletionDialog, onCancel, onConfirm, confirmLabel } = props;
+  return (
+    <DialogFooter className="w-full sm:items-center sm:justify-between">
+      <button
+        type="button"
+        onClick={() => setShowDeletionDialog(!showDeletionDialog)}
+        className="inline-flex items-center gap-1.5 typography-ui-label text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
+        aria-pressed={!showDeletionDialog}
+      >
+        {!showDeletionDialog ? <Icon name="checkbox" className="h-4 w-4 text-primary" /> : <Icon name="checkbox-blank" className="h-4 w-4" />}
+        {"Never ask"}
+      </button>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="inline-flex h-8 items-center justify-center rounded-md border border-border px-3 typography-ui-label text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+        >
+          {"Cancel"}
+        </button>
+        <button
+          type="button"
+          onClick={() => void onConfirm()}
+          className="inline-flex h-8 items-center justify-center rounded-md bg-destructive px-3 typography-ui-label text-destructive-foreground hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
+        >
+          {confirmLabel}
+        </button>
+      </div>
+    </DialogFooter>
+  );
+}
+
 export function SessionDeleteConfirmDialog(props: {
   value: DeleteSessionConfirmState;
   setValue: (next: DeleteSessionConfirmState) => void;
@@ -45,33 +84,13 @@ export function SessionDeleteConfirmDialog(props: {
                 : `\\"${value?.session.title || untitledSession}\\" will be archived.`}
           </DialogDescription>
         </DialogHeader>
-        <DialogFooter className="w-full sm:items-center sm:justify-between">
-          <button
-            type="button"
-            onClick={() => setShowDeletionDialog(!showDeletionDialog)}
-            className="inline-flex items-center gap-1.5 typography-ui-label text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
-            aria-pressed={!showDeletionDialog}
-          >
-            {!showDeletionDialog ? <Icon name="checkbox" className="h-4 w-4 text-primary" /> : <Icon name="checkbox-blank" className="h-4 w-4" />}
-            {"Never ask"}
-          </button>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setValue(null)}
-              className="inline-flex h-8 items-center justify-center rounded-md border border-border px-3 typography-ui-label text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-            >
-              {"Cancel"}
-            </button>
-            <button
-              type="button"
-              onClick={() => void onConfirm()}
-              className="inline-flex h-8 items-center justify-center rounded-md bg-destructive px-3 typography-ui-label text-destructive-foreground hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
-            >
-              {value?.archivedBucket ? "Delete" : "Archive"}
-            </button>
-          </div>
-        </DialogFooter>
+        <SessionMutationDialogFooter
+          showDeletionDialog={showDeletionDialog}
+          setShowDeletionDialog={setShowDeletionDialog}
+          onCancel={() => setValue(null)}
+          onConfirm={onConfirm}
+          confirmLabel={value?.archivedBucket ? 'Delete' : 'Archive'}
+        />
       </DialogContent>
     </Dialog>
   );
@@ -115,33 +134,13 @@ export function BulkSessionDeleteConfirmDialog(props: {
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <DialogFooter className="w-full sm:items-center sm:justify-between">
-          <button
-            type="button"
-            onClick={() => setShowDeletionDialog(!showDeletionDialog)}
-            className="inline-flex items-center gap-1.5 typography-ui-label text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
-            aria-pressed={!showDeletionDialog}
-          >
-            {!showDeletionDialog ? <Icon name="checkbox" className="h-4 w-4 text-primary" /> : <Icon name="checkbox-blank" className="h-4 w-4" />}
-            {"Never ask"}
-          </button>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setValue(null)}
-              className="inline-flex h-8 items-center justify-center rounded-md border border-border px-3 typography-ui-label text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-            >
-              {"Cancel"}
-            </button>
-            <button
-              type="button"
-              onClick={() => void onConfirm()}
-              className="inline-flex h-8 items-center justify-center rounded-md bg-destructive px-3 typography-ui-label text-destructive-foreground hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
-            >
-              {archived ? "Delete" : "Archive"}
-            </button>
-          </div>
-        </DialogFooter>
+        <SessionMutationDialogFooter
+          showDeletionDialog={showDeletionDialog}
+          setShowDeletionDialog={setShowDeletionDialog}
+          onCancel={() => setValue(null)}
+          onConfirm={onConfirm}
+          confirmLabel={archived ? 'Delete' : 'Archive'}
+        />
       </DialogContent>
     </Dialog>
   );
