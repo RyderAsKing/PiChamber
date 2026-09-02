@@ -50,7 +50,6 @@ import { buildSessionBootstrapDemands } from './sidebar/sessionBootstrapDemands'
 import type { SessionNodeRenderExtras } from './sidebar/sessionNodeItemUtils';
 import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useShallow } from 'zustand/react/shallow';
-import { checkIsGitRepository } from '@/lib/gitApi';
 import type { SortableDragHandleProps } from './sidebar/sortableItems';
 import {
   BulkSessionDeleteConfirmDialog,

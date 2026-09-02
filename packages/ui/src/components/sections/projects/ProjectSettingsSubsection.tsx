@@ -1,8 +1,6 @@
 import React from 'react';
 import { SettingsSection } from '@/components/sections/shared/SettingsSection';
 
-export { PROJECT_SETTINGS_CONTROL_WIDTH } from './projectSettingsConstants';
-
 type ProjectSettingsSubsectionProps = {
   title: string;
   description?: string;

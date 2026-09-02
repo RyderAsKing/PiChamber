@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import type { SettingsPageSlug, SettingsRuntimeContext } from './metadata';
 import { getSettingsPageMeta } from './metadata';
 
@@ -12,7 +10,7 @@ interface SettingsSearchItem {
   isAvailable?: (ctx: SettingsSearchAvailabilityContext) => boolean;
 }
 
-export interface SettingsSearchResult extends SettingsSearchItem {
+export interface SettingsSearchResult extends Omit<SettingsSearchItem, 'description'> {
   title: string;
   description: string | null;
   pageTitle: string;

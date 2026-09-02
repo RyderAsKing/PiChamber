@@ -20,10 +20,8 @@ import {
   PROJECT_ACTION_ICONS,
   PROJECT_ACTIONS_UPDATED_EVENT,
 } from '@/lib/projectActions';
-import {
-  PROJECT_SETTINGS_CONTROL_WIDTH,
-  ProjectSettingsSubsection,
-} from '@/components/sections/projects/ProjectSettingsSubsection';
+import { ProjectSettingsSubsection } from '@/components/sections/projects/ProjectSettingsSubsection';
+import { SETTINGS_CONTROL_CLUSTER_CLASS } from '@/components/sections/shared/SettingsSection';
 import {
   SETTINGS_FIELDS_STACK_CLASS,
   SETTINGS_GROUP_TITLE_CLASS,
@@ -185,7 +183,7 @@ export const ProjectActionsSection: React.FC<ProjectActionsSectionProps> = ({ pr
       ) : actions.length === 0 ? (
         <p className="typography-meta text-muted-foreground">{"No actions configured yet."}</p>
       ) : (
-        <div className={cn('space-y-6', PROJECT_SETTINGS_CONTROL_WIDTH)}>
+        <div className={cn('space-y-6', SETTINGS_CONTROL_CLUSTER_CLASS)}>
           {actions.map((action, index) => {
             const selectedIconKey = (action.icon as keyof typeof PROJECT_ACTION_ICON_MAP) || 'play';
             const selectedIconName = PROJECT_ACTION_ICON_MAP[selectedIconKey] || 'play';
