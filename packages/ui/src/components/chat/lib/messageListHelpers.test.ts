@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
+const it = test;
 import type { Part } from '@/lib/chat/types';
 import type { ChatMessageEntry, TurnRecord } from './turns/types';
 import {
@@ -170,7 +171,7 @@ describe('messageListHelpers', () => {
   });
 
   describe('turnContainsMessageId', () => {
-    const turn: TurnRecord = {
+    const turn = {
       turnId: 't-1',
       userMessage: makeMessage('u-1', 'user'),
       assistantMessages: [makeMessage('a-1', 'assistant'), makeMessage('a-2', 'assistant')],
@@ -178,7 +179,7 @@ describe('messageListHelpers', () => {
       activitySegments: [],
       hasTools: false,
       hasReasoning: false,
-    };
+    } as unknown as TurnRecord;
 
     it('detects message in user or assistant', () => {
       expect(turnContainsMessageId(turn, 'u-1')).toBe(true);
