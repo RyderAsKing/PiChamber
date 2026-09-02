@@ -28,10 +28,8 @@ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
-import { useFileSearchStore } from '@/stores/useFileSearchStore';
 import { useFilesViewTabsStore } from '@/stores/useFilesViewTabsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useGitStatus } from '@/stores/useGitStore';
@@ -46,11 +44,11 @@ import { getContextFileOpenFailureMessage, validateContextFileOpen } from '@/lib
 import { isBrowserClientRuntime } from '@/lib/desktop';
 import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
 import { useFileOperations } from '@/components/views/files/useFileOperations';
+import { useFilesViewSearch } from '@/components/views/files/useFilesViewSearch';
 import {
   getDisplayPath,
   isAbsolutePath,
   shouldIgnoreEntryName,
-  shouldIgnorePath,
   sortNodes,
   type FileNode,
 } from '@/components/views/files/filesViewModel';
@@ -382,15 +380,18 @@ export const SidebarFilesTree: React.FC = () => {
   const root = normalizeDirectoryPathKey(currentDirectory.trim());
   const showHidden = useDirectoryShowHidden();
   const showGitignored = useFilesViewShowGitignored();
-  const searchFiles = useFileSearchStore((state) => state.searchFiles);
   const openContextFile = useUIStore((state) => state.openContextFile);
   const gitStatus = useGitStatus(currentDirectory);
 
   const [searchQuery, setSearchQuery] = React.useState('');
-  const debouncedSearchQuery = useDebouncedValue(searchQuery, 200);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
-  const [searchResults, setSearchResults] = React.useState<FileNode[]>([]);
-  const [searching, setSearching] = React.useState(false);
+  const { results: searchResults, searching } = useFilesViewSearch({
+    directory: currentDirectory,
+    query: searchQuery,
+    chrome: 'desktop',
+    showHidden,
+    showGitignored,
+  });
 
   const [childrenByDir, setChildrenByDir] = React.useState<Record<string, FileNode[]>>({});
   const [loadErrorsByDir, setLoadErrorsByDir] = React.useState<Record<string, string>>({});
@@ -706,61 +707,6 @@ export const SidebarFilesTree: React.FC = () => {
     })();
     return () => { cancelled = true; };
   }, [expandedPaths, loadDirectory, root]);
-
-  // --- Fuzzy search scoring (matching FilesView) ---
-
-  React.useEffect(() => {
-    if (!currentDirectory) {
-      setSearchResults([]);
-      setSearching(false);
-      return;
-    }
-
-    const trimmedQuery = debouncedSearchQuery.trim();
-    if (!trimmedQuery) {
-      setSearchResults([]);
-      setSearching(false);
-      return;
-    }
-
-    let cancelled = false;
-    setSearching(true);
-
-    searchFiles(currentDirectory, trimmedQuery, 150, {
-      includeHidden: showHidden,
-      respectGitignore: !showGitignored,
-      type: 'file',
-    })
-      .then((hits) => {
-        if (cancelled) return;
-
-        const filtered = hits.filter((hit) => showGitignored || !shouldIgnorePath(hit.path));
-
-        const mapped: FileNode[] = filtered.map((hit) => ({
-          name: hit.name,
-          path: normalizeDirectoryPathKey(hit.path),
-          type: 'file',
-          extension: hit.extension,
-          relativePath: hit.relativePath,
-        }));
-
-        setSearchResults(mapped);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setSearchResults([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setSearching(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [currentDirectory, debouncedSearchQuery, searchFiles, showHidden, showGitignored]);
 
   // --- Git status helpers (matching FilesView) ---
   //
