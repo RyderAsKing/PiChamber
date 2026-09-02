@@ -78,6 +78,7 @@ import { FileViewerContent } from './files/FileViewerContent';
 import { useFileOperations } from './files/useFileOperations';
 import { loadFileDocument } from './files/loadFileDocument';
 import { useDirtyFileNavigation, type DirtyFileNavigationIntent } from './files/useDirtyFileNavigation';
+import { useFileEditorNavigation } from './files/useFileEditorNavigation';
 import { useFileEditorSave } from './files/useFileEditorSave';
 import { useFileStatReconciliation } from './files/useFileStatReconciliation';
 import { useFileViewerModes } from './files/useFileViewerModes';
@@ -284,20 +285,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   const autoSaveEnabled = useUIStore((state) => state.autoSaveEnabled);
   const setAutoSaveEnabled = useUIStore((state) => state.setAutoSaveEnabled);
 
-  const editorViewRef = React.useRef<EditorView | null>(null);
   const editorWrapperRef = React.useRef<HTMLDivElement | null>(null);
-  const [editorViewReadyNonce, setEditorViewReadyNonce] = React.useState(0);
-  const pendingNavigationRafRef = React.useRef<number | null>(null);
-  const pendingNavigationCycleRef = React.useRef<{ key: string; attempts: number }>({ key: '', attempts: 0 });
-
-  React.useEffect(() => {
-    return () => {
-      if (pendingNavigationRafRef.current !== null && typeof window !== 'undefined') {
-        window.cancelAnimationFrame(pendingNavigationRafRef.current);
-        pendingNavigationRafRef.current = null;
-      }
-    };
-  }, []);
 
   const [contextMenuPath, setContextMenuPath] = React.useState<string | null>(null);
   const [rightClickMenuPath, setRightClickMenuPath] = React.useState<string | null>(null);
@@ -375,10 +363,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   }, [root, selectedFile?.path]);
 
   // File navigation/editor state
-  const pendingFileNavigation = useUIStore((state) => state.pendingFileNavigation);
-  const setPendingFileNavigation = useUIStore((state) => state.setPendingFileNavigation);
-  const pendingFileFocusPath = useUIStore((state) => state.pendingFileFocusPath);
-  const setPendingFileFocusPath = useUIStore((state) => state.setPendingFileFocusPath);
   const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
   const fileEditorKeymap = useUIStore((state) => state.fileEditorKeymap);
   const settingsDefaultFileViewerPreview = useConfigStore((state) => state.settingsDefaultFileViewerPreview);
@@ -763,6 +747,10 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     }
   }, [clearDiagramContent, ensurePathVisible, isMobile, requestNavigation, root, setSelectedPath]);
 
+  const handleSelectFilePath = React.useCallback((path: string) => {
+    void handleSelectFile(toFileNode(path));
+  }, [handleSelectFile, toFileNode]);
+
   const handleMobileOpenDirectory = React.useCallback((directory: string) => {
     const normalized = normalizePath(directory);
     if (!normalized) return;
@@ -975,21 +963,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     && (isBinaryFile(selectedFile.path) || contentDetectedBinary)
   );
   const isUnsupportedBinary = isSelectedBinary && !isSelectedImage && !isSelectedPdf;
-  const pendingNavigationTargetPath = React.useMemo(
-    () => normalizePath(pendingFileNavigation?.path ?? ''),
-    [pendingFileNavigation?.path],
-  );
-  const shouldMaskEditorForPendingNavigation = Boolean(
-    pendingFileNavigation
-      && pendingNavigationTargetPath
-      && selectedFilePath
-      && selectedFilePath === pendingNavigationTargetPath
-      && !fileLoading
-      && !fileError
-      && !isSelectedImage
-      && !isSelectedPdf
-      && !isUnsupportedBinary,
-  );
 
   const displaySelectedPath = React.useMemo(() => {
     return getDisplayPath(root, selectedFilePath);
@@ -1005,6 +978,26 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   const isHtml = Boolean(selectedFile?.path && isHtmlFile(selectedFile.path));
   const isDrawio = Boolean(selectedFile?.path && isDrawioFile(selectedFile.path));
   const isTextFile = Boolean(selectedFile && !isSelectedBinary && !isSelectedImage);
+  const {
+    editorViewRef,
+    notifyEditorViewChanged,
+    shouldMaskEditor: shouldMaskEditorForPendingNavigation,
+  } = useFileEditorNavigation({
+    root,
+    selectedPath: selectedFilePath || null,
+    loadedPath: loadedFilePath,
+    fileLoading,
+    fileError,
+    isImage: isSelectedImage,
+    isPdf: isSelectedPdf,
+    isUnsupportedBinary,
+    canEdit,
+    textViewMode,
+    setTextViewMode,
+    draftContent,
+    confirmDiscardOpen,
+    selectFilePath: handleSelectFilePath,
+  });
   const canUseShikiFileView = isTextFile && !isMarkdown && !isDrawio && !(isHtml && htmlViewMode === 'preview');
   const isEditingFile = (isMarkdown && mdViewMode === 'edit')
     || (isHtml && htmlViewMode === 'edit')
@@ -1042,200 +1035,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
       setTextViewMode('view');
     }
   }, [canEdit, setTextViewMode, textViewMode]);
-
-  React.useEffect(() => {
-    if (!pendingFileNavigation || !root) {
-      return;
-    }
-
-    const scheduleNavigationRetry = () => {
-      if (typeof window === 'undefined') {
-        return;
-      }
-      if (pendingNavigationRafRef.current !== null) {
-        return;
-      }
-
-      pendingNavigationRafRef.current = window.requestAnimationFrame(() => {
-        pendingNavigationRafRef.current = null;
-        setEditorViewReadyNonce((value) => value + 1);
-      });
-    };
-
-    const isEditorSyncedWithDraft = (view: EditorView, expectedContent: string): boolean => {
-      if (view.state.doc.length !== expectedContent.length) {
-        return false;
-      }
-
-      if (expectedContent.length === 0) {
-        return true;
-      }
-
-      const sampleSize = Math.min(128, expectedContent.length);
-      const startSample = view.state.sliceDoc(0, sampleSize);
-      if (startSample !== expectedContent.slice(0, sampleSize)) {
-        return false;
-      }
-
-      const endFrom = Math.max(0, expectedContent.length - sampleSize);
-      const endSample = view.state.sliceDoc(endFrom, expectedContent.length);
-      return endSample === expectedContent.slice(endFrom);
-    };
-
-    const targetPath = normalizePath(pendingFileNavigation.path);
-    if (!targetPath) {
-      setPendingFileNavigation(null);
-      pendingNavigationCycleRef.current = { key: '', attempts: 0 };
-      return;
-    }
-
-    const navigationKey = `${targetPath}:${pendingFileNavigation.line}:${pendingFileNavigation.column ?? 1}`;
-    if (pendingNavigationCycleRef.current.key !== navigationKey) {
-      pendingNavigationCycleRef.current = { key: navigationKey, attempts: 0 };
-    }
-
-    if (selectedFile?.path !== targetPath) {
-      if (confirmDiscardOpen) {
-        return;
-      }
-      void handleSelectFile(toFileNode(targetPath));
-      return;
-    }
-
-    if (fileLoading || loadedFilePath !== targetPath) {
-      return;
-    }
-
-    if (fileError || isSelectedImage || isSelectedPdf || isUnsupportedBinary) {
-      setPendingFileNavigation(null);
-      pendingNavigationCycleRef.current = { key: '', attempts: 0 };
-      return;
-    }
-
-    if (!canEdit) {
-      return;
-    }
-
-    if (textViewMode !== 'edit') {
-      setTextViewMode('edit');
-      return;
-    }
-
-    const view = editorViewRef.current;
-    if (!view) {
-      scheduleNavigationRetry();
-      return;
-    }
-
-    if (!isEditorSyncedWithDraft(view, draftContent)) {
-      scheduleNavigationRetry();
-      return;
-    }
-
-    const targetLineNumber = Math.max(1, Math.min(pendingFileNavigation.line, view.state.doc.lines));
-    const targetLine = view.state.doc.line(targetLineNumber);
-    const targetColumn = Math.max(1, pendingFileNavigation.column || 1);
-    const lineLength = Math.max(0, targetLine.to - targetLine.from);
-    const clampedColumnOffset = Math.min(lineLength, targetColumn - 1);
-    const targetPosition = targetLine.from + clampedColumnOffset;
-    const isAtTarget = view.state.selection.main.head === targetPosition;
-    const shouldDispatch = !isAtTarget || pendingNavigationCycleRef.current.attempts === 0;
-
-    if (shouldDispatch) {
-      pendingNavigationCycleRef.current.attempts += 1;
-      view.dispatch({
-        selection: { anchor: targetPosition },
-        effects: EditorView.scrollIntoView(targetPosition, { y: 'center' }),
-      });
-      view.focus();
-      scheduleNavigationRetry();
-      return;
-    }
-
-    if (typeof window !== 'undefined') {
-      window.requestAnimationFrame(() => {
-        const syncedView = editorViewRef.current;
-        if (!syncedView) {
-          return;
-        }
-
-        syncedView.dispatch({
-          selection: { anchor: targetPosition },
-          effects: EditorView.scrollIntoView(targetPosition, { y: 'center' }),
-        });
-        syncedView.focus();
-      });
-    }
-
-    setPendingFileNavigation(null);
-    pendingNavigationCycleRef.current = { key: '', attempts: 0 };
-  }, [
-    canEdit,
-    confirmDiscardOpen,
-    draftContent,
-    editorViewReadyNonce,
-    fileError,
-    fileLoading,
-    isSelectedImage,
-    isSelectedPdf,
-    isUnsupportedBinary,
-    loadedFilePath,
-    handleSelectFile,
-    pendingFileNavigation,
-    root,
-    selectedFile?.path,
-    setPendingFileNavigation,
-    setTextViewMode,
-    textViewMode,
-    toFileNode,
-  ]);
-
-  React.useEffect(() => {
-    if (!pendingFileFocusPath || !root) {
-      return;
-    }
-
-    const targetPath = normalizePath(pendingFileFocusPath);
-    if (!targetPath) {
-      setPendingFileFocusPath(null);
-      return;
-    }
-
-    if (selectedFile?.path !== targetPath) {
-      // Selection is owned by the tab sync / user. A pending focus request must
-      // not steal selection back (e.g. after the user switched to another tab
-      // while this file was still loading). Wait; clear once it loads or the
-      // request is superseded.
-      return;
-    }
-
-    if (fileLoading || loadedFilePath !== targetPath) {
-      return;
-    }
-
-    // Best-effort focus: preview renderers (markdown/html preview, drawio,
-    // JSON tree, images, PDFs) never mount a CodeMirror editor, so the request
-    // must clear regardless — otherwise it lingers and replays on every
-    // dependency change.
-    if (!fileError && !isSelectedImage && !isSelectedPdf && !isUnsupportedBinary && canEdit && textViewMode === 'edit') {
-      editorViewRef.current?.focus();
-    }
-
-    setPendingFileFocusPath(null);
-  }, [
-    canEdit,
-    fileError,
-    fileLoading,
-    isSelectedImage,
-    isSelectedPdf,
-    isUnsupportedBinary,
-    loadedFilePath,
-    pendingFileFocusPath,
-    root,
-    selectedFile?.path,
-    setPendingFileFocusPath,
-    textViewMode,
-  ]);
 
   const nudgeEditorSelectionAboveKeyboard = React.useCallback((view: EditorView | null) => {
     if (!isMobile || !view || !view.hasFocus || typeof window === 'undefined') {
@@ -1290,7 +1089,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
       viewport?.removeEventListener('scroll', runNudge);
       document.removeEventListener('selectionchange', runNudge);
     };
-  }, [isMobile, nudgeEditorSelectionAboveKeyboard]);
+  }, [editorViewRef, isMobile, nudgeEditorSelectionAboveKeyboard]);
 
   React.useEffect(() => {
     if (!canEdit || textViewMode !== 'edit' || isMobile) {
@@ -1891,31 +1690,27 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
 
   const handleEmbeddedEditorViewReady = React.useCallback((view: EditorView) => {
     editorViewRef.current = view;
-    setEditorViewReadyNonce((value) => value + 1);
+    notifyEditorViewChanged();
     window.requestAnimationFrame(() => {
       nudgeEditorSelectionAboveKeyboard(view);
     });
-  }, [nudgeEditorSelectionAboveKeyboard]);
+  }, [editorViewRef, notifyEditorViewChanged, nudgeEditorSelectionAboveKeyboard]);
 
   const handleEmbeddedEditorViewDestroy = React.useCallback(() => {
-    if (editorViewRef.current) {
-      editorViewRef.current = null;
-    }
-    setEditorViewReadyNonce((value) => value + 1);
-  }, []);
+    if (editorViewRef.current) editorViewRef.current = null;
+    notifyEditorViewChanged();
+  }, [editorViewRef, notifyEditorViewChanged]);
 
   const handleFullscreenEditorViewReady = React.useCallback((view: EditorView) => {
     editorViewRef.current = view;
     window.requestAnimationFrame(() => {
       nudgeEditorSelectionAboveKeyboard(view);
     });
-  }, [nudgeEditorSelectionAboveKeyboard]);
+  }, [editorViewRef, nudgeEditorSelectionAboveKeyboard]);
 
   const handleFullscreenEditorViewDestroy = React.useCallback(() => {
-    if (editorViewRef.current) {
-      editorViewRef.current = null;
-    }
-  }, []);
+    if (editorViewRef.current) editorViewRef.current = null;
+  }, [editorViewRef]);
 
   const fileViewerContentProps = {
     selectedFile,
