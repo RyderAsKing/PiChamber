@@ -63,187 +63,34 @@ import type { TerminalShellOption } from '@/lib/api/types';
 import { isTerminalShell } from '@/lib/terminalShell';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 
-interface Option<T extends string> {
-    id: T;
-    label: string;
-    description?: string;
-}
-
-const THEME_MODE_OPTIONS: Array<{ value: ThemeMode; label: string; description: string }> = [
-    {
-        value: 'system',
-        label: "System",
-        description: "Follow system setting",
-    },
-    {
-        value: 'light',
-        label: "Light",
-        description: "Always use light appearance",
-    },
-    {
-        value: 'dark',
-        label: "Dark",
-        description: "Always use dark appearance",
-    },
-];
-
-const DIFF_LAYOUT_OPTIONS: Option<'dynamic' | 'inline' | 'side-by-side'>[] = [
-    {
-        id: 'dynamic',
-        label: "Dynamic",
-        description: "New inline, modified side-by-side.",
-    },
-    {
-        id: 'inline',
-        label: "Always inline",
-        description: "Show as a single unified view.",
-    },
-    {
-        id: 'side-by-side',
-        label: "Always side-by-side",
-        description: "Compare original and modified files.",
-    },
-];
-
-const MERMAID_RENDERING_OPTIONS: Option<'svg' | 'ascii'>[] = [
-    {
-        id: 'svg',
-        label: "SVG",
-        description: "Render diagrams as scalable graphics.",
-    },
-    {
-        id: 'ascii',
-        label: "ASCII",
-        description: "Render diagrams as text blocks.",
-    },
-];
-
-const DEFAULT_PWA_INSTALL_NAME = 'PiChamber - AI Coding Assistant';
-const PWA_ORIENTATION_OPTIONS: Option<'system' | 'portrait' | 'landscape'>[] = [
-    {
-        id: 'system',
-        label: "Follow system",
-        description: "Respect the device rotation setting.",
-    },
-    {
-        id: 'portrait',
-        label: "Portrait lock",
-        description: "Install the app locked to portrait.",
-    },
-    {
-        id: 'landscape',
-        label: "Landscape lock",
-        description: "Install the app locked to landscape.",
-    },
-];
-
-const MOBILE_KEYBOARD_MODE_OPTIONS: Option<MobileKeyboardMode>[] = [
-    {
-        id: 'native',
-        label: "Follow browser",
-        description: "Use the browser default for panning and viewport changes when the keyboard opens.",
-    },
-    {
-        id: 'resize-content',
-        label: "Resize content",
-        description: "Ask supported browsers to shrink the app layout instead of relying only on panning.",
-    },
-];
-
-const MOBILE_LAYOUT_OPTIONS: Array<{ value: MobileLayoutPreference; label: string }> = [
-    {
-        value: 'default',
-        label: "Old",
-    },
-    {
-        value: 'new',
-        label: "New",
-    },
-];
-
-type PwaInstallNameWindow = Window & {
-    __PICHAMBER_SET_PWA_INSTALL_NAME__?: (value: string) => string;
-    __PICHAMBER_SET_PWA_ORIENTATION__?: (value: 'system' | 'portrait' | 'landscape') => 'system' | 'portrait' | 'landscape';
-    __PICHAMBER_UPDATE_PWA_MANIFEST__?: () => void;
-};
-
-const normalizePwaOrientation = (value: unknown): 'system' | 'portrait' | 'landscape' => {
-    return value === 'portrait' || value === 'landscape' ? value : 'system';
-};
-
-const USER_MESSAGE_RENDERING_OPTIONS: Option<'markdown' | 'plain'>[] = [
-    {
-        id: 'markdown',
-        label: "Markdown",
-        description: "Render user text with markdown formatting.",
-    },
-    {
-        id: 'plain',
-        label: "Plain text",
-        description: "Render user text with preserved whitespace and links.",
-    },
-];
-
-const TIME_FORMAT_OPTIONS: Option<'auto' | '12h' | '24h'>[] = [
-    {
-        id: 'auto',
-        label: "Auto",
-        description: "Use system locale preference.",
-    },
-    {
-        id: '24h',
-        label: "24-hour",
-        description: "Show time as 14:15.",
-    },
-    {
-        id: '12h',
-        label: "12-hour",
-        description: "Show time as 02:15 PM.",
-    },
-];
-
-const WEEK_START_OPTIONS: Option<'auto' | 'monday' | 'sunday'>[] = [
-    {
-        id: 'auto',
-        label: "Auto",
-        description: "Use locale week start.",
-    },
-    {
-        id: 'monday',
-        label: "Monday",
-    },
-    {
-        id: 'sunday',
-        label: "Sunday",
-    },
-];
-
-const FOLLOW_UP_BEHAVIOR_OPTIONS: Option<FollowUpBehavior>[] = [
-    {
-        id: 'steer',
-        label: "Steer",
-    },
-    {
-        id: 'queue',
-        label: "Queue",
-    },
-];
-
-const normalizeUserMessageRenderingMode = (mode: unknown): 'markdown' | 'plain' => {
-    return mode === 'markdown' ? 'markdown' : 'plain';
-};
-
-type VisibleSetting = 'theme' | 'windowControlsPosition' | 'pwaInstallName' | 'pwaOrientation' | 'mobileKeyboardMode' | 'timeFormat' | 'weekStart' | 'fontSize' | 'terminalFontSize' | 'terminalShell' | 'terminalLoginShell' | 'editorFontSize' | 'spacing' | 'inputBarOffset' | 'mermaidRendering' | 'userMessageRendering' | 'collapsibleUserMessages' | 'stickyUserHeader' | 'promptNavigatorEnabled' | 'wideChatLayout' | 'codeBlockLineWrap' | 'splitAssistantMessageActions' | 'diffLayout' | 'mobileStatusBar' | 'dotfiles' | 'fileViewerPreview' | 'reasoning' | 'showToolFileIcons' | 'showTurnChangedFiles' | 'expandedTools' | 'followUpBehavior' | 'terminalQuickKeys' | 'fileEditorKeymap' | 'persistDraft' | 'inputSpellcheck' | 'reportUsage' | 'perfHud' | 'expandedEditorToolbar' | 'autoSaveEnabled';
-
-const WINDOW_CONTROLS_POSITION_OPTIONS: Array<{ id: DesktopWindowControlsPosition; label: string }> = [
-    { id: 'left', label: "Left" },
-    { id: 'right', label: "Right" },
-];
-
-const WINDOW_CONTROLS_STYLE_OPTIONS: Array<{ id: DesktopWindowControlsStyle; label: string }> = [
-    { id: 'classic', label: "Classic" },
-    { id: 'traffic-lights', label: "Traffic lights" },
-];
+import {
+  DEFAULT_PWA_INSTALL_NAME,
+  DIFF_LAYOUT_OPTIONS,
+  FOLLOW_UP_BEHAVIOR_OPTIONS,
+  MERMAID_RENDERING_OPTIONS,
+  MOBILE_KEYBOARD_MODE_OPTIONS,
+  MOBILE_LAYOUT_OPTIONS,
+  PWA_ORIENTATION_OPTIONS,
+  THEME_MODE_OPTIONS,
+  TIME_FORMAT_OPTIONS,
+  USER_MESSAGE_RENDERING_OPTIONS,
+  WEEK_START_OPTIONS,
+  WINDOW_CONTROLS_POSITION_OPTIONS,
+  WINDOW_CONTROLS_STYLE_OPTIONS,
+  normalizePwaOrientation,
+  normalizeUserMessageRenderingMode,
+  type Option,
+  type PwaInstallNameWindow,
+  type VisibleSetting,
+} from './visual/visualSettingsConstants';
+import { ColorModeAndThemeSection } from './visual/ColorModeAndThemeSection';
+import { DesktopWindowControlsSection } from './visual/DesktopWindowControlsSection';
+import { LocalizationSection } from './visual/LocalizationSection';
+import { AppInstallSection } from './visual/AppInstallSection';
+import { DensityAndTypeSection } from './visual/DensityAndTypeSection';
+import { NavigationSection } from './visual/NavigationSection';
+import { ChatBehaviorSection } from './visual/ChatBehaviorSection';
+import { DiagnosticsSection } from './visual/DiagnosticsSection';
 
 interface PiChamberVisualSettingsProps {
     /** Which settings to show. If undefined, shows all. */
@@ -729,971 +576,175 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                 {hasAppearanceSettings && (
                     <>
                         {hasThemeSettings && (
-                            <SettingsSection title={"Color mode & Theme"} divider={false}>
-                                <SettingsTwoColumn>
-                                    <div className={SETTINGS_FIELDS_STACK_CLASS}>
-                                        <SettingsRadioGroup aria-label={"Color Mode"}>
-                                            {THEME_MODE_OPTIONS.map((option) => (
-                                                <SettingsRadioOption
-                                                    key={option.value}
-                                                    selected={themeMode === option.value}
-                                                    onSelect={() => setThemeMode(option.value)}
-                                                    label={option.label}
-                                                    ariaLabel={option.label}
-                                                />
-                                            ))}
-                                        </SettingsRadioGroup>
-
-                                        {showMobileLayoutSetting && (
-                                            <SettingsInset>
-                                                <SettingsStackedField label={"Mobile Layout"}>
-                                                    <SettingsChipGroup
-                                                        value={mobileLayoutPreference}
-                                                        options={MOBILE_LAYOUT_OPTIONS.map((option) => ({
-                                                            value: option.value,
-                                                            label: option.label,
-                                                        }))}
-                                                        onChange={handleMobileLayoutPreferenceChange}
-                                                        aria-label={"Mobile Layout"}
-                                                    />
-                                                </SettingsStackedField>
-                                            </SettingsInset>
-                                        )}
-                                    </div>
-
-                                    <div className={SETTINGS_FIELDS_STACK_CLASS}>
-                                        <SettingsStackedField
-                                            label={"Light Theme"}
-                                            settingsItem="appearance.light-theme"
-                                        >
-                                            <Select value={selectedLightTheme?.metadata.id ?? ''} onValueChange={setLightThemePreference}>
-                                                <SelectTrigger aria-label={"Select light theme"} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
-                                                    <SelectValue placeholder={"Select theme"}>
-                                                        {selectedLightTheme
-                                                            ? formatThemeLabel(selectedLightTheme.metadata.name, 'light')
-                                                            : undefined}
-                                                    </SelectValue>
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {lightThemes.map((theme) => (
-                                                        <SelectItem key={theme.metadata.id} value={theme.metadata.id}>
-                                                            {formatThemeLabel(theme.metadata.name, 'light')}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </SettingsStackedField>
-                                        <SettingsStackedField
-                                            label={"Dark Theme"}
-                                            settingsItem="appearance.dark-theme"
-                                        >
-                                            <Select value={selectedDarkTheme?.metadata.id ?? ''} onValueChange={setDarkThemePreference}>
-                                                <SelectTrigger aria-label={"Select dark theme"} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
-                                                    <SelectValue placeholder={"Select theme"}>
-                                                        {selectedDarkTheme
-                                                            ? formatThemeLabel(selectedDarkTheme.metadata.name, 'dark')
-                                                            : undefined}
-                                                    </SelectValue>
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {darkThemes.map((theme) => (
-                                                        <SelectItem key={theme.metadata.id} value={theme.metadata.id}>
-                                                            {formatThemeLabel(theme.metadata.name, 'dark')}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </SettingsStackedField>
-
-                                        <div className="flex items-center gap-2 pt-1">
-                                            <button
-                                                type="button"
-                                                disabled={customThemesLoading || themesReloading}
-                                                onClick={() => {
-                                                    const startedAt = Date.now();
-                                                    setThemesReloading(true);
-                                                    void reloadCustomThemes().finally(() => {
-                                                        const elapsed = Date.now() - startedAt;
-                                                        if (elapsed < 500) {
-                                                            window.setTimeout(() => {
-                                                                setThemesReloading(false);
-                                                            }, 500 - elapsed);
-                                                            return;
-                                                        }
-                                                        setThemesReloading(false);
-                                                    });
-                                                }}
-                                                className="typography-settings-link inline-flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:no-underline"
-                                            >
-                                                <Icon name="restart" className={cn('h-3.5 w-3.5', themesReloading && 'animate-spin')} />
-                                                {themesReloading ? "Reloading themes..." : "Reload themes"}
-                                            </button>
-                                            <SettingsInfoHint>
-                                                {"Import custom themes from ~/.config/pichamber/themes/"}
-                                            </SettingsInfoHint>
-                                        </div>
-                                    </div>
-                                </SettingsTwoColumn>
-
-                                {dockBadgeSupported && (
-                                    <SettingsInset settingsItem="appearance.dock-badge">
-                                        <SettingsCheckboxRow
-                                            checked={dockBadgeEnabled}
-                                            onChange={setDockBadgeEnabled}
-                                            label={"Dock badge"}
-                                            info={"Show a count of chats with unseen activity on the macOS dock icon."}
-                                            ariaLabel={"Dock badge"}
-                                        />
-                                    </SettingsInset>
-                                )}
-                            </SettingsSection>
+                            <ColorModeAndThemeSection
+                                themeMode={themeMode}
+                                setThemeMode={setThemeMode}
+                                showMobileLayoutSetting={showMobileLayoutSetting}
+                                mobileLayoutPreference={mobileLayoutPreference}
+                                onMobileLayoutPreferenceChange={handleMobileLayoutPreferenceChange}
+                                selectedLightTheme={selectedLightTheme}
+                                setLightThemePreference={setLightThemePreference}
+                                lightThemes={lightThemes}
+                                selectedDarkTheme={selectedDarkTheme}
+                                setDarkThemePreference={setDarkThemePreference}
+                                darkThemes={darkThemes}
+                                formatThemeLabel={formatThemeLabel}
+                                customThemesLoading={customThemesLoading}
+                                themesReloading={themesReloading}
+                                setThemesReloading={setThemesReloading}
+                                reloadCustomThemes={reloadCustomThemes}
+                                dockBadgeSupported={dockBadgeSupported}
+                                dockBadgeEnabled={dockBadgeEnabled}
+                                setDockBadgeEnabled={setDockBadgeEnabled}
+                            />
                         )}
 
                         {showWindowControlsPositionSetting && (
-                            <SettingsSection
-                                title={"Window controls"}
-                                info={"Choose where minimize, maximize, and close buttons appear. Defaults to the right."}
-                                divider={hasThemeSettings}
-                            >
-                                <SettingsTwoColumn>
-                                    <SettingsStackedField
-                                        label={"Window controls position"}
-                                        settingsItem="sessions.desktop-window-controls-position"
-                                    >
-                                        <SettingsChipGroup
-                                            value={desktopWindowControlsPosition}
-                                            options={WINDOW_CONTROLS_POSITION_OPTIONS.map((option) => ({
-                                                value: option.id,
-                                                label: option.label,
-                                            }))}
-                                            onChange={handleWindowControlsPositionChange}
-                                            aria-label={"Window controls position"}
-                                        />
-                                    </SettingsStackedField>
-                                    <SettingsStackedField
-                                        label={"Style"}
-                                        settingsItem="sessions.desktop-window-controls-style"
-                                    >
-                                        <SettingsChipGroup
-                                            value={desktopWindowControlsStyle}
-                                            options={WINDOW_CONTROLS_STYLE_OPTIONS.map((option) => ({
-                                                value: option.id,
-                                                label: option.label,
-                                            }))}
-                                            onChange={handleWindowControlsStyleChange}
-                                            aria-label={"Window controls style"}
-                                        />
-                                    </SettingsStackedField>
-                                </SettingsTwoColumn>
-                            </SettingsSection>
+                            <DesktopWindowControlsSection
+                                desktopWindowControlsPosition={desktopWindowControlsPosition}
+                                desktopWindowControlsStyle={desktopWindowControlsStyle}
+                                hasThemeSettings={hasThemeSettings}
+                                onWindowControlsPositionChange={handleWindowControlsPositionChange}
+                                onWindowControlsStyleChange={handleWindowControlsStyleChange}
+                            />
                         )}
 
                         {hasLocalizationSettings && (
-                            <SettingsSection title={"Localization"}>
-                                <SettingsTwoColumn>
-                                    {(shouldShow('timeFormat') || shouldShow('weekStart')) && (
-                                        <div className={SETTINGS_FIELDS_STACK_CLASS}>
-                                            {shouldShow('timeFormat') && (
-                                                <SettingsStackedField
-                                                    label={"Time Format"}
-                                                    settingsItem="appearance.time-format"
-                                                >
-                                                    <Select value={timeFormatPreference} onValueChange={(value: 'auto' | '12h' | '24h') => handleTimeFormatPreferenceChange(value)}>
-                                                        <SelectTrigger aria-label={"Select time format"} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
-                                                            <SelectValue>{selectedTimeFormatLabel}</SelectValue>
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            {TIME_FORMAT_OPTIONS.map((option) => (
-                                                                <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>
-                                                            ))}
-                                                        </SelectContent>
-                                                    </Select>
-                                                </SettingsStackedField>
-                                            )}
-
-                                            {shouldShow('weekStart') && (
-                                                <SettingsStackedField
-                                                    label={"Week Starts On"}
-                                                    settingsItem="appearance.week-start"
-                                                >
-                                                    <Select value={weekStartPreference} onValueChange={(value: 'auto' | 'monday' | 'sunday') => handleWeekStartPreferenceChange(value)}>
-                                                        <SelectTrigger aria-label={"Select week start"} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
-                                                            <SelectValue>{selectedWeekStartLabel}</SelectValue>
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            {WEEK_START_OPTIONS.map((option) => (
-                                                                <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>
-                                                            ))}
-                                                        </SelectContent>
-                                                    </Select>
-                                                </SettingsStackedField>
-                                            )}
-                                        </div>
-                                    )}
-                                </SettingsTwoColumn>
-                            </SettingsSection>
+                            <LocalizationSection
+                                shouldShowTimeFormat={shouldShow('timeFormat')}
+                                shouldShowWeekStart={shouldShow('weekStart')}
+                                timeFormatPreference={timeFormatPreference}
+                                selectedTimeFormatLabel={selectedTimeFormatLabel}
+                                onTimeFormatPreferenceChange={handleTimeFormatPreferenceChange}
+                                weekStartPreference={weekStartPreference}
+                                selectedWeekStartLabel={selectedWeekStartLabel}
+                                onWeekStartPreferenceChange={handleWeekStartPreferenceChange}
+                            />
                         )}
 
                         {(showPwaInstallNameSetting || showPwaOrientationSetting || showMobileKeyboardModeSetting) && (
-                            <SettingsSection title={"App install"} contentClassName={SETTINGS_FIELDS_STACK_CLASS}>
-
-                            {showPwaInstallNameSetting && (
-                                <SettingsFieldRow
-                                    label={"Install App Name"}
-                                    info={"Used by PWA installation process."}
-                                    settingsItem="appearance.pwa-install-name"
-                                    alignEnd={false}
-                                    controlClassName={SETTINGS_CONTROL_CLUSTER_CLASS}
-                                >
-                                    <Input
-                                        value={pwaInstallName}
-                                        onChange={(event) => {
-                                            setPwaInstallName(event.target.value);
-                                        }}
-                                        onBlur={() => {
-                                            void applyPwaInstallName(pwaInstallName);
-                                        }}
-                                        onKeyDown={(event) => {
-                                            if (event.key === 'Enter') {
-                                                event.preventDefault();
-                                                void applyPwaInstallName(pwaInstallName);
-                                            }
-                                        }}
-                                        className="min-w-0 flex-1"
-                                        maxLength={64}
-                                        aria-label={"PWA install app name"}
-                                    />
-                                    <Button size="sm"
-                                        type="button"
-                                        variant="ghost"
-                                        onClick={() => {
-                                            setPwaInstallName(DEFAULT_PWA_INSTALL_NAME);
-                                            void applyPwaInstallName('');
-                                        }}
-                                        className={SETTINGS_ICON_BUTTON_CLASS}
-                                        aria-label={"Reset install app name"}
-                                        title={"Reset"}
-                                    >
-                                        <Icon name="restart" className="h-3.5 w-3.5" />
-                                    </Button>
-                                </SettingsFieldRow>
-                            )}
-
-                            {showPwaOrientationSetting && (
-                                <SettingsFieldRow
-                                    label={"Install Orientation"}
-                                    description={"Used by the installed web app. Reinstall the PWA after changing this."}
-                                    settingsItem="appearance.pwa-orientation"
-                                    alignEnd={false}
-                                    controlClassName={SETTINGS_CONTROL_CLUSTER_CLASS}
-                                >
-                                    <Select
-                                        value={pwaOrientation}
-                                        onValueChange={(value) => {
-                                            const orientation = normalizePwaOrientation(value);
-                                            setPwaOrientation(orientation);
-                                            void applyPwaOrientation(orientation);
-                                        }}
-                                    >
-                                        <SelectTrigger aria-label={"PWA install orientation"} size={SETTINGS_SELECT_SIZE} className={SETTINGS_CLUSTER_CONTROL_CLASS}>
-                                            <SelectValue placeholder={"Select orientation"}>
-                                                {selectedPwaOrientationLabel}
-                                            </SelectValue>
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {PWA_ORIENTATION_OPTIONS.map((option) => (
-                                                <SelectItem key={option.id} value={option.id}>
-                                                    {option.label}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    <Button size="sm"
-                                        type="button"
-                                        variant="ghost"
-                                        onClick={() => {
-                                            setPwaOrientation('system');
-                                            void applyPwaOrientation('system');
-                                        }}
-                                        disabled={pwaOrientation === 'system'}
-                                        className={SETTINGS_ICON_BUTTON_CLASS}
-                                        aria-label={"Reset install orientation"}
-                                        title={"Reset"}
-                                    >
-                                        <Icon name="restart" className="h-3.5 w-3.5" />
-                                    </Button>
-                                </SettingsFieldRow>
-                            )}
-
-                            {showMobileKeyboardModeSetting && (
-                                <SettingsFieldRow
-                                    label={"Mobile Keyboard Behavior"}
-                                    info={"Default browser behavior is safest. Resize content asks supported browsers to shrink the app when the on-screen keyboard opens."}
-                                    settingsItem="appearance.mobile-keyboard-mode"
-                                    alignEnd={false}
-                                    controlClassName={SETTINGS_CONTROL_CLUSTER_CLASS}
-                                >
-                                    <Select
-                                        value={mobileKeyboardMode}
-                                        onValueChange={(value) => {
-                                            const mode = normalizeMobileKeyboardMode(value);
-                                            setMobileKeyboardMode(mode);
-                                            void updateDesktopSettings({ mobileKeyboardMode: mode });
-                                        }}
-                                    >
-                                        <SelectTrigger aria-label={"Mobile keyboard behavior"} size={SETTINGS_SELECT_SIZE} className={SETTINGS_CLUSTER_CONTROL_CLASS}>
-                                            <SelectValue placeholder={"Select keyboard behavior"}>
-                                                {selectedMobileKeyboardModeLabel}
-                                            </SelectValue>
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {MOBILE_KEYBOARD_MODE_OPTIONS.map((option) => (
-                                                <SelectItem key={option.id} value={option.id}>
-                                                    {option.label}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    <Button size="sm"
-                                        type="button"
-                                        variant="ghost"
-                                        onClick={() => {
-                                            setMobileKeyboardMode('native');
-                                            void updateDesktopSettings({ mobileKeyboardMode: 'native' });
-                                        }}
-                                        disabled={mobileKeyboardMode === 'native'}
-                                        className={SETTINGS_ICON_BUTTON_CLASS}
-                                        aria-label={"Reset mobile keyboard behavior"}
-                                        title={"Reset"}
-                                    >
-                                        <Icon name="restart" className="h-3.5 w-3.5" />
-                                    </Button>
-                                </SettingsFieldRow>
-                            )}
-                            </SettingsSection>
+                            <AppInstallSection
+                                showPwaInstallNameSetting={showPwaInstallNameSetting}
+                                pwaInstallName={pwaInstallName}
+                                setPwaInstallName={setPwaInstallName}
+                                onApplyPwaInstallName={applyPwaInstallName}
+                                showPwaOrientationSetting={showPwaOrientationSetting}
+                                pwaOrientation={pwaOrientation}
+                                selectedPwaOrientationLabel={selectedPwaOrientationLabel}
+                                onApplyPwaOrientation={applyPwaOrientation}
+                                showMobileKeyboardModeSetting={showMobileKeyboardModeSetting}
+                                mobileKeyboardMode={mobileKeyboardMode}
+                                selectedMobileKeyboardModeLabel={selectedMobileKeyboardModeLabel}
+                                onSetMobileKeyboardMode={(mode) => {
+                                    setMobileKeyboardMode(mode);
+                                    void updateDesktopSettings({ mobileKeyboardMode: mode });
+                                }}
+                            />
                         )}
                     </>
                 )}
 
                 {/* --- Density & type --- */}
                 {hasLayoutSettings && (
-                    <SettingsSection title={"Density & type"} contentClassName={SETTINGS_FIELDS_STACK_CLASS}>
-                        {shouldShow('fontSize') || shouldShow('terminalFontSize') ? (
-                            <SettingsTwoColumn>
-                                {shouldShow('fontSize') && (
-                                    <SettingsStackedField
-                                        label={"Interface Font"}
-                                        settingsItem="appearance.interface-font-size"
-                                        controlClassName="w-full"
-                                    >
-                                        <Select value={uiFont} onValueChange={(value) => setUiFont(value as UiFontOption)}>
-                                            <SelectTrigger aria-label={"Select interface font"} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
-                                                <SelectValue>{UI_FONT_OPTIONS.find((option) => option.id === uiFont)?.label}</SelectValue>
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {UI_FONT_OPTIONS.map((option) => (
-                                                    <SelectItem key={option.id} value={option.id}>
-                                                        <span style={{ fontFamily: option.stack }}>{option.label}</span>
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                        <Button size="sm"
-                                            type="button"
-                                            variant="ghost"
-                                            onClick={() => setUiFont(DEFAULT_UI_FONT)}
-                                            disabled={uiFont === DEFAULT_UI_FONT}
-                                            className={SETTINGS_ICON_BUTTON_CLASS}
-                                            aria-label={"Reset interface font"}
-                                            title={"Reset"}
-                                        >
-                                            <Icon name="restart" className="h-3.5 w-3.5" />
-                                        </Button>
-                                    </SettingsStackedField>
-                                )}
-                                {shouldShow('terminalFontSize') && (
-                                    <SettingsStackedField
-                                        label={"Code Font"}
-                                        controlClassName="w-full"
-                                    >
-                                        <Select value={monoFont} onValueChange={(value) => setMonoFont(value as MonoFontOption)}>
-                                            <SelectTrigger aria-label={"Select code font"} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
-                                                <SelectValue>{CODE_FONT_OPTIONS.find((option) => option.id === monoFont)?.label}</SelectValue>
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {CODE_FONT_OPTIONS.map((option) => (
-                                                    <SelectItem key={option.id} value={option.id}>
-                                                        <span style={{ fontFamily: option.stack }}>{option.label}</span>
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                        <Button size="sm"
-                                            type="button"
-                                            variant="ghost"
-                                            onClick={() => setMonoFont(DEFAULT_MONO_FONT)}
-                                            disabled={monoFont === DEFAULT_MONO_FONT}
-                                            className={SETTINGS_ICON_BUTTON_CLASS}
-                                            aria-label={"Reset code font"}
-                                            title={"Reset"}
-                                        >
-                                            <Icon name="restart" className="h-3.5 w-3.5" />
-                                        </Button>
-                                    </SettingsStackedField>
-                                )}
-                            </SettingsTwoColumn>
-                        ) : null}
-
-                        {shouldShow('fontSize') || shouldShow('terminalFontSize') || shouldShow('editorFontSize') ? (
-                            <SettingsTwoColumn>
-                                {shouldShow('fontSize') && (
-                                    <SettingsStackedField
-                                        label={"Interface Font Size"}
-                                        settingsItem="appearance.interface-font-size"
-                                        controlClassName="w-full"
-                                    >
-                                        <div className={SETTINGS_NUMBER_STEPPER_ROW_CLASS}>
-                                            <NumberInput
-                                                value={fontSize}
-                                                onValueChange={setFontSize}
-                                                min={50}
-                                                max={200}
-                                                step={5}
-                                                aria-label={"Font size percentage"}
-                                            />
-                                            <span className={SETTINGS_NUMBER_UNIT_CLASS}>%</span>
-                                            <Button size="sm"
-                                                type="button"
-                                                variant="ghost"
-                                                onClick={() => setFontSize(100)}
-                                                disabled={fontSize === 100}
-                                                className={SETTINGS_ICON_BUTTON_CLASS}
-                                                aria-label={"Reset font size"}
-                                                title={"Reset"}
-                                            >
-                                                <Icon name="restart" className="h-3.5 w-3.5" />
-                                            </Button>
-                                        </div>
-                                    </SettingsStackedField>
-                                )}
-                                {shouldShow('terminalFontSize') && (
-                                    <SettingsStackedField
-                                        label={"Terminal Font Size"}
-                                        settingsItem="appearance.terminal-font-size"
-                                        controlClassName="w-full"
-                                    >
-                                        <div className={SETTINGS_NUMBER_STEPPER_ROW_CLASS}>
-                                            <NumberInput
-                                                value={terminalFontSize}
-                                                onValueChange={setTerminalFontSize}
-                                                min={9}
-                                                max={52}
-                                                step={1}
-                                            />
-                                            <span className={SETTINGS_NUMBER_UNIT_CLASS}>px</span>
-                                            <Button size="sm"
-                                                type="button"
-                                                variant="ghost"
-                                                onClick={() => setTerminalFontSize(13)}
-                                                disabled={terminalFontSize === 13}
-                                                className={SETTINGS_ICON_BUTTON_CLASS}
-                                                aria-label={"Reset terminal font size"}
-                                                title={"Reset"}
-                                            >
-                                                <Icon name="restart" className="h-3.5 w-3.5" />
-                                            </Button>
-                                        </div>
-                                    </SettingsStackedField>
-                                )}
-                                {shouldShow('editorFontSize') && (
-                                    <SettingsStackedField
-                                        label={"Editor Font Size"}
-                                        settingsItem="appearance.editor-font-size"
-                                        controlClassName="w-full"
-                                    >
-                                        <div className={SETTINGS_NUMBER_STEPPER_ROW_CLASS}>
-                                            <NumberInput
-                                                value={editorFontSize}
-                                                onValueChange={setEditorFontSize}
-                                                min={9}
-                                                max={32}
-                                                step={1}
-                                            />
-                                            <span className={SETTINGS_NUMBER_UNIT_CLASS}>px</span>
-                                            <Button size="sm"
-                                                type="button"
-                                                variant="ghost"
-                                                onClick={() => setEditorFontSize(13)}
-                                                disabled={editorFontSize === 13}
-                                                className={SETTINGS_ICON_BUTTON_CLASS}
-                                                aria-label={"Reset editor font size"}
-                                                title={"Reset"}
-                                            >
-                                                <Icon name="restart" className="h-3.5 w-3.5" />
-                                            </Button>
-                                        </div>
-                                    </SettingsStackedField>
-                                )}
-                            </SettingsTwoColumn>
-                        ) : null}
-
-                        {shouldShow('spacing') || (shouldShow('inputBarOffset') && isMobile) ? (
-                            <SettingsTwoColumn>
-                                {shouldShow('spacing') && (
-                                    <SettingsStackedField
-                                        label={"Spacing Density"}
-                                        settingsItem="appearance.spacing-density"
-                                        controlClassName="w-full"
-                                    >
-                                        <div className={SETTINGS_NUMBER_STEPPER_ROW_CLASS}>
-                                            <NumberInput
-                                                value={padding}
-                                                onValueChange={setPadding}
-                                                min={50}
-                                                max={200}
-                                                step={5}
-                                            />
-                                            <span className={SETTINGS_NUMBER_UNIT_CLASS}>%</span>
-                                            <Button size="sm"
-                                                type="button"
-                                                variant="ghost"
-                                                onClick={() => setPadding(100)}
-                                                disabled={padding === 100}
-                                                className={SETTINGS_ICON_BUTTON_CLASS}
-                                                aria-label={"Reset spacing"}
-                                                title={"Reset"}
-                                            >
-                                                <Icon name="restart" className="h-3.5 w-3.5" />
-                                            </Button>
-                                        </div>
-                                    </SettingsStackedField>
-                                )}
-                                {shouldShow('inputBarOffset') && isMobile && (
-                                    <SettingsStackedField
-                                        label={"Input Bar Offset"}
-                                        info={"Raise input bar to avoid OS-level screen obstructions like home bars."}
-                                        settingsItem="appearance.input-bar-offset"
-                                        controlClassName="w-full"
-                                    >
-                                        <div className={SETTINGS_NUMBER_STEPPER_ROW_CLASS}>
-                                            <NumberInput
-                                                value={inputBarOffset}
-                                                onValueChange={setInputBarOffset}
-                                                min={0}
-                                                max={100}
-                                                step={5}
-                                            />
-                                            <span className={SETTINGS_NUMBER_UNIT_CLASS}>px</span>
-                                            <Button size="sm"
-                                                type="button"
-                                                variant="ghost"
-                                                onClick={() => setInputBarOffset(0)}
-                                                disabled={inputBarOffset === 0}
-                                                className={SETTINGS_ICON_BUTTON_CLASS}
-                                                aria-label={"Reset input bar offset"}
-                                                title={"Reset"}
-                                            >
-                                                <Icon name="restart" className="h-3.5 w-3.5" />
-                                            </Button>
-                                        </div>
-                                    </SettingsStackedField>
-                                )}
-                            </SettingsTwoColumn>
-                        ) : null}
-                    </SettingsSection>
+                    <DensityAndTypeSection
+                        shouldShow={shouldShow}
+                        uiFont={uiFont}
+                        setUiFont={setUiFont}
+                        monoFont={monoFont}
+                        setMonoFont={setMonoFont}
+                        fontSize={fontSize}
+                        setFontSize={setFontSize}
+                        terminalFontSize={terminalFontSize}
+                        setTerminalFontSize={setTerminalFontSize}
+                        editorFontSize={editorFontSize}
+                        setEditorFontSize={setEditorFontSize}
+                        padding={padding}
+                        setPadding={setPadding}
+                        inputBarOffset={inputBarOffset}
+                        setInputBarOffset={setInputBarOffset}
+                        isMobile={isMobile}
+                    />
                 )}
 
                 {/* --- Navigation --- */}
                 {hasNavigationSettings && (
-                    <SettingsSection title={"Navigation"} contentClassName="space-y-4">
-                        {shouldShow('fileEditorKeymap') && (
-                            <SettingsControlGroup
-                                title={"File editor keymap"}
-                                settingsItem="appearance.file-editor-keymap"
-                            >
-                                <SettingsRadioGroup aria-label={"File editor keymap"}>
-                                    {(['default', 'vim'] as const).map((keymap) => (
-                                        <SettingsRadioOption
-                                            key={keymap}
-                                            selected={fileEditorKeymap === keymap}
-                                            onSelect={() => setFileEditorKeymap(keymap)}
-                                            label={keymap === 'default' ? 'Default' : 'Vim'}
-                                            ariaLabel={keymap === 'default' ? 'Default' : 'Vim'}
-                                        />
-                                    ))}
-                                </SettingsRadioGroup>
-                            </SettingsControlGroup>
-                        )}
-                        <div className={SETTINGS_OPTION_STACK_CLASS}>
-                            {shouldShow('autoSaveEnabled') && (
-                                <SettingsCheckboxRow
-                                    checked={autoSaveEnabled}
-                                    onChange={setAutoSaveEnabled}
-                                    label={"Auto-save files"}
-                                    ariaLabel={"Auto-save files"}
-                                    info={"Automatically save file edits after you stop typing. Disable to require manual save."}
-                                    settingsItem="appearance.auto-save-enabled"
-                                />
-                            )}
-                            {shouldShow('expandedEditorToolbar') && (
-                                <SettingsCheckboxRow
-                                    checked={expandedEditorToolbar}
-                                    onChange={handleExpandedEditorToolbarChange}
-                                    label={"Always show editor toolbar (docked under the file tabs)"}
-                                    ariaLabel={"Always show editor toolbar"}
-                                    settingsItem="appearance.expanded-editor-toolbar"
-                                />
-                            )}
-                            {shouldShow('terminalQuickKeys') && (
-                                <SettingsCheckboxRow
-                                    checked={showTerminalQuickKeysOnDesktop}
-                                    onChange={setShowTerminalQuickKeysOnDesktop}
-                                    label={"Terminal Quick Keys"}
-                                    ariaLabel={"Terminal quick keys"}
-                                    settingsItem="appearance.terminal-quick-keys"
-                                    info={"Show Esc, Ctrl, Arrows in terminal view"}
-                                />
-                            )}
-                            {showTerminalShellSetting && (
-                                <SettingsStackedField
-                                    label={"Terminal Shell"}
-                                    info={"Restart the terminal to apply this change to the current session."}
-                                    settingsItem="appearance.terminal-shell"
-                                    className="pt-2"
-                                >
-                                    <Select value={terminalShell} onValueChange={(value) => { if (isTerminalShell(value)) setTerminalShell(value); }}>
-                                        <SelectTrigger aria-label={"Select terminal shell"} size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_TRIGGER_CLASS}>
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="auto">{"Auto"}</SelectItem>
-                                            {terminalShellOptions.map((shell) => (
-                                                <SelectItem key={shell.id} value={shell.id}>{shell.name}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </SettingsStackedField>
-                            )}
-                            {showTerminalShellSetting && terminalShellSupportsLogin && (
-                                <SettingsCheckboxRow
-                                    checked={terminalLoginShellEnabled}
-                                    onChange={setTerminalLoginShellEnabled}
-                                    label={"Start as login shell"}
-                                    ariaLabel={"Start as login shell"}
-                                    settingsItem="appearance.terminal-login-shell"
-                                />
-                            )}
-                        </div>
-                    </SettingsSection>
+                    <NavigationSection
+                        shouldShow={shouldShow}
+                        fileEditorKeymap={fileEditorKeymap}
+                        setFileEditorKeymap={setFileEditorKeymap}
+                        autoSaveEnabled={autoSaveEnabled}
+                        setAutoSaveEnabled={setAutoSaveEnabled}
+                        expandedEditorToolbar={expandedEditorToolbar}
+                        onExpandedEditorToolbarChange={handleExpandedEditorToolbarChange}
+                        showTerminalQuickKeysOnDesktop={showTerminalQuickKeysOnDesktop}
+                        setShowTerminalQuickKeysOnDesktop={setShowTerminalQuickKeysOnDesktop}
+                        showTerminalShellSetting={showTerminalShellSetting}
+                        terminalShell={terminalShell}
+                        setTerminalShell={setTerminalShell}
+                        terminalShellOptions={terminalShellOptions}
+                        terminalShellSupportsLogin={terminalShellSupportsLogin}
+                        terminalLoginShellEnabled={terminalLoginShellEnabled}
+                        setTerminalLoginShellEnabled={setTerminalLoginShellEnabled}
+                    />
                 )}
 
-                {hasBehaviorSettings && (
-                    <>
-                        {showBehaviorMessageOptions && (
-                            <SettingsSection
-                                title={"Message options"}
-                                divider={behaviorSectionDivider}
-                            >
-                                {/* Flat 2×2 grid so row headers share a baseline (not stacked columns). */}
-                                <SettingsTwoColumn className="lg:gap-y-6">
-                                    {shouldShow('userMessageRendering') && (
-                                        <SettingsControlGroup title={"User Message Rendering"}>
-                                            <SettingsRadioGroup aria-label={"User message rendering mode"}>
-                                                {USER_MESSAGE_RENDERING_OPTIONS.map((option) => (
-                                                    <SettingsRadioOption
-                                                        key={option.id}
-                                                        selected={normalizeUserMessageRenderingMode(userMessageRenderingMode) === option.id}
-                                                        onSelect={() => handleUserMessageRenderingModeChange(option.id)}
-                                                        label={option.label}
-                                                        ariaLabel={`User message rendering: ${option.label}`}
-                                                    />
-                                                ))}
-                                            </SettingsRadioGroup>
-                                        </SettingsControlGroup>
-                                    )}
-
-                                    {shouldShow('mermaidRendering') && (
-                                        <SettingsControlGroup title={"Mermaid Rendering"}>
-                                            <SettingsRadioGroup aria-label={"Mermaid rendering mode"}>
-                                                {MERMAID_RENDERING_OPTIONS.map((option) => (
-                                                    <SettingsRadioOption
-                                                        key={option.id}
-                                                        selected={mermaidRenderingMode === option.id}
-                                                        onSelect={() => handleMermaidRenderingModeChange(option.id)}
-                                                        label={option.label}
-                                                        ariaLabel={`Mermaid rendering: ${option.label}`}
-                                                    />
-                                                ))}
-                                            </SettingsRadioGroup>
-                                        </SettingsControlGroup>
-                                    )}
-
-                                    {shouldShow('diffLayout') && (
-                                        <SettingsControlGroup title={"Diff Layout"}>
-                                            <SettingsRadioGroup aria-label={"Diff layout"}>
-                                                {DIFF_LAYOUT_OPTIONS.map((option) => (
-                                                    <SettingsRadioOption
-                                                        key={option.id}
-                                                        selected={diffLayoutPreference === option.id}
-                                                        onSelect={() => setDiffLayoutPreference(option.id)}
-                                                        label={option.label}
-                                                        ariaLabel={`Diff layout: ${option.label}`}
-                                                    />
-                                                ))}
-                                            </SettingsRadioGroup>
-                                        </SettingsControlGroup>
-                                    )}
-
-                                    {shouldShow('followUpBehavior') && (
-                                        <SettingsControlGroup
-                                            title={"Follow-up behavior"}
-                                            settingsItem="chat.follow-up-behavior"
-                                        >
-                                            <SettingsRadioGroup aria-label={"Follow-up behavior"}>
-                                                {FOLLOW_UP_BEHAVIOR_OPTIONS.map((option) => (
-                                                    <SettingsRadioOption
-                                                        key={option.id}
-                                                        selected={followUpBehavior === option.id}
-                                                        onSelect={() => setFollowUpBehavior(option.id)}
-                                                        label={option.label}
-                                                        ariaLabel={`Follow-up behavior: ${option.label}`}
-                                                    />
-                                                ))}
-                                            </SettingsRadioGroup>
-                                        </SettingsControlGroup>
-                                    )}
-                                </SettingsTwoColumn>
-                            </SettingsSection>
-                        )}
-
-                        {showBehaviorFeatureCheckboxes && (
-                            <>
-                                {shouldShow('expandedTools') && (
-                                    <SettingsSection
-                                        title={"Show tools opened by default"}
-                                        divider={showBehaviorMessageOptions || behaviorSectionDivider}
-                                        contentClassName={SETTINGS_OPTION_STACK_CLASS}
-                                    >
-                                        <SettingsCheckboxRow
-                                            checked={showExpandedBashTools}
-                                            onChange={handleShowExpandedBashToolsChange}
-                                            label={"Bash"}
-                                            ariaLabel={"Show expanded bash tools"}
-                                        />
-                                        <SettingsCheckboxRow
-                                            checked={showExpandedEditTools}
-                                            onChange={handleShowExpandedEditToolsChange}
-                                            label={"Edit tools"}
-                                            ariaLabel={"Show expanded edit tools"}
-                                        />
-                                    </SettingsSection>
-                                )}
-                                <SettingsSection
-                                    title={"Features"}
-                                    contentClassName={SETTINGS_OPTION_STACK_CLASS}
-                                >
-                                    <SettingsCheckboxRow
-                                        checked={draftStartersVisible}
-                                        onChange={handleDraftStartersVisibleChange}
-                                        label={"Show Starters on New Session Screen"}
-                                        ariaLabel={"Show starters on the new session screen"}
-                                        settingsItem="chat.draft-starters-visible"
-                                    />
-                                </SettingsSection>
-                                {shouldShow('reasoning') && (
-                                    <SettingsSection
-                                        title={"Reasoning"}
-                                        settingsItem="chat.reasoning"
-                                        contentClassName={SETTINGS_OPTION_STACK_CLASS}
-                                    >
-                                        <SettingsCheckboxRow
-                                            checked={showReasoningTraces}
-                                            onChange={handleShowReasoningTracesChange}
-                                            label={"Show Reasoning Traces"}
-                                            ariaLabel={"Show reasoning traces"}
-                                            settingsItem="chat.reasoning-traces"
-                                        />
-                                        {showReasoningTraces && (
-                                            <SettingsCheckboxRow
-                                                checked={collapsibleThinkingBlocks}
-                                                onChange={handleCollapsibleThinkingBlocksChange}
-                                                label={"Enable Collapsible Reasoning Blocks"}
-                                                ariaLabel={"Enable collapsible reasoning blocks"}
-                                                settingsItem="chat.collapsible-reasoning"
-                                            />
-                                        )}
-                                        {showReasoningTraces && collapsibleThinkingBlocks && (
-                                            <SettingsCheckboxRow
-                                                checked={collapseThinkingByDefault}
-                                                onChange={handleCollapseThinkingByDefaultChange}
-                                                label={"Collapsed by Default"}
-                                                ariaLabel={"Collapse reasoning blocks by default"}
-                                                info={"Thinking still opens while it streams, then folds when that block finishes. Turn this off to keep a one-line trace unless you expand it."}
-                                                settingsItem="chat.collapsed-reasoning-default"
-                                            />
-                                        )}
-                                    </SettingsSection>
-                                )}
-
-                                {(shouldShow('collapsibleUserMessages') || shouldShow('stickyUserHeader') || shouldShow('promptNavigatorEnabled') || shouldShow('wideChatLayout') || shouldShow('splitAssistantMessageActions') || shouldShow('codeBlockLineWrap')) && (
-                                <SettingsSection
-                                    title={"Message Appearance"}
-                                    settingsItem="chat.message-appearance"
-                                    contentClassName={SETTINGS_OPTION_STACK_CLASS}
-                                >
-                                {shouldShow('collapsibleUserMessages') && (
-                                    <SettingsCheckboxRow
-                                        checked={collapsibleUserMessages}
-                                        onChange={handleCollapsibleUserMessagesChange}
-                                        label={"Collapse Long User Messages"}
-                                        ariaLabel={"Collapse long user messages"}
-                                        settingsItem="chat.collapsible-user-messages"
-                                    />
-                                )}
-
-                                {shouldShow('stickyUserHeader') && (
-                                    <SettingsCheckboxRow
-                                        checked={stickyUserHeader}
-                                        onChange={handleStickyUserHeaderChange}
-                                        label={"Sticky User Header"}
-                                        ariaLabel={"Sticky user header"}
-                                        settingsItem="chat.sticky-user-header"
-                                    />
-                                )}
-
-                                {shouldShow('promptNavigatorEnabled') && (
-                                    <SettingsCheckboxRow
-                                        checked={promptNavigatorEnabled}
-                                        onChange={handlePromptNavigatorEnabledChange}
-                                        label={"Prompt Navigator"}
-                                        ariaLabel={"Prompt navigator"}
-                                        settingsItem="chat.prompt-navigator"
-                                    />
-                                )}
-
-                                {shouldShow('wideChatLayout') && (
-                                    <SettingsCheckboxRow
-                                        checked={wideChatLayoutEnabled}
-                                        onChange={handleWideChatLayoutChange}
-                                        label={"Wide Chat Layout"}
-                                        ariaLabel={"Wide chat layout"}
-                                        settingsItem="chat.wide-layout"
-                                    />
-                                )}
-
-                                {shouldShow('splitAssistantMessageActions') && (
-                                    <SettingsCheckboxRow
-                                        checked={showSplitAssistantMessageActions}
-                                        onChange={handleShowSplitAssistantMessageActionsChange}
-                                        label={"Inline Assistant Actions"}
-                                        ariaLabel={"Inline assistant actions"}
-                                        settingsItem="chat.inline-assistant-actions"
-                                        info={"Show Copy Answer, Save as image, and Read aloud on assistant text blocks that appear before later tool calls in the same response."}
-                                    />
-                                )}
-
-                                {shouldShow('codeBlockLineWrap') && (
-                                    <SettingsCheckboxRow
-                                        checked={codeBlockLineWrap}
-                                        onChange={setCodeBlockLineWrap}
-                                        label={"Wrap Code Block Lines"}
-                                        ariaLabel={"Wrap code block lines"}
-                                        settingsItem="chat.code-block-line-wrap"
-                                    />
-                                )}
-                                </SettingsSection>
-                                )}
-
-                                {(shouldShow('showToolFileIcons') || shouldShow('showTurnChangedFiles') || shouldShow('dotfiles') || shouldShow('fileViewerPreview')) && (
-                                <SettingsSection
-                                    title={"Tools & Files"}
-                                    settingsItem="chat.tools-and-files"
-                                    contentClassName={SETTINGS_OPTION_STACK_CLASS}
-                                >
-                                {shouldShow('showToolFileIcons') && (
-                                    <SettingsCheckboxRow
-                                        checked={showToolFileIcons}
-                                        onChange={handleShowToolFileIconsChange}
-                                        label={"Show Tool File Icons"}
-                                        ariaLabel={"Show tool file icons"}
-                                        settingsItem="chat.tool-file-icons"
-                                    />
-                                )}
-
-                                {shouldShow('showTurnChangedFiles') && (
-                                    <SettingsCheckboxRow
-                                        checked={showTurnChangedFiles}
-                                        onChange={handleShowTurnChangedFilesChange}
-                                        label={"Show Changed Files for Completed Turns"}
-                                        ariaLabel={"Show changed files for completed turns"}
-                                        settingsItem="chat.changed-files"
-                                    />
-                                )}
-
-                                {shouldShow('dotfiles') && (
-                                    <SettingsCheckboxRow
-                                        checked={directoryShowHidden}
-                                        onChange={setDirectoryShowHidden}
-                                        label={"Show Dotfiles"}
-                                        ariaLabel={"Show dotfiles"}
-                                        settingsItem="chat.dotfiles"
-                                    />
-                                )}
-
-                                {shouldShow('fileViewerPreview') && (
-                                    <SettingsCheckboxRow
-                                        checked={settingsDefaultFileViewerPreview}
-                                        onChange={handleFileViewerPreviewChange}
-                                        label={"Open previewable files in preview mode"}
-                                        ariaLabel={"Open previewable files in preview mode"}
-                                    />
-                                )}
-                                </SettingsSection>
-                                )}
-
-                                {(shouldShow('persistDraft') || shouldShow('inputSpellcheck')) && (
-                                <SettingsSection
-                                    title={"Composer"}
-                                    settingsItem="chat.composer"
-                                    contentClassName={SETTINGS_OPTION_STACK_CLASS}
-                                >
-                                {shouldShow('persistDraft') && (
-                                    <SettingsCheckboxRow
-                                        checked={persistChatDraft}
-                                        onChange={setPersistChatDraft}
-                                        label={"Persist Draft Messages"}
-                                        ariaLabel={"Persist draft messages"}
-                                        settingsItem="chat.persist-drafts"
-                                    />
-                                )}
-
-                                {shouldShow('inputSpellcheck') && (
-                                    <SettingsCheckboxRow
-                                        checked={inputSpellcheckEnabled}
-                                        onChange={handleInputSpellcheckChange}
-                                        label={"Enable Spellcheck in Text Inputs"}
-                                        ariaLabel={"Enable spellcheck in text inputs"}
-                                        settingsItem="chat.spellcheck"
-                                    />
-                                )}
-                                </SettingsSection>
-                                )}
-                            </>
-                        )}
-                    </>
-                )}
+                <ChatBehaviorSection
+                    hasBehaviorSettings={hasBehaviorSettings}
+                    showBehaviorMessageOptions={showBehaviorMessageOptions}
+                    behaviorSectionDivider={behaviorSectionDivider}
+                    showBehaviorFeatureCheckboxes={showBehaviorFeatureCheckboxes}
+                    shouldShow={shouldShow}
+                    userMessageRenderingMode={userMessageRenderingMode}
+                    onUserMessageRenderingModeChange={handleUserMessageRenderingModeChange}
+                    mermaidRenderingMode={mermaidRenderingMode}
+                    onMermaidRenderingModeChange={handleMermaidRenderingModeChange}
+                    diffLayoutPreference={diffLayoutPreference}
+                    setDiffLayoutPreference={setDiffLayoutPreference}
+                    followUpBehavior={followUpBehavior}
+                    setFollowUpBehavior={setFollowUpBehavior}
+                    showExpandedBashTools={showExpandedBashTools}
+                    onShowExpandedBashToolsChange={handleShowExpandedBashToolsChange}
+                    showExpandedEditTools={showExpandedEditTools}
+                    onShowExpandedEditToolsChange={handleShowExpandedEditToolsChange}
+                    draftStartersVisible={draftStartersVisible}
+                    onDraftStartersVisibleChange={handleDraftStartersVisibleChange}
+                    showReasoningTraces={showReasoningTraces}
+                    onShowReasoningTracesChange={handleShowReasoningTracesChange}
+                    collapsibleThinkingBlocks={collapsibleThinkingBlocks}
+                    onCollapsibleThinkingBlocksChange={handleCollapsibleThinkingBlocksChange}
+                    collapseThinkingByDefault={collapseThinkingByDefault}
+                    onCollapseThinkingByDefaultChange={handleCollapseThinkingByDefaultChange}
+                    collapsibleUserMessages={collapsibleUserMessages}
+                    onCollapsibleUserMessagesChange={handleCollapsibleUserMessagesChange}
+                    stickyUserHeader={stickyUserHeader}
+                    onStickyUserHeaderChange={handleStickyUserHeaderChange}
+                    promptNavigatorEnabled={promptNavigatorEnabled}
+                    onPromptNavigatorEnabledChange={handlePromptNavigatorEnabledChange}
+                    wideChatLayoutEnabled={wideChatLayoutEnabled}
+                    onWideChatLayoutChange={handleWideChatLayoutChange}
+                    showSplitAssistantMessageActions={showSplitAssistantMessageActions}
+                    onShowSplitAssistantMessageActionsChange={handleShowSplitAssistantMessageActionsChange}
+                    codeBlockLineWrap={codeBlockLineWrap}
+                    setCodeBlockLineWrap={setCodeBlockLineWrap}
+                    showToolFileIcons={showToolFileIcons}
+                    onShowToolFileIconsChange={handleShowToolFileIconsChange}
+                    showTurnChangedFiles={showTurnChangedFiles}
+                    onShowTurnChangedFilesChange={handleShowTurnChangedFilesChange}
+                    directoryShowHidden={directoryShowHidden}
+                    setDirectoryShowHidden={setDirectoryShowHidden}
+                    settingsDefaultFileViewerPreview={settingsDefaultFileViewerPreview}
+                    onFileViewerPreviewChange={handleFileViewerPreviewChange}
+                    persistChatDraft={persistChatDraft}
+                    setPersistChatDraft={setPersistChatDraft}
+                    inputSpellcheckEnabled={inputSpellcheckEnabled}
+                    onInputSpellcheckChange={handleInputSpellcheckChange}
+                />
 
                 {shouldShow('perfHud') && (
-                    <SettingsSection title={"Diagnostics"}>
-                        <SettingsCheckboxRow
-                            checked={perfHudEnabled}
-                            onChange={setPerfHudEnabled}
-                            label={"Performance overlay"}
-                            info={"Shows live frame time, long tasks, and render counters. Adds overhead. Stays on this device only, and is not a substitute for profile:idle or profile:session."}
-                            ariaLabel={"Performance overlay"}
-                            settingsItem="general.performance-overlay"
-                        />
-                    </SettingsSection>
+                    <DiagnosticsSection
+                        perfHudEnabled={perfHudEnabled}
+                        onPerfHudEnabledChange={setPerfHudEnabled}
+                    />
                 )}
 
         </>
