@@ -45,7 +45,6 @@ import { toast } from '@/components/ui';
 import { useTabletLayout } from '@/lib/device';
 import { useHardwareKeyboard } from '@/lib/hardwareKeyboard';
 import type { MobileControlsPanel } from './mobileControlsUtils';
-import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { Icon } from "@/components/icon/Icon";
 import { Button } from "@/components/ui/button";
@@ -108,9 +107,11 @@ import { DraftBranchCheckoutDialog } from './composer/ui/DraftBranchCheckoutDial
 import { ComposerAutocompletePopups } from './composer/ui/ComposerAutocompletePopups';
 import { ComposerFooter } from './composer/ui/ComposerFooter';
 import { RevertedMessageDock } from './composer/ui/RevertedMessageDock';
+import { ComposerDragOverlay } from './composer/ui/ComposerDragOverlay';
+import { DraftWorktreeCreationBanner } from './composer/ui/DraftWorktreeCreationBanner';
+import { MobileAttachmentSheet } from './composer/ui/MobileAttachmentSheet';
 import { ComposerVoiceButton } from './composer/ui/ComposerVoiceButton';
 import { ComposerVoiceActions, ComposerVoiceInput } from './composer/ui/ComposerVoiceInput';
-import { AgentThinkingLoader } from './AgentThinkingLoader';
 import { useComposerDictation } from '@/lib/dictation/use-composer-dictation';
 
 // Lazy like in ChatMessage: a static import would pull the @pierre/diffs and
@@ -1532,41 +1533,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         onOpenPicker={setMobileDraftPicker}
                     />
                 ) : null}
-                {draftWorktreeCreation.state ? (
-                    <div
-                        className={cn(
-                            'mx-2 mb-2 flex min-h-16 items-center gap-3 rounded-xl px-3 py-2 typography-meta',
-                            draftWorktreeCreation.state.phase === 'failed'
-                                ? 'bg-[var(--status-error-background)] text-[var(--status-error-foreground)]'
-                                : 'bg-[var(--surface-muted)] text-muted-foreground',
-                        )}
-                        role={draftWorktreeCreation.state.phase === 'failed' ? 'alert' : 'status'}
-                    >
-                        {draftWorktreeCreation.state.phase !== 'failed' ? (
-                            <AgentThinkingLoader variant="inline" text={null} animationType="spinner" />
-                        ) : null}
-                        <div className="min-w-0 flex-1">
-                            <p className="typography-ui-label">{draftWorktreeCreation.state.label}</p>
-                            {draftWorktreeCreation.state.phase !== 'failed' ? (
-                                <p className="mt-0.5 text-xs opacity-70">Running in background — you can navigate away</p>
-                            ) : null}
-                            {draftWorktreeCreation.state.error ? (
-                                <p className="mt-0.5 break-words">{draftWorktreeCreation.state.error}</p>
-                            ) : null}
-                        </div>
-                        {draftWorktreeCreation.state.phase === 'failed' ? (
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="xs"
-                                onClick={() => draftWorktreeCreation.dismissFailed()}
-                                aria-label="Dismiss error"
-                            >
-                                Dismiss
-                            </Button>
-                        ) : null}
-                    </div>
-                ) : null}
+                <DraftWorktreeCreationBanner
+                    state={draftWorktreeCreation.state}
+                    onDismissFailed={() => draftWorktreeCreation.dismissFailed()}
+                />
                 <div
                     className={cn(
                         !isMobile && 'contents',
@@ -1601,24 +1571,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     onDragEnd={handleDragEnd}
                 >
                     {isDragging && (
-                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/90 rounded-xl">
-                            <div className="text-center">
-                                <div className="inline-flex justify-center">
-                                    <button
-                                        type="button"
-                                        className={iconButtonBaseClass}
-                                        onClick={() => handlePickLocalFiles()}
-                                        title={"Attach files"}
-                                        aria-label={"Attach files"}
-                                    >
-                                        <Icon name="attachment-2" className={cn(iconSizeClass, 'text-current')} />
-                                    </button>
-                                </div>
-                                <p className="mt-2 typography-ui-label text-muted-foreground">
-                                    {isInternalDrag ? "Drop to insert as mention" : "Drop files here to attach"}
-                                </p>
-                            </div>
-                        </div>
+                        <ComposerDragOverlay
+                            isInternalDrag={isInternalDrag}
+                            iconButtonBaseClass={iconButtonBaseClass}
+                            iconSizeClass={iconSizeClass}
+                            onPickLocalFiles={handlePickLocalFiles}
+                        />
                     )}
 
                     <ComposerAutocompletePopups
@@ -1806,28 +1764,17 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         {/* Mobile attachment sheet: replaces the dropdown (which stole focus and
             dismissed the keyboard) and leaves room for more actions later. */}
         {isMobile ? (
-            <MobileOverlayPanel
+            <MobileAttachmentSheet
                 open={mobileAttachMenuOpen}
-                title={"Add attachment"}
                 onClose={() => setMobileAttachMenuOpen(false)}
-            >
-                <div className="flex flex-col px-3 pb-4 pt-1">
-                    <button
-                        type="button"
-                        className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-3 text-left typography-ui-label hover:bg-[var(--interactive-hover)]"
-                        onClick={() => {
-                            // The native file/photo picker takes over next — restoring
-                            // the keyboard in between would flash it open and shut.
-                            mobileShell.cancelOverlayCloseRestore();
-                            setMobileAttachMenuOpen(false);
-                            requestAnimationFrame(handlePickLocalFiles);
-                        }}
-                    >
-                        <Icon name="attachment-2" className="h-[18px] w-[18px] flex-shrink-0 text-muted-foreground" />
-                        {"Attach files"}
-                    </button>
-                </div>
-            </MobileOverlayPanel>
+                onPickFiles={() => {
+                    // The native file/photo picker takes over next — restoring
+                    // the keyboard in between would flash it open and shut.
+                    mobileShell.cancelOverlayCloseRestore();
+                    setMobileAttachMenuOpen(false);
+                    requestAnimationFrame(handlePickLocalFiles);
+                }}
+            />
         ) : null}
 
         <DraftBranchCheckoutDialog
