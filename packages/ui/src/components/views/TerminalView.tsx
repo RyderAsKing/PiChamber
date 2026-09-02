@@ -18,13 +18,13 @@ import { useDeviceInfo } from '@/lib/device';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { extractTerminalPreviewUrl, isTerminalPreviewUrlAvailable } from '@/lib/terminalPreview';
 import { PROJECT_ACTION_ICON_MAP, type ProjectActionIconKey } from '@/lib/projectActions';
-import { applyTerminalModifier, terminalControlCharacter, terminalSequenceForKey, type TerminalModifier as Modifier, type TerminalQuickKey as MobileKey } from '@/lib/terminalInput';
+import { applyTerminalModifier, terminalSequenceForKey, type TerminalModifier as Modifier, type TerminalQuickKey as MobileKey } from '@/lib/terminalInput';
+import { TerminalQuickKeys } from './terminal/TerminalQuickKeys';
+import { TerminalPreviewScanner, QUICK_KEY_MAP, resolveTerminalControlKey, FALLBACK_TERMINAL_SIZE } from './terminal/terminalStreamHelpers';
 
 type TerminalViewProps = {
     visible?: boolean;
 };
-
-const FALLBACK_TERMINAL_SIZE = { cols: 80, rows: 24 } as const;
 
 export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
     const { terminal, runtime } = useRuntimeAPIs();
@@ -115,14 +115,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
     const terminalControllerRef = React.useRef<TerminalController | null>(null);
     const lastViewportSizeRef = React.useRef<{ cols: number; rows: number } | null>(null);
     const pendingTerminalCreatesRef = React.useRef(new Set<string>());
-    const previewScanTailRef = React.useRef('');
-    const pendingPreviewProbeUrlsRef = React.useRef<Set<string>>(new Set());
-    const previewProbeGenerationRef = React.useRef(0);
+    const previewScannerRef = React.useRef(new TerminalPreviewScanner());
 
     const resetTerminalPreviewScan = React.useCallback(() => {
-        previewScanTailRef.current = '';
-        pendingPreviewProbeUrlsRef.current.clear();
-        previewProbeGenerationRef.current += 1;
+        previewScannerRef.current.reset();
     }, []);
 
     const focusTerminalWhenWindowActive = React.useCallback(() => {
@@ -200,41 +196,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
 
     const scanTerminalPreviewOutput = React.useCallback(
         (directory: string, tabId: string, data: string) => {
-            if (!data) {
-                return;
-            }
-
-            const combined = `${previewScanTailRef.current}${data}`.replace(/\r\n|\r/g, '\n');
-            const lines = combined.split('\n');
-            const completeText = combined.endsWith('\n')
-                ? lines.join('\n')
-                : lines.slice(0, -1).join('\n');
-            previewScanTailRef.current = combined.endsWith('\n') ? '' : (lines[lines.length - 1] ?? '').slice(-1024);
-
-            if (!completeText) {
-                return;
-            }
-
-            const candidate = extractTerminalPreviewUrl(completeText);
-            if (!candidate || pendingPreviewProbeUrlsRef.current.has(candidate)) {
-                return;
-            }
-
-            const probeGeneration = previewProbeGenerationRef.current;
-            pendingPreviewProbeUrlsRef.current.add(candidate);
-            void isTerminalPreviewUrlAvailable(candidate).then((available) => {
-                pendingPreviewProbeUrlsRef.current.delete(candidate);
-                if (!available || previewProbeGenerationRef.current !== probeGeneration) {
-                    return;
-                }
-
-                const currentTab = useTerminalStore.getState().getDirectoryState(directory)?.tabs.find((tab) => tab.id === tabId);
-                if (!currentTab || currentTab.previewUrlLocked || currentTab.previewUrl === candidate) {
-                    return;
-                }
-
-                setTabPreviewUrl(directory, tabId, candidate, { locked: false, autoOpened: false });
-            });
+            previewScannerRef.current.scan(directory, tabId, data, setTabPreviewUrl);
         },
         [setTabPreviewUrl]
     );
@@ -722,11 +684,6 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
         [activeModifier, focusTerminalController, handleViewportInput, setActiveModifier]
     );
 
-    const QUICK_KEY_MAP = React.useMemo<Record<string, MobileKey>>(() => ({
-        Tab: 'tab', Enter: 'enter', ArrowUp: 'arrow-up', ArrowDown: 'arrow-down',
-        ArrowLeft: 'arrow-left', ArrowRight: 'arrow-right', Escape: 'esc',
-    }), []);
-
     const handleQuickKeyDown = React.useCallback((event: KeyboardEvent) => {
         if (event.repeat) return;
         const rawKey = event.key;
@@ -740,24 +697,15 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
             return;
         }
 
-        if (activeModifier !== 'ctrl') return;
-
-        const code = event.code ?? '';
-        const upperKey =
-            rawKey.length === 1 && /[a-zA-Z]/.test(rawKey)
-                ? rawKey.toUpperCase()
-                : (code.startsWith('Key') && code.length === 4 ? code.slice(3).toUpperCase() : null);
-
-        if (upperKey && upperKey.length === 1 && upperKey >= 'A' && upperKey <= 'Z') {
-            const controlCode = terminalControlCharacter(upperKey);
-            if (!controlCode) return;
+        const controlCode = resolveTerminalControlKey(event, activeModifier);
+        if (controlCode) {
             event.preventDefault();
             event.stopPropagation();
             handleViewportInput(controlCode);
             setActiveModifier(null);
             focusTerminalController();
         }
-    }, [activeModifier, focusTerminalController, handleMobileKeyPress, handleViewportInput, QUICK_KEY_MAP, setActiveModifier]);
+    }, [activeModifier, focusTerminalController, handleMobileKeyPress, handleViewportInput, setActiveModifier]);
 
     React.useEffect(() => {
         if (!showQuickKeys || !activeModifier || !terminalSessionId) return;
@@ -864,116 +812,13 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
         if (isTouchTerminal) event.preventDefault();
     };
     const quickKeysControls = (
-        <>
-            <Button
-                type="button"
-                size={quickKeySize}
-                variant="outline"
-                onPointerDown={preserveTerminalFocus}
-                onClick={() => handleMobileKeyPress('esc')}
-                disabled={quickKeysDisabled}
-            >
-                {"Esc"}
-            </Button>
-            <Button
-                type="button"
-                size={quickKeySize}
-                variant="outline"
-                className={quickKeyIconClass}
-                onPointerDown={preserveTerminalFocus}
-                onClick={() => handleMobileKeyPress('tab')}
-                disabled={quickKeysDisabled}
-            >
-                <Icon name="arrow-right" className="h-4 w-4" />
-                <span className="sr-only">{"Tab"}</span>
-            </Button>
-            <Button
-                type="button"
-                size={quickKeySize}
-                variant="chip"
-                aria-pressed={activeModifier === 'ctrl'}
-                className={isTouchTerminal ? 'px-3' : 'px-2'}
-                onPointerDown={preserveTerminalFocus}
-                onClick={() => handleModifierToggle('ctrl')}
-                disabled={quickKeysDisabled}
-            >
-                <span className="text-xs font-medium">{"Ctrl"}</span>
-                <span className="sr-only">{"Control modifier"}</span>
-            </Button>
-            <Button
-                type="button"
-                size={quickKeySize}
-                variant="chip"
-                aria-pressed={activeModifier === 'alt'}
-                className={isTouchTerminal ? 'px-3' : 'px-2'}
-                onPointerDown={preserveTerminalFocus}
-                onClick={() => handleModifierToggle('alt')}
-                disabled={quickKeysDisabled}
-            >
-                <span className="text-xs font-medium">{"Alt"}</span>
-                <span className="sr-only">{"Alt modifier"}</span>
-            </Button>
-            <Button
-                type="button"
-                size={quickKeySize}
-                variant="outline"
-                className={quickKeyIconClass}
-                onPointerDown={preserveTerminalFocus}
-                onClick={() => handleMobileKeyPress('arrow-up')}
-                disabled={quickKeysDisabled}
-            >
-                <Icon name="arrow-up"/>
-                <span className="sr-only">{"Arrow up"}</span>
-            </Button>
-            <Button
-                type="button"
-                size={quickKeySize}
-                variant="outline"
-                className={quickKeyIconClass}
-                onPointerDown={preserveTerminalFocus}
-                onClick={() => handleMobileKeyPress('arrow-left')}
-                disabled={quickKeysDisabled}
-            >
-                <Icon name="arrow-left"/>
-                <span className="sr-only">{"Arrow left"}</span>
-            </Button>
-            <Button
-                type="button"
-                size={quickKeySize}
-                variant="outline"
-                className={quickKeyIconClass}
-                onPointerDown={preserveTerminalFocus}
-                onClick={() => handleMobileKeyPress('arrow-down')}
-                disabled={quickKeysDisabled}
-            >
-                <Icon name="arrow-down"/>
-                <span className="sr-only">{"Arrow down"}</span>
-            </Button>
-            <Button
-                type="button"
-                size={quickKeySize}
-                variant="outline"
-                className={quickKeyIconClass}
-                onPointerDown={preserveTerminalFocus}
-                onClick={() => handleMobileKeyPress('arrow-right')}
-                disabled={quickKeysDisabled}
-            >
-                <Icon name="arrow-right"/>
-                <span className="sr-only">{"Arrow right"}</span>
-            </Button>
-            <Button
-                type="button"
-                size={quickKeySize}
-                variant="outline"
-                className={quickKeyIconClass}
-                onPointerDown={preserveTerminalFocus}
-                onClick={() => handleMobileKeyPress('enter')}
-                disabled={quickKeysDisabled}
-            >
-                <Icon name="arrow-go-back"/>
-                <span className="sr-only">{"Enter"}</span>
-            </Button>
-        </>
+        <TerminalQuickKeys
+            isTouchTerminal={isTouchTerminal}
+            activeModifier={activeModifier}
+            disabled={quickKeysDisabled}
+            onKeyPress={handleMobileKeyPress}
+            onModifierToggle={handleModifierToggle}
+        />
     );
 
     return (
