@@ -20,15 +20,7 @@ import {
   useGitLoadingLog,
 } from '@/stores/useGitStore';
 import { toast } from '@/components/ui';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { Icon } from "@/components/icon/Icon";
-import { Button } from '@/components/ui/button';
 
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 
@@ -38,11 +30,12 @@ import { GitmojiPickerDialog } from './git/GitmojiPickerDialog';
 import { getGitViewSnapshot, rememberGitViewSnapshot } from './git/gitViewSnapshots';
 import { CommitSection } from './git/CommitSection';
 import { GitEmptyState } from './git/GitEmptyState';
-import { HistorySection } from './git/HistorySection';
 import { ConflictDialog } from './git/ConflictDialog';
 import { StashDialog } from './git/StashDialog';
 import { InProgressOperationBanner } from './git/InProgressOperationBanner';
-import { BranchIntegrationSection, type OperationLogEntry } from './git/BranchIntegrationSection';
+import type { OperationLogEntry } from './git/BranchIntegrationSection';
+import { UpdateBranchDialog } from './git/UpdateBranchDialog';
+import { GitHistoryDialog, type GitLogDialogMode, type HistoryBranchDivider } from './git/GitHistoryDialog';
 import { deriveBaseBranch, hasResolvableBaseBranch } from './git/baseBranch';
 import { createGitIndexMutationQueue, type GitIndexMutationDirection, type GitIndexMutationQueue } from './git/gitIndexMutationQueue';
 import { MobileGitChrome } from './git/MobileGitChrome';
@@ -61,12 +54,6 @@ const DiffView = lazyWithChunkRecovery(() => import('./DiffView').then((m) => ({
 type SyncAction = 'fetch' | 'pull' | 'push' | 'sync' | null;
 type CommitAction = 'commit' | 'commitAndPush' | null;
 type BranchOperation = 'merge' | 'rebase' | null;
-type GitLogDialogMode = 'history' | 'graph';
-type HistoryBranchDivider = {
-  insertBeforeIndex: number;
-  branchName: string;
-  direction: 'up' | 'down';
-} | null;
 
 const GIT_RECONCILE_DELAY_MS = 15000;
 
@@ -1975,107 +1962,47 @@ export const GitView: React.FC<GitViewProps> = ({
         </div>
       </div>
 
-      <Dialog
+      <UpdateBranchDialog
         open={isUpdateBranchDialogOpen}
-        onOpenChange={(open) => {
-          // Keep the dialog up while a merge/rebase is running so the
-          // operation log stays visible until it completes or fails.
-          if (!open && branchOperation !== null) {
+        onOpenChange={setIsUpdateBranchDialogOpen}
+        branchOperation={branchOperation}
+        currentBranch={status?.current}
+        localBranches={localBranches}
+        remoteBranches={remoteBranches}
+        defaultTargetBranch={updateTargetBranch}
+        onMerge={handleMerge}
+        onRebase={handleRebase}
+        disabled={isBusy}
+        operationLogs={operationLogs}
+        onOperationComplete={handleOperationComplete}
+        canShowBranchWorkflows={canShowBranchWorkflows}
+      />
+
+      <GitHistoryDialog
+        mode={gitLogDialogMode}
+        onOpenChange={(open) => { if (!open) setGitLogDialogMode(null); }}
+        onRefresh={() => {
+          if (gitLogDialogMode === 'graph') {
+            setGraphLogRefreshToken((token) => token + 1);
             return;
           }
-          setIsUpdateBranchDialogOpen(open);
+          if (!currentDirectory) return;
+          void fetchLog(currentDirectory, git, logMaxCountLocal);
         }}
-      >
-        <DialogContent className="max-w-2xl min-h-[26rem]">
-          <DialogHeader>
-            <DialogTitle>{"Update branch"}</DialogTitle>
-            <DialogDescription>
-              {"Bring the latest changes into"}{' '}
-              <span className="font-mono text-foreground">{status?.current ?? ''}</span>.
-            </DialogDescription>
-          </DialogHeader>
-          {canShowBranchWorkflows ? (
-            <BranchIntegrationSection
-              mode="bare"
-              currentBranch={status?.current}
-              localBranches={localBranches}
-              remoteBranches={remoteBranches}
-              defaultTargetBranch={updateTargetBranch}
-              onMerge={handleMerge}
-              onRebase={handleRebase}
-              disabled={isBusy}
-              isOperating={branchOperation !== null}
-              operationLogs={operationLogs}
-              onOperationComplete={handleOperationComplete}
-            />
-          ) : (
-            <p className="typography-meta text-muted-foreground">{"Branch actions unavailable in this repository state"}</p>
-          )}
-        </DialogContent>
-      </Dialog>
-
-
-
-      <Dialog open={gitLogDialogMode !== null} onOpenChange={(open) => { if (!open) setGitLogDialogMode(null); }}>
-        <DialogContent className="max-w-5xl h-[90vh] max-h-[90vh] flex flex-col overflow-hidden">
-          <DialogHeader>
-            <div className="flex items-center justify-between gap-2">
-              <DialogTitle>
-                {gitLogDialogMode === 'graph' ? "Graph" : "History"}
-              </DialogTitle>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="mr-6 h-7 shrink-0 gap-1.5 px-2"
-                onClick={() => {
-                  if (gitLogDialogMode === 'graph') {
-                    setGraphLogRefreshToken((token) => token + 1);
-                    return;
-                  }
-                  if (!currentDirectory) return;
-                  void fetchLog(currentDirectory, git, logMaxCountLocal);
-                }}
-                disabled={gitLogDialogMode === 'graph' ? graphLogLoading : isLogLoading}
-                title={"Refresh"}
-                aria-label={"Refresh"}
-              >
-                <Icon
-                  name="refresh"
-                  className={cn(
-                    'size-4',
-                    (gitLogDialogMode === 'graph' ? graphLogLoading : isLogLoading) && 'animate-spin'
-                  )}
-                />
-                {"Refresh"}
-              </Button>
-            </div>
-            <DialogDescription>
-              {"Browse recent commits and inspect changed files."}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex-1 min-h-0">
-            <HistorySection
-              mode={gitLogDialogMode === 'graph' ? 'graph' : 'history'}
-              log={gitLogDialogMode === 'graph' ? graphLog ?? log : log}
-              isLogLoading={gitLogDialogMode === 'graph' ? graphLogLoading || isLogLoading : isLogLoading}
-              logMaxCount={gitLogDialogMode === 'graph' ? graphLogMaxCount : logMaxCountLocal}
-              onLogMaxCountChange={gitLogDialogMode === 'graph' ? handleGraphLogMaxCountChange : handleLogMaxCountChange}
-              expandedCommitHashes={expandedCommitHashes}
-              onToggleCommit={handleToggleCommit}
-              commitFilesMap={commitFilesMap}
-              loadingCommitHashes={loadingCommitHashes}
-              onCopyHash={handleCopyCommitHash}
-              directory={currentDirectory ?? undefined}
-              showHeader={false}
-              contentMaxHeightClassName="h-full max-h-none"
-              branchDivider={gitLogDialogMode === 'graph' ? null : historyBranchDivider}
-              onConflict={gitLogDialogMode === 'graph' ? handleGraphConflict : undefined}
-              onActionSuccess={gitLogDialogMode === 'graph' ? handleGraphActionSuccess : undefined}
-            />
-          </div>
-        </DialogContent>
-      </Dialog>
+        isRefreshing={gitLogDialogMode === 'graph' ? graphLogLoading : isLogLoading}
+        log={gitLogDialogMode === 'graph' ? graphLog ?? log : log}
+        maxCount={gitLogDialogMode === 'graph' ? graphLogMaxCount : logMaxCountLocal}
+        onMaxCountChange={gitLogDialogMode === 'graph' ? handleGraphLogMaxCountChange : handleLogMaxCountChange}
+        expandedCommitHashes={expandedCommitHashes}
+        onToggleCommit={handleToggleCommit}
+        commitFilesMap={commitFilesMap}
+        loadingCommitHashes={loadingCommitHashes}
+        onCopyHash={handleCopyCommitHash}
+        directory={currentDirectory ?? undefined}
+        branchDivider={historyBranchDivider}
+        onConflict={gitLogDialogMode === 'graph' ? handleGraphConflict : undefined}
+        onActionSuccess={gitLogDialogMode === 'graph' ? handleGraphActionSuccess : undefined}
+      />
 
       <StashesDialog
         open={isStashesDialogOpen}
