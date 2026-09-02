@@ -44,7 +44,6 @@ import { useCurrentSessionActivity } from '@/hooks/useSessionActivity';
 import { toast } from '@/components/ui';
 import { useTabletLayout } from '@/lib/device';
 import { useHardwareKeyboard } from '@/lib/hardwareKeyboard';
-import { isIMECompositionEvent } from '@/lib/ime';
 import type { MobileControlsPanel } from './mobileControlsUtils';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
@@ -63,11 +62,6 @@ import { fetchResponseStyleInstruction } from '@/lib/responseStyle';
 import { wrapSystemReminder } from '@/lib/systemReminder';
 import { getSyncMessages } from '@/sync/sync-refs';
 import { eventMatchesShortcut, getEffectiveShortcutCombo, normalizeCombo } from '@/lib/shortcuts';
-import {
-    assignImageAttachmentFilenames,
-    buildAttachmentCitationText,
-    renameFileForAttachmentCitation,
-} from './attachmentCitations';
 import { getFileMentionInputSourceForInsertedText, type FileMentionAutocompleteInputSource } from './fileMentionAutocompleteState';
 import {
     classifyMention,
@@ -84,14 +78,10 @@ import { createComposerEditorViewStore } from './composer/editor/viewStore';
 import {
     appendInlineText,
     appendWithLineBreaks,
-    buildImagePasteInsertion,
-    shouldWrapSelectionAsLink,
     withInlineInsertionBoundaries,
 } from './composer/text';
-import {
-    collectDroppedFiles,
-    hasDraggedFiles,
-} from './composer/attachments/dataTransfer';
+import { useComposerDrop } from './composer/attachments/useComposerDrop';
+import { useComposerPaste } from './composer/attachments/useComposerPaste';
 import {
     normalizePath,
     toProjectRelativeMentionPath,
@@ -102,6 +92,8 @@ import { parseSlashCommand } from './composer/submit/slashCommands';
 import { useAutocompletePosition } from './composer/state/useAutocompletePosition';
 import { useMessageHistory } from './composer/state/useMessageHistory';
 import { useComposerDraft } from './composer/state/useComposerDraft';
+import { useComposerAutocompleteHandlers } from './composer/state/useComposerAutocompleteHandlers';
+import { useComposerKeyNavigation } from './composer/state/useComposerKeyNavigation';
 import { useDraftTarget } from './composer/state/useDraftTarget';
 import { useDraftBranchCheckout } from './composer/state/useDraftBranchCheckout';
 import { useDraftWorktreeCreation } from './composer/state/useDraftWorktreeCreation';
@@ -194,8 +186,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     });
     const confirmedMentionsRef = React.useRef<Set<string>>(initialDraftSnapshotRef.current.confirmedMentions);
     const [inputMode, setInputMode] = React.useState<'normal' | 'shell'>('normal');
-    const [isDragging, setIsDragging] = React.useState(false);
-    const [isInternalDrag, setIsInternalDrag] = React.useState(false);
     // At most one picker is open at a time; the prompt language decides which.
     const [openAutocomplete, setOpenAutocomplete] = React.useState<AutocompleteKind | null>(null);
     const [autocompleteQuery, setAutocompleteQuery] = React.useState('');
@@ -215,7 +205,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const composerFormRef = React.useRef<HTMLFormElement | null>(null);
     const cursorPosRef = React.useRef(0);
     const dropZoneRef = React.useRef<HTMLDivElement>(null);
-    const dragEnterCountRef = React.useRef(0);
     const suppressNextFileMentionPasteRef = React.useRef(false);
     const suppressNextFileMentionPasteTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const canAcceptDropRef = React.useRef(false);
@@ -226,7 +215,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     // Ref to track current message value without triggering re-renders in effects
     const messageRef = React.useRef(message);
     const currentChatDraftIdentityRef = React.useRef<ChatDraftIdentity | null>(initialDraftIdentityRef.current);
-    const pendingPastedAttachmentFilenamesRef = React.useRef<Set<string>>(new Set());
 
     // TODO: port sendMessage to session-actions (complex — creates sessions, handles attachments, etc.)
     const sendMessage = React.useRef((...args: unknown[]) =>
@@ -1091,156 +1079,42 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         if (text) submitPresetPrompt(text.text, text.type);
     }, [pendingPresetSubmit, submitPresetPrompt]);
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-        // Early return during IME composition to prevent interference with autocomplete.
-        // Uses keyCode === 229 fallback for WebKit where compositionend fires before keydown.
-        if (isIMECompositionEvent(e)) return;
+    const updateAutocompleteState = React.useCallback((
+        value: string,
+        cursorPosition: number,
+        inputSource: FileMentionAutocompleteInputSource = 'manual',
+        insertedText?: string,
+    ) => {
+        const trigger = resolveAutocompleteTrigger(value, cursorPosition, {
+            inputMode,
+            inputSource,
+            insertedText,
+        });
+        setOpenAutocomplete(trigger?.kind ?? null);
+        setAutocompleteQuery(trigger?.query ?? '');
+    }, [inputMode]);
 
-        if (inputMode === 'shell' && e.key === 'Escape') {
-            e.preventDefault();
-            setInputMode('normal');
-            return;
-        }
-
-        if (inputMode === 'shell' && e.key === 'Backspace' && message.length === 0) {
-            e.preventDefault();
-            setInputMode('normal');
-            return;
-        }
-
-        if (openAutocomplete === 'command' && commandRef.current) {
-            if (e.key === 'Enter' || e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Escape' || e.key === 'Tab') {
-                e.preventDefault();
-                e.stopPropagation();
-                commandRef.current.handleKeyDown(e.key);
-                return;
-            }
-        }
-
-        if (openAutocomplete === 'skill' && skillRef.current) {
-            if (e.key === 'Enter' || e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Escape' || e.key === 'Tab') {
-                e.preventDefault();
-                e.stopPropagation();
-                skillRef.current.handleKeyDown(e.key);
-                return;
-            }
-        }
-
-        if (openAutocomplete === 'snippet' && snippetRef.current) {
-            if (e.key === 'Enter' || e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Escape' || e.key === 'Tab') {
-                e.preventDefault();
-                e.stopPropagation();
-                snippetRef.current.handleKeyDown(e.key);
-                return;
-            }
-        }
-
-        if (openAutocomplete === 'mention' && mentionRef.current) {
-            if (e.key === 'Enter' || e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Escape' || e.key === 'Tab') {
-                e.preventDefault();
-                e.stopPropagation();
-                mentionRef.current.handleKeyDown(e.key);
-                return;
-            }
-        }
-
-        // Handle ArrowUp/ArrowDown for message history navigation
-        // ArrowUp: only when cursor at start (position 0) or input is empty
-        // ArrowDown: also works when cursor at end (to cycle forward through history)
-        const isAnyAutocompleteOpen = openAutocomplete !== null;
-        const cursorAtStart = composerRef.current?.getSelection().start === 0 && composerRef.current?.getSelection().end === 0;
-        const cursorAtEnd = composerRef.current?.getSelection().start === message.length && composerRef.current?.getSelection().end === message.length;
-        const canNavigateHistoryUp = !isAnyAutocompleteOpen && (message.length === 0 || cursorAtStart);
-        const canNavigateHistoryDown = !isAnyAutocompleteOpen && (message.length === 0 || cursorAtEnd);
-
-        // Markdown-aware auto-pairing (source mode), normal input only.
-        if (inputMode === 'normal' && !isAnyAutocompleteOpen && !e.metaKey && !e.ctrlKey && !e.altKey) {
-            const ta = composerRef.current;
-            const selStart = ta?.getSelection().start ?? -1;
-            const selEnd = ta?.getSelection().end ?? -1;
-
-            if (ta && selStart >= 0) {
-                const applyEdit = (next: string, caretStart: number, caretEnd: number) => {
-                    e.preventDefault();
-                    setMessage(next);
-                    composerRef.current?.setSelection(caretStart, caretEnd);
-                    updateAutocompleteState(next, caretEnd);
-                };
-
-                // Wrap the current selection: select text, press ` * _ ~ ( [ { " '
-                const WRAP_PAIRS: Record<string, [string, string]> = {
-                    '`': ['`', '`'], '*': ['*', '*'], '_': ['_', '_'], '~': ['~', '~'],
-                    '(': ['(', ')'], '[': ['[', ']'], '{': ['{', '}'],
-                    '"': ['"', '"'], "'": ["'", "'"],
-                };
-                if (selEnd > selStart && WRAP_PAIRS[e.key]) {
-                    const [open, close] = WRAP_PAIRS[e.key];
-                    const selected = message.slice(selStart, selEnd);
-                    const next = `${message.slice(0, selStart)}${open}${selected}${close}${message.slice(selEnd)}`;
-                    applyEdit(next, selStart + open.length, selEnd + open.length);
-                    return;
-                }
-
-                // Typing the third backtick at line start expands into a fenced
-                // code block with the caret on the empty middle line (Slack-like).
-                if (e.key === '`' && selStart === selEnd) {
-                    const before = message.slice(0, selStart);
-                    if (/(^|\n)``$/.test(before)) {
-                        const after = message.slice(selEnd);
-                        const next = `${before}\`\n\n\`\`\`${after}`;
-                        const caret = before.length + 2; // after the completed ``` and first newline
-                        applyEdit(next, caret, caret);
-                        return;
-                    }
-                }
-            }
-        }
-
-        if (e.key === 'ArrowUp' && canNavigateHistoryUp) {
-            e.preventDefault();
-            const recalled = messageHistory.older(message);
-            if (recalled !== null) {
-                setMessage(recalled);
-                // Caret to the start, so the recalled message reads from its
-                // beginning rather than from wherever the draft's caret was.
-                requestAnimationFrame(() => composerRef.current?.setSelection(0, 0));
-            }
-            return;
-        }
-
-        if (e.key === 'ArrowDown' && canNavigateHistoryDown) {
-            e.preventDefault();
-            const recalled = messageHistory.newer();
-            if (recalled !== null) setMessage(recalled);
-            return;
-        }
-
-        // Handle Enter/Ctrl+Enter based on selected follow-up behavior.
-        if (e.key === 'Enter' && !e.shiftKey && (!isMobile || e.ctrlKey || e.metaKey)) {
-            e.preventDefault();
-
-            const isCtrlEnter = e.ctrlKey || e.metaKey;
-
-            // Queueing / steering only works when there's an existing busy
-            // session (or an active auto-review run).
-            const canQueue = inputMode === 'normal' && hasContent && currentSessionId && sessionPhase !== 'idle';
-
-            if (followUpBehavior === 'queue') {
-                if (isCtrlEnter || !canQueue) {
-                    handleSubmit();
-                } else {
-                    void handleQueueMessage();
-                }
-            } else {
-                // steer: Enter steers into the running turn, Ctrl+Enter sends now.
-                if (isCtrlEnter || !canQueue) {
-                    handleSubmit();
-                } else {
-                    handleSubmit({ delivery: 'steer' });
-                }
-            }
-        }
-    };
+    const handleKeyDown = useComposerKeyNavigation({
+        inputMode,
+        setInputMode,
+        message,
+        setMessage,
+        openAutocomplete,
+        commandRef,
+        skillRef,
+        snippetRef,
+        mentionRef,
+        composerRef,
+        messageHistory,
+        updateAutocompleteState,
+        isMobile,
+        hasContent,
+        currentSessionId,
+        sessionPhase,
+        followUpBehavior,
+        handleSubmit,
+        handleQueueMessage,
+    });
 
     // Focus mode places the open picker at the caret; elsewhere each picker
     // anchors to the composer itself.
@@ -1275,24 +1149,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
         void abortCurrentOperation(currentSessionId || undefined);
     }, [abortCurrentOperation, clearAbortPrompt, currentSessionId, startAbortIndicator]);
-
-
-
-
-    const updateAutocompleteState = React.useCallback((
-        value: string,
-        cursorPosition: number,
-        inputSource: FileMentionAutocompleteInputSource = 'manual',
-        insertedText?: string,
-    ) => {
-        const trigger = resolveAutocompleteTrigger(value, cursorPosition, {
-            inputMode,
-            inputSource,
-            insertedText,
-        });
-        setOpenAutocomplete(trigger?.kind ?? null);
-        setAutocompleteQuery(trigger?.query ?? '');
-    }, [inputMode]);
 
     const insertTextAtSelection = React.useCallback((
         text: string,
@@ -1403,259 +1259,40 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         };
     }, [clearFileMentionPasteSuppression]);
 
-    const handlePaste = React.useCallback(async (event: ClipboardEvent) => {
-        const clipboardData = event.clipboardData;
-        if (!clipboardData) return;
-        // Narrowed alias so the rest of the handler reads as it did when this
-        // was a React synthetic event, whose clipboardData is never null.
-        const e = { ...event, clipboardData, preventDefault: () => event.preventDefault() };
+    const handlePaste = useComposerPaste({
+        inputMode,
+        enabled: Boolean(currentSessionId || newSessionDraftOpen),
+        composerRef,
+        message,
+        setMessage,
+        insertTextAtSelection,
+        updateAutocompleteState,
+        markFileMentionPasteSuppression,
+        attachedFiles,
+        addAttachedFile,
+    });
 
-        // Pasting a URL over a selection wraps it as a markdown link:
-        // [selected text](pasted url).
-        if (inputMode === 'normal' && (currentSessionId || newSessionDraftOpen)) {
-            const ta = composerRef.current;
-            const selStart = ta?.getSelection().start ?? -1;
-            const selEnd = ta?.getSelection().end ?? -1;
-            if (ta && selEnd > selStart) {
-                const clipboardText = e.clipboardData.getData('text');
-                const url = clipboardText.trim();
-                const selected = message.slice(selStart, selEnd);
-                if (shouldWrapSelectionAsLink(url, selected)) {
-                    e.preventDefault();
-                    const next = `${message.slice(0, selStart)}[${selected}](${url})${message.slice(selEnd)}`;
-                    const caret = selStart + 1 + selected.length + 2 + url.length + 1;
-                    setMessage(next);
-                    composerRef.current?.setSelection(caret, caret);
-                    updateAutocompleteState(next, caret, getFileMentionInputSourceForInsertedText(url), url);
-                    return;
-                }
-            }
-        }
+    // Mention paths are shown relative to the project the chat searches.
+    const toMentionPath = React.useCallback(
+        (absolutePath: string) => toProjectRelativeMentionPath(absolutePath, chatSearchDirectory || ""),
+        [chatSearchDirectory],
+    );
 
-        const fileMap = new Map<string, File>();
-
-        Array.from(e.clipboardData.files || []).forEach(file => {
-            if (file.type.startsWith('image/')) {
-                fileMap.set(`${file.name}-${file.size}`, file);
-            }
-        });
-
-        Array.from(e.clipboardData.items || []).forEach(item => {
-            if (item.kind === 'file' && item.type.startsWith('image/')) {
-                const file = item.getAsFile();
-                if (file) {
-                    fileMap.set(`${file.name}-${file.size}`, file);
-                }
-            }
-        });
-
-        const imageFiles = Array.from(fileMap.values());
-        const pastedText = e.clipboardData.getData('text');
-        if (imageFiles.length === 0) {
-            if (pastedText.includes('@')) {
-                markFileMentionPasteSuppression();
-            }
-            return;
-        }
-
-        if (!currentSessionId && !newSessionDraftOpen) {
-            if (pastedText.includes('@')) {
-                markFileMentionPasteSuppression();
-            }
-            return;
-        }
-
-        e.preventDefault();
-
-        const assignedFilenames = assignImageAttachmentFilenames(
-            imageFiles,
-            [
-                ...attachedFiles.map((file) => file.filename),
-                ...pendingPastedAttachmentFilenamesRef.current,
-            ],
-        );
-        const citationText = buildAttachmentCitationText(assignedFilenames);
-        const textarea = composerRef.current;
-        const selectionStart = textarea?.getSelection().start ?? message.length;
-        const selectionEnd = textarea?.getSelection().end ?? message.length;
-        const insertionText = withInlineInsertionBoundaries(
-            buildImagePasteInsertion(pastedText, citationText),
-            message.slice(0, selectionStart),
-            message.slice(selectionEnd),
-        );
-
-        insertTextAtSelection(insertionText, getFileMentionInputSourceForInsertedText(insertionText));
-
-        await Promise.all(imageFiles.map(async (imageFile, index) => {
-            const filename = assignedFilenames[index];
-            const file = renameFileForAttachmentCitation(imageFile, filename);
-            pendingPastedAttachmentFilenamesRef.current.add(filename);
-            try {
-                await addAttachedFile(file);
-            } catch (error) {
-                console.error('Clipboard image attach failed', error);
-                toast.error(error instanceof Error ? error.message : "Failed to attach image from clipboard");
-            } finally {
-                pendingPastedAttachmentFilenamesRef.current.delete(filename);
-            }
-        }));
-    }, [addAttachedFile, attachedFiles, currentSessionId, inputMode, markFileMentionPasteSuppression, message, newSessionDraftOpen, insertTextAtSelection, setMessage, updateAutocompleteState]);
-
-    const handleFileSelect = (file: { name: string; path: string; relativePath?: string }) => {
-
-        const cursorPosition = composerRef.current?.getSelection().start || 0;
-        const textBeforeCursor = message.substring(0, cursorPosition);
-        const lastAtSymbol = textBeforeCursor.lastIndexOf('@');
-
-        const mentionPath = (file.relativePath && file.relativePath.trim().length > 0)
-            ? file.relativePath.trim()
-            : (toMentionPath(file.path) || file.name);
-
-        confirmedMentionsRef.current.add(mentionPath);
-
-        if (lastAtSymbol !== -1) {
-            const newMessage =
-                message.substring(0, lastAtSymbol) +
-                `@${mentionPath} ` +
-                message.substring(cursorPosition);
-            setMessage(newMessage);
-            const nextCursor = lastAtSymbol + mentionPath.length + 2;
-            requestAnimationFrame(() => {
-                if (composerRef.current) {
-                    composerRef.current.setSelection(nextCursor);
-                }
-                updateAutocompleteState(newMessage, nextCursor);
-            });
-        } else if (composerRef.current) {
-            const newMessage =
-                message.substring(0, cursorPosition) +
-                `@${mentionPath} ` +
-                message.substring(cursorPosition);
-            setMessage(newMessage);
-            const nextCursor = cursorPosition + mentionPath.length + 2;
-            requestAnimationFrame(() => {
-                if (composerRef.current) {
-                    composerRef.current.setSelection(nextCursor);
-                }
-                updateAutocompleteState(newMessage, nextCursor);
-            });
-        }
-
-        closeAutocomplete();
-
-        composerRef.current?.focus();
-    };
-
-    const handleAgentSelect = (agentName: string) => {
-        const textarea = composerRef.current;
-        const cursorPosition = textarea?.getSelection().start ?? message.length;
-        const textBeforeCursor = message.substring(0, cursorPosition);
-        const lastAtSymbol = textBeforeCursor.lastIndexOf('@');
-
-        if (lastAtSymbol !== -1) {
-            const newMessage =
-                message.substring(0, lastAtSymbol) +
-                `@${agentName} ` +
-                message.substring(cursorPosition);
-            setMessage(newMessage);
-
-            const nextCursor = lastAtSymbol + agentName.length + 2;
-            requestAnimationFrame(() => {
-                if (composerRef.current) {
-                    composerRef.current.setSelection(nextCursor);
-                }
-                updateAutocompleteState(newMessage, nextCursor);
-            });
-        } else if (composerRef.current) {
-            const newMessage =
-                message.substring(0, cursorPosition) +
-                `@${agentName} ` +
-                message.substring(cursorPosition);
-            setMessage(newMessage);
-
-            const nextCursor = cursorPosition + agentName.length + 2;
-            requestAnimationFrame(() => {
-                if (composerRef.current) {
-                    composerRef.current.setSelection(nextCursor);
-                }
-                updateAutocompleteState(newMessage, nextCursor);
-            });
-        }
-
-        closeAutocomplete();
-
-        composerRef.current?.focus();
-    };
-
-    const handleSkillSelect = (skillName: string) => {
-        const textarea = composerRef.current;
-        const cursorPosition = textarea?.getSelection().start ?? message.length;
-        const textBeforeCursor = message.substring(0, cursorPosition);
-        const lastSlashSymbol = textBeforeCursor.lastIndexOf('/');
-
-        if (lastSlashSymbol !== -1) {
-            const newMessage =
-                message.substring(0, lastSlashSymbol) +
-                `/${skillName} ` +
-                message.substring(cursorPosition);
-            setMessage(newMessage);
-
-            const nextCursor = lastSlashSymbol + skillName.length + 2;
-            requestAnimationFrame(() => {
-                if (composerRef.current) {
-                    composerRef.current.setSelection(nextCursor);
-                }
-                updateAutocompleteState(newMessage, nextCursor);
-            });
-        }
-
-        closeAutocomplete();
-
-        composerRef.current?.focus();
-    };
-
-    const handleSnippetSelect = (_snippet: unknown, trigger: string) => {
-        const textarea = composerRef.current;
-        const cursorPosition = textarea?.getSelection().start ?? message.length;
-        const textBeforeCursor = message.substring(0, cursorPosition);
-        const lastHashSymbol = textBeforeCursor.lastIndexOf('#');
-        const startIndex = lastHashSymbol !== -1 ? lastHashSymbol : cursorPosition;
-        const newMessage = `${message.substring(0, startIndex)}#${trigger} ${message.substring(cursorPosition)}`;
-        setMessage(newMessage);
-        const nextCursor = startIndex + trigger.length + 2;
-        requestAnimationFrame(() => {
-            if (composerRef.current) {
-                composerRef.current.setSelection(nextCursor);
-            }
-            updateAutocompleteState(newMessage, nextCursor);
-        });
-        closeAutocomplete();
-        composerRef.current?.focus();
-    };
-
-    const handleCommandSelect = (command: CommandInfo) => {
-
-        setMessage(`/${command.name} `);
-
-        closeAutocomplete();
-
-        const refocus = () => {
-            if (composerRef.current) {
-                try {
-                    composerRef.current.focus({ preventScroll: true });
-                } catch {
-                    composerRef.current.focus();
-                }
-                composerRef.current.setSelection(composerRef.current.getValue().length, composerRef.current.getValue().length);
-            }
-        };
-
-        requestAnimationFrame(() => {
-            refocus();
-            requestAnimationFrame(refocus);
-        });
-        setTimeout(refocus, 60);
-    };
+    const {
+        handleFileSelect,
+        handleAgentSelect,
+        handleSkillSelect,
+        handleSnippetSelect,
+        handleCommandSelect,
+    } = useComposerAutocompleteHandlers({
+        composerRef,
+        message,
+        setMessage,
+        updateAutocompleteState,
+        closeAutocomplete,
+        confirmedMentionsRef,
+        toMentionPath,
+    });
 
     React.useEffect(() => {
 
@@ -1680,118 +1317,24 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         canAcceptDropRef.current = Boolean(currentSessionId || newSessionDraftOpen);
     }, [currentSessionId, newSessionDraftOpen]);
 
-    // Mention paths are shown relative to the project the chat searches.
-    const toMentionPath = React.useCallback(
-        (absolutePath: string) => toProjectRelativeMentionPath(absolutePath, chatSearchDirectory || ""),
-        [chatSearchDirectory],
-    );
-
-    const handleDragEnter = (e: React.DragEvent) => {
-        if (!hasDraggedFiles(e.dataTransfer)) {
-            return;
-        }
-        e.preventDefault();
-        e.stopPropagation();
-        dragEnterCountRef.current++;
-        const isInternal = e.dataTransfer.types?.includes('application/x-pichamber-file-path') ?? false;
-        if (isInternal !== isInternalDrag) {
-            setIsInternalDrag(isInternal);
-        }
-        if ((currentSessionId || newSessionDraftOpen) && !isDragging) {
-            setIsDragging(true);
-        }
-    };
-
-    const handleDragOver = (e: React.DragEvent) => {
-        if (!hasDraggedFiles(e.dataTransfer)) {
-            return;
-        }
-        e.preventDefault();
-        e.stopPropagation();
-        e.dataTransfer.dropEffect = 'copy';
-        if ((currentSessionId || newSessionDraftOpen) && !isDragging) {
-            setIsDragging(true);
-        }
-    };
-
-    const handleDragLeave = (e: React.DragEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dragEnterCountRef.current--;
-        if (dragEnterCountRef.current <= 0) {
-            dragEnterCountRef.current = 0;
-            setIsDragging(false);
-            setIsInternalDrag(false);
-        }
-    };
-
-    const handleDragEnd = () => {
-        dragEnterCountRef.current = 0;
-        setIsDragging(false);
-        setIsInternalDrag(false);
-    };
-
-    const handleDrop = async (e: React.DragEvent) => {
-        dragEnterCountRef.current = 0;
-        const draggedFiles = hasDraggedFiles(e.dataTransfer);
-        if (!draggedFiles) {
-            return;
-        }
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragging(false);
-
-        if (!currentSessionId && !newSessionDraftOpen) return;
-
-        // Internal drag: file tree → chat input (relative path as @mention)
-        const internalPath = e.dataTransfer.getData('application/x-pichamber-file-path');
-        if (internalPath && internalPath !== '.') {
-            confirmedMentionsRef.current.add(internalPath);
-            const mention = `@${internalPath}`;
-            const textarea = composerRef.current;
-            const currentMessage = messageRef.current;
-            if (textarea) {
-                const { start: pos, end } = textarea.getSelection();
-                const before = currentMessage.slice(0, pos);
-                const after = currentMessage.slice(end);
-                const needSpaceBefore = before.length > 0 && !/\s$/.test(before);
-                const needSpaceAfter = after.length > 0 && !/^\s/.test(after);
-                const insert = `${needSpaceBefore ? ' ' : ''}${mention}${needSpaceAfter ? ' ' : ''}`;
-                // Insert through the editor rather than setMessage: an editor
-                // dispatch places the caret right after the mention, while the
-                // external-rewrite path would send it to the end of the
-                // message and pin the scroll to the bottom.
-                textarea.replaceRange(pos, end, insert);
-                cursorPosRef.current = pos + insert.length;
-                textarea.focus();
-            } else {
-                setMessage((prev) => appendInlineText(prev, mention));
-            }
-            return;
-        }
-
-        const files = collectDroppedFiles(e.dataTransfer);
-
-        if (files.length > 0) {
-            const results = await Promise.all(files.map(async (file) => {
-                try {
-                    return await addAttachedFile(file);
-                } catch (error) {
-                    console.error('File attach failed', error);
-                    return false;
-                }
-            }));
-            if (!results.some(Boolean)) toast.error("Failed to attach file");
-        }
-    };
-
-    const handleDropCapture = (e: React.DragEvent) => {
-        if (!hasDraggedFiles(e.dataTransfer)) {
-            return;
-        }
-        // Prevent native textarea drop text insertion for all runtimes
-        e.preventDefault();
-    };
+    const {
+        isDragging,
+        isInternalDrag,
+        handleDragEnter,
+        handleDragOver,
+        handleDragLeave,
+        handleDragEnd,
+        handleDrop,
+        handleDropCapture,
+    } = useComposerDrop({
+        enabled: Boolean(currentSessionId || newSessionDraftOpen),
+        composerRef,
+        messageRef,
+        cursorPosRef,
+        confirmedMentionsRef,
+        setMessage,
+        addAttachedFile,
+    });
 
     const fileInputRef = React.useRef<HTMLInputElement>(null);
 
