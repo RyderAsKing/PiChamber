@@ -30,7 +30,6 @@ import {
 import { useDeviceInfo } from '@/lib/device';
 import { cn, getModifierLabel, hasModifier } from '@/lib/utils';
 import { getLanguageFromExtension, getImageMimeType, isBinaryFile, isDrawioFile, isImageFile, isPdfFile, isSvgFile } from '@/lib/toolHelpers';
-import { shouldAllowFileDraftSave, shouldScheduleFileAutosave } from '@/lib/fileEditorAutosave';
 import { getRuntimeUrlResolver } from '@/lib/runtime-url';
 import { getOutsideFileGrant } from '@/lib/outsideFileGrants';
 import { DiagramEditor } from '@/components/diagram/DiagramEditor';
@@ -69,7 +68,6 @@ import {
   isMarkdownFile,
   isPathWithinRoot,
   normalizePath,
-  serializeEditorContent,
   toComparablePath,
   type FileLineEnding,
   type FileNode,
@@ -79,9 +77,12 @@ import { useAssetAuthRefresh } from './files/useAssetAuthRefresh';
 import { FileViewerContent } from './files/FileViewerContent';
 import { useFileOperations } from './files/useFileOperations';
 import { loadFileDocument } from './files/loadFileDocument';
+import { useFileEditorSave } from './files/useFileEditorSave';
 import { useFileStatReconciliation } from './files/useFileStatReconciliation';
 import { useFilesTree } from './files/useFilesTree';
 import { useFilesViewSearch } from './files/useFilesViewSearch';
+
+const DIAGRAM_AUTO_SAVE_DELAY_MS = 1500;
 
 interface FilesViewProps {
   mode?: 'full' | 'editor-only';
@@ -289,9 +290,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   const [loadedFilePath, setLoadedFilePath] = React.useState<string | null>(null);
 
   const [draftContent, setDraftContent] = React.useState('');
-  const [isSaving, setIsSaving] = React.useState(false);
   const [loadedFileLineEnding, setLoadedFileLineEnding] = React.useState<FileLineEnding>('\n');
-  const autoSaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const diagramAutoSaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const diagramXmlRef = React.useRef('');
   const diagramSavedXmlRef = React.useRef('');
@@ -299,7 +298,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   const diagramEditorRef = React.useRef<React.ComponentRef<typeof DiagramEditor>>(null);
   const activeFileLoadIdRef = React.useRef(0);
   const loadingFilePathRef = React.useRef<string | null>(null);
-  const [autoSaveStatus, setAutoSaveStatus] = React.useState<'idle' | 'saved'>('idle');
   const [diagramSaved, setDiagramSaved] = React.useState(false);
   const [contentDetectedBinary, setContentDetectedBinary] = React.useState(false);
   const autoSaveEnabled = useUIStore((state) => state.autoSaveEnabled);
@@ -414,7 +412,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   React.useEffect(() => {
     setMainTabGuard(null);
     setDraftContent('');
-    setIsSaving(false);
   }, [selectedFile?.path, setMainTabGuard]);
 
   const lastFilesViewDirRef = React.useRef<string>('');
@@ -528,75 +525,43 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     onExternalChange: reloadExternallyChangedFile,
   });
 
-  const saveDraft = React.useCallback(async () => {
-    if (!selectedFile || !files.writeFile) {
-      toast.error("Saving not supported");
-      return false;
-    }
-
-    const selectedIsBinary = isBinaryFile(selectedFile.path) || contentDetectedBinary;
-    if (!shouldAllowFileDraftSave({
-      selectedFilePath: selectedFile.path,
-      loadedFilePath,
-      fileLoading,
-      isDirty,
-      draftContent,
-      fileContent,
-      isNonEditableBinary: selectedIsBinary,
-    })) {
-      if (selectedIsBinary) {
-        console.warn(`[saveDraft] refusing to save binary file "${selectedFile.path}".`);
-      } else if (draftContent === '' && fileContent !== '' && loadedFilePath !== selectedFile.path) {
-        console.warn(
-          `[saveDraft] refusing to save empty draft for "${selectedFile.path}" (${fileContent.length} bytes were expected). ` +
-          'The file may have been read during a concurrent write (O_TRUNC race). ' +
-          'Try again after content finishes loading if the save was intentional.',
-        );
+  const handleFileSaved = React.useCallback((path: string, content: string) => {
+    setFileContent(content);
+    if (root && isPathWithinRoot(path, root)) {
+      const relativePath = getDisplayPath(root, path);
+      if (relativePath) {
+        sessionEvents.requestGitRefresh({ directory: root, paths: [relativePath] });
       }
-      return false;
     }
-
-    // Clean draft: treat as success so discard/save dialogs and Ctrl+S are not stranded.
-    if (!isDirty) {
-      return true;
+    if (isDrawioFile(path)) {
+      diagramXmlRef.current = content;
+      diagramSavedXmlRef.current = content;
     }
-
-    setIsSaving(true);
-
-    try {
-      const contentToWrite = serializeEditorContent(draftContent, loadedFileLineEnding);
-      const result = await files.writeFile(selectedFile.path, contentToWrite);
-      if (!result?.success) {
-        toast.error("Failed to write file");
-        return false;
-      }
-      setFileContent(draftContent);
-      if (root && isPathWithinRoot(selectedFile.path, root)) {
-        const relativePath = getDisplayPath(root, selectedFile.path);
-        if (relativePath) {
-          sessionEvents.requestGitRefresh({ directory: root, paths: [relativePath] });
-        }
-      }
-      if (selectedFile?.path && isDrawioFile(selectedFile.path)) {
-        diagramXmlRef.current = draftContent;
-        diagramSavedXmlRef.current = draftContent;
-      }
-      // Refresh stat after write so polling doesn't see a stale metadata change.
-      void readFileStat(selectedFile.path)
-        .then((stat) => {
-          if (stat) {
-            recordLoadedFileStat(stat);
-          }
-        })
-        .catch(() => {});
-      return true;
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Save failed");
-      return false;
-    } finally {
-      setIsSaving(false);
-    }
-  }, [contentDetectedBinary, draftContent, fileContent, fileLoading, files, isDirty, loadedFileLineEnding, loadedFilePath, readFileStat, recordLoadedFileStat, root, selectedFile]);
+    // Refresh stat after write so polling does not observe our own stale metadata.
+    void readFileStat(path)
+      .then((stat) => {
+        if (stat) recordLoadedFileStat(stat);
+      })
+      .catch(() => {});
+  }, [readFileStat, recordLoadedFileStat, root]);
+  const {
+    autoSaveStatus,
+    isSaving,
+    saveDraft,
+    saveNow,
+  } = useFileEditorSave({
+    autoSaveEnabled,
+    selectedPath: selectedFile?.path ?? null,
+    loadedPath: loadedFilePath,
+    fileLoading,
+    isDirty,
+    draftContent,
+    fileContent,
+    lineEnding: loadedFileLineEnding,
+    isNonEditableBinary: Boolean(selectedFile?.path && (isBinaryFile(selectedFile.path) || contentDetectedBinary)),
+    writeFile: files.writeFile,
+    onSaved: handleFileSaved,
+  });
 
   React.useEffect(() => {
     if (!isDirty) {
@@ -625,58 +590,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   }, [isDirty, setMainTabGuard]);
 
   React.useEffect(() => {
-    if (autoSaveEnabled) {
-      return;
-    }
-
-    setAutoSaveStatus('idle');
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current);
-      autoSaveTimerRef.current = null;
-    }
-  }, [autoSaveEnabled]);
-
-  // Auto-save: debounce 1.5s after user stops typing
-  const AUTO_SAVE_DELAY = 1500;
-
-  React.useEffect(() => {
-    const canWrite = Boolean(selectedFile && files.writeFile);
-    const selectedIsBinary = Boolean(selectedFile?.path && (isBinaryFile(selectedFile.path) || contentDetectedBinary));
-    if (!shouldScheduleFileAutosave({
-      autoSaveEnabled,
-      isDirty,
-      canWrite,
-      isSaving,
-      fileLoading,
-      selectedFilePath: selectedFile?.path,
-      loadedFilePath,
-      isNonEditableBinary: selectedIsBinary,
-    })) {
-      return;
-    }
-
-    autoSaveTimerRef.current = setTimeout(() => {
-      void saveDraft().then((saved) => {
-        if (!saved) return;
-        setAutoSaveStatus('saved');
-        setTimeout(() => setAutoSaveStatus('idle'), 2000);
-      });
-    }, AUTO_SAVE_DELAY);
-
-    return () => {
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current);
-        autoSaveTimerRef.current = null;
-      }
-    };
-  }, [autoSaveEnabled, contentDetectedBinary, draftContent, fileLoading, isDirty, loadedFilePath, selectedFile, files.writeFile, isSaving, saveDraft]);
-
-  // Reset auto-save status when switching files
-  React.useEffect(() => {
-    setAutoSaveStatus('idle');
-  }, [selectedFile?.path]);
-
-  React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!hasModifier(e)) {
         return;
@@ -684,18 +597,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
 
       if (e.key.toLowerCase() === 's') {
         e.preventDefault();
-        // Cancel pending auto-save; user wants immediate save
-        if (autoSaveTimerRef.current) {
-          clearTimeout(autoSaveTimerRef.current);
-          autoSaveTimerRef.current = null;
-        }
-        if (!isSaving) {
-          void saveDraft().then((saved) => {
-            if (!saved) return;
-            setAutoSaveStatus('saved');
-            setTimeout(() => setAutoSaveStatus('idle'), 2000);
-          });
-        }
+        void saveNow();
       } else if (e.key.toLowerCase() === 'f') {
         e.preventDefault();
         setIsSearchOpen(true);
@@ -704,7 +606,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSaving, saveDraft]);
+  }, [saveNow]);
 
   const loadSelectedFile = React.useCallback(async (node: FileNode) => {
     const loadId = activeFileLoadIdRef.current + 1;
@@ -1446,7 +1348,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
       }).catch((error) => {
         toast.error(error instanceof Error ? error.message : "Save failed");
       });
-    }, AUTO_SAVE_DELAY);
+    }, DIAGRAM_AUTO_SAVE_DELAY_MS);
   }, [autoSaveEnabled, drawioViewMode, files.writeFile, saveDiagramXml, selectedFile?.path]);
 
   const diagramEditorXml = React.useMemo(() => {
