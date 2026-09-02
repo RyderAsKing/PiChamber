@@ -88,7 +88,7 @@ import {
     toServerFileUrl,
 } from './composer/attachments/filePaths';
 import { buildOutgoingMessage, buildSkillMentionInstruction, collectInlineSkillMentions } from './composer/submit/buildOutgoingMessage';
-import { parseSlashCommand } from './composer/submit/slashCommands';
+import { parseSlashCommand, tryExecuteLocalSlashCommand } from './composer/submit/slashCommands';
 import { useAutocompletePosition } from './composer/state/useAutocompletePosition';
 import { useMessageHistory } from './composer/state/useMessageHistory';
 import { useComposerDraft } from './composer/state/useComposerDraft';
@@ -898,37 +898,27 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         // Local slash commands, normal mode only.
         const parsedCommand = inputMode === 'normal' ? parseSlashCommand(primaryText) : null;
         if (parsedCommand) {
-            const { name: commandName, argument } = parsedCommand;
-
-            // Commands that manipulate session state or open UI rather than
-            // sending a message.
-            if (commandName === 'undo' && currentSessionId) {
-                await useSessionUIStore.getState().handleSlashUndo(currentSessionId);
-                scrollToBottom?.();
-                return;
-            }
-            if (commandName === 'redo' && currentSessionId) {
-                await useSessionUIStore.getState().handleSlashRedo(currentSessionId);
-                scrollToBottom?.();
-                return;
-            }
-            if (commandName === 'timeline' && currentSessionId) {
-                setTimelineDialogOpen(true);
-                return;
-            }
-            if (commandName === 'compact') {
-                if (!currentSessionId) {
-                    toast.error('Open a session before compacting.');
-                    return;
-                }
-                try {
-                    await sessionActions.waitForConnectionOrThrow();
-                    await sessionActions.compactSession(currentSessionId, argument.trim() || undefined);
-                } catch (error) {
-                    toast.error(getSubmitErrorMessage(error, "Failed to compact session"));
-                }
-                return;
-            }
+            const handled = await tryExecuteLocalSlashCommand({
+                command: parsedCommand,
+                currentSessionId,
+                scrollToBottom,
+                setTimelineDialogOpen,
+                onUndoSession: async (id) => {
+                    await useSessionUIStore.getState().handleSlashUndo(id);
+                },
+                onRedoSession: async (id) => {
+                    await useSessionUIStore.getState().handleSlashRedo(id);
+                },
+                onCompactSession: async (id, argument) => {
+                    try {
+                        await sessionActions.waitForConnectionOrThrow();
+                        await sessionActions.compactSession(id, argument);
+                    } catch (error) {
+                        toast.error(getSubmitErrorMessage(error, "Failed to compact session"));
+                    }
+                },
+            });
+            if (handled) return;
         }
 
         const currentSessionDirectory = capturedTarget?.directory ?? currentDirectory;
