@@ -13,20 +13,10 @@ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { GoToLineDialog } from './GoToLineDialog';
-import { PreviewToggleButton } from './PreviewToggleButton';
 import { languageByExtension, loadLanguageByExtension } from '@/lib/codemirror/languageByExtension';
 import { createFlexokiCodeMirrorTheme } from '@/lib/codemirror/flexokiTheme';
 import { shikiHighlightExtension } from '@/lib/codemirror/shikiHighlight';
 import { getResolvedShikiTheme } from '@/lib/shiki/appThemeRegistry';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { useDeviceInfo } from '@/lib/device';
 import { cn, getModifierLabel, hasModifier } from '@/lib/utils';
 import { getLanguageFromExtension, getImageMimeType, isBinaryFile, isDrawioFile, isImageFile, isPdfFile, isSvgFile } from '@/lib/toolHelpers';
@@ -55,7 +45,7 @@ import { eventMatchesShortcut, getEffectiveShortcutCombo } from '@/lib/shortcuts
 import { sessionEvents } from '@/lib/sessionEvents';
 import { MobileFilesChrome } from './files/MobileFilesChrome';
 import { Dialogs } from './files/FilesViewDialogs';
-import { FileIcon, FileRow, OpenInAppListIcon, ScrollingFileName, type FileStatus } from './files/FilesViewChrome';
+import { FileIcon, FileRow, ScrollingFileName, type FileStatus } from './files/FilesViewChrome';
 import {
   MAX_VIEW_CHARS,
   getAncestorPaths,
@@ -84,6 +74,9 @@ import { useFileStatReconciliation } from './files/useFileStatReconciliation';
 import { useFileViewerModes } from './files/useFileViewerModes';
 import { useFilesTree } from './files/useFilesTree';
 import { useFilesViewSearch } from './files/useFilesViewSearch';
+import { FileTabsRow } from './files/FileTabsRow';
+import { FileViewerToolbar } from './files/FileViewerToolbar';
+import { UnsavedChangesDialog } from './files/UnsavedChangesDialog';
 
 interface FilesViewProps {
   mode?: 'full' | 'editor-only';
@@ -1317,367 +1310,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     };
   }, []);
 
-  const renderFloatingFileControls = ({
-    exitFullscreenOnly = false,
-    layout = 'floating',
-  }: { exitFullscreenOnly?: boolean; layout?: 'floating' | 'docked' } = {}) => {
-    if (!selectedFile) {
-      return null;
-    }
-
-    const docked = layout === 'docked';
-    const wrapperCls = docked
-      ? 'pointer-events-auto flex flex-wrap items-center gap-1'
-      : 'pointer-events-auto flex items-center gap-1 rounded-lg border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-1 shadow-sm';
-
-    const withTooltip = (label: React.ReactNode, trigger: React.ReactElement) => (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="inline-flex">
-            {trigger}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" sideOffset={6}>{label}</TooltipContent>
-      </Tooltip>
-    );
-
-    return (
-      <div className={wrapperCls}>
-        {canEdit && isEditingFile && (
-          <>
-            {isSaving ? (
-              <span className="flex items-center gap-1 px-1 text-muted-foreground typography-meta">
-                <Icon name="loader-4" className="size-3.5 animate-spin" />
-                {"Saving..."}
-              </span>
-            ) : autoSaveEnabled && autoSaveStatus === 'saved' && !isDirty ? (
-              <span className="flex items-center gap-1 px-1 text-[color:var(--status-success)] typography-meta">
-                <Icon name="check" className="size-3.5" />
-                {"Saved"}
-              </span>
-            ) : isDirty ? withTooltip((autoSaveEnabled ? `Save now (${getModifierLabel()}+S) - auto-saves after 1.5s` : `Save now (${getModifierLabel()}+S)`),
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => void saveDraft()}
-                className="h-6 gap-1 px-1 text-muted-foreground opacity-80 hover:bg-transparent hover:opacity-100 focus-visible:bg-transparent active:bg-transparent"
-                title={(autoSaveEnabled ? `Save now (${getModifierLabel()}+S) - auto-saves after 1.5s` : `Save now (${getModifierLabel()}+S)`)}
-                aria-label={`Save (${getModifierLabel()}+S)`}
-              >
-                <Icon name="save-3" className="size-4" />
-              </Button>
-            ) : null}
-            {withTooltip(autoSaveEnabled ? "Auto-save on" : "Manual save",
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setAutoSaveEnabled(!autoSaveEnabled)}
-                className={cn(
-                  'size-6 p-0 transition-opacity hover:bg-transparent focus-visible:bg-transparent active:bg-transparent',
-                  autoSaveEnabled ? 'text-foreground opacity-100' : 'text-muted-foreground opacity-65 hover:opacity-100'
-                )}
-                title={autoSaveEnabled ? "Auto-save on" : "Manual save"}
-                aria-label={autoSaveEnabled ? "Auto-save on" : "Manual save"}
-              >
-                {autoSaveEnabled ? <Icon name="file-check-fill" className="size-4" /> : <Icon name="file-check" className="size-4" />}
-              </Button>
-            )}
-          </>
-        )}
-
-        <DropdownMenu onOpenChange={handleToolbarDropdownOpenChange}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex">
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="size-6 p-0 text-foreground opacity-100 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-                    title={"Open in desktop app"}
-                    aria-label={"Open in desktop app"}
-                  >
-                    <Icon name="file-transfer" className="size-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>{"Open in desktop app"}</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="end" className="w-56 max-h-[70vh] overflow-y-auto">
-            {openInApps.map((app) => (
-              <DropdownMenuItem
-                key={app.id}
-                className="flex items-center gap-2"
-                onClick={() => void handleOpenInApp(app)}
-              >
-                <OpenInAppListIcon label={app.label} iconDataUrl={app.iconDataUrl} />
-                <span className="typography-ui-label text-foreground">{app.label}</span>
-              </DropdownMenuItem>
-            ))}
-            {openInCacheStale ? (
-              <DropdownMenuItem
-                className="flex items-center gap-2"
-                onClick={() => void loadOpenInApps(true)}
-              >
-                <Icon name="refresh" className="size-4" />
-                <span className="typography-ui-label text-foreground">{"Refresh Apps"}</span>
-              </DropdownMenuItem>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        {!isSelectedImage && !isSelectedPdf && !isUnsupportedBinary && (
-          <>
-            {withTooltip(wrapLines ? "Disable line wrap" : "Enable line wrap",
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setWrapLines(!wrapLines)}
-                className={cn(
-                  'size-6 p-0 transition-opacity hover:bg-transparent focus-visible:bg-transparent active:bg-transparent',
-                  wrapLines ? 'text-foreground opacity-100' : 'text-muted-foreground opacity-65 hover:opacity-100'
-                )}
-                title={wrapLines ? "Disable line wrap" : "Enable line wrap"}
-              >
-                <Icon name="text-wrap" className="size-4" />
-              </Button>
-            )}
-            {textViewMode === 'edit' && (
-              <>
-                {withTooltip("Find in file",
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={(event) => {
-                      setIsSearchOpen(!isSearchOpen);
-                      event.currentTarget.blur();
-                    }}
-                    className="size-6 p-0 text-foreground opacity-100 transition-opacity hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-                    title={"Find in file"}
-                  >
-                    <Icon name="search" className="size-4" />
-                  </Button>
-                )}
-                {withTooltip("Go to line",
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={(event) => {
-                      setIsGoToLineOpen((open) => !open);
-                      event.currentTarget.blur();
-                    }}
-                    className="size-6 p-0 text-foreground opacity-100 transition-opacity hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-                    title={"Go to line"}
-                  >
-                    <Icon name="menu-fold-2" className="size-4" />
-                  </Button>
-                )}
-                <GoToLineDialog
-                  open={isGoToLineOpen}
-                  onOpenChange={setIsGoToLineOpen}
-                  view={editorViewRef.current}
-                  variant="inline"
-                />
-              </>
-            )}
-          </>
-        )}
-
-        {canUseShikiFileView && canEdit && !isJson && !isHtml && (
-          <PreviewToggleButton
-            currentMode={textViewMode === 'view' ? 'preview' : 'edit'}
-            onToggle={() => {
-              saveTextViewMode(textViewMode === 'view' ? 'edit' : 'view');
-            }}
-          />
-        )}
-
-        {isMarkdown && (
-          withTooltip(
-            (getMdViewMode() === 'preview' ? "Switch to edit mode" : "Switch to preview mode"),
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => saveMdViewMode(getMdViewMode() === 'preview' ? 'edit' : 'preview')}
-              className={cn(
-                'size-6 p-0 transition-colors hover:bg-[var(--interactive-hover)] focus-visible:bg-[var(--interactive-hover)] active:bg-[var(--interactive-hover)]',
-                getMdViewMode() === 'preview'
-                  ? 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)] hover:bg-[var(--interactive-selection)] focus-visible:bg-[var(--interactive-selection)] active:bg-[var(--interactive-selection)]'
-                  : 'text-muted-foreground opacity-65 hover:opacity-100'
-              )}
-              title={(getMdViewMode() === 'preview' ? "Switch to edit mode" : "Switch to preview mode")}
-              aria-label={(getMdViewMode() === 'preview' ? "Switch to edit mode" : "Switch to preview mode")}
-            >
-              <Icon name={getMdViewMode() === 'preview' ? 'eye' : 'eye-off'} className="size-4" />
-            </Button>
-          )
-        )}
-
-        {isHtmlFile(selectedFile?.path ?? '') && (
-          <PreviewToggleButton
-            currentMode={getHtmlViewMode()}
-            onToggle={() => {
-              saveHtmlViewMode(getHtmlViewMode() === 'preview' ? 'edit' : 'preview');
-            }}
-          />
-        )}
-
-        {isDrawio && (
-          <>
-            <PreviewToggleButton
-              currentMode={drawioViewMode}
-              onToggle={() => saveDrawioViewMode(drawioViewMode === 'preview' ? 'edit' : 'preview')}
-            />
-            {drawioViewMode === 'preview' && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={async () => {
-                  const xml = diagramEditorRef.current?.getXml();
-                  if (selectedFile?.path && xml) {
-                    await saveDiagramNow(selectedFile.path, xml);
-                  }
-                }}
-                className="size-6 p-0 text-foreground hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-                title={"Save diagram"}
-              >
-                {diagramSaved ? (
-                  <Icon name="check" className="size-4 text-[color:var(--status-success)]" />
-                ) : (
-                  <Icon name="save-3" className="size-4" />
-                )}
-              </Button>
-            )}
-          </>
-        )}
-
-        {isJson && (
-          withTooltip(jsonViewMode === 'tree' ? "Switch to Text View" : "Switch to Tree View",
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => saveJsonViewMode(jsonViewMode === 'tree' ? 'text' : 'tree')}
-              className="size-6 p-0 text-muted-foreground opacity-65 hover:bg-transparent hover:opacity-100 focus-visible:bg-transparent active:bg-transparent"
-              title={jsonViewMode === 'tree' ? "Switch to Text View" : "Switch to Tree View"}
-            >
-              {jsonViewMode === 'tree' ? (
-                <Icon name="code-sslash" className="size-4" />
-              ) : (
-                <Icon name="node-tree" className="size-4" />
-              )}
-            </Button>
-          )
-        )}
-
-        {canCopy && (
-          withTooltip("Copy file contents",
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={async () => {
-                const result = await copyTextToClipboard(fileContent);
-                if (result.ok) {
-                  showCopiedContent(true);
-                } else {
-                  toast.error("Copy failed");
-                }
-              }}
-              className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-              title={"Copy file contents"}
-              aria-label={"Copy file contents"}
-            >
-              {copiedContent ? (
-                <Icon name="check" className="size-4 text-[color:var(--status-success)]" />
-              ) : (
-                <Icon name="clipboard" className="size-4" />
-              )}
-            </Button>
-          )
-        )}
-
-        {canCopyPath && (
-          withTooltip(`Copy file path (${displaySelectedPath})`,
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={async () => {
-                const result = await copyTextToClipboard(displaySelectedPath);
-                if (result.ok) {
-                  showCopiedPath(true);
-                } else {
-                  toast.error("Copy failed");
-                }
-              }}
-              className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-              title={`Copy file path (${displaySelectedPath})`}
-              aria-label={`Copy file path (${displaySelectedPath})`}
-            >
-              {copiedPath ? (
-                <Icon name="check" className="size-4 text-[color:var(--status-success)]" />
-              ) : (
-                <Icon name="file-copy-2" className="size-4" />
-              )}
-            </Button>
-          )
-        )}
-
-        {files.downloadFile && (
-          withTooltip("Save file",
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                const fn = files.downloadFile;
-                if (fn) void fn(selectedFile.path).catch((error) => {
-                  console.error('Download failed:', error);
-                  toast.error("Operation failed");
-                });
-              }}
-              className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-              title={"Save file"}
-              aria-label={"Save file"}
-            >
-              <Icon name="download" className="size-4" />
-            </Button>
-          )
-        )}
-
-        {exitFullscreenOnly ? (
-          withTooltip("Exit fullscreen",
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsFullscreen(false)}
-              className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-              title={"Exit fullscreen"}
-              aria-label={"Exit fullscreen"}
-            >
-              <Icon name="fullscreen-exit" className="size-4" />
-            </Button>
-          )
-        ) : (!isMobile && mode === 'full' && (
-          withTooltip(isFullscreen ? "Exit fullscreen" : "Fullscreen",
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsFullscreen(!isFullscreen)}
-              className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-              title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-              aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-            >
-              {isFullscreen ? (
-                <Icon name="fullscreen-exit" className="size-4" />
-              ) : (
-                <Icon name="fullscreen" className="size-4" />
-              )}
-            </Button>
-          )
-        ))}
-      </div>
-    );
-  };
-
   const handleDownloadSelectedFile = React.useCallback(() => {
     const downloadFile = files.downloadFile;
     const path = selectedFile?.path;
@@ -1687,6 +1319,91 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
       toast.error("Operation failed");
     });
   }, [files.downloadFile, selectedFile?.path]);
+
+  const renderFloatingFileControls = ({
+    exitFullscreenOnly = false,
+    layout = 'floating',
+  }: { exitFullscreenOnly?: boolean; layout?: 'floating' | 'docked' } = {}) => {
+    return (
+      <FileViewerToolbar
+        selectedFile={selectedFile}
+        displaySelectedPath={displaySelectedPath}
+        layout={layout}
+        exitFullscreenOnly={exitFullscreenOnly}
+        canEdit={canEdit}
+        isEditingFile={isEditingFile}
+        isSaving={isSaving}
+        autoSaveEnabled={autoSaveEnabled}
+        autoSaveStatus={autoSaveStatus}
+        isDirty={isDirty}
+        onSaveDraft={saveDraft}
+        onToggleAutoSave={() => setAutoSaveEnabled(!autoSaveEnabled)}
+        openInApps={openInApps}
+        openInCacheStale={openInCacheStale}
+        onOpenInApp={handleOpenInApp}
+        onRefreshOpenInApps={() => loadOpenInApps(true)}
+        onToolbarDropdownOpenChange={handleToolbarDropdownOpenChange}
+        isSelectedImage={isSelectedImage}
+        isSelectedPdf={isSelectedPdf}
+        isUnsupportedBinary={isUnsupportedBinary}
+        wrapLines={wrapLines}
+        onToggleWrapLines={() => setWrapLines(!wrapLines)}
+        textViewMode={textViewMode}
+        isSearchOpen={isSearchOpen}
+        onToggleSearch={() => setIsSearchOpen(!isSearchOpen)}
+        isGoToLineOpen={isGoToLineOpen}
+        onOpenGoToLineChange={setIsGoToLineOpen}
+        editorView={editorViewRef.current}
+        canUseShikiFileView={canUseShikiFileView}
+        isJson={isJson}
+        isHtml={isHtml}
+        onToggleTextViewMode={() => {
+          saveTextViewMode(textViewMode === 'view' ? 'edit' : 'view');
+        }}
+        isMarkdown={isMarkdown}
+        mdViewMode={getMdViewMode()}
+        onToggleMdViewMode={() => saveMdViewMode(getMdViewMode() === 'preview' ? 'edit' : 'preview')}
+        isDrawio={isDrawio}
+        drawioViewMode={drawioViewMode}
+        onToggleDrawioViewMode={() => saveDrawioViewMode(drawioViewMode === 'preview' ? 'edit' : 'preview')}
+        diagramSaved={diagramSaved}
+        onSaveDiagram={async () => {
+          const xml = diagramEditorRef.current?.getXml();
+          if (selectedFile?.path && xml) {
+            await saveDiagramNow(selectedFile.path, xml);
+          }
+        }}
+        jsonViewMode={jsonViewMode}
+        onToggleJsonViewMode={() => saveJsonViewMode(jsonViewMode === 'tree' ? 'text' : 'tree')}
+        canCopy={canCopy}
+        copiedContent={copiedContent}
+        onCopyContent={async () => {
+          const result = await copyTextToClipboard(fileContent);
+          if (result.ok) {
+            showCopiedContent(true);
+          } else {
+            toast.error("Copy failed");
+          }
+        }}
+        canCopyPath={canCopyPath}
+        copiedPath={copiedPath}
+        onCopyPath={async () => {
+          const result = await copyTextToClipboard(displaySelectedPath);
+          if (result.ok) {
+            showCopiedPath(true);
+          } else {
+            toast.error("Copy failed");
+          }
+        }}
+        onDownloadFile={files.downloadFile && selectedFile ? handleDownloadSelectedFile : undefined}
+        isMobile={isMobile}
+        mode={mode}
+        isFullscreen={isFullscreen}
+        onToggleFullscreen={() => setIsFullscreen(!isFullscreen)}
+        onExitFullscreen={() => setIsFullscreen(false)}
+      />
+    );
+  };
 
   const handleEmbeddedEditorViewReady = React.useCallback((view: EditorView) => {
     editorViewRef.current = view;
@@ -1754,171 +1471,29 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     <div
       className="relative flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden"
     >
-      <Dialog open={confirmDiscardOpen} onOpenChange={keepDiscardModalOpen}>
-        <DialogContent showCloseButton={false} className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{"Unsaved changes"}</DialogTitle>
-            <DialogDescription>
-              {"Save your edits before continuing?"}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => void saveAndContinue()}
-              disabled={isSaving}
-              className="border-[var(--status-success-border)] bg-[var(--status-success-background)] text-[var(--status-success)] hover:bg-[rgb(var(--status-success)/0.2)]"
-            >
-              {"Save changes"}
-            </Button>
-            <Button variant="destructive" onClick={discardAndContinue}>{"Discard"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <UnsavedChangesDialog
+        open={confirmDiscardOpen}
+        onOpenChange={keepDiscardModalOpen}
+        isSaving={isSaving}
+        onSaveAndContinue={() => void saveAndContinue()}
+        onDiscardAndContinue={discardAndContinue}
+      />
       <div className={cn('flex flex-col flex-shrink-0', showEditorTabsRow && 'border-b border-border/40')}>
         {/* Row 1: Tabs */}
-        {showEditorTabsRow ? (
-        <div className="flex min-w-0 items-center px-3 py-1.5">
-          {isMobile && showMobilePageContent && (
-            <button
-              type="button"
-              onClick={() => setShowMobilePageContent(false)}
-              aria-label={"Back"}
-              className="inline-flex size-7 flex-shrink-0 items-center justify-center mr-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              <Icon name="arrow-left-s" className="size-5" />
-            </button>
-          )}
-
-          {isMobile ? (
-            selectedFile ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="inline-flex min-w-0 max-w-full items-center gap-1 text-left typography-ui-label font-medium"
-                    aria-label={"Open files"}
-                  >
-                    <FileTypeIcon filePath={selectedFile.path} extension={selectedFile.extension} className="size-3.5 flex-shrink-0" />
-                    <ScrollingFileName name={selectedFile.name} />
-                    <Icon name="arrow-down-s" className="size-4 flex-shrink-0 text-muted-foreground" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-[min(24rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)]">
-                  {openFiles.map((file) => {
-                    const isActive = selectedFile?.path === file.path;
-                    return (
-                      <DropdownMenuItem
-                        key={file.path}
-                        onSelect={(event) => {
-                          const target = event.target as HTMLElement;
-                          if (target.closest('[data-close-open-file]')) {
-                            event.preventDefault();
-                            return;
-                          }
-                          if (!isActive) {
-                            void handleSelectFile(file);
-                          }
-                        }}
-                        className={cn(
-                          'flex min-w-0 items-center justify-between gap-2 overflow-hidden',
-                          isActive && 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]'
-                        )}
-                      >
-                        <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-                          <FileTypeIcon filePath={file.path} extension={file.extension} className="size-3.5 flex-shrink-0" />
-                          <ScrollingFileName name={file.name} />
-                        </span>
-                        <button
-                          type="button"
-                          data-close-open-file
-                          onPointerDown={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                          }}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            handleCloseFile(file.path);
-                          }}
-                          className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--surface-muted-foreground)] hover:text-[var(--surface-foreground)]"
-                          aria-label={`Close ${file.name}`}
-                        >
-                          <Icon name="close" className="size-3.5" />
-                        </button>
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <div className="typography-ui-label font-medium truncate">{"Select a file"}</div>
-            )
-          ) : (
-            openFiles.length > 0 ? (
-              <div className="relative min-w-0 flex-1">
-                {editorTabsOverflow.left && (
-                  <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-6 z-10 bg-gradient-to-r from-background to-transparent" />
-                )}
-                {editorTabsOverflow.right && (
-                  <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-6 z-10 bg-gradient-to-l from-background to-transparent" />
-                )}
-                <div
-                  ref={editorTabsScrollRef}
-                  className="flex min-w-0 items-center gap-1 overflow-x-auto scrollbar-none"
-                  style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-                  data-no-drawer-swipe="true"
-                >
-                  {openFiles.map((file) => {
-                    const isActive = selectedFile?.path === file.path;
-                    return (
-                      <div
-                        key={file.path}
-                        title={getDisplayPath(root, file.path)}
-                        className={cn(
-                          'group inline-flex items-center gap-1 rounded-md border px-2 py-1 typography-ui-label transition-colors whitespace-nowrap',
-                          isActive
-                            ? 'bg-[var(--interactive-selection)] border-[var(--primary-muted)] text-[var(--interactive-selection-foreground)]'
-                            : 'bg-transparent border-[var(--interactive-border)] text-[var(--surface-muted-foreground)] hover:bg-[var(--interactive-hover)] hover:text-[var(--surface-foreground)]'
-                        )}
-                      >
-                        <FileTypeIcon filePath={file.path} extension={file.extension} className="size-3.5 flex-shrink-0" />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!isActive) {
-                              void handleSelectFile(file);
-                            }
-                          }}
-                          className="max-w-[12rem] truncate text-left"
-                        >
-                          {file.name}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleCloseFile(file.path);
-                          }}
-                          className={cn(
-                            'rounded-sm p-0.5 text-[var(--surface-muted-foreground)] hover:text-[var(--surface-foreground)]',
-                            !isActive && !alwaysShowActions && 'opacity-0 group-hover:opacity-100'
-                          )}
-                          aria-label={`Close ${file.name}`}
-                        >
-                          <Icon name="close" className="size-3.5" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <div className="typography-ui-label font-medium truncate">{"Select a file"}</div>
-            )
-          )}
-        </div>
-        ) : null}
+        <FileTabsRow
+          showEditorTabsRow={showEditorTabsRow}
+          isMobile={isMobile}
+          showMobilePageContent={showMobilePageContent}
+          onBackMobile={() => setShowMobilePageContent(false)}
+          selectedFile={selectedFile}
+          openFiles={openFiles}
+          root={root}
+          alwaysShowActions={alwaysShowActions}
+          editorTabsOverflow={editorTabsOverflow}
+          editorTabsScrollRef={editorTabsScrollRef}
+          onSelectFile={handleSelectFile}
+          onCloseFile={handleCloseFile}
+        />
 
         {/* Row 2: Docked editor toolbar (expanded). Desktop opt-in; ALWAYS on
             for mobile — floating hover controls don't work with touch. */}
