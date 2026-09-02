@@ -329,8 +329,7 @@ export class PiSessionStore {
       if (bucket) bucket.delete(listener);
     };
   };
-  dispose = () => {
-    this.catalogCache.flush();
+  private resetLiveRuntimeState(): void {
     this.providerRefreshRevisionByDirectory.clear();
     this.runtimeGeneration += 1;
     this.focusGeneration += 1;
@@ -352,6 +351,11 @@ export class PiSessionStore {
     this.stream = null;
     this.streamGeneration += 1;
     this.streamReadyRevision += 1;
+  }
+
+  dispose = () => {
+    this.catalogCache.flush();
+    this.resetLiveRuntimeState();
     this.unsubscribeRuntime();
     clearAllRevertNavigations();
     this.navigationGenerationById.clear();
@@ -441,26 +445,7 @@ export class PiSessionStore {
     this.emitChrome();
   }
   clear = () => {
-    this.providerRefreshRevisionByDirectory.clear();
-    this.runtimeGeneration += 1;
-    this.focusGeneration += 1;
-    this.pendingFocus = null;
-    this.pendingPreferredSessionId = null;
-    this.hydratedSessionIds.clear();
-    this.activityPhaseById.clear();
-    this.pendingPromptById.clear();
-    this.promptGenerationById.clear();
-    this.lastAccessById.clear();
-    this.lastAccessClock = 0;
-    this.lastSelectedByDirectory.clear();
-    this.directoryRefreshGenerationByDirectory.clear();
-    this.evictionScheduled = false;
-    this.restoringTranscriptById.clear();
-    this.hydrateInflightById.clear();
-    this.cadence.dispose();
-    this.stream?.dispose(); this.stream = null;
-    this.streamGeneration += 1;
-    this.streamReadyRevision += 1;
+    this.resetLiveRuntimeState();
     this.state = { ...initial(), connection: 'ready' };
     clearAllRevertNavigations();
     this.navigationGenerationById.clear();
@@ -1431,21 +1416,7 @@ export class PiSessionStore {
   }
 
   private sessionFromDetail(detail: Awaited<ReturnType<typeof piClient.getSession>>) {
-    return hydrateSessionFromDetail({
-      session: detail.session,
-      lastSequence: detail.lastSequence,
-      ...(detail.isStreaming !== undefined ? { isStreaming: detail.isStreaming } : {}),
-      ...(detail.lifecycle ? { lifecycle: detail.lifecycle } : {}),
-      ...(detail.retry ? { retry: detail.retry } : {}),
-      ...(detail.compaction ? { compaction: detail.compaction } : {}),
-      ...(detail.extensionStatuses ? { extensionStatuses: detail.extensionStatuses } : {}),
-      ...(detail.extensionWidgets ? { extensionWidgets: detail.extensionWidgets } : {}),
-      ...(detail.extensionDialogs ? { extensionDialogs: detail.extensionDialogs } : {}),
-      ...(detail.extensionPanels ? { extensionPanels: detail.extensionPanels } : {}),
-      ...(detail.extensionApps ? { extensionApps: detail.extensionApps } : {}),
-      ...(detail.extensionTitle ? { extensionTitle: detail.extensionTitle } : {}),
-      messages: detail.messages,
-    }).session;
+    return hydrateSessionFromDetail(detail).session;
   }
 
   /**
@@ -2311,27 +2282,7 @@ export class PiSessionStore {
   }
   private resetForRuntime() {
     this.catalogCache.flush();
-    this.providerRefreshRevisionByDirectory.clear();
-    this.runtimeGeneration += 1;
-    this.focusGeneration += 1;
-    this.pendingFocus = null;
-    this.pendingPreferredSessionId = null;
-    this.hydratedSessionIds.clear();
-    this.activityPhaseById.clear();
-    this.pendingPromptById.clear();
-    this.promptGenerationById.clear();
-    this.lastAccessById.clear();
-    this.lastAccessClock = 0;
-    this.lastSelectedByDirectory.clear();
-    this.directoryRefreshGenerationByDirectory.clear();
-    this.evictionScheduled = false;
-    this.restoringTranscriptById.clear();
-    this.hydrateInflightById.clear();
-    this.cadence.dispose();
-    this.stream?.dispose();
-    this.stream = null;
-    this.streamGeneration += 1;
-    this.streamReadyRevision += 1;
+    this.resetLiveRuntimeState();
     this.state = initial(this.readCachedCatalog(getRuntimeKey()));
     clearAllRevertNavigations();
     this.navigationGenerationById.clear();

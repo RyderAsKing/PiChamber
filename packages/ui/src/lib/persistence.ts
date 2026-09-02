@@ -1,6 +1,20 @@
 /* eslint-disable */
-// @ts-nocheck
 import type { DesktopSettings } from '@/lib/desktop';
+
+type LegacySkillCatalog = {
+  id: string;
+  label: string;
+  source: string;
+  subpath?: string;
+  gitIdentityId?: string;
+};
+
+type PersistedDesktopSettings = DesktopSettings & {
+  /** Legacy settings are still accepted from stored/web payloads for compatibility. */
+  skillCatalogs?: LegacySkillCatalog[];
+  autoCreateWorktree?: boolean;
+  globalBehaviorPrompt?: string;
+};
 import { createProjectIdFromPath } from '@/lib/projectId';
 import { useUIStore } from '@/stores/useUIStore';
 import { isMonoFontOption, isUiFontOption } from '@/lib/fontOptions';
@@ -223,12 +237,12 @@ type PersistApi = {
   onFinishHydration?: (callback: () => void) => (() => void) | undefined;
 };
 
-const sanitizeSkillCatalogs = (value: unknown): DesktopSettings['skillCatalogs'] | undefined => {
+const sanitizeSkillCatalogs = (value: unknown): PersistedDesktopSettings['skillCatalogs'] | undefined => {
   if (!Array.isArray(value)) {
     return undefined;
   }
 
-  const result: NonNullable<DesktopSettings['skillCatalogs']> = [];
+  const result: NonNullable<PersistedDesktopSettings['skillCatalogs']> = [];
   const seen = new Set<string>();
 
   for (const entry of value) {
@@ -895,7 +909,7 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
   }
 
   const candidate = payload as Record<string, unknown>;
-  const result: DesktopSettings = {};
+  const result: PersistedDesktopSettings = {};
 
   if (typeof candidate.themeId === 'string' && candidate.themeId.length > 0) {
     result.themeId = candidate.themeId;

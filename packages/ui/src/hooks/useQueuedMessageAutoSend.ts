@@ -1,6 +1,5 @@
-/* eslint-disable */
-// @ts-nocheck
 import React from 'react';
+import type { SessionStatus } from '@/lib/chat/types';
 import { getMessageQueueKey, parseMessageQueueKey, useMessageQueueStore, type MessageQueueTarget, type QueuedMessage } from '@/stores/messageQueueStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
@@ -211,7 +210,7 @@ export const resolveQueuedSessionStatusType = (
 export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?: boolean }) {
   const enabled = typeof enabledOrOptions === 'boolean' ? enabledOrOptions : (enabledOrOptions?.enabled ?? true);
   const queuedMessages = useMessageQueueStore((state) => state.queuedMessages);
-  const sessionStatusRecord = useDirectorySync((state) => state.session_status);
+  const sessionStatusRecord = useDirectorySync<Record<string, SessionStatus>>((state) => state.session_status);
   // Message completion clears the in-flight fallback in
   // resolveQueuedSessionStatusType; subscribe so the queue drains the moment
   // the trailing assistant message completes even if status events were missed.

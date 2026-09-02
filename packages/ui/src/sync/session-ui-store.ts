@@ -75,10 +75,8 @@ import {
 import { useInputStore, type SyntheticContextPart } from "./input-store"
 import { useSelectionStore } from "./selection-store"
 import { getViewportSessionMemory, useViewportStore, viewportSessionKey } from "./viewport-store"
-import { setSessionOpener } from "./session-navigation"
 import { getRuntimeKey } from "@/lib/runtime-switch"
 import { clearLastActiveSession, persistLastActiveSession, readLastActiveSession } from "./last-session-cache"
-import { rememberRuntimeLiveStatus } from "./runtime-live-memory"
 import { sanitizeFilename } from "@/lib/pi/attachments"
 
 export type { AttachedFile }
@@ -697,13 +695,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const key = runtimeMemoryKey(apiBaseUrl)
     const directory = useDirectoryStore.getState().currentDirectory || null
     const currentSessionId = get().currentSessionId
-    const directorySnapshot = directory ? getDirectoryState(directory) : null
-    rememberRuntimeLiveStatus({
-      runtimeKey: key,
-      directory,
-      sessionId: currentSessionId,
-      status: currentSessionId ? directorySnapshot?.session_status?.[currentSessionId] : null,
-    })
     activeSessionByRuntime.set(key, get().currentSessionId)
     writeRuntimeSessionMemory(key, {
       sessionId: currentSessionId,
@@ -1507,7 +1498,3 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     }
   },
 }))
-
-setSessionOpener((sessionID, directory) => {
-  useSessionUIStore.getState().setCurrentSession(sessionID, directory)
-})
