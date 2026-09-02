@@ -84,7 +84,7 @@
 
 - `MainLayout` does not mount `GitView` on initial mobile chat startup. It mounts the right-drawer view only when `(mobileRightSidebarOpen || mobileRightDrawerVisible)`; a route-addressable mobile `activeMainTab === 'git'` mounts the full view only when the drawer is closed, so `?tab=git` cannot produce a blank main area.
 
-- Draft/identity state survives drawer unmount via `gitViewSnapshots` (per-directory LRU in `GitView.tsx`).
+- Draft/identity state survives drawer unmount via `gitViewSnapshots` (per-directory LRU in `git/gitViewSnapshots.ts`). Gitmoji selection lives in `git/GitmojiPickerDialog.tsx` with commit prefix parsing in `git/gitmojiMatcher.ts`.
 
 - Hidden `useGitStore` selectors and `isActive`-gated effects do not run while the drawer is closed because the component is not mounted. The `GitView` chunk is not requested during initial mobile startup (verified via Network panel: no `GitView` request before the first right-drawer open).
 

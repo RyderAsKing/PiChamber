@@ -27,15 +27,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-// (dropdown menu used inside IntegrateCommitsSection)
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command';
 import { Icon } from "@/components/icon/Icon";
 import { Button } from '@/components/ui/button';
 
@@ -43,6 +34,8 @@ import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 
 import { GitHeader } from './git/GitHeader';
 import { StashesDialog } from './git/StashesDialog';
+import { GitmojiPickerDialog } from './git/GitmojiPickerDialog';
+import { getGitViewSnapshot, rememberGitViewSnapshot } from './git/gitViewSnapshots';
 import { CommitSection } from './git/CommitSection';
 import { GitEmptyState } from './git/GitEmptyState';
 import { HistorySection } from './git/HistorySection';
@@ -77,102 +70,8 @@ type HistoryBranchDivider = {
 
 const GIT_RECONCILE_DELAY_MS = 15000;
 
-type GitViewSnapshot = {
-  directory?: string;
-  commitMessage: string;
-};
-
-type GitmojiEntry = {
-  emoji: string;
-  code: string;
-  description: string;
-};
-
 const GIT_DIFF_PRIORITY_PREFETCH_LIMIT = 40;
 const GIT_DIFF_PRIORITY_BASELINE_LIMIT = 20;
-
-const KEYWORD_MAP: Record<string, string> = {
-  'feat': ':sparkles:',
-  'feature': ':sparkles:',
-  'fix': ':bug:',
-  'bug': ':bug:',
-  'hotfix': ':ambulance:',
-  'docs': ':memo:',
-  'documentation': ':memo:',
-  'style': ':lipstick:',
-  'refactor': ':recycle:',
-  'perf': ':zap:',
-  'performance': ':zap:',
-  'test': ':white_check_mark:',
-  'tests': ':white_check_mark:',
-  'build': ':construction_worker:',
-  'ci': ':green_heart:',
-  'chore': ':wrench:',
-  'revert': ':rewind:',
-  'wip': ':construction:',
-  'security': ':lock:',
-  'release': ':bookmark:',
-  'merge': ':twisted_rightwards_arrows:',
-  'mv': ':truck:',
-  'move': ':truck:',
-  'rename': ':truck:',
-  'remove': ':fire:',
-  'delete': ':fire:',
-  'add': ':sparkles:',
-  'create': ':sparkles:',
-  'implement': ':sparkles:',
-  'update': ':recycle:',
-  'improve': ':zap:',
-  'optimize': ':zap:',
-  'upgrade': ':arrow_up:',
-  'downgrade': ':arrow_down:',
-  'deploy': ':rocket:',
-  'init': ':tada:',
-  'initial': ':tada:',
-};
-
-const matchGitmojiFromSubject = (subject: string, gitmojis: GitmojiEntry[]): GitmojiEntry | null => {
-  const lowerSubject = subject.toLowerCase();
-
-  // 1. Check for conventional commit prefix (e.g. "feat:", "fix(scope):")
-  const conventionalRegex = /^([a-z]+)(?:\(.*\))?!?:/;
-  const match = lowerSubject.match(conventionalRegex);
-
-  if (match) {
-    const type = match[1];
-    // Map common types to gitmoji codes
-    const mappedCode = KEYWORD_MAP[type];
-    if (mappedCode) {
-      return gitmojis.find((g) => g.code === mappedCode) || null;
-    }
-  }
-
-  // 2. Check for starting words (e.g. "Add", "Fix")
-  const firstWord = lowerSubject.split(' ')[0];
-  const mappedCode = KEYWORD_MAP[firstWord];
-  if (mappedCode) {
-    return gitmojis.find((g) => g.code === mappedCode) || null;
-  }
-
-  return null;
-};
-
-const GIT_VIEW_SNAPSHOTS_CAP = 20;
-
-const gitViewSnapshots = new Map<string, GitViewSnapshot>();
-
-const rememberSnapshot = (key: string, snapshot: GitViewSnapshot) => {
-  // Touch-on-write LRU: deleting before re-inserting promotes the key to
-  // the Map's insertion order, so the oldest key falls off the end.
-  gitViewSnapshots.delete(key);
-  gitViewSnapshots.set(key, snapshot);
-  if (gitViewSnapshots.size > GIT_VIEW_SNAPSHOTS_CAP) {
-    const oldest = gitViewSnapshots.keys().next().value;
-    if (oldest !== undefined) {
-      gitViewSnapshots.delete(oldest);
-    }
-  }
-};
 
 type GitViewProps = {
   isActive: boolean;
@@ -346,7 +245,7 @@ export const GitView: React.FC<GitViewProps> = ({
 
   const initialSnapshot = React.useMemo(() => {
     if (!currentDirectory) return null;
-    return gitViewSnapshots.get(currentDirectory) ?? null;
+    return getGitViewSnapshot(currentDirectory);
   }, [currentDirectory]);
 
   const settingsGitmojiEnabled = useConfigStore((state) => state.settingsGitmojiEnabled);
@@ -420,7 +319,6 @@ export const GitView: React.FC<GitViewProps> = ({
   const [graphLogRefreshToken, setGraphLogRefreshToken] = React.useState(0);
   const [gitLogDialogMode, setGitLogDialogMode] = React.useState<GitLogDialogMode | null>(null);
   const [historyBranchDivider, setHistoryBranchDivider] = React.useState<HistoryBranchDivider>(null);
-  const [gitmojiSearch, setGitmojiSearch] = React.useState('');
 
   // Conflict state persistence key
   const conflictStorageKey = React.useMemo(() => {
@@ -579,7 +477,7 @@ export const GitView: React.FC<GitViewProps> = ({
 
   React.useEffect(() => {
     if (!currentDirectory) return;
-    rememberSnapshot(currentDirectory, {
+    rememberGitViewSnapshot(currentDirectory, {
       directory: currentDirectory,
       commitMessage,
     });
@@ -1506,7 +1404,6 @@ export const GitView: React.FC<GitViewProps> = ({
       const prefix = token.endsWith(' ') ? token : `${token} `;
       return `${prefix}${current}`.trimStart();
     });
-    setGitmojiSearch('');
     setIsGitmojiPickerOpen(false);
   }, []);
 
@@ -2196,46 +2093,12 @@ export const GitView: React.FC<GitViewProps> = ({
         }}
       />
 
-      <Dialog open={isGitmojiPickerOpen} onOpenChange={setIsGitmojiPickerOpen}>
-        <DialogContent className="max-w-md p-0 overflow-hidden">
-          <DialogHeader className="px-4 pt-4">
-            <DialogTitle>{"Insert gitmoji"}</DialogTitle>
-          </DialogHeader>
-          <Command className="h-[420px]">
-            <CommandInput
-              placeholder={"Search gitmoji..."}
-              value={gitmojiSearch}
-              onValueChange={setGitmojiSearch}
-            />
-            <CommandList>
-              <CommandEmpty>{"No gitmoji found"}</CommandEmpty>
-              <CommandGroup>
-                {(gitmojiEmojis.length === 0
-                  ? []
-                  : gitmojiEmojis.filter((entry) => {
-                    const term = gitmojiSearch.trim().toLowerCase();
-                    if (!term) return true;
-                    return (
-                      entry.emoji.includes(term) ||
-                      entry.code.toLowerCase().includes(term) ||
-                      entry.description.toLowerCase().includes(term)
-                    );
-                  })
-                ).map((entry) => (
-                  <CommandItem
-                    key={entry.code}
-                    onSelect={() => handleSelectGitmoji(entry.emoji, entry.code)}
-                  >
-                    <span className="text-lg">{entry.emoji}</span>
-                    <span className="typography-ui-label text-foreground">{entry.code}</span>
-                    <span className="typography-meta text-muted-foreground">{entry.description}</span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </DialogContent>
-      </Dialog>
+      <GitmojiPickerDialog
+        open={isGitmojiPickerOpen}
+        onOpenChange={setIsGitmojiPickerOpen}
+        gitmojis={gitmojiEmojis}
+        onSelect={handleSelectGitmoji}
+      />
 
       {currentDirectory && (
         <ConflictDialog
