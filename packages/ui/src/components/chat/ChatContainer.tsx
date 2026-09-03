@@ -568,31 +568,30 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 
 	if (sessionMessages.length === 0 && !sessionIsWorking) {
 		return (
-			// No transform here either — same fixed-positioning constraint as the
-			// draft branch above.
-			<div data-composer-bound className="relative flex flex-col h-full bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
+			// A transcript-less extension command has configured the backend but has
+			// not started the conversation. Keep the materialized session selected
+			// while presenting the same composer-first surface as a new draft.
+			<div data-composer-bound className="relative flex h-full flex-col bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
 				{returnToParentButton}
+				{useCompactDraftLayout && !isDesktopExpandedInput ? <DraftWelcome /> : null}
 				<div
 					className={cn(
-                        'relative min-h-0',
-                        isDesktopExpandedInput
-                            ? 'absolute inset-0 opacity-0 pointer-events-none'
-                            : 'flex-1'
-                    )}
-                    aria-hidden={isDesktopExpandedInput}
-                >
-                    {!isDesktopExpandedInput ? (
-                        <div className="absolute inset-0 flex items-center justify-center">
-                            <ChatEmptyState isNewSession={false} />
-                        </div>
-                    ) : null}
-                </div>
-                <div className={composerBarClassName(isDesktopExpandedInput)}>
-                    <ChatInput scrollToBottom={scrollToBottomOnSend} />
+						'relative z-10 flex min-h-0',
+						isDesktopExpandedInput
+							? 'flex-1 bg-background'
+							: useCompactDraftLayout
+								? 'shrink-0 bg-background px-0'
+								: 'flex-1 items-center justify-center bg-background px-0 pb-[6vh]'
+					)}
+				>
+					<ChatInput scrollToBottom={scrollToBottomOnSend} />
 				</div>
-            </div>
-        );
-    }
+				{/* Extension notices (e.g. mode-switch confirmations) toast here too:
+				this branch owns sessions whose transcript is still empty. */}
+				<ExtensionNoticeToasts sessionId={currentSessionId} />
+			</div>
+		);
+	}
 
 	return (
 		<div data-composer-bound className="relative flex min-w-0 flex-1 flex-col h-full bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">

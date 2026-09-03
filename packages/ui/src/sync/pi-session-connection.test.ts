@@ -76,6 +76,7 @@ interface StoreInternal {
   touchLastAccess: (sessionId: string) => void;
   evictIdleTranscripts: () => void;
   hydrate: (sessionId: string, runtimeGeneration: number, known?: unknown, options?: { force?: boolean }) => Promise<void>;
+  reconcilePendingPromptSnapshot: (sessionId: string, generation: number, expectedRuntimeGeneration: number) => Promise<boolean>;
   reconnect: (sessionId: string, expected: number, runtimeKey: string) => Promise<void>;
   markStreamReconnected: (expected: number, runtimeKey: string, streamGeneration: number) => void;
 }
@@ -1229,6 +1230,63 @@ describe('PiSessionStore behaviour parity', () => {
     }
   });
 
+  test('an authoritative idle snapshot recovers a missed extension-command event burst', async () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    const generation = 1;
+    const session = reducerSession({
+      sessionId: 's1',
+      lifecycle: 'busy',
+      lastSequence: 7,
+      model: { providerId: 'old-provider', modelId: 'old-model' },
+      thinking: 'low',
+    });
+    internal.hydratedSessionIds = new Set(['s1']);
+    internal.pendingPromptById.add('s1');
+    internal.promptGenerationById.set('s1', generation);
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      connection: 'ready',
+      selectedSessionId: 's1',
+      sessions: [{ session: { id: 's1', directory: '/repo', createdAt: 1, updatedAt: 1 } as never, updatedAt: 1 }],
+      hydratedSessionIds: new Set(['s1']),
+      reducer: {
+        bySession: new Map([['s1', session]]),
+        lastSequence: new Map([['s1', 7]]),
+      },
+    };
+    const stubs = stubDaemons({
+      getSession: async (id) => ({
+        session: {
+          id,
+          directory: '/repo',
+          createdAt: 1,
+          updatedAt: 2,
+          model: { providerId: 'openai-codex', modelId: 'gpt-5.6-luna' },
+          thinking: 'max',
+        },
+        messages: [],
+        lastSequence: 12,
+        isStreaming: false,
+        lifecycle: 'idle',
+      }),
+    });
+
+    try {
+      const settled = await internal.reconcilePendingPromptSnapshot('s1', generation, internal.runtimeGeneration);
+      expect(settled).toBe(true);
+      const reconciled = store.getState().reducer.bySession.get('s1');
+      expect(internal.pendingPromptById.has('s1')).toBe(false);
+      expect(reconciled?.lifecycle).toBe('idle');
+      expect(reconciled?.model).toEqual({ providerId: 'openai-codex', modelId: 'gpt-5.6-luna' });
+      expect(reconciled?.thinking).toBe('max');
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
   test('prompt keeps hydrated history instead of replacing it with an empty busy stub', async () => {
     const stubs = stubDaemons();
     const originalSendPrompt = piClient.sendPrompt.bind(piClient);
@@ -1416,6 +1474,47 @@ describe('PiSessionStore behaviour parity', () => {
 
     await store.select('first');
     expect(hydrateCalls).toBe(1);
+    store.dispose();
+  });
+
+  test('selecting a freshly created empty session does not refetch before an extension command', async () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    const session = reducerSession({
+      sessionId: 'fresh',
+      directory: '/repo',
+      model: { providerId: 'provider', modelId: 'selected-model' },
+      thinking: 'high',
+    });
+    internal.stream = { dispose: () => undefined };
+    internal.hydratedSessionIds = new Set(['fresh']);
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      connection: 'ready',
+      selectedSessionId: 'other',
+      sessions: [{ session: { id: 'fresh', directory: '/repo', createdAt: 1, updatedAt: 1 } as never, updatedAt: 1 }],
+      reducer: {
+        bySession: new Map([['fresh', session]]),
+        lastSequence: new Map([['fresh', session.lastSequence]]),
+      },
+      hydratedSessionIds: new Set(['fresh']),
+    };
+    let hydrateCalls = 0;
+    internal.hydrate = async () => {
+      hydrateCalls += 1;
+    };
+
+    await store.select('fresh');
+    await store.ensureHydrated('fresh');
+
+    expect(hydrateCalls).toBe(0);
+    expect(store.getState().selectedSessionId).toBe('fresh');
+    expect(store.getState().hydratedSessionIds.has('fresh')).toBe(true);
+    const selected = store.getState().reducer.bySession.get('fresh');
+    expect(selected?.lifecycle).toBe('idle');
+    expect(selected?.model).toEqual({ providerId: 'provider', modelId: 'selected-model' });
+    expect(selected?.thinking).toBe('high');
     store.dispose();
   });
 

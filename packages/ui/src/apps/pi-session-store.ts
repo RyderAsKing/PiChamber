@@ -13,6 +13,7 @@ import { recordMobileDiagnosticError } from '@/lib/mobile-error-log';
 import { PiRequestError, piClient, type PiClientScope } from '@/lib/pi/client';
 import { reconnectPiSession } from '@/lib/pi/reconnect';
 import { PiStreamCadence } from '@/lib/pi/stream-cadence';
+import { invalidateCommandCatalogCache } from '@/lib/pi/commandCatalog';
 import { createPiEventStream, type PiStreamHandle } from '@/lib/pi/transport';
 import type { PiSessionEvent, PiSessionListItem } from '@/lib/pi/protocol';
 import type { PiSession, PiSessionId, PiThinkingLevel } from '@/lib/pi/types';
@@ -938,7 +939,7 @@ export class PiSessionStore {
     if (sessionId === this.state.selectedSessionId) {
       this.touchLastAccess(sessionId);
       const resident = this.state.reducer.bySession.get(sessionId);
-      if (!this.hydratedSessionIds.has(sessionId) || !resident || resident.messages.size === 0) {
+      if (!this.hydratedSessionIds.has(sessionId) || !resident) {
         await this.hydrate(sessionId, this.runtimeGeneration);
       }
       this.scheduleIdleEviction();
@@ -954,7 +955,7 @@ export class PiSessionStore {
     this.emitChrome();
     this.touchLastAccess(sessionId);
     const resident = this.state.reducer.bySession.get(sessionId);
-    if (this.stream && this.hydratedSessionIds.has(sessionId) && resident && resident.messages.size > 0) {
+    if (this.stream && this.hydratedSessionIds.has(sessionId) && resident) {
       this.scheduleIdleEviction();
       return;
     }
@@ -978,7 +979,7 @@ export class PiSessionStore {
   async ensureHydrated(sessionId: string): Promise<void> {
     if (!sessionId) return;
     const resident = this.state.reducer.bySession.get(sessionId);
-    if (this.hydratedSessionIds.has(sessionId) && resident && resident.messages.size > 0) {
+    if (this.hydratedSessionIds.has(sessionId) && resident) {
       this.touchLastAccess(sessionId);
       return;
     }
@@ -1275,6 +1276,15 @@ export class PiSessionStore {
       // Sending on the new branch commits it — stale revert/redo becomes
       // invalid. The old branch remains discoverable via GET /tree.
       clearRevertNavigation(sessionId);
+      if (delivery === 'prompt' && text.trimStart().startsWith('/')) {
+        // Native extension commands can finish without an assistant turn. The
+        // lifecycle/model events normally settle the optimistic row, but a
+        // command sent while the event stream is attaching can fall entirely
+        // inside that gap. Reconcile only while this prompt is still pending;
+        // ordinary slash prompts leave pending state as soon as their agent
+        // turn starts and therefore pay no snapshot request.
+        void this.reconcileAcceptedSlashPrompt(sessionId, generation, expected);
+      }
       return result;
     } catch (error) {
       recordMobileDiagnosticError('prompt-send', error);
@@ -1294,6 +1304,83 @@ export class PiSessionStore {
       throw error;
     }
   }
+  private async reconcilePendingPromptSnapshot(
+    sessionId: PiSessionId,
+    generation: number,
+    expectedRuntimeGeneration: number,
+  ): Promise<boolean> {
+    const resident = this.state.reducer.bySession.get(sessionId);
+    const directory = resident?.directory
+      ?? this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory
+      ?? this.directory();
+    try {
+      const detail = await piClient.getSession(sessionId, {
+        directory,
+        runtimeKey: getRuntimeKey(),
+      });
+      if (
+        expectedRuntimeGeneration !== this.runtimeGeneration
+        || this.promptGenerationById.get(sessionId) !== generation
+        || detail.session.id !== sessionId
+      ) {
+        return false;
+      }
+      const currentSequence = this.state.reducer.lastSequence.get(sessionId)
+        ?? this.state.reducer.bySession.get(sessionId)?.lastSequence
+        ?? -1;
+      if (currentSequence > detail.lastSequence) return false;
+      const settled = detail.lifecycle !== 'busy'
+        && detail.lifecycle !== 'retry'
+        && detail.isStreaming !== true;
+      if (settled) {
+        this.pendingPromptById.delete(sessionId);
+        const current = this.state.reducer.bySession.get(sessionId);
+        if (current?.lifecycle === 'busy' || current?.lifecycle === 'retry') {
+          const bySession = new Map(this.state.reducer.bySession);
+          bySession.set(sessionId, { ...current, lifecycle: 'idle' });
+          this.state = {
+            ...this.state,
+            reducer: { ...this.state.reducer, bySession },
+          };
+        }
+      }
+      this.commitHydratedSession(this.sessionFromDetail(detail));
+      return settled;
+    } catch {
+      // The event stream remains primary. A failed fallback must preserve
+      // the optimistic/live state rather than turning failure into idle.
+      return false;
+    }
+  }
+
+  private async reconcileAcceptedSlashPrompt(
+    sessionId: PiSessionId,
+    generation: number,
+    expectedRuntimeGeneration: number,
+  ): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    if (
+      expectedRuntimeGeneration !== this.runtimeGeneration
+      || this.promptGenerationById.get(sessionId) !== generation
+      || !this.pendingPromptById.has(sessionId)
+    ) {
+      return;
+    }
+
+    if (!(await this.reconcilePendingPromptSnapshot(sessionId, generation, expectedRuntimeGeneration))) return;
+    // A non-streaming extension can continue mutating model/thinking/UI state
+    // briefly after it first appears idle. Take one bounded final snapshot so
+    // a client that missed the whole event burst still converges.
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    if (
+      expectedRuntimeGeneration !== this.runtimeGeneration
+      || this.promptGenerationById.get(sessionId) !== generation
+    ) {
+      return;
+    }
+    await this.reconcilePendingPromptSnapshot(sessionId, generation, expectedRuntimeGeneration);
+  }
+
   abort = (sessionId: string) => piClient.abortSession({ sessionId }, this.scope());
   compact = (sessionId: string, customInstructions?: string) => piClient.compactSession({
     sessionId,
@@ -1517,13 +1604,14 @@ export class PiSessionStore {
     const directory = sessionDir || this.directory();
     const runtimeKey = getRuntimeKey();
     const resident = this.state.reducer.bySession.get(sessionId);
-    const residentHasTranscript = Boolean(resident && resident.messages.size > 0);
+    const residentIsHydrated = Boolean(
+      resident && this.hydratedSessionIds.has(sessionId)
+    );
     const navGenAtStart = this.navigationGenerationById.get(sessionId) ?? 0;
     if (
       !options?.force
       && this.stream
-      && this.hydratedSessionIds.has(sessionId)
-      && residentHasTranscript
+      && residentIsHydrated
       && !known
     ) {
       if (this.state.connection !== 'ready' || this.state.error) {
@@ -1878,7 +1966,7 @@ export class PiSessionStore {
     let touched = false;
     const restoreIds = new Set<PiSessionId>();
     const touchedSessionIds = new Set<PiSessionId>();
-    const extensionCatalogChanges = new Map<string, { providers: boolean; resources: boolean }>();
+    const extensionCatalogChanges = new Map<string, { providers: boolean; resources: boolean; commands: boolean }>();
     for (const event of events) {
       const missingBefore = !working.bySession.has(event.sessionId);
       const hadCursor = (working.lastSequence.get(event.sessionId) ?? -1) >= 0;
@@ -1890,10 +1978,15 @@ export class PiSessionStore {
       applied = true;
       touchedSessionIds.add(event.sessionId);
       if (event.name === 'extension.catalog') {
-        const previous = extensionCatalogChanges.get(event.directory) ?? { providers: false, resources: false };
+        const previous = extensionCatalogChanges.get(event.directory) ?? {
+          providers: false,
+          resources: false,
+          commands: false,
+        };
         extensionCatalogChanges.set(event.directory, {
           providers: previous.providers || event.payload.providers === true,
           resources: previous.resources || event.payload.resources === true,
+          commands: previous.commands || event.payload.commands === true,
         });
       }
       this.notePromptProgress(event);
@@ -1937,6 +2030,7 @@ export class PiSessionStore {
     for (const sessionId of restoreIds) this.restoreTranscript(sessionId);
     for (const [directory, change] of extensionCatalogChanges) {
       if (change.providers) this.requestProviderCatalogRefresh(directory);
+      if (change.commands) invalidateCommandCatalogCache(directory);
       if (change.resources) {
         invalidateSkillsLoadCache(directory);
         if (normalizePath(directory) === normalizePath(this.state.directory ?? '')) {

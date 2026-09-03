@@ -48,6 +48,7 @@ export type SendMessageOptions = {
   branchCheckoutReceipt?: DraftBranchCheckoutReceipt;
   worktreeCreationReceipt?: DraftWorktreeCreationReceipt;
   draftSnapshot?: NewSessionDraftState;
+  initialInputKind?: 'extension-command';
 };
 
 export type AssistantMessageSessionExecution = {

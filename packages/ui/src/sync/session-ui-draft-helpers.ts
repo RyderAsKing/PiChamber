@@ -200,6 +200,7 @@ export async function materializeOpenDraftSession(
     branchCheckoutReceipt?: DraftBranchCheckoutReceipt;
     worktreeCreationReceipt?: DraftWorktreeCreationReceipt;
     draftSnapshot?: NewSessionDraftState;
+    initialInputKind?: 'extension-command';
   },
   sessionUIStoreApi: {
     getState: () => {
@@ -278,9 +279,15 @@ export async function materializeOpenDraftSession(
     null;
   const draftProjectId = draft.selectedProjectId ?? null;
 
+  // A slash-prefixed initial input never supplies the client-side title.
+  // Extension commands must leave the session unnamed until the first real
+  // conversation prompt; prompt templates, skills, and other slash inputs
+  // are titled authoritatively by the daemon after dispatch, which resolves
+  // the live registered-command catalog. Deriving here would race that
+  // catalog and could name an extension-configured session "/balance".
   const derivedTitle =
     draft.title ||
-    (selection.initialPrompt
+    (selection.initialPrompt && !selection.initialPrompt.trimStart().startsWith('/')
       ? deriveSessionTitle(selection.initialPrompt)
       : undefined);
 

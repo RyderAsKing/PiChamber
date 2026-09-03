@@ -142,6 +142,7 @@ export async function materializeOpenDraftSession(selection: {
   branchCheckoutReceipt?: DraftBranchCheckoutReceipt
   worktreeCreationReceipt?: DraftWorktreeCreationReceipt
   draftSnapshot?: NewSessionDraftState
+  initialInputKind?: 'extension-command'
 }): Promise<MaterializedDraftSession | null> {
   return materializeOpenDraftSessionHelper(selection, useSessionUIStore)
 }
@@ -672,6 +673,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         branchCheckoutReceipt: options?.branchCheckoutReceipt,
         worktreeCreationReceipt: options?.worktreeCreationReceipt,
         draftSnapshot: options?.draftSnapshot,
+        initialInputKind: options?.initialInputKind,
       })
       if (!createdDraftSession) throw new Error("Failed to create session")
 

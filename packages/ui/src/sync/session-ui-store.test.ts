@@ -350,6 +350,30 @@ describe('routeMessage', () => {
     })).rejects.toThrow('Create the selected worktree');
   });
 
+  test('does not derive a new session title from an extension command', async () => {
+    const titles: Array<string | undefined> = [];
+    useSessionUIStore.getState().setCurrentSession('session-other', '/workspace/other');
+    useSessionUIStore.getState().openNewSessionDraft({
+      selectedProjectId: 'proj-1',
+      directoryOverride: '/workspace/proj-1',
+    });
+    useSessionUIStore.setState({
+      createSession: async (title, directoryOverride) => {
+        titles.push(title);
+        return { id: 'session-extension', directory: directoryOverride ?? '/workspace/proj-1' };
+      },
+    });
+
+    await materializeOpenDraftSession({
+      providerID: 'provider',
+      modelID: 'model',
+      initialPrompt: '/balance',
+      initialInputKind: 'extension-command',
+    });
+
+    expect(titles).toEqual([undefined]);
+  });
+
   test('routes a completed worktree draft to its created session after navigation', async () => {
     const prompts: unknown[][] = [];
     const creationMetadata: Array<Record<string, unknown> | undefined> = [];
