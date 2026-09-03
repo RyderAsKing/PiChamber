@@ -12,35 +12,31 @@ export type DraftStarterRef = {
     name: string;
 };
 
-// Our built-in pichamber commands (Session utility prompts). They are always
-// available to pin, keep their bespoke icons, and seed the default global set.
-export type BuiltInStarter = {
-    name: string;
-    icon: IconName;
-    label: string;
-    command: string;
+// These commands were removed from PiChamber. Keep their names only to clean
+// up old persisted starter settings without bringing them back into the UI.
+const REMOVED_PICHAMBER_COMMANDS = new Set([
+    'summary',
+    'plan-feature',
+    'catch-up',
+    'debug',
+    'weigh',
+    'explore',
+]);
+
+export const isRemovedPiChamberCommand = (value: unknown): boolean => {
+    if (!value || typeof value !== 'object') return false;
+    const record = value as Record<string, unknown>;
+    return record.type === 'command'
+        && typeof record.name === 'string'
+        && REMOVED_PICHAMBER_COMMANDS.has(record.name.trim().toLowerCase());
 };
 
-export const BUILTIN_STARTERS: readonly BuiltInStarter[] = [
-    { name: 'explore', icon: 'compass-3', label: "Explore the codebase", command: '/explore' },
-    { name: 'catch-up', icon: 'history', label: "Catch me up", command: '/catch-up' },
-    { name: 'weigh', icon: 'scales-3', label: "Weigh my options", command: '/weigh' },
-    { name: 'plan-feature', icon: 'survey', label: "Start feature planning", command: '/plan-feature' },
-    { name: 'debug', icon: 'bug', label: "Debug an issue", command: '/debug' },
-];
+// No PiChamber-owned command starters are enabled by default. Keep the empty
+// default so older persisted starter settings remain readable without
+// reintroducing removed commands.
+export const DEFAULT_GLOBAL_STARTERS: readonly DraftStarterRef[] = [];
 
-const BUILTIN_BY_NAME = new Map<string, BuiltInStarter>(BUILTIN_STARTERS.map((s) => [s.name, s]));
-
-export const getBuiltInStarter = (name: string): BuiltInStarter | undefined => BUILTIN_BY_NAME.get(name);
-
-// Default global starter set (used until the user customizes the global list).
-export const DEFAULT_GLOBAL_STARTERS: readonly DraftStarterRef[] = BUILTIN_STARTERS.map((s) => ({
-    type: 'command' as const,
-    name: s.name,
-}));
-
-// Fallback icons for user-defined starters, matching the Settings sections.
-export const COMMAND_FALLBACK_ICON: IconName = 'terminal-box';
+// Fallback icon for skill starters, matching the Settings section.
 export const SKILL_FALLBACK_ICON: IconName = 'book-open';
 
 export const starterKey = (ref: DraftStarterRef): string => `${ref.type}:${ref.name}`;
@@ -69,7 +65,7 @@ export const sanitizeStarterRefs = (value: unknown): DraftStarterRef[] => {
         const record = entry as Record<string, unknown>;
         const type = record.type === 'command' || record.type === 'skill' ? record.type : null;
         const name = typeof record.name === 'string' ? record.name.trim() : '';
-        if (!type || !name) continue;
+        if (!type || !name || isRemovedPiChamberCommand({ type, name })) continue;
         const key = `${type}:${name}`;
         if (seen.has(key)) continue;
         seen.add(key);

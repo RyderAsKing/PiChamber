@@ -3,7 +3,6 @@ import { cn, fuzzyMatch } from '@/lib/utils';
 import { useSnippetsStore } from '@/stores/useSnippetsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
-import { Icon } from '@/components/icon/Icon';
 import type { Snippet } from '@/types/snippet';
 import { useMobileAutocompleteMaxHeight } from './useMobileAutocompleteMaxHeight';
 
@@ -19,7 +18,8 @@ interface SnippetAutocompleteProps {
 }
 
 function snippetPreview(snippet: Snippet): string {
-  return (snippet.description || snippet.content).replace(/\s+/g, ' ').trim().slice(0, 120);
+  const preview = (snippet.description || snippet.content).replace(/\s+/g, ' ').trim();
+  return preview.length > 140 ? `${preview.slice(0, 140).trimEnd()}…` : preview;
 }
 
 export const SnippetAutocomplete = React.forwardRef<SnippetAutocompleteHandle, SnippetAutocompleteProps>(({
@@ -121,41 +121,91 @@ export const SnippetAutocomplete = React.forwardRef<SnippetAutocompleteHandle, S
   }), [chooseSnippet, filteredSnippets, onClose, openNewSnippetSettings]);
 
   return (
-    <div ref={containerRef} className="absolute z-[100] min-w-0 w-full max-w-[450px] max-h-60 bg-background border-2 border-border/60 rounded-xl shadow-none bottom-full mb-2 left-0 flex flex-col" style={mobileMaxHeight !== undefined ? { ...style, maxHeight: mobileMaxHeight } : style}>
-      <ScrollableOverlay preventOverscroll outerClassName="flex-1 min-h-0" className="px-0 pb-2">
+    <div
+      ref={containerRef}
+      role="listbox"
+      aria-label="Snippets"
+      aria-activedescendant={selectedIndex === 0 ? 'snippet-option-new' : `snippet-option-${selectedIndex}`}
+      className="absolute bottom-full left-0 z-[100] flex max-h-80 min-w-0 w-full max-w-[520px] flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--surface-elevated)] text-[var(--surface-elevated-foreground)] shadow-lg"
+      style={mobileMaxHeight !== undefined ? { ...style, maxHeight: mobileMaxHeight } : style}
+    >
+      <ScrollableOverlay preventOverscroll outerClassName="flex-1 min-h-0" className="px-1 py-1.5">
         <div
+          id="snippet-option-new"
           ref={(el) => { itemRefs.current[0] = el; }}
-          className={cn('flex items-center gap-2 px-3 py-1.5 cursor-pointer rounded-lg typography-ui-label', selectedIndex === 0 && 'bg-interactive-selection')}
+          role="option"
+          aria-selected={selectedIndex === 0}
+          className={cn(
+            'flex min-h-14 cursor-pointer items-start rounded-lg px-3 py-2.5',
+            selectedIndex === 0
+              ? 'bg-interactive-selection text-interactive-selection-foreground'
+              : 'text-foreground hover:bg-interactive-hover',
+          )}
+          onMouseDown={(event) => event.preventDefault()}
           onClick={openNewSnippetSettings}
           onMouseMove={() => setSelectedIndex(0)}
         >
-          <Icon name="add" className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="font-medium text-foreground">{"+ Add new snippet"}</span>
-        </div>
-        {filteredSnippets.length ? filteredSnippets.map((snippet, index) => (
-          <div
-            key={`${snippet.source}:${snippet.filePath}`}
-            ref={(el) => { itemRefs.current[index + 1] = el; }}
-            className={cn('flex gap-2 px-3 py-1.5 cursor-pointer rounded-lg typography-ui-label', isMobile ? 'items-center' : 'items-start', index + 1 === selectedIndex && 'bg-interactive-selection')}
-            onClick={() => chooseSnippet(snippet)}
-            onMouseMove={() => setSelectedIndex(index + 1)}
-          >
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold truncate">#{snippet.name}</span>
-                <span className="text-[10px] leading-none uppercase font-bold tracking-tight px-1.5 py-1 rounded border flex-shrink-0 bg-[var(--surface-muted)] text-muted-foreground border-[var(--interactive-border)]/60">{(snippet.source === 'global' ? 'global' : 'project')}</span>
-              </div>
-              {!isMobile && (
-                <div className="typography-meta text-muted-foreground mt-0.5 truncate">{snippetPreview(snippet)}</div>
-              )}
+          <div className="min-w-0 flex-1">
+            <div className="typography-ui-label font-medium">Create a new snippet</div>
+            <div className={cn(
+              'mt-1 text-xs leading-5',
+              selectedIndex === 0 ? 'text-interactive-selection-foreground/75' : 'text-muted-foreground',
+            )}>
+              Save a reusable prompt template
             </div>
           </div>
-        )) : (
-          <div className="px-3 py-2 typography-ui-label text-muted-foreground">{"No snippets found"}</div>
+        </div>
+        {filteredSnippets.length ? filteredSnippets.map((snippet, index) => {
+          const optionIndex = index + 1;
+          const isSelected = optionIndex === selectedIndex;
+          const sourceLabel = snippet.source === 'project' ? 'Project' : 'Global';
+          const preview = snippetPreview(snippet);
+          return (
+            <div
+              key={`${snippet.source}:${snippet.filePath}`}
+              id={`snippet-option-${optionIndex}`}
+              ref={(el) => { itemRefs.current[optionIndex] = el; }}
+              role="option"
+              aria-selected={isSelected}
+              className={cn(
+                'flex min-h-14 cursor-pointer items-start rounded-lg px-3 py-2.5',
+                isSelected
+                  ? 'bg-interactive-selection text-interactive-selection-foreground'
+                  : 'text-foreground hover:bg-interactive-hover',
+              )}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => chooseSnippet(snippet)}
+              onMouseMove={() => setSelectedIndex(optionIndex)}
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 truncate font-mono typography-ui-label font-medium">#{snippet.name}</span>
+                  <span className={cn(
+                    'ml-auto shrink-0 text-xs leading-4',
+                    isSelected ? 'text-interactive-selection-foreground/75' : 'text-muted-foreground',
+                  )}>
+                    {sourceLabel}
+                  </span>
+                </div>
+                {preview ? (
+                  <div className={cn(
+                    'mt-1 truncate text-xs leading-5',
+                    isSelected ? 'text-interactive-selection-foreground/75' : 'text-muted-foreground',
+                  )}>
+                    {preview}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          );
+        }) : (
+          <div className="px-3 py-4 typography-ui-label text-muted-foreground">No snippets found</div>
         )}
       </ScrollableOverlay>
       {!isMobile && (
-        <div className="px-3 pt-1 pb-1.5 border-t typography-meta text-muted-foreground">{"↑↓ navigate • Enter select • Esc close"}</div>
+        <div className="border-t border-border/60 px-3 py-2 text-xs leading-4 text-muted-foreground">
+          ↑↓ Navigate · Enter Select · Esc Close
+        </div>
       )}
     </div>
   );

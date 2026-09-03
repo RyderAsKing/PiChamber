@@ -16,7 +16,7 @@ describe('scanPrefixTokens — boundaries', () => {
     });
 
     test('a token after whitespace, mid-sentence', () => {
-        expect(slashNames('please run /explore now')).toEqual(['explore']);
+        expect(slashNames('please run /review now')).toEqual(['review']);
         expect(hashNames('use #sig at the end')).toEqual(['sig']);
     });
 
@@ -35,7 +35,7 @@ describe('scanPrefixTokens — boundaries', () => {
     });
 
     test('multiple tokens on one line', () => {
-        expect(slashNames('/plan then /review')).toEqual(['plan', 'review']);
+        expect(slashNames('/custom-command then /review')).toEqual(['custom-command', 'review']);
     });
 
     test('a name must start with an alphanumeric', () => {
@@ -45,8 +45,8 @@ describe('scanPrefixTokens — boundaries', () => {
     });
 
     test('names may contain dashes, underscores and digits', () => {
-        expect(slashNames('/plan-feature /My_Skill /a1')).toEqual([
-            'plan-feature',
+        expect(slashNames('/custom-command /My_Skill /a1')).toEqual([
+            'custom-command',
             'My_Skill',
             'a1',
         ]);

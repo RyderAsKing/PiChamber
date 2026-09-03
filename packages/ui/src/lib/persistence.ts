@@ -1,4 +1,5 @@
 import type { DesktopSettings } from '@/lib/desktop';
+import { isRemovedPiChamberCommand } from './draftStarters';
 import { useUIStore } from '@/stores/useUIStore';
 import { loadAppearancePreferences, applyAppearancePreferences } from '@/lib/appearancePersistence';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
@@ -222,6 +223,9 @@ export const syncDesktopSettings = async (): Promise<void> => {
         (starter) =>
           starter?.type === 'command' && starter.name === 'craft-goal'
       );
+    const shouldRemovePiChamberStarter =
+      Array.isArray(settings.draftStarters) &&
+      settings.draftStarters.some(isRemovedPiChamberCommand);
     const shouldSeedAutoSaveEnabled =
       typeof settings.autoSaveEnabled !== 'boolean';
     const authoritativeSettings =
@@ -246,7 +250,11 @@ export const syncDesktopSettings = async (): Promise<void> => {
       console.warn('applyDesktopUiPreferences failed:', error);
     }
     const migrationPatch: Partial<DesktopSettings> = {};
-    if (shouldPersistScheduleTaskMigration || shouldRemoveCraftGoalStarter) {
+    if (
+      shouldPersistScheduleTaskMigration ||
+      shouldRemoveCraftGoalStarter ||
+      shouldRemovePiChamberStarter
+    ) {
       if (authoritativeSettings.draftStarters) {
         migrationPatch.draftStarters = authoritativeSettings.draftStarters;
       }

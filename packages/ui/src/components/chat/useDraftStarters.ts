@@ -7,10 +7,8 @@ import { updateDesktopSettings } from '@/lib/persistence';
 import { getProjectDraftStarters, saveProjectDraftStarters } from '@/lib/pichamberConfig';
 import type { IconName } from '@/components/icon/icons';
 import {
-    BUILTIN_STARTERS,
     DEFAULT_GLOBAL_STARTERS,
     SKILL_FALLBACK_ICON,
-    getBuiltInStarter,
     normalizeStarterLabel,
     sameStarter,
     starterKey,
@@ -29,7 +27,7 @@ export type ResolvedStarter = {
     submitText: string;
 };
 
-export type PinnableSection = 'built-in' | 'command' | 'skill';
+export type PinnableSection = 'skill';
 
 export type PinnableItem = {
     type: DraftStarterType;
@@ -92,13 +90,9 @@ export function useDraftStarters(): UseDraftStartersResult {
     const skillNames = React.useMemo(() => new Set(skills.map((s) => s.name)), [skills]);
 
     const resolve = React.useCallback((ref: DraftStarterRef, group: StarterGroup): ResolvedStarter | null => {
-        if (ref.type === 'command') {
-            const builtin = getBuiltInStarter(ref.name);
-            if (builtin) {
-                return { id: chipId(group, ref), ref, group, label: builtin.label, icon: builtin.icon, submitText: builtin.command };
-            }
-            return null;
-        }
+        // Command starters were PiChamber-owned and have been removed. Keep
+        // accepting their persisted shape, but do not render or run them.
+        if (ref.type === 'command') return null;
         if (!skillNames.has(ref.name)) return null;
         return { id: chipId(group, ref), ref, group, label: normalizeStarterLabel(ref.name), icon: SKILL_FALLBACK_ICON, submitText: `/${ref.name}` };
     }, [skillNames]);
@@ -125,14 +119,15 @@ export function useDraftStarters(): UseDraftStartersResult {
     }, [globalRefs, projectStarters]);
 
     const pinnable = React.useMemo<PinnableItem[]>(() => {
-        const items: PinnableItem[] = [];
-        for (const b of BUILTIN_STARTERS) {
-            items.push({ type: 'command', name: b.name, label: b.label, icon: b.icon, section: 'built-in', scope: 'user' });
-        }
-        for (const sk of skills) {
-            items.push({ type: 'skill', name: sk.name, label: normalizeStarterLabel(sk.name), icon: SKILL_FALLBACK_ICON, section: 'skill', scope: sk.scope === 'project' ? 'project' : 'user' });
-        }
-        // Only offer items that are not already pinned (removed built-ins reappear here).
+        const items: PinnableItem[] = skills.map((sk) => ({
+            type: 'skill',
+            name: sk.name,
+            label: normalizeStarterLabel(sk.name),
+            icon: SKILL_FALLBACK_ICON,
+            section: 'skill',
+            scope: sk.scope === 'project' ? 'project' : 'user',
+        }));
+        // Only offer items that are not already pinned.
         return items.filter((item) => !pinnedKeys.has(`${item.type}:${item.name}`));
     }, [skills, pinnedKeys]);
 

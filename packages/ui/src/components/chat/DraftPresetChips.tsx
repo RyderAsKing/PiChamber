@@ -58,8 +58,6 @@ const ROUND_ICON_BUTTON_CLASS =
     'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition-colors';
 
 const PICKER_SECTIONS: { key: PinnableSection; headingKey: string }[] = [
-    { key: 'built-in', headingKey: 'Built-in' },
-    { key: 'command', headingKey: 'Commands' },
     { key: 'skill', headingKey: 'Skills' },
 ];
 
@@ -169,7 +167,7 @@ const StarterPickerList: React.FC<{
 }> = ({ pinnable, onPick, className }) => {
     return (
         <Command className={cn('min-h-0', className)}>
-            <CommandInput placeholder={"Search commands and skills…"} />
+            <CommandInput placeholder={"Search skills…"} />
             <CommandList>
                 <CommandEmpty>{"Nothing to add"}</CommandEmpty>
                 {PICKER_SECTIONS.map((section) => {
@@ -242,8 +240,8 @@ const AddStarterPicker: React.FC<{
 /**
  * The editable row of starter chips on the draft welcome screen. Shows the
  * global group then the project group (each reorderable within itself), plus a
- * "+" picker to pin existing commands/skills. The surface owns how a chip click
- * is submitted via `onSubmit`.
+ * "+" picker to pin available skills. The surface owns how a chip click is
+ * submitted via `onSubmit`.
  *
  * Both groups share a single DndContext so the mobile trash drop-zone (which
  * replaces the "+" while dragging) is reachable from either group's drag.

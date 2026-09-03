@@ -11,7 +11,7 @@ const context = (overrides: Partial<ComposerLanguageContext> = {}): ComposerLang
     inputMode: 'normal',
     knownAgentNames: new Set(['build', 'plan']),
     confirmedMentions: new Set(['NOTES']),
-    knownSlashNames: new Set(['review', 'explore']),
+    knownSlashNames: new Set(['review', 'init']),
     knownSnippetTriggers: new Set(['sig']),
     attachmentFilenames: [],
     ...overrides,

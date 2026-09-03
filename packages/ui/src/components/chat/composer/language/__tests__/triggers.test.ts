@@ -36,7 +36,7 @@ describe('command palette', () => {
 
 describe('inline skill picker', () => {
     test('a slash after whitespace opens the skill picker', () => {
-        expect(at('please run /explo|')).toEqual({ kind: 'skill', query: 'explo' });
+        expect(at('please run /rev|')).toEqual({ kind: 'skill', query: 'rev' });
     });
 
     test('a slash after a newline opens it', () => {
@@ -48,7 +48,7 @@ describe('inline skill picker', () => {
     });
 
     test('a space after the sigil closes it', () => {
-        expect(at('run /explore |')).toBeNull();
+        expect(at('run /review |')).toBeNull();
     });
 
     test('the nearest slash before the caret wins', () => {

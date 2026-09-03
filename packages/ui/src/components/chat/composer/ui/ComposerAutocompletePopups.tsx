@@ -30,8 +30,8 @@ export interface AutocompleteOverlayPosition {
 /** Widths each picker asks for when placed at the caret. */
 const CARET_PLACED_WIDTH: Record<AutocompleteKind, number> = {
     mention: 520,
-    command: 450,
-    snippet: 450,
+    command: 520,
+    snippet: 520,
     skill: 360,
 };
 

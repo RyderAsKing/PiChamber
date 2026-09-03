@@ -23,7 +23,6 @@ export interface CommandInfo {
   agent?: string;
   model?: string;
   isBuiltIn?: boolean;
-  isPiChamber?: boolean;
   isSkill?: boolean;
   scope?: string;
 }
@@ -32,23 +31,17 @@ export interface CommandAutocompleteHandle {
   handleKeyDown: (key: string) => void;
 }
 
-const BASE_BADGE_CLASS = "text-[10px] leading-none uppercase font-bold tracking-tight px-1.5 py-1 rounded border flex-shrink-0";
-const TYPE_BADGE_CLASS = cn(
-  BASE_BADGE_CLASS,
-  "bg-[color-mix(in_srgb,var(--primary-base)_12%,transparent)] text-[color-mix(in_srgb,var(--primary-base)_70%,transparent)] border-[color-mix(in_srgb,var(--primary-base)_24%,transparent)]"
-);
-const USER_BADGE_CLASS = cn(
-  BASE_BADGE_CLASS,
-  "bg-[color-mix(in_srgb,var(--status-success)_12%,transparent)] text-[color-mix(in_srgb,var(--status-success)_70%,transparent)] border-[color-mix(in_srgb,var(--status-success)_24%,transparent)]"
-);
-const PROJECT_BADGE_CLASS = cn(
-  BASE_BADGE_CLASS,
-  "bg-[color-mix(in_srgb,var(--status-info)_12%,transparent)] text-[color-mix(in_srgb,var(--status-info)_70%,transparent)] border-[color-mix(in_srgb,var(--status-info)_24%,transparent)]"
-);
-const NEUTRAL_BADGE_CLASS = cn(
-  BASE_BADGE_CLASS,
-  "bg-[var(--surface-muted)] text-muted-foreground border-[var(--interactive-border)]/60"
-);
+const getCommandContext = (command: CommandInfo): string | null => {
+  const primaryContext = command.isSkill
+    ? 'Skill'
+    : command.source === 'extension'
+      ? 'Extension'
+      : command.isBuiltIn
+        ? 'Built-in'
+        : command.scope;
+  const labels = [primaryContext, command.agent].filter((label): label is string => Boolean(label));
+  return labels.length > 0 ? labels.join(' · ') : null;
+};
 
 interface CommandAutocompleteProps {
   searchQuery: string;
@@ -60,9 +53,8 @@ interface CommandAutocompleteProps {
 const buildBuiltInCommands = (options: {
   hasSession: boolean;
   hasMessagesInCurrentSession: boolean;
-  canStartSessionCommand: boolean;
 }): CommandInfo[] => {
-  const { hasSession, hasMessagesInCurrentSession, canStartSessionCommand } = options;
+  const { hasSession, hasMessagesInCurrentSession } = options;
   return [
     ...(hasSession && !hasMessagesInCurrentSession
       ? [{ id: 'pichamber:init', name: 'init', source: 'pichamber' as const, description: "Create/update AGENTS.md file", isBuiltIn: true }]
@@ -77,30 +69,6 @@ const buildBuiltInCommands = (options: {
       : []
     ),
     { id: 'pichamber:compact', name: 'compact', source: 'pichamber' as const, description: "Compress session history using AI to reduce context size", isBuiltIn: true },
-    ...(hasSession
-      ? [{ id: 'pichamber:summary', name: 'summary', source: 'pichamber' as const, description: "Non-destructive session summary. Optional topic hint after the command.", isPiChamber: true }]
-      : []
-    ),
-    ...(canStartSessionCommand
-      ? [{ id: 'pichamber:plan-feature', name: 'plan-feature', source: 'pichamber' as const, description: "Start a guided, back-and-forth planning session for a new feature.", isPiChamber: true }]
-      : []
-    ),
-    ...(canStartSessionCommand
-      ? [{ id: 'pichamber:catch-up', name: 'catch-up', source: 'pichamber' as const, description: "Re-establish context: what you were doing and where to pick up.", isPiChamber: true }]
-      : []
-    ),
-    ...(canStartSessionCommand
-      ? [{ id: 'pichamber:debug', name: 'debug', source: 'pichamber' as const, description: "Guided root-cause investigation for a bug before proposing a fix.", isPiChamber: true }]
-      : []
-    ),
-    ...(canStartSessionCommand
-      ? [{ id: 'pichamber:weigh', name: 'weigh', source: 'pichamber' as const, description: "Weigh 2-3 approaches with trade-offs and a recommendation before you commit.", isPiChamber: true }]
-      : []
-    ),
-    ...(canStartSessionCommand
-      ? [{ id: 'pichamber:explore', name: 'explore', source: 'pichamber' as const, description: "Get oriented in this codebase: a high-level tour of the architecture and main parts.", isPiChamber: true }]
-      : []
-    ),
   ];
 };
 
@@ -119,8 +87,6 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
     Object.is,
     currentSessionId ? `session:${currentSessionId}` : 'chrome',
   );
-  const hasNewSessionDraft = useSessionUIStore((state) => Boolean(state.newSessionDraft?.open));
-  const canStartSessionCommand = hasSession || hasNewSessionDraft;
   const isMobile = useUIStore((state) => state.isMobile);
 
   const [commands, setCommands] = React.useState<CommandInfo[]>([]);
@@ -201,7 +167,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
           scope: skill.scope,
         }));
 
-        const builtInCommands = buildBuiltInCommands({ hasSession, hasMessagesInCurrentSession, canStartSessionCommand });
+        const builtInCommands = buildBuiltInCommands({ hasSession, hasMessagesInCurrentSession });
         const allCommands = mergeCommandAutocompleteItems(builtInCommands, [], skillCommands);
         const builtInNames = new Set(allCommands.map((cmd) => cmd.name));
         const withExtensions = [...allCommands, ...extensionCommands.filter((cmd) => !builtInNames.has(cmd.name))];
@@ -223,7 +189,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
       } catch {
 
         const allowInitCommand = !hasMessagesInCurrentSession;
-        const builtInCommands = buildBuiltInCommands({ hasSession, hasMessagesInCurrentSession, canStartSessionCommand });
+        const builtInCommands = buildBuiltInCommands({ hasSession, hasMessagesInCurrentSession });
 
         const filtered = (searchQuery
           ? builtInCommands.filter(cmd =>
@@ -239,7 +205,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
     };
 
     loadCommands();
-  }, [searchQuery, hasMessagesInCurrentSession, hasSession, canStartSessionCommand, skills, extensionCommands]);
+  }, [searchQuery, hasMessagesInCurrentSession, hasSession, skills, extensionCommands]);
 
   React.useEffect(() => {
     setSelectedIndex(0);
@@ -289,65 +255,40 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
     }
   }), [commands, onClose, onCommandSelect]);
 
-  const getCommandIcon = (command: CommandInfo) => {
-
-    switch (command.name) {
-      case 'init':
-        return <Icon name="file" className="h-3.5 w-3.5 text-green-500" />;
-      case 'undo':
-        return <Icon name="arrow-go-back" className="h-3.5 w-3.5 text-orange-500" />;
-      case 'redo':
-        return <Icon name="arrow-go-forward" className="h-3.5 w-3.5 text-orange-500" />;
-      case 'timeline':
-        return <Icon name="time" className="h-3.5 w-3.5" />;
-      case 'compact':
-        return <Icon name="scissors" className="h-3.5 w-3.5 text-purple-500" />;
-      case 'review':
-        return <Icon name="search-eye" className="h-3.5 w-3.5 text-blue-500" />;
-      case 'test':
-      case 'build':
-      case 'run':
-        return <Icon name="terminal-box" className="h-3.5 w-3.5 text-cyan-500" />;
-      default:
-        if (command.isBuiltIn) {
-          return <Icon name="flashlight" className="h-3.5 w-3.5 text-yellow-500" />;
-        }
-        if (command.source === 'extension') {
-          return <Icon name="plug-2" className="h-3.5 w-3.5 text-muted-foreground" />;
-        }
-        return <Icon name="command" className="h-3.5 w-3.5 text-muted-foreground" />;
-    }
-  };
-
   return (
     <div
       ref={containerRef}
-      className="absolute z-[100] min-w-0 w-full max-w-[450px] max-h-64 bg-background border-2 border-border/60 rounded-xl shadow-none bottom-full mb-2 left-0 flex flex-col"
+      role="listbox"
+      aria-label="Commands"
+      aria-activedescendant={commands[selectedIndex] ? `command-option-${selectedIndex}` : undefined}
+      className="absolute bottom-full left-0 z-[100] flex max-h-80 min-w-0 w-full max-w-[520px] flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--surface-elevated)] text-[var(--surface-elevated-foreground)] shadow-lg"
       style={mobileMaxHeight !== undefined ? { ...style, maxHeight: mobileMaxHeight } : style}
     >
-      <ScrollableOverlay preventOverscroll outerClassName="flex-1 min-h-0" className="px-0 pb-2">
+      <ScrollableOverlay preventOverscroll outerClassName="flex-1 min-h-0" className="px-1 py-1.5">
         {loading ? (
-          <div className="flex items-center justify-center py-4">
-            <Icon name="refresh" className="h-4 w-4 animate-spin text-muted-foreground" />
+          <div className="flex items-center justify-center py-8">
+            <Icon name="refresh" className="size-5 animate-spin text-muted-foreground" aria-hidden />
           </div>
         ) : (
           <div>
             {commands.map((command, index) => {
-              const isSystem = command.isBuiltIn;
-              const isPiChamberBadge = command.isPiChamber;
+              const isSelected = index === selectedIndex;
+              const context = getCommandContext(command);
               return (
                 <div
                   key={command.id}
+                  id={`command-option-${index}`}
                   ref={(el) => { itemRefs.current[index] = el; }}
+                  role="option"
+                  aria-selected={isSelected}
                   className={cn(
-                    "flex gap-2 px-3 py-2 cursor-pointer rounded-lg",
-                    isMobile ? "items-center" : "items-start",
-                    index === selectedIndex && "bg-interactive-selection"
+                    'flex min-h-14 cursor-pointer items-start rounded-lg px-3 py-2.5',
+                    isSelected
+                      ? 'bg-interactive-selection text-interactive-selection-foreground'
+                      : 'text-foreground hover:bg-interactive-hover',
                   )}
-                  // Block the focus transfer the tap would perform: the textarea
-                  // must stay focused so selecting a command doesn't dismiss the
-                  // soft keyboard (the blur raced the keyboard-hide trigger and
-                  // won against the deferred refocus).
+                  // Keep the editor focused so selecting a command does not
+                  // dismiss the soft keyboard on touch devices.
                   onMouseDown={(event) => event.preventDefault()}
                   onPointerDown={(event) => {
                     if (event.pointerType !== 'touch') {
@@ -397,42 +338,23 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
                     setSelectedIndex(index);
                   }}
                 >
-                  <div className={cn(!isMobile && "mt-0.5")}>
-                    {getCommandIcon(command)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="typography-ui-label font-medium">/{command.name}</span>
-                      {command.isSkill ? (
-                        <span className={TYPE_BADGE_CLASS}>
-                          {"skill"}
-                        </span>
-                      ) : (
-                        <span className={TYPE_BADGE_CLASS}>
-                          {"command"}
-                        </span>
-                      )}
-                      {isPiChamberBadge ? (
-                        <span className={NEUTRAL_BADGE_CLASS}>
-                          PiChamber
-                        </span>
-                      ) : isSystem ? (
-                        <span className={NEUTRAL_BADGE_CLASS}>
-                          {"system"}
-                        </span>
-                      ) : command.scope ? (
-                        <span className={command.scope === 'project' ? PROJECT_BADGE_CLASS : USER_BADGE_CLASS}>
-                          {command.scope}
-                        </span>
-                      ) : null}
-                      {command.agent && (
-                        <span className={NEUTRAL_BADGE_CLASS}>
-                          {command.agent}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="min-w-0 truncate font-mono typography-ui-label font-medium">/{command.name}</span>
+                      {context && (
+                        <span className={cn(
+                          'ml-auto max-w-[45%] shrink-0 truncate text-xs leading-4',
+                          isSelected ? 'text-interactive-selection-foreground/75' : 'text-muted-foreground',
+                        )}>
+                          {context}
                         </span>
                       )}
                     </div>
-                    {command.description && !isMobile && (
-                      <div className="typography-meta text-muted-foreground mt-0.5 truncate">
+                    {command.description && (
+                      <div className={cn(
+                        'mt-1 truncate text-xs leading-5',
+                        isSelected ? 'text-interactive-selection-foreground/75' : 'text-muted-foreground',
+                      )}>
                         {command.description}
                       </div>
                     )}
@@ -441,16 +363,16 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
               );
             })}
             {commands.length === 0 && (
-              <div className="px-3 py-2 typography-ui-label text-muted-foreground">
-                {"No commands found"}
+              <div className="px-3 py-4 typography-ui-label text-muted-foreground">
+                No commands found
               </div>
             )}
           </div>
         )}
       </ScrollableOverlay>
       {!isMobile && (
-        <div className="px-3 pt-1 pb-1.5 border-t typography-meta text-muted-foreground">
-          {"↑↓ navigate • Enter select • Esc close"}
+        <div className="border-t border-border/60 px-3 py-2 text-xs leading-4 text-muted-foreground">
+          ↑↓ Navigate · Enter Select · Esc Close
         </div>
       )}
     </div>

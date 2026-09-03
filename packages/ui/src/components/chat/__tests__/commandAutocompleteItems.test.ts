@@ -36,18 +36,18 @@ describe('mergeCommandAutocompleteItems', () => {
 
   test('built-ins win collisions with commands and skills without losing search aliases', () => {
     const builtIn: Item = {
-      name: 'summary',
+      name: 'digest',
       source: 'pichamber',
       description: 'Summarize this session',
       isBuiltIn: true,
     };
     const command: Item = {
-      name: 'summary',
+      name: 'digest',
       source: 'pi',
       description: 'Plugin session digest',
     };
     const skill: Item = {
-      name: 'summary',
+      name: 'digest',
       source: 'skill',
       description: 'Skill session recap',
       isSkill: true,

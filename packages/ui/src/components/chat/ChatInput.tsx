@@ -484,7 +484,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const availableSkills = useSkillsStore((s) => s.skills);
     const knownSlashNames = React.useMemo(() => {
         const names = new Set<string>([
-            'init', 'review', 'undo', 'redo', 'timeline', 'compact', 'summary', 'plan-feature', 'catch-up', 'debug', 'weigh', 'explore',
+            'init', 'review', 'undo', 'redo', 'timeline', 'compact',
         ]);
         for (const skill of availableSkills) names.add(skill.name.toLowerCase());
         return names;

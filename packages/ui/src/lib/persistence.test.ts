@@ -473,9 +473,15 @@ describe('updateDesktopSettings', () => {
     registerSettingsApi(async () => ({}), async () => ({
       settings: {
         draftStarters: [
+          { type: 'command', name: 'summary' },
+          { type: 'command', name: 'plan-feature' },
+          { type: 'command', name: 'catch-up' },
+          { type: 'command', name: 'debug' },
+          { type: 'command', name: 'weigh' },
           { type: 'command', name: 'explore' },
           { type: 'command', name: 'craft-goal' },
           { type: 'command', name: 'schedule-task' },
+          { type: 'skill', name: 'code-review' },
         ],
       },
       source: 'web',
@@ -484,7 +490,7 @@ describe('updateDesktopSettings', () => {
     await syncDesktopSettings();
 
     expect(useUIStore.getState().globalDraftStarters).toEqual([
-      { type: 'command', name: 'explore' },
+      { type: 'skill', name: 'code-review' },
     ]);
     expect(JSON.parse(localStorage.getItem(getRuntimeSettingsMirrorStorageKey('default')) ?? '{}').draftStartersScheduleTaskAdded).toBe(undefined);
   });
