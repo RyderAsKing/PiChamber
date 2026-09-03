@@ -37,6 +37,7 @@ afterEach(() => {
     createSession: originalCreateSession,
     currentSessionId: null,
     currentSessionDirectory: null,
+    isSendingNewSession: false,
     newSessionDraft: {
       open: false,
       directoryOverride: null,
@@ -455,5 +456,32 @@ describe('routeMessage', () => {
     setNewSessionDraftTarget({ directoryOverride: '/workspace/proj-2' });
     expect(useSessionUIStore.getState().newSessionDraft.open).toBe(true);
     expect(useSessionUIStore.getState().newSessionDraft.branchIntent).toBeNull();
+  });
+});
+
+describe('isSendingNewSession', () => {
+  test('toggles without disturbing selection or draft state', () => {
+    const { openNewSessionDraft, setSendingNewSession } = useSessionUIStore.getState();
+    openNewSessionDraft({
+      selectedProjectId: 'proj-1',
+      directoryOverride: '/workspace/proj-1',
+    });
+
+    expect(useSessionUIStore.getState().isSendingNewSession).toBe(false);
+    setSendingNewSession(true);
+    expect(useSessionUIStore.getState().isSendingNewSession).toBe(true);
+    // Toggling the flag must not close the draft or select a session.
+    expect(useSessionUIStore.getState().newSessionDraft.open).toBe(true);
+    expect(useSessionUIStore.getState().currentSessionId).toBe(null);
+    setSendingNewSession(false);
+    expect(useSessionUIStore.getState().isSendingNewSession).toBe(false);
+    expect(useSessionUIStore.getState().newSessionDraft.open).toBe(true);
+  });
+
+  test('restoreForRuntimeSwitch clears a stale in-flight flag', () => {
+    useSessionUIStore.getState().setSendingNewSession(true);
+    expect(useSessionUIStore.getState().isSendingNewSession).toBe(true);
+    useSessionUIStore.getState().restoreForRuntimeSwitch();
+    expect(useSessionUIStore.getState().isSendingNewSession).toBe(false);
   });
 });

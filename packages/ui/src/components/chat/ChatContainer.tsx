@@ -71,6 +71,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     const openNewSessionDraft = useSessionUIStore((s) => s.openNewSessionDraft);
     const setCurrentSession = useSessionUIStore((s) => s.setCurrentSession);
     const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
+    const isSendingNewSession = useSessionUIStore((s) => s.isSendingNewSession);
 
     // Sync actions
     const sync = useSync();
@@ -494,7 +495,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 			// No transform on this root: it would become the containing block for
 			// the fullscreen composer's position:fixed visual-viewport pinning in
 			// mobile browsers (see ChatInput's composerFormRef effect).
-			<div data-composer-bound className="relative flex h-full flex-col bg-background">
+			<div data-composer-bound className="relative flex h-full flex-col bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
 				{useCompactDraftLayout && !isDesktopExpandedInput ? <DraftWelcome /> : null}
 				<div
 					className={cn(
@@ -519,9 +520,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 	if (isSessionLoading) {
 		if (sessionMessageLoadState.status === 'error') {
 			return (
-				<div data-composer-bound className="relative flex h-full flex-col bg-background">
-					{returnToParentButton}
-					<div className="flex min-h-0 flex-1 items-center justify-center px-6">
+			<div data-composer-bound className="relative flex h-full flex-col bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
+				{returnToParentButton}
+				<div className="flex min-h-0 flex-1 items-center justify-center px-6">
 						<div className="max-w-sm text-center">
 							<div className="mx-auto mb-3 flex size-9 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--status-error)_10%,transparent)] text-[var(--status-error)]">
 								<Icon name="error-warning" className="size-4" />
@@ -540,7 +541,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 			);
 		}
 		return (
-			<div data-composer-bound className="relative flex flex-col h-full bg-background">
+			<div data-composer-bound className="relative flex flex-col h-full bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
 				{returnToParentButton}
 				<div
 					className={cn(
@@ -551,7 +552,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                     )}
                     aria-hidden={isDesktopExpandedInput}
                 >
-                    <PiChamberLogo width={120} height={120} isAnimated />
+                    <div className="flex flex-col items-center gap-3">
+                        <PiChamberLogo width={120} height={120} isAnimated />
+                        {isSendingNewSession ? (
+                            <p role="status" className="typography-meta animate-pulse text-muted-foreground">{"Creating session…"}</p>
+                        ) : null}
+                    </div>
                 </div>
                 <div className={composerBarClassName(isDesktopExpandedInput)}>
                     <ChatInput scrollToBottom={scrollToBottomOnSend} />
@@ -564,7 +570,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 		return (
 			// No transform here either — same fixed-positioning constraint as the
 			// draft branch above.
-			<div data-composer-bound className="relative flex flex-col h-full bg-background">
+			<div data-composer-bound className="relative flex flex-col h-full bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
 				{returnToParentButton}
 				<div
 					className={cn(
@@ -589,7 +595,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     }
 
 	return (
-		<div data-composer-bound className="relative flex min-w-0 flex-1 flex-col h-full bg-background">
+		<div data-composer-bound className="relative flex min-w-0 flex-1 flex-col h-full bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
 			{returnToParentButton}
 			<ChatViewport
 				currentSessionId={currentSessionId}

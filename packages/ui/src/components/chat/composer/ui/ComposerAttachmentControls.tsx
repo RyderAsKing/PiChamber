@@ -26,6 +26,8 @@ type ComposerAttachmentControlsProps = {
     onOpenMobileSheet?: () => void;
     /** Hide the + attach control (mobile keeps model/variant in this row instead). */
     hideAddButton?: boolean;
+    /** Disable all controls while a send is in flight. */
+    disabled?: boolean;
 };
 
 export const ComposerAttachmentControls = React.memo(function ComposerAttachmentControls(props: ComposerAttachmentControlsProps) {
@@ -36,6 +38,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
         handlePickLocalFiles,
         onOpenSettings,
         hideAddButton = false,
+        disabled = false,
     } = props;
 
     if (hideAddButton && !onOpenSettings) {
@@ -51,6 +54,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                         type="button"
                         className={footerIconButtonClass}
                         onClick={props.onOpenMobileSheet}
+                        disabled={disabled}
                         // Keep the tap from dismissing the keyboard. On Android's
                         // resizes-content viewport the keyboard-close relayout
                         // moves this button mid-tap and the click never lands.
@@ -73,6 +77,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                                 className={footerIconButtonClass}
                                 title={"Add attachment"}
                                 aria-label={"Add attachment"}
+                                disabled={disabled}
                             >
                                 <Icon name="add-circle" className={cn(iconSizeClass, 'text-current')} />
                             </button>
@@ -99,6 +104,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                     className={footerIconButtonClass}
                     title={"Model and agent settings"}
                     aria-label={"Model and agent settings"}
+                    disabled={disabled}
                 >
                     <Icon name="ai-agent" className={cn(iconSizeClass, 'text-current')} />
                 </button>
@@ -112,4 +118,5 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
     && prev.onMenuOpenChange === next.onMenuOpenChange
     && prev.onOpenMobileSheet === next.onOpenMobileSheet
     && prev.hideAddButton === next.hideAddButton
+    && prev.disabled === next.disabled
 ));

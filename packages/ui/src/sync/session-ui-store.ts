@@ -158,6 +158,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   abortControllers: new Map(),
   isLoading: false,
   lastLoadedDirectory: null,
+  isSendingNewSession: false,
   pendingChangesBarDismissed: new Map(),
 
   // ---------------------------------------------------------------------------
@@ -276,6 +277,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       abortPromptSessionId: null,
       abortPromptExpiresAt: null,
       error: null,
+      isSendingNewSession: false,
       sessionAbortFlags: new Map(),
       pendingChangesBarDismissed: new Map(),
     })
@@ -529,6 +531,10 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  setSendingNewSession: (value) => {
+    if (get().isSendingNewSession !== value) set({ isSendingNewSession: value })
+  },
 
   markSessionAsPiChamberCreated: (sessionId) =>
     set((s) => {

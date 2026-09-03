@@ -40,6 +40,8 @@ export interface ComposerFooterProps {
     disabledReason?: string | null;
     canAbort: boolean;
     hasContent: boolean;
+    /** True while a new-session send is in flight: lock pickers/attachments. */
+    isSending?: boolean;
 
     onOpenSettings?: () => void;
     onPickLocalFiles: () => void;
@@ -70,6 +72,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
         disabledReason,
         canAbort,
         hasContent,
+        isSending = false,
         onOpenSettings,
         onPickLocalFiles,
         onOpenAttachSheet,
@@ -86,6 +89,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
             onOpenSettings={onOpenSettings}
             onOpenMobileSheet={isMobile ? onOpenAttachSheet : undefined}
             hideAddButton={isMobile}
+            disabled={isSending}
         />
     );
 
@@ -99,6 +103,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
             disabledReason={disabledReason}
             canAbort={canAbort}
             hasContent={hasContent}
+            isSending={isSending}
             currentSessionId={currentSessionId}
             newSessionDraftOpen={newSessionDraftOpen}
             onPrimaryAction={onPrimaryAction}
@@ -119,7 +124,10 @@ export function ComposerFooter(props: ComposerFooterProps) {
                         <div className="composer-mobile-actions flex min-w-0 items-center gap-x-2 overflow-x-auto pl-1" data-no-drawer-swipe="true">
                             {attachments}
                             {leadingExtra ? (
-                                <div className="w-max shrink-0">
+                                <div
+                                    className={cn('w-max shrink-0', isSending && 'pointer-events-none opacity-60')}
+                                    inert={isSending || undefined}
+                                >
                                     {leadingExtra}
                                 </div>
                             ) : null}
@@ -171,7 +179,10 @@ export function ComposerFooter(props: ComposerFooterProps) {
                 <div className={cn('flex min-w-0 items-center', footerGapClass)}>
                     {attachments}
                     {leadingExtra ? (
-                        <div className="w-max min-w-0 shrink-0">
+                        <div
+                            className={cn('w-max min-w-0 shrink-0', isSending && 'pointer-events-none opacity-60')}
+                            inert={isSending || undefined}
+                        >
                             {leadingExtra}
                         </div>
                     ) : null}

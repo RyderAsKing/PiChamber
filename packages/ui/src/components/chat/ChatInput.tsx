@@ -273,6 +273,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     );
     const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
     const newSessionDraftOpen = Boolean(newSessionDraft?.open);
+    const isSendingNewSession = useSessionUIStore((s) => s.isSendingNewSession);
     const openNewSessionDraft = useSessionUIStore((s) => s.openNewSessionDraft);
     const abortPromptSessionId = useSessionUIStore((s) => s.abortPromptSessionId);
     const clearAbortPrompt = useSessionUIStore((s) => s.clearAbortPrompt);
@@ -662,6 +663,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             : null;
     const canSend = (hasContent || hasQueuedMessages) && hasUsableModel && attachmentsReady;
 
+    // Locked while a worktree is being created or a new-session draft send is
+    // in flight. Locking covers send, voice, model, attach, and draft-target
+    // controls so the user cannot spam sends during the slow materialization.
+    const isWorktreeBusy = Boolean(draftWorktreeCreation.state && draftWorktreeCreation.state.phase !== 'failed');
+    const isComposerLocked = isWorktreeBusy || isSendingNewSession;
+
     const canAbort = sessionPhase !== 'idle';
 
     const getCurrentInputSnapshot = React.useCallback(() => {
@@ -781,6 +788,32 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         }
 
         const draftAtSend = useSessionUIStore.getState().newSessionDraft;
+        const isNewSessionSend = !capturedTarget && !queuedOnly && !queuedMessageId && draftAtSend?.open === true;
+        if (isNewSessionSend) {
+            // Anti-spam: a second send while the first is still materializing
+            // the session would create a duplicate session.
+            if (useSessionUIStore.getState().isSendingNewSession) return;
+            // Set synchronously before the first await so the composer locks
+            // and shows pending feedback on the next paint instead of after
+            // seconds of pre-send network work (worktree/branch preflight,
+            // response-style fetch, snippet expansion, materialization).
+            useSessionUIStore.getState().setSendingNewSession(true);
+            // Yield so the locked/shimmer state paints before blocking awaits.
+            await new Promise<void>((resolve) => {
+                let settled = false;
+                const finish = () => {
+                    if (!settled) {
+                        settled = true;
+                        resolve();
+                    }
+                };
+                if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+                    window.requestAnimationFrame(() => finish());
+                }
+                setTimeout(() => finish(), 50);
+            });
+        }
+        try {
         const draftCommand = inputMode === 'normal' ? parseSlashCommand(inputSnapshot.message) : null;
         const commandStopsBeforeMaterialization = draftCommand?.name === 'compact';
         const worktreeIntent = !capturedTarget
@@ -1055,6 +1088,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
             toast.error(rawMessage || "Message failed to send. Attachments remain available.");
         });
+        } finally {
+            if (isNewSessionSend) {
+                useSessionUIStore.getState().setSendingNewSession(false);
+            }
+        }
 
         if (!isMobile) {
             composerRef.current?.focus();
@@ -1527,6 +1565,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         : pendingChangesBar}
                 />
                 {!isMobileForDraft && showDraftTargetSelectors && selectedDraftProject && (newSessionDraftOpen || shouldShowDraftBranchSelector) ? (
+                    <div
+                        inert={isComposerLocked || undefined}
+                        className={cn(isComposerLocked && 'pointer-events-none opacity-60')}
+                    >
                     <DraftTargetSelectors
                         projects={draftProjects}
                         selectedProject={selectedDraftProject}
@@ -1545,8 +1587,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         onWorktreeModeChange={handleWorktreeModeChange}
                         theme={currentTheme}
                     />
+                    </div>
                 ) : null}
                 {isMobileForDraft && showDraftTargetSelectors && selectedDraftProject && (newSessionDraftOpen || shouldShowDraftBranchSelector) ? (
+                    <div
+                        inert={isComposerLocked || undefined}
+                        className={cn(isComposerLocked && 'pointer-events-none opacity-60')}
+                    >
                     <MobileDraftTargetTriggers
                         selectedProject={selectedDraftProject}
                         selectedBranchLabel={selectedDraftBranchLabel}
@@ -1560,6 +1607,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         theme={currentTheme}
                         onOpenPicker={setMobileDraftPicker}
                     />
+                    </div>
                 ) : null}
                 <DraftWorktreeCreationBanner
                     state={draftWorktreeCreation.state}
@@ -1606,6 +1654,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                             onPickLocalFiles={handlePickLocalFiles}
                         />
                     )}
+                    {isSendingNewSession && (
+                        <span aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 overflow-hidden" style={{ borderRadius: chatInputRadius }}>
+                            <span className="attachment-upload-shimmer absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-foreground/10 to-transparent" />
+                        </span>
+                    )}
 
                     <ComposerAutocompletePopups
                         open={openAutocomplete}
@@ -1641,7 +1694,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         trailingExtra={dictationActive ? null : (
                             <ComposerVoiceButton
                                 available={dictation.available}
-                                disabled={(!currentSessionId && !newSessionDraftOpen) || Boolean(draftWorktreeCreation.state && draftWorktreeCreation.state.phase !== 'failed')}
+                                disabled={(!currentSessionId && !newSessionDraftOpen) || isComposerLocked}
                                 className={footerIconButtonClass}
                                 iconClassName={iconSizeClass}
                                 onStart={handleStartDictation}
@@ -1665,7 +1718,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         iconSizeClass={iconSizeClass}
                         sendIconSizeClass={sendIconSizeClass}
                         stopIconSizeClass={stopIconSizeClass}
-                        canSend={canSend && !Boolean(draftWorktreeCreation.state && draftWorktreeCreation.state.phase !== 'failed')}
+                        canSend={canSend && !isComposerLocked}
+                        isSending={isSendingNewSession}
                         disabledReason={attachmentGateMessage}
                         canAbort={canAbort}
                         hasContent={Boolean(hasContent)}
@@ -1726,7 +1780,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                             ? "Plan, build, / for skills, @ for context"
                                             : (useCompactChatPlaceholder ? "Use @ / ! # for helpers" : "@ for files/agents; / for commands and skills; ! for shell; # for snippets")
                                     : "Select or create a session to start chatting"}
-                                editable={Boolean(currentSessionId || newSessionDraftOpen) && !Boolean(draftWorktreeCreation.state && draftWorktreeCreation.state.phase !== 'failed')}
+                                editable={Boolean(currentSessionId || newSessionDraftOpen) && !isComposerLocked}
                                 autoCorrect={false}
                                 autoCapitalize="none"
                                 spellCheck={isMobile || inputSpellcheckEnabled}
@@ -1758,7 +1812,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 </>
                 </div>
                 {isDesktopStackedComposer || isMobile ? null : (
-                    <div className="mt-1.5 flex w-full shrink-0 items-center pl-2">
+                    <div
+                        className={cn("mt-1.5 flex w-full shrink-0 items-center pl-2", isComposerLocked && 'pointer-events-none opacity-60')}
+                        inert={isComposerLocked || undefined}
+                    >
                         <MemoModelControls className="w-full min-w-0" />
                     </div>
                 )}
