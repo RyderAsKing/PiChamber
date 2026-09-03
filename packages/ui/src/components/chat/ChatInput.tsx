@@ -1302,7 +1302,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             setInputMode('shell');
             setMessage(shellCommand);
             closeAutocomplete();
-            requestAnimationFrame(() => composerRef.current?.setSelection(nextCursor));
+            // `setMessage` bails out when `shellCommand` equals the current
+            // message (typing a lone `!` into an empty composer). The
+            // controlled editor only syncs on value change, so the `!` would
+            // stay visible with the caret moved before it. Remove it
+            // imperatively in one text+caret transaction.
+            const editor = composerRef.current;
+            if (editor && editor.getValue() !== shellCommand) {
+                editor.replaceRange(0, 1, '', nextCursor);
+                closeAutocomplete();
+            } else {
+                requestAnimationFrame(() => composerRef.current?.setSelection(nextCursor));
+            }
             return;
         }
 
