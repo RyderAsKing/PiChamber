@@ -45,6 +45,7 @@ export async function routeMessage(params: {
     }>;
   }>;
   delivery?: 'steer' | 'followUp' | 'prompt';
+  knownEmptyTranscript?: boolean;
 }): Promise<void> {
   const delivery =
     params.delivery === 'steer' || params.delivery === 'followUp'
@@ -106,12 +107,23 @@ export async function routeMessage(params: {
         );
       })
     );
-    await sessionStore.prompt(
-      params.sessionId,
-      params.content,
-      delivery,
-      attachments.length > 0 ? attachments : undefined
-    );
+    const promptAttachments = attachments.length > 0 ? attachments : undefined;
+    if (params.knownEmptyTranscript) {
+      await sessionStore.prompt(
+        params.sessionId,
+        params.content,
+        delivery,
+        promptAttachments,
+        { knownEmptyTranscript: true },
+      );
+    } else {
+      await sessionStore.prompt(
+        params.sessionId,
+        params.content,
+        delivery,
+        promptAttachments,
+      );
+    }
   } catch (error) {
     await Promise.all(
       refreshedIds.map((id) =>

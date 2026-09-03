@@ -409,7 +409,13 @@ describe('routeMessage', () => {
       thinking: undefined,
       select: false,
     }]);
-    expect(prompts).toEqual([['session-worktree', 'initial worktree prompt', 'prompt', undefined]]);
+    expect(prompts).toEqual([[
+      'session-worktree',
+      'initial worktree prompt',
+      'prompt',
+      undefined,
+      { knownEmptyTranscript: true },
+    ]]);
     expect(useSessionUIStore.getState().currentSessionId).toBe('session-other');
   });
 

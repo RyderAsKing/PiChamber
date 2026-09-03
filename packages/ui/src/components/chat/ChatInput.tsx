@@ -1015,7 +1015,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             });
         }
 
-        void sendPromise.then(() => {
+        await sendPromise.then(() => {
             draftWorktreeCreation.clearReceipt();
             if (capturedTarget && queuedMessageId) {
                 removeFromQueue(capturedTarget, queuedMessageId);

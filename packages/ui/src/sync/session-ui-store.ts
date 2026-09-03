@@ -701,6 +701,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         inputMode,
         files,
         delivery: options?.delivery,
+        knownEmptyTranscript: true,
         additionalParts: mergedAdditionalParts?.map((p) => ({
           text: p.text,
           synthetic: p.synthetic,

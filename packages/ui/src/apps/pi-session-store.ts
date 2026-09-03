@@ -992,18 +992,31 @@ export class PiSessionStore {
     select?: boolean;
   }): Promise<string> {
     const directory = options?.directory || this.directory(); const expected = this.runtimeGeneration;
-    // PiChamber defaults are authoritative only when explicitly configured;
-    // otherwise Pi's settings/model runtime performs its normal fallback.
-    // A settings fetch failure aborts creation rather than silently creating a
-    // session with an unknown default selection.
-    const settings = await piClient.getSettings({ directory, runtimeKey: getRuntimeKey() });
-    const model = options?.model ?? settings.pichamber.defaultModel;
-    const thinking = resolveCreateThinking({
-      thinking: options?.thinking,
-      model,
-      defaultThinkingByModel: settings.pichamber.defaultThinkingByModel,
-      defaultThinking: settings.pichamber.defaultThinking,
-    });
+    let model = options?.model;
+    let thinking = options?.thinking;
+    if (!model || (!thinking && !useConfigStore.getState().isInitialized)) {
+      // Callers outside the initialized composer still need an authoritative
+      // settings read. A failure must abort creation rather than silently use
+      // an unknown default selection.
+      const settings = await piClient.getSettings({ directory, runtimeKey: getRuntimeKey() });
+      model ??= settings.pichamber.defaultModel;
+      thinking = resolveCreateThinking({
+        thinking,
+        model,
+        defaultThinkingByModel: settings.pichamber.defaultThinkingByModel,
+        defaultThinking: settings.pichamber.defaultThinking,
+      });
+    } else if (!thinking) {
+      // The composer can only supply a model after config initialization. Reuse
+      // that authoritative settings snapshot instead of serializing another
+      // settings request ahead of session creation.
+      const config = useConfigStore.getState();
+      thinking = resolveCreateThinking({
+        model,
+        defaultThinkingByModel: config.settingsDefaultThinkingByModel,
+        defaultThinking: config.settingsDefaultThinking,
+      });
+    }
     const detail = await piClient.createSession({
       cwd: directory,
       ...(title ? { title } : {}),
@@ -1185,14 +1198,24 @@ export class PiSessionStore {
       throw error;
     }
   }
-  async prompt(sessionId: string, text: string, delivery: 'prompt' | 'steer' | 'followUp', attachments?: Array<{ id: string }>) {
+  async prompt(
+    sessionId: string,
+    text: string,
+    delivery: 'prompt' | 'steer' | 'followUp',
+    attachments?: Array<{ id: string }>,
+    options?: { knownEmptyTranscript?: boolean },
+  ) {
     const expected = this.runtimeGeneration;
     let existing = this.state.reducer.bySession.get(sessionId);
-    // A send must not install an empty transcript over a session the user
-    // already had open. If the resident row is missing or blank, re-fetch
-    // the append-only log before flipping busy — live events only carry the
-    // new turn and would otherwise paint that turn as the whole history.
-    if (!existing || existing.messages.size === 0) {
+    const hasAuthoritativeCreatedEmptyTranscript =
+      options?.knownEmptyTranscript === true
+      && this.hydratedSessionIds.has(sessionId)
+      && existing !== undefined
+      && existing.messages.size === 0;
+    // Existing sessions with a missing or blank resident row must restore the
+    // append-only log before going busy. A just-created session is the narrow
+    // exception: its creation detail authoritatively established an empty log.
+    if ((!existing || existing.messages.size === 0) && !hasAuthoritativeCreatedEmptyTranscript) {
       await this.hydrate(sessionId, expected);
       if (expected !== this.runtimeGeneration) return;
       existing = this.state.reducer.bySession.get(sessionId);
