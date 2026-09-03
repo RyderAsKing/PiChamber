@@ -14,6 +14,10 @@ import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { useFilesViewTabsStore } from '@/stores/useFilesViewTabsStore';
 import { useTerminalStore } from '@/stores/useTerminalStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
+import { useSnippetsStore } from '@/stores/useSnippetsStore';
+import { usePromptTemplatesStore } from '@/stores/usePromptTemplatesStore';
+import { useSkillsStore } from '@/stores/useSkillsStore';
+import { clearCommandCatalogForRuntimeSwitch } from '@/lib/pi/commandCatalog';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { resetStreamingState } from '@/sync/streaming';
 import { useGlobalSessionStatusStore } from '@/sync/global-session-status';
@@ -43,6 +47,12 @@ export const resetAppForRuntimeEndpointChange = (detail: RuntimeEndpointChangedD
   // example, a Windows path must never be sent to a WSL daemon). Clear it
   // before the new runtime's settings/project snapshot is applied.
   useDirectoryStore.getState().resetForRuntimeSwitch();
+  useSnippetsStore.getState().resetForRuntimeSwitch();
+  usePromptTemplatesStore.getState().resetForRuntimeSwitch();
+  // Command and starter catalogs are runtime-scoped; stale previous-server
+  // rows must never render for the new runtime.
+  clearCommandCatalogForRuntimeSwitch();
+  useSkillsStore.getState().resetForRuntimeSwitch();
   useConfigStore.setState({
     providers: [],
     agents: [],

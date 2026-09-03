@@ -31,6 +31,7 @@ interface SkillsStore {
   renameSkill: (name: string, newName: string) => Promise<boolean>;
   updateSkillContent: (name: string, content: string) => Promise<boolean>;
   getSkillByName: (name: string) => DiscoveredSkill | undefined;
+  resetForRuntimeSwitch: () => void;
 }
 
 const CACHE_TTL_MS = 5_000;
@@ -47,6 +48,11 @@ export const invalidateSkillsLoadCache = (_directory?: string | null) => {
     loadedAtByKey.clear();
     inFlightByKey.clear();
   }
+};
+
+export const resetSkillsForRuntimeSwitch = (): void => {
+  loadedAtByKey.clear();
+  inFlightByKey.clear();
 };
 
 export const useSkillsStore = create<SkillsStore>()(
@@ -126,6 +132,10 @@ export const useSkillsStore = create<SkillsStore>()(
           }
         },
         getSkillByName: (name) => get().skills.find((skill) => skill.name === name),
+        resetForRuntimeSwitch: () => {
+          resetSkillsForRuntimeSwitch();
+          set({ skills: [], isLoading: false, selectedSkillName: null });
+        },
       }),
       {
         name: 'skills-store',

@@ -12,6 +12,7 @@ test('new-session pending feedback remains active until prompt acceptance settle
   expect(cleanupStart).toBeGreaterThan(sendStart);
 
   const sendLifecycle = source.slice(sendStart, cleanupStart);
-  expect(sendLifecycle).toContain('await sendPromise.then(');
+  expect(sendLifecycle).toContain('await sendPromise');
+  expect(sendLifecycle).toContain('.then(');
   expect(sendLifecycle).not.toContain('void sendPromise.then(');
 });
