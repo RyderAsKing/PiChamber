@@ -1,14 +1,45 @@
 import { describe, expect, test } from 'bun:test';
-import { commandMatchesSearch, mergeCommandAutocompleteItems } from '../commandAutocompleteItems';
+import {
+  commandMatchesCategory,
+  commandMatchesSearch,
+  mergeCommandAutocompleteItems,
+} from '../commandAutocompleteItems';
 
 interface Item {
   name: string;
-  source: 'pichamber' | 'pi' | 'skill';
+  source: 'pichamber' | 'pi' | 'skill' | 'extension';
   description?: string;
   searchAliases?: string[];
   isBuiltIn?: boolean;
   isSkill?: boolean;
 }
+
+describe('commandMatchesCategory', () => {
+  const items: Item[] = [
+    { name: 'compact', source: 'pichamber', isBuiltIn: true },
+    { name: 'review', source: 'skill', isSkill: true },
+    { name: 'deploy', source: 'extension' },
+    { name: 'format', source: 'pi' },
+  ];
+
+  test('filters by source while keeping all as the default view', () => {
+    expect(items.filter((item) => commandMatchesCategory(item, 'all')).map((item) => item.name))
+      .toEqual(['compact', 'review', 'deploy', 'format']);
+    expect(items.filter((item) => commandMatchesCategory(item, 'system')).map((item) => item.name))
+      .toEqual(['compact']);
+    expect(items.filter((item) => commandMatchesCategory(item, 'skills')).map((item) => item.name))
+      .toEqual(['review']);
+    expect(items.filter((item) => commandMatchesCategory(item, 'extensions')).map((item) => item.name))
+      .toEqual(['deploy']);
+  });
+
+  test('uses built-in and skill metadata when source labels are not specific', () => {
+    expect(commandMatchesCategory({ name: 'local', isBuiltIn: true }, 'system')).toBe(true);
+    expect(commandMatchesCategory({ name: 'workflow', isSkill: true }, 'skills')).toBe(true);
+    expect(commandMatchesCategory({ name: 'local', isBuiltIn: true, source: 'pi' }, 'system')).toBe(true);
+    expect(commandMatchesCategory({ name: 'workflow', isSkill: true, source: 'pi' }, 'skills')).toBe(true);
+  });
+});
 
 describe('mergeCommandAutocompleteItems', () => {
   test('retains the discovered skill and command search metadata for #1550', () => {

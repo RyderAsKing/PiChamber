@@ -1,9 +1,12 @@
 import { fuzzyMatch } from '@/lib/utils';
 
+export type CommandAutocompleteCategory = 'all' | 'system' | 'skills' | 'extensions';
+
 export interface CommandAutocompleteSearchItem {
   name: string;
   description?: string;
   searchAliases?: string[];
+  source?: 'pichamber' | 'pi' | 'skill' | 'extension';
   isBuiltIn?: boolean;
   isSkill?: boolean;
 }
@@ -61,6 +64,22 @@ export function mergeCommandAutocompleteItems<T extends CommandAutocompleteSearc
   addItems(commands, (item) => item.isBuiltIn ? 3 : item.isSkill ? 1 : 0);
   addItems(skills, () => 2);
   return merged;
+}
+
+export function commandMatchesCategory(
+  command: CommandAutocompleteSearchItem,
+  category: CommandAutocompleteCategory,
+): boolean {
+  switch (category) {
+    case 'all':
+      return true;
+    case 'system':
+      return Boolean(command.isBuiltIn) || command.source === 'pichamber';
+    case 'skills':
+      return Boolean(command.isSkill) || command.source === 'skill';
+    case 'extensions':
+      return command.source === 'extension';
+  }
 }
 
 export function commandMatchesSearch(command: CommandAutocompleteSearchItem, query: string): boolean {

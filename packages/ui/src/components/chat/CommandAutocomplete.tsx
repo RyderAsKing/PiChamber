@@ -5,10 +5,16 @@ import { useSessionMessages } from '@/sync/sync-context';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
+import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
 import { useUIStore } from '@/stores/useUIStore';
 import { useMobileAutocompleteMaxHeight } from './useMobileAutocompleteMaxHeight';
-import { commandMatchesSearch, mergeCommandAutocompleteItems } from './commandAutocompleteItems';
+import {
+  commandMatchesCategory,
+  commandMatchesSearch,
+  mergeCommandAutocompleteItems,
+  type CommandAutocompleteCategory,
+} from './commandAutocompleteItems';
 import { piClient } from '@/lib/pi/client';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 
@@ -42,6 +48,16 @@ const getCommandContext = (command: CommandInfo): string | null => {
   const labels = [primaryContext, command.agent].filter((label): label is string => Boolean(label));
   return labels.length > 0 ? labels.join(' · ') : null;
 };
+
+const COMMAND_CATEGORY_OPTIONS: ReadonlyArray<{
+  value: CommandAutocompleteCategory;
+  label: string;
+}> = [
+  { value: 'all', label: 'All' },
+  { value: 'system', label: 'System' },
+  { value: 'skills', label: 'Skills' },
+  { value: 'extensions', label: 'Extensions' },
+];
 
 interface CommandAutocompleteProps {
   searchQuery: string;
@@ -91,6 +107,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
 
   const [commands, setCommands] = React.useState<CommandInfo[]>([]);
   const [loading, setLoading] = React.useState(false);
+  const [category, setCategory] = React.useState<CommandAutocompleteCategory>('all');
   const skills = useSkillsStore((s) => s.skills);
   const refreshSkills = useSkillsStore((s) => s.loadSkills);
   const effectiveDirectory = useEffectiveDirectory();
@@ -173,9 +190,10 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
         const withExtensions = [...allCommands, ...extensionCommands.filter((cmd) => !builtInNames.has(cmd.name))];
 
         const allowInitCommand = !hasMessagesInCurrentSession;
+        const categorized = withExtensions.filter((cmd) => commandMatchesCategory(cmd, category));
         const filtered = (searchQuery
-          ? withExtensions.filter(cmd => commandMatchesSearch(cmd, searchQuery))
-          : withExtensions).filter(cmd => allowInitCommand || cmd.name !== 'init');
+          ? categorized.filter(cmd => commandMatchesSearch(cmd, searchQuery))
+          : categorized).filter(cmd => allowInitCommand || cmd.name !== 'init');
 
         filtered.sort((a, b) => {
           const aStartsWith = a.name.toLowerCase().startsWith(searchQuery.toLowerCase());
@@ -190,13 +208,14 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
 
         const allowInitCommand = !hasMessagesInCurrentSession;
         const builtInCommands = buildBuiltInCommands({ hasSession, hasMessagesInCurrentSession });
+        const categorized = builtInCommands.filter((cmd) => commandMatchesCategory(cmd, category));
 
         const filtered = (searchQuery
-          ? builtInCommands.filter(cmd =>
+          ? categorized.filter(cmd =>
               fuzzyMatch(cmd.name, searchQuery) ||
               (cmd.description && fuzzyMatch(cmd.description, searchQuery))
             )
-          : builtInCommands).filter(cmd => allowInitCommand || cmd.name !== 'init');
+          : categorized).filter(cmd => allowInitCommand || cmd.name !== 'init');
 
         setCommands(filtered);
       } finally {
@@ -205,7 +224,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
     };
 
     loadCommands();
-  }, [searchQuery, hasMessagesInCurrentSession, hasSession, skills, extensionCommands]);
+  }, [searchQuery, hasMessagesInCurrentSession, hasSession, skills, extensionCommands, category]);
 
   React.useEffect(() => {
     setSelectedIndex(0);
@@ -258,13 +277,35 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
   return (
     <div
       ref={containerRef}
-      role="listbox"
-      aria-label="Commands"
-      aria-activedescendant={commands[selectedIndex] ? `command-option-${selectedIndex}` : undefined}
       className="absolute bottom-full left-0 z-[100] flex max-h-80 min-w-0 w-full max-w-[520px] flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--surface-elevated)] text-[var(--surface-elevated-foreground)] shadow-lg"
       style={mobileMaxHeight !== undefined ? { ...style, maxHeight: mobileMaxHeight } : style}
     >
-      <ScrollableOverlay preventOverscroll outerClassName="flex-1 min-h-0" className="px-1 py-1.5">
+      <div
+        role="group"
+        aria-label="Filter commands"
+        className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border/60 px-2 py-1.5"
+      >
+        {COMMAND_CATEGORY_OPTIONS.map((option) => (
+          <Button
+            key={option.value}
+            variant="chip"
+            size="xs"
+            aria-pressed={category === option.value}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => setCategory(option.value)}
+          >
+            {option.label}
+          </Button>
+        ))}
+      </div>
+      <ScrollableOverlay
+        role="listbox"
+        aria-label="Commands"
+        aria-activedescendant={!loading && commands[selectedIndex] ? `command-option-${selectedIndex}` : undefined}
+        preventOverscroll
+        outerClassName="flex-1 min-h-0"
+        className="px-1 py-1.5"
+      >
         {loading ? (
           <div className="flex items-center justify-center py-8">
             <Icon name="refresh" className="size-5 animate-spin text-muted-foreground" aria-hidden />
