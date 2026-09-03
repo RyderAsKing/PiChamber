@@ -2,11 +2,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 
 import { SessionSidebar } from '@/components/session/SessionSidebar';
-import { Icon } from '@/components/icon/Icon';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { useUIStore } from '@/stores/useUIStore';
-import { useSessionUIStore } from '@/sync/session-ui-store';
 import { MOBILE_DRAWER_DURATION_MS, MOBILE_DRAWER_EASING, useDrawerSwipe } from './useDrawerSwipe';
 
 type MobileSessionsSheetProps = {
@@ -38,9 +34,6 @@ export const MobileSessionsSheet = React.memo(function MobileSessionsSheet({
     }
     onOpenChange(false);
   }, [onOpenChange]);
-  const openNewSessionDraft = useSessionUIStore((state) => state.openNewSessionDraft);
-  const setActiveMainTab = useUIStore((state) => state.setActiveMainTab);
-  const setSessionSwitcherOpen = useUIStore((state) => state.setSessionSwitcherOpen);
   const [entered, setEntered] = React.useState(false);
   const drawerRefInternal = React.useRef<HTMLDivElement>(null);
   const scrimRefInternal = React.useRef<HTMLButtonElement>(null);
@@ -87,14 +80,6 @@ export const MobileSessionsSheet = React.memo(function MobileSessionsSheet({
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [close, open, variant]);
-
-  const handleNewSession = React.useCallback(() => {
-    useUIStore.getState().closeMainSurfaces();
-    setActiveMainTab('chat');
-    setSessionSwitcherOpen(false);
-    openNewSessionDraft();
-    close();
-  }, [close, openNewSessionDraft, setActiveMainTab, setSessionSwitcherOpen]);
 
   const isTabletSidebar = variant === 'sidebar';
   const sidebar = (
@@ -165,23 +150,6 @@ export const MobileSessionsSheet = React.memo(function MobileSessionsSheet({
         data-mobile-sessions-drawer="true"
       >
         {sidebar}
-      </div>
-      <div
-        className="pointer-events-none absolute inset-y-0 right-0 z-20 flex w-[28%] items-end justify-center"
-        style={{ paddingBottom: 'calc(1rem + var(--oc-safe-area-bottom, 0px))' }}
-      >
-        {open ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="lg"
-            className="pointer-events-auto size-12 rounded-full p-0 [corner-shape:round] supports-[corner-shape:squircle]:rounded-full"
-            onClick={handleNewSession}
-            aria-label="New session"
-          >
-            <Icon name="chat-new" className="size-5" />
-          </Button>
-        ) : null}
       </div>
     </div>,
     document.body,

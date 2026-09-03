@@ -2,6 +2,8 @@
 import React from 'react';
 import type { Session } from '@/lib/chat/types';
 import { toast } from '@/components/ui';
+import { Button } from '@/components/ui/button';
+import { Icon } from '@/components/icon/Icon';
 import { useDeviceInfo } from '@/lib/device';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { formatDirectoryName, cn } from '@/lib/utils';
@@ -1442,6 +1444,26 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         setOpenSidebarMenuKey={setOpenSidebarMenuKey}
         isInlineEditing={isInlineEditing}
       />
+
+      {/* Dedicated mobile: the new-session action floats above the session
+          list, docked to the sidebar bottom with a sidebar-toned fade so the
+          last rows stay readable underneath. Hidden while the bulk selection
+          bar owns the bottom edge. The tablet sidebar keeps the SidebarNav
+          control instead (mobileVariant is false there). */}
+      {mobileVariant && !(selectionModeEnabled && hasSelection) ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-sidebar via-sidebar/85 to-transparent px-4 pb-[calc(0.75rem+var(--oc-safe-area-bottom,0px))] pt-10">
+          <Button
+            type="button"
+            variant="default"
+            size="lg"
+            className="pointer-events-auto w-full shadow-lg"
+            onClick={handleOpenNewSessionDraftFromHeader}
+            aria-label="New session"
+          >
+            <Icon name="chat-new" className="size-4" />
+          </Button>
+        </div>
+      ) : null}
 
       {selectionModeEnabled && hasSelection ? (
         <BulkActionBar
