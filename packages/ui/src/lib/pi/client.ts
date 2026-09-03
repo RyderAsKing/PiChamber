@@ -35,6 +35,11 @@ import {
   type PiResourceListResponse,
   type PiResourceUpdateInput,
   type PiPromptTemplateCreateInput,
+  type PiPromptTemplateUpdateInput,
+  type PiSnippetListResponse,
+  type PiSnippetCreateInput,
+  type PiSnippetUpdateInput,
+  type PiCommandListResponse,
   type PiRuntimeHealth,
   type PiProjectListResponse,
   type PiProjectSelectResponse,
@@ -528,32 +533,85 @@ export class PiService {
 
   // ----- Resources --------------------------------------------------------
 
-  async listResources(scope?: PiClientScope): Promise<PiResourceListResponse> {
-    assertRuntimeUnchanged(scope);
+  async listResources(directoryOrScope?: string | PiClientScope, scope?: PiClientScope): Promise<PiResourceListResponse> {
+    const resolvedScope = typeof directoryOrScope === 'string' ? scope : (directoryOrScope as PiClientScope | undefined);
+    const directory = typeof directoryOrScope === 'string' ? directoryOrScope : undefined;
+    assertRuntimeUnchanged(resolvedScope);
     return jsonRequest<undefined, PiResourceListResponse>('/api/pi/resources', {
       method: 'GET',
+      ...(directory ? { query: { directory } } : {}),
+      ...(resolvedScope?.runtimeKey ? { runtimeKey: resolvedScope.runtimeKey } : {}),
+    });
+  }
+
+  async listCommands(directory?: string, scope?: PiClientScope): Promise<PiCommandListResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiCommandListResponse>('/api/pi/commands', {
+      method: 'GET',
+      ...(directory ? { query: { directory } } : {}),
       ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  async listSnippets(directory?: string, scope?: PiClientScope): Promise<PiSnippetListResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiSnippetListResponse>('/api/pi/snippets', {
+      method: 'GET',
+      ...(directory ? { query: { directory } } : {}),
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  async createSnippet(input: PiSnippetCreateInput, scope?: PiClientScope): Promise<PiSnippetListResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<PiSnippetCreateInput, PiSnippetListResponse>('/api/pi/snippets', {
+      method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  async updateSnippet(snippetId: string, input: PiSnippetUpdateInput, directory?: string, scope?: PiClientScope): Promise<PiSnippetListResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<PiSnippetUpdateInput, PiSnippetListResponse>(`/api/pi/snippets/${encodeURIComponent(snippetId)}`, {
+      method: 'PUT', body: input, ...(directory ? { query: { directory } } : {}), ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  async deleteSnippet(snippetId: string, directory?: string, scope?: PiClientScope): Promise<PiSnippetListResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiSnippetListResponse>(`/api/pi/snippets/${encodeURIComponent(snippetId)}`, {
+      method: 'DELETE', ...(directory ? { query: { directory } } : {}), ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
     });
   }
 
   async updateResource(input: PiResourceUpdateInput, scope?: PiClientScope): Promise<PiResourceListResponse> {
     assertRuntimeUnchanged(scope);
+    const directory = input.directory ?? scope?.directory;
     return jsonRequest<PiResourceUpdateInput, PiResourceListResponse>(`/api/pi/resources/${encodeURIComponent(input.resourceId)}`, {
-      method: 'PUT', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+      method: 'PUT', body: input, ...(directory ? { query: { directory } } : {}), ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
     });
   }
 
-  async createPromptTemplate(input: PiPromptTemplateCreateInput, scope?: PiClientScope): Promise<PiResourceListResponse> {
+  async createPromptTemplate(input: PiPromptTemplateCreateInput, directory?: string, scope?: PiClientScope): Promise<PiResourceListResponse> {
+    const effectiveDirectory = directory ?? input.directory ?? scope?.directory;
     assertRuntimeUnchanged(scope);
     return jsonRequest<PiPromptTemplateCreateInput, PiResourceListResponse>('/api/pi/resources/prompts', {
-      method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+      method: 'POST', body: input, ...(effectiveDirectory ? { query: { directory: effectiveDirectory } } : {}), ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
     });
   }
 
-  async deletePromptTemplate(resourceId: string, scope?: PiClientScope): Promise<PiResourceListResponse> {
+  async updatePromptTemplate(resourceId: string, input: PiPromptTemplateUpdateInput, directory?: string, scope?: PiClientScope): Promise<PiResourceListResponse> {
     assertRuntimeUnchanged(scope);
+    const effectiveDirectory = directory ?? input.directory ?? scope?.directory;
+    return jsonRequest<PiPromptTemplateUpdateInput, PiResourceListResponse>(`/api/pi/resources/prompts/${encodeURIComponent(resourceId)}`, {
+      method: 'PUT', body: input, ...(effectiveDirectory ? { query: { directory: effectiveDirectory } } : {}), ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  async deletePromptTemplate(resourceId: string, directory?: string, scope?: PiClientScope): Promise<PiResourceListResponse> {
+    assertRuntimeUnchanged(scope);
+    const effectiveDirectory = directory ?? scope?.directory;
     return jsonRequest<undefined, PiResourceListResponse>(`/api/pi/resources/prompts/${encodeURIComponent(resourceId)}`, {
-      method: 'DELETE', ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+      method: 'DELETE', ...(effectiveDirectory ? { query: { directory: effectiveDirectory } } : {}), ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
     });
   }
 

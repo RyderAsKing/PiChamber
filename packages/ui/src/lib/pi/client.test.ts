@@ -224,6 +224,57 @@ describe("PiService", () => {
     expect(await client.updateResource({ resourceId: "prompt-1", content: "Updated" })).toEqual({ skills: [], prompts: [], agents: [] })
   })
 
+  test("uses the PiChamber snippet and native command routes", async () => {
+    installFetchMock((call) => {
+      if (call.url.startsWith("/api/pi/snippets") && call.init?.method === "GET") {
+        return jsonResponse({ snippets: [{ id: "s1", name: "note", content: "Content", aliases: [], scope: "global" }] })
+      }
+      if (call.url === "/api/pi/snippets" && call.init?.method === "POST") {
+        const body = JSON.parse(call.init.body as string) as { name: string; scope: string }
+        expect(body.name).toBe("note")
+        expect(body.scope).toBe("global")
+        return jsonResponse({ snippets: [] }, { status: 201 })
+      }
+      if (call.url.startsWith("/api/pi/commands")) {
+        return jsonResponse({ directory: "/work", commands: [{ name: "review", source: "prompt" }] })
+      }
+      return jsonResponse({ error: { code: "DAEMON_REQUEST_FAILED" } }, { status: 500 })
+    })
+    const client = new PiService()
+    expect(await client.listSnippets("/work")).toEqual({ snippets: [{ id: "s1", name: "note", content: "Content", aliases: [], scope: "global" }] })
+    expect(await client.listCommands("/work")).toEqual({ directory: "/work", commands: [{ name: "review", source: "prompt" }] })
+  })
+
+  test("uses explicit directories for prompt template mutations", async () => {
+    installFetchMock((call) => {
+      if (call.url.startsWith("/api/pi/resources/prompts") && call.init?.method === "POST") {
+        if (!call.url.includes("directory=%2Fwork")) throw new Error("missing directory");
+        return jsonResponse({ skills: [], prompts: [], agents: [] }, { status: 201 });
+      }
+      if (call.url.startsWith("/api/pi/resources/prompts/prompt-1") && call.init?.method === "PUT") {
+        if (!call.url.includes("directory=%2Fwork")) throw new Error("missing directory");
+        const body = JSON.parse(call.init.body as string) as { name?: string };
+        expect(body.name).toBe("review2");
+        return jsonResponse({ skills: [], prompts: [], agents: [] });
+      }
+      if (call.url.startsWith("/api/pi/resources/prompts/prompt-1") && call.init?.method === "DELETE") {
+        if (!call.url.includes("directory=%2Fwork")) throw new Error("missing directory");
+        return jsonResponse({ skills: [], prompts: [], agents: [] });
+      }
+      return jsonResponse({ error: { code: "DAEMON_REQUEST_FAILED" } }, { status: 500 });
+    });
+    const client = new PiService();
+    expect(
+      await client.createPromptTemplate({ name: "review", description: "Review", content: "Do $1", location: "global" }, "/work"),
+    ).toEqual({ skills: [], prompts: [], agents: [] });
+    expect(await client.updatePromptTemplate("prompt-1", { name: "review2" }, "/work")).toEqual({
+      skills: [],
+      prompts: [],
+      agents: [],
+    });
+    expect(await client.deletePromptTemplate("prompt-1", "/work")).toEqual({ skills: [], prompts: [], agents: [] });
+  });
+
   test("listProviders returns the parsed payload", async () => {
     installFetchMock(() =>
       jsonResponse({

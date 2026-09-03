@@ -430,6 +430,7 @@ export interface PiResourceListResponse {
 export interface PiResourceUpdateInput {
   resourceId: string;
   content: string;
+  directory?: string;
 }
 
 export interface PiPromptTemplateCreateInput {
@@ -437,6 +438,69 @@ export interface PiPromptTemplateCreateInput {
   description: string;
   content: string;
   location: 'global' | 'project';
+  directory?: string;
+}
+
+export interface PiPromptTemplateUpdateInput {
+  name?: string;
+  description?: string;
+  content?: string;
+  location?: 'global' | 'project';
+  directory?: string;
+}
+
+// ---------------------------------------------------------------------------
+// PiChamber snippets (PiChamber-owned `#name` text expansion)
+// ---------------------------------------------------------------------------
+
+export interface PiSnippet {
+  id: string;
+  name: string;
+  content: string;
+  description?: string;
+  aliases: string[];
+  scope: 'global' | 'project';
+  directory?: string;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export interface PiSnippetListResponse {
+  snippets: PiSnippet[];
+}
+
+export interface PiSnippetCreateInput {
+  name: string;
+  content: string;
+  description?: string;
+  aliases?: string[];
+  scope: 'global' | 'project';
+  directory?: string;
+}
+
+export interface PiSnippetUpdateInput {
+  name?: string;
+  content?: string;
+  description?: string;
+  aliases?: string[];
+  scope?: 'global' | 'project';
+  directory?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Pi native commands (`/name` resolved by the Pi session runtime)
+// ---------------------------------------------------------------------------
+
+export interface PiCommand {
+  name: string;
+  description?: string;
+  source: 'prompt' | 'extension' | 'skill';
+  scope?: string;
+}
+
+export interface PiCommandListResponse {
+  directory?: string;
+  commands: PiCommand[];
 }
 
 // ---------------------------------------------------------------------------
