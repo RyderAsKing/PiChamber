@@ -14,11 +14,19 @@ interface SnippetMarkdownEditorProps {
   readOnly?: boolean;
   initialMode?: SnippetEditorMode;
   placeholder?: string;
+  /** Accessible label for the content textarea. */
+  contentLabel?: string;
   /** Optional id for anchoring via data-settings-item. */
   settingsItem?: string;
   minHeight?: number;
-  /** Hide the snippet-specific "Expands as #name" note. Used for Behavior/Skills. */
+  /** Hide the footer trigger note. Used for Behavior/Skills. */
   hideExpandsNote?: boolean;
+  /** Dynamic trigger preview for the footer note, e.g. "#my-snippet" or "/review". */
+  triggerPreview?: string;
+  /** Verb shown before the trigger preview. Defaults to snippet expansion language. */
+  triggerActionLabel?: string;
+  /** Variable chips offered in Write mode; each inserts its value at the caret. */
+  variableChips?: Array<{ value: string; label?: string; hint?: string }>;
 }
 
 export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
@@ -26,10 +34,14 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
   onChange,
   readOnly = false,
   initialMode = 'preview',
-  placeholder = 'Enter the prompt template text... Use markdown to format your snippet. It will expand as #name in the composer.',
+  placeholder = 'Enter snippet text... Use markdown to format your snippet. It will expand as #name in the composer.',
+  contentLabel = 'Snippet content',
   settingsItem,
   minHeight = 220,
   hideExpandsNote = false,
+  triggerPreview,
+  triggerActionLabel = 'Expands as',
+  variableChips,
 }) => {
   const [mode, setMode] = React.useState<SnippetEditorMode>(() => readOnly ? 'preview' : initialMode);
   const hasContent = value.trim().length > 0;
@@ -44,6 +56,20 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
   }, [readOnly, mode, hasContent]);
 
   const showWrite = mode === 'write' && !readOnly;
+
+  const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const insertVariable = React.useCallback((insert: string) => {
+    const start = textareaRef.current?.selectionStart ?? value.length;
+    const end = textareaRef.current?.selectionEnd ?? value.length;
+    onChange(value.slice(0, start) + insert + value.slice(end));
+    requestAnimationFrame(() => {
+      const target = textareaRef.current;
+      if (!target) return;
+      target.focus();
+      const caret = start + insert.length;
+      target.setSelectionRange(caret, caret);
+    });
+  }, [onChange, value]);
 
   return (
     <div
@@ -80,7 +106,25 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
 
       {showWrite ? (
         <div className="p-0">
+          {variableChips && variableChips.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-1.5 border-b border-border/60 bg-muted/20 px-3 py-2">
+              <span className="typography-micro text-muted-foreground">Variables</span>
+              {variableChips.map((chip) => (
+                <Button
+                  key={chip.value}
+                  variant="chip"
+                  size="xs"
+                  onClick={() => insertVariable(chip.value)}
+                  aria-label={chip.hint ?? `Insert ${chip.value}`}
+                  title={chip.hint ?? chip.value}
+                >
+                  <span className="font-mono">{chip.label ?? chip.value}</span>
+                </Button>
+              ))}
+            </div>
+          ) : null}
           <Textarea
+            ref={textareaRef}
             value={value}
             onChange={(event) => onChange(event.target.value)}
             placeholder={placeholder}
@@ -92,7 +136,7 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
               'placeholder:text-muted-foreground/70',
             )}
             style={{ minHeight }}
-            aria-label="Snippet content"
+            aria-label={contentLabel}
           />
         </div>
       ) : (
@@ -115,11 +159,13 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
 
       {!readOnly ? (
         <div className="flex items-center justify-between gap-2 border-t border-border/40 bg-muted/10 px-3 py-2 typography-micro text-muted-foreground">
-          {hideExpandsNote ? <span /> : (
+          {!hideExpandsNote && triggerPreview ? (
             <span className="flex items-center gap-1.5">
               <Icon name="information" className="size-3.5 shrink-0 opacity-60" aria-hidden />
-              Expands as <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">#{'`{name}`'}</code> in the composer
+              {triggerActionLabel} <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">{triggerPreview}</code> in the composer
             </span>
+          ) : (
+            <span />
           )}
           <span className="tabular-nums">{value.length} chars</span>
         </div>
