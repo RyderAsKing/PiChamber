@@ -21,6 +21,7 @@ export {
   listGitWorktrees,
   validateGitWorktree,
   createGitWorktree,
+  deleteGitWorktree,
   getGitWorktreeBootstrapStatus,
   resolveGitPrimaryRoot,
   resolveGitTopLevel,

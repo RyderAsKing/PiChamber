@@ -6,7 +6,9 @@ import {
   BulkSessionDeleteConfirmDialog,
   FolderDeleteConfirmDialog,
   SessionDeleteConfirmDialog,
+  WorktreeCloseConfirmDialog,
   type BulkDeleteSessionsConfirmState,
+  type CloseWorktreeConfirmState,
   type DeleteFolderConfirmState,
   type DeleteSessionConfirmState,
 } from './ConfirmDialogs';
@@ -37,6 +39,9 @@ export interface SidebarDialogsProps {
   deleteFolderConfirm: DeleteFolderConfirmState;
   setDeleteFolderConfirm: (state: DeleteFolderConfirmState) => void;
   confirmDeleteFolder: () => void;
+  closeWorktreeConfirm: CloseWorktreeConfirmState;
+  setCloseWorktreeConfirm: (state: CloseWorktreeConfirmState) => void;
+  confirmCloseWorktree: (options: { force: boolean }) => Promise<void> | void;
   bulkDeleteConfirm: BulkDeleteSessionsConfirmState;
   setBulkDeleteConfirm: (state: BulkDeleteSessionsConfirmState) => void;
   confirmBulkDelete: () => void;
@@ -57,6 +62,9 @@ export const SidebarDialogs: React.FC<SidebarDialogsProps> = ({
   deleteFolderConfirm,
   setDeleteFolderConfirm,
   confirmDeleteFolder,
+  closeWorktreeConfirm,
+  setCloseWorktreeConfirm,
+  confirmCloseWorktree,
   bulkDeleteConfirm,
   setBulkDeleteConfirm,
   confirmBulkDelete,
@@ -99,6 +107,12 @@ export const SidebarDialogs: React.FC<SidebarDialogsProps> = ({
         value={deleteFolderConfirm}
         setValue={setDeleteFolderConfirm}
         onConfirm={confirmDeleteFolder}
+      />
+
+      <WorktreeCloseConfirmDialog
+        value={closeWorktreeConfirm}
+        setValue={setCloseWorktreeConfirm}
+        onConfirm={confirmCloseWorktree}
       />
 
       <BulkSessionDeleteConfirmDialog

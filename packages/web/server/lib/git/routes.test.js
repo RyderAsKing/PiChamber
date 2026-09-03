@@ -9,6 +9,7 @@ const gitLibraries = {
   getWorktrees: vi.fn(),
   validateWorktreeCreate: vi.fn(),
   createWorktree: vi.fn(),
+  removeWorktree: vi.fn(),
   getWorktreeBootstrapStatus: vi.fn(),
 };
 
@@ -21,6 +22,7 @@ vi.mock('./index.js', () => ({
   getWorktrees: gitLibraries.getWorktrees,
   validateWorktreeCreate: gitLibraries.validateWorktreeCreate,
   createWorktree: gitLibraries.createWorktree,
+  removeWorktree: gitLibraries.removeWorktree,
   getWorktreeBootstrapStatus: gitLibraries.getWorktreeBootstrapStatus,
 }));
 
@@ -81,6 +83,7 @@ describe('git routes index mutations', () => {
     gitLibraries.getWorktrees.mockReset();
     gitLibraries.validateWorktreeCreate.mockReset();
     gitLibraries.createWorktree.mockReset();
+    gitLibraries.removeWorktree.mockReset();
     gitLibraries.getWorktreeBootstrapStatus.mockReset();
   });
 
@@ -134,6 +137,44 @@ describe('git routes index mutations', () => {
       statusResponse,
     );
     expect(statusResponse.body).toEqual({ status: 'ready', phase: 'setup-ready' });
+  });
+
+  it('removes a registered worktree through the explicit route', async () => {
+    const { app, getRoute } = createRouteRegistry();
+    registerGitRoutes(app);
+    const response = createMockResponse();
+    gitLibraries.removeWorktree.mockResolvedValue(true);
+
+    await getRoute('DELETE', '/api/git/worktrees')(
+      {
+        query: { directory: '/repo' },
+        body: { directory: '/repo-task', force: true },
+      },
+      response,
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual({ success: true });
+    expect(gitLibraries.removeWorktree).toHaveBeenCalledWith('/repo', {
+      directory: '/repo-task',
+      force: true,
+      allowOrphanCleanup: false,
+    });
+  });
+
+  it('rejects worktree removal without a target directory', async () => {
+    const { app, getRoute } = createRouteRegistry();
+    registerGitRoutes(app);
+    const response = createMockResponse();
+
+    await getRoute('DELETE', '/api/git/worktrees')(
+      { query: { directory: '/repo' }, body: {} },
+      response,
+    );
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body).toEqual({ error: 'worktree directory is required' });
+    expect(gitLibraries.removeWorktree).not.toHaveBeenCalled();
   });
 
   it('accepts legacy stage path payloads', async () => {

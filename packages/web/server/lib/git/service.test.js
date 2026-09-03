@@ -924,6 +924,29 @@ describe('removeWorktree', () => {
       }
     }
   });
+
+  it('keeps dirty worktrees unless force removal is explicitly requested', async () => {
+    if (!canRunGit()) return;
+
+    const repo = createTempDir();
+    const worktreeParent = createTempDir();
+    const worktree = path.join(worktreeParent, 'feature');
+
+    runGit(repo, ['init', '-b', 'main']);
+    runGit(repo, ['config', 'user.email', 'test@example.com']);
+    runGit(repo, ['config', 'user.name', 'Test User']);
+    fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+    runGit(repo, ['add', 'README.md']);
+    runGit(repo, ['commit', '-m', 'Initial commit']);
+    runGit(repo, ['worktree', 'add', '-b', 'feature/remove-dirty', worktree, 'main']);
+    fs.writeFileSync(path.join(worktree, 'uncommitted.txt'), 'do not lose this');
+
+    await expect(removeWorktree(repo, { directory: worktree })).rejects.toThrow();
+    expect(fs.existsSync(worktree)).toBe(true);
+
+    await expect(removeWorktree(repo, { directory: worktree, force: true })).resolves.toBe(true);
+    expect(fs.existsSync(worktree)).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

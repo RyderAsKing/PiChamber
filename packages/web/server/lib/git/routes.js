@@ -290,6 +290,33 @@ export function registerGitRoutes(app) {
     }
   });
 
+  app.delete('/api/git/worktrees', async (req, res) => {
+    const { removeWorktree } = await getGitLibraries();
+    try {
+      const directory = resolveDirectoryQuery(req.query.directory);
+      if (!directory) {
+        return res.status(400).json({ error: 'directory parameter is required' });
+      }
+
+      const worktreeDirectory = resolveDirectoryQuery(req.body?.directory);
+      if (!worktreeDirectory) {
+        return res.status(400).json({ error: 'worktree directory is required' });
+      }
+
+      const payload = {
+        directory: worktreeDirectory,
+        force: req.body?.force === true,
+        // User-facing removal must target an entry currently registered by Git;
+        // orphan cleanup remains an internal service capability.
+        allowOrphanCleanup: false,
+      };
+      res.json({ success: await removeWorktree(directory, payload) });
+    } catch (error) {
+      console.error('Failed to remove git worktree:', error);
+      res.status(400).json({ error: error.message || 'Failed to remove git worktree' });
+    }
+  });
+
   app.get('/api/git/worktrees/bootstrap-status', async (req, res) => {
     const { getWorktreeBootstrapStatus } = await getGitLibraries();
     try {

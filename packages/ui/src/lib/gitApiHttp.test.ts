@@ -6,6 +6,7 @@ import {
   gitFetch,
   listGitWorktrees,
   createGitWorktree,
+  deleteGitWorktree,
   stageGitFile,
   stageGitFiles,
   unstageGitFile,
@@ -143,6 +144,14 @@ describe('gitApiHttp worktrees', () => {
       expect(String(calls[1].input)).toBe('/api/git/worktrees?directory=%2Frepo');
       expect(JSON.parse(String(calls[1].init?.body))).toEqual({
         mode: 'new', startRef: 'main', worktreeName: 'task', returnAfterDirectoryCreated: true,
+      });
+
+      await deleteGitWorktree('/repo', { directory: '/worktrees/task', force: true });
+      expect(String(calls[2].input)).toBe('/api/git/worktrees?directory=%2Frepo');
+      expect(calls[2].init?.method).toBe('DELETE');
+      expect(JSON.parse(String(calls[2].init?.body))).toEqual({
+        directory: '/worktrees/task',
+        force: true,
       });
     } finally {
       restoreMocks();

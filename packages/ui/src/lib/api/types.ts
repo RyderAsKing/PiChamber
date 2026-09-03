@@ -418,6 +418,12 @@ export interface GitWorktreeCreateResult {
   bootstrapStatus: GitWorktreeBootstrapStatus;
 }
 
+export interface RemoveGitWorktreePayload {
+  directory: string;
+  /** Remove a worktree even when it contains uncommitted changes. */
+  force?: boolean;
+}
+
 export interface GitWorktreeValidationResult {
   ok: boolean;
   errors: Array<{ code: string; message: string }>;
@@ -442,6 +448,7 @@ export interface GitAPI {
   listGitWorktrees?(directory: string): Promise<GitWorktree[]>;
   validateGitWorktree?(directory: string, input: GitWorktreeCreateInput): Promise<GitWorktreeValidationResult>;
   createGitWorktree?(directory: string, input: GitWorktreeCreateInput): Promise<GitWorktreeCreateResult>;
+  deleteGitWorktree?(directory: string, payload: RemoveGitWorktreePayload): Promise<{ success: boolean }>;
   getGitWorktreeBootstrapStatus?(directory: string): Promise<GitWorktreeBootstrapStatus>;
   deleteGitBranch(directory: string, payload: GitDeleteBranchPayload): Promise<{ success: boolean }>;
   deleteRemoteBranch(directory: string, payload: GitDeleteRemoteBranchPayload): Promise<{ success: boolean }>;

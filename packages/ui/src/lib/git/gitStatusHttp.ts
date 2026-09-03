@@ -10,6 +10,7 @@ import type {
   GitWorktreeCreateResult,
   GitWorktreeValidationResult,
   GitWorktreeBootstrapStatus,
+  RemoveGitWorktreePayload,
 } from '../api/types';
 import { runtimeFetch } from '../runtime-fetch';
 import { getRuntimeKey } from '../runtime-switch';
@@ -143,6 +144,21 @@ export async function createGitWorktree(
   });
   if (!response.ok) throw await readGitError(response, 'Failed to create git worktree');
   invalidateGitStatusCache(directory);
+  return response.json();
+}
+
+export async function deleteGitWorktree(
+  directory: string,
+  input: RemoveGitWorktreePayload,
+): Promise<{ success: boolean }> {
+  const response = await runtimeFetch(buildUrl(`${API_BASE}/worktrees`, directory), {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw await readGitError(response, 'Failed to close git worktree');
+  invalidateGitStatusCache(directory);
+  invalidateGitStatusCache(input.directory);
   return response.json();
 }
 

@@ -49,6 +49,7 @@ import { useShallow } from 'zustand/react/shallow';
 import type { SortableDragHandleProps } from './sidebar/sortableItems';
 import type {
   BulkDeleteSessionsConfirmState,
+  CloseWorktreeConfirmState,
   DeleteFolderConfirmState,
   DeleteSessionConfirmState,
 } from './sidebar/ConfirmDialogs';
@@ -150,6 +151,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const [renameFolderDraft, setRenameFolderDraft] = React.useState('');
   const [deleteSessionConfirm, setDeleteSessionConfirm] = React.useState<DeleteSessionConfirmState>(null);
   const [deleteFolderConfirm, setDeleteFolderConfirm] = React.useState<DeleteFolderConfirmState>(null);
+  const [closeWorktreeConfirm, setCloseWorktreeConfirm] = React.useState<CloseWorktreeConfirmState>(null);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = React.useState<BulkDeleteSessionsConfirmState>(null);
   const pinnedSessionIds = useSessionPinnedStore((state) => state.ids);
   const sessionOrderRanks = useSessionOrderingStore(React.useCallback(
@@ -284,6 +286,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const gitBranches = useGitAllBranches(isVisible);
 
   const sync = useSync();
+  const { git } = useRuntimeAPIs();
   const childStores = useChildStoreManager();
   const piConnection = usePiSessionSnapshot((state) => state.connection, undefined, 'chrome');
   const catalogReady = usePiSessionSnapshot((state) => {
@@ -301,6 +304,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const unshareSession = useSessionUIStore((state) => state.unshareSession);
   // sessionAttentionStates removed — now using notification-store directly in SessionNodeItem
   const worktreeProjects = useWorktreeStore((state) => state.projects);
+  const refreshWorktreeProject = useWorktreeStore((state) => state.refreshProject);
   const availableWorktreesByProject = React.useMemo(
     () => buildAvailableWorktreesByProject(projects, { projects: worktreeProjects }),
     [projects, worktreeProjects],
@@ -944,6 +948,26 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     unreadSessionIdSet,
   });
 
+  const handleSelectProject = React.useCallback((id: string | null) => {
+    setSelectedSpaceId(id);
+    setSelectedWorktreePath(null);
+    if (!id) return;
+    setActiveProjectIdOnly(id);
+    const section = projectSections.find((candidate) => candidate.project.id === id);
+    const rootGroup = section?.groups.find((group) => group.isMain);
+    const firstSession = rootGroup?.sessions[0]?.session;
+    if (firstSession) {
+      stableHandleSessionSelect(firstSession.id, rootGroup?.directory ?? section?.project.normalizedPath ?? null, { keepPanelOpen: true });
+    } else if (section) {
+      openNewSessionDraftFromTree({ selectedProjectId: id, directoryOverride: section.project.normalizedPath });
+    }
+  }, [
+    openNewSessionDraftFromTree,
+    projectSections,
+    setActiveProjectIdOnly,
+    stableHandleSessionSelect,
+  ]);
+
   // Discover/refresh PR status for expanded projects' worktree branches so
   // session rows can tint their branch marker and show PR state in tooltips.
 
@@ -1188,6 +1212,91 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     onNavigateAway?.();
   }, [mobileVariant, onNavigateAway, openNewSessionDraft, setActiveMainTab, setSessionSwitcherOpen]);
 
+  const handleRequestCloseWorktree = React.useCallback((projectId: string, worktree: NonNullable<CloseWorktreeConfirmState>['worktree']) => {
+    const project = projects.find((candidate) => candidate.id === projectId);
+    if (!project) return;
+
+    const normalizedWorktreePath = normalizePath(worktree.path)?.toLowerCase();
+    const hasActiveSession = Boolean(
+      normalizedWorktreePath && activeDirectoriesByProject.get(projectId)?.has(normalizedWorktreePath),
+    );
+    setCloseWorktreeConfirm({
+      projectId,
+      projectPath: project.path,
+      worktree,
+      hasActiveSession,
+    });
+  }, [activeDirectoriesByProject, projects]);
+
+  const confirmCloseWorktree = React.useCallback(async ({ force }: { force: boolean }) => {
+    const pending = closeWorktreeConfirm;
+    if (!pending) return;
+
+    const normalizedWorktreePath = normalizePath(pending.worktree.path)?.toLowerCase();
+    const hasActiveSession = Boolean(
+      normalizedWorktreePath && activeDirectoriesByProject.get(pending.projectId)?.has(normalizedWorktreePath),
+    );
+    if (hasActiveSession) {
+      setCloseWorktreeConfirm({ ...pending, hasActiveSession: true });
+      toast.warning('Stop the active session before closing this worktree.');
+      return;
+    }
+
+    if (!git.deleteGitWorktree) {
+      toast.error('Closing worktrees is not supported by this runtime.');
+      return;
+    }
+
+    try {
+      const result = await git.deleteGitWorktree(pending.projectPath, {
+        directory: pending.worktree.path,
+        force,
+      });
+      if (!result?.success) {
+        throw new Error('Git worktree removal was not confirmed by the server.');
+      }
+
+      let refreshed = await refreshWorktreeProject(pending.projectPath, git);
+      const targetPath = normalizePath(pending.worktree.path);
+      // refreshProject coalesces concurrent polls for the same project. If a
+      // discovery fetch started before removal, the first result can predate
+      // the delete; re-read once when the removed path is still listed.
+      if (
+        refreshed !== null
+        && targetPath !== null
+        && refreshed.some((entry) => normalizePath(entry.path) === targetPath)
+      ) {
+        refreshed = await refreshWorktreeProject(pending.projectPath, git);
+      }
+      const isCurrentWorktree = targetPath !== null && normalizePath(currentDirectory) === targetPath;
+      const isSelectedWorktree = targetPath !== null
+        && selectedSpaceId === pending.projectId
+        && normalizePath(selectedWorktreePath) === targetPath;
+      if (isCurrentWorktree || isSelectedWorktree) {
+        handleSelectProject(pending.projectId);
+      }
+
+      setCloseWorktreeConfirm(null);
+      if (refreshed === null) {
+        toast.warning('Worktree closed, but the sidebar could not be refreshed.');
+      } else {
+        toast.success('Worktree closed.');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Try again.';
+      toast.error('Failed to close worktree.', { description: message });
+    }
+  }, [
+    activeDirectoriesByProject,
+    closeWorktreeConfirm,
+    currentDirectory,
+    git,
+    handleSelectProject,
+    refreshWorktreeProject,
+    selectedSpaceId,
+    selectedWorktreePath,
+  ]);
+
   return (
     // Header/action tooltips only. Session rows do not use hover/hold tooltips.
     <TooltipProvider delay={400} closeDelay={150} timeout={600}>
@@ -1271,20 +1380,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
           selectedWorktreePath={selectedWorktreePath}
           worktreesByProject={availableWorktreesByProject}
           worktreeErrorsByProject={worktreeErrorsByProject}
-          onSelectProject={(id) => {
-            setSelectedSpaceId(id);
-            setSelectedWorktreePath(null);
-            if (!id) return;
-            setActiveProjectIdOnly(id);
-            const section = projectSections.find((candidate) => candidate.project.id === id);
-            const rootGroup = section?.groups.find((group) => group.isMain);
-            const firstSession = rootGroup?.sessions[0]?.session;
-            if (firstSession) {
-              stableHandleSessionSelect(firstSession.id, rootGroup?.directory ?? section?.project.normalizedPath ?? null, { keepPanelOpen: true });
-            } else if (section) {
-              openNewSessionDraftFromTree({ selectedProjectId: id, directoryOverride: section.project.normalizedPath });
-            }
-          }}
+          onSelectProject={handleSelectProject}
           onSelectWorktree={(projectId, worktreePath) => {
             setSelectedSpaceId(projectId);
             setSelectedWorktreePath(worktreePath);
@@ -1298,6 +1394,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
               openNewSessionDraftFromTree({ selectedProjectId: projectId, directoryOverride: worktreePath });
             }
           }}
+          onCloseWorktree={handleRequestCloseWorktree}
           onOpenDirectoryDialog={handleOpenDirectoryDialog}
           onOpenProjectEditDialog={setEditingProjectDialogId}
           onRemoveProject={removeProject}
@@ -1391,6 +1488,9 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         deleteFolderConfirm={deleteFolderConfirm}
         setDeleteFolderConfirm={setDeleteFolderConfirm}
         confirmDeleteFolder={confirmDeleteFolder}
+        closeWorktreeConfirm={closeWorktreeConfirm}
+        setCloseWorktreeConfirm={setCloseWorktreeConfirm}
+        confirmCloseWorktree={confirmCloseWorktree}
         bulkDeleteConfirm={bulkDeleteConfirm}
         setBulkDeleteConfirm={setBulkDeleteConfirm}
         confirmBulkDelete={confirmBulkDelete}

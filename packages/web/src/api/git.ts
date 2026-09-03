@@ -23,6 +23,7 @@ export const createWebGitAPI = (): GitAPI => ({
   listGitWorktrees: gitApiHttp.listGitWorktrees,
   validateGitWorktree: gitApiHttp.validateGitWorktree,
   createGitWorktree: gitApiHttp.createGitWorktree,
+  deleteGitWorktree: gitApiHttp.deleteGitWorktree,
   getGitWorktreeBootstrapStatus: gitApiHttp.getGitWorktreeBootstrapStatus,
   deleteGitBranch: gitApiHttp.deleteGitBranch as GitAPI['deleteGitBranch'],
   deleteRemoteBranch: gitApiHttp.deleteRemoteBranch as GitAPI['deleteRemoteBranch'],

@@ -47,6 +47,7 @@ export interface SidebarSpacesBarProps {
   worktreeErrorsByProject?: ReadonlyMap<string, string>;
   onSelectProject: (projectId: string | null) => void;
   onSelectWorktree?: (projectId: string, worktreePath: string) => void;
+  onCloseWorktree?: (projectId: string, worktree: GitWorktree) => void;
   onOpenDirectoryDialog: () => void;
   onOpenProjectEditDialog: (id: string) => void;
   onRemoveProject: (id: string) => void;
@@ -61,7 +62,90 @@ export interface SidebarSpacesBarProps {
   mobileVariant?: boolean;
 }
 
-const FOLDER_LONG_PRESS_MS = 500;
+const SIDEBAR_LONG_PRESS_MS = 500;
+
+const WorktreeRow: React.FC<{
+  projectId: string;
+  worktree: GitWorktree;
+  isSelected: boolean;
+  hasActive: boolean;
+  onSelect: () => void;
+  onClose?: (projectId: string, worktree: GitWorktree) => void;
+  mobileVariant?: boolean;
+}> = ({ projectId, worktree, isSelected, hasActive, onSelect, onClose, mobileVariant = false }) => {
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const longPressTimerRef = React.useRef<number | null>(null);
+  const label = worktree.branch || (worktree.detached ? 'Detached HEAD' : worktree.name);
+
+  const clearLongPress = React.useCallback(() => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  React.useEffect(() => () => clearLongPress(), [clearLongPress]);
+
+  const handleTouchStart = React.useCallback(() => {
+    clearLongPress();
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTimerRef.current = null;
+      setMenuOpen(true);
+    }, SIDEBAR_LONG_PRESS_MS);
+  }, [clearLongPress]);
+
+  return (
+    <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
+      <ContextMenuTrigger
+        render={
+          <button
+            type="button"
+            onClick={() => {
+              if (menuOpen) return;
+              onSelect();
+            }}
+            onTouchStart={handleTouchStart}
+            onTouchMove={clearLongPress}
+            onTouchEnd={clearLongPress}
+            onTouchCancel={clearLongPress}
+            style={{ touchAction: 'manipulation' }}
+            className={cn(folderBarRowClass(mobileVariant, isSelected), 'pl-6')}
+            aria-pressed={isSelected}
+            title={worktree.path}
+          />
+        }
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <Icon name="git-branch" className={cn(sidebarRowIconClass(mobileVariant), 'text-muted-foreground')} />
+          <span className={sidebarRowLabelClass(mobileVariant)}>{label}</span>
+        </div>
+        <div className="flex items-center gap-1 shrink-0 ml-1">
+          {hasActive ? (
+            <AgentThinkingLoader
+              variant="inline"
+              text={null}
+              animationType="spinner"
+              speedMs={80}
+              className="text-primary text-xs shrink-0"
+            />
+          ) : null}
+        </div>
+      </ContextMenuTrigger>
+
+      <ContextMenuContent className="min-w-[160px]">
+        <ContextMenuItem
+          disabled={!onClose}
+          title={hasActive ? 'Stop the active session before closing this worktree.' : undefined}
+          onClick={() => onClose?.(projectId, worktree)}
+          className="text-destructive focus:text-destructive"
+        >
+          <Icon name="close" className="mr-2 h-3.5 w-3.5" />
+          <span>{"Close worktree"}</span>
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+};
 
 const folderBarRowClass = (mobileVariant: boolean, selected: boolean) => cn(
   'relative flex w-full items-center gap-1.5 rounded-xl px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
@@ -119,7 +203,7 @@ const SortableFolderRow: React.FC<{
     longPressTimerRef.current = window.setTimeout(() => {
       longPressTimerRef.current = null;
       setMenuOpen(true);
-    }, FOLDER_LONG_PRESS_MS);
+    }, SIDEBAR_LONG_PRESS_MS);
   }, [clearLongPress]);
 
   return (
@@ -209,6 +293,7 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
   worktreeErrorsByProject = new Map(),
   onSelectProject,
   onSelectWorktree,
+  onCloseWorktree,
   onOpenDirectoryDialog,
   onOpenProjectEditDialog,
   onRemoveProject,
@@ -296,32 +381,16 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
                   // Fallback to legacy global check only if the new map is unavailable (backwards compat).
                   const showWorktreeActive = activeDirectoriesByProject ? hasActiveInWorktree : false;
                   return (
-                    <button
+                    <WorktreeRow
                       key={worktree.path}
-                      type="button"
-                      onClick={() => onSelectWorktree?.(project.id, worktree.path)}
-                      className={cn(folderBarRowClass(mobileVariant, worktreeSelected))}
-                      aria-pressed={worktreeSelected}
-                      title={worktree.path}
-                    >
-                      <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                        <Icon name="git-branch" className={cn(sidebarRowIconClass(mobileVariant), 'text-muted-foreground')} />
-                        <span className={sidebarRowLabelClass(mobileVariant)}>
-                          {worktree.branch || (worktree.detached ? 'Detached HEAD' : worktree.name)}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0 ml-1">
-                        {showWorktreeActive ? (
-                          <AgentThinkingLoader
-                            variant="inline"
-                            text={null}
-                            animationType="spinner"
-                            speedMs={80}
-                            className="text-primary text-xs shrink-0"
-                          />
-                        ) : null}
-                      </div>
-                    </button>
+                      projectId={project.id}
+                      worktree={worktree}
+                      isSelected={worktreeSelected}
+                      hasActive={showWorktreeActive}
+                      onSelect={() => onSelectWorktree?.(project.id, worktree.path)}
+                      onClose={onCloseWorktree}
+                      mobileVariant={mobileVariant}
+                    />
                   );
                 }) : null}
               </React.Fragment>

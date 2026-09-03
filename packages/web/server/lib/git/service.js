@@ -4103,6 +4103,8 @@ export async function removeWorktree(directory, input = {}) {
 
   const context = await resolveWorktreeProjectContext(directory);
   const deleteLocalBranch = input?.deleteLocalBranch === true;
+  const force = input?.force === true;
+  const allowOrphanCleanup = input?.allowOrphanCleanup !== false;
 
   const targetCanonical = await canonicalPath(targetDirectory);
   const primaryCanonical = await canonicalPath(context.primaryWorktree);
@@ -4126,6 +4128,10 @@ export async function removeWorktree(directory, input = {}) {
   })();
 
   if (!matchedEntry?.worktree) {
+    if (!allowOrphanCleanup) {
+      throw new Error('Git worktree was not found');
+    }
+
     const isManagedOrphan = targetCanonical !== worktreeRootCanonical
       && isInsideOrSameDirectory(worktreeRootCanonical, targetCanonical);
 
@@ -4141,7 +4147,7 @@ export async function removeWorktree(directory, input = {}) {
 
   await runGitCommandOrThrow(
     context.primaryWorktree,
-    ['worktree', 'remove', '--force', matchedEntry.worktree],
+    ['worktree', 'remove', ...(force ? ['--force'] : []), matchedEntry.worktree],
     'Failed to remove git worktree'
   );
 
