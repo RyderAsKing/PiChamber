@@ -249,21 +249,21 @@ export function useParentSession(): Session | null {
   return null;
 }
 export function useSession(sessionID?: string | null, _directory?: string): Session | undefined {
-  const record = usePiSessionSnapshot(
-    (state) => (sessionID ? state.catalog.byId.get(sessionID) ?? null : null),
-    undefined,
-    TOPIC_CATALOG,
-  );
+  // Subscribe to the collection, then look the id up in the hook body.
+  // Closing over sessionID inside the selector keeps returning the previous
+  // entity when the store has not emitted (see `usePiSessionSnapshot` cache).
+  const byId = usePiSessionSnapshot((state) => state.catalog.byId, undefined, TOPIC_CATALOG);
+  const record = sessionID ? byId.get(sessionID) ?? null : null;
   return record ? liveSessionRecordToUiSession(record) : undefined;
 }
 
 export function useSessionDirectory(sessionID?: string | null): string | undefined {
-  const recordDirectory = usePiSessionSnapshot(
-    (state) => (sessionID ? state.catalog.byId.get(sessionID)?.directory : undefined),
-    undefined,
-    TOPIC_CATALOG,
-  );
+  // Same collection-subscription rule as `useSession`: the id lookup must
+  // happen outside the snapshot selector so a session switch without a
+  // catalog emit still resolves the new id.
+  const byId = usePiSessionSnapshot((state) => state.catalog.byId, undefined, TOPIC_CATALOG);
   const directory = usePiSessionSnapshot((state) => state.directory, undefined, TOPIC_CHROME);
+  const recordDirectory = sessionID ? byId.get(sessionID)?.directory : undefined;
   return recordDirectory ?? directory ?? undefined;
 }
 export function useSyncDirectory(): string {
