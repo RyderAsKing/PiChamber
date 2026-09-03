@@ -13,7 +13,7 @@ import { isUserBubbleContentPart } from './message/partUtils';
 import type { AgentMentionInfo } from './message/types';
 import type { StreamPhase } from './message/types';
 import { deriveMessageRole } from './message/messageRole';
-import { filterVisibleParts, normalizeParts } from './message/partUtils';
+import { filterVisibleParts, hasRenderableAssistantContent, normalizeParts } from './message/partUtils';
 import { normalizeUserDisplayParts } from './message/normalizeUserDisplayParts';
 import { isHiddenUserMessage } from './message/hiddenUserMessage';
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
@@ -371,6 +371,13 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
 
   const hasTextContent = messageTextContent.length > 0;
 
+  const shouldHideEmptyAssistant = React.useMemo(() => {
+    if (isUser) {
+      return false;
+    }
+    return !hasRenderableAssistantContent(visibleParts, assistantErrorText);
+  }, [assistantErrorText, isUser, visibleParts]);
+
   const handleCopyMessage = React.useCallback(async () => {
     let result;
     if (isUser) {
@@ -400,7 +407,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     onContentChange?.('structural');
   }, [hasAnnouncedAuxiliaryScrollRef, isUser, onContentChange]);
 
-  if (shouldHideUserMessage) {
+  if (shouldHideUserMessage || shouldHideEmptyAssistant) {
     return null;
   }
 

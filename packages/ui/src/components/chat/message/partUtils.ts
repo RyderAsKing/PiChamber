@@ -48,6 +48,20 @@ export const filterRenderableAssistantParts = (parts: Part[]): Part[] => parts.f
     return (part as { type?: unknown }).type !== 'compaction';
 });
 
+/**
+ * True when an assistant message has anything worth mounting: renderable
+ * parts (non-empty text, reasoning, tools, files) or an error notice.
+ * An `assistant.message.start` row arrives with no parts and stays empty
+ * until the first delta/tool event, so ChatMessage uses this to skip the
+ * padded wrapper instead of leaving a blank whitespace block.
+ */
+export const hasRenderableAssistantContent = (visibleParts: Part[], errorMessage?: string): boolean => {
+    if (typeof errorMessage === 'string' && errorMessage.trim().length > 0) {
+        return true;
+    }
+    return filterRenderableAssistantParts(visibleParts).length > 0;
+};
+
 type PartWithSynthetic = Part & { synthetic?: boolean };
 
 interface VisibleFilterOptions {
