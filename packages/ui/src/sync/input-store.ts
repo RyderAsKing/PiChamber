@@ -219,6 +219,8 @@ export type InputState = {
    * draft swap; stashes are memory-only (File handles cannot persist).
    */
   stashedAttachmentsByDraft: Record<string, AttachedFile[]>
+  /** Draft identity that currently owns `attachedFiles`; survives composer remounts. */
+  activeAttachmentsDraftKey: string | null
 
   setPendingInputText: (text: string | null, mode?: "replace" | "append" | "append-inline") => void
   consumePendingInputText: () => { text: string; mode: "replace" | "append" | "append-inline" } | null
@@ -234,10 +236,10 @@ export type InputState = {
   detachAttachedFiles: (ids: readonly string[]) => void
   clearStashedAttachmentsForSession: (identity: { runtimeKey: string; directory: string; sessionId: string }) => void
   /**
-   * Stash the visible attachments under `prevKey` and restore `nextKey`'s.
-   * Uploads keep running against the moved objects; nothing is cancelled.
+   * Make a draft's attachments visible, stashing the previous draft's files.
+   * Store-owned identity survives composer remounts and loading transitions.
    */
-  swapAttachmentsDraft: (prevKey: string, nextKey: string) => void
+  activateAttachmentsDraft: (nextKey: string) => void
   setAttachedFiles: (files: AttachedFile[]) => void
   clearAttachedFiles: () => void
   addRestoredAttachment: (file: { url: string; mimeType: string; filename: string }) => void
@@ -251,6 +253,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
   pendingPresetSubmit: null,
   attachedFiles: [],
   stashedAttachmentsByDraft: {},
+  activeAttachmentsDraftKey: null,
 
   setPendingInputText: (text, mode = "replace") => set({ pendingInputText: text, pendingInputMode: mode }),
   consumePendingInputText: () => {
@@ -407,9 +410,14 @@ export const useInputStore = create<InputState>()((set, get) => ({
     }))
   },
 
-  swapAttachmentsDraft: (prevKey, nextKey) => {
+  activateAttachmentsDraft: (nextKey) => {
+    const prevKey = get().activeAttachmentsDraftKey
+    if (prevKey === null) {
+      set({ activeAttachmentsDraftKey: nextKey })
+      return
+    }
     if (prevKey === nextKey) return
-    const stashed = get().stashedAttachmentsByDraft ?? {}
+    const stashed = get().stashedAttachmentsByDraft
     const current = get().attachedFiles
     const restored = stashed[nextKey] ?? []
     // Refresh recency, then bound the stash: entries hold File handles and
@@ -424,28 +432,38 @@ export const useInputStore = create<InputState>()((set, get) => ({
       cancelFiles(nextStashed[key] ?? [], true)
       delete nextStashed[key]
     }
-    set({ attachedFiles: restored, stashedAttachmentsByDraft: nextStashed })
+    set({
+      attachedFiles: restored,
+      stashedAttachmentsByDraft: nextStashed,
+      activeAttachmentsDraftKey: nextKey,
+    })
   },
 
   clearStashedAttachmentsForSession: (identity) => {
-    const stashed = get().stashedAttachmentsByDraft
-    if (!stashed) return
-    const nextStashed: Record<string, AttachedFile[]> = {}
-    for (const [key, files] of Object.entries(stashed)) {
-      let matches = false
+    const matchesIdentity = (key: string): boolean => {
       try {
         const parsed = JSON.parse(key) as Partial<[string, string, string | null]>
-        matches = Array.isArray(parsed)
+        return Array.isArray(parsed)
           && parsed[0] === identity.runtimeKey
           && parsed[1] === identity.directory
           && parsed[2] === identity.sessionId
       } catch {
-        matches = false
+        return false
       }
-      if (matches) cancelFiles(files, true)
+    }
+    const state = get()
+    const nextStashed: Record<string, AttachedFile[]> = {}
+    for (const [key, files] of Object.entries(state.stashedAttachmentsByDraft)) {
+      if (matchesIdentity(key)) cancelFiles(files, true)
       else nextStashed[key] = files
     }
-    set({ stashedAttachmentsByDraft: nextStashed })
+    const clearsVisible = state.activeAttachmentsDraftKey !== null
+      && matchesIdentity(state.activeAttachmentsDraftKey)
+    if (clearsVisible) cancelFiles(state.attachedFiles, true)
+    set({
+      attachedFiles: clearsVisible ? [] : state.attachedFiles,
+      stashedAttachmentsByDraft: nextStashed,
+    })
   },
 
   setAttachedFiles: (files) => {

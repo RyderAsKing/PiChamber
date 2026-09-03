@@ -586,17 +586,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         onDraftRestored: () => composerRef.current?.selectAll(),
     });
 
-    // Attachments follow the draft identity like text: switching sessions
-    // stashes the outgoing files and restores the incoming session's, so
-    // unsent images never leak into another conversation. Mounts (including
-    // StrictMode remounts) adopt the current identity without moving files.
-    const prevAttachmentsIdentityKeyRef = React.useRef<string | undefined>(undefined);
+    // The store owns the previous attachment identity so a composer remount
+    // during session loading cannot adopt another session's visible files.
     React.useEffect(() => {
         const nextKey = chatDraftIdentity ? getChatDraftIdentityKey(chatDraftIdentity) : '';
-        const prevKey = prevAttachmentsIdentityKeyRef.current;
-        prevAttachmentsIdentityKeyRef.current = nextKey;
-        if (prevKey === undefined || prevKey === nextKey) return;
-        useInputStore.getState().swapAttachmentsDraft(prevKey, nextKey);
+        useInputStore.getState().activateAttachmentsDraft(nextKey);
     }, [chatDraftIdentity]);
 
     // Focus textarea when new session draft is opened

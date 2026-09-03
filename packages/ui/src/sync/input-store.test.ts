@@ -178,34 +178,51 @@ describe("input-store per-draft attachment slots", () => {
   }
 
   beforeEach(() => {
-    useInputStore.setState({ attachedFiles: [], stashedAttachmentsByDraft: {} })
+    useInputStore.setState({
+      attachedFiles: [],
+      stashedAttachmentsByDraft: {},
+      activeAttachmentsDraftKey: null,
+    })
   })
 
   afterEach(() => {
-    useInputStore.setState({ attachedFiles: [], stashedAttachmentsByDraft: {} })
+    useInputStore.setState({
+      attachedFiles: [],
+      stashedAttachmentsByDraft: {},
+      activeAttachmentsDraftKey: null,
+    })
   })
 
-  test("switching drafts stashes outgoing files and restores the incoming session's", () => {
+  test("keeps attachment drafts scoped across a composer remount", () => {
+    useInputStore.getState().activateAttachmentsDraft("draft-a")
     seedServerFile("a.txt")
-    useInputStore.getState().swapAttachmentsDraft("draft-a", "draft-b")
+
+    // A remounted composer only announces B. The store must still remember
+    // that the visible files belong to A.
+    useInputStore.getState().activateAttachmentsDraft("draft-b")
     expect(useInputStore.getState().attachedFiles).toEqual([])
     seedServerFile("b.txt")
-    useInputStore.getState().swapAttachmentsDraft("draft-b", "draft-a")
+
+    useInputStore.getState().activateAttachmentsDraft("draft-a")
     expect(useInputStore.getState().attachedFiles.map((file) => file.filename)).toEqual(["a.txt"])
+    useInputStore.getState().activateAttachmentsDraft("draft-b")
+    expect(useInputStore.getState().attachedFiles.map((file) => file.filename)).toEqual(["b.txt"])
   })
 
-  test("swapping to the same draft key is a no-op", () => {
+  test("activating the current draft key is a no-op", () => {
     seedServerFile("a.txt")
-    useInputStore.getState().swapAttachmentsDraft("draft-a", "draft-a")
+    useInputStore.getState().activateAttachmentsDraft("draft-a")
+    useInputStore.getState().activateAttachmentsDraft("draft-a")
     expect(useInputStore.getState().attachedFiles.map((file) => file.filename)).toEqual(["a.txt"])
     expect(useInputStore.getState().stashedAttachmentsByDraft).toEqual({})
   })
 
   test("detaching clears sent ids from the visible list and every stash", () => {
     const currentId = seedServerFile("current.txt")
-    useInputStore.getState().swapAttachmentsDraft("draft-a", "draft-b")
+    useInputStore.getState().activateAttachmentsDraft("draft-a")
+    useInputStore.getState().activateAttachmentsDraft("draft-b")
     const stashedId = seedServerFile("stashed.txt")
-    useInputStore.getState().swapAttachmentsDraft("draft-b", "draft-a")
+    useInputStore.getState().activateAttachmentsDraft("draft-a")
     // A send that resolves after a draft switch still clears its own files.
     useInputStore.getState().detachAttachedFiles([stashedId, currentId, "missing-id"])
     expect(useInputStore.getState().attachedFiles).toEqual([])
@@ -213,22 +230,24 @@ describe("input-store per-draft attachment slots", () => {
   })
 
   test("session cleanup drops only that session's stash", () => {
+    useInputStore.getState().activateAttachmentsDraft(JSON.stringify(["rk", "/dir", "s1"]))
     seedServerFile("a.txt")
-    useInputStore.getState().swapAttachmentsDraft(JSON.stringify(["rk", "/dir", "s1"]), "other")
+    useInputStore.getState().activateAttachmentsDraft("other")
     seedServerFile("b.txt")
-    useInputStore.getState().swapAttachmentsDraft("other", JSON.stringify(["rk", "/dir", "s2"]))
+    useInputStore.getState().activateAttachmentsDraft(JSON.stringify(["rk", "/dir", "s2"]))
     useInputStore.getState().clearStashedAttachmentsForSession({ runtimeKey: "rk", directory: "/dir", sessionId: "s1" })
     const stashed = useInputStore.getState().stashedAttachmentsByDraft
     expect(Object.keys(stashed)).toEqual(["other"])
   })
 
   test("empty draft switches do not evict a real attachment stash", () => {
+    useInputStore.getState().activateAttachmentsDraft("draft-with-file")
     seedServerFile("keep.txt")
-    useInputStore.getState().swapAttachmentsDraft("draft-with-file", "empty-0")
+    useInputStore.getState().activateAttachmentsDraft("empty-0")
     for (let index = 0; index < 15; index += 1) {
-      useInputStore.getState().swapAttachmentsDraft(`empty-${index}`, `empty-${index + 1}`)
+      useInputStore.getState().activateAttachmentsDraft(`empty-${index + 1}`)
     }
-    useInputStore.getState().swapAttachmentsDraft("empty-15", "draft-with-file")
+    useInputStore.getState().activateAttachmentsDraft("draft-with-file")
     expect(useInputStore.getState().attachedFiles.map((file) => file.filename)).toEqual(["keep.txt"])
     expect(Object.keys(useInputStore.getState().stashedAttachmentsByDraft)).toHaveLength(0)
   })
