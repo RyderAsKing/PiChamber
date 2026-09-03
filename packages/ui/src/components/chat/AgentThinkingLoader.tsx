@@ -110,7 +110,7 @@ export const AgentThinkingLoader: React.FC<AgentThinkingLoaderProps> = ({
 
   const labelEl = hasText ? (
     <span
-      className="pixel-loader-label min-w-0 truncate whitespace-nowrap bg-clip-text text-[13px] font-medium text-transparent"
+      className="pixel-loader-label min-w-0 truncate whitespace-nowrap bg-clip-text typography-markdown font-medium text-transparent"
       style={{
         backgroundImage:
           'linear-gradient(90deg, var(--muted-foreground) 35%, var(--foreground) 50%, var(--muted-foreground) 65%)',
@@ -123,7 +123,7 @@ export const AgentThinkingLoader: React.FC<AgentThinkingLoaderProps> = ({
   ) : null;
   const elapsedEl =
     hasText && showElapsed ? (
-      <span className="shrink-0 whitespace-nowrap font-mono text-[12px] text-muted-foreground tabular-nums">{elapsed}</span>
+      <span className="shrink-0 whitespace-nowrap font-mono typography-code text-muted-foreground tabular-nums">{elapsed}</span>
     ) : null;
 
   if (variant === 'badge') {

@@ -149,7 +149,7 @@ export function WorkingPlaceholder({
       aria-label={label}
       data-waiting={displayedStatus.permission ? 'true' : undefined}
     >
-      <span className="typography-ui-header inline-flex min-w-0 items-center gap-1.5 leading-5">
+      <span className="typography-markdown inline-flex min-w-0 items-center gap-1.5 leading-5">
         {hasProviderLogo && providerLogoSrc ? (
           <img
             src={providerLogoSrc}
