@@ -463,8 +463,7 @@ export const Header: React.FC<HeaderProps> = ({
     homeDirectory,
   }), [activeProjectLabel, homeDirectory, openDirectory]);
 
-  // Whether the title carries a second line under it. Hoisted because the
-  // session menu's vertical alignment depends on the same answer.
+  // Whether the title carries inline metadata after a middle-dot separator.
   const showHeaderMetaRow = Boolean(headerLocationLabel || currentBranchLabel);
 
 
@@ -1099,14 +1098,17 @@ export const Header: React.FC<HeaderProps> = ({
           while the sidebar is closed. Project actions live in the header. */}
       <div className="flex min-w-0 flex-1 items-center">
         {activeSurfaceHeader ? (
-          <div className="mr-3 flex min-w-0 flex-col items-start px-1 py-0.5 -my-0.5 text-left">
+          <div className="mr-3 flex min-w-0 items-center gap-1.5 px-1 py-0.5 -my-0.5 text-left">
             <span className="truncate typography-ui-label text-[14px] font-normal leading-tight text-foreground max-w-full">
               {activeSurfaceHeader.title}
             </span>
             {activeSurfaceHeader.subtitle ? (
-              <span className="truncate typography-micro text-[10.5px] font-normal leading-tight text-muted-foreground/75 max-w-full">
-                {activeSurfaceHeader.subtitle}
-              </span>
+              <>
+                <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border" />
+                <span className="truncate typography-ui-label font-normal leading-tight text-muted-foreground/75 max-w-full">
+                  {activeSurfaceHeader.subtitle}
+                </span>
+              </>
             ) : null}
           </div>
         ) : (
@@ -1130,7 +1132,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </SessionSwitcherDropdown>
               </React.Suspense>
             ) : null}
-            <div className="flex min-w-0 flex-col justify-center px-1">
+            <div className="flex min-w-0 items-center gap-1.5 px-1">
               {isRenamingHeaderSession ? (
                 <form
                   ref={headerRenameFormRef}
@@ -1172,28 +1174,26 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 </form>
               ) : (
-                <span className="truncate typography-ui-label font-normal leading-tight text-foreground max-w-full">
+                <span className="min-w-0 truncate typography-ui-label font-normal leading-tight text-foreground">
                   {isNewSessionDraftOpen ? "New session" : currentSessionTitle}
                 </span>
               )}
               {showHeaderMetaRow ? (
-                <span className="flex min-w-0 max-w-full items-center gap-1.5 truncate typography-micro text-[10.5px] font-normal leading-tight text-muted-foreground/75">
-                  {headerLocationLabel ? <span className="truncate">{headerLocationLabel}</span> : null}
-                  {currentBranchLabel ? (
-                    <span className="inline-flex min-w-0 items-center gap-0.5">
-                      <Icon name="git-branch" className="h-3 w-3 flex-shrink-0 text-muted-foreground/70" />
-                      <span className="truncate">{currentBranchLabel}</span>
-                    </span>
-                  ) : null}
-                </span>
+                <>
+                  <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border" />
+                  <span className="flex min-w-0 items-center gap-1.5 truncate typography-ui-label font-normal leading-tight text-muted-foreground/75">
+                    {headerLocationLabel ? <span className="truncate">{headerLocationLabel}</span> : null}
+                    {currentBranchLabel ? (
+                      <span className="inline-flex min-w-0 items-center gap-0.5">
+                        <Icon name="git-branch" className="h-3 w-3 flex-shrink-0 text-muted-foreground/70" />
+                        <span className="truncate">{currentBranchLabel}</span>
+                      </span>
+                    ) : null}
+                  </span>
+                </>
               ) : null}
             </div>
-            <div className={cn(
-              'flex h-[18px] shrink-0 items-center justify-center',
-              // Top-aligned only when the title has a metadata line under it;
-              // alone, the title is centred and the button must follow.
-              showHeaderMetaRow ? 'self-start' : 'self-center',
-            )}>
+            <div className="flex h-[18px] shrink-0 items-center justify-center self-center">
               {currentSessionId && !isNewSessionDraftOpen && !isRenamingHeaderSession ? (
                 <DropdownMenu
                   open={isHeaderSessionMenuOpen}
