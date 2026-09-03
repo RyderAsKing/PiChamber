@@ -50,14 +50,19 @@ export const TurnChangedFilePillButton = React.memo(
   ({
     file,
     onOpen,
+    disabled = false,
   }: {
     file: TurnChangedFile;
     onOpen: (file: string) => void;
+    disabled?: boolean;
   }) => {
     return (
       <button
         type="button"
-        className="inline-flex h-8 max-w-full cursor-pointer items-center rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]"
+        disabled={disabled}
+        // `disabled:cursor-default`: the global `:where(button:disabled)`
+        // rule would otherwise show not-allowed on settled turns.
+        className="inline-flex h-8 max-w-full cursor-pointer items-center rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)] disabled:cursor-default"
         aria-label={`Open ${file.file}`}
         title={file.file}
         onClick={(event) => {
@@ -66,30 +71,20 @@ export const TurnChangedFilePillButton = React.memo(
           onOpen(file.file);
         }}
       >
-        <TurnChangedFileChipContent file={file} interactive />
+        <TurnChangedFileChipContent file={file} interactive={!disabled} />
       </button>
     );
   }
 );
 
-export const StaticTurnChangedFilePills = React.memo(
-  ({ files }: { files: TurnChangedFile[] }) => (
-    <>
-      {files.map((file) => (
-        <span
-          key={file.file}
-          className="inline-flex h-8 max-w-full items-center"
-          title={file.file}
-        >
-          <TurnChangedFileChipContent file={file} />
-        </span>
-      ))}
-    </>
-  )
-);
-
-export const InteractiveTurnChangedFilePills = React.memo(
-  ({ files }: { files: TurnChangedFile[] }) => {
+export const TurnChangedFilePills = React.memo(
+  ({
+    files,
+    isInteractive,
+  }: {
+    files?: TurnChangedFile[];
+    isInteractive: boolean;
+  }) => {
     const effectiveDirectory = useEffectiveDirectory();
     const isMobile = useUIStore((state) => state.isMobile);
     const navigateToDiff = useUIStore((state) => state.navigateToDiff);
@@ -107,6 +102,11 @@ export const InteractiveTurnChangedFilePills = React.memo(
       [effectiveDirectory, isMobile, navigateToDiff, openContextDiff]
     );
 
+    if (!files || files.length === 0) return null;
+
+    // One stable subtree: the old button<->span swap on `isLatestTurn`
+    // remounted every chip (dropping focus and flashing) on send.
+    // `disabled` keeps the same DOM with static styling instead.
     return (
       <>
         {files.map((file) => (
@@ -114,27 +114,10 @@ export const InteractiveTurnChangedFilePills = React.memo(
             key={file.file}
             file={file}
             onOpen={openLastTurnDiff}
+            disabled={!isInteractive}
           />
         ))}
       </>
-    );
-  }
-);
-
-export const TurnChangedFilePills = React.memo(
-  ({
-    files,
-    isInteractive,
-  }: {
-    files?: TurnChangedFile[];
-    isInteractive: boolean;
-  }) => {
-    if (!files || files.length === 0) return null;
-
-    return isInteractive ? (
-      <InteractiveTurnChangedFilePills files={files} />
-    ) : (
-      <StaticTurnChangedFilePills files={files} />
     );
   }
 );

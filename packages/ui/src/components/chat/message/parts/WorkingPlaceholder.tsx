@@ -12,9 +12,9 @@ interface WorkingPlaceholderProps {
   agentName?: string;
   modelName?: string | null;
   providerId?: string | null;
+  /** Authoritative turn start (unix ms) — pins the elapsed counter. */
+  startedAt?: number | null;
 }
-
-const STATUS_DISPLAY_TIME_MS = 1200;
 
 const EPOCH_SECONDS_THRESHOLD = 1_000_000_000;
 const EPOCH_MILLISECONDS_THRESHOLD = 1_000_000_000_000;
@@ -64,21 +64,12 @@ export function WorkingPlaceholder({
   retryInfo,
   modelName,
   providerId,
+  startedAt = null,
 }: WorkingPlaceholderProps) {
-  
   const { src: providerLogoSrc, onError: handleProviderLogoError, hasLogo: hasProviderLogo } = useProviderLogo(providerId ?? null);
   const { currentTheme } = useThemeSystem();
   const isDarkTheme = currentTheme?.metadata.variant === 'dark';
-  const [displayedText, setDisplayedText] = React.useState<string | null>(null);
-  const [displayedPermission, setDisplayedPermission] = React.useState<boolean>(false);
-  const displayedTextRef = React.useRef(displayedText);
-  const displayedPermissionRef = React.useRef(displayedPermission);
-  displayedTextRef.current = displayedText;
-  displayedPermissionRef.current = displayedPermission;
-
-  const statusShownAtRef = React.useRef<number>(0);
-  const queuedStatusRef = React.useRef<{ text: string; permission: boolean } | null>(null);
-  const processQueueTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const displayedStatusRef = React.useRef<{ text: string; permission: boolean } | null>(null);
 
   // Countdown state for retry mode
   const [retryCountdown, setRetryCountdown] = React.useState<number | null>(null);
@@ -102,100 +93,14 @@ export function WorkingPlaceholder({
     return () => clearInterval(id);
   }, [retryInfo?.next, retryInfo?.attempt]);
 
-  const clearTimers = React.useCallback(() => {
-    if (processQueueTimerRef.current) {
-      clearTimeout(processQueueTimerRef.current);
-      processQueueTimerRef.current = null;
-    }
-  }, []);
-
-  const showStatus = React.useCallback((text: string, permission: boolean) => {
-    clearTimers();
-    queuedStatusRef.current = null;
-    setDisplayedText(text);
-    setDisplayedPermission(permission);
-    statusShownAtRef.current = Date.now();
-  }, [clearTimers]);
-
-  const scheduleQueueProcess = React.useCallback(() => {
-    if (processQueueTimerRef.current) return;
-    const elapsed = Date.now() - statusShownAtRef.current;
-    const remaining = Math.max(0, STATUS_DISPLAY_TIME_MS - elapsed);
-    processQueueTimerRef.current = setTimeout(() => {
-      processQueueTimerRef.current = null;
-
-      const queued = queuedStatusRef.current;
-      if (queued) {
-        showStatus(queued.text, queued.permission);
-      }
-    }, remaining);
-  }, [showStatus]);
-
-  React.useEffect(() => {
-    if (!isWorking) {
-      clearTimers();
-      queuedStatusRef.current = null;
-      setDisplayedText(null);
-      setDisplayedPermission(false);
-      return;
-    }
-
-    // Retry state has its own display — skip the normal queue
-    if (retryInfo) {
-      clearTimers();
-      queuedStatusRef.current = null;
-      return;
-    }
-
-    const incomingText = isWaitingForPermission ? 'waiting for permission' : statusText;
-    const incomingPermission = Boolean(isWaitingForPermission);
-    const incomingGeneric = Boolean(isGenericStatus) && !incomingPermission;
-
-    if (!incomingText) {
-      return;
-    }
-
-    if (!displayedTextRef.current) {
-      showStatus(incomingText, incomingPermission);
-      return;
-    }
-
-    if (incomingText === displayedTextRef.current && incomingPermission === displayedPermissionRef.current) {
-      return;
-    }
-
-    // Ignore generic churn.
-    if (incomingGeneric) {
-      return;
-    }
-
-    const elapsed = Date.now() - statusShownAtRef.current;
-    if (elapsed >= STATUS_DISPLAY_TIME_MS) {
-      showStatus(incomingText, incomingPermission);
-      return;
-    }
-
-    queuedStatusRef.current = { text: incomingText, permission: incomingPermission };
-    scheduleQueueProcess();
-  }, [
-    isWorking,
-    statusText,
-    isGenericStatus,
-    isWaitingForPermission,
-    retryInfo,
-    clearTimers,
-    showStatus,
-    scheduleQueueProcess,
-  ]);
-
-  React.useEffect(() => () => clearTimers(), [clearTimers]);
-
   if (!isWorking) {
+    displayedStatusRef.current = null;
     return null;
   }
 
   // Retry state: show countdown and attempt info
   if (retryInfo) {
+    displayedStatusRef.current = null;
     const attemptLabel = retryInfo.attempt && retryInfo.attempt > 1 ? ` (attempt ${retryInfo.attempt})` : '';
     const countdownLabel = retryCountdown !== null && retryCountdown > 0
       ? ` in ${formatRetryCountdown(retryCountdown)}`
@@ -214,22 +119,35 @@ export function WorkingPlaceholder({
     );
   }
 
-  if (!displayedText) {
+  const incomingText = isWaitingForPermission ? 'waiting for permission' : statusText;
+  const incomingPermission = Boolean(isWaitingForPermission);
+  const incomingGeneric = Boolean(isGenericStatus) && !incomingPermission;
+
+  // Render real phase changes in the same pass as their props. The previous
+  // effect-backed mirror left one stale or empty frame between tool calls and
+  // caused an extra render for every phase change. Generic filler still keeps
+  // the latest useful status until another real phase arrives.
+  if (incomingText && (!incomingGeneric || displayedStatusRef.current === null)) {
+    displayedStatusRef.current = { text: incomingText, permission: incomingPermission };
+  }
+
+  const displayedStatus = displayedStatusRef.current;
+  if (!displayedStatus) {
     return null;
   }
 
   const trimmedModelName = typeof modelName === 'string' ? modelName.trim() : '';
   const label = trimmedModelName.length > 0
-    ? `${trimmedModelName} is ${displayedText}`
-    : displayedText.charAt(0).toUpperCase() + displayedText.slice(1);
+    ? `${trimmedModelName} is ${displayedStatus.text}`
+    : displayedStatus.text.charAt(0).toUpperCase() + displayedStatus.text.slice(1);
 
   return (
     <div
       className="flex h-full min-w-0 items-center text-muted-foreground"
       role="status"
-      aria-live={displayedPermission ? 'assertive' : 'polite'}
+      aria-live={displayedStatus.permission ? 'assertive' : 'polite'}
       aria-label={label}
-      data-waiting={displayedPermission ? 'true' : undefined}
+      data-waiting={displayedStatus.permission ? 'true' : undefined}
     >
       <span className="typography-ui-header inline-flex min-w-0 items-center gap-1.5 leading-5">
         {hasProviderLogo && providerLogoSrc ? (
@@ -244,7 +162,7 @@ export function WorkingPlaceholder({
             onError={handleProviderLogoError}
           />
         ) : null}
-        <AgentThinkingLoader text={label} variant="inline" animationType="spinner" className="min-w-0" />
+        <AgentThinkingLoader text={label} variant="inline" animationType="spinner" startedAt={startedAt} className="min-w-0" />
       </span>
     </div>
   );

@@ -135,6 +135,8 @@ interface StatusRowProps {
   modelName?: string | null;
   providerId?: string | null;
   leftAccessory?: React.ReactNode;
+  /** Authoritative turn start (unix ms) — pins the working elapsed counter. */
+  turnStartedAt?: number | null;
 }
 
 export const StatusRow: React.FC<StatusRowProps> = ({
@@ -154,6 +156,7 @@ export const StatusRow: React.FC<StatusRowProps> = ({
   modelName,
   providerId,
   leftAccessory,
+  turnStartedAt = null,
 }) => {
   const [isExpanded, setIsExpanded] = React.useState(false);
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
@@ -312,6 +315,7 @@ export const StatusRow: React.FC<StatusRowProps> = ({
               agentName={agentName}
               modelName={modelName}
               providerId={providerId}
+              startedAt={turnStartedAt}
             />
           ) : leftAccessory ? (
             leftAccessory

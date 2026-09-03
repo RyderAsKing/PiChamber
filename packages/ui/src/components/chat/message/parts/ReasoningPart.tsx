@@ -6,12 +6,10 @@ import type { ContentChangeReason } from '@/hooks/useChatAutoFollow';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Icon } from '@/components/icon/Icon';
 import { MarkdownRenderer } from '../../MarkdownRenderer';
+import { MinDurationShineText } from './MinDurationShineText';
+import { TOOL_NORMAL_TITLE_STYLE, TOOL_ROW_DESCRIPTION_CLASS, TOOL_ROW_TITLE_CLASS } from './toolPartStyles';
 import { useStreamingTextThrottle } from '../../hooks/useStreamingTextThrottle';
 import type { StreamPhase } from '../types';
-
-const TOOL_ROW_TEXT_CLASS = '!text-[length:var(--text-meta)] !leading-5 sm:!leading-6 tracking-normal';
-const TOOL_ROW_TITLE_CLASS = cn('typography-meta font-medium', TOOL_ROW_TEXT_CLASS);
-const TOOL_ROW_DESCRIPTION_CLASS = cn('typography-meta', TOOL_ROW_TEXT_CLASS);
 
 type PartWithText = Part & {
     text?: string;
@@ -161,6 +159,10 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
     const innerScrollRef = React.useRef<HTMLElement | null>(null);
     const followingInnerRef = React.useRef(true);
     const contentId = React.useId();
+    // True when this block mounted while its part was still streaming: the
+    // arrival plays the `oc-step-in` fade. History mounts settle statically so
+    // scrolling old transcripts never replays arrivals.
+    const arrivedLiveRef = React.useRef(isStreaming);
     const contentRef = React.useRef<HTMLDivElement>(null);
     const contentAnimationRef = React.useRef<AnimationPlaybackControls | null>(null);
     const contentMountedRef = React.useRef(false);
@@ -169,6 +171,11 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
     // would risk re-running — and thus restarting — the animation on re-render).
     const onContentChangeRef = React.useRef(onContentChange);
     onContentChangeRef.current = onContentChange;
+    // Read by the height effect to tell user toggles (animated) apart from
+    // streaming-driven transitions (instant — a 200ms glide on every auto
+    // fold would lurch the footer between tool calls).
+    const expansionRef = React.useRef(expansion);
+    expansionRef.current = expansion;
     // First-mount height setup reads streaming state once; later expand/collapse
     // must not restart when `isStreaming` flips.
     const isStreamingRef = React.useRef(isStreaming);
@@ -262,6 +269,12 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
 
         contentAnimationRef.current?.stop();
 
+        // Streaming-driven transitions land instantly: the arrival fade
+        // (`oc-step-in`) carries the motion, and a height glide on every
+        // auto fold would lurch the footer between tool calls. User toggles
+        // keep the height animation below.
+        const isAutoTransition = expansionRef.current.source === 'auto';
+
         if (!contentMountedRef.current) {
             contentMountedRef.current = true;
             if (!isExpanded) {
@@ -270,9 +283,9 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
                 return;
             }
 
-            if (!isStreamingRef.current) {
-                element.style.height = 'auto';
-                element.style.overflow = 'visible';
+            element.style.height = 'auto';
+            element.style.overflow = 'visible';
+            if (!isStreamingRef.current || isAutoTransition) {
                 return;
             }
 
@@ -301,6 +314,16 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
                     contentAnimationRef.current = null;
                 }
             };
+        }
+
+        if (isAutoTransition) {
+            element.style.height = isExpanded ? 'auto' : '0px';
+            element.style.overflow = isExpanded ? 'visible' : 'hidden';
+            if (!isExpanded) {
+                // Same scroll-away guard as the animated collapse below.
+                onContentChangeRef.current?.('animation');
+            }
+            return;
         }
 
         element.style.overflow = 'hidden';
@@ -383,7 +406,11 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
     );
 
     return (
-        <div data-reasoning-block-id={blockId} data-message-text-export-root="true">
+        <div
+            data-reasoning-block-id={blockId}
+            data-message-text-export-root="true"
+            className={arrivedLiveRef.current ? 'oc-step-in' : undefined}
+        >
             <div
                 role="button"
                 tabIndex={0}
@@ -391,16 +418,18 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
                 aria-controls={contentId}
                 aria-label={toggleAriaLabel}
                 className={cn(
-                    'group/tool flex gap-1.5 pr-2 pl-px py-1.5 rounded-xl cursor-pointer items-center',
+                    'group/tool flex gap-1.5 pr-2 pl-px py-1 cursor-pointer items-center',
                 )}
                 onClick={handleToggle}
                 onKeyDown={handleKeyDown}
             >
                 <div className="flex items-center gap-1.5 flex-shrink-0">
-                    <div className="relative h-3.5 w-3.5 flex-shrink-0 cursor-pointer">
+                    {/* h-5 matches the tool/static icon column so all row
+                        types share one rhythm (see ToolPart). */}
+                    <div className="relative h-5 w-3.5 flex-shrink-0 cursor-pointer">
                         <div
                             className={cn(
-                                'absolute inset-0 transition-opacity',
+                                'absolute inset-0 flex items-center justify-center transition-opacity',
                                 isExpanded && 'opacity-0',
                                 !isExpanded && 'group-hover/tool:opacity-0',
                             )}
@@ -420,25 +449,14 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
                         </div>
                     </div>
 
-                    {isStreaming ? (
-                        <span className={cn('flex items-center', TOOL_ROW_TITLE_CLASS)} style={{ color: 'var(--tools-title)' }}>
-                            <span>{(variant === 'justification' ? "Justification" : "Thinking")}</span>
-                        </span>
-                    ) : isExpanded ? (
-                        <span
-                            className={TOOL_ROW_TITLE_CLASS}
-                            style={{ color: 'var(--tools-title)' }}
-                        >
-                            {(variant === 'justification' ? "Justification" : "Thinking")}
-                        </span>
-                    ) : (
-                        <span
-                            className={TOOL_ROW_TITLE_CLASS}
-                            style={{ color: 'var(--tools-title)' }}
-                        >
-                            {(variant === 'justification' ? "Justification" : "Thinking")}
-                        </span>
-                    )}
+                    <MinDurationShineText
+                        active={isStreaming}
+                        className={cn('flex items-center', TOOL_ROW_TITLE_CLASS)}
+                        style={TOOL_NORMAL_TITLE_STYLE}
+                        title={variant === 'justification' ? 'Justification' : 'Thinking'}
+                    >
+                        <span>{(variant === 'justification' ? "Justification" : "Thinking")}</span>
+                    </MinDurationShineText>
                 </div>
 
                 <div className={cn('flex items-center gap-1 flex-1 min-w-0', TOOL_ROW_DESCRIPTION_CLASS)} style={{ color: 'var(--tools-description)' }}>

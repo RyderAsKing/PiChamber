@@ -111,14 +111,16 @@ export const AssistantMessageActionButtons = React.memo(({
 
     return (
         <>
+            {/* Stable keys prevent the conditional revert action from
+                remounting its siblings when the latest-message state changes. */}
             {sessionId && messageId && !isLatestMessage ? (
-                <MessageRevertAction sessionId={sessionId} messageId={messageId} size="assistant" />
+                <MessageRevertAction key="message-revert" sessionId={sessionId} messageId={messageId} size="assistant" />
             ) : null}
             {sessionId && messageId ? (
-                <MessageForkAction sessionId={sessionId} messageId={messageId} size="assistant" />
+                <MessageForkAction key="message-fork" sessionId={sessionId} messageId={messageId} size="assistant" />
             ) : null}
             {onCopyMessage && (
-                <Tooltip>
+                <Tooltip key="message-copy">
                     <TooltipTrigger asChild>
                         <Button
                             type="button"
@@ -157,7 +159,7 @@ export const AssistantMessageActionButtons = React.memo(({
                     <TooltipContent sideOffset={6}>{"Copy answer"}</TooltipContent>
                 </Tooltip>
             )}
-            {chatSurfaceMode !== 'mini-chat' ? <Tooltip>
+            {chatSurfaceMode !== 'mini-chat' ? <Tooltip key="message-share">
                 <TooltipTrigger asChild>
                     <Button
                         type="button"

@@ -73,7 +73,9 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
 
     return (
         <div
-            className="group/assistant-text relative my-1 w-full min-w-0 break-words"
+            // Prose rhythm: 12px top / 4px bottom padding (horizontal rhythm
+            // lives on the chat column here, so only vertical spacing applies).
+            className="group/assistant-text relative w-full min-w-0 break-words pt-3 pb-1"
             key={part.id || `${messageId}-text`}
         >
             <MarkdownRenderer

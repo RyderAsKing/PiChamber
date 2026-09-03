@@ -1301,13 +1301,15 @@ html:not(.dark) .chat-scroll {
   background: var(--surface-muted);
 }
 
-/* Disable Streamdown's code block virtualization and keep block chrome fixed */
+/* Disable Streamdown's code block virtualization and keep block chrome fixed.
+   Rounded 10px bordered card with 16px vertical rhythm. */
 .markdown-content [data-markdown="code-block"] {
   content-visibility: visible !important;
   contain-intrinsic-size: none !important;
   position: relative;
   display: flex;
   flex-direction: column;
+  margin-block: 16px;
   padding: 0 !important;
   box-sizing: border-box;
   inline-size: 100%;
@@ -1316,7 +1318,7 @@ html:not(.dark) .chat-scroll {
   overflow: hidden;
   background: var(--surface-background);
   border: 1px solid var(--interactive-border);
-  border-radius: 0.75rem;
+  border-radius: 0.625rem;
 }
 
 .markdown-content [data-markdown="code-block"] > div:not([data-markdown]) {
@@ -1730,6 +1732,23 @@ input[aria-label="Terminal input"] {
   animation: message-footer-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* Arriving tool rows fade in place. Opacity-only:
+   a slide or mask sweep would fight the live autoscroll, and WAAPI-only
+   reveals leave no observable hook. Applied in render so the first paint
+   already carries it (no flash-visible frame). */
+@keyframes oc-step-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.oc-step-in {
+  animation: oc-step-in 180ms ease-out both;
+}
+
 @keyframes border-glow-pulse {
   0%, 100% {
     border-color: var(--interactive-border);
@@ -1850,7 +1869,8 @@ input[aria-label="Terminal input"] {
     animation: none !important;
   }
 
-  .message-footer-enter {
+  .message-footer-enter,
+  .oc-step-in {
     animation: none;
   }
 

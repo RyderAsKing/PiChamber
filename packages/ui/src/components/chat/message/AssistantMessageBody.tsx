@@ -105,6 +105,7 @@ export const AssistantMessageBody = React.memo(
       messagePreviewUrl,
       isLastAssistantInTurn,
       isTurnWorking,
+      shouldAnimateTurnFooter,
       hasStopFinish,
       awaitingMessageCompletion,
       turnDurationText,
@@ -268,7 +269,7 @@ export const AssistantMessageBody = React.memo(
           if (isExpandableTool(toolName)) {
             rendered.push(
               <FadeInOnReveal key={`tool-${toolPart.id}`}>
-                <ToolRevealOnMount animate={animatedToolIdsLookup.has(toolPart.id)} wipe>
+                <ToolRevealOnMount animate={animatedToolIdsLookup.has(toolPart.id)}>
                   <ToolPart
                     part={toolPart}
                     isExpanded={expandedTools.has(toolPart.id)}
@@ -288,7 +289,7 @@ export const AssistantMessageBody = React.memo(
 
           rendered.push(
             <FadeInOnReveal key={`static-tools-${toolPart.id}`}>
-              <ToolRevealOnMount animate={animatedToolIdsLookup.has(toolPart.id)} wipe>
+              <ToolRevealOnMount animate={animatedToolIdsLookup.has(toolPart.id)}>
                 <StaticToolRow
                   toolName={toolName}
                   activities={[
@@ -335,7 +336,7 @@ export const AssistantMessageBody = React.memo(
     ]);
 
     const footerTimestampClassName =
-      'text-sm text-muted-foreground/60 tabular-nums flex items-center gap-1';
+      'text-sm text-muted-foreground tabular-nums flex items-center gap-1';
     const canOpenMessagePreview = !isMiniChatSurface && !isMobile;
 
     const finalTurnActionButtons = (
@@ -429,10 +430,13 @@ export const AssistantMessageBody = React.memo(
           )}
           {shouldShowTurnFooter && (
             <div
-              className="message-footer-enter mt-2 mb-1 flex flex-wrap items-center justify-start gap-x-3 gap-y-1.5"
+              className={cn(
+                'mt-2 mb-1 flex flex-wrap items-center justify-start gap-x-3 gap-y-1.5',
+                shouldAnimateTurnFooter && 'message-footer-enter',
+              )}
               style={MESSAGE_FOOTER_CONTAINER_STYLE}
             >
-              <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-muted-foreground/60">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-muted-foreground">
                 {footerModelName ? (
                   <span className="flex min-w-0 items-center gap-1.5">
                     {footerHasLogo && footerLogoSrc ? (
@@ -474,7 +478,7 @@ export const AssistantMessageBody = React.memo(
                 {turnDurationText ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <span className="text-sm text-muted-foreground/60 tabular-nums flex items-center gap-1">
+                      <span className="text-sm text-muted-foreground tabular-nums flex items-center gap-1">
                         <Icon name="hourglass" className="h-3.5 w-3.5" />
                         <span className="message-footer__label">{turnDurationText}</span>
                       </span>

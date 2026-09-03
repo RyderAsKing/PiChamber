@@ -185,6 +185,13 @@ export function useAssistantMessageLifecycle({
 
   const isLastAssistantInTurn = turnGroupingContext?.isLastAssistantInTurn ?? false;
   const isTurnWorking = Boolean(turnGroupingContext?.isWorking);
+  const previouslyWorkingRef = React.useRef(isTurnWorking);
+  const shouldAnimateTurnFooter = previouslyWorkingRef.current && !isTurnWorking;
+
+  React.useEffect(() => {
+    previouslyWorkingRef.current = isTurnWorking;
+  }, [isTurnWorking]);
+
   const hasStopFinish = messageFinish === 'stop' || (isMessageCompleted && !errorMessage);
   const awaitingMessageCompletion = !isMessageCompleted;
   const hasTools = toolParts.length > 0;
@@ -350,6 +357,7 @@ export function useAssistantMessageLifecycle({
     messagePreviewUrl,
     isLastAssistantInTurn,
     isTurnWorking,
+    shouldAnimateTurnFooter,
     hasStopFinish,
     awaitingMessageCompletion,
     turnDurationText,

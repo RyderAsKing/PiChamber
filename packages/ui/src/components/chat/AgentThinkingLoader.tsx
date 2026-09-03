@@ -56,14 +56,21 @@ function LoaderGrid({ compact = false }: { compact?: boolean }) {
   );
 }
 
-function useElapsed(enabled: boolean) {
-  const [ds, setDs] = React.useState(0);
+function useElapsed(enabled: boolean, startedAt?: number | null) {
+  const [tick, setTick] = React.useState(0);
+  // Pinned origin: the authoritative turn start when provided, so remounts
+  // (and background-throttled intervals) never reset or undercount — the
+  // same contract as the tool-call timers. Falls back to mount time, which
+  // preserves every existing caller that omits `startedAt`.
+  const [mountAt] = React.useState(() => Date.now());
   React.useEffect(() => {
     if (!enabled) return;
-    const t = setInterval(() => setDs((d) => d + 1), 100);
+    const t = setInterval(() => setTick((d) => d + 1), 100);
     return () => clearInterval(t);
   }, [enabled]);
-  const total = ds / 10;
+  void tick;
+  const origin = startedAt ?? mountAt;
+  const total = Math.max(0, (Date.now() - origin) / 1000);
   if (total < 60) return `${total.toFixed(1)}s`;
   return `${Math.floor(total / 60)}m ${(total % 60).toFixed(1)}s`;
 }
@@ -79,6 +86,13 @@ export interface AgentThinkingLoaderProps {
   showText?: boolean;
   /** Show the live elapsed timer next to the label. Defaults to true when text is shown. */
   showElapsed?: boolean;
+  /**
+   * Authoritative turn start (unix ms, local clock — see
+   * `useSessionActivityStartedAt`). Pins the elapsed counter so remounts
+   * continue it instead of restarting. Omitted callers keep mount-relative
+   * timing exactly as before.
+   */
+  startedAt?: number | null;
 }
 
 export const AgentThinkingLoader: React.FC<AgentThinkingLoaderProps> = ({
@@ -87,15 +101,16 @@ export const AgentThinkingLoader: React.FC<AgentThinkingLoaderProps> = ({
   variant = 'inline',
   showText = true,
   showElapsed = true,
+  startedAt = null,
 }) => {
   const hasText = showText && text != null && text !== '';
-  const elapsed = useElapsed(hasText && showElapsed);
+  const elapsed = useElapsed(hasText && showElapsed, startedAt);
   // Grid-only usages (sidebar rows) render compact so the 3x3 fits dense row
   // chrome; labeled usages (main chat) keep the full-size grid.
 
   const labelEl = hasText ? (
     <span
-      className="pixel-loader-label bg-clip-text text-[13px] font-medium text-transparent"
+      className="pixel-loader-label min-w-0 truncate whitespace-nowrap bg-clip-text text-[13px] font-medium text-transparent"
       style={{
         backgroundImage:
           'linear-gradient(90deg, var(--muted-foreground) 35%, var(--foreground) 50%, var(--muted-foreground) 65%)',
@@ -108,7 +123,7 @@ export const AgentThinkingLoader: React.FC<AgentThinkingLoaderProps> = ({
   ) : null;
   const elapsedEl =
     hasText && showElapsed ? (
-      <span className="font-mono text-[12px] text-muted-foreground tabular-nums">{elapsed}</span>
+      <span className="shrink-0 whitespace-nowrap font-mono text-[12px] text-muted-foreground tabular-nums">{elapsed}</span>
     ) : null;
 
   if (variant === 'badge') {
@@ -149,7 +164,7 @@ export const AgentThinkingLoader: React.FC<AgentThinkingLoaderProps> = ({
 
   return (
     <span
-      className={cn('inline-flex items-center gap-2.5', className)}
+      className={cn('inline-flex min-w-0 items-center gap-2.5', className)}
       role="status"
       aria-live="polite"
     >
