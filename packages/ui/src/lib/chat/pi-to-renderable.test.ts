@@ -29,6 +29,12 @@ describe('pi-to-renderable', () => {
     expect(ui.time?.updated).toBe(2);
   });
 
+  test('preserves the authoritative message count when present', () => {
+    expect(piSessionToUiSession({ ...session, messageCount: 0 }).messageCount).toBe(0);
+    expect(piSessionToUiSession({ ...session, messageCount: 4 }).messageCount).toBe(4);
+    expect(piSessionToUiSession(session).messageCount).toBe(undefined);
+  });
+
   test('maps thinking to reasoning and attachment to file parts', () => {
     const message: PiProjectedMessage = {
       id: 'msg_1',

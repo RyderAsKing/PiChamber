@@ -5,6 +5,7 @@ import { SessionActivityDuration } from '@/components/session/SessionActivityDur
 import { formatSessionCompactDateLabel } from '@/components/session/sidebar/utils';
 import { useSwitcherItems } from '@/components/session/sidebar/hooks/useSwitcherItems';
 import { cn } from '@/lib/utils';
+import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
 import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionUnseenCount } from '@/sync/notification-store';
@@ -17,7 +18,7 @@ import { MOBILE_HEADER_POPOVER_WIDTH, useMobileHeaderOverlay } from './useMobile
 const RECENT_SESSIONS_LIMIT = 10;
 
 const getSessionTitle = (session: Session, fallback: string): string =>
-  session.title?.trim() || fallback;
+  getSessionDisplayTitle(session, fallback);
 
 /** One switcher row: live status (busy spinner / attention dot), title,
     "project · branch", compact time. Mirrors the desktop SessionSwitcherDropdown

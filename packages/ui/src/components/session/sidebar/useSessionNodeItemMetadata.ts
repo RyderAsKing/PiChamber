@@ -11,6 +11,7 @@ import { useHasSessionActivityDuration } from '@/sync/session-activity-timing';
 import { useSessionUnseenCount } from '@/sync/notification-store';
 import { isSessionPinned } from '@/stores/useSessionPinnedStore';
 import { formatDirectoryName } from '@/lib/utils';
+import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
 import { formatProjectLabel, normalizePath } from './utils';
 import { formatSessionCompactDateLabel } from './utils';
 import { getForkBackgroundColor, getForkColor } from './forkColor';
@@ -123,7 +124,7 @@ export function useSessionNodeItemMetadata({
   const isStreaming = statusType === 'busy' || statusType === 'retry';
   const hasActivityDuration = useHasSessionActivityDuration(session.id, isStreaming);
   const sessionPermissions = useSessionPermissions(session.id, sessionDirectory ?? undefined);
-  const sessionTitle = session.title || 'Untitled Session';
+  const sessionTitle = getSessionDisplayTitle(session);
   const hasChildren = node.children.length > 0;
   const isPinnedSession = isSessionPinned(pinnedSessionIds, sessionDirectory, session.id);
   const isExpanded = hasSessionSearchQuery ? true : expandedParents.has(expansionKey);

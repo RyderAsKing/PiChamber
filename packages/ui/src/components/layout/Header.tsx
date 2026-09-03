@@ -39,6 +39,7 @@ import { updateDesktopSettings } from '@/lib/persistence';
 import { formatTimeForPreference } from '@/lib/timeFormat';
 import { eventMatchesShortcut, formatShortcutForDisplay, getEffectiveShortcutCombo } from '@/lib/shortcuts';
 import { getHeaderLocationLabel, getHeaderOpenDirectory } from './headerLocation';
+import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
 
 type UsageWindow = any;
 import type { GitHubAuthStatus } from '@/lib/api/types';
@@ -471,9 +472,8 @@ export const Header: React.FC<HeaderProps> = ({
     if (!currentSessionId) {
       return headerLocationLabel ?? 'PiChamber';
     }
-    const trimmedTitle = currentSession?.title?.trim();
-    return trimmedTitle && trimmedTitle.length > 0 ? trimmedTitle : 'Untitled Session';
-  }, [currentSession?.title, currentSessionId, headerLocationLabel]);
+    return getSessionDisplayTitle(currentSession);
+  }, [currentSession, currentSessionId, headerLocationLabel]);
   const headerDirectoryStore = useDirectoryStore(openDirectory || undefined, { bootstrap: false });
   const sync = useSync();
   const updateSessionTitle = useSessionUIStore((state) => state.updateSessionTitle);

@@ -16,6 +16,8 @@ export interface Session {
   directory?: string;
   parentID?: string | null;
   title?: string;
+  /** Total message count from the most recent authoritative snapshot, when known. */
+  messageCount?: number;
   version?: string;
   time?: {
     created?: number;

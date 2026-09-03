@@ -100,6 +100,7 @@ export const piSessionToUiSession = (session: PiSession): Session => ({
   directory: session.directory,
   parentID: session.parentId ?? null,
   title: session.title,
+  ...(typeof session.messageCount === 'number' ? { messageCount: session.messageCount } : {}),
   time: {
     created: session.createdAt,
     updated: session.updatedAt,

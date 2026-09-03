@@ -9,6 +9,7 @@ import {
 } from '../utils';
 import { compareSessionsByLifecycleOrder } from '@/sync/session-ordering';
 import { formatPathForDisplay } from '@/lib/utils';
+import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
 import { getForkColorIdForSession } from '../forkColor';
 
 type Args = {
@@ -27,7 +28,7 @@ export const useSessionGrouping = (args: Args) => {
 
   const buildSessionSearchText = React.useCallback((session: Session): string => {
     const sessionDirectory = normalizePath((session as Session & { directory?: string | null }).directory ?? null) ?? '';
-    const sessionTitle = (session.title || "Untitled Session").trim();
+    const sessionTitle = getSessionDisplayTitle(session);
     return `${sessionTitle} ${sessionDirectory}`.toLowerCase();
   }, []);
 

@@ -12,6 +12,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useCatalogUiSessions } from '@/sync/sync-context';
 import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { formatSessionDateLabel, normalizePath } from '@/components/session/sidebar/utils';
+import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
 
 type DirectoryBucket = {
   directory: string;
@@ -232,7 +233,7 @@ export function ArchiveView(): React.ReactNode {
                     }}
                   >
                     <span className="min-w-0 flex-1 truncate typography-ui-label text-foreground">
-                      {session.title || "Untitled Session"}
+                      {getSessionDisplayTitle(session)}
                     </span>
                     {normalizedQuery && directoryLabel ? (
                       <span className="max-w-40 flex-shrink-0 truncate text-[0.72rem] text-muted-foreground/70" title={sessionDirectory}>
@@ -249,7 +250,7 @@ export function ArchiveView(): React.ReactNode {
                         restoreSession(session);
                       }}
                       className="absolute right-7 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity pointer-events-none hover:text-foreground group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                      aria-label={`Restore ${session.title || 'Untitled Session'}`}
+                      aria-label={`Restore ${getSessionDisplayTitle(session)}`}
                     >
                       <Icon name="inbox-unarchive" className="h-3.5 w-3.5" />
                     </button>
@@ -260,7 +261,7 @@ export function ArchiveView(): React.ReactNode {
                         sessionEvents.requestDelete({ sessions: [session], mode: 'session' });
                       }}
                       className="absolute right-1 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity pointer-events-none hover:text-destructive group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                      aria-label={`Delete ${session.title || 'Untitled Session'}`}
+                      aria-label={`Delete ${getSessionDisplayTitle(session)}`}
                     >
                       <Icon name="delete-bin" className="h-3.5 w-3.5" />
                     </button>

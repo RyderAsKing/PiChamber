@@ -4,6 +4,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Icon } from "@/components/icon/Icon";
 import type { Session } from '@/lib/chat/types';
+import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
 import type { GitStatus, GitWorktree } from '@/lib/api/types';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 
@@ -65,7 +66,7 @@ export function SessionDeleteConfirmDialog(props: {
 }): React.ReactNode {
   
   const { value, setValue, showDeletionDialog, setShowDeletionDialog, onConfirm } = props;
-  const untitledSession = "Untitled Session";
+  const sessionDisplayTitle = (session: Session): string => getSessionDisplayTitle(session);
 
   return (
     <Dialog open={Boolean(value)} onOpenChange={(open) => { if (!open) setValue(null); }}>
@@ -78,14 +79,14 @@ export function SessionDeleteConfirmDialog(props: {
             {value && value.descendantCount > 0
               ? value.archivedBucket
                 ? value.descendantCount === 1
-                  ? `\\"${value.session.title || untitledSession}\\" and its ${value.descendantCount} sub-task will be permanently deleted.`
-                  : `\\"${value.session.title || untitledSession}\\" and its ${value.descendantCount} sub-tasks will be permanently deleted.`
+                  ? `\\"${sessionDisplayTitle(value.session)}\\" and its ${value.descendantCount} sub-task will be permanently deleted.`
+                  : `\\"${sessionDisplayTitle(value.session)}\\" and its ${value.descendantCount} sub-tasks will be permanently deleted.`
                 : value.descendantCount === 1
-                  ? `\\"${value.session.title || untitledSession}\\" and its ${value.descendantCount} sub-task will be archived.`
-                  : `\\"${value.session.title || untitledSession}\\" and its ${value.descendantCount} sub-tasks will be archived.`
+                  ? `\\"${sessionDisplayTitle(value.session)}\\" and its ${value.descendantCount} sub-task will be archived.`
+                  : `\\"${sessionDisplayTitle(value.session)}\\" and its ${value.descendantCount} sub-tasks will be archived.`
               : value?.archivedBucket
-                ? `\\"${value?.session.title || untitledSession}\\" will be permanently deleted.`
-                : `\\"${value?.session.title || untitledSession}\\" will be archived.`}
+                ? `\\"${value?.session ? sessionDisplayTitle(value.session) : "Untitled Session"}\\" will be permanently deleted.`
+                : `\\"${value?.session ? sessionDisplayTitle(value.session) : "Untitled Session"}\\" will be archived.`}
           </DialogDescription>
         </DialogHeader>
         <SessionMutationDialogFooter

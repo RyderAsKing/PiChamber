@@ -16,6 +16,7 @@ import {
 } from '@/stores/utils/tokenUtils';
 import { useSessions, useSessionMessageRecords } from '@/sync/sync-context';
 import { copyTextToClipboard } from '@/lib/clipboard';
+import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
 import { useTransientValue } from '@/hooks/useTransientValue';
 import {
   derivePartsLabel,
@@ -328,7 +329,7 @@ export const ContextPanelContent: React.FC = () => {
       : null;
 
     return {
-      sessionTitle: currentSession?.title || "Untitled Session",
+      sessionTitle: getSessionDisplayTitle(currentSession),
       messagesCount: sessionMessages.length,
       userMessagesCount: userMessages.length,
       assistantMessagesCount: assistantMessages.length,

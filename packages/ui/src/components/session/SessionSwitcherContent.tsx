@@ -9,6 +9,7 @@ import { useSwitcherItems, type SwitcherItem } from '@/components/session/sideba
 import { useUIStore } from '@/stores/useUIStore';
 import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { formatSessionCompactDateLabel } from './sidebar/utils';
+import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
 import type { SessionNode } from './sidebar/types';
 import { SessionActivityDuration } from '@/components/session/SessionActivityDuration';
 import { SessionUnreadDot } from './sidebar/SessionUnreadDot';
@@ -146,7 +147,7 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
   const sessionStatus = useGlobalSessionStatus(session.id);
   const unseenCount = useSessionUnseenCount(session.id);
   const isActive = currentSessionId === session.id;
-  const sessionTitle = session.title?.trim() || 'Untitled Session';
+  const sessionTitle = getSessionDisplayTitle(session);
   const statusType = sessionStatus?.type ?? 'idle';
   const isStreaming = statusType === 'busy' || statusType === 'retry';
   const showUnreadCompleteDot = !isStreaming && unseenCount > 0 && !isActive;

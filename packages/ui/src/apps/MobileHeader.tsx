@@ -8,6 +8,7 @@ import { useSession } from '@/sync/sync-context';
 
 import { MobileSessionMetadataButton } from './MobileSessionMetadata';
 import { MobileSessionSwitcher } from './MobileSessionSwitcher';
+import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
 
 export const MobileHeader: React.FC<{
   onOpenSessions: () => void;
@@ -34,7 +35,9 @@ export const MobileHeader: React.FC<{
   // Single-line title, desktop-style: session title, or the "New session"
   // placeholder on the draft screen. No project/branch metadata line.
   const primaryLabel = sessionTitle
-    || (currentSessionId ? "Untitled session" : "New session");
+    || (currentSessionId
+      ? getSessionDisplayTitle(currentSession, "Untitled session")
+      : "New session");
 
   React.useEffect(() => {
     setMetadataOpen(false);

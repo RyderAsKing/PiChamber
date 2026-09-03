@@ -14,6 +14,7 @@ import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { Icon } from "@/components/icon/Icon";
 import { DirectoryExplorerDialog } from './DirectoryExplorerDialog';
 import type { Session } from '@/lib/chat/types';
+import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import * as sessionActions from '@/sync/session-actions';
 import { useUIStore } from '@/stores/useUIStore';
@@ -209,7 +210,7 @@ export const SessionDialogs: React.FC = () => {
                                 className="typography-micro text-muted-foreground/80"
                             >
                                 <span className="truncate">
-                                    {session.title || "Untitled Session"}
+                                    {getSessionDisplayTitle(session)}
                                 </span>
                             </li>
                         ))}
