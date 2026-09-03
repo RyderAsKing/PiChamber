@@ -1,5 +1,5 @@
 import type { DesktopSettings } from '@/lib/desktop';
-import { isRemovedPiChamberCommand } from './draftStarters';
+import { sanitizeStarterRefs } from './draftStarters';
 import { useUIStore } from '@/stores/useUIStore';
 import { loadAppearancePreferences, applyAppearancePreferences } from '@/lib/appearancePersistence';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
@@ -217,15 +217,16 @@ export const syncDesktopSettings = async (): Promise<void> => {
     if (!isSettingsRuntimeContextCurrent(context)) return;
     const shouldPersistScheduleTaskMigration =
       settings.draftStartersScheduleTaskAdded !== true;
-    const shouldRemoveCraftGoalStarter =
+    // Legacy skill/command starters are removed without conversion on next
+    // sanitize/persist. Detect any non-prompt record (defensively, from
+    // untrusted persisted JSON) to trigger a single idempotent migration.
+    const shouldMigrateLegacyStarters =
       Array.isArray(settings.draftStarters) &&
-      settings.draftStarters.some(
-        (starter) =>
-          starter?.type === 'command' && starter.name === 'craft-goal'
-      );
-    const shouldRemovePiChamberStarter =
-      Array.isArray(settings.draftStarters) &&
-      settings.draftStarters.some(isRemovedPiChamberCommand);
+      (settings.draftStarters as unknown[]).some((starter) => {
+        if (!starter || typeof starter !== 'object') return false;
+        const type = (starter as Record<string, unknown>).type;
+        return type !== 'prompt';
+      });
     const shouldSeedAutoSaveEnabled =
       typeof settings.autoSaveEnabled !== 'boolean';
     const authoritativeSettings =
@@ -252,12 +253,14 @@ export const syncDesktopSettings = async (): Promise<void> => {
     const migrationPatch: Partial<DesktopSettings> = {};
     if (
       shouldPersistScheduleTaskMigration ||
-      shouldRemoveCraftGoalStarter ||
-      shouldRemovePiChamberStarter
+      shouldMigrateLegacyStarters
     ) {
-      if (authoritativeSettings.draftStarters) {
-        migrationPatch.draftStarters = authoritativeSettings.draftStarters;
-      }
+      // Sanitize drops legacy skill/command records; persisting the cleaned
+      // list makes the migration idempotent (no repeated writes).
+      const cleaned = Array.isArray(authoritativeSettings.draftStarters)
+        ? sanitizeStarterRefs(authoritativeSettings.draftStarters)
+        : sanitizeStarterRefs(settings.draftStarters);
+      migrationPatch.draftStarters = cleaned;
       migrationPatch.draftStartersScheduleTaskAdded = true;
     }
     if (shouldSeedAutoSaveEnabled) {

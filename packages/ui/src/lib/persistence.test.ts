@@ -402,7 +402,9 @@ describe('updateDesktopSettings', () => {
         terminalShell: 'fish',
         favoriteModels: [{ providerID: 'anthropic', modelID: 'claude-sonnet-4' }],
         followUpBehavior: 'steer',
-        draftStarters: [{ type: 'command', name: 'runtime-a' }],
+        // Legacy command starters are parsed defensively but removed on
+        // sanitize (never converted to prompts).
+        draftStarters: [{ type: 'command', name: 'runtime-a' }] as unknown as SettingsPayload['draftStarters'],
         draftStartersVisible: false,
         draftStartersScheduleTaskAdded: true,
       },
@@ -413,7 +415,7 @@ describe('updateDesktopSettings', () => {
     expect(useUIStore.getState().showReasoningTraces).toBe(false);
     expect(useUIStore.getState().terminalShell).toBe('fish');
     expect(useUIStore.getState().favoriteModels).toHaveLength(1);
-    expect(useUIStore.getState().globalDraftStarters).toEqual([{ type: 'command', name: 'runtime-a' }]);
+    expect(useUIStore.getState().globalDraftStarters).toEqual([]);
     expect(useUIStore.getState().draftStartersVisible).toBe(false);
     expect(useMessageQueueStore.getState().followUpBehavior).toBe('steer');
 
@@ -472,6 +474,8 @@ describe('updateDesktopSettings', () => {
   test('removes retired starters from synced settings', async () => {
     registerSettingsApi(async () => ({}), async () => ({
       settings: {
+        // Legacy skill/command records are dropped without conversion; valid
+        // prompt starters survive and same-named prompts are never invented.
         draftStarters: [
           { type: 'command', name: 'summary' },
           { type: 'command', name: 'plan-feature' },
@@ -482,7 +486,8 @@ describe('updateDesktopSettings', () => {
           { type: 'command', name: 'craft-goal' },
           { type: 'command', name: 'schedule-task' },
           { type: 'skill', name: 'code-review' },
-        ],
+          { type: 'prompt', name: 'review' },
+        ] as unknown as SettingsPayload['draftStarters'],
       },
       source: 'web',
     }));
@@ -490,7 +495,7 @@ describe('updateDesktopSettings', () => {
     await syncDesktopSettings();
 
     expect(useUIStore.getState().globalDraftStarters).toEqual([
-      { type: 'skill', name: 'code-review' },
+      { type: 'prompt', name: 'review' },
     ]);
     expect(JSON.parse(localStorage.getItem(getRuntimeSettingsMirrorStorageKey('default')) ?? '{}').draftStartersScheduleTaskAdded).toBe(undefined);
   });

@@ -322,11 +322,9 @@ export const applyDesktopUiPreferences = (settings: DesktopSettings): void => {
     store.setFontSize(settings.fontSize);
   }
   if (Array.isArray(settings.draftStarters)) {
-    const nextStarters = sanitizeStarterRefs(settings.draftStarters).filter(
-      (starter) =>
-        starter.type !== 'command' ||
-        (starter.name !== 'craft-goal' && starter.name !== 'schedule-task')
-    );
+    // Legacy skill/command starters are dropped without conversion; only
+    // prompt starters survive. Comparison keeps the migration idempotent.
+    const nextStarters = sanitizeStarterRefs(settings.draftStarters);
     if (
       JSON.stringify(store.globalDraftStarters) !==
       JSON.stringify(nextStarters)

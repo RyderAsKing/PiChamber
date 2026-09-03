@@ -211,7 +211,8 @@ export type InputState = {
   pendingInputMode: "replace" | "append" | "append-inline"
   pendingRevertText: string | null
   pendingSyntheticParts: SyntheticContextPart[] | null
-  pendingPresetSubmit: { text: string; type: "command" | "skill" } | null
+  /** Pinned prompt starter insertion (never an immediate send). */
+  pendingStarterInsert: { name: string } | null
   attachedFiles: AttachedFile[]
   /**
    * Attachments stashed per chat-draft key (runtime, directory, session).
@@ -226,8 +227,8 @@ export type InputState = {
   consumePendingInputText: () => { text: string; mode: "replace" | "append" | "append-inline" } | null
   setPendingRevertText: (text: string | null) => void
   consumePendingRevertText: () => string | null
-  requestPresetSubmit: (text: string, type: "command" | "skill") => void
-  consumePendingPresetSubmit: () => { text: string; type: "command" | "skill" } | null
+  requestStarterInsert: (name: string) => void
+  consumePendingStarterInsert: () => { name: string } | null
   setPendingSyntheticParts: (parts: SyntheticContextPart[] | null) => void
   consumePendingSyntheticParts: () => SyntheticContextPart[] | null
   addAttachedFile: (file: File) => Promise<boolean>
@@ -250,7 +251,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
   pendingInputMode: "replace",
   pendingRevertText: null,
   pendingSyntheticParts: null,
-  pendingPresetSubmit: null,
+  pendingStarterInsert: null,
   attachedFiles: [],
   stashedAttachmentsByDraft: {},
   activeAttachmentsDraftKey: null,
@@ -269,12 +270,12 @@ export const useInputStore = create<InputState>()((set, get) => ({
     set({ pendingRevertText: null })
     return pendingRevertText
   },
-  requestPresetSubmit: (text, type) => set({ pendingPresetSubmit: { text, type } }),
-  consumePendingPresetSubmit: () => {
-    const { pendingPresetSubmit } = get()
-    if (pendingPresetSubmit === null) return null
-    set({ pendingPresetSubmit: null })
-    return pendingPresetSubmit
+  requestStarterInsert: (name) => set({ pendingStarterInsert: { name } }),
+  consumePendingStarterInsert: () => {
+    const { pendingStarterInsert } = get()
+    if (pendingStarterInsert === null) return null
+    set({ pendingStarterInsert: null })
+    return pendingStarterInsert
   },
   setPendingSyntheticParts: (parts) => set({ pendingSyntheticParts: parts }),
   consumePendingSyntheticParts: () => {

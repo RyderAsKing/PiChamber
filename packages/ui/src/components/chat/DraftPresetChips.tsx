@@ -41,7 +41,7 @@ import {
 
 type DraftPresetChipsProps = {
     /** Called with the resolved starter invocation when a chip is clicked. */
-    onSubmit: (starter: ResolvedStarter) => void;
+    onInsert: (starter: ResolvedStarter) => void;
     /** Extra classes for the wrapper (e.g. width/spacing per surface). */
     className?: string;
 };
@@ -58,16 +58,16 @@ const ROUND_ICON_BUTTON_CLASS =
     'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition-colors';
 
 const PICKER_SECTIONS: { key: PinnableSection; headingKey: string }[] = [
-    { key: 'skill', headingKey: 'Skills' },
+    { key: 'prompt', headingKey: 'Prompts' },
 ];
 
 const SortableChip: React.FC<{
     item: ResolvedStarter;
-    onSubmit: (starter: ResolvedStarter) => void;
+    onInsert: (starter: ResolvedStarter) => void;
     onRemove: () => void;
     /** Hide the per-chip hover "x" (mobile uses the trash drop-zone instead). */
     hideRemove?: boolean;
-}> = ({ item, onSubmit, onRemove, hideRemove }) => {
+}> = ({ item, onInsert, onRemove, hideRemove }) => {
     const { currentTheme } = useThemeSystem();
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
     const chipStyle: React.CSSProperties = {
@@ -87,7 +87,7 @@ const SortableChip: React.FC<{
                 type="button"
                 {...attributes}
                 {...listeners}
-                onClick={() => onSubmit(item)}
+                onClick={() => onInsert(item)}
                 className="group inline-flex touch-none select-none items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-[var(--interactive-hover)] hover:text-foreground"
                 style={chipStyle}
             >
@@ -112,16 +112,16 @@ const SortableChip: React.FC<{
 
 const StarterGroup: React.FC<{
     items: ResolvedStarter[];
-    onSubmit: (starter: ResolvedStarter) => void;
+    onInsert: (starter: ResolvedStarter) => void;
     onRemove: (item: ResolvedStarter) => void;
     hideRemove?: boolean;
-}> = ({ items, onSubmit, onRemove, hideRemove }) => (
+}> = ({ items, onInsert, onRemove, hideRemove }) => (
     <SortableContext items={items.map((i) => i.id)} strategy={rectSortingStrategy}>
         {items.map((item) => (
             <SortableChip
                 key={item.id}
                 item={item}
-                onSubmit={onSubmit}
+                onInsert={onInsert}
                 onRemove={() => onRemove(item)}
                 hideRemove={hideRemove}
             />
@@ -167,7 +167,7 @@ const StarterPickerList: React.FC<{
 }> = ({ pinnable, onPick, className }) => {
     return (
         <Command className={cn('min-h-0', className)}>
-            <CommandInput placeholder={"Search skills…"} />
+            <CommandInput placeholder={"Search prompts…"} />
             <CommandList>
                 <CommandEmpty>{"Nothing to add"}</CommandEmpty>
                 {PICKER_SECTIONS.map((section) => {
@@ -240,23 +240,23 @@ const AddStarterPicker: React.FC<{
 /**
  * The editable row of starter chips on the draft welcome screen. Shows the
  * global group then the project group (each reorderable within itself), plus a
- * "+" picker to pin available skills. The surface owns how a chip click is
- * submitted via `onSubmit`.
+ * "+" picker to pin available prompt templates. The surface owns how a chip click is
+ * inserted via `onInsert` (insertion, not immediate send; see DraftWelcome).
  *
  * Both groups share a single DndContext so the mobile trash drop-zone (which
  * replaces the "+" while dragging) is reachable from either group's drag.
  * Reorder is constrained to within a chip's own group; cross-group hovers are
  * ignored.
  */
-const DraftPresetChipsContent: React.FC<DraftPresetChipsProps> = ({ onSubmit, className }) => {
+const DraftPresetChipsContent: React.FC<DraftPresetChipsProps> = ({ onInsert, className }) => {
     const { global, project, pinnable, ensureLoaded, addStarter, removeStarter, reorder } = useDraftStarters();
     const { isMobile } = useDeviceInfo();
     const [isDragging, setIsDragging] = React.useState(false);
 
     const sensors = useSensors(
-        // Desktop: start dragging after a small move so a click still submits.
+        // Desktop: start dragging after a small move so a click still inserts.
         useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
-        // Touch: long-press to drag (tap submits, a quick swipe scrolls instead).
+        // Touch: long-press to drag (tap inserts, a quick swipe scrolls instead).
         useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }),
     );
 
@@ -303,7 +303,7 @@ const DraftPresetChipsContent: React.FC<DraftPresetChipsProps> = ({ onSubmit, cl
                 {global.length > 0 ? (
                     <StarterGroup
                         items={global}
-                        onSubmit={onSubmit}
+                        onInsert={onInsert}
                         onRemove={(item) => removeStarter('global', item.ref)}
                         hideRemove={isMobile}
                     />
@@ -311,7 +311,7 @@ const DraftPresetChipsContent: React.FC<DraftPresetChipsProps> = ({ onSubmit, cl
                 {project.length > 0 ? (
                     <StarterGroup
                         items={project}
-                        onSubmit={onSubmit}
+                        onInsert={onInsert}
                         onRemove={(item) => removeStarter('project', item.ref)}
                         hideRemove={isMobile}
                     />

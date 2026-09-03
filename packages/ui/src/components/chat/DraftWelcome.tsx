@@ -49,10 +49,11 @@ export const DraftWelcome: React.FC = () => {
         )}
       </h1>
       <DraftPresetChips
-        onSubmit={(starter) =>
-          useInputStore
-            .getState()
-            .requestPresetSubmit(starter.submitText, starter.ref.type)
+        onInsert={(starter) =>
+          // Pinned prompt starters insert `/name ` for editing (arguments
+          // allowed), never submit immediately and never expand in PiChamber.
+          // Pi expands natively on send via `session.prompt()`.
+          useInputStore.getState().requestStarterInsert(starter.promptName)
         }
         className="oc-draft-starters mt-8 max-w-md"
       />
