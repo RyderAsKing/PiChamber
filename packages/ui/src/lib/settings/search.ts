@@ -537,7 +537,19 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     id: 'snippets.content',
     page: 'snippets',
     title: "Content",
-    keywords: ['markdown', 'prompt', 'template'],
+    keywords: ['markdown', 'text expansion'],
+  },
+  {
+    id: 'prompt-templates.create',
+    page: 'prompt-templates',
+    title: "Create prompt template",
+    keywords: ['add', 'new prompt', 'slash command'],
+  },
+  {
+    id: 'prompt-templates.content',
+    page: 'prompt-templates',
+    title: "Content",
+    keywords: ['markdown', 'prompt', 'template', 'arguments'],
   },
   {
     id: 'providers.connect',

@@ -16,6 +16,7 @@ export type SettingsPageSlug =
   | 'shortcuts'
   | 'sessions'
   | 'snippets'
+  | 'prompt-templates'
   | 'notifications'
   | 'tunnel'
   | 'about';
@@ -140,7 +141,14 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
     title: 'Snippets',
     group: 'agent',
     kind: 'single',
-    keywords: ['prompt', 'templates', 'multi-run', 'strategy', 'approach'],
+    keywords: ['snippet', 'snippets', 'text expansion'],
+  },
+  {
+    slug: 'prompt-templates',
+    title: 'Prompt templates',
+    group: 'agent',
+    kind: 'single',
+    keywords: ['prompt template', 'prompt templates', 'slash command', 'slash commands'],
   },
 
   { slug: 'notifications', title: 'Notifications', group: 'general', kind: 'single', keywords: ['alerts', 'native', 'summary', 'summarization'], },
@@ -199,6 +207,8 @@ export function getSettingsNavIcon(slug: SettingsPageSlug): IconName | null {
       return 'mic';
     case 'snippets':
       return 'chat-thread';
+    case 'prompt-templates':
+      return 'terminal';
     case 'notifications':
       return 'notification-3';
     case 'shortcuts':

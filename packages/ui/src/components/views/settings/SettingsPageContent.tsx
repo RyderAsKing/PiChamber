@@ -5,6 +5,7 @@ import { ProjectsPage } from '@/components/sections/projects/ProjectsPage';
 import { RemoteInstancesPage } from '@/components/sections/remote-instances/RemoteInstancesPage';
 import { ProvidersPage } from '@/components/sections/providers/ProvidersPage';
 import { SnippetsPage } from '@/components/sections/snippets/SnippetsPage';
+import { PromptTemplatesPage } from '@/components/sections/prompt-templates/PromptTemplatesPage';
 import { GitPage } from '@/components/sections/git-identities/GitPage';
 import type { PiChamberSection } from '@/components/sections/pichamber/types';
 import { PiChamberPage } from '@/components/sections/pichamber/PiChamberPage';
@@ -69,6 +70,8 @@ export function SettingsPageContent({
       );
     case 'snippets':
       return <SnippetsPage />;
+    case 'prompt-templates':
+      return <PromptTemplatesPage />;
     case 'dictation':
       return <DictationSettings />;
     case 'git':

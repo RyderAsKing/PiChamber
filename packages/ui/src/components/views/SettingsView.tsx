@@ -1,25 +1,24 @@
 /* eslint-disable */
-import React from 'react';
-import { cn, getModifierLabel } from '@/lib/utils';
-import { useUIStore } from '@/stores/useUIStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
-import { useSnippetsStore } from '@/stores/useSnippetsStore';
-import { useSkillsStore } from '@/stores/useSkillsStore';
-import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
-import type { PiChamberSection } from '@/components/sections/pichamber/types';
-import { useMobileAppActions } from '@/apps/mobileAppContext';
-import { useDeviceInfo } from '@/lib/device';
-import { isDesktopLocalOriginActive, isDesktopShell } from '@/lib/desktop';
-import { isWindowsArm64 as isWindowsArm64Platform } from '@/lib/platform';
-import { Icon } from '@/components/icon/Icon';
+import React from "react";
+import { cn, getModifierLabel } from "@/lib/utils";
+import { useUIStore } from "@/stores/useUIStore";
+import { useProjectsStore } from "@/stores/useProjectsStore";
+import { useSkillsStore } from "@/stores/useSkillsStore";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
+import type { PiChamberSection } from "@/components/sections/pichamber/types";
+import { useMobileAppActions } from "@/apps/mobileAppContext";
+import { useDeviceInfo } from "@/lib/device";
+import { isDesktopLocalOriginActive, isDesktopShell } from "@/lib/desktop";
+import { isWindowsArm64 as isWindowsArm64Platform } from "@/lib/platform";
+import { Icon } from "@/components/icon/Icon";
 import {
   SETTINGS_PAGE_METADATA,
   getSettingsPageMeta,
   resolveSettingsSlug,
   type SettingsPageSlug,
-} from '@/lib/settings/metadata';
-import { SettingsPageContent } from './settings/SettingsPageContent';
-import { SettingsNav } from './settings/SettingsNav';
+} from "@/lib/settings/metadata";
+import { SettingsPageContent } from "./settings/SettingsPageContent";
+import { SettingsNav } from "./settings/SettingsNav";
 import {
   SETTINGS_NAV_WIDTH,
   SETTINGS_SPLIT_SIDEBAR_WIDTH,
@@ -27,10 +26,10 @@ import {
   buildRuntimeContext,
   isPageAvailable,
   type MobileStage,
-} from './settings/settingsViewHelpers';
-import { useActiveRemoteLabel } from './settings/useActiveRemoteLabel';
-import { useSettingsSearch } from './settings/useSettingsSearch';
-import { MobileSettingsHeader } from './settings/MobileSettingsHeader';
+} from "./settings/settingsViewHelpers";
+import { useActiveRemoteLabel } from "./settings/useActiveRemoteLabel";
+import { useSettingsSearch } from "./settings/useSettingsSearch";
+import { MobileSettingsHeader } from "./settings/MobileSettingsHeader";
 
 interface SettingsViewProps {
   onClose?: () => void;
@@ -48,24 +47,31 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   forceMobile,
   isWindowed,
   visiblePageSlugs,
-  initialMobileStage = 'nav',
+  initialMobileStage = "nav",
 }) => {
   const deviceInfo = useDeviceInfo();
   const isMobile = forceMobile ?? deviceInfo.isMobile;
   const mobileAppActions = useMobileAppActions();
-  const activeRemoteLabel = useActiveRemoteLabel(mobileAppActions?.instanceLabel);
+  const activeRemoteLabel = useActiveRemoteLabel(
+    mobileAppActions?.instanceLabel,
+  );
 
   const settingsPageRaw = useUIStore((state) => state.settingsPage);
-  const isSettingsDialogOpen = useUIStore((state) => state.isSettingsDialogOpen);
+  const isSettingsDialogOpen = useUIStore(
+    (state) => state.isSettingsDialogOpen,
+  );
   const setSettingsPage = useUIStore((state) => state.setSettingsPage);
   const settingsSlug = resolveSettingsSlug(settingsPageRaw);
 
-  const [mobileStage, setMobileStage] = React.useState<MobileStage>(initialMobileStage);
-  const autoNavSlugRef = React.useRef<string | null>(initialMobileStage === 'nav' ? settingsSlug : null);
+  const [mobileStage, setMobileStage] =
+    React.useState<MobileStage>(initialMobileStage);
+  const autoNavSlugRef = React.useRef<string | null>(
+    initialMobileStage === "nav" ? settingsSlug : null,
+  );
 
   React.useEffect(() => {
-    if (!isMobile && settingsSlug === 'home') {
-      setSettingsPage('general');
+    if (!isMobile && settingsSlug === "home") {
+      setSettingsPage("general");
     }
   }, [isMobile, setSettingsPage, settingsSlug]);
 
@@ -79,22 +85,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const isMac = React.useMemo(
     () =>
       isDesktopShell() &&
-      typeof window !== 'undefined' &&
-      (window as unknown as { __PICHAMBER_PLATFORM__?: string }).__PICHAMBER_PLATFORM__ === 'darwin',
+      typeof window !== "undefined" &&
+      (window as unknown as { __PICHAMBER_PLATFORM__?: string })
+        .__PICHAMBER_PLATFORM__ === "darwin",
     [],
   );
   const isWindows = React.useMemo(
     () =>
       isDesktopShell() &&
-      typeof window !== 'undefined' &&
-      (window as unknown as { __PICHAMBER_PLATFORM__?: string }).__PICHAMBER_PLATFORM__ === 'win32',
+      typeof window !== "undefined" &&
+      (window as unknown as { __PICHAMBER_PLATFORM__?: string })
+        .__PICHAMBER_PLATFORM__ === "win32",
     [],
   );
   const isLinux = React.useMemo(
     () =>
       isDesktopShell() &&
-      typeof window !== 'undefined' &&
-      (window as unknown as { __PICHAMBER_PLATFORM__?: string }).__PICHAMBER_PLATFORM__ === 'linux',
+      typeof window !== "undefined" &&
+      (window as unknown as { __PICHAMBER_PLATFORM__?: string })
+        .__PICHAMBER_PLATFORM__ === "linux",
     [],
   );
   const isWindowsArm64 = React.useMemo(() => isWindowsArm64Platform(), []);
@@ -105,16 +114,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   );
 
   const visiblePages = React.useMemo(() => {
-    const allowedPages = visiblePageSlugs ? new Set<SettingsPageSlug>(visiblePageSlugs) : null;
-    return SETTINGS_PAGE_METADATA
-      .filter((page) => page.slug !== 'home')
+    const allowedPages = visiblePageSlugs
+      ? new Set<SettingsPageSlug>(visiblePageSlugs)
+      : null;
+    return SETTINGS_PAGE_METADATA.filter((page) => page.slug !== "home")
       .filter((page) => !allowedPages || allowedPages.has(page.slug))
       .filter((page) => isPageAvailable(page, runtimeCtx))
-      .filter((page) => !(isMobile && page.slug === 'remote-instances'));
+      .filter((page) => !(isMobile && page.slug === "remote-instances"));
   }, [isMobile, runtimeCtx, visiblePageSlugs]);
 
   const sortedFilteredPages = React.useMemo(() => {
-    const rank = new Map<SettingsPageSlug, number>(pageOrder.map((s, i) => [s, i]));
+    const rank = new Map<SettingsPageSlug, number>(
+      pageOrder.map((s, i) => [s, i]),
+    );
     return visiblePages
       .slice()
       .sort((a, b) => (rank.get(a.slug) ?? 999) - (rank.get(b.slug) ?? 999));
@@ -127,11 +139,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       return;
     }
 
-    if (settingsSlug === 'skills.installed') {
+    if (settingsSlug === "skills.installed") {
       void useSkillsStore.getState().loadSkills();
-    }
-    if (settingsSlug === 'snippets') {
-      void useSnippetsStore.getState().loadSnippets();
     }
   }, [activeProjectId, isSettingsDialogOpen, isWindowed, settingsSlug]);
 
@@ -143,11 +152,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         return;
       }
       const def = getSettingsPageMeta(slug);
-      if (!def || def.slug === 'home') {
-        setMobileStage('nav');
+      if (!def || def.slug === "home") {
+        setMobileStage("nav");
         return;
       }
-      setMobileStage(def.kind === 'split' ? 'page-sidebar' : 'page-content');
+      setMobileStage(def.kind === "split" ? "page-sidebar" : "page-content");
     },
     [isMobile, setSettingsPage],
   );
@@ -156,56 +165,60 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     return getSettingsPageMeta(settingsSlug);
   }, [settingsSlug]);
 
-  const openChamberSectionBySlug: Partial<Record<SettingsPageSlug, PiChamberSection>> = React.useMemo(
+  const openChamberSectionBySlug: Partial<
+    Record<SettingsPageSlug, PiChamberSection>
+  > = React.useMemo(
     () => ({
-      general: 'general',
-      appearance: 'visual',
-      chat: 'chat',
-      shortcuts: 'shortcuts',
-      sessions: 'sessions',
-      notifications: 'notifications',
-      tunnel: 'tunnel',
+      general: "general",
+      appearance: "visual",
+      chat: "chat",
+      shortcuts: "shortcuts",
+      sessions: "sessions",
+      notifications: "notifications",
+      tunnel: "tunnel",
     }),
     [],
   );
 
   const getPageTitle = React.useCallback((slug: SettingsPageSlug): string => {
     switch (slug) {
-      case 'general':
-        return 'General';
-      case 'projects':
-        return 'Projects';
-      case 'remote-instances':
-        return 'Remote Instances';
-      case 'providers':
-        return 'Providers';
-      case 'behavior':
-        return 'Behavior';
-      case 'skills.installed':
-        return 'Skills';
-      case 'git':
-        return 'Git';
-      case 'appearance':
-        return 'Appearance';
-      case 'chat':
-        return 'Chat';
-      case 'dictation':
-        return 'Dictation';
-      case 'shortcuts':
-        return 'Shortcuts';
-      case 'sessions':
-        return 'Sessions';
-      case 'snippets':
-        return 'Snippets';
-      case 'notifications':
-        return 'Notifications';
-      case 'tunnel':
-        return 'External Tunnel';
-      case 'about':
-        return 'About';
-      case 'home':
+      case "general":
+        return "General";
+      case "projects":
+        return "Projects";
+      case "remote-instances":
+        return "Remote Instances";
+      case "providers":
+        return "Providers";
+      case "behavior":
+        return "Behavior";
+      case "skills.installed":
+        return "Skills";
+      case "git":
+        return "Git";
+      case "appearance":
+        return "Appearance";
+      case "chat":
+        return "Chat";
+      case "dictation":
+        return "Dictation";
+      case "shortcuts":
+        return "Shortcuts";
+      case "sessions":
+        return "Sessions";
+      case "snippets":
+        return "Snippets";
+      case "prompt-templates":
+        return "Prompt templates";
+      case "notifications":
+        return "Notifications";
+      case "tunnel":
+        return "External Tunnel";
+      case "about":
+        return "About";
+      case "home":
       default:
-        return 'Settings';
+        return "Settings";
     }
   }, []);
 
@@ -218,7 +231,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       isLinux,
       isWindowsArm64,
     }),
-    [isDesktopLocalOrigin, isLinux, isMac, isWindows, isWindowsArm64, runtimeCtx],
+    [
+      isDesktopLocalOrigin,
+      isLinux,
+      isMac,
+      isWindows,
+      isWindowsArm64,
+      runtimeCtx,
+    ],
   );
 
   const {
@@ -250,43 +270,45 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     if (!isMobile) {
       return;
     }
-    if (mobileStage !== 'nav') {
+    if (mobileStage !== "nav") {
       return;
     }
-    if (settingsSlug === 'home') {
+    if (settingsSlug === "home") {
       return;
     }
     if (autoNavSlugRef.current === settingsSlug) {
       return;
     }
     const def = getSettingsPageMeta(settingsSlug);
-    if (!def || def.slug === 'home') {
+    if (!def || def.slug === "home") {
       return;
     }
     autoNavSlugRef.current = settingsSlug;
-    setMobileStage(def.kind === 'split' ? 'page-sidebar' : 'page-content');
+    setMobileStage(def.kind === "split" ? "page-sidebar" : "page-content");
   }, [isMobile, mobileStage, settingsSlug]);
 
-  const showBackButton = isMobile && mobileStage !== 'nav';
+  const showBackButton = isMobile && mobileStage !== "nav";
   const showOpenPageSidebarButton =
-    mobileStage === 'page-content' && activePageMeta?.kind === 'split';
-  const mobileBackButtonLabel = showBackButton ? 'Back to Settings' : 'Close settings';
+    mobileStage === "page-content" && activePageMeta?.kind === "split";
+  const mobileBackButtonLabel = showBackButton
+    ? "Back to Settings"
+    : "Close settings";
   const shortcutKey = getModifierLabel();
 
   const handleMobilePageSidebarItemSelect = React.useCallback(() => {
-    setMobileStage('page-content');
+    setMobileStage("page-content");
   }, []);
 
   const handleBack = React.useCallback(() => {
-    setMobileStage('nav');
+    setMobileStage("nav");
   }, []);
 
   const handleOpenPageSidebar = React.useCallback(() => {
-    setMobileStage('page-sidebar');
+    setMobileStage("page-sidebar");
   }, []);
 
   React.useEffect(() => {
-    if (!isMobile || mobileStage !== 'nav') {
+    if (!isMobile || mobileStage !== "nav") {
       setIsMobileSettingsSearchOpen(false);
     }
   }, [isMobile, mobileStage, setIsMobileSettingsSearchOpen]);
@@ -321,7 +343,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   );
 
   const renderMobileStage = () => {
-    if (mobileStage === 'nav') {
+    if (mobileStage === "nav") {
       return (
         <div className="flex-1 min-h-0 overflow-hidden bg-background">
           <div className="flex h-full min-h-0 flex-col">
@@ -335,8 +357,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       return <div className="flex-1 bg-background" />;
     }
 
-    if (mobileStage === 'page-sidebar') {
-      if (activePageMeta.kind !== 'split') {
+    if (mobileStage === "page-sidebar") {
+      if (activePageMeta.kind !== "split") {
         const fallback = (
           <SettingsPageContent
             slug={settingsSlug}
@@ -354,7 +376,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       return (
         <div className="flex-1 min-h-0 overflow-y-scroll overflow-x-hidden bg-background">
           <ErrorBoundary>
-            {renderPageSidebar(settingsSlug, { onItemSelect: handleMobilePageSidebarItemSelect })}
+            {renderPageSidebar(settingsSlug, {
+              onItemSelect: handleMobilePageSidebarItemSelect,
+            })}
           </ErrorBoundary>
         </div>
       );
@@ -375,19 +399,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   const renderDesktopContent = () => {
-    if (!activePageMeta || settingsSlug === 'home') {
+    if (!activePageMeta || settingsSlug === "home") {
       return null;
     }
 
-    if (activePageMeta.kind === 'split') {
+    if (activePageMeta.kind === "split") {
       return (
         <div className="flex h-full min-h-0 overflow-hidden">
           <div
-            className={cn('border-r', 'bg-sidebar')}
+            className={cn("border-r", "bg-sidebar")}
             style={{
               width: SETTINGS_SPLIT_SIDEBAR_WIDTH,
               minWidth: SETTINGS_SPLIT_SIDEBAR_WIDTH,
-              borderColor: 'var(--interactive-border)',
+              borderColor: "var(--interactive-border)",
             }}
           >
             <ErrorBoundary>{renderPageSidebar(settingsSlug, {})}</ErrorBoundary>
@@ -424,7 +448,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     <div
       ref={containerRef}
       data-settings-view="true"
-      className={cn('relative flex h-full min-h-0 flex-col overflow-hidden bg-background')}
+      className={cn(
+        "relative flex h-full min-h-0 flex-col overflow-hidden bg-background",
+      )}
     >
       {isMobile ? (
         <MobileSettingsHeader
@@ -448,11 +474,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       ) : (
         <>
           {showBackButton && (
-            <div className={cn('absolute left-3 z-50', isWindowed ? 'top-2' : 'top-3')}>
+            <div
+              className={cn(
+                "absolute left-3 z-50",
+                isWindowed ? "top-2" : "top-3",
+              )}
+            >
               <button
                 type="button"
                 onClick={handleBack}
-                aria-label={'Back'}
+                aria-label={"Back"}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg p-2 text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 <Icon name="arrow-left-s" className="h-5 w-5" />
@@ -469,19 +500,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <>
             <div
               className={cn(
-                'relative flex h-full min-h-0 flex-col overflow-hidden border-r',
-                isDesktopApp ? 'bg-sidebar' : 'bg-sidebar',
+                "relative flex h-full min-h-0 flex-col overflow-hidden border-r",
+                isDesktopApp ? "bg-sidebar" : "bg-sidebar",
               )}
               style={{
                 width: `${SETTINGS_NAV_WIDTH}px`,
                 minWidth: `${SETTINGS_NAV_WIDTH}px`,
-                borderColor: 'var(--interactive-border)',
+                borderColor: "var(--interactive-border)",
               }}
             >
               <ErrorBoundary>{renderSettingsNav()}</ErrorBoundary>
             </div>
 
-            <div className="flex-1 overflow-hidden bg-background">{renderDesktopContent()}</div>
+            <div className="flex-1 overflow-hidden bg-background">
+              {renderDesktopContent()}
+            </div>
           </>
         )}
       </div>

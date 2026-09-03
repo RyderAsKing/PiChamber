@@ -32,6 +32,7 @@ export const pageOrder: SettingsPageSlug[] = [
   'providers',
   'behavior',
   'snippets',
+  'prompt-templates',
   'skills.installed',
 ];
 
