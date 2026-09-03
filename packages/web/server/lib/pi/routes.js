@@ -19,6 +19,7 @@ import {
   sanitizeExtensionFormFields,
 } from './extension-protocol.js';
 import { createPiUiSettingsStore } from './ui-settings-store.js';
+import { createPiSnippetsStore } from './snippets-store.js';
 
 const UNAVAILABLE_CODES = new Set([
   'DAEMON_UNAVAILABLE',
@@ -765,6 +766,7 @@ export const registerPiRuntimeRoutes = (app, {
   settingsStore = createPiSettingsStore(),
   sessionFoldersStore = createPiSessionFoldersStore(),
   uiSettingsStore = createPiUiSettingsStore(),
+  snippetsStore = createPiSnippetsStore(),
   listCustomThemes = listPiCustomThemes,
   updateChecker = checkForUpdates,
   updateLauncher = launchUpdateCommand,
@@ -1084,13 +1086,205 @@ export const registerPiRuntimeRoutes = (app, {
     }
   });
 
-  app.get('/api/pi/resources', async (_req, res) => {
+  app.get('/api/pi/resources', async (req, res) => {
+    const directory = typeof req.query?.directory === 'string' && req.query.directory.length > 0
+      ? req.query.directory
+      : undefined;
     try {
-      res.json(projectResources(await getDaemonRuntime(getPiSessionDaemonRuntime).request('resources.list')));
+      res.json(projectResources(await getDaemonRuntime(getPiSessionDaemonRuntime).request(
+        'resources.list',
+        directory ? { directory } : undefined,
+      )));
     } catch (error) {
       writeDaemonError(res, error);
     }
   });
+
+  app.get('/api/pi/commands', async (req, res) => {
+    const directory = typeof req.query?.directory === 'string' && req.query.directory.length > 0
+      ? req.query.directory
+      : undefined;
+    try {
+      const runtime = getDaemonRuntime(getPiSessionDaemonRuntime);
+      const [resources, extensionList] = await Promise.all([
+        runtime.request('resources.list', { ...(directory ? { directory } : {}) }),
+        runtime.request('extensions.list', { ...(directory ? { directory } : {}) }),
+      ]);
+      const projectedResources = projectResources(resources);
+      const projectedExtensions = projectExtensionList(extensionList);
+      // Pi SDK 0.84.1 `getCommands()` exposes skills as `skill:name`, prompts
+      // as `name`, and extensions under their registered invocation name
+      // (including Pi-generated `:suffix` disambiguation). Mirror that
+      // executable identity here so `/` autocomplete inserts what Pi executes.
+      // Precedence at execution time is extension > skill/prompt expansion,
+      // with PiChamber-local system commands intercepting before Pi.
+      const commands = [
+        ...projectedExtensions.commands,
+        ...projectedResources.prompts.map((prompt) => ({
+          name: prompt.name,
+          ...(typeof prompt.description === 'string' ? { description: prompt.description } : {}),
+          source: 'prompt',
+          ...(typeof prompt.location === 'string' ? { scope: prompt.location } : {}),
+        })),
+        ...projectedResources.skills.map((skill) => ({
+          name: `skill:${skill.name}`,
+          ...(typeof skill.description === 'string' ? { description: skill.description } : {}),
+          source: 'skill',
+          ...(typeof skill.location === 'string' ? { scope: skill.location } : {}),
+        })),
+      ];
+      res.json({ directory: projectedExtensions.directory, commands });
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  const SNIPPET_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
+  const validSnippetAliases = (aliases) => aliases === undefined
+    || (Array.isArray(aliases)
+      && aliases.length <= 10
+      && aliases.every((alias) => typeof alias === 'string' && SNIPPET_NAME_PATTERN.test(alias.trim())));
+
+  const projectSnippets = (snippets) => {
+    if (!Array.isArray(snippets)) throw protocolMismatch();
+    return {
+      snippets: snippets.map((snippet) => {
+        if (!snippet || typeof snippet !== 'object'
+          || typeof snippet.id !== 'string' || snippet.id.length === 0
+          || typeof snippet.name !== 'string' || snippet.name.length === 0
+          || typeof snippet.content !== 'string'
+          || (snippet.description !== undefined && typeof snippet.description !== 'string')
+          || !Array.isArray(snippet.aliases)
+          || (snippet.scope !== 'global' && snippet.scope !== 'project')) throw protocolMismatch();
+        return {
+          id: snippet.id,
+          name: snippet.name,
+          content: snippet.content,
+          ...(typeof snippet.description === 'string' && snippet.description.length > 0 ? { description: snippet.description } : {}),
+          aliases: snippet.aliases.filter((alias) => typeof alias === 'string'),
+          scope: snippet.scope,
+          ...(snippet.scope === 'project' && typeof snippet.directory === 'string' ? { directory: snippet.directory } : {}),
+          ...(Number.isSafeInteger(snippet.createdAt) ? { createdAt: snippet.createdAt } : {}),
+          ...(Number.isSafeInteger(snippet.updatedAt) ? { updatedAt: snippet.updatedAt } : {}),
+        };
+      }),
+    };
+  };
+
+  const snippetDirectoryFrom = (req) => {
+    const queryDirectory = typeof req.query?.directory === 'string' && req.query.directory.length > 0
+      ? req.query.directory
+      : undefined;
+    const bodyDirectory = typeof req.body?.directory === 'string' && req.body.directory.length > 0
+      ? req.body.directory
+      : undefined;
+    return queryDirectory ?? bodyDirectory;
+  };
+
+  const writeSnippetError = (res, error) => {
+    const code = typeof error?.code === 'string' ? error.code : 'SNIPPETS_INVALID';
+    if (code === 'SNIPPET_NOT_FOUND') {
+      res.status(404).json({ error: { code } });
+      return;
+    }
+    if (code === 'SNIPPETS_INVALID') {
+      res.status(500).json({ error: { code } });
+      return;
+    }
+    res.status(400).json({ error: { code } });
+  };
+
+  app.get('/api/pi/snippets', async (req, res) => {
+    try {
+      res.json(projectSnippets(await snippetsStore.list(snippetDirectoryFrom(req))));
+    } catch {
+      res.status(500).json({ error: { code: 'SNIPPETS_INVALID' } });
+    }
+  });
+
+  app.post('/api/pi/snippets', async (req, res) => {
+    const { name, content, description, aliases, scope, directory } = req.body ?? {};
+    if (typeof name !== 'string' || typeof content !== 'string'
+      || !SNIPPET_NAME_PATTERN.test(name.trim())
+      || content.length === 0 || content.length > 200_000
+      || (description !== undefined && (typeof description !== 'string' || description.length > 4_000))
+      || !validSnippetAliases(aliases)
+      || (scope !== undefined && scope !== 'global' && scope !== 'project')
+      || (directory !== undefined && typeof directory !== 'string')) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const snippets = await snippetsStore.create({
+        name,
+        content,
+        ...(description !== undefined ? { description } : {}),
+        ...(aliases !== undefined ? { aliases } : {}),
+        scope: scope ?? 'global',
+        ...(directory !== undefined ? { directory } : {}),
+      });
+      res.status(201).json(projectSnippets(snippets));
+    } catch (error) {
+      writeSnippetError(res, error);
+    }
+  });
+
+  app.put('/api/pi/snippets/:snippetId', async (req, res) => {
+    const snippetId = req.params.snippetId;
+    if (typeof snippetId !== 'string' || snippetId.length === 0 || snippetId.length > 128) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    const { content, description, aliases, name, scope, directory } = req.body ?? {};
+    if ((content !== undefined && (typeof content !== 'string' || content.length === 0 || content.length > 200_000))
+      || (description !== undefined && (typeof description !== 'string' || description.length > 4_000))
+      || !validSnippetAliases(aliases)
+      || (name !== undefined && typeof name !== 'string')
+      || (scope !== undefined && scope !== 'global' && scope !== 'project')
+      || (directory !== undefined && typeof directory !== 'string')) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    if (name !== undefined && !SNIPPET_NAME_PATTERN.test(name.trim())) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      res.json(projectSnippets(await snippetsStore.update(snippetId, {
+        ...(name !== undefined ? { name } : {}),
+        ...(content !== undefined ? { content } : {}),
+        ...(description !== undefined ? { description } : {}),
+        ...(aliases !== undefined ? { aliases } : {}),
+        ...(scope !== undefined ? { scope } : {}),
+        ...(directory !== undefined ? { directory } : {}),
+      }, snippetDirectoryFrom(req))));
+    } catch (error) {
+      writeSnippetError(res, error);
+    }
+  });
+
+  app.delete('/api/pi/snippets/:snippetId', async (req, res) => {
+    const snippetId = req.params.snippetId;
+    if (typeof snippetId !== 'string' || snippetId.length === 0) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      res.json(projectSnippets(await snippetsStore.remove(snippetId, snippetDirectoryFrom(req))));
+    } catch (error) {
+      writeSnippetError(res, error);
+    }
+  });
+
+  const resourceDirectoryFrom = (req) => {
+    const queryDirectory = typeof req.query?.directory === 'string' && req.query.directory.length > 0
+      ? req.query.directory
+      : undefined;
+    const bodyDirectory = typeof req.body?.directory === 'string' && req.body.directory.length > 0
+      ? req.body.directory
+      : undefined;
+    return queryDirectory ?? bodyDirectory;
+  };
 
   app.put('/api/pi/resources/:resourceId', async (req, res) => {
     const resourceId = req.params.resourceId;
@@ -1099,8 +1293,9 @@ export const registerPiRuntimeRoutes = (app, {
       res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
       return;
     }
+    const directory = resourceDirectoryFrom(req);
     try {
-      res.json(projectResources(await getDaemonRuntime(getPiSessionDaemonRuntime).request('resources.update', { resourceId, content })));
+      res.json(projectResources(await getDaemonRuntime(getPiSessionDaemonRuntime).request('resources.update', { resourceId, content, ...(directory ? { directory } : {}) })));
     } catch (error) {
       writeDaemonError(res, error);
     }
@@ -1112,8 +1307,50 @@ export const registerPiRuntimeRoutes = (app, {
       res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
       return;
     }
+    if (!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(name)) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    const directory = resourceDirectoryFrom(req);
     try {
-      res.status(201).json(projectResources(await getDaemonRuntime(getPiSessionDaemonRuntime).request('resources.prompts.create', { name, description, content, location })));
+      res.status(201).json(projectResources(await getDaemonRuntime(getPiSessionDaemonRuntime).request('resources.prompts.create', { name, description, content, location, ...(directory ? { directory } : {}) })));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.put('/api/pi/resources/prompts/:resourceId', async (req, res) => {
+    const resourceId = req.params.resourceId;
+    if (typeof resourceId !== 'string' || resourceId.length === 0) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    const { name, description, content, location } = req.body ?? {};
+    if ((name !== undefined && typeof name !== 'string')
+      || (description !== undefined && typeof description !== 'string')
+      || (content !== undefined && typeof content !== 'string')
+      || (location !== undefined && location !== 'global' && location !== 'project')) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    if (name !== undefined && !/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(name)) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    if (name === undefined && description === undefined && content === undefined && location === undefined) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    const directory = resourceDirectoryFrom(req);
+    try {
+      res.json(projectResources(await getDaemonRuntime(getPiSessionDaemonRuntime).request('resources.prompts.update', {
+        resourceId,
+        ...(directory ? { directory } : {}),
+        ...(name !== undefined ? { name } : {}),
+        ...(description !== undefined ? { description } : {}),
+        ...(content !== undefined ? { content } : {}),
+        ...(location !== undefined ? { location } : {}),
+      })));
     } catch (error) {
       writeDaemonError(res, error);
     }
@@ -1125,8 +1362,9 @@ export const registerPiRuntimeRoutes = (app, {
       res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
       return;
     }
+    const directory = resourceDirectoryFrom(req);
     try {
-      res.json(projectResources(await getDaemonRuntime(getPiSessionDaemonRuntime).request('resources.prompts.delete', { resourceId })));
+      res.json(projectResources(await getDaemonRuntime(getPiSessionDaemonRuntime).request('resources.prompts.delete', { resourceId, ...(directory ? { directory } : {}) })));
     } catch (error) {
       writeDaemonError(res, error);
     }

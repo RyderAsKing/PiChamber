@@ -954,4 +954,237 @@ describe('Pi runtime route', () => {
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({ error: { code: 'DAEMON_LOCK_UNAVAILABLE' } });
   });
+
+  it('lists Pi prompt templates and extension commands as native slash commands', async () => {
+    const calls = [];
+    const runtime = {
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        if (command === 'resources.list') {
+          return {
+            skills: [],
+            prompts: [{ id: 'prompt-1', kind: 'prompt', name: 'review', description: 'Review', location: 'project', content: 'Review', filePath: '/private/review.md' }],
+            agents: [],
+          };
+        }
+        return {
+          directory: '/workspace',
+          extensions: [{ id: 'a1b2c3d4e5f60718', name: 'ext' }],
+          commands: [{ name: 'hello', description: 'Say hello', source: 'extension' }],
+        };
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/commands?directory=/workspace`);
+    expect(response.status).toBe(200);
+    // Order mirrors Pi SDK getCommands(): extensions, prompts, skills.
+    await expect(response.json()).resolves.toEqual({
+      directory: '/workspace',
+      commands: [
+        { name: 'hello', description: 'Say hello', source: 'extension' },
+        { name: 'review', description: 'Review', source: 'prompt', scope: 'project' },
+      ],
+    });
+    expect(calls).toEqual([
+      { command: 'resources.list', payload: { directory: '/workspace' } },
+      { command: 'extensions.list', payload: { directory: '/workspace' } },
+    ]);
+  });
+
+  it('exposes Pi skills as /skill:name commands (never bare /name)', async () => {
+    const runtime = {
+      request: async (command) => {
+        if (command === 'resources.list') {
+          return {
+            skills: [{ id: 'skill-1', kind: 'skill', name: 'code-review', description: 'Review', location: 'global' }],
+            prompts: [{ id: 'prompt-1', kind: 'prompt', name: 'review', description: 'Review', location: 'global' }],
+            agents: [],
+          };
+        }
+        return { directory: '/work', extensions: [], commands: [] };
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/commands?directory=/work`);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      directory: '/work',
+      commands: [
+        { name: 'review', description: 'Review', source: 'prompt', scope: 'global' },
+        { name: 'skill:code-review', description: 'Review', source: 'skill', scope: 'global' },
+      ],
+    });
+  });
+
+  it('stores PiChamber snippets independently of Pi prompt templates', async () => {
+    const snippets = [];
+    const snippetsStore = {
+      list: async (directory) => snippets.filter((snippet) => snippet.scope === 'global' || snippet.directory === directory),
+      create: async (input) => {
+        const snippet = { id: 'snippet-1', aliases: [], ...input };
+        snippets.push(snippet);
+        return snippets;
+      },
+      update: async (id, input) => {
+        const snippet = snippets.find((entry) => entry.id === id);
+        Object.assign(snippet, input);
+        return snippets;
+      },
+      remove: async (id) => {
+        const index = snippets.findIndex((entry) => entry.id === id);
+        snippets.splice(index, 1);
+        return snippets;
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => ({}), snippetsStore });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi/snippets`;
+    await expect((await fetch(base)).json()).resolves.toEqual({ snippets: [] });
+    const created = await fetch(base, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'note', content: 'Content', scope: 'global' }),
+    });
+    expect(created.status).toBe(201);
+    await expect(created.json()).resolves.toEqual({
+      snippets: [{ id: 'snippet-1', aliases: [], name: 'note', content: 'Content', scope: 'global' }],
+    });
+    const invalid = await fetch(base, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'bad name!', content: 'x', scope: 'global' }),
+    });
+    expect(invalid.status).toBe(400);
+  });
+
+  it('renames snippets and moves scopes by opaque id', async () => {
+    const calls = [];
+    const snippetsStore = {
+      list: async () => [],
+      create: async () => [],
+      update: async (id, input, directory) => {
+        calls.push({ id, input, directory });
+        return [];
+      },
+      remove: async () => [],
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => ({}), snippetsStore });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi/snippets/s1?directory=/work`;
+    const renamed = await fetch(base, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'renamed', scope: 'project', directory: '/work', aliases: ['r'] }),
+    });
+    expect(renamed.status).toBe(200);
+    expect(calls[0]).toMatchObject({ id: 's1', directory: '/work' });
+    expect(calls[0].input).toMatchObject({ name: 'renamed', scope: 'project' });
+    const bad = await fetch(base, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'bad name!' }),
+    });
+    expect(bad.status).toBe(400);
+    const oversized = await fetch(base, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: 'x'.repeat(200_001) }),
+    });
+    expect([400, 413]).toContain(oversized.status);
+    const invalidAliases = await fetch(base, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ aliases: ['valid', 'bad alias'] }),
+    });
+    expect(invalidAliases.status).toBe(400);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('carries explicit directories for prompt create, update, and delete', async () => {
+    const calls = [];
+    const runtime = {
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        return { skills: [], prompts: [], agents: [] };
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi/resources/prompts`;
+    const created = await fetch(`${base}?directory=/work`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'review', description: 'Review', content: 'Do $1', location: 'global' }),
+    });
+    expect(created.status).toBe(201);
+    const updated = await fetch(`${base}/prompt-1?directory=/work`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'review2', description: 'Updated' }),
+    });
+    expect(updated.status).toBe(200);
+    const deleted = await fetch(`${base}/prompt-1?directory=/work`, { method: 'DELETE' });
+    expect(deleted.status).toBe(200);
+    expect(calls).toEqual([
+      { command: 'resources.prompts.create', payload: { name: 'review', description: 'Review', content: 'Do $1', location: 'global', directory: '/work' } },
+      { command: 'resources.prompts.update', payload: { resourceId: 'prompt-1', directory: '/work', name: 'review2', description: 'Updated' } },
+      { command: 'resources.prompts.delete', payload: { resourceId: 'prompt-1', directory: '/work' } },
+    ]);
+  });
+
+  it('refreshes /commands after prompt mutations without stale entries', async () => {
+    let prompts = [{ id: 'prompt-1', kind: 'prompt', name: 'review', description: 'Review', location: 'global', content: 'Do $1', editable: true }];
+    const runtime = {
+      request: async (command, payload) => {
+        if (command === 'resources.list') {
+          return { skills: [], prompts: [...prompts], agents: [] };
+        }
+        if (command === 'resources.prompts.create') {
+          prompts.push({ id: 'prompt-2', kind: 'prompt', name: payload.name, description: payload.description, location: payload.location, content: payload.content, editable: true });
+          return { skills: [], prompts: [...prompts], agents: [] };
+        }
+        if (command === 'resources.prompts.update') {
+          prompts = prompts.map((p) => p.id === payload.resourceId ? { ...p, ...(payload.name ? { name: payload.name } : {}) } : p);
+          return { skills: [], prompts: [...prompts], agents: [] };
+        }
+        if (command === 'resources.prompts.delete') {
+          prompts = prompts.filter((p) => p.id !== payload.resourceId);
+          return { skills: [], prompts: [...prompts], agents: [] };
+        }
+        if (command === 'extensions.list') {
+          return { directory: '/work', extensions: [], commands: [] };
+        }
+        return { skills: [], prompts: [...prompts], agents: [] };
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const api = `http://127.0.0.1:${server.address().port}/api/pi`;
+    const commandsBefore = await (await fetch(`${api}/commands?directory=/work`)).json();
+    expect(commandsBefore.commands.map((c) => c.name)).toContain('review');
+    await fetch(`${api}/resources/prompts?directory=/work`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'second', description: 'Second', content: 'Body', location: 'global' }),
+    });
+    const commandsAfterCreate = await (await fetch(`${api}/commands?directory=/work`)).json();
+    expect(commandsAfterCreate.commands.map((c) => c.name).sort()).toEqual(['review', 'second']);
+    await fetch(`${api}/resources/prompts/prompt-1?directory=/work`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'renamed' }),
+    });
+    const commandsAfterRename = await (await fetch(`${api}/commands?directory=/work`)).json();
+    expect(commandsAfterRename.commands.map((c) => c.name)).toContain('renamed');
+    expect(commandsAfterRename.commands.map((c) => c.name)).not.toContain('review');
+    await fetch(`${api}/resources/prompts/prompt-2?directory=/work`, { method: 'DELETE' });
+    const commandsAfterDelete = await (await fetch(`${api}/commands?directory=/work`)).json();
+    expect(commandsAfterDelete.commands.map((c) => c.name)).not.toContain('second');
+  });
 });
