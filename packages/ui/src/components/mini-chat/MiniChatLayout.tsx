@@ -1,7 +1,7 @@
 import React, { Suspense } from 'react';
 import { Button } from '@/components/ui/button';
 import { ChatContainer } from '@/components/chat/ChatContainer';
-import { ChatSurfaceProvider } from '@/components/chat/ChatSurfaceContext';
+import { ChatSurfaceProvider } from '@/components/chat/chatSurfaceProvider';
 import { ContextUsageDisplay } from '@/components/ui/ContextUsageDisplay';
 import { WindowsWindowControls } from '@/components/desktop/WindowsWindowControls';
 

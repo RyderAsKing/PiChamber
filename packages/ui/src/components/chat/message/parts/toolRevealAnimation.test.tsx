@@ -2,9 +2,8 @@ import { describe, expect, mock, test } from 'bun:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-// Bun-only resolver quirk: `chatSurfaceContext.ts` sits next to
-// `ChatSurfaceContext.tsx` and bun probes the wrong casing (Vite resolves
-// this fine in the real app). Stub the surface mode for these markup tests.
+// Stub the surface mode for these markup tests (provider lives in
+// `chatSurfaceProvider.tsx`; context/hook live in `chatSurfaceContext.ts`).
 mock.module('@/components/chat/chatSurfaceContext', () => ({
   useChatSurfaceMode: () => 'default' as const,
 }));
