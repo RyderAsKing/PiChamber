@@ -323,7 +323,8 @@ export const applyDesktopUiPreferences = (settings: DesktopSettings): void => {
   }
   if (Array.isArray(settings.draftStarters)) {
     // Legacy skill/command starters are dropped without conversion; only
-    // prompt starters survive. Comparison keeps the migration idempotent.
+    // prompt and built-in text starters survive. Comparison keeps the
+    // migration idempotent.
     const nextStarters = sanitizeStarterRefs(settings.draftStarters);
     if (
       JSON.stringify(store.globalDraftStarters) !==

@@ -12,6 +12,7 @@ import { updateDesktopSettings } from '@/lib/persistence';
 import { getProjectDraftStarters, saveProjectDraftStarters } from '@/lib/pichamberConfig';
 import type { IconName } from '@/components/icon/icons';
 import {
+    BUILTIN_TEXT_STARTERS,
     DEFAULT_GLOBAL_STARTERS,
     PROMPT_FALLBACK_ICON,
     buildPromptWinnerMap,
@@ -20,7 +21,6 @@ import {
     sameStarter,
     starterKey,
     type DraftStarterRef,
-    type DraftStarterType,
 } from '@/lib/draftStarters';
 
 type StarterGroup = 'global' | 'project';
@@ -32,16 +32,19 @@ export type ResolvedStarter = {
     group: StarterGroup;
     label: string;
     icon: IconName;
-    /** Native prompt invocation with trailing space for composer insertion. */
+    /**
+     * Text to insert into the composer. Prompt starters use the native
+     * `/name ` invocation; built-in text starters use literal prompt text.
+     */
     insertText: string;
-    /** Bare prompt name for display/debugging. */
+    /** Bare prompt name for `/name` starters; empty for built-in text. */
     promptName: string;
 };
 
 export type PinnableSection = 'prompt';
 
 export type PinnableItem = {
-    type: DraftStarterType;
+    type: 'prompt';
     name: string;
     label: string;
     icon: IconName;
@@ -63,18 +66,20 @@ export type UseDraftStartersResult = {
 };
 
 /**
- * Pinned Pi prompt-template starters for the effective new-session directory.
+ * Draft starters for the effective new-session directory: pinned Pi
+ * prompt-template starters plus built-in text starters.
  *
  * - Lists editable, invokable native prompts from the authoritative
  *   prompt-template store (never snippets, never skills, never files).
+ * - Built-in text starters resolve locally without a catalog lookup.
  * - Global starters persist in PiChamber global settings; project starters in
  *   project config, resolved against the effective draft directory (not merely
  *   the sidebar selection).
  * - A project prompt may override a same-named global prompt; resolution
  *   matches Pi's `/name` execution and never shows two chips with the same
  *   invocation.
- * - Only a successful authoritative catalog marks a starter unresolved;
- *   fetch failure preserves the last known resolution.
+ * - Only a successful authoritative catalog marks a prompt starter
+ *   unresolved; fetch failure preserves the last known resolution.
  */
 export function useDraftStarters(): UseDraftStartersResult {
     const globalRaw = useUIStore((s) => s.globalDraftStarters);
@@ -165,7 +170,19 @@ export function useDraftStarters(): UseDraftStartersResult {
     void authoritativeTick;
 
     const resolve = React.useCallback((ref: DraftStarterRef, group: StarterGroup): ResolvedStarter | null => {
-        if (ref.type !== 'prompt') return null;
+        if (ref.type === 'text') {
+            const builtin = BUILTIN_TEXT_STARTERS[ref.key];
+            if (!builtin) return null;
+            return {
+                id: chipId(group, ref),
+                ref,
+                group,
+                label: builtin.label,
+                icon: builtin.icon,
+                insertText: builtin.text,
+                promptName: '',
+            };
+        }
         const prompt = promptByName.get(ref.name);
         if (!prompt) {
             // Only an authoritative catalog may mark unresolved (deletion).

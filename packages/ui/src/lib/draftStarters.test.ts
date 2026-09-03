@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  BUILTIN_TEXT_STARTERS,
   buildPromptWinnerMap,
   dedupeStarterInvocations,
   DEFAULT_GLOBAL_STARTERS,
@@ -11,9 +12,20 @@ import {
   starterKey,
 } from './draftStarters';
 
-describe('draftStarters — pinned prompt templates only', () => {
-  test('defaults are empty (no invented prompt starters)', () => {
-    expect(DEFAULT_GLOBAL_STARTERS).toEqual([]);
+describe('draftStarters — prompts plus one-time built-in text defaults', () => {
+  test('defaults are the five built-in text starters', () => {
+    expect(DEFAULT_GLOBAL_STARTERS).toEqual([
+      { type: 'text', key: 'explore' },
+      { type: 'text', key: 'plan' },
+      { type: 'text', key: 'review' },
+      { type: 'text', key: 'find-bugs' },
+      { type: 'text', key: 'write-tests' },
+    ]);
+    for (const ref of DEFAULT_GLOBAL_STARTERS) {
+      if (ref.type !== 'text') throw new Error('default starter must be text');
+      expect(BUILTIN_TEXT_STARTERS[ref.key].text.trim().length).toBeGreaterThan(0);
+      expect(BUILTIN_TEXT_STARTERS[ref.key].label.trim().length).toBeGreaterThan(0);
+    }
   });
 
   test('preserves valid prompt starters', () => {
@@ -34,8 +46,21 @@ describe('draftStarters — pinned prompt templates only', () => {
         { type: 'skill', name: 'review' },
         { type: 'command', name: 'review' },
         { type: 'prompt', name: 'review' },
+        { type: 'text', key: 'review' },
       ]),
-    ).toEqual([{ type: 'prompt', name: 'review' }]);
+    ).toEqual([{ type: 'prompt', name: 'review' }, { type: 'text', key: 'review' }]);
+  });
+
+  test('preserves only known built-in text keys', () => {
+    expect(
+      sanitizeStarterRefs([
+        { type: 'text', key: 'explore' },
+        { type: 'text', key: 'nope' },
+        { type: 'text', name: 'review' },
+        { type: 'text', key: 'review' },
+        { type: 'text', key: 'review' },
+      ]),
+    ).toEqual([{ type: 'text', key: 'explore' }, { type: 'text', key: 'review' }]);
   });
 
   test('drops all retired command starters and never restores them', () => {
@@ -79,11 +104,18 @@ describe('draftStarters — pinned prompt templates only', () => {
     expect(sanitizeStarterRefs(null)).toEqual([]);
   });
 
-  test('starter identity helpers use prompt type', () => {
+  test('starter identity helpers use prompt and text types', () => {
     expect(starterKey({ type: 'prompt', name: 'review' })).toBe('prompt:review');
+    expect(starterKey({ type: 'text', key: 'review' })).toBe('text:review');
     expect(
       sameStarter({ type: 'prompt', name: 'review' }, { type: 'prompt', name: 'review' }),
     ).toBe(true);
+    expect(
+      sameStarter({ type: 'text', key: 'review' }, { type: 'text', key: 'review' }),
+    ).toBe(true);
+    expect(
+      sameStarter({ type: 'prompt', name: 'review' }, { type: 'text', key: 'review' }),
+    ).toBe(false);
     expect(normalizeStarterLabel('review-code')).toBe('Review code');
   });
 

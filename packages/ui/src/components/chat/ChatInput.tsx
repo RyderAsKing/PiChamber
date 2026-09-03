@@ -1479,6 +1479,24 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     [inputMode],
   );
 
+  // Shared composer focus helper for starter insertion. Keeps the
+  // text-and-selection transaction in one place.
+  const focusComposerAt = React.useCallback((caret: number) => {
+    const focusEditor = () => {
+      try {
+        composerRef.current?.focus({ preventScroll: true });
+      } catch {
+        composerRef.current?.focus();
+      }
+      composerRef.current?.setSelection(caret);
+    };
+    requestAnimationFrame(() => {
+      focusEditor();
+      requestAnimationFrame(focusEditor);
+    });
+    setTimeout(focusEditor, 60);
+  }, []);
+
   // Pinned prompt starters insert `/name ` for editing (never submit
   // immediately, never expand in PiChamber). Pi expands natively on send.
   // Preserves attachments and draft config; focuses the composer with the
@@ -1507,21 +1525,41 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
       }
       updateAutocompleteState(nextValue, caret, "manual", prefix);
       closeAutocomplete();
-      const focusEditor = () => {
-        try {
-          composerRef.current?.focus({ preventScroll: true });
-        } catch {
-          composerRef.current?.focus();
-        }
-        composerRef.current?.setSelection(caret);
-      };
-      requestAnimationFrame(() => {
-        focusEditor();
-        requestAnimationFrame(focusEditor);
-      });
-      setTimeout(focusEditor, 60);
+      focusComposerAt(caret);
     },
-    [closeAutocomplete, setMessage, updateAutocompleteState],
+    [closeAutocomplete, focusComposerAt, setMessage, updateAutocompleteState],
+  );
+
+  // Built-in text starters insert literal prompt text for editing (never
+  // submit immediately). Preserves attachments and draft config; focuses the
+  // composer at the end of the inserted text (or before existing draft text
+  // when prepending so the draft becomes trailing context).
+  const insertStarterText = React.useCallback(
+    (text: string) => {
+      const clean = text.trim();
+      if (!clean) return;
+      const editor = composerRef.current;
+      const current = editor?.getValue() ?? messageRef.current ?? "";
+      const hasExisting = current.trim().length > 0;
+      const nextValue = hasExisting
+        ? `${clean} ${current.replace(/^\s+/, "")}`
+        : clean;
+      const caret = hasExisting ? clean.length + 1 : clean.length;
+      if (editor) {
+        try {
+          editor.replaceRange(0, current.length, nextValue, caret);
+        } catch {
+          setMessage(nextValue);
+          requestAnimationFrame(() => editor.setSelection(caret));
+        }
+      } else {
+        setMessage(nextValue);
+      }
+      updateAutocompleteState(nextValue, caret, "manual");
+      closeAutocomplete();
+      focusComposerAt(caret);
+    },
+    [closeAutocomplete, focusComposerAt, setMessage, updateAutocompleteState],
   );
 
   // Starter chips rendered outside this component (welcome screen) request
@@ -1530,8 +1568,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   React.useEffect(() => {
     if (pendingStarterInsert == null) return;
     const pending = useInputStore.getState().consumePendingStarterInsert();
-    if (pending) insertStarterPrompt(pending.name);
-  }, [pendingStarterInsert, insertStarterPrompt]);
+    if (!pending) return;
+    if ("text" in pending) insertStarterText(pending.text);
+    else insertStarterPrompt(pending.name);
+  }, [pendingStarterInsert, insertStarterPrompt, insertStarterText]);
 
   const handleKeyDown = useComposerKeyNavigation({
     inputMode,
@@ -2360,7 +2400,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         !isMobile &&
         !isMiniChatSurface ? (
           <DraftPresetChips
-            onInsert={(starter) => insertStarterPrompt(starter.promptName)}
+            onInsert={(starter) =>
+              starter.ref.type === 'text'
+                ? insertStarterText(starter.insertText)
+                : insertStarterPrompt(starter.promptName)
+            }
             className="chat-input-column mt-3"
           />
         ) : null}

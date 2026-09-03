@@ -218,14 +218,15 @@ export const syncDesktopSettings = async (): Promise<void> => {
     const shouldPersistScheduleTaskMigration =
       settings.draftStartersScheduleTaskAdded !== true;
     // Legacy skill/command starters are removed without conversion on next
-    // sanitize/persist. Detect any non-prompt record (defensively, from
-    // untrusted persisted JSON) to trigger a single idempotent migration.
+    // sanitize/persist. Detect any non-prompt/non-text record (defensively,
+    // from untrusted persisted JSON) to trigger a single idempotent
+    // migration. Built-in `{type:'text'}` starters are valid and preserved.
     const shouldMigrateLegacyStarters =
       Array.isArray(settings.draftStarters) &&
       (settings.draftStarters as unknown[]).some((starter) => {
         if (!starter || typeof starter !== 'object') return false;
         const type = (starter as Record<string, unknown>).type;
-        return type !== 'prompt';
+        return type !== 'prompt' && type !== 'text';
       });
     const shouldSeedAutoSaveEnabled =
       typeof settings.autoSaveEnabled !== 'boolean';

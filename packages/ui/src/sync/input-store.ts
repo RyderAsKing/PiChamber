@@ -211,8 +211,8 @@ export type InputState = {
   pendingInputMode: "replace" | "append" | "append-inline"
   pendingRevertText: string | null
   pendingSyntheticParts: SyntheticContextPart[] | null
-  /** Pinned prompt starter insertion (never an immediate send). */
-  pendingStarterInsert: { name: string } | null
+  /** Draft starter insertion (prompt `/name` or built-in literal text; never an immediate send). */
+  pendingStarterInsert: { name: string } | { text: string } | null
   attachedFiles: AttachedFile[]
   /**
    * Attachments stashed per chat-draft key (runtime, directory, session).
@@ -228,7 +228,8 @@ export type InputState = {
   setPendingRevertText: (text: string | null) => void
   consumePendingRevertText: () => string | null
   requestStarterInsert: (name: string) => void
-  consumePendingStarterInsert: () => { name: string } | null
+  requestStarterTextInsert: (text: string) => void
+  consumePendingStarterInsert: () => { name: string } | { text: string } | null
   setPendingSyntheticParts: (parts: SyntheticContextPart[] | null) => void
   consumePendingSyntheticParts: () => SyntheticContextPart[] | null
   addAttachedFile: (file: File) => Promise<boolean>
@@ -271,6 +272,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
     return pendingRevertText
   },
   requestStarterInsert: (name) => set({ pendingStarterInsert: { name } }),
+  requestStarterTextInsert: (text) => set({ pendingStarterInsert: { text } }),
   consumePendingStarterInsert: () => {
     const { pendingStarterInsert } = get()
     if (pendingStarterInsert === null) return null
