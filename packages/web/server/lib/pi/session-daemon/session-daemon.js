@@ -1,11 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
-import { chmod, mkdir, lstat, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, link, mkdir, lstat, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createReadStream, existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
-import { basename, dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import { hasTrustRequiringProjectResources } from '@earendil-works/pi-coding-agent';
 import { StringDecoder } from 'node:string_decoder';
 import {
@@ -1549,6 +1549,11 @@ export function createSessionDaemon({
 
   const resourceId = (kind, filePath) => `${kind}:${createHash('sha256').update(filePath).digest('base64url')}`;
 
+  const isPathInside = (parent, candidate) => {
+    const child = relative(parent, candidate);
+    return child.length > 0 && !child.startsWith('..') && !isAbsolute(child);
+  };
+
   const resourceLocation = (sourceInfo) => {
     if (sourceInfo?.scope === 'project') return 'project';
     if (sourceInfo?.origin === 'package') return 'package';
@@ -1610,6 +1615,13 @@ export function createSessionDaemon({
     if (runtime?.session?.isStreaming) throw new SessionDaemonProtocolError('SESSION_BUSY', 'Resources cannot change during an active session.');
   };
 
+  let resourceMutation = Promise.resolve();
+  const transactResourceMutation = (operation) => {
+    const pending = resourceMutation.then(operation);
+    resourceMutation = pending.catch(() => {});
+    return pending;
+  };
+
   const writeResourceFile = async (filePath, content) => {
     const temporary = `${filePath}.${randomUUID()}.tmp`;
     await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
@@ -1620,6 +1632,22 @@ export function createSessionDaemon({
       await rm(temporary, { force: true }).catch(() => {});
       throw error;
     }
+  };
+
+  const writeNewResourceFile = async (filePath, content) => {
+    const temporary = `${filePath}.${randomUUID()}.tmp`;
+    await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
+    try {
+      await writeFile(temporary, content, { encoding: 'utf8', mode: 0o600 });
+      await link(temporary, filePath);
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => {});
+      if (error?.code === 'EEXIST') {
+        throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template already exists.');
+      }
+      throw error;
+    }
+    await rm(temporary, { force: true }).catch(() => {});
   };
 
   const refreshResources = async (targetDir) => {
@@ -1650,13 +1678,16 @@ export function createSessionDaemon({
     return refreshResources(targetDir);
   };
 
-  const createPrompt = async (payload) => {
+  const createPrompt = (payload) => transactResourceMutation(async () => {
     if (!payload || !['global', 'project'].includes(payload.location) || typeof payload.name !== 'string' || typeof payload.content !== 'string'
       || typeof payload.description !== 'string' || payload.content.length > 200_000 || payload.description.length > 4_000
       || !/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(payload.name)) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template is invalid.');
     }
     requireIdleResourceMutation();
+    if (payload.location === 'project' && !payload.directory) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'Project prompt templates require an explicit directory.');
+    }
     const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
     const trust = createTrustStore(agentDir).get(targetDir);
     if (payload.location === 'project' && trust !== true) throw new SessionDaemonProtocolError('PROJECT_UNTRUSTED', 'The project is not trusted.');
@@ -1667,20 +1698,151 @@ export function createSessionDaemon({
     } catch (error) {
       if (error?.code !== 'ENOENT') throw error;
     }
-    await writeResourceFile(filePath, `---\ndescription: ${JSON.stringify(payload.description)}\n---\n${payload.content}`);
+    await writeNewResourceFile(filePath, `---\ndescription: ${JSON.stringify(payload.description)}\n---\n${payload.content}`);
     return refreshResources(targetDir);
-  };
+  });
 
-  const deletePrompt = async (payload) => {
+  const deletePrompt = (payload) => transactResourceMutation(async () => {
     if (!payload || typeof payload.resourceId !== 'string') throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template is invalid.');
     requireIdleResourceMutation();
     const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
     const catalog = await resourceCatalog(targetDir);
     const resource = catalog.prompts.find((item) => item.id === payload.resourceId && item.editable === true);
     if (!resource?.filePath) throw new SessionDaemonProtocolError('RESOURCE_NOT_FOUND', 'The requested Pi prompt template is not editable.');
+    const expectedDeletePrefix =
+      resource.location === 'global'
+        ? join(agentDir, 'prompts')
+        : join(targetDir, '.pi', 'prompts');
+    if (typeof resource.filePath !== 'string' || !isPathInside(expectedDeletePrefix, resource.filePath)) {
+      throw new SessionDaemonProtocolError('RESOURCE_NOT_FOUND', 'The requested Pi prompt template is not editable.');
+    }
+    if (resource.location === 'project') {
+      if (!payload.directory) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'Project prompt templates require an explicit directory.');
+      const trust = createTrustStore(agentDir).get(targetDir);
+      if (trust !== true) throw new SessionDaemonProtocolError('PROJECT_UNTRUSTED', 'The project is not trusted.');
+    }
     await rm(resource.filePath);
     return refreshResources(targetDir);
+  });
+
+  const PROMPT_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
+
+  const splitPromptFile = (raw) => {
+    const match = typeof raw === 'string' ? raw.match(/^(---\r?\n[\s\S]*?\r?\n---\r?\n?)/) : null;
+    if (match) {
+      return { frontmatter: match[1], body: raw.slice(match[1].length) };
+    }
+    return { frontmatter: '', body: typeof raw === 'string' ? raw : '' };
   };
+
+  const withUpdatedDescription = (frontmatter, description) => {
+    if (description === undefined) return frontmatter;
+    const serialized = `description: ${JSON.stringify(description)}`;
+    if (!frontmatter) {
+      return `---\n${serialized}\n---\n`;
+    }
+    const lines = frontmatter.split(/\r?\n/);
+    let replaced = false;
+    const nextLines = lines.map((line) => {
+      if (!replaced && /^description\s*:/.test(line)) {
+        replaced = true;
+        return serialized;
+      }
+      return line;
+    });
+    if (!replaced) {
+      const closingIndex = nextLines.lastIndexOf('---');
+      const insertAt = closingIndex > 0 ? closingIndex : 1;
+      nextLines.splice(insertAt, 0, serialized);
+    }
+    return nextLines.join('\n');
+  };
+
+  const updatePrompt = (payload) => transactResourceMutation(async () => {
+    if (!payload || typeof payload.resourceId !== 'string') {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template update is invalid.');
+    }
+    const hasName = payload.name !== undefined;
+    const hasDescription = payload.description !== undefined;
+    const hasContent = payload.content !== undefined;
+    const hasLocation = payload.location !== undefined;
+    if (!hasName && !hasDescription && !hasContent && !hasLocation) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template update is invalid.');
+    }
+    if (hasName && (typeof payload.name !== 'string' || !PROMPT_NAME_PATTERN.test(payload.name))) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template name is invalid.');
+    }
+    if (hasDescription && (typeof payload.description !== 'string' || payload.description.length > 4_000)) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template description is invalid.');
+    }
+    if (hasContent && (typeof payload.content !== 'string' || payload.content.length > 200_000)) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template content is invalid.');
+    }
+    if (hasLocation && payload.location !== 'global' && payload.location !== 'project') {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template location is invalid.');
+    }
+    requireIdleResourceMutation();
+    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
+    const catalog = await resourceCatalog(targetDir);
+    const resource = catalog.prompts.find((item) => item.id === payload.resourceId && item.editable === true);
+    if (!resource?.filePath) throw new SessionDaemonProtocolError('RESOURCE_NOT_FOUND', 'The requested Pi prompt template is not editable.');
+    const sourceLocation = resource.location;
+    const expectedPrefix =
+      sourceLocation === 'global'
+        ? join(agentDir, 'prompts')
+        : join(targetDir, '.pi', 'prompts');
+    const normalizedFilePath = resource.filePath;
+    if (typeof normalizedFilePath !== 'string' || !isPathInside(expectedPrefix, normalizedFilePath)) {
+      throw new SessionDaemonProtocolError('RESOURCE_NOT_FOUND', 'The requested Pi prompt template is not editable.');
+    }
+    const destLocation = hasLocation ? payload.location : sourceLocation;
+    if (destLocation !== 'global' && destLocation !== 'project') {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template location is invalid.');
+    }
+    const destName = hasName ? payload.name : resource.name;
+    const isRename = destName !== resource.name;
+    const isLocationMove = destLocation !== sourceLocation;
+    const needsNewFile = isRename || isLocationMove;
+    if (destLocation === 'project' || sourceLocation === 'project') {
+      if (!payload.directory) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'Project prompt templates require an explicit directory.');
+      const trust = createTrustStore(agentDir).get(targetDir);
+      if (trust !== true) throw new SessionDaemonProtocolError('PROJECT_UNTRUSTED', 'The project is not trusted.');
+    }
+    const previousRaw = await readFile(resource.filePath, 'utf8').catch((error) => {
+      if (error?.code === 'ENOENT') throw new SessionDaemonProtocolError('RESOURCE_NOT_FOUND', 'The requested Pi prompt template is not editable.');
+      throw error;
+    });
+    const { frontmatter, body } = splitPromptFile(previousRaw);
+    const nextFrontmatter = withUpdatedDescription(frontmatter, hasDescription ? payload.description : undefined);
+    const nextBody = hasContent ? payload.content : body;
+    const nextFileContent = `${nextFrontmatter}${nextBody}`;
+    if (!needsNewFile) {
+      await writeResourceFile(resource.filePath, nextFileContent);
+      return refreshResources(targetDir);
+    }
+    if (!PROMPT_NAME_PATTERN.test(destName)) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template name is invalid.');
+    }
+    const destPath = join(destLocation === 'global' ? agentDir : join(targetDir, '.pi'), 'prompts', `${destName}.md`);
+    if (destPath === resource.filePath) {
+      await writeResourceFile(resource.filePath, nextFileContent);
+      return refreshResources(targetDir);
+    }
+    try {
+      await readFile(destPath, 'utf8');
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template already exists.');
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    await writeNewResourceFile(destPath, nextFileContent);
+    try {
+      await rm(resource.filePath);
+    } catch (error) {
+      await rm(destPath, { force: true }).catch(() => {});
+      throw error;
+    }
+    return refreshResources(targetDir);
+  });
 
   const setSessionModel = async (activeRuntime, model) => {
     if (!model || typeof model.providerId !== 'string' || typeof model.modelId !== 'string') {
@@ -1975,9 +2137,26 @@ export function createSessionDaemon({
       applyThinking(activeRuntime, payload.thinking, payload.sessionId, activeRuntime.cwd);
     }
 
-    // Auto-assign deterministic title on first prompt if session manager has no name yet
+    // Extension commands can configure an otherwise empty session. They are
+    // not conversation prompts, so leave the session unnamed until the first
+    // input that actually enters the transcript. Resolve this from Pi's live
+    // registered-command catalog rather than trusting a browser hint.
     const manager = activeRuntime.session?.sessionManager;
-    if (typeof payload.text === 'string' && payload.text.trim().length > 0 && !manager?.getSessionName?.()) {
+    const slashInvocation = typeof payload.text === 'string'
+      ? /^\/([^\s]+)/.exec(payload.text.trim())?.[1]
+      : undefined;
+    const registeredExtensionCommands = typeof activeRuntime.session?.extensionRunner?.getRegisteredCommands === 'function'
+      ? activeRuntime.session.extensionRunner.getRegisteredCommands()
+      : [];
+    const isExtensionCommand = Boolean(
+      slashInvocation
+      && Array.isArray(registeredExtensionCommands)
+      && registeredExtensionCommands.some((command) => typeof command?.invocationName === 'string'
+        && command.invocationName.toLowerCase() === slashInvocation.toLowerCase()),
+    );
+    // Auto-assign deterministic title on the first conversation prompt if the
+    // session manager still has no explicit or extension-owned name.
+    if (!isExtensionCommand && typeof payload.text === 'string' && payload.text.trim().length > 0 && !manager?.getSessionName?.()) {
       const derived = deriveSessionTitle(payload.text);
       if (derived && typeof manager?.appendSessionInfo === 'function') {
         manager.appendSessionInfo(derived);
@@ -2003,6 +2182,14 @@ export function createSessionDaemon({
     // expansion exactly like the pi CLI and RPC modes; plain text keeps the
     // sendUserMessage path so it is never expanded.
     enqueueUserStart(payload.sessionId, generation, attachments.files);
+    // Pi's `session.setModel()` notifies extensions (`model_select`) but not
+    // session subscribers, so an extension-driven model switch would otherwise
+    // never publish `session.model`. Snapshot the live model to reconcile
+    // below from authoritative runtime state. Thinking does emit
+    // `thinking_level_changed` to subscribers, so it needs no reconciliation.
+    const prevModel = activeRuntime.session?.model
+      ? { provider: activeRuntime.session.model.provider, id: activeRuntime.session.model.id }
+      : null;
     let sendCall;
     try {
       sendCall = typeof content === 'string' && content.startsWith('/')
@@ -2019,6 +2206,15 @@ export function createSessionDaemon({
       removeUserStart(payload.sessionId, generation);
       if (sendGenerationBySession.get(payload.sessionId) !== generation) return;
       if (settledSendGenerationBySession.get(payload.sessionId) === generation) return;
+      const curModel = activeRuntime.session?.model;
+      if (
+        curModel?.provider && curModel?.id
+        && (curModel.provider !== prevModel?.provider || curModel.id !== prevModel?.id)
+      ) {
+        publish('session.model', {
+          model: { providerId: curModel.provider, modelId: curModel.id },
+        }, payload.sessionId, activeRuntime.cwd);
+      }
       if (activeRuntime.session?.isStreaming) return;
       settledSendGenerationBySession.set(payload.sessionId, generation);
       // Extension commands can complete without starting an agent turn, so Pi
@@ -2414,7 +2610,7 @@ export function createSessionDaemon({
               'sessions.steer', 'sessions.followUp', 'sessions.abort', 'sessions.setModel',
               'sessions.setThinking', 'sessions.compact', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.status', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
-              'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.delete',
+              'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
               'extensions.list', 'extensions.respond',
             ],
             ...(Number.isInteger(healthMetadata.daemonPid) ? { daemonPid: healthMetadata.daemonPid } : {}),
@@ -2511,6 +2707,11 @@ export function createSessionDaemon({
       }
       case 'resources.prompts.create': {
         const result = await createPrompt(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'resources.prompts.update': {
+        const result = await updatePrompt(message.payload);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }

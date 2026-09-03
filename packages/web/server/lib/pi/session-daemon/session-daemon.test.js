@@ -702,6 +702,37 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  it('leaves an extension-only session unnamed until its first conversation prompt', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-extension-title-'));
+    const endpoint = testDaemonEndpoint(root);
+    const runtime = new FakeRuntime({ cwd: root, session: new FakeSession('pi-session-old') });
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => runtime,
+    });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
+    runtime.session.extensionRunner = {
+      getRegisteredCommands: () => [{ invocationName: 'balance' }],
+    };
+
+    await client.request('sessions.prompt', { sessionId: 'pi-session-new', text: '/balance' });
+    expect(runtime.session.names).toEqual([]);
+
+    const promptedUpdated = client.next((frame) => frame.event === 'session.updated' && frame.payload?.title === 'Build the feature');
+    await client.request('sessions.prompt', { sessionId: 'pi-session-new', text: 'Build the feature' });
+    await expect(promptedUpdated).resolves.toMatchObject({
+      payload: { sessionId: 'pi-session-new', title: 'Build the feature' },
+    });
+    expect(runtime.session.names).toEqual(['Build the feature']);
+    await client.close();
+  });
+
   it('creates a global session from the literal home-directory target', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = testDaemonEndpoint(root);
@@ -1842,6 +1873,45 @@ describe('Pi session daemon spike', () => {
 
     await expect(settled).resolves.toMatchObject({
       payload: { sessionId: 'session-1', directory: root, state: 'idle' },
+    });
+    await client.close();
+  });
+
+  it('publishes session.model when an extension command switches the model without a session event', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-command-model-'));
+    const endpoint = testDaemonEndpoint(root);
+    const sessionFile = join(root, 'session-1.jsonl');
+    await writeFile(sessionFile, `{"type":"session","id":"session-1","cwd":"${root}"}\n`);
+    const session = new FakeSession('session-1', sessionFile);
+    // Pi notifies extensions of model switches, not session subscribers:
+    // mutate live runtime state without emitting any session event.
+    session.prompt = async () => {
+      session.model = { provider: 'openai-codex', id: 'gpt-5.6-luna' };
+    };
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => new FakeRuntime({ cwd: root, session }),
+      listSessions: async () => [
+        { path: sessionFile, id: 'session-1', cwd: root, created: new Date(), modified: new Date(), messageCount: 0 },
+      ],
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+
+    const modelChanged = client.next((frame) => frame.event === 'session.model');
+    await expect(client.request('sessions.prompt', {
+      sessionId: 'session-1',
+      text: '/balance',
+    })).resolves.toMatchObject({ result: { accepted: true } });
+
+    await expect(modelChanged).resolves.toMatchObject({
+      payload: {
+        sessionId: 'session-1',
+        model: { providerId: 'openai-codex', modelId: 'gpt-5.6-luna' },
+      },
     });
     await client.close();
   });
