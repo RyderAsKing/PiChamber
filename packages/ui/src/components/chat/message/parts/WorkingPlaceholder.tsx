@@ -66,16 +66,10 @@ export function WorkingPlaceholder({
   providerId,
   startedAt = null,
 }: WorkingPlaceholderProps) {
-  
   const { src: providerLogoSrc, onError: handleProviderLogoError, hasLogo: hasProviderLogo } = useProviderLogo(providerId ?? null);
   const { currentTheme } = useThemeSystem();
   const isDarkTheme = currentTheme?.metadata.variant === 'dark';
-  const [displayedText, setDisplayedText] = React.useState<string | null>(null);
-  const [displayedPermission, setDisplayedPermission] = React.useState<boolean>(false);
-  const displayedTextRef = React.useRef(displayedText);
-  const displayedPermissionRef = React.useRef(displayedPermission);
-  displayedTextRef.current = displayedText;
-  displayedPermissionRef.current = displayedPermission;
+  const displayedStatusRef = React.useRef<{ text: string; permission: boolean } | null>(null);
 
   // Countdown state for retry mode
   const [retryCountdown, setRetryCountdown] = React.useState<number | null>(null);
@@ -99,63 +93,14 @@ export function WorkingPlaceholder({
     return () => clearInterval(id);
   }, [retryInfo?.next, retryInfo?.attempt]);
 
-  const showStatus = React.useCallback((text: string, permission: boolean) => {
-    setDisplayedText(text);
-    setDisplayedPermission(permission);
-  }, []);
-
-  React.useEffect(() => {
-    if (!isWorking) {
-      setDisplayedText(null);
-      setDisplayedPermission(false);
-      return;
-    }
-
-    // Retry state has its own display — skip the normal queue
-    if (retryInfo) {
-      return;
-    }
-
-    const incomingText = isWaitingForPermission ? 'waiting for permission' : statusText;
-    const incomingPermission = Boolean(isWaitingForPermission);
-    const incomingGeneric = Boolean(isGenericStatus) && !incomingPermission;
-
-    if (!incomingText) {
-      return;
-    }
-
-    if (!displayedTextRef.current) {
-      showStatus(incomingText, incomingPermission);
-      return;
-    }
-
-    if (incomingText === displayedTextRef.current && incomingPermission === displayedPermissionRef.current) {
-      return;
-    }
-
-    // Generic filler never interrupts a real phase, but real phase changes
-    // track live (1s tool boundaries used to trail one tool behind the
-    // min-display hold).
-    if (incomingGeneric) {
-      return;
-    }
-
-    showStatus(incomingText, incomingPermission);
-  }, [
-    isWorking,
-    statusText,
-    isGenericStatus,
-    isWaitingForPermission,
-    retryInfo,
-    showStatus,
-  ]);
-
   if (!isWorking) {
+    displayedStatusRef.current = null;
     return null;
   }
 
   // Retry state: show countdown and attempt info
   if (retryInfo) {
+    displayedStatusRef.current = null;
     const attemptLabel = retryInfo.attempt && retryInfo.attempt > 1 ? ` (attempt ${retryInfo.attempt})` : '';
     const countdownLabel = retryCountdown !== null && retryCountdown > 0
       ? ` in ${formatRetryCountdown(retryCountdown)}`
@@ -174,22 +119,35 @@ export function WorkingPlaceholder({
     );
   }
 
-  if (!displayedText) {
+  const incomingText = isWaitingForPermission ? 'waiting for permission' : statusText;
+  const incomingPermission = Boolean(isWaitingForPermission);
+  const incomingGeneric = Boolean(isGenericStatus) && !incomingPermission;
+
+  // Render real phase changes in the same pass as their props. The previous
+  // effect-backed mirror left one stale or empty frame between tool calls and
+  // caused an extra render for every phase change. Generic filler still keeps
+  // the latest useful status until another real phase arrives.
+  if (incomingText && (!incomingGeneric || displayedStatusRef.current === null)) {
+    displayedStatusRef.current = { text: incomingText, permission: incomingPermission };
+  }
+
+  const displayedStatus = displayedStatusRef.current;
+  if (!displayedStatus) {
     return null;
   }
 
   const trimmedModelName = typeof modelName === 'string' ? modelName.trim() : '';
   const label = trimmedModelName.length > 0
-    ? `${trimmedModelName} is ${displayedText}`
-    : displayedText.charAt(0).toUpperCase() + displayedText.slice(1);
+    ? `${trimmedModelName} is ${displayedStatus.text}`
+    : displayedStatus.text.charAt(0).toUpperCase() + displayedStatus.text.slice(1);
 
   return (
     <div
       className="flex h-full min-w-0 items-center text-muted-foreground"
       role="status"
-      aria-live={displayedPermission ? 'assertive' : 'polite'}
+      aria-live={displayedStatus.permission ? 'assertive' : 'polite'}
       aria-label={label}
-      data-waiting={displayedPermission ? 'true' : undefined}
+      data-waiting={displayedStatus.permission ? 'true' : undefined}
     >
       <span className="typography-ui-header inline-flex min-w-0 items-center gap-1.5 leading-5">
         {hasProviderLogo && providerLogoSrc ? (

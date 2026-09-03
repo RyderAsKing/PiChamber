@@ -7,7 +7,7 @@ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Icon } from '@/components/icon/Icon';
 import { MarkdownRenderer } from '../../MarkdownRenderer';
 import { MinDurationShineText } from './MinDurationShineText';
-import { TOOL_ROW_DESCRIPTION_CLASS, TOOL_ROW_TITLE_CLASS } from './toolPartStyles';
+import { TOOL_NORMAL_TITLE_STYLE, TOOL_ROW_DESCRIPTION_CLASS, TOOL_ROW_TITLE_CLASS } from './toolPartStyles';
 import { useStreamingTextThrottle } from '../../hooks/useStreamingTextThrottle';
 import type { StreamPhase } from '../types';
 
@@ -162,7 +162,7 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
     // True when this block mounted while its part was still streaming: the
     // arrival plays the `oc-step-in` fade. History mounts settle statically so
     // scrolling old transcripts never replays arrivals.
-    const [arrivedLive] = React.useState(isStreaming);
+    const arrivedLiveRef = React.useRef(isStreaming);
     const contentRef = React.useRef<HTMLDivElement>(null);
     const contentAnimationRef = React.useRef<AnimationPlaybackControls | null>(null);
     const contentMountedRef = React.useRef(false);
@@ -409,7 +409,7 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
         <div
             data-reasoning-block-id={blockId}
             data-message-text-export-root="true"
-            className={arrivedLive ? 'oc-step-in' : undefined}
+            className={arrivedLiveRef.current ? 'oc-step-in' : undefined}
         >
             <div
                 role="button"
@@ -452,7 +452,7 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
                     <MinDurationShineText
                         active={isStreaming}
                         className={cn('flex items-center', TOOL_ROW_TITLE_CLASS)}
-                        style={{ color: 'var(--tools-description)' }}
+                        style={TOOL_NORMAL_TITLE_STYLE}
                         title={variant === 'justification' ? 'Justification' : 'Thinking'}
                     >
                         <span>{(variant === 'justification' ? "Justification" : "Thinking")}</span>

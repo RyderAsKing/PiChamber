@@ -12,6 +12,7 @@ import type { ToolPopupContent } from '../types';
 import { ToolRevealOnMount } from './ToolRevealOnMount';
 import { getToolIcon } from './toolPresentation';
 import { normalizeToolName } from './toolRenderUtils';
+import { TOOL_NORMAL_TITLE_STYLE } from './toolPartStyles';
 import {
     getTaskSummaryEntryRenderSignature,
     getTaskSummaryLabel,
@@ -87,9 +88,8 @@ const TaskSummaryEntryRow = React.memo(({
     const status = entry.state?.status;
     const displayName = getToolMetadata(toolName).displayName;
 
-    // wipe={false}: opacity + transform only (compositor-friendly).
     return (
-        <ToolRevealOnMount animate={animateTailText} wipe={false}>
+        <ToolRevealOnMount animate={animateTailText}>
             {/* Single-line rows everywhere: the old mobile break-words mode
                 wrapped long shell commands into a hanging column and floated
                 the icon to the top of the block. Errors still wrap — they must
@@ -98,7 +98,7 @@ const TaskSummaryEntryRow = React.memo(({
                 <span className="flex-shrink-0 text-foreground/80">{getToolIcon(toolName)}</span>
                 <span
                     className="typography-meta text-foreground/80 flex-shrink-0"
-                    style={{ color: 'var(--tools-description)' }}
+                    style={TOOL_NORMAL_TITLE_STYLE}
                     title={displayName}
                 >
                     {displayName}

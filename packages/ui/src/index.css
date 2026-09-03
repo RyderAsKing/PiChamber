@@ -1749,34 +1749,6 @@ input[aria-label="Terminal input"] {
   animation: oc-step-in 180ms ease-out both;
 }
 
-/* Running tool verb shimmer: the SAME treatment as the agent working
-   animation (`AgentThinkingLoader` label) — gradient sweep via the accepted
-   `shimmer-text` keyframes with semantic tokens, so all "working" shimmer
-   reads as one signal. Scoped to running verbs (few at a time) and capped by
-   `MinDurationShineText`'s busy cap, like the single status line. */
-.oc-shimmer-verb {
-  background-image: linear-gradient(90deg, var(--muted-foreground) 35%, var(--foreground) 50%, var(--muted-foreground) 65%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer-text 1.4s linear infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .oc-step-in {
-    animation: none;
-  }
-
-  /* Reduced motion falls back to the static dimmed verb. `color` must be
-     reset: transparent text with no gradient would be invisible. */
-  .oc-shimmer-verb {
-    animation: none;
-    background-image: none;
-    color: var(--tools-description);
-  }
-}
-
 @keyframes border-glow-pulse {
   0%, 100% {
     border-color: var(--interactive-border);
@@ -1897,7 +1869,8 @@ input[aria-label="Terminal input"] {
     animation: none !important;
   }
 
-  .message-footer-enter {
+  .message-footer-enter,
+  .oc-step-in {
     animation: none;
   }
 

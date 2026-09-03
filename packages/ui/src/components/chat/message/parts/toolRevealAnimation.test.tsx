@@ -23,38 +23,38 @@ mock.module('@/hooks/useProviderLogo', () => ({
   useProviderLogo: () => ({ src: null, onError: () => {}, hasLogo: false }),
 }));
 
+mock.module('@/contexts/useThemeSystem', () => ({
+  useThemeSystem: () => ({ currentTheme: null }),
+  useOptionalThemeSystem: () => null,
+}));
+
 const { ToolRevealOnMount } = await import('./ToolRevealOnMount');
 const { MinDurationShineText } = await import('./MinDurationShineText');
 const { ReasoningTimelineBlock } = await import('./ReasoningPart');
+const { WorkingPlaceholder } = await import('./WorkingPlaceholder');
 const { AssistantMessageBody } = await import('../AssistantMessageBody');
 
 describe('tool arrival animation', () => {
   test('arriving rows carry the observable step-in hook', () => {
     const animated = renderToStaticMarkup(
-      <ToolRevealOnMount animate={true} wipe={false}><span>row</span></ToolRevealOnMount>,
+      <ToolRevealOnMount animate={true}><span>row</span></ToolRevealOnMount>,
     );
     expect(animated).toContain('oc-step-in');
   });
 
   test('settled rows carry no step-in hook', () => {
     const idle = renderToStaticMarkup(
-      <ToolRevealOnMount animate={false} wipe={false}><span>row</span></ToolRevealOnMount>,
+      <ToolRevealOnMount animate={false}><span>row</span></ToolRevealOnMount>,
     );
     expect(idle).not.toContain('oc-step-in');
   });
 
-  test('the wipe path keeps its WAAPI sweep instead of the class', () => {
-    const wipe = renderToStaticMarkup(
-      <ToolRevealOnMount animate={true} wipe={true}><span>row</span></ToolRevealOnMount>,
-    );
-    expect(wipe).not.toContain('oc-step-in');
-  });
-
-  test('running verbs shimmer like the working animation, settled verbs stay static', () => {
+  test('running verbs use a bounded opacity transition, settled verbs stay static', () => {
     const running = renderToStaticMarkup(
       <MinDurationShineText active={true}>Read</MinDurationShineText>,
     );
-    expect(running).toContain('oc-shimmer-verb');
+    expect(running).toContain('opacity-70');
+    expect(running).not.toContain('oc-shimmer-verb');
     const settled = renderToStaticMarkup(
       <MinDurationShineText active={false}>Read</MinDurationShineText>,
     );
@@ -62,7 +62,7 @@ describe('tool arrival animation', () => {
   });
 });
 
-describe('thinking block arrival and shimmer', () => {
+describe('thinking block arrival', () => {
   const block = (isStreaming: boolean) => ({
     text: 'Checking the theme provider wiring',
     variant: 'thinking',
@@ -70,12 +70,14 @@ describe('thinking block arrival and shimmer', () => {
     isStreaming,
   } as const);
 
-  test('live thinking fades in and shimmers its title', () => {
+  test('live thinking fades in and dims its title', () => {
     const markup = renderToStaticMarkup(
       <ReasoningTimelineBlock {...block(true)} />,
     );
     expect(markup).toContain('oc-step-in');
-    expect(markup).toContain('oc-shimmer-verb');
+    expect(markup).toContain('opacity-70');
+    expect(markup).toContain('color:color-mix(in srgb, var(--tools-title) 72%, var(--tools-description))');
+    expect(markup).not.toContain('oc-shimmer-verb');
   });
 
   test('settled thinking mounts statically with a dimmed title', () => {
@@ -83,7 +85,23 @@ describe('thinking block arrival and shimmer', () => {
       <ReasoningTimelineBlock {...block(false)} />,
     );
     expect(markup).not.toContain('oc-step-in');
+    expect(markup).toContain('color:color-mix(in srgb, var(--tools-title) 72%, var(--tools-description))');
     expect(markup).not.toContain('oc-shimmer-verb');
+  });
+});
+
+describe('working footer stability between tools', () => {
+  test('renders the current tool phase without an effect-delayed empty frame', () => {
+    const markup = renderToStaticMarkup(
+      <WorkingPlaceholder
+        isWorking
+        statusText="reading file"
+        isGenericStatus={false}
+        modelName="Claude"
+      />,
+    );
+
+    expect(markup).toContain('Claude is reading file');
   });
 });
 
@@ -109,7 +127,7 @@ describe('footer stability across sends', () => {
     expect(old).toContain('disabled=""');
   });
 
-  test('revert slot reserves geometry before it appears', async () => {
+  test('latest message omits revert without reserving an empty slot', async () => {
     const { AssistantMessageActionButtons } = await import('../AssistantMessageActionButtons');
     const buttons = (isLatestMessage: boolean) => renderToStaticMarkup(
       <AssistantMessageActionButtons
@@ -126,10 +144,10 @@ describe('footer stability across sends', () => {
     const old = buttons(false);
     expect(old).toContain('Revert conversation to here');
     expect(latest).not.toContain('Revert conversation to here');
-    // Same number of h-8 w-8 action slots before and after: the placeholder
-    // keeps siblings from shifting when revert inserts on send.
+    // The latest message omits revert without leaving a blank action slot.
     const slots = (markup: string): number => markup.split('h-8 w-8').length - 1;
-    expect(slots(latest)).toBe(slots(old));
+    expect(slots(latest)).toBe(slots(old) - 1);
+    expect(latest).not.toContain('aria-hidden="true" class="h-8 w-8 flex-shrink-0"');
     expect(latest).toContain('Fork conversation from here');
     expect(old).toContain('Fork conversation from here');
   });
@@ -193,23 +211,22 @@ describe('assistant turn footer across tool batches', () => {
     expect(two).not.toContain('message-footer');
   });
 
-  test('the settled footer is identical no matter how many tools the turn ran', () => {
-    const renderSettled = (parts: unknown) => renderToStaticMarkup(
+  test('historical settled footers do not request an entry animation', () => {
+    const markup = renderToStaticMarkup(
       <AssistantMessageBody
         {...base}
         isMessageCompleted
         messageFinish="stop"
         hasTextContent
-        parts={[{ id: 'tx', type: 'text', text: 'done' }, ...(parts as never[])] as never}
+        footerModelName="Claude"
+        parts={[{ id: 'tx', type: 'text', text: 'done' }, mkTool('tp1', 'completed')] as never}
         turnGroupingContext={ctxIdle}
       />,
     );
-    const footerOf = (markup: string): string => {
-      const start = markup.indexOf('message-footer-enter');
-      expect(start).toBeGreaterThan(-1);
-      return markup.slice(start);
-    };
-    expect(footerOf(renderSettled([mkTool('tp1', 'completed')])))
-      .toBe(footerOf(renderSettled([mkTool('tp1', 'completed'), mkTool('tp2', 'completed')])));
+
+    expect(markup).toContain('Claude');
+    expect(markup).toContain('gap-y-1 text-sm text-muted-foreground');
+    expect(markup).not.toContain('text-muted-foreground/60');
+    expect(markup).not.toContain('message-footer-enter');
   });
 });

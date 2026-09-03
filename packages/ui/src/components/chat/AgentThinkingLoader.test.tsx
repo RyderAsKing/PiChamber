@@ -28,4 +28,12 @@ describe('AgentThinkingLoader elapsed origin', () => {
     const markup = renderToStaticMarkup(<AgentThinkingLoader text="Working" />);
     expect(markup).toContain('0.0s');
   });
+
+  test('keeps changing status labels on one line', () => {
+    const markup = renderToStaticMarkup(
+      <AgentThinkingLoader text="A long model name is searching content" />,
+    );
+    expect(markup).toContain('truncate');
+    expect(markup).toContain('whitespace-nowrap');
+  });
 });

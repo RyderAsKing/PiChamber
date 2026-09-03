@@ -22,7 +22,7 @@ import type { TurnActivityRecord as TurnActivityPart } from '../../lib/turns/typ
 import { areRenderRelevantActivityListsEqual } from '../renderCompare';
 import { MinDurationShineText } from './MinDurationShineText';
 import { getToolSkillName } from './skillToolPresentation';
-import { TOOL_ROW_DESCRIPTION_CLASS, TOOL_ROW_TITLE_CLASS } from './toolPartStyles';
+import { TOOL_NORMAL_TITLE_STYLE, TOOL_ROW_DESCRIPTION_CLASS, TOOL_ROW_TITLE_CLASS } from './toolPartStyles';
 import { getToolIcon } from './toolPresentation';
 
 const ExternalLinkFavicon: React.FC<{ href: string }> = ({ href }) => {
@@ -439,8 +439,8 @@ const StaticToolRowInner: React.FC<{
             <MinDurationShineText
                 active={hasRunningActivity}
                 minDurationMs={1000}
-                className={cn(TOOL_ROW_TITLE_CLASS, 'inline-flex items-center flex-shrink-0 opacity-85')}
-                style={{ color: 'var(--tools-description)' }}
+                className={cn(TOOL_ROW_TITLE_CLASS, 'inline-flex items-center flex-shrink-0')}
+                style={TOOL_NORMAL_TITLE_STYLE}
                 title={displayName}
             >
                 {displayName}

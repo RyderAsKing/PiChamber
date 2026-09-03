@@ -111,15 +111,10 @@ export const AssistantMessageActionButtons = React.memo(({
 
     return (
         <>
-            {/* Stable keys: without them the revert insertion on send
-                remounts every sibling positionally (fork->revert,
-                copy->fork, ...), flashing the whole group. With keys only
-                the revert slot itself mounts. The placeholder reserves its
-                geometry so siblings never shift. */}
+            {/* Stable keys prevent the conditional revert action from
+                remounting its siblings when the latest-message state changes. */}
             {sessionId && messageId && !isLatestMessage ? (
                 <MessageRevertAction key="message-revert" sessionId={sessionId} messageId={messageId} size="assistant" />
-            ) : sessionId && messageId ? (
-                <span key="message-revert" aria-hidden="true" className="h-8 w-8 flex-shrink-0" />
             ) : null}
             {sessionId && messageId ? (
                 <MessageForkAction key="message-fork" sessionId={sessionId} messageId={messageId} size="assistant" />
