@@ -1,7 +1,11 @@
 import type { AgentMentionInfo } from '../types';
 import { buildAgentHref, buildSkillHref } from '@/lib/messages/inlineMessageLinks';
 
-export const SKILL_TOKEN_PATTERN = /(^|\s)\/([a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)/g;
+// Native Pi skill invocations only: `/skill:name`. Bare `/name` is never a
+// skill (it may be a prompt template or extension command), so it must not
+// link to skill settings. Names allow dashes and underscores; matching stays
+// case-sensitive against the authoritative registry via the caller-provided set.
+export const SKILL_TOKEN_PATTERN = /(^|\s)\/skill:([A-Za-z0-9][A-Za-z0-9_-]*)/g;
 
 const FENCED_CODE_SEGMENT_PATTERN = /(```[\s\S]*?```|~~~[\s\S]*?~~~)/g;
 
@@ -47,7 +51,7 @@ export const prepareUserMarkdownContent = ({
 
     content = content.replace(SKILL_TOKEN_PATTERN, (match, prefix: string, skillName: string) => {
         if (!skillNames.has(skillName)) return match;
-        return `${prefix}[/${skillName}](${buildSkillHref(skillName)})`;
+        return `${prefix}[/skill:${skillName}](${buildSkillHref(skillName)})`;
     });
 
     // Preserve user newlines (markdown soft breaks would otherwise collapse to spaces)

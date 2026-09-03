@@ -40,13 +40,13 @@ describe('prepareUserMarkdownContent', () => {
 
     test('preserves mention conversion', () => {
         const content = prepareUserMarkdownContent({
-            textContent: '@agent hello\n/skill-name',
+            textContent: '@agent hello\n/skill:skill-name',
             agentMention: { name: 'build-agent', token: '@agent' },
             skillNames: new Set(['skill-name']),
         });
 
         expect(content).toContain('[@agent](#pichamber-agent:build-agent)');
-        expect(content).toContain('[/skill-name](#pichamber-skill:skill-name)');
-        expect(content).toContain('hello  \n[/skill-name]');
+        expect(content).toContain('[/skill:skill-name](#pichamber-skill:skill-name)');
+        expect(content).toContain('hello  \n[/skill:skill-name]');
     });
 });

@@ -150,10 +150,10 @@ const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMenti
                         openSkill(skillName);
                     }}
                 >
-                    /{skillName}
+                    /skill:{skillName}
                 </button>
             );
-            cursor = slashIndex + skillName.length + 1;
+            cursor = slashIndex + 'skill:'.length + skillName.length + 1;
         }
 
         if (cursor < textContent.length) nodes.push(textContent.slice(cursor));
