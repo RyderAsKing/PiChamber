@@ -1,28 +1,37 @@
-import React from 'react';
-import { cn, fuzzyMatch } from '@/lib/utils';
-import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useSessionMessages } from '@/sync/sync-context';
-import { useSkillsStore } from '@/stores/useSkillsStore';
-import { usePiSessionSnapshot } from '@/sync/pi-session-context';
-import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
-import { Button } from '@/components/ui/button';
+import React from "react";
+import { cn } from "@/lib/utils";
+import { useSessionUIStore } from "@/sync/session-ui-store";
+import { useSessionMessages } from "@/sync/sync-context";
+import { ScrollableOverlay } from "@/components/ui/ScrollableOverlay";
+import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/icon/Icon";
-import { useUIStore } from '@/stores/useUIStore';
-import { useMobileAutocompleteMaxHeight } from './useMobileAutocompleteMaxHeight';
+import { useUIStore } from "@/stores/useUIStore";
+import { useMobileAutocompleteMaxHeight } from "./useMobileAutocompleteMaxHeight";
 import {
+  commandInvocationName,
   commandMatchesCategory,
   commandMatchesSearch,
   mergeCommandAutocompleteItems,
   type CommandAutocompleteCategory,
-} from './commandAutocompleteItems';
-import { piClient } from '@/lib/pi/client';
-import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
+} from "./commandAutocompleteItems";
+import { useEffectiveDirectory } from "@/hooks/useEffectiveDirectory";
+import { useCommandCatalog } from "@/hooks/useCommandCatalog";
 
-type CommandSource = 'pichamber' | 'pi' | 'skill' | 'extension';
+/**
+ * Slash-command catalog entry.
+ *
+ * `name` is display metadata (for skills the bare resource name), while
+ * `invocationName` is the executable identity Pi resolves (`review`,
+ * `skill:code-review`, or a registered extension invocation including any
+ * Pi-generated suffix). Callers must insert `invocationName`, never
+ * reconstruct skill syntax from flags.
+ */
+export type CommandSource = "pichamber" | "system" | "pi" | "skill" | "extension" | "prompt";
 
 export interface CommandInfo {
   id: string;
   name: string;
+  invocationName: string;
   source: CommandSource;
   description?: string;
   searchAliases?: string[];
@@ -38,25 +47,25 @@ export interface CommandAutocompleteHandle {
 }
 
 const getCommandContext = (command: CommandInfo): string | null => {
-  const primaryContext = command.isSkill
-    ? 'Skill'
-    : command.source === 'extension'
-      ? 'Extension'
-      : command.isBuiltIn
-        ? 'Built-in'
-        : command.scope;
-  const labels = [primaryContext, command.agent].filter((label): label is string => Boolean(label));
-  return labels.length > 0 ? labels.join(' · ') : null;
+  if (command.source === "skill" || command.isSkill) return "Skill";
+  if (command.source === "extension") return "Extension";
+  if (command.source === "prompt") return "Prompt";
+  if (command.source === "system" || command.source === "pichamber" || command.isBuiltIn) return "System";
+  const labels = [command.scope, command.agent].filter(
+    (label): label is string => Boolean(label),
+  );
+  return labels.length > 0 ? labels.join(" · ") : null;
 };
 
 const COMMAND_CATEGORY_OPTIONS: ReadonlyArray<{
   value: CommandAutocompleteCategory;
   label: string;
 }> = [
-  { value: 'all', label: 'All' },
-  { value: 'system', label: 'System' },
-  { value: 'skills', label: 'Skills' },
-  { value: 'extensions', label: 'Extensions' },
+  { value: "all", label: "All" },
+  { value: "system", label: "System" },
+  { value: "prompts", label: "Prompts" },
+  { value: "skills", label: "Skills" },
+  { value: "extensions", label: "Extensions" },
 ];
 
 interface CommandAutocompleteProps {
@@ -66,84 +75,33 @@ interface CommandAutocompleteProps {
   style?: React.CSSProperties;
 }
 
-const buildBuiltInCommands = (options: {
-  hasSession: boolean;
-  hasMessagesInCurrentSession: boolean;
-}): CommandInfo[] => {
-  const { hasSession, hasMessagesInCurrentSession } = options;
-  return [
-    ...(hasSession && !hasMessagesInCurrentSession
-      ? [{ id: 'pichamber:init', name: 'init', source: 'pichamber' as const, description: "Create/update AGENTS.md file", isBuiltIn: true }]
-      : []
-    ),
-    ...(hasSession
-      ? [
-          { id: 'pichamber:undo', name: 'undo', source: 'pichamber' as const, description: "Undo the last message", isBuiltIn: true },
-          { id: 'pichamber:redo', name: 'redo', source: 'pichamber' as const, description: "Redo previously undone messages", isBuiltIn: true },
-          { id: 'pichamber:timeline', name: 'timeline', source: 'pichamber' as const, description: "Open the conversation timeline", isBuiltIn: true },
-        ]
-      : []
-    ),
-    { id: 'pichamber:compact', name: 'compact', source: 'pichamber' as const, description: "Compress session history using AI to reduce context size", isBuiltIn: true },
-  ];
-};
-
-export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, CommandAutocompleteProps>(({
-  searchQuery,
-  onCommandSelect,
-  onClose,
-  style,
-}, ref) => {
+export const CommandAutocomplete = React.forwardRef<
+  CommandAutocompleteHandle,
+  CommandAutocompleteProps
+>(({ searchQuery, onCommandSelect, onClose, style }, ref) => {
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
-  const sessionMessages = useSessionMessages(currentSessionId ?? '');
+  const sessionMessages = useSessionMessages(currentSessionId ?? "");
   const hasMessagesInCurrentSession = sessionMessages.length > 0;
   const hasSession = Boolean(currentSessionId);
-  const extensionCatalogRevision = usePiSessionSnapshot(
-    (state) => currentSessionId ? state.reducer.bySession.get(currentSessionId)?.extensionCatalogRevision ?? 0 : 0,
-    Object.is,
-    currentSessionId ? `session:${currentSessionId}` : 'chrome',
-  );
   const isMobile = useUIStore((state) => state.isMobile);
+
+  const [category, setCategory] =
+    React.useState<CommandAutocompleteCategory>("all");
+  const effectiveDirectory = useEffectiveDirectory();
+  const { commands: catalogCommands, isLoading: catalogLoading } =
+    useCommandCatalog(effectiveDirectory);
 
   const [commands, setCommands] = React.useState<CommandInfo[]>([]);
   const [loading, setLoading] = React.useState(false);
-  const [category, setCategory] = React.useState<CommandAutocompleteCategory>('all');
-  const skills = useSkillsStore((s) => s.skills);
-  const refreshSkills = useSkillsStore((s) => s.loadSkills);
-  const effectiveDirectory = useEffectiveDirectory();
-
-  // Extension-registered slash commands (pi extensions loaded by the session
-  // daemon). Fetched per effective directory and cached in component state;
-  // failures keep whatever was last known rather than emptying the list.
-  const [extensionCommands, setExtensionCommands] = React.useState<CommandInfo[]>([]);
-  React.useEffect(() => {
-    if (!hasSession || !effectiveDirectory) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const result = await piClient.listExtensions(effectiveDirectory);
-        if (cancelled) return;
-        setExtensionCommands((result.commands ?? [])
-          .filter((command) => command.source === 'extension')
-          .map((command, index) => ({
-            id: `extension:${command.name}:${index}`,
-            name: command.name,
-            source: 'extension' as const,
-            description: command.description,
-          })));
-      } catch {
-        // Autocomplete still works with built-ins; extension commands are a
-        // progressive enhancement, not an authoritative fetch.
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [hasSession, effectiveDirectory, extensionCatalogRevision]);
   const [selectedIndex, setSelectedIndex] = React.useState(0);
   const selectedIndexRef = React.useRef(0);
   const keyboardNavigationRef = React.useRef(false);
   const itemRefs = React.useRef<(HTMLDivElement | null)[]>([]);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
-  const mobileMaxHeight = useMobileAutocompleteMaxHeight(containerRef, isMobile);
+  const mobileMaxHeight = useMobileAutocompleteMaxHeight(
+    containerRef,
+    isMobile,
+  );
   const ignoreClickRef = React.useRef(false);
   const pointerStartRef = React.useRef<{ x: number; y: number } | null>(null);
   const pointerMovedRef = React.useRef(false);
@@ -160,71 +118,81 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
       onClose();
     };
 
-    document.addEventListener('pointerdown', handlePointerDown, true);
+    document.addEventListener("pointerdown", handlePointerDown, true);
     return () => {
-      document.removeEventListener('pointerdown', handlePointerDown, true);
+      document.removeEventListener("pointerdown", handlePointerDown, true);
     };
   }, [onClose]);
 
   React.useEffect(() => {
-    // Force refresh to get latest project context when mounting
-    void refreshSkills();
-  }, [refreshSkills]);
+    setLoading(catalogLoading);
+    // System commands intercept before Pi; only show session-bound ones when
+    // a session exists. `compact` is always available (it creates no session
+    // by itself; the send path requires one). `init` is intentionally absent:
+    // it has no browser-path handler and must not be advertised.
+    const systemCommands: CommandInfo[] = catalogCommands
+      .filter((c) => c.source === "system")
+      .filter((c) => {
+        if (c.invocationName === "compact") return true;
+        return hasSession;
+      })
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        invocationName: c.invocationName,
+        source: "system" as const,
+        description: c.description,
+        isBuiltIn: true,
+        ...(c.scope ? { scope: c.scope } : {}),
+      }));
 
-  React.useEffect(() => {
-    const loadCommands = async () => {
-      setLoading(true);
-      try {
-        const skillCommands: CommandInfo[] = skills.map((skill, index) => ({
-          id: `skill:${skill.scope}:${skill.source ?? 'pi'}:${skill.name}:${index}`,
-          name: skill.name,
-          source: 'skill',
-          description: skill.description,
-          isSkill: true,
-          scope: skill.scope,
-        }));
+    const nativeCommands: CommandInfo[] = catalogCommands
+      .filter((c) => c.source !== "system")
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        invocationName: c.invocationName,
+        source: c.source,
+        description: c.description,
+        ...(c.source === "skill" ? { isSkill: true as const } : {}),
+        ...(c.scope ? { scope: c.scope } : {}),
+      }));
 
-        const builtInCommands = buildBuiltInCommands({ hasSession, hasMessagesInCurrentSession });
-        const allCommands = mergeCommandAutocompleteItems(builtInCommands, [], skillCommands);
-        const builtInNames = new Set(allCommands.map((cmd) => cmd.name));
-        const withExtensions = [...allCommands, ...extensionCommands.filter((cmd) => !builtInNames.has(cmd.name))];
+    const allCommands = mergeCommandAutocompleteItems(
+      systemCommands,
+      nativeCommands.filter((c) => c.source === "extension"),
+      nativeCommands.filter((c) => c.source === "skill"),
+      nativeCommands.filter((c) => c.source === "prompt"),
+    );
 
-        const allowInitCommand = !hasMessagesInCurrentSession;
-        const categorized = withExtensions.filter((cmd) => commandMatchesCategory(cmd, category));
-        const filtered = (searchQuery
-          ? categorized.filter(cmd => commandMatchesSearch(cmd, searchQuery))
-          : categorized).filter(cmd => allowInitCommand || cmd.name !== 'init');
+    const categorized = allCommands.filter((cmd) =>
+      commandMatchesCategory(cmd, category),
+    );
+    const normalizedQuery = searchQuery.trim();
+    const filtered = normalizedQuery
+      ? categorized.filter((cmd) => commandMatchesSearch(cmd, normalizedQuery))
+      : categorized;
 
-        filtered.sort((a, b) => {
-          const aStartsWith = a.name.toLowerCase().startsWith(searchQuery.toLowerCase());
-          const bStartsWith = b.name.toLowerCase().startsWith(searchQuery.toLowerCase());
-          if (aStartsWith && !bStartsWith) return -1;
-          if (!aStartsWith && bStartsWith) return 1;
-          return a.name.localeCompare(b.name);
-        });
+    filtered.sort((a, b) => {
+      const aInvocation = commandInvocationName(a).toLowerCase();
+      const bInvocation = commandInvocationName(b).toLowerCase();
+      const query = normalizedQuery.toLowerCase();
+      const aStartsWith = query.length > 0 && aInvocation.startsWith(query);
+      const bStartsWith = query.length > 0 && bInvocation.startsWith(query);
+      if (aStartsWith && !bStartsWith) return -1;
+      if (!aStartsWith && bStartsWith) return 1;
+      return aInvocation.localeCompare(bInvocation);
+    });
 
-        setCommands(filtered);
-      } catch {
-
-        const allowInitCommand = !hasMessagesInCurrentSession;
-        const builtInCommands = buildBuiltInCommands({ hasSession, hasMessagesInCurrentSession });
-        const categorized = builtInCommands.filter((cmd) => commandMatchesCategory(cmd, category));
-
-        const filtered = (searchQuery
-          ? categorized.filter(cmd =>
-              fuzzyMatch(cmd.name, searchQuery) ||
-              (cmd.description && fuzzyMatch(cmd.description, searchQuery))
-            )
-          : categorized).filter(cmd => allowInitCommand || cmd.name !== 'init');
-
-        setCommands(filtered);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadCommands();
-  }, [searchQuery, hasMessagesInCurrentSession, hasSession, skills, extensionCommands, category]);
+    setCommands(filtered);
+  }, [
+    searchQuery,
+    hasSession,
+    hasMessagesInCurrentSession,
+    catalogCommands,
+    catalogLoading,
+    category,
+  ]);
 
   React.useEffect(() => {
     setSelectedIndex(0);
@@ -236,49 +204,58 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
 
   React.useEffect(() => {
     itemRefs.current[selectedIndex]?.scrollIntoView({
-      block: 'nearest'
+      block: "nearest",
     });
   }, [selectedIndex]);
 
-  React.useImperativeHandle(ref, () => ({
-    handleKeyDown: (key: string) => {
-      const total = commands.length;
-      if (key === 'Escape') {
-        onClose();
-        return;
-      }
-
-      if (total === 0) {
-        return;
-      }
-
-      if (key === 'ArrowDown') {
-        keyboardNavigationRef.current = true;
-        setSelectedIndex((prev) => (prev + 1) % total);
-        return;
-      }
-
-      if (key === 'ArrowUp') {
-        keyboardNavigationRef.current = true;
-        setSelectedIndex((prev) => (prev - 1 + total) % total);
-        return;
-      }
-
-      if (key === 'Enter' || key === 'Tab') {
-        const safeIndex = ((selectedIndexRef.current % total) + total) % total;
-        const command = commands[safeIndex];
-        if (command) {
-          onCommandSelect(command);
+  React.useImperativeHandle(
+    ref,
+    () => ({
+      handleKeyDown: (key: string) => {
+        const total = commands.length;
+        if (key === "Escape") {
+          onClose();
+          return;
         }
-      }
-    }
-  }), [commands, onClose, onCommandSelect]);
+
+        if (total === 0) {
+          return;
+        }
+
+        if (key === "ArrowDown") {
+          keyboardNavigationRef.current = true;
+          setSelectedIndex((prev) => (prev + 1) % total);
+          return;
+        }
+
+        if (key === "ArrowUp") {
+          keyboardNavigationRef.current = true;
+          setSelectedIndex((prev) => (prev - 1 + total) % total);
+          return;
+        }
+
+        if (key === "Enter" || key === "Tab") {
+          const safeIndex =
+            ((selectedIndexRef.current % total) + total) % total;
+          const command = commands[safeIndex];
+          if (command) {
+            onCommandSelect(command);
+          }
+        }
+      },
+    }),
+    [commands, onClose, onCommandSelect],
+  );
 
   return (
     <div
       ref={containerRef}
       className="absolute bottom-full left-0 z-[100] flex max-h-80 min-w-0 w-full max-w-[520px] flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--surface-elevated)] text-[var(--surface-elevated-foreground)] shadow-lg"
-      style={mobileMaxHeight !== undefined ? { ...style, maxHeight: mobileMaxHeight } : style}
+      style={
+        mobileMaxHeight !== undefined
+          ? { ...style, maxHeight: mobileMaxHeight }
+          : style
+      }
     >
       <div
         role="group"
@@ -301,45 +278,62 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
       <ScrollableOverlay
         role="listbox"
         aria-label="Commands"
-        aria-activedescendant={!loading && commands[selectedIndex] ? `command-option-${selectedIndex}` : undefined}
+        aria-activedescendant={
+          !loading && commands[selectedIndex]
+            ? `command-option-${selectedIndex}`
+            : undefined
+        }
         preventOverscroll
         outerClassName="flex-1 min-h-0"
         className="px-1 py-1.5"
       >
         {loading ? (
           <div className="flex items-center justify-center py-8">
-            <Icon name="refresh" className="size-5 animate-spin text-muted-foreground" aria-hidden />
+            <Icon
+              name="refresh"
+              className="size-5 animate-spin text-muted-foreground"
+              aria-hidden
+            />
           </div>
         ) : (
           <div>
             {commands.map((command, index) => {
               const isSelected = index === selectedIndex;
               const context = getCommandContext(command);
+              const invocation = commandInvocationName(command);
               return (
                 <div
                   key={command.id}
                   id={`command-option-${index}`}
-                  ref={(el) => { itemRefs.current[index] = el; }}
+                  ref={(el) => {
+                    itemRefs.current[index] = el;
+                  }}
                   role="option"
                   aria-selected={isSelected}
                   className={cn(
-                    'flex min-h-14 cursor-pointer items-start rounded-lg px-3 py-2.5',
+                    "flex min-h-14 cursor-pointer items-start rounded-lg px-3 py-2.5",
                     isSelected
-                      ? 'bg-interactive-selection text-interactive-selection-foreground'
-                      : 'text-foreground hover:bg-interactive-hover',
+                      ? "bg-interactive-selection text-interactive-selection-foreground"
+                      : "text-foreground hover:bg-interactive-hover",
                   )}
                   // Keep the editor focused so selecting a command does not
                   // dismiss the soft keyboard on touch devices.
                   onMouseDown={(event) => event.preventDefault()}
                   onPointerDown={(event) => {
-                    if (event.pointerType !== 'touch') {
+                    if (event.pointerType !== "touch") {
                       return;
                     }
-                    pointerStartRef.current = { x: event.clientX, y: event.clientY };
+                    pointerStartRef.current = {
+                      x: event.clientX,
+                      y: event.clientY,
+                    };
                     pointerMovedRef.current = false;
                   }}
                   onPointerMove={(event) => {
-                    if (event.pointerType !== 'touch' || !pointerStartRef.current) {
+                    if (
+                      event.pointerType !== "touch" ||
+                      !pointerStartRef.current
+                    ) {
                       return;
                     }
                     const dx = event.clientX - pointerStartRef.current.x;
@@ -349,7 +343,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
                     }
                   }}
                   onPointerUp={(event) => {
-                    if (event.pointerType !== 'touch') {
+                    if (event.pointerType !== "touch") {
                       return;
                     }
                     const didMove = pointerMovedRef.current;
@@ -381,22 +375,44 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="min-w-0 truncate font-mono typography-ui-label font-medium">/{command.name}</span>
+                      <span className="min-w-0 truncate font-mono typography-ui-label font-medium">
+                        /{invocation}
+                      </span>
                       {context && (
-                        <span className={cn(
-                          'ml-auto max-w-[45%] shrink-0 truncate text-xs leading-4',
-                          isSelected ? 'text-interactive-selection-foreground/75' : 'text-muted-foreground',
-                        )}>
+                        <span
+                          className={cn(
+                            "ml-auto max-w-[45%] shrink-0 truncate text-xs leading-4",
+                            isSelected
+                              ? "text-interactive-selection-foreground/75"
+                              : "text-muted-foreground",
+                          )}
+                        >
                           {context}
                         </span>
                       )}
                     </div>
                     {command.description && (
-                      <div className={cn(
-                        'mt-1 truncate text-xs leading-5',
-                        isSelected ? 'text-interactive-selection-foreground/75' : 'text-muted-foreground',
-                      )}>
+                      <div
+                        className={cn(
+                          "mt-1 truncate text-xs leading-5",
+                          isSelected
+                            ? "text-interactive-selection-foreground/75"
+                            : "text-muted-foreground",
+                        )}
+                      >
                         {command.description}
+                      </div>
+                    )}
+                    {command.source === "skill" && command.name !== invocation && (
+                      <div
+                        className={cn(
+                          "mt-0.5 truncate text-xs leading-4",
+                          isSelected
+                            ? "text-interactive-selection-foreground/60"
+                            : "text-muted-foreground/80",
+                        )}
+                      >
+                        {command.name}
                       </div>
                     )}
                   </div>
@@ -420,4 +436,4 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
   );
 });
 
-CommandAutocomplete.displayName = 'CommandAutocomplete';
+CommandAutocomplete.displayName = "CommandAutocomplete";

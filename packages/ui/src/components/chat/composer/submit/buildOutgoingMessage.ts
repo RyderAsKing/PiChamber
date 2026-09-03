@@ -17,7 +17,11 @@ import type { AttachedFile } from '@/stores/types/sessionTypes';
 import { collectKnownTokenNames } from '../language/prefixTokens';
 
 
-/** Resolve inline /skill tokens against the authoritative skill registry. */
+/** Resolve inline `/skill:name` tokens against the authoritative skill registry.
+ * Bare `/name` is never a skill invocation: Pi SDK 0.84.1 only expands skills
+ * when input starts with `/skill:<skill-name>`. Inline mentions mid-sentence
+ * are not expanded by Pi (only a leading `/skill:name` is), so the collected
+ * names become a synthetic hint for the model. */
 export const collectInlineSkillMentions = (text: string, skillNames: Set<string>): string[] => {
     if (skillNames.size === 0) return [];
     const canonicalByLower = new Map<string, string>();
@@ -25,11 +29,16 @@ export const collectInlineSkillMentions = (text: string, skillNames: Set<string>
         const lower = name.toLowerCase();
         if (!canonicalByLower.has(lower)) canonicalByLower.set(lower, name);
     }
-    const matched = collectKnownTokenNames(text, '/', new Set(canonicalByLower.keys()), 'case-insensitive');
+    // Scan generous `/` tokens (including `skill:name` and extension suffixes),
+    // then keep only the `skill:<name>` form whose bare name exists.
+    const invocationByLower = new Set<string>();
+    for (const name of canonicalByLower.keys()) invocationByLower.add(`skill:${name}`);
+    const matched = collectKnownTokenNames(text, '/', invocationByLower, 'case-insensitive');
     const seen = new Set<string>();
     const resolved: string[] = [];
-    for (const name of matched) {
-        const canonical = canonicalByLower.get(name.toLowerCase()) ?? name;
+    for (const invocation of matched) {
+        const bare = invocation.slice('skill:'.length);
+        const canonical = canonicalByLower.get(bare.toLowerCase()) ?? bare;
         const key = canonical.toLowerCase();
         if (seen.has(key)) continue;
         seen.add(key);
@@ -40,7 +49,7 @@ export const collectInlineSkillMentions = (text: string, skillNames: Set<string>
 
 export const buildSkillMentionInstruction = (skillNames: string[]): string | null => {
     if (skillNames.length === 0) return null;
-    const formatted = skillNames.map((name) => `/${name}`).join(', ');
+    const formatted = skillNames.map((name) => `/skill:${name}`).join(', ');
     return `The user explicitly mentioned these skills in their message: ${formatted}. Use the corresponding skill tool when it is relevant to accomplishing the user's request.`;
 };
 

@@ -124,12 +124,15 @@ export function useComposerAutocompleteHandlers({
 
   const handleSkillSelect = React.useCallback(
     (skillName: string) => {
+      // Inline skill picker inserts the native Pi invocation Pi expands
+      // (`/skill:name`), never the bare resource name Pi treats as prose.
+      const invocation = skillName.startsWith("skill:") ? skillName : `skill:${skillName}`;
       const cursorPosition = composerRef.current?.getSelection().start ?? message.length;
       const { newMessage, nextCursor } = buildPrefixTokenReplacement(
         message,
         cursorPosition,
         '/',
-        skillName
+        invocation
       );
       setMessage(newMessage);
 
@@ -170,7 +173,11 @@ export function useComposerAutocompleteHandlers({
 
   const handleCommandSelect = React.useCallback(
     (command: CommandInfo) => {
-      setMessage(`/${command.name} `);
+      // Insert the executable invocation Pi resolves (`review`,
+      // `skill:code-review`, or a registered extension name). Keyboard and
+      // mouse selection share this path so they produce identical text.
+      const invocation = command.invocationName ?? command.name;
+      setMessage(`/${invocation} `);
       closeAutocomplete();
 
       const refocus = () => {

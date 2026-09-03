@@ -50,8 +50,13 @@ export const SkillAutocomplete = React.forwardRef<SkillAutocompleteHandle, Skill
 
   React.useEffect(() => {
     const normalizedQuery = searchQuery.trim();
-    const matches = normalizedQuery.length
-      ? skills.filter((skill) => fuzzyMatch(skill.name, normalizedQuery))
+    // Users may type the executable `skill:name` or the bare resource name;
+    // match against the bare name either way so `/skill:co` finds `code-review`.
+    const bareQuery = normalizedQuery.toLowerCase().startsWith("skill:")
+      ? normalizedQuery.slice("skill:".length)
+      : normalizedQuery;
+    const matches = bareQuery.length
+      ? skills.filter((skill) => fuzzyMatch(skill.name, bareQuery) || fuzzyMatch(`skill:${skill.name}`, normalizedQuery))
       : skills;
 
     const sorted = [...matches].sort((a, b) => {
@@ -180,7 +185,7 @@ export const SkillAutocomplete = React.forwardRef<SkillAutocompleteHandle, Skill
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="font-semibold truncate">{skill.name}</span>
+            <span className="font-mono font-semibold truncate">/skill:{skill.name}</span>
             <span className={cn(
               "text-[10px] leading-none uppercase font-bold tracking-tight px-1.5 py-1 rounded border flex-shrink-0 transition-colors",
               isProject 

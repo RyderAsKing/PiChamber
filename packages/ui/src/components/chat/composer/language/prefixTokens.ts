@@ -17,11 +17,18 @@
  */
 
 /**
- * Identifier body shared by all prefix tokens: starts alphanumeric, then
- * alphanumerics, `-` and `_`. Kept in one place so `/` and `#` cannot drift
- * apart again.
+ * Snippet identifiers start alphanumeric, followed by alphanumerics, `-`, or
+ * `_`. Slash invocations follow Pi's broader non-whitespace command grammar,
+ * including native skills (`/skill:name`), extension suffixes (`/hello:2`),
+ * and prompt names derived from existing filenames (`/review.v2`). A slash
+ * token still requires a start-of-text/whitespace boundary, so `a/b` stays
+ * prose and `#name` remains exclusively a snippet trigger.
  */
 const TOKEN_NAME = '[A-Za-z0-9][A-Za-z0-9_-]*';
+// Pi resolves slash commands with /^\/([^\s]+)/. Keep scanning aligned with
+// Pi and let authoritative catalog membership reject punctuation or unknown
+// names. A second slash ends the token so ordinary paths remain prose.
+const SLASH_TOKEN_NAME = '[A-Za-z0-9][^\\s/]*';
 
 /** Sigils that introduce a prefix token. */
 export type TokenPrefix = '/' | '#';
@@ -38,7 +45,7 @@ export interface PrefixToken {
 }
 
 const SCANNERS: Record<TokenPrefix, RegExp> = {
-    '/': new RegExp(`(^|\\s)\\/(${TOKEN_NAME})`, 'g'),
+    '/': new RegExp(`(^|\\s)\\/(${SLASH_TOKEN_NAME})`, 'g'),
     '#': new RegExp(`(^|\\s)#(${TOKEN_NAME})`, 'g'),
 };
 

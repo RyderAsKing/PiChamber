@@ -7,7 +7,7 @@ import {
 
 interface Item {
   name: string;
-  source: 'pichamber' | 'pi' | 'skill' | 'extension';
+  source: 'pichamber' | 'pi' | 'skill' | 'extension' | 'prompt';
   description?: string;
   searchAliases?: string[];
   isBuiltIn?: boolean;
@@ -31,6 +31,9 @@ describe('commandMatchesCategory', () => {
       .toEqual(['review']);
     expect(items.filter((item) => commandMatchesCategory(item, 'extensions')).map((item) => item.name))
       .toEqual(['deploy']);
+    expect(items.filter((item) => commandMatchesCategory(item, 'prompts')).map((item) => item.name))
+      .toEqual([]);
+    expect(commandMatchesCategory({ name: 'review', source: 'prompt' }, 'prompts')).toBe(true);
   });
 
   test('uses built-in and skill metadata when source labels are not specific', () => {
@@ -184,5 +187,31 @@ describe('mergeCommandAutocompleteItems', () => {
 
   test('handles empty inputs', () => {
     expect(mergeCommandAutocompleteItems([], [], [])).toEqual([]);
+  });
+
+  test('Pi prompt templates lose to skills but win plain custom commands', () => {
+    const command: Item = { name: 'review', source: 'pi', description: 'Custom' };
+    const prompt: Item = { name: 'review', source: 'prompt', description: 'Pi template' };
+    const skill: Item = { name: 'review', source: 'skill', description: 'Skill', isSkill: true };
+
+    expect(mergeCommandAutocompleteItems([], [command], [], [prompt])[0]).toEqual({
+      ...prompt,
+      searchAliases: ['Custom'],
+    });
+    expect(mergeCommandAutocompleteItems([], [], [skill], [prompt])[0]).toEqual({
+      ...skill,
+      searchAliases: ['Pi template'],
+    });
+  });
+
+  test('extension commands win collisions with prompts and skills', () => {
+    const extension: Item = { name: 'review', source: 'extension', description: 'Extension' };
+    const prompt: Item = { name: 'review', source: 'prompt', description: 'Pi template' };
+    const skill: Item = { name: 'review', source: 'skill', description: 'Skill', isSkill: true };
+
+    expect(mergeCommandAutocompleteItems([], [extension], [skill], [prompt])[0]).toEqual({
+      ...extension,
+      searchAliases: ['Skill', 'Pi template'],
+    });
   });
 });
