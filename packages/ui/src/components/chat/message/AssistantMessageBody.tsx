@@ -429,7 +429,7 @@ export const AssistantMessageBody = React.memo(
           )}
           {shouldShowTurnFooter && (
             <div
-              className="mt-2 mb-1 flex flex-wrap items-center justify-start gap-x-3 gap-y-1.5"
+              className="message-footer-enter mt-2 mb-1 flex flex-wrap items-center justify-start gap-x-3 gap-y-1.5"
               style={MESSAGE_FOOTER_CONTAINER_STYLE}
             >
               <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-muted-foreground/60">

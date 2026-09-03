@@ -1,50 +1,115 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 
-// Braille animation frames inspired by terminal thinking states (czl9707/agents-are-thinking)
-const BRAILLE_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
-const BRAILLE_WAVE_FRAMES = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'] as const;
-const MATRIX_DOT_FRAMES = ['⠋', '⠙', '⠚', '⠒', '⠂', '⠂', ' ', '⠲', '⠴', '⠦', '⠖', '⠒', '⠐', '⠐', '⠒', '⠓', '⠋'] as const;
+/* ─────────────────────────────────────────────────────────
+ * Pixel-grid loader for long-running work (Dots variant).
+ *
+ * 3x3 chevron wavefront driving right; the 650ms cycle is
+ * shorter than the sweep, so two fronts are always in flight.
+ * Cells are circular (Dots). Grid animates opacity only
+ * (compositor-friendly).
+ *
+ * Paired with a shimmering label and a live elapsed timer
+ * in mono tabular figures when text is present. Sidebar rows
+ * pass text={null} so they render the compact grid only with
+ * no timer or re-renders. Reduced motion freezes the grid to
+ * its dim state; the timer still ticks.
+ *
+ * NOTE: the label shimmer animates background-position, which
+ * is non-composited (see theme-system animation contract).
+ * It is intentionally kept per request and is bounded to the
+ * single main-chat status line; sidebar indicators render
+ * grid-only with no shimmer.
+ * ───────────────────────────────────────────────────────── */
+
+const CHEVRON_DELAYS_MS: ReadonlyArray<number> = Array.from({ length: 9 }, (_, i) => {
+  const r = Math.floor(i / 3);
+  const c = i % 3;
+  return (c + Math.abs(r - 1)) * 90;
+});
+
+const GRID_CYCLE_MS = 650;
+
+function LoaderGrid({ compact = false }: { compact?: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={
+        compact
+          ? "grid shrink-0 grid-cols-[repeat(3,3px)] gap-[1px]"
+          : "grid shrink-0 grid-cols-[repeat(3,4px)] gap-[1.5px]"
+      }
+    >
+      {CHEVRON_DELAYS_MS.map((delay, index) => (
+        <span
+          key={index}
+          className={compact
+            ? "pixel-loader-cell size-[3px] rounded-full bg-current"
+            : "pixel-loader-cell size-[4px] rounded-full bg-current"}
+          style={{
+            opacity: 0.15,
+            animation: `pixel-on ${GRID_CYCLE_MS}ms ease-in-out ${delay}ms infinite`,
+          }}
+        />
+      ))}
+    </span>
+  );
+}
+
+function useElapsed(enabled: boolean) {
+  const [ds, setDs] = React.useState(0);
+  React.useEffect(() => {
+    if (!enabled) return;
+    const t = setInterval(() => setDs((d) => d + 1), 100);
+    return () => clearInterval(t);
+  }, [enabled]);
+  const total = ds / 10;
+  if (total < 60) return `${total.toFixed(1)}s`;
+  return `${Math.floor(total / 60)}m ${(total % 60).toFixed(1)}s`;
+}
 
 export interface AgentThinkingLoaderProps {
   text?: string | null;
   className?: string;
   variant?: 'inline' | 'badge' | 'full';
+  /** Deprecated: old braille-frame selector, ignored by the pixel-grid loader. */
   animationType?: 'spinner' | 'wave' | 'matrix';
+  /** Deprecated: old frame interval, ignored (grid runs on CSS, timer on 100ms). */
   speedMs?: number;
   showText?: boolean;
+  /** Show the live elapsed timer next to the label. Defaults to true when text is shown. */
+  showElapsed?: boolean;
 }
 
 export const AgentThinkingLoader: React.FC<AgentThinkingLoaderProps> = ({
   text = 'Thinking',
   className,
   variant = 'inline',
-  animationType = 'spinner',
-  speedMs = 80,
   showText = true,
+  showElapsed = true,
 }) => {
-  const [frameIndex, setFrameIndex] = React.useState(0);
+  const hasText = showText && text != null && text !== '';
+  const elapsed = useElapsed(hasText && showElapsed);
+  // Grid-only usages (sidebar rows) render compact so the 3x3 fits dense row
+  // chrome; labeled usages (main chat) keep the full-size grid.
 
-  const frames = React.useMemo(() => {
-    switch (animationType) {
-      case 'wave':
-        return BRAILLE_WAVE_FRAMES;
-      case 'matrix':
-        return MATRIX_DOT_FRAMES;
-      case 'spinner':
-      default:
-        return BRAILLE_SPINNER_FRAMES;
-    }
-  }, [animationType]);
-
-  React.useEffect(() => {
-    const timer = setInterval(() => {
-      setFrameIndex((prev) => (prev + 1) % frames.length);
-    }, speedMs);
-    return () => clearInterval(timer);
-  }, [frames.length, speedMs]);
-
-  const currentGlyph = frames[frameIndex] ?? frames[0];
+  const labelEl = hasText ? (
+    <span
+      className="pixel-loader-label bg-clip-text text-[13px] font-medium text-transparent"
+      style={{
+        backgroundImage:
+          'linear-gradient(90deg, var(--muted-foreground) 35%, var(--foreground) 50%, var(--muted-foreground) 65%)',
+        backgroundSize: '200% 100%',
+        animation: 'shimmer-text 1.4s linear infinite',
+      }}
+    >
+      {text}
+    </span>
+  ) : null;
+  const elapsedEl =
+    hasText && showElapsed ? (
+      <span className="font-mono text-[12px] text-muted-foreground tabular-nums">{elapsed}</span>
+    ) : null;
 
   if (variant === 'badge') {
     return (
@@ -58,14 +123,9 @@ export const AgentThinkingLoader: React.FC<AgentThinkingLoaderProps> = ({
         role="status"
         aria-live="polite"
       >
-        <span className="font-mono text-sm leading-none select-none text-primary" aria-hidden="true">
-          {currentGlyph}
-        </span>
-        {showText && text ? (
-          <span className="truncate max-w-[140px] text-[11px] leading-tight tracking-tight">
-            {text}
-          </span>
-        ) : null}
+        <LoaderGrid compact={!hasText} />
+        {labelEl}
+        {elapsedEl}
       </span>
     );
   }
@@ -80,33 +140,22 @@ export const AgentThinkingLoader: React.FC<AgentThinkingLoaderProps> = ({
         role="status"
         aria-live="polite"
       >
-        <span
-          className="flex h-5 w-5 items-center justify-center font-mono text-base font-semibold text-primary select-none"
-          aria-hidden="true"
-        >
-          {currentGlyph}
-        </span>
-        {showText && text ? (
-          <span className="typography-ui-header text-foreground font-medium truncate">
-            {text}
-          </span>
-        ) : null}
+        <LoaderGrid compact={!hasText} />
+        {labelEl}
+        {elapsedEl}
       </div>
     );
   }
 
   return (
     <span
-      className={cn('inline-flex items-center gap-1.5 text-primary', className)}
+      className={cn('inline-flex items-center gap-2.5', className)}
       role="status"
       aria-live="polite"
     >
-      <span className="font-mono text-sm leading-none select-none text-primary font-bold" aria-hidden="true">
-        {currentGlyph}
-      </span>
-      {showText && text ? (
-        <span className="truncate">{text}</span>
-      ) : null}
+      <LoaderGrid compact={!hasText} />
+      {labelEl}
+      {elapsedEl}
     </span>
   );
 };

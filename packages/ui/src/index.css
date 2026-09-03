@@ -1687,6 +1687,49 @@ input[aria-label="Terminal input"] {
   animation: navrail-dot-wave 1.2s ease-in-out infinite;
 }
 
+/* Pixel-grid loader (Dots variant): per-cell opacity pulse. Opacity-only
+   so it stays compositor-friendly for the life of a long-running turn. */
+@keyframes pixel-on {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Loading label shimmer. Intentionally non-composited (background-position)
+   per request; bounded to the single main-chat status line — sidebar
+   indicators render grid-only with no shimmer. */
+@keyframes shimmer-text {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Turn footer arrival: softens the instant swap from the working status
+   row to the settled footer. Opacity + translateY only
+   (compositor-friendly). Runs once on mount, which is gated by
+   authoritative isTurnWorking — no timers, no delayed unmount. */
+@keyframes message-footer-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.message-footer-enter {
+  animation: message-footer-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 @keyframes border-glow-pulse {
   0%, 100% {
     border-color: var(--interactive-border);
@@ -1793,6 +1836,21 @@ input[aria-label="Terminal input"] {
   }
 
   .animate-busy-pulse {
+    animation: none;
+  }
+
+  /* Reduced motion freezes the pixel grid to its dim state; the elapsed
+     timer still ticks (JS interval, not CSS). */
+  .pixel-loader-cell {
+    animation: none !important;
+    opacity: 0.15 !important;
+  }
+
+  .pixel-loader-label {
+    animation: none !important;
+  }
+
+  .message-footer-enter {
     animation: none;
   }
 

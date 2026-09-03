@@ -30,7 +30,7 @@ import { PiSessionProvider } from '@/sync/pi-session-context';
 import { FireworksProvider } from '@/contexts/FireworksContext';
 
 import { SyncAppEffects } from './AppEffects';
-import { BusyDots } from '@/components/chat/message/parts/BusyDots';
+import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
 import { MobileConnectionWelcome, type MobileConnectionNotice } from './MobileConnectionWelcome';
 import { MobileShell } from './MobileShell';
 import { autoConnectLastInstance, getAutoConnectTargetLabel, reprobeActiveConnection, type AutoConnectOutcome } from './mobileConnections';
@@ -506,10 +506,9 @@ export function MobileApp({ apis }: MobileAppProps) {
           {autoConnectLabel ? (
             <div className="absolute inset-x-0 top-[calc(50%+84px)] flex flex-col items-center gap-0.5 px-6 text-center">
               <p className="typography-small text-muted-foreground">{"Connecting to device:"}</p>
-              <p className="typography-small text-foreground">
-                {autoConnectLabel}
-                <BusyDots />
-              </p>
+              <div className="flex justify-center">
+                <AgentThinkingLoader text={autoConnectLabel} showElapsed={false} />
+              </div>
             </div>
           ) : null}
         </main>

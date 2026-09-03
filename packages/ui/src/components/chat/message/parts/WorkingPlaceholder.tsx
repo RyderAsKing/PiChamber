@@ -1,5 +1,4 @@
 import React from 'react';
-import { BusyDots } from './BusyDots';
 import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
 import { useProviderLogo } from '@/hooks/useProviderLogo';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
@@ -210,10 +209,7 @@ export function WorkingPlaceholder({
         aria-live="polite"
         aria-label={`${retryText}...`}
       >
-        <span className="typography-ui-header">
-          {retryText}
-          <BusyDots />
-        </span>
+        <AgentThinkingLoader text={retryText} variant="inline" showElapsed={false} className="min-w-0" />
       </div>
     );
   }
