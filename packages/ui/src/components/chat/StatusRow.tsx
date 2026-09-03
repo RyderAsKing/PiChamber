@@ -9,7 +9,6 @@ type TodoItem = Todo & { id?: string };
 type TodoStatus = string;
 type TodoPriority = string;
 import { useUIStore } from "@/stores/useUIStore";
-import { useTodosPersistStore } from "@/stores/useTodosPersistStore";
 import { useTabletLayout } from '@/lib/device';
 import { WorkingPlaceholder } from "./message/parts/WorkingPlaceholder";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -158,12 +157,6 @@ export const StatusRow: React.FC<StatusRowProps> = ({
 }) => {
   const [isExpanded, setIsExpanded] = React.useState(false);
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
-  const currentSessionDirectory = useSessionUIStore(
-    React.useCallback(
-      (state) => (currentSessionId ? state.getDirectoryForSession(currentSessionId) : null),
-      [currentSessionId],
-    ),
-  );
   const liveTodos = useDirectorySync(
     React.useCallback(
       (state) => {
@@ -173,19 +166,7 @@ export const StatusRow: React.FC<StatusRowProps> = ({
       [currentSessionId, showTodos],
     ),
   );
-  const persistedSessionTodos = useTodosPersistStore(
-    React.useCallback(
-      (state) => (showTodos && currentSessionId && currentSessionDirectory
-        ? state.getSessionTodos(currentSessionDirectory, currentSessionId)
-        : undefined),
-      [currentSessionDirectory, currentSessionId, showTodos],
-    ),
-  );
-  const todos: TodoItem[] = React.useMemo(() => {
-    if (!currentSessionId) return EMPTY_TODOS;
-    if (liveTodos.length > 0) return liveTodos;
-    return persistedSessionTodos ?? EMPTY_TODOS;
-  }, [liveTodos, persistedSessionTodos, currentSessionId]);
+  const todos: TodoItem[] = currentSessionId ? liveTodos : EMPTY_TODOS;
   const isMobileRaw = useUIStore((state) => state.isMobile);
   const { enabled: isTabletLayout } = useTabletLayout();
   const isMobile = isMobileRaw && !isTabletLayout;

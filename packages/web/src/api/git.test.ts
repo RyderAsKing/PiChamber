@@ -19,8 +19,6 @@ vi.mock('@pichamber/ui/lib/gitApiHttp', () => ({
   deleteGitBranch: vi.fn(),
   deleteRemoteBranch: vi.fn(),
   removeRemote: vi.fn(),
-  generateCommitMessage: vi.fn(),
-  generatePullRequestDescription: vi.fn(),
   listGitWorktrees: vi.fn(),
   validateGitWorktree: vi.fn(),
   createGitWorktree: vi.fn(),

@@ -1,12 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import {
-    buildCommandVariables,
-    canRunCommand,
-    findMagicPromptCommand,
-    MAGIC_PROMPT_COMMANDS,
-    parseSlashCommand,
-} from '../slashCommands';
+import { parseSlashCommand } from '../slashCommands';
 
 describe('parseSlashCommand', () => {
     test('reads a bare command', () => {
@@ -39,75 +33,68 @@ describe('parseSlashCommand', () => {
     });
 });
 
-describe('findMagicPromptCommand', () => {
-    test('finds a registered command', () => {
-        expect(findMagicPromptCommand('explore')?.name).toBe('explore');
+describe('tryExecuteLocalSlashCommand', () => {
+    test('identifies local slash commands', async () => {
+        const { isLocalSlashCommand } = await import('../slashCommands');
+        expect(isLocalSlashCommand('undo')).toBe(true);
+        expect(isLocalSlashCommand('redo')).toBe(true);
+        expect(isLocalSlashCommand('timeline')).toBe(true);
+        expect(isLocalSlashCommand('compact')).toBe(true);
+        expect(isLocalSlashCommand('other')).toBe(false);
     });
 
-    test('commands handled elsewhere are not prompt-pair commands', () => {
-        // undo/redo/timeline/compact manipulate state or open
-        // UI rather than sending a message.
-        expect(findMagicPromptCommand('undo')).toBeNull();
-        expect(findMagicPromptCommand('timeline')).toBeNull();
-        expect(findMagicPromptCommand('compact')).toBeNull();
+    test('executes undo command for active session', async () => {
+        const { tryExecuteLocalSlashCommand } = await import('../slashCommands');
+        let undoneSession: string | null = null;
+        let scrolled = false;
+        const handled = await tryExecuteLocalSlashCommand({
+            command: { name: 'undo', argument: '' },
+            currentSessionId: 'sess-123',
+            scrollToBottom: () => {
+                scrolled = true;
+            },
+            setTimelineDialogOpen: () => {},
+            onUndoSession: async (id) => {
+                undoneSession = id;
+            },
+            onRedoSession: async () => {},
+            onCompactSession: async () => {},
+        });
+
+        expect(handled).toBe(true);
+        expect(undoneSession).toBe('sess-123');
+        expect(scrolled).toBe(true);
     });
 
-    test('an unknown name finds nothing', () => {
-        expect(findMagicPromptCommand('nope')).toBeNull();
-    });
-});
+    test('executes timeline command', async () => {
+        const { tryExecuteLocalSlashCommand } = await import('../slashCommands');
+        let timelineOpen = false;
+        const handled = await tryExecuteLocalSlashCommand({
+            command: { name: 'timeline', argument: '' },
+            currentSessionId: 'sess-123',
+            setTimelineDialogOpen: (open) => {
+                timelineOpen = open;
+            },
+            onUndoSession: async () => {},
+            onRedoSession: async () => {},
+            onCompactSession: async () => {},
+        });
 
-describe('canRunCommand', () => {
-    const summary = findMagicPromptCommand('summary')!;
-    const explore = findMagicPromptCommand('explore')!;
-
-    test('summarizing needs an existing conversation', () => {
-        expect(canRunCommand(summary, { hasSession: true, hasDraft: false })).toBe(true);
-        expect(canRunCommand(summary, { hasSession: false, hasDraft: true })).toBe(false);
-    });
-
-    test('most commands also run from a new-session draft', () => {
-        expect(canRunCommand(explore, { hasSession: false, hasDraft: true })).toBe(true);
-        expect(canRunCommand(explore, { hasSession: true, hasDraft: false })).toBe(true);
-    });
-
-    test('nothing runs with neither', () => {
-        expect(canRunCommand(explore, { hasSession: false, hasDraft: false })).toBe(false);
-        expect(canRunCommand(summary, { hasSession: false, hasDraft: false })).toBe(false);
-    });
-});
-
-describe('buildCommandVariables', () => {
-    test('a command without an argument contributes no variables', () => {
-        expect(buildCommandVariables(findMagicPromptCommand('explore')!, ''))
-            .toEqual({ visible: {}, instructions: {} });
+        expect(handled).toBe(true);
+        expect(timelineOpen).toBe(true);
     });
 
-    test('a summary topic reaches both prompts', () => {
-        const variables = buildCommandVariables(findMagicPromptCommand('summary')!, 'auth');
-        expect(variables.visible.topic_line).toBe(' focused on: auth');
-        expect(variables.instructions.topic_block).toContain('auth');
-    });
+    test('returns false for non-local commands', async () => {
+        const { tryExecuteLocalSlashCommand } = await import('../slashCommands');
+        const handled = await tryExecuteLocalSlashCommand({
+            command: { name: 'custom', argument: '' },
+            currentSessionId: 'sess-123',
+            setTimelineDialogOpen: () => {},
+            onUndoSession: async () => {},
+            onRedoSession: async () => {},
+            onCompactSession: async () => {},
+        });
 
-    test('an absent summary topic leaves both slots blank, not "undefined"', () => {
-        const variables = buildCommandVariables(findMagicPromptCommand('summary')!, '');
-        expect(variables.visible.topic_line).toBe('');
-        expect(variables.instructions.topic_block).toBe('');
-    });
-});
-
-describe('the command table', () => {
-    test('names are unique', () => {
-        const names = MAGIC_PROMPT_COMMANDS.map((command) => command.name);
-        expect(new Set(names).size).toBe(names.length);
-    });
-
-    test('every command names both prompts and a failure toast', () => {
-        for (const command of MAGIC_PROMPT_COMMANDS) {
-            expect(command.visiblePrompt.startsWith('session.')).toBe(true);
-            expect(command.instructionsPrompt.startsWith('session.')).toBe(true);
-            expect(typeof command.errorToastKey).toBe('string');
-            expect(command.errorToastKey.length).toBeGreaterThan(0);
-        }
+        expect(handled).toBe(false);
     });
 });

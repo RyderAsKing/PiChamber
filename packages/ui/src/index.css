@@ -487,6 +487,27 @@ svg.animate-spin {
   animation: spin-once 0.5s linear forwards;
 }
 
+/* Upload shimmer: transform-only sweep, mounted only while uploading. */
+@keyframes attachment-upload-sweep {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+.attachment-upload-shimmer {
+  animation: attachment-upload-sweep 1.6s ease-in-out infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attachment-upload-shimmer {
+    animation: none;
+  }
+}
+
 /* Custom scrollbar styles */
 *::-webkit-scrollbar {
   width: 10px !important;

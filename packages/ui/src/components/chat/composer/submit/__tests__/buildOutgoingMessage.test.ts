@@ -26,7 +26,6 @@ const deps = (overrides: Partial<OutgoingMessageDeps> = {}): OutgoingMessageDeps
     },
     sanitizeAttachments: (files) => [...(files ?? [])],
     collectSkillNames: (text) => [...text.matchAll(/\/(\w+)/g)].map((m) => m[1]),
-    appendComments: (text, comments) => `${text}\n[${comments.length} comments]`,
     buildSkillInstruction: (names) => (names.length ? `use: ${names.join(',')}` : null),
     ...overrides,
 });
@@ -35,10 +34,7 @@ const input = (overrides: Partial<OutgoingMessageInput> = {}): OutgoingMessageIn
     queued: [],
     composerText: null,
     composerAttachments: [],
-    inlineComments: [],
     syntheticTexts: [],
-    linkedIssueContext: null,
-    linkedPr: null,
     ...overrides,
 });
 
@@ -130,66 +126,13 @@ describe('agent mentions', () => {
     });
 });
 
-describe('inline comments', () => {
-    test('attach to the composer text when nothing was queued', () => {
-        const result = buildOutgoingMessage(input({
-            composerText: 'body',
-            inlineComments: [{}, {}],
-        }), deps());
-        expect(result.primaryText).toBe('body\n[2 comments]');
-    });
-
-    test('attach to the last authored part when messages were queued', () => {
-        const result = buildOutgoingMessage(input({
-            queued: [{ content: 'queued' }],
-            composerText: 'typed',
-            inlineComments: [{}],
-        }), deps());
-        expect(result.primaryText).toBe('queued');
-        expect(result.additionalParts[0].text).toBe('typed\n[1 comments]');
-    });
-
-    test('fall back to primary when the queue produced no additional parts', () => {
-        const result = buildOutgoingMessage(input({
-            queued: [{ content: 'only queued' }],
-            inlineComments: [{}],
-        }), deps());
-        expect(result.primaryText).toBe('only queued\n[1 comments]');
-    });
-
-    test('no comments changes nothing', () => {
-        expect(buildOutgoingMessage(input({ composerText: 'body' }), deps()).primaryText)
-            .toBe('body');
-    });
-});
-
 describe('synthetic context', () => {
-    test('a linked PR sends its instructions before its diff', () => {
-        const result = buildOutgoingMessage(input({
-            composerText: 'review this',
-            linkedPr: { instructions: 'how to read it', context: 'the diff' },
-        }), deps());
-        expect(result.additionalParts.map((p) => p.text))
-            .toEqual(['how to read it', 'the diff']);
-        expect(result.additionalParts.every((p) => p.synthetic)).toBe(true);
-    });
-
-    test('a linked issue is sent as context', () => {
-        const result = buildOutgoingMessage(input({
-            composerText: 'fix it',
-            linkedIssueContext: 'issue body',
-        }), deps());
-        expect(result.additionalParts).toEqual([{ text: 'issue body', synthetic: true }]);
-    });
-
-    test('synthetic texts precede the linked references', () => {
+    test('synthetic texts are sent as model-only context', () => {
         const result = buildOutgoingMessage(input({
             composerText: 'x',
             syntheticTexts: ['conflict note'],
-            linkedIssueContext: 'issue body',
         }), deps());
-        expect(result.additionalParts.map((p) => p.text))
-            .toEqual(['conflict note', 'issue body']);
+        expect(result.additionalParts).toEqual([{ text: 'conflict note', synthetic: true }]);
     });
 
     test('skills named inline are collected into a trailing instruction', () => {
@@ -210,39 +153,11 @@ describe('synthetic context', () => {
         expect(result.additionalParts).toEqual([]);
     });
 
-    test('context alone is still worth sending', () => {
-        const result = buildOutgoingMessage(input({ linkedIssueContext: 'issue body' }), deps());
-        expect(result.isEmpty).toBe(false);
-    });
-
     test('attachments alone are worth sending', () => {
         const result = buildOutgoingMessage(
             input({ composerText: '', composerAttachments: [attachment('pic')] }),
             deps(),
         );
         expect(result.isEmpty).toBe(false);
-    });
-});
-
-describe('full assembly order', () => {
-    test('queued, then typed, then synthetic, then references, then skills', () => {
-        const result = buildOutgoingMessage(input({
-            queued: [{ content: 'q1' }, { content: 'q2' }],
-            composerText: 'typed /deploy',
-            syntheticTexts: ['synthetic'],
-            linkedIssueContext: 'issue',
-            linkedPr: { instructions: 'pr-how', context: 'pr-diff' },
-        }), deps());
-
-        expect(result.primaryText).toBe('q1');
-        expect(result.additionalParts.map((p) => p.text)).toEqual([
-            'q2',
-            'typed /deploy',
-            'synthetic',
-            'issue',
-            'pr-how',
-            'pr-diff',
-            'use: deploy',
-        ]);
     });
 });

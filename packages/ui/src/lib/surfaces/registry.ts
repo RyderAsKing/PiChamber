@@ -5,7 +5,6 @@ export type ContextSurfaceId =
   | 'editor'
   | 'git'
   | 'terminal'
-  | 'notes'
   | 'context'
   | 'browser'
   | 'preview';
@@ -61,14 +60,6 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
     mode: 'terminal',
     icon: 'terminal-box',
     label: "Terminal",
-    availability: 'always',
-  },
-  {
-    id: 'notes',
-    description: "Notes, todos, and plans for the project",
-    mode: 'notes',
-    icon: 'sticky-note',
-    label: "Project notes",
     availability: 'always',
   },
 

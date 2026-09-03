@@ -247,10 +247,12 @@ const setupClient = async (
   killWire: () => void;
   sendTextToClient: (text: string) => void;
   clientBinaryCount: () => number;
+  wireUrls: () => string[];
 }> => {
   const hostKeyPair = await generateEcdhKeyPair();
   const hostPubJwk = await exportPublicKeyJwk(hostKeyPair.publicKey);
   let count = 0;
+  const urls: string[] = [];
   let lastClientEndpoint: FakeEndpoint | null = null;
   let lastHostEndpoint: FakeEndpoint | null = null;
   const client = createRelayTunnelClient({
@@ -263,8 +265,9 @@ const setupClient = async (
     reconnectBaseDelayMs: 20,
     reconnectMaxDelayMs: 80,
     ...clientOverrides,
-    createWireSocket: () => {
+    createWireSocket: (url) => {
       count += 1;
+      urls.push(url);
       const clientEndpoint = new FakeEndpoint();
       const hostEndpoint = new FakeEndpoint();
       clientEndpoint.peer = hostEndpoint;
@@ -282,6 +285,7 @@ const setupClient = async (
     killWire: () => lastClientEndpoint?.close(1006, 'killed'),
     sendTextToClient: (text: string) => lastHostEndpoint?.send(text),
     clientBinaryCount: () => lastClientEndpoint?.binarySent ?? 0,
+    wireUrls: () => [...urls],
   };
 };
 
@@ -297,6 +301,51 @@ const track = (client: RelayTunnelClient): RelayTunnelClient => {
 };
 
 describe('createRelayTunnelClient', () => {
+  test('adds relay routing and authentication parameters to the wire URL', async () => {
+    const { client, wireUrls } = await setupClient({}, {
+      relayUrl: 'wss://relay.test/ws?existing=kept',
+      serverId: 'server/routing id',
+      grant: 'pairing grant',
+    });
+    track(client);
+
+    for (let attempt = 0; wireUrls().length === 0 && attempt < 20; attempt += 1) {
+      await wait(5);
+    }
+    const url = new URL(wireUrls()[0]);
+    expect(url.searchParams.get('existing')).toBe('kept');
+    expect(url.searchParams.get('v')).toBeTruthy();
+    expect(url.searchParams.get('role')).toBe('client');
+    expect(url.searchParams.get('serverId')).toBe('server/routing id');
+    expect(url.searchParams.get('grant')).toBe('pairing grant');
+  });
+
+  test('reconnects after a handshake timeout', async () => {
+    const hostKeyPair = await generateEcdhKeyPair();
+    const hostPubJwk = await exportPublicKeyJwk(hostKeyPair.publicKey);
+    let connectionCount = 0;
+    const client = createRelayTunnelClient({
+      relayUrl: 'wss://relay.test/ws',
+      serverId: 'server-1',
+      hostEncPubJwk: hostPubJwk,
+      helloRetryMs: 5,
+      helloTimeoutMs: 15,
+      reconnectBaseDelayMs: 5,
+      reconnectMaxDelayMs: 10,
+      createWireSocket: () => {
+        connectionCount += 1;
+        const endpoint = new FakeEndpoint();
+        queueMicrotask(() => endpoint.onopen?.());
+        return endpoint;
+      },
+    });
+    track(client);
+
+    await wait(60);
+    expect(connectionCount).toBeGreaterThan(1);
+    expect(client.getStatus().state).not.toBe('idle');
+  });
+
   test('performs concurrent fetches over one tunnel', async () => {
     const { client } = await setupClient();
     track(client);

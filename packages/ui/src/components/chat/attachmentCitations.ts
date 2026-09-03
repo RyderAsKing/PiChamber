@@ -8,6 +8,11 @@ export interface CitationRange {
     end: number;
 }
 
+export const renameFileForAttachmentCitation = (file: File, filename: string): File => {
+    if (file.name === filename) return file;
+    return new File([file], filename, { type: file.type, lastModified: file.lastModified });
+};
+
 const GENERIC_IMAGE_BASENAMES = new Set([
     'image',
     'screenshot',

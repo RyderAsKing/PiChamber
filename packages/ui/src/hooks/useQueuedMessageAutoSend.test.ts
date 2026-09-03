@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import type { Agent, Message } from '@/lib/chat/types';
 import type { QueuedMessage } from '../stores/messageQueueStore';

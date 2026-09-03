@@ -24,6 +24,7 @@ export interface Session {
     compacting?: number;
   };
   summary?: { additions?: number; deletions?: number };
+  share?: { url?: string; [key: string]: unknown };
   [key: string]: unknown;
 }
 

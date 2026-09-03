@@ -1884,6 +1884,73 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  it('handles prompt with image attachments and sends multi-part content', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-prompt-img-'));
+    const endpoint = testDaemonEndpoint(root);
+    const sessionFile = join(root, 'session-1.jsonl');
+    const imageFile = join(root, 'test.png');
+    await writeFile(sessionFile, `{"type":"session","id":"session-1","cwd":"${root}"}\n`);
+    await writeFile(imageFile, Buffer.from('fake-png-data'));
+    const session = new FakeSession('session-1', sessionFile);
+    const finishSends = [];
+    session.sendUserMessage = (content, options) => {
+      session.sent.push({ text: content, options });
+      return new Promise((resolve) => finishSends.push(resolve));
+    };
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => new FakeRuntime({ cwd: root, session }),
+      listSessions: async () => [
+        { path: sessionFile, id: 'session-1', cwd: root, created: new Date(), modified: new Date(), messageCount: 0 },
+      ],
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+
+    await client.request('sessions.prompt', {
+      sessionId: 'session-1',
+      text: 'first without a file',
+      messageId: 'msg-0',
+    });
+    const firstUserStart = client.next((frame) => frame.event === 'assistant.message.start' && frame.payload.role === 'user');
+    session.emit({ type: 'message_start', message: { role: 'user', content: 'first without a file', timestamp: 900 } });
+
+    const response = await client.request('sessions.prompt', {
+      sessionId: 'session-1',
+      text: 'what is this?',
+      attachments: [{
+        name: 'image-1.png',
+        mime: 'image/png',
+        path: imageFile,
+        size: 13,
+      }],
+      messageId: 'msg-1',
+    });
+
+    expect(response.result).toEqual({ accepted: true, messageId: 'msg-1' });
+    const secondUserStart = client.next((frame) => frame.event === 'assistant.message.start'
+      && frame.payload?.role === 'user'
+      && frame.payload?.text === 'what is this?');
+    session.emit({ type: 'message_start', message: { role: 'user', content: session.sent[1].text, timestamp: 1_000 } });
+    await expect(firstUserStart).resolves.not.toHaveProperty('payload.files');
+    await expect(secondUserStart).resolves.toMatchObject({
+      payload: {
+        role: 'user',
+        text: 'what is this?',
+        files: [{ type: 'file', mime: 'image/png', filename: 'image-1.png' }],
+      },
+    });
+    expect(session.sent).toHaveLength(2);
+    expect(Array.isArray(session.sent[1].text)).toBe(true);
+    expect(session.sent[1].text[0]).toEqual({ type: 'text', text: 'what is this?' });
+    expect(session.sent[1].text[1]).toEqual({ type: 'image', mimeType: 'image/png', data: Buffer.from('fake-png-data').toString('base64') });
+    for (const finish of finishSends) finish();
+    await client.close();
+  });
+
   it('starts a new turn when follow-up arrives after the stream has already ended', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-followup-idle-'));
     const endpoint = testDaemonEndpoint(root);

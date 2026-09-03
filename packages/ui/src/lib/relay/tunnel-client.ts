@@ -8,137 +8,44 @@
 import { createClientHandshake, type EstablishedChannelCrypto } from './handshake';
 import {
   RELAY_PROTOCOL_VERSION,
-  RelayCloseCode,
   TunnelFrameType,
-  type TunnelHttpRequestPayload,
-  type TunnelWsOpenPayload,
 } from './protocol';
 import {
-  chunkPayload,
   createFragmentAssembler,
   createOutboundFrameBatcher,
   createStreamIdAllocator,
   DEFAULT_BATCH_WINDOW_MS,
   decodeFrameBatch,
-  decodeJsonPayload,
   decodeTunnelFrame,
-  encodeFragmentedMessage,
-  encodeJsonPayload,
   encodeTunnelFrame,
   type OutboundFrameBatcher,
   type TunnelFrame,
 } from './tunnel-codec';
-import { TUNNEL_FRAGMENT_FLAG } from './protocol';
+import type { ActiveChannel, ChannelWaiter, StreamHandler } from './tunnel-types';
 import {
-  isHttpResponsePayload,
-  isStreamAbortPayload,
-  isWsClosePayload,
-  normalizeTunnelRequest,
-} from './tunnel-payloads';
-import { markAmbiguousTransportFailure } from './transport-error';
+  type TunnelWireSocket,
+  type RelayTunnelSocketMessageEvent,
+  type RelayTunnelSocketCloseEvent,
+  type RelayTunnelWebSocket,
+  wrapNativeWebSocket,
+  wrapBrowserWebSocket,
+  TERMINAL_RELAY_CLOSE_CODES,
+  RELAY_CLOSE_MESSAGES,
+} from './wire-socket';
+import { tunnelFetch, openTunnelWebSocket } from './tunnel-stream';
+
+export type {
+  TunnelWireSocket,
+  RelayTunnelSocketMessageEvent,
+  RelayTunnelSocketCloseEvent,
+  RelayTunnelWebSocket,
+};
+export { wrapBrowserWebSocket };
 
 const EMPTY_PAYLOAD = new Uint8Array(0);
-const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
 
 const toError = (value: unknown): Error => (value instanceof Error ? value : new Error(String(value)));
 const abortError = (): DOMException => new DOMException('The operation was aborted.', 'AbortError');
-
-// Minimal wire surface the client needs from the relay WebSocket. Injectable
-// so tests can substitute an in-memory transport pair.
-export interface TunnelWireSocket {
-  readonly readyState: number;
-  send(data: string | ArrayBuffer | Uint8Array): void;
-  close(code?: number, reason?: string): void;
-  onopen: (() => void) | null;
-  onmessage: ((event: { data: unknown }) => void) | null;
-  onclose: ((event: { code: number; reason: string }) => void) | null;
-  onerror: (() => void) | null;
-}
-
-const wrapNativeWebSocket = (ws: WebSocket): TunnelWireSocket => {
-  ws.binaryType = 'arraybuffer';
-  const wire: TunnelWireSocket = {
-    get readyState() {
-      return ws.readyState;
-    },
-    send(data) {
-      ws.send(data);
-    },
-    close(code, reason) {
-      ws.close(code, reason);
-    },
-    onopen: null,
-    onmessage: null,
-    onclose: null,
-    onerror: null,
-  };
-  ws.onopen = () => wire.onopen?.();
-  ws.onmessage = (event) => wire.onmessage?.({ data: event.data });
-  ws.onclose = (event) => wire.onclose?.({ code: event.code, reason: event.reason });
-  ws.onerror = () => wire.onerror?.();
-  return wire;
-};
-
-// Socket-like surface for tunneled WebSockets. Matches exactly what
-// packages/ui/src/sync/event-pipeline.ts uses: assignable on* handlers,
-// send(), close(), readyState. `wrapBrowserWebSocket` adapts a native
-// WebSocket to the same shape so consumers can hold one type for both paths.
-export interface RelayTunnelSocketMessageEvent {
-  data: string | ArrayBuffer;
-}
-
-export interface RelayTunnelSocketCloseEvent {
-  code: number;
-  reason: string;
-}
-
-export interface RelayTunnelWebSocket {
-  readonly readyState: number;
-  // Native-only hint; the tunnel always delivers binary as ArrayBuffer, so it
-  // accepts the setter as a no-op to keep the two socket shapes interchangeable.
-  binaryType?: 'blob' | 'arraybuffer';
-  onopen: (() => void) | null;
-  onmessage: ((event: RelayTunnelSocketMessageEvent) => void) | null;
-  onerror: (() => void) | null;
-  onclose: ((event: RelayTunnelSocketCloseEvent) => void) | null;
-  send(data: string | ArrayBuffer | ArrayBufferView): void;
-  close(code?: number, reason?: string): void;
-}
-
-export const wrapBrowserWebSocket = (ws: WebSocket): RelayTunnelWebSocket => {
-  const socket: RelayTunnelWebSocket = {
-    get readyState() {
-      return ws.readyState;
-    },
-    get binaryType() {
-      return ws.binaryType;
-    },
-    set binaryType(value) {
-      if (value) ws.binaryType = value;
-    },
-    onopen: null,
-    onmessage: null,
-    onerror: null,
-    onclose: null,
-    send(data) {
-      ws.send(data);
-    },
-    close(code, reason) {
-      ws.close(code, reason);
-    },
-  };
-  ws.onopen = () => socket.onopen?.();
-  ws.onmessage = (event) => {
-    const data: unknown = event.data;
-    if (typeof data === 'string' || data instanceof ArrayBuffer) {
-      socket.onmessage?.({ data });
-    }
-  };
-  ws.onerror = () => socket.onerror?.();
-  ws.onclose = (event) => socket.onclose?.({ code: event.code, reason: event.reason });
-  return socket;
-};
 
 export type RelayTunnelState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error';
 
@@ -174,43 +81,6 @@ export interface RelayTunnelClient {
   subscribeStatus(listener: (status: RelayTunnelStatus) => void): () => void;
   close(): void;
 }
-
-const WS_CONNECTING = 0;
-const WS_OPEN = 1;
-const WS_CLOSING = 2;
-const WS_CLOSED = 3;
-
-// Relay close codes that a reconnect can never resolve — surface a terminal error
-// instead of looping forever (auth failed, duplicate client, limit exceeded).
-const TERMINAL_RELAY_CLOSE_CODES = new Set<number>([
-  RelayCloseCode.AuthFailed,
-  RelayCloseCode.DuplicateClient,
-  RelayCloseCode.LimitExceeded,
-]);
-
-const RELAY_CLOSE_MESSAGES: Record<number, string> = {
-  [RelayCloseCode.AuthFailed]: 'relay authentication failed',
-  [RelayCloseCode.DuplicateClient]: 'relay connection replaced by another client',
-  [RelayCloseCode.LimitExceeded]: 'relay connection limit reached',
-};
-
-type StreamHandler = {
-  handleFrame(frameType: number, payload: Uint8Array): void;
-  fail(error: Error): void;
-};
-
-type ActiveChannel = {
-  streams: Map<number, StreamHandler>;
-  assembler: ReturnType<typeof createFragmentAssembler>;
-  nextStreamId(): number;
-  send(frame: Uint8Array): void;
-  dead: boolean;
-};
-
-type ChannelWaiter = {
-  resolve(channel: ActiveChannel): void;
-  reject(error: Error): void;
-};
 
 const isOfflineOrHidden = (): boolean => {
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
@@ -278,7 +148,7 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
       try {
         handler.fail(error);
       } catch {
-        // Stream teardown must not block the rest.
+        // Stream teardown must not break the rest.
       }
     }
   };
@@ -298,33 +168,36 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
   };
 
   const onVisibilityWake = (): void => {
-    if (typeof document !== 'undefined' && document.visibilityState === 'visible') onWake();
+    if (typeof document === 'undefined') return;
+    if (document.visibilityState === 'visible') onWake();
   };
 
-  const addWakeListeners = (): void => {
-    if (wakeListenersInstalled || typeof window === 'undefined') return;
+  const installWakeListeners = (): void => {
+    if (wakeListenersInstalled) return;
     wakeListenersInstalled = true;
-    window.addEventListener('online', onWake);
+    if (typeof window !== 'undefined') window.addEventListener('online', onWake);
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityWake);
   };
 
   const removeWakeListeners = (): void => {
-    if (!wakeListenersInstalled || typeof window === 'undefined') return;
+    if (!wakeListenersInstalled) return;
     wakeListenersInstalled = false;
-    window.removeEventListener('online', onWake);
+    if (typeof window !== 'undefined') window.removeEventListener('online', onWake);
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibilityWake);
   };
 
   const scheduleReconnect = (): void => {
     if (closed || reconnectTimer !== null) return;
-    const attemptIndex = Math.max(0, consecutiveFailures - 1);
-    const base = reconnectBaseDelayMs * 2 ** Math.min(attemptIndex, 10);
-    // Per CLAUDE.md reconnect pacing: offline/hidden expect recovery from the
-    // online/visibility events (interruptible wait below), so back off to the
-    // long cap instead of probing a dead network.
-    const cap = isOfflineOrHidden() ? hiddenOrOfflineMaxDelayMs : reconnectMaxDelayMs;
-    const delay = Math.min(cap, base);
-    addWakeListeners();
+    // Exponential backoff capped at reconnectMaxDelayMs; when offline or the
+    // document is hidden, slow down further so a background tab doesn't burn cycles.
+    const base = reconnectBaseDelayMs * Math.pow(1.5, Math.min(consecutiveFailures, 8));
+    const jitter = Math.random() * 0.3 * base;
+    const standardDelay = Math.min(reconnectMaxDelayMs, Math.round(base + jitter));
+    const delay = isOfflineOrHidden()
+      ? Math.max(standardDelay, hiddenOrOfflineMaxDelayMs)
+      : standardDelay;
+
+    installWakeListeners();
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       removeWakeListeners();
@@ -343,20 +216,25 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
 
   const connect = async (): Promise<void> => {
     if (closed) return;
+    const generation = ++attemptGeneration;
     clearReconnectTimer();
-    attemptGeneration += 1;
-    const generation = attemptGeneration;
-    setStatus({ state: consecutiveFailures > 0 ? 'reconnecting' : 'connecting', lastError: status.lastError });
+    removeWakeListeners();
+
+    currentAttemptCleanup?.();
+    currentAttemptCleanup = null;
+
+    setStatus({ state: consecutiveFailures === 0 ? 'connecting' : 'reconnecting' });
 
     let handshake;
     try {
-      handshake = await createClientHandshake(options.hostEncPubJwk, { batch: advertiseBatch });
+      handshake = await createClientHandshake(options.hostEncPubJwk, {
+        batch: advertiseBatch,
+      });
     } catch (error) {
-      if (generation !== attemptGeneration || closed) return;
       failAttempt(generation, toError(error), true);
       return;
     }
-    if (generation !== attemptGeneration || closed) return;
+    if (closed || generation !== attemptGeneration) return;
 
     let wire: TunnelWireSocket;
     try {
@@ -367,25 +245,19 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
     }
     currentWire = wire;
 
-    let settled = false;
     let helloInterval: ReturnType<typeof setInterval> | null = null;
     let helloDeadline: ReturnType<typeof setTimeout> | null = null;
     let pingTimer: ReturnType<typeof setInterval> | null = null;
-    // One-shot: armed when an idle-keepalive ping is sent, cleared by any received
-    // frame (incl. Pong). If it fires, the tunnel is dead. Independent of the ping
-    // cadence so a dead socket is detected ~pingTimeoutMs after an unanswered ping,
-    // not on the next full interval.
     let pongDeadline: ReturnType<typeof setTimeout> | null = null;
-    let recvChain: Promise<void> = Promise.resolve();
+    let batcher: OutboundFrameBatcher | null = null;
+    let settled = false;
     let channel: ActiveChannel | null = null;
     let cryptoChannel: EstablishedChannelCrypto | null = null;
-    let batchNegotiated = false;
-    let batcher: OutboundFrameBatcher | null = null;
-    // Idle tracking: updated on any non-Ping/Pong frame in EITHER direction.
-    // Ping/Pong are excluded so the keepalive can't sustain itself.
     let lastActivityAt = Date.now();
+    let batchNegotiated = false;
+    let recvChain: Promise<void> = Promise.resolve();
 
-    const cleanupTimers = (): void => {
+    const cleanupAttempt = (): void => {
       if (helloInterval !== null) {
         clearInterval(helloInterval);
         helloInterval = null;
@@ -402,45 +274,44 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
         clearTimeout(pongDeadline);
         pongDeadline = null;
       }
-      if (batcher !== null) {
-        batcher.dispose();
-        batcher = null;
-      }
+      batcher?.dispose();
+      batcher = null;
     };
-    currentAttemptCleanup = cleanupTimers;
+    currentAttemptCleanup = cleanupAttempt;
 
-    function failAttemptLocal(error: Error, asErrorState = false, terminal = false): void {
+    const failAttemptLocal = (
+      error: Error,
+      failure: { terminal?: boolean; asErrorState?: boolean } = {},
+    ): void => {
+      const { terminal = false, asErrorState = false } = failure;
       if (settled || generation !== attemptGeneration) return;
       settled = true;
-      cleanupTimers();
-      if (channel) {
-        activeChannel = null;
-        failChannelStreams(channel, new Error(`relay tunnel reset: ${error.message}`));
-      }
-      rejectWaiters(error);
+      cleanupAttempt();
+      if (currentAttemptCleanup === cleanupAttempt) currentAttemptCleanup = null;
+      if (channel) failChannelStreams(channel, error);
+      if (activeChannel === channel) activeChannel = null;
       try {
         wire.close();
       } catch {
-        // Wire may already be closed.
+        // Wire close must not mask the underlying failure.
       }
       if (currentWire === wire) currentWire = null;
-      if (closed) return;
-      consecutiveFailures += 1;
-      // A permanent rejection (auth failed, duplicate, limit) won't resolve by
-      // retrying — surface a terminal error instead of reconnecting forever.
       if (terminal) {
+        // Terminal errors: unblock any waiters with this error and do NOT reconnect.
+        closed = true;
+        rejectWaiters(error);
         setStatus({ state: 'error', lastError: error.message });
         return;
       }
-      setStatus({ state: asErrorState ? 'error' : 'reconnecting', lastError: error.message });
-      scheduleReconnect();
-    }
+      failAttempt(generation, error, asErrorState);
+    };
 
     const sendHello = (): void => {
+      if (wire.readyState !== 1) return;
       try {
         wire.send(handshake.helloText);
-      } catch {
-        // Socket not ready; the retry interval covers it.
+      } catch (error) {
+        failAttemptLocal(toError(error));
       }
     };
 
@@ -455,10 +326,13 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
         clearTimeout(helloDeadline);
         helloDeadline = null;
       }
+      consecutiveFailures = 0;
+
       const streams = new Map<number, StreamHandler>();
       const allocator = createStreamIdAllocator();
       const assembler = createFragmentAssembler();
       let sendChain: Promise<void> = Promise.resolve();
+
       // Serialize encrypt+send: the per-direction IV counter must hit the wire in
       // encryption order or the receiver fails closed. One call == one encrypted
       // WS message == one counter tick, whether it carries a batch or a lone frame.
@@ -473,29 +347,30 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
             // Send failures surface via wire close; do not break the chain.
           });
       };
+
       const localBatcher = batch
         ? createOutboundFrameBatcher({ windowMs: batchWindowMs, sendBatch: sendEncryptedPlaintext })
         : null;
       batcher = localBatcher;
+
+      const sendFrame = (frame: Uint8Array): void => {
+        lastActivityAt = Date.now();
+        if (localBatcher) {
+          localBatcher.enqueue(frame);
+          return;
+        }
+        sendEncryptedPlaintext(frame);
+      };
+
       const channelObj: ActiveChannel = {
         streams,
         assembler,
         nextStreamId: () => allocator.next(),
+        send: sendFrame,
         dead: false,
-        send(frame: Uint8Array): void {
-          if (channelObj.dead) return;
-          const frameType = frame[0] & ~TUNNEL_FRAGMENT_FLAG;
-          if (frameType !== TunnelFrameType.Ping && frameType !== TunnelFrameType.Pong) {
-            lastActivityAt = Date.now();
-          }
-          if (localBatcher) localBatcher.enqueue(frame);
-          else sendEncryptedPlaintext(frame);
-        },
       };
       channel = channelObj;
       activeChannel = channelObj;
-      consecutiveFailures = 0;
-      lastActivityAt = Date.now();
       setStatus({ state: 'connected' });
       resolveWaiters(channelObj);
       pingTimer = setInterval(() => {
@@ -632,8 +507,7 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
       const terminal = TERMINAL_RELAY_CLOSE_CODES.has(event.code);
       failAttemptLocal(
         new Error(RELAY_CLOSE_MESSAGES[event.code] ?? `relay socket closed (code ${event.code})`),
-        terminal,
-        terminal,
+        { terminal, asErrorState: terminal },
       );
     };
 
@@ -643,7 +517,7 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
 
     helloDeadline = setTimeout(() => {
       helloDeadline = null;
-      failAttemptLocal(new Error('relay handshake timeout'), true);
+      failAttemptLocal(new Error('relay handshake timeout'), { asErrorState: true });
     }, helloTimeoutMs);
 
     function failAttempt(gen: number, error: Error, asErrorState = false): void {
@@ -682,321 +556,6 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
     });
   };
 
-  const tunnelFetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
-    const request = await normalizeTunnelRequest(input, init);
-    const signal = request.signal;
-    if (signal?.aborted) throw abortError();
-    const channel = await waitForChannel(signal);
-    const streamId = channel.nextStreamId();
-
-    return await new Promise<Response>((resolve, reject) => {
-      let responseDelivered = false;
-      let finished = false;
-      let bodyController: ReadableStreamDefaultController<Uint8Array> | null = null;
-      let onAbort: (() => void) | null = null;
-
-      const cleanupStream = (): void => {
-        channel.streams.delete(streamId);
-        channel.assembler.dropStream(streamId);
-        if (onAbort && signal) signal.removeEventListener('abort', onAbort);
-      };
-
-      const finishError = (error: Error): void => {
-        if (finished) return;
-        finished = true;
-        cleanupStream();
-        if (!responseDelivered) {
-          reject(error);
-          return;
-        }
-        try {
-          bodyController?.error(error);
-        } catch {
-          // Controller may already be closed.
-        }
-      };
-
-      const sendAbort = (reason: string): void => {
-        if (!channel.dead) {
-          channel.send(encodeTunnelFrame(TunnelFrameType.StreamAbort, streamId, encodeJsonPayload({ reason })));
-        }
-      };
-
-      // The request head is written to the channel below before any of these
-      // failures can fire, so losing the stream never proves the server did
-      // not process the request — only that the response was lost. Callers
-      // that would otherwise retry (prompt sends) must see that distinction.
-      const dispatchedFailure = (message: string): Error =>
-        markAmbiguousTransportFailure(new Error(message));
-
-      onAbort = () => {
-        sendAbort('aborted');
-        finishError(abortError());
-      };
-
-      channel.streams.set(streamId, {
-        handleFrame(frameType, payload) {
-          if (frameType === TunnelFrameType.HttpResponse) {
-            if (responseDelivered || finished) return;
-            let head;
-            try {
-              head = decodeJsonPayload(payload, isHttpResponsePayload);
-            } catch (error) {
-              sendAbort('malformed response head');
-              finishError(dispatchedFailure(toError(error).message));
-              return;
-            }
-            const nullBody = head.status === 204 || head.status === 205 || head.status === 304;
-            let body: ReadableStream<Uint8Array> | null = null;
-            if (!nullBody) {
-              body = new ReadableStream<Uint8Array>({
-                start(controller) {
-                  bodyController = controller;
-                },
-                cancel() {
-                  if (finished) return;
-                  finished = true;
-                  cleanupStream();
-                  sendAbort('response body cancelled');
-                },
-              });
-            }
-            responseDelivered = true;
-            resolve(new Response(body, { status: head.status, headers: head.headers }));
-            if (nullBody) {
-              finished = true;
-              cleanupStream();
-            }
-            return;
-          }
-          if (frameType === TunnelFrameType.HttpBody) {
-            if (!responseDelivered || finished) return;
-            try {
-              bodyController?.enqueue(payload);
-            } catch {
-              // Consumer already cancelled the stream.
-            }
-            return;
-          }
-          if (frameType === TunnelFrameType.StreamEnd) {
-            if (finished) return;
-            if (!responseDelivered) {
-              finishError(dispatchedFailure('tunnel stream ended before response head'));
-              return;
-            }
-            finished = true;
-            cleanupStream();
-            try {
-              bodyController?.close();
-            } catch {
-              // Consumer already cancelled the stream.
-            }
-            return;
-          }
-          if (frameType === TunnelFrameType.StreamAbort) {
-            let reason = 'stream aborted by host';
-            try {
-              reason = decodeJsonPayload(payload, isStreamAbortPayload).reason;
-            } catch {
-              // Keep the generic reason.
-            }
-            finishError(dispatchedFailure(reason));
-          }
-        },
-        fail(error) {
-          // Channel death (reconnect, keepalive timeout) with this stream still
-          // open — same rule as above: dispatched, outcome unknown. A fresh
-          // error is tagged instead of the shared one so the tag cannot leak to
-          // waiters whose request never reached the wire.
-          finishError(dispatchedFailure(error.message));
-        },
-      });
-
-      if (signal) signal.addEventListener('abort', onAbort, { once: true });
-
-      const head: TunnelHttpRequestPayload = {
-        method: request.method,
-        path: request.path,
-        query: request.query,
-        headers: request.headers,
-      };
-      channel.send(encodeTunnelFrame(TunnelFrameType.HttpRequest, streamId, encodeJsonPayload(head)));
-      void (async () => {
-        try {
-          if (request.body) {
-            for await (const chunk of request.body) {
-              if (finished || channel.dead) return;
-              for (const piece of chunkPayload(chunk)) {
-                channel.send(encodeTunnelFrame(TunnelFrameType.HttpBody, streamId, piece));
-              }
-            }
-          }
-          if (!finished && !channel.dead) {
-            channel.send(encodeTunnelFrame(TunnelFrameType.StreamEnd, streamId, EMPTY_PAYLOAD));
-          }
-        } catch (error) {
-          sendAbort('request body failed');
-          finishError(dispatchedFailure(toError(error).message));
-        }
-      })();
-    });
-  };
-
-  const splitPathQuery = (pathWithQuery: string): { path: string; query: string } => {
-    const index = pathWithQuery.indexOf('?');
-    if (index === -1) return { path: pathWithQuery, query: '' };
-    return { path: pathWithQuery.slice(0, index), query: pathWithQuery.slice(index + 1) };
-  };
-
-  const openTunnelWebSocket = (pathWithQuery: string, protocols?: string[]): RelayTunnelWebSocket => {
-    let readyState = WS_CONNECTING;
-    let channelRef: ActiveChannel | null = null;
-    let streamId = 0;
-    let finished = false;
-
-    const socket: RelayTunnelWebSocket = {
-      get readyState() {
-        return readyState;
-      },
-      onopen: null,
-      onmessage: null,
-      onerror: null,
-      onclose: null,
-      send(data) {
-        if (readyState !== WS_OPEN || !channelRef || channelRef.dead) {
-          throw new Error('relay tunnel socket is not open');
-        }
-        if (typeof data === 'string') {
-          for (const frame of encodeFragmentedMessage(TunnelFrameType.WsText, streamId, textEncoder.encode(data))) {
-            channelRef.send(frame);
-          }
-          return;
-        }
-        const bytes =
-          data instanceof ArrayBuffer
-            ? new Uint8Array(data.slice(0))
-            : (() => {
-                const copy = new Uint8Array(data.byteLength);
-                copy.set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
-                return copy;
-              })();
-        for (const frame of encodeFragmentedMessage(TunnelFrameType.WsBinary, streamId, bytes)) {
-          channelRef.send(frame);
-        }
-      },
-      close(code = 1000, reason = '') {
-        if (readyState === WS_CLOSED || readyState === WS_CLOSING) return;
-        if (readyState === WS_OPEN && channelRef && !channelRef.dead) {
-          readyState = WS_CLOSING;
-          channelRef.send(encodeTunnelFrame(TunnelFrameType.WsClose, streamId, encodeJsonPayload({ code, reason })));
-        }
-        settleClose(code, reason);
-      },
-    };
-
-    const settleClose = (code: number, reason: string, errored = false): void => {
-      if (finished) return;
-      finished = true;
-      if (channelRef) {
-        channelRef.streams.delete(streamId);
-        channelRef.assembler.dropStream(streamId);
-      }
-      readyState = WS_CLOSED;
-      if (errored) {
-        try {
-          socket.onerror?.();
-        } catch {
-          // Handler failures must not break teardown.
-        }
-      }
-      try {
-        socket.onclose?.({ code, reason });
-      } catch {
-        // Handler failures must not break teardown.
-      }
-    };
-
-    void (async () => {
-      let channel: ActiveChannel;
-      try {
-        channel = await waitForChannel();
-      } catch (error) {
-        settleClose(1006, toError(error).message, true);
-        return;
-      }
-      if (finished) return;
-      channelRef = channel;
-      streamId = channel.nextStreamId();
-      channel.streams.set(streamId, {
-        handleFrame(frameType, payload) {
-          if (frameType === TunnelFrameType.WsOpened) {
-            if (readyState === WS_CONNECTING) {
-              readyState = WS_OPEN;
-              try {
-                socket.onopen?.();
-              } catch {
-                // Handler failures must not break the stream.
-              }
-            }
-            return;
-          }
-          if (frameType === TunnelFrameType.WsText) {
-            try {
-              socket.onmessage?.({ data: textDecoder.decode(payload) });
-            } catch {
-              // Handler failures must not break the stream.
-            }
-            return;
-          }
-          if (frameType === TunnelFrameType.WsBinary) {
-            const buffer = new ArrayBuffer(payload.byteLength);
-            new Uint8Array(buffer).set(payload);
-            try {
-              socket.onmessage?.({ data: buffer });
-            } catch {
-              // Handler failures must not break the stream.
-            }
-            return;
-          }
-          if (frameType === TunnelFrameType.WsClose) {
-            let code = 1000;
-            let reason = '';
-            try {
-              const parsed = decodeJsonPayload(payload, isWsClosePayload);
-              code = parsed.code;
-              reason = parsed.reason;
-            } catch {
-              // Keep defaults.
-            }
-            settleClose(code, reason);
-            return;
-          }
-          if (frameType === TunnelFrameType.StreamAbort) {
-            let reason = 'stream aborted';
-            try {
-              reason = decodeJsonPayload(payload, isStreamAbortPayload).reason;
-            } catch {
-              // Keep the generic reason.
-            }
-            settleClose(1006, reason, true);
-          }
-        },
-        fail(error) {
-          // Spec: streams killed by a tunnel reset close with 1012 so callers'
-          // reconnect machinery treats it as "host went away, retry".
-          settleClose(1012, error.message, true);
-        },
-      });
-      const { path, query } = splitPathQuery(pathWithQuery);
-      // The host sets the WS Origin itself (to the loopback origin it dials); the
-      // client's window.location.origin is unreliable in WKWebView, so we don't send it.
-      const openPayload: TunnelWsOpenPayload = protocols && protocols.length > 0 ? { path, query, protocols } : { path, query };
-      channel.send(encodeTunnelFrame(TunnelFrameType.WsOpen, streamId, encodeJsonPayload(openPayload)));
-    })();
-
-    return socket;
-  };
-
   const close = (): void => {
     if (closed) return;
     closed = true;
@@ -1022,8 +581,9 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
   void connect();
 
   return {
-    fetch: tunnelFetch,
-    openWebSocket: openTunnelWebSocket,
+    fetch: (input, init) => tunnelFetch(waitForChannel, input, init),
+    openWebSocket: (pathWithQuery, protocols) =>
+      openTunnelWebSocket(() => waitForChannel(), pathWithQuery, protocols),
     getStatus: () => status,
     subscribeStatus(listener) {
       statusListeners.add(listener);

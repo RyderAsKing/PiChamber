@@ -136,42 +136,7 @@ export const reconnectPiSession = async (
       directory: options.directory,
       ...(options.runtimeKey ? { runtimeKey: options.runtimeKey } : {}),
     }));
-    const hydrated = hydrateSessionFromDetail({
-      session: detail.session,
-      lastSequence: detail.lastSequence,
-      ...(detail.isStreaming !== undefined ? { isStreaming: detail.isStreaming } : {}),
-      ...(detail.lifecycle ? { lifecycle: detail.lifecycle } : {}),
-      ...(detail.retry ? { retry: detail.retry } : {}),
-      ...(detail.compaction ? { compaction: detail.compaction } : {}),
-      ...(detail.extensionStatuses ? { extensionStatuses: detail.extensionStatuses } : {}),
-      ...(detail.extensionWidgets ? { extensionWidgets: detail.extensionWidgets } : {}),
-      ...(detail.extensionDialogs ? { extensionDialogs: detail.extensionDialogs } : {}),
-      ...(detail.extensionPanels ? { extensionPanels: detail.extensionPanels } : {}),
-      ...(detail.extensionApps ? { extensionApps: detail.extensionApps } : {}),
-      ...(detail.extensionTitle ? { extensionTitle: detail.extensionTitle } : {}),
-      messages: detail.messages.map((entry) => ({
-        message: entry.message,
-        parts: entry.parts.map((part) => ({
-          id: part.id,
-          index: part.index,
-          type: part.type,
-          text: part.type === 'text' || part.type === 'thinking' ? part.text : undefined,
-          ...(part.type === 'tool'
-            ? {
-                toolCallId: part.toolCallId,
-                name: part.name,
-                ...(part.input !== undefined ? { input: part.input } : {}),
-                ...(part.output !== undefined ? { output: part.output } : {}),
-                ...(part.isError !== undefined ? { isError: part.isError } : {}),
-                state: part.state,
-                ...(part.startedAt !== undefined ? { startedAt: part.startedAt } : {}),
-                ...(part.endedAt !== undefined ? { endedAt: part.endedAt } : {}),
-              }
-            : {}),
-          ...(part.type === 'attachment' ? { attachment: part.attachment } : {}),
-        })),
-      })),
-    });
+    const hydrated = hydrateSessionFromDetail(detail);
     result.reducerState = hydrated.state;
     // Synthesize a snapshot event from the detail response. We use the
     // event reducer's snapshot path so the reconnect logic stays in one

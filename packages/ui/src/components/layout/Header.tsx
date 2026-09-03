@@ -27,7 +27,6 @@ import { useGitBranchLabel } from '@/stores/useGitStore';
 import { getAllSyncSessions } from '@/sync/sync-refs';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 
-import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useDesktopWindowControlsLayout } from '@/hooks/useDesktopWindowControlsLayout';
 import { WindowsWindowControls } from '@/components/desktop/WindowsWindowControls';
@@ -43,7 +42,6 @@ import { getHeaderLocationLabel, getHeaderOpenDirectory } from './headerLocation
 
 type UsageWindow = any;
 import type { GitHubAuthStatus } from '@/lib/api/types';
-import { DesktopHostSwitcherDialog } from '@/components/desktop/DesktopHostSwitcher';
 import { OpenInAppButton } from '@/components/desktop/OpenInAppButton';
 import { ProjectActionsButton } from '@/components/layout/ProjectActionsButton';
 
@@ -67,331 +65,16 @@ import type { IconName } from "@/components/icon/icons";
 import { toast } from '@/components/ui';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { buildExportFilename, downloadAsMarkdown, formatSessionAsMarkdown, saveAsMarkdownDesktop } from '@/lib/exportSession';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-
-const DESKTOP_HEADER_ICON_BUTTON_CLASS = 'app-region-no-drag inline-flex h-8 w-8 items-center justify-center gap-2 rounded-md typography-ui-label font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50 hover:bg-interactive-hover transition-colors';
-const MOBILE_HEADER_ICON_BUTTON_CLASS = 'app-region-no-drag inline-flex h-9 w-9 items-center justify-center gap-2 p-2 rounded-md typography-ui-label font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50 hover:text-foreground hover:bg-interactive-hover transition-colors';
-
-type HeaderIconActionButtonProps = {
-  visible?: boolean;
-  title: string;
-  ariaLabel: string;
-  onClick: React.MouseEventHandler<HTMLButtonElement>;
-  className?: string;
-  Icon: IconName;
-  iconClassName?: string;
-  pressed?: boolean;
-};
-
-const HeaderIconActionButton = React.memo(function HeaderIconActionButton({
-  visible = true,
-  title,
-  ariaLabel,
-  onClick,
-  className,
-  Icon: iconName,
-  iconClassName,
-  pressed = false,
-}: HeaderIconActionButtonProps) {
-  if (!visible) {
-    return null;
-  }
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={onClick}
-          aria-label={ariaLabel}
-          aria-pressed={pressed}
-          className={cn(
-            className ?? DESKTOP_HEADER_ICON_BUTTON_CLASS,
-            pressed && 'bg-interactive-selection text-interactive-selection-foreground'
-          )}
-        >
-          <Icon name={iconName} className={iconClassName ?? 'h-[18px] w-[18px]'} />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>
-        <p>{title}</p>
-      </TooltipContent>
-    </Tooltip>
-  );
-});
-
-type DesktopGitHubControlProps = {
-  isMobile: boolean;
-  githubAuthStatus: GitHubAuthStatus | null;
-  githubAccounts: Array<NonNullable<GitHubAuthStatus['accounts']>[number]>;
-  githubAvatarUrl: string | null;
-  githubLogin: string | null;
-  isSwitchingGitHubAccount: boolean;
-  handleGitHubAccountSwitch: (accountId: string) => Promise<void>;
-};
-
-const DesktopGitHubControl = React.memo(function DesktopGitHubControl({
-  isMobile,
-  githubAuthStatus,
-  githubAccounts,
-  githubAvatarUrl,
-  githubLogin,
-  isSwitchingGitHubAccount,
-  handleGitHubAccountSwitch,
-}: DesktopGitHubControlProps) {
-  if (!githubAuthStatus?.connected || isMobile) {
-    return null;
-  }
-
-  if (githubAccounts.length > 1) {
-    return (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className={cn(
-              DESKTOP_HEADER_ICON_BUTTON_CLASS,
-              'h-7 w-7 overflow-hidden rounded-full border border-border/60 bg-muted/80 p-0'
-            )}
-            title={githubLogin ? `GitHub: ${githubLogin}` : "GitHub connected"}
-            disabled={isSwitchingGitHubAccount}
-          >
-            {githubAvatarUrl ? (
-              <img
-                src={githubAvatarUrl}
-                alt={githubLogin ? `${githubLogin} avatar` : "GitHub avatar"}
-                className="h-full w-full object-cover"
-                loading="lazy"
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              <Icon name="github-fill" className="h-3.5 w-3.5 text-foreground" />
-            )}
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-64">
-          <DropdownMenuLabel className="typography-ui-header font-semibold text-foreground">
-            {"GitHub Accounts"}
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {githubAccounts.map((account) => {
-            const accountUser = account.user;
-            const isCurrent = Boolean(account.current);
-            const sourceLabel = account.source === 'gh-cli'
-              ? "CLI"
-              : "OAuth";
-            return (
-              <DropdownMenuItem
-                key={account.id}
-                className="gap-2"
-                disabled={isSwitchingGitHubAccount}
-                onSelect={() => {
-                  if (!isCurrent) {
-                    void handleGitHubAccountSwitch(account.id);
-                  }
-                }}
-              >
-                {accountUser?.avatarUrl ? (
-                  <img
-                    src={accountUser.avatarUrl}
-                    alt={accountUser.login ? `${accountUser.login} avatar` : "GitHub avatar"}
-                    className="h-6 w-6 rounded-full border border-border/60 bg-muted object-cover"
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <div className="flex h-6 w-6 items-center justify-center rounded-full border border-border/60 bg-muted">
-                    <Icon name="github-fill" className="h-3 w-3 text-muted-foreground" />
-                  </div>
-                )}
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate typography-ui-label text-foreground">
-                    {accountUser?.name?.trim() || accountUser?.login || 'GitHub'}
-                  </span>
-                  {accountUser?.login ? (
-                    <span className="truncate typography-micro text-muted-foreground">
-                      <span className="font-mono">{accountUser.login}</span>
-                      <span className="mx-1 opacity-50">·</span>
-                      <span>{sourceLabel}</span>
-                    </span>
-                  ) : null}
-                </span>
-                {isCurrent ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
-              </DropdownMenuItem>
-            );
-          })}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    );
-  }
-
-  return (
-    <div
-      className="app-region-no-drag flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border border-border/60 bg-muted/80"
-      title={githubLogin ? `GitHub: ${githubLogin}` : "GitHub connected"}
-    >
-      {githubAvatarUrl ? (
-        <img
-          src={githubAvatarUrl}
-          alt={githubLogin ? `${githubLogin} avatar` : "GitHub avatar"}
-          className="h-full w-full object-cover"
-          loading="lazy"
-          referrerPolicy="no-referrer"
-        />
-      ) : (
-        <Icon name="github-fill" className="h-3.5 w-3.5 text-foreground" />
-      )}
-    </div>
-  );
-});
-
-type DesktopServicesMenuProps = {
-  isDesktopApp: boolean;
-  currentInstanceLabel: string;
-  compactCurrentInstanceLabel: string;
-  currentInstanceIsLocal: boolean;
-  isDesktopServicesOpen: boolean;
-  setIsDesktopServicesOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  refreshCurrentInstanceLabel: () => Promise<void>;
-  shortcutLabel: (actionId: string) => string;
-  remoteUpdateInfo: UpdateInfo | null;
-  remoteUpdateChecking: boolean;
-  remoteUpdateError: string | null;
-  onOpenRemoteUpdate: () => void;
-};
-
-const DesktopServicesMenu = React.memo(function DesktopServicesMenu({
-  isDesktopApp,
-  currentInstanceLabel,
-  compactCurrentInstanceLabel,
-  currentInstanceIsLocal,
-  isDesktopServicesOpen,
-  setIsDesktopServicesOpen,
-  refreshCurrentInstanceLabel,
-  shortcutLabel,
-  remoteUpdateInfo,
-  remoteUpdateChecking,
-  remoteUpdateError,
-  onOpenRemoteUpdate,
-}: DesktopServicesMenuProps) {
-  return (
-    <DropdownMenu
-      open={isDesktopServicesOpen}
-      onOpenChange={(open) => {
-        setIsDesktopServicesOpen(open);
-        if (open) {
-          void refreshCurrentInstanceLabel();
-        }
-      }}
-    >
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label={isDesktopApp
-                ? `Open instance, usage and MCP (current: ${currentInstanceLabel})`
-                : "Open services, usage and MCP"}
-              className={cn(
-                DESKTOP_HEADER_ICON_BUTTON_CLASS,
-                isDesktopApp ? 'w-auto max-w-[14rem] justify-start gap-1.5 px-2.5' : 'h-8 w-8'
-              )}
-            >
-              <Icon name="server" className="h-[18px] w-[18px]" />
-              {isDesktopApp ? (
-                <span className="truncate typography-ui-label font-medium text-foreground">{compactCurrentInstanceLabel}</span>
-              ) : null}
-            </button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p>
-            {`Current instance: ${currentInstanceLabel} (${shortcutLabel('toggle_services_menu')})`}
-          </p>
-        </TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent
-        align="end"
-        className="w-[min(27rem,calc(100vw-2rem))] max-h-[75vh] overflow-y-auto p-0"
-      >
-        {isDesktopApp ? (
-          <div>
-            {!currentInstanceIsLocal ? (
-              <div className="border-b border-[var(--interactive-border)] px-4 py-2.5">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="typography-ui-label font-medium text-foreground">{"Remote instance update"}</div>
-                    <div className="typography-micro text-muted-foreground">
-                      {remoteUpdateInfo?.available
-                        ? `Version ${remoteUpdateInfo.version || ''} is available for this instance.`
-                        : remoteUpdateChecking
-                          ? "Looking for updates..."
-                          : remoteUpdateError || "This instance is up to date."}
-                    </div>
-                  </div>
-                  {remoteUpdateInfo?.available ? (
-                    <button
-                      type="button"
-                      className="shrink-0 rounded-md bg-[var(--primary-base)] px-3 py-1.5 typography-ui-label font-medium text-[var(--primary-foreground)] hover:opacity-90"
-                      onClick={onOpenRemoteUpdate}
-                    >
-                      {"Update"}
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
-            <DesktopHostSwitcherDialog
-              embedded
-              open={isDesktopServicesOpen}
-              onOpenChange={() => {}}
-              onHostSwitched={() => setIsDesktopServicesOpen(false)}
-            />
-          </div>
-        ) : null}
-
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-});
-
-
-
-const formatCompactHeaderLabel = (value: string): string => {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return '';
-  }
-
-  const words = trimmed.split(/\s+/).filter(Boolean);
-  if (words.length >= 2) {
-    const first = words[0];
-    const second = words[1].slice(0, 3);
-    const shortTwoWord = `${first} ${second}`.trim();
-    if (words.length > 2 || shortTwoWord.length < trimmed.length) {
-      return `${shortTwoWord}...`;
-    }
-    return shortTwoWord;
-  }
-
-  return trimmed.length > 12 ? `${trimmed.slice(0, 9).trimEnd()}...` : trimmed;
-};
-
-const formatTime = (timestamp: number | null, timeFormatPreference: 'auto' | '12h' | '24h') => {
-  if (!timestamp) return '-';
-  try {
-    return formatTimeForPreference(timestamp, timeFormatPreference, { fallback: '-' });
-  } catch {
-    return '-';
-  }
-};
-
-const normalize = (value: string): string => {
-  if (!value) return '';
-  const replaced = value.replace(/\\/g, '/');
-  return replaced === '/' ? '/' : replaced.replace(/\/+$/, '');
-};
+import {
+  HeaderIconActionButton,
+  DESKTOP_HEADER_ICON_BUTTON_CLASS,
+  MOBILE_HEADER_ICON_BUTTON_CLASS,
+} from './header/HeaderIconActionButton';
+import { DesktopGitHubControl } from './header/DesktopGitHubControl';
+import { DesktopServicesMenu } from './header/DesktopServicesMenu';
+import { HeaderRetentionDialog } from './header/HeaderRetentionDialog';
+import { formatCompactHeaderLabel, formatTime, normalize } from './header/headerHelpers';
 
 interface TabConfig {
   id: MainTab;
@@ -401,7 +84,7 @@ interface TabConfig {
   showDot?: boolean;
 }
 
-type TabletWorkspaceTab = 'changes' | 'files' | 'terminal' | 'notes';
+type TabletWorkspaceTab = 'changes' | 'files' | 'terminal';
 
 interface HeaderProps {
   onToggleLeftDrawer?: () => void;
@@ -485,7 +168,6 @@ export const Header: React.FC<HeaderProps> = ({
     { id: 'changes', label: "Changes", icon: "git-branch" },
     { id: 'files', label: "Files", icon: "file-text" },
     { id: 'terminal', label: "Terminal", icon: "terminal-box" },
-    { id: 'notes', label: "Notes", icon: "sticky-note" },
   ], []);
   const [tabletMetadataOpen, setTabletMetadataOpen] = React.useState(false);
   const githubAuthStatus = null;
@@ -1805,28 +1487,12 @@ export const Header: React.FC<HeaderProps> = ({
       >
         {isMobile ? renderMobile() : renderDesktop()}
       </header>
-      <Dialog open={pendingHeaderRetentionAction !== null} onOpenChange={(open) => { if (!open) setPendingHeaderRetentionAction(null); }}>
-        <DialogContent showCloseButton={false} className="max-w-sm gap-5">
-          <DialogHeader>
-            <DialogTitle>{pendingHeaderRetentionAction === 'delete'
-              ? "Delete session?"
-              : "Archive session?"}</DialogTitle>
-            <DialogDescription>{pendingHeaderRetentionAction === 'delete'
-              ? `\\"${currentSessionTitle}\\" will be permanently deleted.`
-              : `\\"${currentSessionTitle}\\" will be archived.`}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setPendingHeaderRetentionAction(null)}>
-              {"Cancel"}
-            </Button>
-            <Button variant="destructive" size="sm" onClick={() => void confirmHeaderRetentionAction()}>
-              {pendingHeaderRetentionAction === 'delete'
-                ? "Delete"
-                : "Archive"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <HeaderRetentionDialog
+        action={pendingHeaderRetentionAction}
+        onClose={() => setPendingHeaderRetentionAction(null)}
+        sessionTitle={currentSessionTitle}
+        onConfirm={() => void confirmHeaderRetentionAction()}
+      />
       <UpdateDialog
         open={remoteUpdateDialogOpen}
         onOpenChange={setRemoteUpdateDialogOpen}

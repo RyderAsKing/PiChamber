@@ -13,8 +13,8 @@ import { useInputStore } from '@/sync/input-store';
 import { useUIStore } from '@/stores/useUIStore';
 import { toast } from '@/components/ui';
 import { Icon } from "@/components/icon/Icon";
-import { getConflictDetails, type MergeConflictDetails } from '@/lib/gitApi';
-import { renderMagicPrompt } from '@/lib/magicPrompts';
+import type { MergeConflictDetails } from '@/lib/api/types';
+import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 
 interface ConflictDialogProps {
   open: boolean;
@@ -35,6 +35,7 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
   onAbort,
   onClearState,
 }) => {
+  const { git } = useRuntimeAPIs();
   const openNewSessionDraft = useSessionUIStore((state) => state.openNewSessionDraft);
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const setPendingInputText = useInputStore((state) => state.setPendingInputText);
@@ -53,7 +54,7 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
     setLoadError(null);
     setConflictDetails(null);
 
-    getConflictDetails(directory)
+    git.getConflictDetails(directory)
       .then((details) => {
         setConflictDetails(details);
       })
@@ -64,7 +65,7 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
       .finally(() => {
         setIsLoading(false);
       });
-  }, [open, directory]);
+  }, [directory, git, open]);
 
   const buildConflictContext = React.useCallback(async (): Promise<{
     visibleText: string;
@@ -77,18 +78,14 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
     const headRef = conflictDetails.headInfo || (operation === 'merge' ? 'MERGE_HEAD' : 'REBASE_HEAD');
     const continueCmd = operation === 'merge' ? 'git commit --no-edit' : 'git rebase --continue';
 
-    const visibleText = await renderMagicPrompt('git.conflict.resolve.visible', {
-      operation_label: operationLabel,
-      head_ref: headRef,
-    });
+    const visibleText = `Investigate the ${operationLabel} conflicts and concisely report the intended resolution strategy without making modifications. Wait for confirmation before resolving, staging, or continuing the ${operationLabel}. Preserve the intent of changes from ${headRef}.`;
 
-    const instructionsText = await renderMagicPrompt('git.conflict.resolve.instructions', {
-      operation_label: operationLabel,
-      directory,
-      operation,
-      head_info: conflictDetails.headInfo || 'N/A',
-      continue_cmd: continueCmd,
-    });
+    const instructionsText = `Git ${operationLabel} operation is in progress with conflicts.
+- Directory: ${directory}
+- Operation: ${operation}
+- Head Info: ${conflictDetails.headInfo || 'N/A'}
+
+Inspect each conflicted file and both sides of every conflict. Report a concise per-file resolution strategy and any assumptions or tradeoffs. Wait for explicit user confirmation before editing, staging, or running ${continueCmd}. After confirmation, remove all conflict markers, preserve intent from both sides, verify syntax, and complete the ${operationLabel}.`;
 
     const payloadText = `${operationLabel} conflict context (JSON)\n${JSON.stringify(
       {

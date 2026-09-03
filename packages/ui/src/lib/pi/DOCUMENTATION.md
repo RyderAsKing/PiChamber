@@ -324,8 +324,8 @@ the composer. Providers settings still lists the
 full catalog so unconfigured providers can be logged in. Composer chrome does not expose an agent selector.
 Chat, sidebar, and composer mutations go through `PiSessionStore` and `/api/pi/*`. Pi assistant projections preserve their owning user-message id end to end because the restored chat renderer groups assistant output into user turns by that identity. Tool parts preserve input, cumulative partial output, final output, error text, metadata, and start/end timestamps through the reducer. `pi-to-renderable` keeps that contract for live and expanded tools; settled historical tools whose output or patch exceeds a character budget become preview stubs (`state.deferredBody`) so transcript records do not retain full bodies. Expanding a tool hydrates the canonical part through `useSessionReducerPart`. A completed tool needs an end time and keeps its status verbatim, including `cancelled`. `pi-to-renderable` also copies the producing `providerId`/`modelId` onto both nested `info.model` and top-level `info.providerID`/`info.modelID` so the assistant message footer can show the model name without guessing from the current composer selection.
 Settings chrome is the restored PiChamber hub limited to Pi-owned pages
-(Providers, Skills, Snippets, Behavior/`AGENTS.md`, Magic Prompts, appearance
-and other PiChamber pages). A failed daemon probe must show an error banner,
+(Providers, Skills, Snippets, Behavior/`AGENTS.md`, appearance, and other
+PiChamber pages). A failed daemon probe must show an error banner,
 never an empty idle session list.
 
 Native resource discovery is projected from Pi's resource loader without filesystem paths. Skills are browse-only; Pi prompt templates and applicable global/project instruction files are edited only through opaque daemon identifiers. Project-local resources remain hidden until the browser makes an explicit persisted Pi trust decision; extensions remain disabled by the daemon.
@@ -335,7 +335,7 @@ The mounted Providers surface submits API keys once through the authenticated
 adapter or renders Pi's opaque browser/device/manual-code login state; stored
 credentials never return to the browser. Custom OpenAI-compatible providers
 are written through the same adapter to Pi `models.json`; configuration
-responses omit credentials and headers, which are write-only. PiChamber new-session model, small-model, and walkthrough-model
+responses omit credentials and headers, which are write-only. The initialized composer reuses its authoritative config snapshot when it creates a session with an explicit model, including the per-model thinking default. Callers that run before config initialization or omit the model still fetch `/api/pi/settings`, preserving the authoritative fallback and failure contract without putting an extra settings round trip on the normal send path. PiChamber new-session model, small-model, and walkthrough-model
 defaults live in its own sidecar and are edited on the Sessions settings page with the shared model picker. The authenticated `/api/pi/small-model/generate` adapter uses an isolated in-memory Pi session with the configured small model (falling back to the configured default model) for short utility output. It replaces Pi's coding-agent system prompt with a stateless text-transformation prompt and disables tools, extensions, skills, prompt templates, and context files, so task text is input data rather than an instruction to inspect or modify the repository. It never writes a visible session or JSONL file, applies a bounded timeout, and returns no provider, credential, prompt, or daemon metadata. Worktree naming is its first consumer. It accepts generated text only when the complete response is already a lowercase ASCII hyphenated slug within the 48-character limit; prose, prefixes, punctuation, and overlong output fall back to a deterministic local slug derived from the task prompt. Generation failure uses the same fallback. Per-model thinking variants live solely in
 Providers settings — each model row shows its default variant directly
 without a boxed border (`Default` when unset) and stores `pichamber.defaultThinkingByModel`
@@ -362,6 +362,6 @@ the previous session selection. Slash commands, the Pi TUI, and other tabs
 still mutate the live session immediately; the composer adopts those
 authoritative changes. Existing session thinking stays until the user sends
 a new selection or an external command changes it.
-Composer attachments are uploaded before prompt dispatch and the returned opaque identifiers are forwarded with that captured send. Attachment uploads return opaque identifiers; their temporary paths cross only
+Composer attachments are uploaded before prompt dispatch and the returned opaque identifiers are forwarded with that captured send. Because Pi's live user start can precede the branch-readable transcript entry, that start also carries bounded filename and MIME metadata as `file` parts. The reducer renders those parts immediately and later hydration replaces them with the authoritative persisted projection. Attachment uploads return opaque identifiers; their temporary paths cross only
 the private daemon IPC and are redacted from public transcript/event output.
 The browser never receives a path, endpoint, credential, or daemon identity.

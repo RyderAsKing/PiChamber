@@ -4,7 +4,6 @@ import type { Session } from '@/lib/chat/types';
 import { SessionActivityDuration } from '@/components/session/SessionActivityDuration';
 import { formatSessionCompactDateLabel } from '@/components/session/sidebar/utils';
 import { useSwitcherItems } from '@/components/session/sidebar/hooks/useSwitcherItems';
-import { useTabletLayout } from '@/lib/device';
 import { cn } from '@/lib/utils';
 import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -13,10 +12,9 @@ import { useHasSessionActivityDuration } from '@/sync/session-activity-timing';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useGlobalSessionStatus } from '@/sync/sync-context';
 import { SessionUnreadDot } from '@/components/session/sidebar/SessionUnreadDot';
+import { MOBILE_HEADER_POPOVER_WIDTH, useMobileHeaderOverlay } from './useMobileHeaderOverlay';
 
 const RECENT_SESSIONS_LIMIT = 10;
-/** Matches the metadata popover's width so both header dropdowns read as a pair. */
-const TABLET_POPOVER_WIDTH = 380;
 
 const getSessionTitle = (session: Session, fallback: string): string =>
   session.title?.trim() || fallback;
@@ -88,89 +86,16 @@ export const MobileSessionSwitcher: React.FC<{
   anchorRef: React.RefObject<HTMLElement | null>;
 }> = ({ open, onClose, anchorRef }) => {
   
-  const panelRef = React.useRef<HTMLDivElement>(null);
-  const [shouldRender, setShouldRender] = React.useState(open);
-  const [isExiting, setIsExiting] = React.useState(false);
-  // Tablet: a phone-width sheet stretched across the whole chat column looks
-  // broken — anchor a popover under the title instead. Mirror image of the
-  // metadata/usage popover, which anchors to the ring on the right.
-  const { enabled: isTabletLayout } = useTabletLayout();
-  const wrapperRef = React.useRef<HTMLDivElement>(null);
-  const [anchorLeft, setAnchorLeft] = React.useState<number | null>(null);
-
-  // The shell has transformed ancestors, so the fixed wrapper's containing
-  // block is the chat column, NOT the viewport — anchor in the wrapper's own
-  // coordinate space (see SessionMetadataOverlay for the same reasoning).
-  React.useLayoutEffect(() => {
-    if (!open || !isTabletLayout || !shouldRender) return;
-    const compute = () => {
-      const anchorRect = anchorRef.current?.getBoundingClientRect();
-      const wrapperRect = wrapperRef.current?.getBoundingClientRect();
-      if (!anchorRect || !wrapperRect) {
-        setAnchorLeft(null);
-        return;
-      }
-      const relativeLeft = anchorRect.left - wrapperRect.left;
-      setAnchorLeft(Math.min(
-        Math.max(relativeLeft, 8),
-        Math.max(8, wrapperRect.width - TABLET_POPOVER_WIDTH - 8),
-      ));
-    };
-    compute();
-    // Re-anchor if the chat column shifts while the popover is open (sidebar
-    // toggle/resize, orientation change) — the header buttons move with it.
-    const wrapper = wrapperRef.current;
-    if (typeof ResizeObserver === 'undefined' || !wrapper) return;
-    const observer = new ResizeObserver(compute);
-    observer.observe(wrapper);
-    return () => observer.disconnect();
-  }, [anchorRef, isTabletLayout, open, shouldRender]);
-
-  const isPopover = isTabletLayout && anchorLeft !== null;
+  const { panelRef, wrapperRef, shouldRender, isExiting, anchorLeft, isPopover } = useMobileHeaderOverlay({
+    open,
+    onClose,
+    anchorRef,
+  });
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
   const setActiveProjectIdOnly = useProjectsStore((state) => state.setActiveProjectIdOnly);
 
   const items = useSwitcherItems(open || shouldRender, { maxParents: RECENT_SESSIONS_LIMIT });
-
-  React.useEffect(() => {
-    if (open) {
-      setShouldRender(true);
-      setIsExiting(false);
-      return;
-    }
-    if (!shouldRender) return;
-    setIsExiting(true);
-    const timeoutId = window.setTimeout(() => {
-      setShouldRender(false);
-      setIsExiting(false);
-    }, 140);
-    return () => window.clearTimeout(timeoutId);
-  }, [open, shouldRender]);
-
-  React.useEffect(() => {
-    if (!open) return;
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handleKey);
-    return () => document.removeEventListener('keydown', handleKey);
-  }, [onClose, open]);
-
-  React.useEffect(() => {
-    if (!open) return;
-    const closeIfOutside = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) {
-        onClose();
-        return;
-      }
-      if (panelRef.current?.contains(target) || anchorRef.current?.contains(target)) return;
-      onClose();
-    };
-    document.addEventListener('pointerdown', closeIfOutside, true);
-    return () => document.removeEventListener('pointerdown', closeIfOutside, true);
-  }, [anchorRef, onClose, open]);
 
   const handleSelect = React.useCallback((session: Session) => {
     void setCurrentSession(session.id, resolveGlobalSessionDirectory(session));
@@ -197,7 +122,7 @@ export const MobileSessionSwitcher: React.FC<{
             ? {
                 top: 8,
                 left: anchorLeft ?? 8,
-                width: `min(${TABLET_POPOVER_WIDTH}px, calc(100% - 16px))`,
+                width: `min(${MOBILE_HEADER_POPOVER_WIDTH}px, calc(100% - 16px))`,
               }
             : null),
         }}

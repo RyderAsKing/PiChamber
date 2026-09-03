@@ -2,8 +2,8 @@
  * Assembling what the composer actually sends.
  *
  * A single send can carry more than what the user just typed: messages queued
- * while the previous turn ran, inline review comments, `@file` references
- * resolved to attachments, a linked GitHub issue or PR, synthetic parts from
+ * while the previous turn ran, `@file` references resolved to attachments,
+ * synthetic parts from
  * conflict resolution, and an instruction naming the skills mentioned inline.
  *
  * PiChamber assembles one primary message plus additional parts, so all of that has
@@ -14,6 +14,35 @@
  */
 
 import type { AttachedFile } from '@/stores/types/sessionTypes';
+import { collectKnownTokenNames } from '../language/prefixTokens';
+
+
+/** Resolve inline /skill tokens against the authoritative skill registry. */
+export const collectInlineSkillMentions = (text: string, skillNames: Set<string>): string[] => {
+    if (skillNames.size === 0) return [];
+    const canonicalByLower = new Map<string, string>();
+    for (const name of skillNames) {
+        const lower = name.toLowerCase();
+        if (!canonicalByLower.has(lower)) canonicalByLower.set(lower, name);
+    }
+    const matched = collectKnownTokenNames(text, '/', new Set(canonicalByLower.keys()), 'case-insensitive');
+    const seen = new Set<string>();
+    const resolved: string[] = [];
+    for (const name of matched) {
+        const canonical = canonicalByLower.get(name.toLowerCase()) ?? name;
+        const key = canonical.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        resolved.push(canonical);
+    }
+    return resolved;
+};
+
+export const buildSkillMentionInstruction = (skillNames: string[]): string | null => {
+    if (skillNames.length === 0) return null;
+    const formatted = skillNames.map((name) => `/${name}`).join(', ');
+    return `The user explicitly mentioned these skills in their message: ${formatted}. Use the corresponding skill tool when it is relevant to accomplishing the user's request.`;
+};
 
 export interface OutgoingPart {
     text: string;
@@ -43,12 +72,8 @@ export interface OutgoingMessageInput {
     /** The composer's own text, or null when this send skips it. */
     composerText: string | null;
     composerAttachments: readonly AttachedFile[];
-    /** Inline review comments, appended to the user's last authored text. */
-    inlineComments: readonly unknown[];
     /** Synthetic context produced elsewhere (conflict resolution, and such). */
     syntheticTexts: readonly string[];
-    linkedIssueContext: string | null;
-    linkedPr: { instructions: string; context: string } | null;
 }
 
 /**
@@ -64,8 +89,6 @@ export interface OutgoingMessageDeps {
     sanitizeAttachments: (files: readonly AttachedFile[] | undefined) => AttachedFile[];
     /** Skills named inline with `/name`. */
     collectSkillNames: (text: string) => string[];
-    /** Append inline review comments to a message body. */
-    appendComments: (text: string, comments: readonly unknown[]) => string;
     /** Instruction telling the model which skills the user named. */
     buildSkillInstruction: (names: string[]) => string | null;
 }
@@ -134,33 +157,9 @@ export function buildOutgoingMessage(
         }
     }
 
-    // Inline comments attach to the last thing the user authored, so they read
-    // as a continuation of it rather than as a separate turn.
-    if (input.inlineComments.length > 0) {
-        const lastAuthored = input.queued.length > 0 && additionalParts.length > 0
-            ? additionalParts[additionalParts.length - 1]
-            : null;
-        if (lastAuthored) {
-            lastAuthored.text = deps.appendComments(lastAuthored.text, input.inlineComments);
-        } else {
-            primaryText = deps.appendComments(primaryText, input.inlineComments);
-        }
-    }
-
     // Everything below is context for the model, never user-visible content.
     for (const text of input.syntheticTexts) {
         additionalParts.push({ text, synthetic: true });
-    }
-
-    if (input.linkedIssueContext) {
-        additionalParts.push({ text: input.linkedIssueContext, synthetic: true });
-    }
-
-    if (input.linkedPr) {
-        // Instructions before context: the model is told how to read the diff
-        // before it is given the diff.
-        additionalParts.push({ text: input.linkedPr.instructions, synthetic: true });
-        additionalParts.push({ text: input.linkedPr.context, synthetic: true });
     }
 
     const skillInstruction = deps.buildSkillInstruction(skillNames);

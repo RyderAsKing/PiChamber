@@ -35,7 +35,7 @@ macOS notarized builds need `APPLE_CERTIFICATE` as base64 of a Developer ID Appl
 
 ## Platform rules
 
-- Keep native windows, menus, updater, deep-link, SSH, and IPC behavior in this package.
+- Keep native windows, menus, updater, deep-link, and IPC behavior in this package.
 - Keep shared UI behavior in `packages/ui` and server behavior in `packages/web`.
 - Background processes on Windows must use direct hidden spawns (`windowsHide: true`) and never `cmd.exe` wrappers.
 - Validate both HMR and bundled UI startup after changing startup, preload, routing, or packaging.

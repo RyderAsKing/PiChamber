@@ -1,4 +1,5 @@
 import { runtimeFetch } from './runtime-fetch';
+import { getRuntimeKey, subscribeRuntimeEndpointChanged } from './runtime-switch';
 
 export const RESPONSE_STYLE_PRESETS = ['concise', 'detailed', 'mentor', 'pushback', 'noFiller', 'matchEnergy', 'warmPeer'] as const;
 export type ResponseStylePreset = typeof RESPONSE_STYLE_PRESETS[number];
@@ -26,6 +27,12 @@ export const getResponseStylePresetInstructions = (preset: ResponseStylePreset):
   }
 };
 
+type ResponseStyleSettings = {
+  responseStyleEnabled?: unknown;
+  responseStylePreset?: unknown;
+  responseStyleCustomInstructions?: unknown;
+};
+
 const buildResponseStyleInstruction = ({
   enabled,
   preset,
@@ -44,21 +51,56 @@ const buildResponseStyleInstruction = ({
   return getResponseStylePresetInstructions(preset);
 };
 
-export const fetchResponseStyleInstruction = async (): Promise<string | null> => {
-  const response = await runtimeFetch('/api/pi/ui-settings', {
-    method: 'GET',
-    headers: { Accept: 'application/json' },
-  });
-  if (!response.ok) return null;
-  const settings = await response.json().catch(() => null) as {
-    responseStyleEnabled?: unknown;
-    responseStylePreset?: unknown;
-    responseStyleCustomInstructions?: unknown;
-  } | null;
-  if (!settings) return null;
-  return buildResponseStyleInstruction({
+const instructionFromSettings = (settings: ResponseStyleSettings): string | null =>
+  buildResponseStyleInstruction({
     enabled: settings.responseStyleEnabled === true,
     preset: settings.responseStylePreset,
     customInstructions: settings.responseStyleCustomInstructions,
   });
+
+let cachedInstruction: { runtimeKey: string; value: string | null } | null = null;
+let instructionInflight: { runtimeKey: string; promise: Promise<string | null> } | null = null;
+
+const updateCachedInstruction = (settings: ResponseStyleSettings): void => {
+  cachedInstruction = {
+    runtimeKey: getRuntimeKey(),
+    value: instructionFromSettings(settings),
+  };
+};
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pichamber:settings-synced', (event) => {
+    updateCachedInstruction((event as CustomEvent<ResponseStyleSettings>).detail ?? {});
+  });
+}
+
+subscribeRuntimeEndpointChanged((detail) => {
+  if (detail.runtimeKey === detail.previousRuntimeKey) return;
+  cachedInstruction = null;
+  instructionInflight = null;
+});
+
+export const fetchResponseStyleInstruction = async (): Promise<string | null> => {
+  const runtimeKey = getRuntimeKey();
+  if (cachedInstruction?.runtimeKey === runtimeKey) return cachedInstruction.value;
+  if (instructionInflight?.runtimeKey === runtimeKey) return instructionInflight.promise;
+
+  const request = (async () => {
+    const response = await runtimeFetch('/api/pi/ui-settings', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) return null;
+    const settings = await response.json().catch(() => null) as ResponseStyleSettings | null;
+    if (!settings || getRuntimeKey() !== runtimeKey) return null;
+    const value = instructionFromSettings(settings);
+    cachedInstruction = { runtimeKey, value };
+    return value;
+  })();
+  instructionInflight = { runtimeKey, promise: request };
+  try {
+    return await request;
+  } finally {
+    if (instructionInflight?.promise === request) instructionInflight = null;
+  }
 };

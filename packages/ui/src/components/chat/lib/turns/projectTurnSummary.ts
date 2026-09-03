@@ -27,51 +27,38 @@ const isCompactionSummaryMessage = (message: ChatMessageEntry): boolean => {
     return (message.info as { summary?: unknown }).summary === true;
 };
 
+const findLatestTextSummary = (
+    assistantMessages: ChatMessageEntry[],
+    requireStoppedMessage: boolean,
+): TurnSummaryRecord | undefined => {
+    for (let messageIndex = assistantMessages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+        const assistantMessage = assistantMessages[messageIndex];
+        if (!assistantMessage) continue;
+        if (isCompactionSummaryMessage(assistantMessage)) continue;
+        if (requireStoppedMessage && (assistantMessage.info as { finish?: string | null }).finish !== 'stop') continue;
+
+        for (let partIndex = assistantMessage.parts.length - 1; partIndex >= 0; partIndex -= 1) {
+            const part = assistantMessage.parts[partIndex];
+            if (!part || part.type !== 'text') continue;
+
+            const text = getTextFromPart(part);
+            if (!text) continue;
+
+            return {
+                text,
+                sourceMessageId: assistantMessage.info.id,
+                sourcePartId: part.id ?? `${assistantMessage.info.id}-part-${partIndex}-text`,
+            };
+        }
+    }
+
+    return undefined;
+};
+
 export const projectTurnSummary = (assistantMessages: ChatMessageEntry[]): TurnSummaryRecord => {
-    for (let messageIndex = assistantMessages.length - 1; messageIndex >= 0; messageIndex -= 1) {
-        const assistantMessage = assistantMessages[messageIndex];
-        if (!assistantMessage) continue;
-        if (isCompactionSummaryMessage(assistantMessage)) continue;
-
-        const finish = (assistantMessage.info as { finish?: string | null }).finish;
-        if (finish !== 'stop') continue;
-
-        for (let partIndex = assistantMessage.parts.length - 1; partIndex >= 0; partIndex -= 1) {
-            const part = assistantMessage.parts[partIndex];
-            if (!part || part.type !== 'text') continue;
-
-            const text = getTextFromPart(part);
-            if (!text) continue;
-
-            return {
-                text,
-                sourceMessageId: assistantMessage.info.id,
-                sourcePartId: part.id ?? `${assistantMessage.info.id}-part-${partIndex}-text`,
-            };
-        }
-    }
-
-    for (let messageIndex = assistantMessages.length - 1; messageIndex >= 0; messageIndex -= 1) {
-        const assistantMessage = assistantMessages[messageIndex];
-        if (!assistantMessage) continue;
-        if (isCompactionSummaryMessage(assistantMessage)) continue;
-
-        for (let partIndex = assistantMessage.parts.length - 1; partIndex >= 0; partIndex -= 1) {
-            const part = assistantMessage.parts[partIndex];
-            if (!part || part.type !== 'text') continue;
-
-            const text = getTextFromPart(part);
-            if (!text) continue;
-
-            return {
-                text,
-                sourceMessageId: assistantMessage.info.id,
-                sourcePartId: part.id ?? `${assistantMessage.info.id}-part-${partIndex}-text`,
-            };
-        }
-    }
-
-    return {};
+    return findLatestTextSummary(assistantMessages, true)
+        ?? findLatestTextSummary(assistantMessages, false)
+        ?? {};
 };
 
 export const projectTurnDiffStats = (userMessage: ChatMessageEntry): TurnDiffStats | undefined => {

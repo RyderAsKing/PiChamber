@@ -211,6 +211,14 @@ export type PiSessionMessagePart =
       id: string;
       index: number;
       attachment: PiAttachment;
+    }
+  | {
+      type: 'file';
+      id: string;
+      index: number;
+      mime?: string;
+      filename?: string;
+      url?: string;
     };
 
 // ---------------------------------------------------------------------------
@@ -525,6 +533,8 @@ export interface PiMessageStartPayload {
   parentId?: string;
   /** User messages do not have a delta stream, so their text arrives here. */
   text?: string;
+  /** Files known at prompt time, before the persisted user entry is readable. */
+  files?: Array<Extract<PiSessionMessagePart, { type: 'file' }>>;
   /** When the assistant turn started, in ms epoch. */
   startedAt: number;
   model?: PiModelRef;

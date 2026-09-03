@@ -2,31 +2,34 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 
 import { Icon } from '@/components/icon/Icon';
-import { ProjectContextPanel } from '@/components/layout/RightSidebarTabs';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { TerminalView } from '@/components/views/TerminalView';
 import { cn } from '@/lib/utils';
-import { MobileChangesSurface } from './MobileChangesSurface';
-import { MobileFilesSurface } from './MobileFilesSurface';
 import { MOBILE_DRAWER_DURATION_MS, MOBILE_DRAWER_EASING, useDrawerSwipe } from './useDrawerSwipe';
+
+const LazyFilesView = React.lazy(() =>
+  import('@/components/views/FilesView').then((module) => ({ default: module.FilesView })),
+);
+const LazyGitView = React.lazy(() =>
+  import('@/components/views/GitView').then((module) => ({ default: module.GitView })),
+);
 
 const DRAWER_ROOT_ID = 'mobile-surface-root';
 const ENTER_DELAY_MS = 16;
 
-export type MobileWorkspaceTab = 'changes' | 'files' | 'terminal' | 'notes';
+export type MobileWorkspaceTab = 'changes' | 'files' | 'terminal';
 
 const WORKSPACE_TABS: Array<{
   id: MobileWorkspaceTab;
   label: string;
-  icon: 'git-branch' | 'file-text' | 'terminal' | 'sticky-note';
+  icon: 'git-branch' | 'file-text' | 'terminal';
 }> = [
   { id: 'changes', label: 'Changes', icon: 'git-branch' },
   { id: 'files', label: 'Files', icon: 'file-text' },
   { id: 'terminal', label: 'Terminal', icon: 'terminal' },
-  { id: 'notes', label: 'Notes', icon: 'sticky-note' },
 ];
 
-/** The workspace surfaces as tabs (Changes / Files / Terminal / Notes).
+/** The workspace surfaces as tabs (Changes / Files / Terminal).
 
     Two hosts, same content and same state:
      - `drawer` (default) covers 80% from the right with a dark scrim — matching
@@ -205,17 +208,23 @@ export const MobileWorkspaceDrawer = React.memo(function MobileWorkspaceDrawer({
             className={cn('h-full', tab !== 'changes' && 'hidden')}
           >
             <ErrorBoundary>
-              <MobileChangesSurface
-                initialDiffPath={pendingChangesDiff?.path ?? null}
-                initialDiffStaged={pendingChangesDiff?.staged === true}
-              />
+              <React.Suspense fallback={null}>
+                <LazyGitView
+                  isActive={open && tab === 'changes'}
+                  chrome="mobile"
+                  initialDiffPath={pendingChangesDiff?.path ?? null}
+                  initialDiffStaged={pendingChangesDiff?.staged === true}
+                />
+              </React.Suspense>
             </ErrorBoundary>
           </div>
         ) : null}
         {visitedTabs.has('files') ? (
           <div className={cn('h-full', tab !== 'files' && 'hidden')}>
             <ErrorBoundary>
-              <MobileFilesSurface />
+              <React.Suspense fallback={null}>
+                <LazyFilesView chrome="mobile" mode="editor-only" />
+              </React.Suspense>
             </ErrorBoundary>
           </div>
         ) : null}
@@ -223,13 +232,6 @@ export const MobileWorkspaceDrawer = React.memo(function MobileWorkspaceDrawer({
           <div className={cn('h-full', tab !== 'terminal' && 'hidden')}>
             <ErrorBoundary>
               <TerminalView visible={open && tab === 'terminal'} />
-            </ErrorBoundary>
-          </div>
-        ) : null}
-        {visitedTabs.has('notes') ? (
-          <div className={cn('h-full', tab !== 'notes' && 'hidden')}>
-            <ErrorBoundary>
-              <ProjectContextPanel onActionComplete={handleClose} />
             </ErrorBoundary>
           </div>
         ) : null}

@@ -17,7 +17,7 @@ type ProjectItem = {
   iconBackground?: string;
 };
 
-type ProjectSection = {
+export type ProjectSection = {
   project: ProjectItem;
   groups: SessionGroup[];
 };

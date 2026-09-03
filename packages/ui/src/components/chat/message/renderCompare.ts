@@ -96,6 +96,17 @@ export const areRenderRelevantPartsEqual = (left: Part[], right: Part[]): boolea
       return false;
     }
 
+    if (leftPart.type === 'file') {
+      const leftFile = leftPart as { filename?: unknown; mime?: unknown; url?: unknown; size?: unknown };
+      const rightFile = rightPart as { filename?: unknown; mime?: unknown; url?: unknown; size?: unknown };
+      if (leftFile.filename !== rightFile.filename
+        || leftFile.mime !== rightFile.mime
+        || leftFile.url !== rightFile.url
+        || leftFile.size !== rightFile.size) {
+        return false;
+      }
+    }
+
     if (leftPart.type === 'text' || leftPart.type === 'reasoning') {
       if (readPartText(leftPart) !== readPartText(rightPart)) {
         return false;
@@ -195,6 +206,17 @@ const areTurnActivityRecordsEqual = (left: TurnActivityRecord, right: TurnActivi
     && left.partIndex === right.partIndex
     && left.endedAt === right.endedAt
     && areRenderRelevantPartsEqual([left.part], [right.part]);
+};
+
+export const areRenderRelevantActivityListsEqual = (left: TurnActivityRecord[], right: TurnActivityRecord[]): boolean => {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (!areTurnActivityRecordsEqual(left[index], right[index])) {
+      return false;
+    }
+  }
+  return true;
 };
 
 const areRelevantActivityPartsEqual = (

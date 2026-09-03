@@ -26,758 +26,88 @@
  * store implementation. The store wrapper lives in `packages/ui/src/sync/`.
  */
 
-import { CowMap } from './cow-map';
 import type {
-  PiAssistantMessageDeltaPayload,
-  PiAssistantThinkingDeltaPayload,
   PiExtensionAppPayload,
   PiExtensionDialogPayload,
   PiExtensionPanelPayload,
-  PiMessageStartPayload,
-  PiMessageEndPayload,
   PiSessionEvent,
-  PiToolUpdatePayload,
 } from './protocol';
-import { applyAssistantTextDelta } from './text-delta';
-import { resolveExistingSessionComposerSelection } from './thinking';
 import type {
-  PiAssistantMessage,
-  PiAttachment,
-  PiCompactionInfo,
-  PiModelRef,
-  PiRetryInfo,
-  PiSessionLifecycleState,
-  PiSessionId,
-  PiThinkingLevel,
-  PiUsage,
-  PiUserMessage,
-} from './types';
+  ApplyEventResult,
+  PiProjectedMessage,
+  PiProjectedMessagePart,
+  PiProjectedSession,
+  PiReducerMessage,
+  PiReducerMessagePart,
+  PiReducerMutationKind,
+  PiReducerPartMap,
+  PiReducerSessionState,
+  PiReducerState,
+  ProjectSessionPrevious,
+} from './reducers/reducerTypes';
+import {
+  createReducerPartMap,
+  createReducerState,
+} from './reducers/reducerTypes';
+import {
+  aliasSyntheticUserIfPersisted,
+  emptySessionParts,
+  forkPartsForWrite,
+  markMutation,
+} from './reducers/reducerHelpers';
+import {
+  reduceAssistantDelta,
+  reduceError,
+  reduceInterrupted,
+  reduceLifecycle,
+  reduceMessageEnd,
+  reduceMessageStart,
+  reduceTool,
+} from './reducers/streamReducers';
+import {
+  dismissExtensionDialog,
+  reduceExtensionApp,
+  reduceExtensionCatalog,
+  reduceExtensionDialog,
+  reduceExtensionDialogDismiss,
+  reduceExtensionEditor,
+  reduceExtensionEntry,
+  reduceExtensionError,
+  reduceExtensionMessage,
+  reduceExtensionNotify,
+  reduceExtensionStatus,
+  reduceExtensionTitle,
+  reduceExtensionUi,
+  reduceExtensionWidget,
+} from './reducers/extensionReducers';
+import {
+  hydrateSessionFromDetail,
+  markHydratedLiveActivity,
+  projectSession,
+} from './reducers/sessionProjection';
 
-// ---------------------------------------------------------------------------
-// State shape
-// ---------------------------------------------------------------------------
-
-export interface PiReducerMessagePart {
-  id: string;
-  index: number;
-  type: 'text' | 'thinking' | 'tool' | 'attachment';
-  /** Text content for text/thinking parts (assembled from deltas). */
-  text: string;
-  /** Set while the part is still accepting deltas. */
-  streaming: boolean;
-  /** For tool parts. */
-  tool?: {
-    toolCallId: string;
-    name: string;
-    input?: unknown;
-    output?: unknown;
-    /** Error message when the tool ended in an error state. */
-    error?: string;
-    /** Renderer metadata (edit diffs, truncation notes). */
-    metadata?: Record<string, unknown>;
-    isError?: boolean;
-    state: 'pending' | 'running' | 'completed' | 'error' | 'cancelled';
-    startedAt?: number;
-    endedAt?: number;
-  };
-  /** For attachment parts. */
-  attachment?: PiAttachment;
-}
-
-export interface PiReducerMessage {
-  id: string;
-  sessionId: PiSessionId;
-  directory: string;
-  role: 'user' | 'assistant' | 'extension';
-  /** Extension-role only: the pi customType that authored this item. */
-  customType?: string;
-  /** Extension-role only: payload of a custom entry (`appendEntry`). */
-  data?: unknown;
-  /** Extension-role only: details payload of a custom message (`sendMessage`). */
-  details?: unknown;
-  /** User message that owns this assistant turn. */
-  parentId?: string;
-  /** Created-at (ms epoch) the reducer keeps for ordering. */
-  createdAt: number;
-  /** Assistant-only: model & thinking captured at creation time. */
-  model?: PiModelRef;
-  thinkingLevel?: PiThinkingLevel;
-  /** Final assembled text/thinking for assistant messages. */
-  text: string;
-  thinking: string;
-  durationMs?: number;
-  /** True while the assistant message is still streaming. */
-  streaming: boolean;
-  /** Set when the assistant message ended in an interrupted/error state. */
-  error?: { code: string; message?: string };
-  /** Assistant-only: Pi usage for the producing turn. */
-  usage?: PiUsage;
-}
-
-export type PiReducerPartMap = CowMap<PiReducerMessagePart>;
-export type PiReducerMutationKind = 'part' | 'structure';
-
-export const createReducerPartMap = (
-  entries?: Iterable<readonly [string, PiReducerMessagePart]>,
-): PiReducerPartMap => (entries ? CowMap.from(entries) : CowMap.empty());
-
-export interface PiReducerSessionState {
-  sessionId: PiSessionId;
-  directory: string;
-  /** Last sequence the reducer has accepted for this session. */
-  lastSequence: number;
-  /** Authoritative lifecycle phase. */
-  lifecycle: PiSessionLifecycleState;
-  /** Retry countdown/error context while `lifecycle` is `retry`. */
-  retry?: PiRetryInfo;
-  /** Latest authoritative compaction progress or outcome. */
-  compaction?: PiCompactionInfo;
-  /** Active model/thinking the session is using. */
-  model?: PiModelRef;
-  thinking?: PiThinkingLevel;
-  /** Messages keyed by message id, ordered by `createdAt`. */
-  messages: Map<string, PiReducerMessage>;
-  /** Part order per message id. */
-  partOrder: Map<string, string[]>;
-  parts: PiReducerPartMap;
-  /** Pending tool calls (toolCallId → messageId) so an end event can find its parent. */
-  toolsByCallId: Map<string, string>;
-  /** Assistant messages that still own live token or tool-continuation work. */
-  streamingMessages: Set<string>;
-  /** Queue depths at the time of the last `session.queue` event. */
-  queue: { steering: number; followUp: number };
-  /** Live extension status texts (`ctx.ui.setStatus`). Key → text. */
-  extensionStatuses: Map<string, string>;
-  /** Live extension widgets (`ctx.ui.setWidget`). Key → lines + placement. */
-  extensionWidgets: Map<string, { lines: string[]; placement: 'aboveEditor' | 'belowEditor' }>;
-  /** Blocking extension dialogs awaiting a user answer, in arrival order. */
-  extensionDialogs: PiExtensionDialogPayload[];
-  /** Bounded feed of fire-and-forget extension notifications. */
-  extensionNotices: Array<{ id: string; message: string; level: 'info' | 'warning' | 'error'; createdAt: number }>;
-  /** Bounded feed of extension runtime errors. */
-  extensionErrors: Array<{ id: string; source: string; event?: string; message: string; createdAt: number }>;
-  /** Live declarative GUI panels keyed by stable id (latest wins). */
-  extensionPanels: Map<string, PiExtensionPanelPayload>;
-  /** Registered sandboxed extension app surfaces keyed by appId. */
-  extensionApps: Map<string, PiExtensionAppPayload>;
-  /** Low-frequency invalidation counters for extension-owned catalogs and labels. */
-  extensionCatalogRevision?: number;
-  sessionTreeRevision?: number;
-  /** Latest live standard-RPC editor replacement, applied once by the composer. */
-  extensionEditor?: { text: string; sequence: number };
-  /** Session-scoped standard-RPC window/tab title. */
-  extensionTitle?: string;
-  /**
-   * Last message a part-level or structural write touched. Live-tail freeze
-   * uses this instead of walking every historical part on each token.
-   */
-  lastMutatedMessageId?: string;
-  lastMutationKind?: PiReducerMutationKind;
-}
-
-export interface PiReducerState {
-  bySession: Map<PiSessionId, PiReducerSessionState>;
-  /** Last sequence per session id; `-1` means "no events yet". */
-  lastSequence: Map<PiSessionId, number>;
-}
-
-export const createReducerState = (): PiReducerState => ({
-  bySession: new Map(),
-  lastSequence: new Map(),
-});
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const emptySessionParts = (): PiReducerPartMap => createReducerPartMap();
-
-/** Upper bound for bounded extension feeds; oldest entries drop first. */
-const MAX_EXTENSION_FEED_ITEMS = 10;
-
-let extensionFeedCounter = 0;
-const nextExtensionFeedId = (): string => `ext-${Date.now().toString(36)}-${(extensionFeedCounter += 1)}`;
-
-const appendBoundedFeed = <T>(feed: T[], item: T): T[] => {
-  const next = [...feed, item];
-  return next.length > MAX_EXTENSION_FEED_ITEMS ? next.slice(next.length - MAX_EXTENSION_FEED_ITEMS) : next;
+export type {
+  ApplyEventResult,
+  PiProjectedMessage,
+  PiProjectedMessagePart,
+  PiProjectedSession,
+  PiReducerMessage,
+  PiReducerMessagePart,
+  PiReducerMutationKind,
+  PiReducerPartMap,
+  PiReducerSessionState,
+  PiReducerState,
+  ProjectSessionPrevious,
 };
 
-const markMutation = (
-  session: PiReducerSessionState,
-  messageId: string | undefined,
-  kind: PiReducerMutationKind,
-): void => {
-  if (!messageId) return;
-  // Resumed events can address a hydrated Pi entry through the daemon's
-  // synthetic live id. The reducer keeps that alias as a Map key, but the
-  // rendered message retains its canonical entry id. Mutation metadata must
-  // use the canonical id so live-tail suspension and overlays target the same
-  // message identity.
-  session.lastMutatedMessageId = session.messages.get(messageId)?.id ?? messageId;
-  session.lastMutationKind = kind;
+export {
+  aliasSyntheticUserIfPersisted,
+  createReducerPartMap,
+  createReducerState,
+  dismissExtensionDialog,
+  hydrateSessionFromDetail,
+  projectSession,
 };
-
-const forkPartsForWrite = (session: PiReducerSessionState): void => {
-  session.parts = session.parts.fork();
-};
-
-const getOrCreateSession = (
-  state: PiReducerState,
-  sessionId: PiSessionId,
-  directory: string,
-): PiReducerSessionState => {
-  const existing = state.bySession.get(sessionId);
-  if (existing) return existing;
-  const fresh: PiReducerSessionState = {
-    sessionId,
-    directory,
-    lastSequence: -1,
-    lifecycle: 'idle',
-    messages: new Map(),
-    partOrder: new Map(),
-    parts: emptySessionParts(),
-    toolsByCallId: new Map(),
-    streamingMessages: new Set(),
-    queue: { steering: 0, followUp: 0 },
-    extensionStatuses: new Map(),
-    extensionWidgets: new Map(),
-    extensionDialogs: [],
-    extensionNotices: [],
-    extensionErrors: [],
-    extensionPanels: new Map(),
-    extensionApps: new Map(),
-  };
-  state.bySession.set(sessionId, fresh);
-  return fresh;
-};
-
-const isSyntheticUserMessageId = (messageId: string, sessionId: string): boolean => (
-  messageId.startsWith(`user-${sessionId}-`)
-);
-
-const USER_MESSAGE_RECONCILE_WINDOW_MS = 250;
-
-type OrderedMessagesCache = {
-  size: number;
-  list: PiReducerMessage[];
-};
-
-const orderedMessagesByMap = new WeakMap<Map<string, PiReducerMessage>, OrderedMessagesCache>();
-const projectedPartsByReducerPart = new WeakMap<PiReducerMessagePart, PiProjectedMessagePart>();
-
-const uniqueSessionMessages = (session: PiReducerSessionState): PiReducerMessage[] => {
-  // Membership changes clone `session.messages` first, so this WeakMap
-  // misses. Part-only live-tail updates keep the same Map and reuse the list.
-  const cached = orderedMessagesByMap.get(session.messages);
-  if (cached && cached.size === session.messages.size) return cached.list;
-
-  const seen = new Set<string>();
-  const messages: PiReducerMessage[] = [];
-  for (const message of session.messages.values()) {
-    if (seen.has(message.id)) continue;
-    seen.add(message.id);
-    messages.push(message);
-  }
-  for (let index = 1; index < messages.length; index += 1) {
-    const previous = messages[index - 1];
-    const current = messages[index];
-    if (!previous || !current || current.createdAt >= previous.createdAt) continue;
-    messages.sort((left, right) => left.createdAt - right.createdAt);
-    break;
-  }
-  orderedMessagesByMap.set(session.messages, { size: session.messages.size, list: messages });
-  return messages;
-};
-
-const findReusablePersistedUser = (
-  session: PiReducerSessionState,
-  text: string,
-  createdAt: number,
-): PiReducerMessage | undefined => {
-  if (!text) return undefined;
-  let closest: PiReducerMessage | undefined;
-  let closestDistance = Number.POSITIVE_INFINITY;
-  for (const candidate of uniqueSessionMessages(session)) {
-    if (
-      candidate.role !== 'user'
-      || candidate.text !== text
-      || isSyntheticUserMessageId(candidate.id, session.sessionId)
-    ) {
-      continue;
-    }
-    const distance = Math.abs(candidate.createdAt - createdAt);
-    if (distance <= USER_MESSAGE_RECONCILE_WINDOW_MS && distance < closestDistance) {
-      closest = candidate;
-      closestDistance = distance;
-    }
-  }
-  return closest;
-};
-
-export const aliasSyntheticUserIfPersisted = (
-  session: PiReducerSessionState,
-  key: string,
-  message: PiReducerMessage,
-): void => {
-  if (
-    message.role === 'user'
-    && isSyntheticUserMessageId(key, session.sessionId)
-  ) {
-    const persisted = findReusablePersistedUser(session, message.text, message.createdAt);
-    if (persisted) {
-      session.messages.set(key, persisted);
-      return;
-    }
-  }
-  session.messages.set(key, message);
-};
-
-const resolveParentId = (session: PiReducerSessionState, parentId?: string): string | undefined => {
-  if (!parentId) return undefined;
-  const direct = session.messages.get(parentId)?.id;
-  if (direct) return direct;
-  if (isSyntheticUserMessageId(parentId, session.sessionId)) {
-    // A joining tab can hydrate the current user under its persisted Pi entry
-    // id after that user's synthetic start event has already passed. Resumed
-    // assistant starts still name the synthetic parent. The latest user on the
-    // authoritative hydrated branch is that turn owner, including retry
-    // attempts that follow one or more failed assistants.
-    const messages = uniqueSessionMessages(session);
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const candidate = messages[index];
-      if (candidate?.role === 'user') return candidate.id;
-    }
-  }
-  return parentId;
-};
-
-const ensureMessage = (
-  session: PiReducerSessionState,
-  payload: PiMessageStartPayload,
-  directory: string,
-): PiReducerMessage => {
-  const existing = session.messages.get(payload.messageId);
-  if (existing) return existing;
-  if (
-    payload.role === 'user'
-    && isSyntheticUserMessageId(payload.messageId, session.sessionId)
-  ) {
-    const persisted = findReusablePersistedUser(session, payload.text ?? '', payload.startedAt);
-    if (persisted) {
-      session.messages.set(payload.messageId, persisted);
-      return persisted;
-    }
-  }
-  const parentId = resolveParentId(session, payload.parentId);
-  const message: PiReducerMessage = {
-    id: payload.messageId,
-    sessionId: session.sessionId,
-    directory,
-    role: payload.role,
-    ...(parentId ? { parentId } : {}),
-    createdAt: payload.startedAt,
-    text: payload.role === 'user' ? payload.text ?? '' : '',
-    thinking: '',
-    streaming: payload.role === 'assistant',
-    ...(payload.model ? { model: payload.model } : {}),
-    ...(payload.thinkingLevel ? { thinkingLevel: payload.thinkingLevel } : {}),
-  };
-  session.messages.set(payload.messageId, message);
-  return message;
-};
-
-const ensureTextPart = (
-  session: PiReducerSessionState,
-  message: PiReducerMessage,
-  type: 'text' | 'thinking',
-  partId?: string,
-): PiReducerMessagePart => {
-  const id = partId ?? `${message.id}:${type}`;
-  const existing = session.parts.get(id);
-  if (existing) return existing;
-  const part: PiReducerMessagePart = {
-    id,
-    index: (session.partOrder.get(message.id) ?? []).length,
-    type,
-    text: '',
-    streaming: true,
-  };
-  session.parts.set(id, part);
-  const order = [...(session.partOrder.get(message.id) ?? [])];
-  if (!order.includes(part.id)) order.push(part.id);
-  session.partOrder.set(message.id, order);
-  return part;
-};
-
-const assembleMessageText = (session: PiReducerSessionState, messageId: string): {
-  text: string;
-  thinking: string;
-} => {
-  const message = session.messages.get(messageId);
-  if (!message) return { text: '', thinking: '' };
-  const order = session.partOrder.get(messageId) ?? [];
-  let text = '';
-  let thinking = '';
-  for (const partId of order) {
-    const part = session.parts.get(partId);
-    if (!part) continue;
-    if (part.type === 'text') text += part.text;
-    else if (part.type === 'thinking') thinking += part.text;
-  }
-  return { text, thinking };
-};
-
-const finalizeAssembledParts = (
-  session: PiReducerSessionState,
-  messageId: string,
-  type: 'text' | 'thinking',
-  canonical: string,
-): void => {
-  const order = session.partOrder.get(messageId) ?? [];
-  const parts = order
-    .map((partId) => session.parts.get(partId))
-    .filter((part): part is PiReducerMessagePart => part?.type === type);
-  if (parts.length === 0) {
-    if (!canonical) return;
-    const message = session.messages.get(messageId);
-    if (!message) return;
-    const part = ensureTextPart(session, message, type);
-    session.parts.set(part.id, { ...part, text: canonical, streaming: false });
-    return;
-  }
-  const [primary, ...extras] = parts;
-  if (!primary) return;
-  session.parts.set(primary.id, { ...primary, text: canonical, streaming: false });
-  for (const extra of extras) {
-    session.parts.set(extra.id, { ...extra, text: '', streaming: false });
-  }
-};
-
-// ---------------------------------------------------------------------------
-// Event reducers
-// ---------------------------------------------------------------------------
-
-const reduceLifecycle = (
-  session: PiReducerSessionState,
-  payload: { state: PiSessionLifecycleState } & PiRetryInfo,
-): void => {
-  if (payload.state === 'retry') {
-    session.lifecycle = 'retry';
-    session.retry = {
-      ...(payload.attempt !== undefined ? { attempt: payload.attempt } : {}),
-      ...(payload.next !== undefined ? { next: payload.next } : {}),
-      ...(payload.message !== undefined ? { message: payload.message } : {}),
-    };
-    return;
-  }
-  if (payload.state === 'busy' && session.retry) {
-    // Pi publishes `busy` when it begins preparing the retry, before the
-    // provider has produced a token. Keep the retry notice authoritative
-    // until a text/thinking/tool event proves that the next attempt started.
-    session.lifecycle = 'retry';
-    return;
-  }
-  session.lifecycle = payload.state;
-  session.retry = undefined;
-  if (payload.state === 'busy') return;
-  session.streamingMessages = new Set();
-  session.messages = new Map(session.messages);
-  for (const [messageId, message] of session.messages) {
-    if (message.streaming) session.messages.set(messageId, { ...message, streaming: false });
-  }
-};
-
-const reduceMessageStart = (
-  session: PiReducerSessionState,
-  directory: string,
-  payload: PiMessageStartPayload,
-): void => {
-  ensureMessage(session, payload, directory);
-};
-
-const resolveAssistantMessage = (
-  session: PiReducerSessionState,
-  messageId: string,
-): PiReducerMessage | undefined => {
-  const direct = session.messages.get(messageId);
-  if (direct && direct.role === 'assistant') return direct;
-  const messages = uniqueSessionMessages(session);
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const candidate = messages[index];
-    if (candidate.role === 'assistant' && (candidate.streaming || candidate.durationMs === undefined)) {
-      session.messages.set(messageId, candidate);
-      if (!session.partOrder.has(messageId) && session.partOrder.has(candidate.id)) {
-        session.partOrder.set(messageId, session.partOrder.get(candidate.id)!);
-      }
-      return candidate;
-    }
-  }
-  const trailing = messages[messages.length - 1];
-  if (trailing && trailing.role === 'assistant') {
-    session.messages.set(messageId, trailing);
-    if (!session.partOrder.has(messageId) && session.partOrder.has(trailing.id)) {
-      session.partOrder.set(messageId, session.partOrder.get(trailing.id)!);
-    }
-    return trailing;
-  }
-  return undefined;
-};
-
-const settleStreamingParts = (
-  session: PiReducerSessionState,
-  messageId: string,
-  match: (part: PiReducerMessagePart) => boolean,
-): void => {
-  const order = new Set(session.partOrder.get(messageId) ?? []);
-  if (order.size === 0) return;
-  for (const [id, part] of session.parts) {
-    if (!part.streaming || !match(part)) continue;
-    if (!order.has(part.id) && !order.has(id)) continue;
-    session.parts.set(id, { ...part, streaming: false });
-  }
-};
-
-const settleThinkingParts = (session: PiReducerSessionState, messageId: string): void => {
-  settleStreamingParts(session, messageId, (part) => part.type === 'thinking');
-};
-
-const reduceAssistantDelta = (
-  session: PiReducerSessionState,
-  payload: PiAssistantMessageDeltaPayload | PiAssistantThinkingDeltaPayload,
-  type: 'text' | 'thinking',
-): boolean => {
-  const message = resolveAssistantMessage(session, payload.messageId);
-  if (!message) return false;
-  message.streaming = true;
-  session.streamingMessages.add(message.id);
-  session.streamingMessages.add(payload.messageId);
-  if (type === 'text') {
-    settleThinkingParts(session, message.id);
-  }
-  const partId = payload.partId ?? `${message.id}:${type}`;
-  let existing = session.parts.get(partId);
-  if (!existing) {
-    const contentIndex = (payload as { contentIndex?: number }).contentIndex;
-    if (typeof contentIndex === 'number') {
-      const candidateIds = [
-        `${message.id}:${type}:${contentIndex}`,
-        `${message.id}:${contentIndex}`,
-        `${message.id}:${type}`,
-      ];
-      for (const candidateId of candidateIds) {
-        const candidate = session.parts.get(candidateId);
-        if (candidate && candidate.type === type) {
-          existing = candidate;
-          break;
-        }
-      }
-      if (!existing) {
-        const order = session.partOrder.get(message.id) ?? [];
-        for (const id of order) {
-          const candidate = session.parts.get(id);
-          if (candidate && candidate.type === type && candidate.index === contentIndex) {
-            existing = candidate;
-            break;
-          }
-        }
-      }
-    }
-  }
-  if (existing) {
-    if (existing.type !== type) return false;
-    const updated = {
-      ...existing,
-      text: applyAssistantTextDelta(existing.text, payload.delta),
-      streaming: true,
-    };
-    session.parts.set(existing.id, updated);
-    if (partId !== existing.id) {
-      session.parts.set(partId, updated);
-    }
-    return true;
-  }
-  const part = ensureTextPart(session, message, type, partId);
-  session.parts.set(part.id, { ...part, text: payload.delta, streaming: true });
-  return true;
-};
-
-const reduceMessageEnd = (
-  session: PiReducerSessionState,
-  payload: PiMessageEndPayload,
-): void => {
-  const message = resolveAssistantMessage(session, payload.messageId);
-  if (!message) return;
-  const { text, thinking } = assembleMessageText(session, message.id);
-  message.text = typeof payload.text === 'string' ? payload.text : text;
-  message.thinking = typeof payload.thinking === 'string' ? payload.thinking : thinking;
-  finalizeAssembledParts(session, message.id, 'text', message.text);
-  finalizeAssembledParts(session, message.id, 'thinking', message.thinking);
-  message.streaming = false;
-  if (typeof payload.durationMs === 'number') {
-    message.durationMs = payload.durationMs;
-  } else if (typeof message.createdAt === 'number' && message.createdAt > 0) {
-    message.durationMs = Math.max(100, Date.now() - message.createdAt);
-  }
-  if (payload.thinkingLevel) message.thinkingLevel = payload.thinkingLevel;
-  if (payload.error) message.error = payload.error;
-  if (payload.usage) message.usage = payload.usage;
-  if (payload.continuing !== true && !payload.error) {
-    session.streamingMessages.delete(message.id);
-    session.streamingMessages.delete(payload.messageId);
-  }
-};
-
-const reduceTool = (
-  session: PiReducerSessionState,
-  phase: 'start' | 'update' | 'end',
-  payload: PiToolUpdatePayload,
-): boolean => {
-  // Look up the existing part by toolCallId when the start event already
-  // produced it.
-  const rawMessageId = session.toolsByCallId.get(payload.toolCallId) ?? payload.messageId;
-  const message = resolveAssistantMessage(session, rawMessageId);
-  if (!message) return false;
-  settleThinkingParts(session, message.id);
-  if (phase !== 'end') {
-    message.streaming = true;
-    session.streamingMessages.add(message.id);
-  }
-  const part =
-    session.parts.get(payload.partId) ??
-    Array.from(session.parts.values()).find(
-      (candidate) => candidate.type === 'tool' && candidate.tool?.toolCallId === payload.toolCallId,
-    );
-
-  if (phase === 'start' && !part) {
-    // Direct tool start without a preceding part.start event.
-    const synthetic = {
-      id: payload.partId,
-      index: (session.partOrder.get(message.id) ?? []).length,
-      type: 'tool' as const,
-        text: '',
-        streaming: false,
-      tool: {
-        toolCallId: payload.toolCallId,
-        name: payload.name,
-        ...(payload.input !== undefined ? { input: payload.input } : {}),
-        state: payload.state,
-        ...(payload.startedAt !== undefined ? { startedAt: payload.startedAt } : {}),
-      },
-    };
-    session.parts.set(synthetic.id, synthetic);
-    const order = [...(session.partOrder.get(message.id) ?? [])];
-    order.push(synthetic.id);
-    session.partOrder.set(message.id, order);
-    session.toolsByCallId.set(payload.toolCallId, message.id);
-    return true;
-  }
-  if (!part || part.type !== 'tool') return false;
-  const nextPart = { ...part };
-  const previous = part.tool;
-  nextPart.tool = {
-    toolCallId: payload.toolCallId,
-    name: payload.name,
-    ...(payload.input !== undefined
-      ? { input: payload.input }
-      : previous?.input !== undefined
-        ? { input: previous.input }
-        : {}),
-    ...(payload.output !== undefined
-      ? { output: payload.output }
-      : previous?.output !== undefined
-        ? { output: previous.output }
-        : {}),
-    ...(payload.error !== undefined
-      ? { error: payload.error }
-      : previous?.error !== undefined
-        ? { error: previous.error }
-        : {}),
-    ...(payload.metadata !== undefined
-      ? { metadata: payload.metadata }
-      : previous?.metadata !== undefined
-        ? { metadata: previous.metadata }
-        : {}),
-    ...(payload.isError !== undefined
-      ? { isError: payload.isError }
-      : previous?.isError !== undefined
-        ? { isError: previous.isError }
-        : {}),
-    state: payload.state,
-    ...(payload.startedAt !== undefined
-      ? { startedAt: payload.startedAt }
-      : previous?.startedAt !== undefined
-        ? { startedAt: previous.startedAt }
-        : {}),
-    ...(payload.endedAt !== undefined
-      ? { endedAt: payload.endedAt }
-      : previous?.endedAt !== undefined
-        ? { endedAt: previous.endedAt }
-        : {}),
-  };
-  if (phase === 'end') nextPart.streaming = false;
-  session.parts.set(nextPart.id, nextPart);
-  return true;
-};
-
-const reduceInterrupted = (session: PiReducerSessionState, streaming: boolean): void => {
-  session.lifecycle = 'interrupted';
-  session.retry = undefined;
-  if (!streaming) return;
-  for (const messageId of session.streamingMessages) {
-    const message = session.messages.get(messageId);
-    if (!message) continue;
-    message.streaming = false;
-    message.error = { code: 'SESSION_INTERRUPTED' };
-  }
-  session.streamingMessages.clear();
-};
-
-const reduceError = (session: PiReducerSessionState, code: string, message?: string): void => {
-  session.lifecycle = 'error';
-  session.retry = undefined;
-  const now = Date.now();
-  session.parts = session.parts.fork();
-  session.partOrder = new Map(session.partOrder);
-  for (const messageId of session.streamingMessages) {
-    const entry = session.messages.get(messageId);
-    if (!entry) continue;
-    entry.streaming = false;
-    entry.error = { code, ...(message ? { message } : {}) };
-    if (entry.durationMs === undefined && entry.createdAt > 0) {
-      entry.durationMs = Math.max(100, now - entry.createdAt);
-    }
-    for (const partId of session.partOrder.get(messageId) ?? []) {
-      const part = session.parts.get(partId);
-      if (!part) continue;
-      const toolRunning = part.tool?.state === 'running' || part.tool?.state === 'pending';
-      if (!part.streaming && !toolRunning) continue;
-      const next = { ...part, streaming: false };
-      if (toolRunning && next.tool) {
-        next.tool = {
-          ...next.tool,
-          state: 'error',
-          ...(message ? { error: message } : {}),
-          endedAt: next.tool.endedAt ?? now,
-        };
-      }
-      session.parts.set(partId, next);
-    }
-  }
-  session.streamingMessages.clear();
-};
-
-// ---------------------------------------------------------------------------
-// Public reducer
-// ---------------------------------------------------------------------------
-
-export interface ApplyEventResult {
-  state: PiReducerState;
-  /** True when the event was accepted (sequence advanced). */
-  didApply: boolean;
-  /** The session id the event applied to, when it applied. */
-  sessionId?: PiSessionId;
-}
 
 /**
  * Apply a single event. Returns a new state plus a `didApply` flag.
@@ -882,6 +212,10 @@ export const applyPiEvent = (
       session.lifecycle = session.retry ? 'retry' : 'busy';
       session.messages = new Map(session.messages);
       session.streamingMessages = new Set(session.streamingMessages);
+      if (event.payload.files?.length) {
+        forkPartsForWrite(session);
+        session.partOrder = new Map(session.partOrder);
+      }
       reduceMessageStart(session, event.directory, event.payload);
       if (event.payload.role === 'assistant') session.streamingMessages.add(event.payload.messageId);
       markMutation(session, event.payload.messageId, 'structure');
@@ -975,131 +309,44 @@ export const applyPiEvent = (
       }
       reduceInterrupted(session, event.payload.streaming);
       break;
-    case 'extension.entry': {
-      const payload = event.payload;
-      if (!payload.customType) break;
-      const extensionMessage: PiReducerMessage = {
-        id: payload.id,
-        sessionId: event.sessionId,
-        directory: event.directory,
-        role: 'extension',
-        customType: payload.customType,
-        ...(payload.data !== undefined ? { data: payload.data } : {}),
-        createdAt: payload.createdAt,
-        text: '',
-        thinking: '',
-        streaming: false,
-      };
-      session.messages = new Map(session.messages);
-      session.messages.set(extensionMessage.id, extensionMessage);
-      markMutation(session, extensionMessage.id, 'structure');
+    case 'extension.entry':
+      reduceExtensionEntry(session, event.directory, event.sessionId, event.payload);
       break;
-    }
-    case 'extension.message': {
-      const payload = event.payload;
-      if (!payload.customType) break;
-      const extensionMessage: PiReducerMessage = {
-        id: payload.id,
-        sessionId: event.sessionId,
-        directory: event.directory,
-        role: 'extension',
-        customType: payload.customType,
-        ...(payload.details !== undefined ? { details: payload.details } : {}),
-        createdAt: payload.createdAt,
-        text: payload.text ?? '',
-        thinking: '',
-        streaming: false,
-      };
-      session.messages = new Map(session.messages);
-      session.messages.set(extensionMessage.id, extensionMessage);
-      markMutation(session, extensionMessage.id, 'structure');
+    case 'extension.message':
+      reduceExtensionMessage(session, event.directory, event.sessionId, event.payload);
       break;
-    }
     case 'extension.notify':
-      session.extensionNotices = appendBoundedFeed(session.extensionNotices, {
-        id: nextExtensionFeedId(),
-        message: event.payload.message,
-        level: event.payload.level,
-        createdAt: Date.now(),
-      });
+      reduceExtensionNotify(session, event.payload);
       break;
     case 'extension.catalog':
-      if (event.payload.commands === true) {
-        session.extensionCatalogRevision = (session.extensionCatalogRevision ?? 0) + 1;
-      }
+      reduceExtensionCatalog(session, event.payload);
       break;
     case 'extension.editor':
-      session.extensionEditor = { text: event.payload.text, sequence: event.sequence };
+      reduceExtensionEditor(session, event.payload, event.sequence);
       break;
     case 'extension.title':
-      session.extensionTitle = event.payload.title;
+      reduceExtensionTitle(session, event.payload);
       break;
-    case 'extension.status': {
-      session.extensionStatuses = new Map(session.extensionStatuses);
-      if (typeof event.payload.text === 'string' && event.payload.text.length > 0) {
-        session.extensionStatuses.set(event.payload.key, event.payload.text);
-      } else {
-        session.extensionStatuses.delete(event.payload.key);
-      }
+    case 'extension.status':
+      reduceExtensionStatus(session, event.payload);
       break;
-    }
-    case 'extension.widget': {
-      session.extensionWidgets = new Map(session.extensionWidgets);
-      if (Array.isArray(event.payload.lines) && event.payload.lines.length > 0) {
-        session.extensionWidgets.set(event.payload.key, {
-          lines: event.payload.lines,
-          placement: event.payload.placement === 'belowEditor' ? 'belowEditor' : 'aboveEditor',
-        });
-      } else {
-        session.extensionWidgets.delete(event.payload.key);
-      }
+    case 'extension.widget':
+      reduceExtensionWidget(session, event.payload);
       break;
-    }
-    case 'extension.dialog': {
-      // Dialogs are a queue keyed by requestId; duplicates (replay after
-      // reconnect) must not stack.
-      if (session.extensionDialogs.some((dialog) => dialog.requestId === event.payload.requestId)) break;
-      session.extensionDialogs = [...session.extensionDialogs, event.payload];
+    case 'extension.dialog':
+      reduceExtensionDialog(session, event.payload);
       break;
-    }
-    case 'extension.dialog.dismiss': {
-      if (!session.extensionDialogs.some((dialog) => dialog.requestId === event.payload.requestId)) break;
-      session.extensionDialogs = session.extensionDialogs.filter(
-        (dialog) => dialog.requestId !== event.payload.requestId,
-      );
+    case 'extension.dialog.dismiss':
+      reduceExtensionDialogDismiss(session, event.payload);
       break;
-    }
-    case 'extension.ui': {
-      // Live declarative panels are latest-wins per stable id. A removed flag
-      // or an empty payload body unregisters the panel entirely.
-      const panel = event.payload;
-      session.extensionPanels = new Map(session.extensionPanels);
-      const hasBody = panel.component !== undefined || panel.title !== undefined || panel.actions !== undefined;
-      if (panel.removed === true || !hasBody) {
-        session.extensionPanels.delete(panel.id);
-      } else {
-        session.extensionPanels.set(panel.id, panel);
-      }
+    case 'extension.ui':
+      reduceExtensionUi(session, event.payload);
       break;
-    }
-    case 'extension.app': {
-      const app = event.payload;
-      session.extensionApps = new Map(session.extensionApps);
-      if (app.removed === true || typeof app.html !== 'string' || app.html.length === 0) {
-        session.extensionApps.delete(app.appId);
-      } else {
-        session.extensionApps.set(app.appId, app);
-      }
+    case 'extension.app':
+      reduceExtensionApp(session, event.payload);
       break;
-    }
     case 'extension.error':
-      session.extensionErrors = appendBoundedFeed(session.extensionErrors, {
-        id: nextExtensionFeedId(),
-        source: event.payload.source,
-        ...(event.payload.event !== undefined ? { event: event.payload.event } : {}),
-        message: event.payload.message,
-        createdAt: Date.now(),
-      });
+      reduceExtensionError(session, event.payload);
       break;
     default: {
       // Exhaustiveness check: unknown event names are silently ignored
@@ -1116,30 +363,6 @@ export const applyPiEvent = (
   next.bySession.set(event.sessionId, session);
   next.lastSequence.set(event.sessionId, event.sequence);
   return { state: next, didApply: true, sessionId: event.sessionId };
-};
-
-/**
- * Remove an extension dialog from a session's pending queue after the client
- * successfully answered it. Returns the original state when the dialog is
- * absent so callers can skip store writes.
- */
-export const dismissExtensionDialog = (
-  state: PiReducerState,
-  sessionId: PiSessionId,
-  requestId: string,
-): PiReducerState => {
-  const session = state.bySession.get(sessionId);
-  if (!session) return state;
-  const index = session.extensionDialogs.findIndex((dialog) => dialog.requestId === requestId);
-  if (index === -1) return state;
-  const nextSession: PiReducerSessionState = {
-    ...session,
-    extensionDialogs: session.extensionDialogs.filter((dialog) => dialog.requestId !== requestId),
-  };
-  return {
-    bySession: new Map(state.bySession).set(sessionId, nextSession),
-    lastSequence: new Map(state.lastSequence),
-  };
 };
 
 /**
@@ -1161,421 +384,4 @@ export const applyPiEvents = (
     else skipped += 1;
   }
   return { state: working, applied, skipped };
-};
-
-// ---------------------------------------------------------------------------
-// Projections (read-only views for React subscribers)
-// ---------------------------------------------------------------------------
-
-export interface PiProjectedMessagePart {
-  id: string;
-  type: PiReducerMessagePart['type'];
-  text: string;
-  streaming: boolean;
-  tool?: PiReducerMessagePart['tool'];
-  attachment?: PiAttachment;
-}
-
-export interface PiProjectedMessage {
-  id: string;
-  role: 'user' | 'assistant' | 'extension';
-  parentId?: string;
-  /** Extension-role only: pi customType that authored this item. */
-  customType?: string;
-  /** Extension-role only: custom entry payload. */
-  data?: unknown;
-  /** Extension-role only: custom message details payload. */
-  details?: unknown;
-  text: string;
-  thinking: string;
-  streaming: boolean;
-  createdAt: number;
-  durationMs?: number;
-  error?: { code: string; message?: string };
-  model?: PiModelRef;
-  thinkingLevel?: PiThinkingLevel;
-  usage?: PiUsage;
-  parts: PiProjectedMessagePart[];
-}
-
-export interface PiProjectedSession {
-  sessionId: PiSessionId;
-  directory: string;
-  lifecycle: PiSessionLifecycleState;
-  model?: PiModelRef;
-  thinking?: PiThinkingLevel;
-  queue: { steering: number; followUp: number };
-  messages: PiProjectedMessage[];
-}
-
-export interface ProjectSessionPrevious {
-  session: PiReducerSessionState;
-  projection: PiProjectedSession;
-}
-
-const projectReducerPart = (part: PiReducerMessagePart): PiProjectedMessagePart => {
-  const cached = projectedPartsByReducerPart.get(part);
-  if (cached) return cached;
-  const projected: PiProjectedMessagePart = {
-    id: part.id,
-    type: part.type,
-    text: part.text,
-    streaming: part.streaming,
-    ...(part.tool ? { tool: part.tool } : {}),
-    ...(part.attachment ? { attachment: part.attachment } : {}),
-  };
-  projectedPartsByReducerPart.set(part, projected);
-  return projected;
-};
-
-const recoveredErrorIdsFor = (session: PiReducerSessionState, sourceMessages: PiReducerMessage[]): Set<string> => {
-  const recoveredParents = new Set<string>();
-  const recoveredErrorIds = new Set<string>();
-  for (let index = sourceMessages.length - 1; index >= 0; index -= 1) {
-    const message = sourceMessages[index];
-    if (!message || message.role !== 'assistant') continue;
-    const parentId = resolveParentId(session, message.parentId);
-    if (!parentId) continue;
-    const hasVisibleContent = Boolean(
-      message.text
-      || message.thinking
-      || (session.partOrder.get(message.id)?.length ?? 0) > 0,
-    );
-    if (message.error && !hasVisibleContent && recoveredParents.has(parentId)) {
-      recoveredErrorIds.add(message.id);
-      continue;
-    }
-    if (!message.error) recoveredParents.add(parentId);
-  }
-  return recoveredErrorIds;
-};
-
-const canReuseProjectedMessage = (
-  session: PiReducerSessionState,
-  message: PiReducerMessage,
-  previous: PiProjectedMessage,
-  parts: PiProjectedMessagePart[],
-): boolean => (
-  previous.id === message.id
-  && previous.role === message.role
-  && previous.parentId === resolveParentId(session, message.parentId)
-  && previous.text === message.text
-  && previous.thinking === message.thinking
-  && previous.streaming === message.streaming
-  && previous.createdAt === message.createdAt
-  && previous.durationMs === message.durationMs
-  && previous.error === message.error
-  && previous.model === message.model
-  && previous.thinkingLevel === message.thinkingLevel
-  && previous.usage === message.usage
-  && previous.parts.length === parts.length
-  && previous.parts.every((part, index) => part === parts[index])
-);
-
-const projectReducerMessage = (
-  session: PiReducerSessionState,
-  message: PiReducerMessage,
-  previousProjected?: PiProjectedMessage,
-): PiProjectedMessage => {
-  const order = session.partOrder.get(message.id) ?? [];
-  const parts: PiProjectedMessagePart[] = [];
-  for (const partId of order) {
-    const part = session.parts.get(partId);
-    if (part) parts.push(projectReducerPart(part));
-  }
-  if (previousProjected && canReuseProjectedMessage(session, message, previousProjected, parts)) {
-    return previousProjected;
-  }
-  const parentId = resolveParentId(session, message.parentId);
-  return {
-    id: message.id,
-    role: message.role,
-    ...(parentId ? { parentId } : {}),
-    ...(message.customType !== undefined ? { customType: message.customType } : {}),
-    ...(message.data !== undefined ? { data: message.data } : {}),
-    ...(message.details !== undefined ? { details: message.details } : {}),
-    text: message.text,
-    thinking: message.thinking,
-    streaming: message.streaming,
-    createdAt: message.createdAt,
-    ...(message.durationMs !== undefined ? { durationMs: message.durationMs } : {}),
-    ...(message.error ? { error: message.error } : {}),
-    ...(message.model ? { model: message.model } : {}),
-    ...(message.thinkingLevel ? { thinkingLevel: message.thinkingLevel } : {}),
-    ...(message.usage ? { usage: message.usage } : {}),
-    parts,
-  };
-};
-
-/**
- * Build an immutable projection of a session. Pass the previous projection
- * so unchanged historical messages and parts keep their object identity.
- * The projection does not include sequence bookkeeping so the UI cannot
- * accidentally leak it.
- */
-export const projectSession = (
-  session: PiReducerSessionState,
-  previous?: ProjectSessionPrevious | null,
-): PiProjectedSession => {
-  const sourceMessages = uniqueSessionMessages(session);
-  const recoveredErrorIds = recoveredErrorIdsFor(session, sourceMessages);
-  const previousById = previous
-    ? new Map(previous.projection.messages.map((message) => [message.id, message]))
-    : null;
-
-  const messages: PiProjectedMessage[] = [];
-  for (const message of sourceMessages) {
-    if (recoveredErrorIds.has(message.id)) continue;
-    messages.push(projectReducerMessage(session, message, previousById?.get(message.id)));
-  }
-
-  if (
-    previous
-    && previous.projection.sessionId === session.sessionId
-    && previous.projection.directory === session.directory
-    && previous.projection.lifecycle === session.lifecycle
-    && previous.projection.model === session.model
-    && previous.projection.thinking === session.thinking
-    && previous.projection.queue.steering === session.queue.steering
-    && previous.projection.queue.followUp === session.queue.followUp
-    && previous.projection.messages.length === messages.length
-    && previous.projection.messages.every((message, index) => message === messages[index])
-  ) {
-    return previous.projection;
-  }
-
-  return {
-    sessionId: session.sessionId,
-    directory: session.directory,
-    lifecycle: session.lifecycle,
-    ...(session.model ? { model: session.model } : {}),
-    ...(session.thinking ? { thinking: session.thinking } : {}),
-    queue: { ...session.queue },
-    messages,
-  };
-};
-
-const markHydratedLiveActivity = (
-  session: PiReducerSessionState,
-  options?: {
-    isStreaming?: boolean;
-    lifecycle?: PiSessionLifecycleState;
-    inferFromRunningTools?: boolean;
-    settleWhenIdle?: boolean;
-    retry?: PiRetryInfo;
-  },
-): void => {
-  const runningMessageIds: string[] = [];
-  const runningPartIds: string[] = [];
-  for (const [partId, part] of session.parts) {
-    const toolState = part.tool?.state;
-    if (part.type !== 'tool' || (toolState !== 'running' && toolState !== 'pending')) continue;
-    runningPartIds.push(partId);
-    const messageId = part.tool?.toolCallId ? session.toolsByCallId.get(part.tool.toolCallId) : undefined;
-    if (messageId) runningMessageIds.push(messageId);
-  }
-
-  const live = options?.isStreaming === true
-    || options?.lifecycle === 'busy'
-    || options?.lifecycle === 'retry'
-    || (options?.inferFromRunningTools === true && runningMessageIds.length > 0);
-  if (!live) {
-    session.retry = undefined;
-    if (options?.settleWhenIdle) {
-      session.streamingMessages = new Set();
-      session.messages = new Map(session.messages);
-      for (const [messageId, message] of session.messages) {
-        if (message.streaming) session.messages.set(messageId, { ...message, streaming: false });
-      }
-    }
-    return;
-  }
-
-  session.lifecycle = options?.lifecycle === 'retry' ? 'retry' : 'busy';
-  session.retry = session.lifecycle === 'retry' ? options?.retry : undefined;
-  session.streamingMessages = new Set(session.streamingMessages);
-  for (const partId of runningPartIds) {
-    const part = session.parts.get(partId);
-    if (part) session.parts.set(partId, { ...part, streaming: true });
-  }
-  let targetId = runningMessageIds[runningMessageIds.length - 1];
-  if (!targetId) {
-    const messages = uniqueSessionMessages(session);
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const candidate = messages[index];
-      if (candidate?.role === 'assistant') {
-        targetId = candidate.id;
-        break;
-      }
-    }
-  }
-  if (!targetId) return;
-  const message = session.messages.get(targetId);
-  if (!message || message.role !== 'assistant') return;
-  session.messages.set(targetId, { ...message, streaming: true });
-  session.streamingMessages.add(targetId);
-};
-
-/**
- * Hydrate a session state from a `PiSessionDetailResponse`. The result is
- * ready to receive delta events with `fromSequence` strictly greater than
- * the last sequence returned by the response.
- */
-export const hydrateSessionFromDetail = (
-  detail: {
-    session: {
-      id: string;
-      directory: string;
-      model?: PiModelRef;
-      thinking?: PiThinkingLevel;
-    };
-    lastSequence: number;
-    isStreaming?: boolean;
-    lifecycle?: PiSessionLifecycleState;
-    retry?: PiRetryInfo;
-    compaction?: PiCompactionInfo;
-    extensionStatuses?: Array<{ key: string; text: string }>;
-    extensionWidgets?: Array<{ key: string; lines: string[]; placement?: 'aboveEditor' | 'belowEditor' }>;
-    extensionDialogs?: PiExtensionDialogPayload[];
-    extensionPanels?: PiExtensionPanelPayload[];
-    extensionApps?: PiExtensionAppPayload[];
-    extensionTitle?: string;
-    messages: Array<{
-      message: PiUserMessage | PiAssistantMessage | {
-        id: string;
-        role: 'extension';
-        createdAt: number;
-        customType: string;
-        parentId?: string;
-        text?: string;
-        data?: unknown;
-        details?: unknown;
-      };
-      parts: Array<{
-        id: string;
-        index: number;
-        type: 'text' | 'thinking' | 'tool' | 'attachment';
-        text?: string;
-        toolCallId?: string;
-        name?: string;
-        input?: unknown;
-        output?: unknown;
-        error?: string;
-        metadata?: Record<string, unknown>;
-        isError?: boolean;
-        state?: 'pending' | 'running' | 'completed' | 'error' | 'cancelled';
-        startedAt?: number;
-        endedAt?: number;
-        attachment?: PiAttachment;
-      }>;
-    }>;
-  },
-): { state: PiReducerState; session: PiReducerSessionState } => {
-  const state = createReducerState();
-  const session = getOrCreateSession(state, detail.session.id, detail.session.directory);
-  session.lastSequence = detail.lastSequence;
-  if (Array.isArray(detail.extensionStatuses)) {
-    session.extensionStatuses = new Map(detail.extensionStatuses.map((entry) => [entry.key, entry.text]));
-  }
-  if (Array.isArray(detail.extensionWidgets)) {
-    session.extensionWidgets = new Map(detail.extensionWidgets.map((entry) => [
-      entry.key,
-      { lines: entry.lines, placement: entry.placement === 'belowEditor' ? 'belowEditor' : 'aboveEditor' },
-    ]));
-  }
-  if (Array.isArray(detail.extensionDialogs)) {
-    session.extensionDialogs = detail.extensionDialogs.filter(
-      (dialog) => typeof dialog.requestId === 'string' && typeof dialog.method === 'string' && typeof dialog.title === 'string',
-    );
-  }
-  if (Array.isArray(detail.extensionPanels)) {
-    session.extensionPanels = new Map(detail.extensionPanels
-      .filter((panel) => typeof panel?.id === 'string' && panel.id.length > 0)
-      .map((panel) => [panel.id, panel]));
-  }
-  if (Array.isArray(detail.extensionApps)) {
-    session.extensionApps = new Map(detail.extensionApps
-      .filter((app) => typeof app?.appId === 'string' && app.appId.length > 0)
-      .map((app) => [app.appId, app]));
-  }
-  session.extensionTitle = detail.extensionTitle;
-
-  for (const { message, parts } of detail.messages) {
-    const isExtension = message.role === 'extension';
-    const reducerMessage: PiReducerMessage = {
-      id: message.id,
-      sessionId: detail.session.id,
-      directory: detail.session.directory,
-      role: message.role,
-      ...(isExtension && message.customType ? { customType: message.customType } : {}),
-      ...(isExtension && message.data !== undefined ? { data: message.data } : {}),
-      ...(isExtension && message.details !== undefined ? { details: message.details } : {}),
-      ...(message.parentId ? { parentId: message.parentId } : {}),
-      createdAt: message.createdAt,
-      text: message.text ?? '',
-      thinking: message.role === 'assistant' ? message.thinking ?? '' : '',
-      streaming: false,
-      ...(message.role === 'assistant' && message.durationMs !== undefined
-        ? { durationMs: message.durationMs }
-        : {}),
-      ...(message.role === 'assistant' && message.error ? { error: message.error } : {}),
-      ...(message.role === 'assistant' && message.model ? { model: message.model } : {}),
-      ...(message.role === 'assistant' && message.thinkingLevel
-        ? { thinkingLevel: message.thinkingLevel }
-        : {}),
-      ...(message.role === 'assistant' && message.usage ? { usage: message.usage } : {}),
-    };
-    session.messages.set(message.id, reducerMessage);
-    const partOrder: string[] = [];
-    for (const part of parts) {
-      const reducerPart: PiReducerMessagePart = {
-        id: part.id,
-        index: part.index,
-        type: part.type,
-        text: part.text ?? '',
-        streaming: false,
-        ...(part.type === 'tool'
-          ? {
-              tool: {
-                toolCallId: part.toolCallId ?? part.id,
-                name: part.name ?? 'unknown',
-                ...(part.input !== undefined ? { input: part.input } : {}),
-                ...(part.output !== undefined ? { output: part.output } : {}),
-                ...(typeof part.error === 'string' ? { error: part.error } : {}),
-                ...(part.metadata !== undefined ? { metadata: part.metadata } : {}),
-                ...(part.isError !== undefined ? { isError: part.isError } : {}),
-                state: part.state ?? 'completed',
-                ...(part.startedAt !== undefined ? { startedAt: part.startedAt } : {}),
-                ...(part.endedAt !== undefined ? { endedAt: part.endedAt } : {}),
-              },
-            }
-          : {}),
-        ...(part.type === 'attachment' && part.attachment ? { attachment: part.attachment } : {}),
-      };
-      session.parts.set(part.id, reducerPart);
-      partOrder.push(part.id);
-      if (part.type === 'tool' && part.toolCallId) {
-        session.toolsByCallId.set(part.toolCallId, message.id);
-      }
-    }
-    session.partOrder.set(message.id, partOrder);
-  }
-
-  const resolved = resolveExistingSessionComposerSelection({
-    model: detail.session.model,
-    thinking: detail.session.thinking,
-    messages: session.messages.values(),
-  });
-  if (resolved.model) session.model = resolved.model;
-  if (resolved.thinking) session.thinking = resolved.thinking;
-  session.compaction = detail.compaction;
-  markHydratedLiveActivity(session, {
-    ...(detail.isStreaming !== undefined ? { isStreaming: detail.isStreaming } : {}),
-    ...(detail.lifecycle ? { lifecycle: detail.lifecycle } : {}),
-    ...(detail.retry ? { retry: detail.retry } : {}),
-    inferFromRunningTools: true,
-  });
-
-  state.lastSequence.set(detail.session.id, detail.lastSequence);
-  return { state, session };
 };

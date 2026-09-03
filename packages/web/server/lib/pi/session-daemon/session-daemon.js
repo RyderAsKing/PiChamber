@@ -205,6 +205,28 @@ export function createSessionDaemon({
   const activeRunStartedAt = new Map();
   const sendGenerationBySession = new Map();
   const settledSendGenerationBySession = new Map();
+  // Pi emits each user message start before its persisted entry is readable.
+  // Keep prompt metadata in send order so queued follow-ups cannot attach the
+  // next prompt's files to an earlier user message.
+  const pendingUserStartsBySession = new Map();
+  const enqueueUserStart = (sessionId, generation, files) => {
+    const pending = pendingUserStartsBySession.get(sessionId) ?? [];
+    pending.push({ generation, files });
+    pendingUserStartsBySession.set(sessionId, pending);
+  };
+  const takeUserStart = (sessionId) => {
+    const pending = pendingUserStartsBySession.get(sessionId);
+    const next = pending?.shift();
+    if (!pending?.length) pendingUserStartsBySession.delete(sessionId);
+    return next;
+  };
+  const removeUserStart = (sessionId, generation) => {
+    const pending = pendingUserStartsBySession.get(sessionId);
+    if (!pending) return;
+    const remaining = pending.filter((entry) => entry.generation !== generation);
+    if (remaining.length > 0) pendingUserStartsBySession.set(sessionId, remaining);
+    else pendingUserStartsBySession.delete(sessionId);
+  };
   const shutdownRequestedBySession = new Set();
   const disposingSessionIds = new Set();
   const streamingRedactionBuffers = new Map();
@@ -922,13 +944,48 @@ export function createSessionDaemon({
       const timestamp = Date.parse(entry.timestamp);
       const createdAt = Number.isFinite(timestamp) ? timestamp : 0;
       if (entry.message.role === 'user') {
-        const text = redactAttachmentPaths(typeof entry.message.content === 'string'
-          ? entry.message.content
-          : Array.isArray(entry.message.content)
-            ? textFromContent(entry.message.content)
-            : '');
+        const userParts = [];
+        let rawText = '';
+        if (typeof entry.message.content === 'string') {
+          rawText = entry.message.content;
+        } else if (Array.isArray(entry.message.content)) {
+          for (let index = 0; index < entry.message.content.length; index += 1) {
+            const part = entry.message.content[index];
+            if (part?.type === 'text') {
+              rawText += (rawText ? '\n\n' : '') + (part.text || '');
+            } else if (part?.type === 'image' && typeof part.data === 'string') {
+              const mime = part.mimeType || 'image/png';
+              userParts.push({
+                type: 'file',
+                id: `${entry.id}:image:${index}`,
+                index,
+                mime,
+                url: `data:${mime};base64,${part.data}`,
+                filename: 'image.png',
+              });
+            }
+          }
+        }
+
+        const attachmentNamedRegex = /\[Attachment\s+(.+?)\s+is available at\s+([^\]]+)\]/gi;
+        let match;
+        while ((match = attachmentNamedRegex.exec(rawText)) !== null) {
+          const filename = match[1].trim();
+          userParts.push({
+            type: 'file',
+            id: `${entry.id}:attachment:${userParts.length}`,
+            index: userParts.length,
+            filename,
+          });
+        }
+
+        let text = rawText.replace(/(\r?\n)*\s*\[Attachment\s+.+?\s+is available at\s+[^\]]+\]/gi, '');
+        text = redactAttachmentPaths(text).trim();
         latestUserMessageId = entry.id;
-        return [{ message: { id: entry.id, sessionId: session.sessionId, directory: targetDir, role: 'user', text, createdAt }, parts: [] }];
+        return [{
+          message: { id: entry.id, sessionId: session.sessionId, directory: targetDir, role: 'user', text, createdAt },
+          parts: userParts,
+        }];
       }
       if (entry.message.role !== 'assistant' || !Array.isArray(entry.message.content)) return [];
       const text = redactAttachmentPaths(textFromContent(entry.message.content));
@@ -1868,15 +1925,17 @@ export function createSessionDaemon({
   };
 
   const prepareAttachmentContent = async (attachments) => {
-    if (attachments === undefined) return { text: '', images: [] };
+    if (attachments === undefined) return { text: '', images: [], files: [] };
     if (!Array.isArray(attachments) || attachments.length > 32) throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session attachments are invalid.');
     const text = [];
     const images = [];
+    const files = [];
     for (const attachment of attachments) {
       if (!attachment || typeof attachment.path !== 'string' || typeof attachment.name !== 'string'
         || typeof attachment.mime !== 'string' || !Number.isSafeInteger(attachment.size) || attachment.size <= 0) {
         throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session attachments are invalid.');
       }
+      files.push({ mime: attachment.mime, filename: attachment.name });
       try {
         if (attachment.mime.startsWith('image/') && attachment.size <= 20 * 1024 * 1024) {
           const data = await readFile(attachment.path);
@@ -1892,7 +1951,7 @@ export function createSessionDaemon({
         throw err;
       }
     }
-    return { text: text.join('\n'), images };
+    return { text: text.join('\n'), images, files };
   };
 
   const sessionInput = async (payload, delivery) => {
@@ -1943,13 +2002,21 @@ export function createSessionDaemon({
     // Slash-prefixed input dispatches extension commands and skill/template
     // expansion exactly like the pi CLI and RPC modes; plain text keeps the
     // sendUserMessage path so it is never expanded.
-    const sendCall = content.startsWith('/')
-      ? activeRuntime.session.prompt(content, {
-          source: 'rpc',
-          ...(deliverAs ? { streamingBehavior: deliverAs } : {}),
-        })
-      : activeRuntime.session.sendUserMessage(content, deliverAs ? { deliverAs } : undefined);
+    enqueueUserStart(payload.sessionId, generation, attachments.files);
+    let sendCall;
+    try {
+      sendCall = typeof content === 'string' && content.startsWith('/')
+        ? activeRuntime.session.prompt(content, {
+            source: 'rpc',
+            ...(deliverAs ? { streamingBehavior: deliverAs } : {}),
+          })
+        : activeRuntime.session.sendUserMessage(content, deliverAs ? { deliverAs } : undefined);
+    } catch (error) {
+      removeUserStart(payload.sessionId, generation);
+      throw error;
+    }
     Promise.resolve(sendCall).then(() => {
+      removeUserStart(payload.sessionId, generation);
       if (sendGenerationBySession.get(payload.sessionId) !== generation) return;
       if (settledSendGenerationBySession.get(payload.sessionId) === generation) return;
       if (activeRuntime.session?.isStreaming) return;
@@ -1960,6 +2027,7 @@ export function createSessionDaemon({
       publish('session.lifecycle', { state: 'idle', serverNow: Date.now() }, payload.sessionId, activeRuntime.cwd);
       completeRequestedShutdown(payload.sessionId);
     }).catch((error) => {
+      removeUserStart(payload.sessionId, generation);
       if (sendGenerationBySession.get(payload.sessionId) !== generation) return;
       publish('session.error', {
         code: 'ASSISTANT_ERROR',
@@ -2015,6 +2083,7 @@ export function createSessionDaemon({
     shutdownRequestedBySession.delete(sessionId);
     sendGenerationBySession.delete(sessionId);
     settledSendGenerationBySession.delete(sessionId);
+    pendingUserStartsBySession.delete(sessionId);
     latestUserMessageIds.delete(sessionId);
     latestAssistantMessageIds.delete(sessionId);
     toolInputBySession.delete(sessionId);
@@ -2026,11 +2095,15 @@ export function createSessionDaemon({
       case 'message_start': {
         if (event.message?.role === 'user') {
           const content = event.message.content;
-          const text = redactAttachmentPaths(typeof content === 'string'
+          const rawText = typeof content === 'string'
             ? content
             : Array.isArray(content)
               ? textFromContent(content)
-              : '');
+              : '';
+          const text = redactAttachmentPaths(
+            rawText.replace(/(\r?\n)*\s*\[Attachment\s+.+?\s+is available at\s+[^\]]+\]/gi, ''),
+          ).trim();
+          const files = takeUserStart(sessionId)?.files ?? [];
           const messageId = `user-${sessionId}-${sequence + 1}`;
           messageEntryAliases.retain({ cwd: directory, sessionId, syntheticMessageId: messageId, message: event.message });
           latestUserMessageIds.set(sessionId, messageId);
@@ -2038,6 +2111,15 @@ export function createSessionDaemon({
             messageId,
             role: 'user',
             text,
+            ...(files.length > 0 ? {
+              files: files.map((file, index) => ({
+                type: 'file',
+                id: `${messageId}:file:${index}`,
+                index,
+                mime: file.mime,
+                filename: file.filename,
+              })),
+            } : {}),
             startedAt: Number.isFinite(event.message.timestamp) ? event.message.timestamp : Date.now(),
           }, sessionId, directory);
         } else if (event.message?.role === 'assistant') {
@@ -2754,6 +2836,7 @@ export function createSessionDaemon({
       disposingSessionIds.clear();
       sendGenerationBySession.clear();
       settledSendGenerationBySession.clear();
+      pendingUserStartsBySession.clear();
       latestUserMessageIds.clear();
       latestAssistantMessageIds.clear();
       for (const client of clients) client.destroy();

@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { Session } from '@/lib/chat/types';
 import { piClient } from '@/lib/pi/client';
@@ -271,7 +269,13 @@ describe('useGlobalSessionsStore', () => {
     });
     await useGlobalSessionsStore.getState().loadSessions();
     // Now mutate the catalog \u2014 syncFromPiStore should not throw.
-    expect(() => store.refreshDirectoryCatalog('/repo-a')).not.toThrow();
+    let synchronousError: unknown;
+    try {
+      void store.refreshDirectoryCatalog('/repo-a');
+    } catch (error) {
+      synchronousError = error;
+    }
+    expect(synchronousError).toBe(undefined);
   });
 
   test('focusPending does not empty the global folder slice', async () => {

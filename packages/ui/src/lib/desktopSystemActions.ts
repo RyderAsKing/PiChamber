@@ -1,0 +1,528 @@
+import {
+  canUseElectronDesktopIPC,
+  getDesktopBridge,
+  hasDesktopInvoke,
+  invokeDesktop,
+  isDesktopLocalOriginActive,
+  isDesktopShell,
+} from './desktopBridge';
+import type {
+  FetchDesktopInstalledAppsResult,
+  KeepAwakeStatus,
+  LaunchAtLoginStatus,
+  MinimizeToTrayStatus,
+  UpdateInfo,
+  UpdateProgress,
+} from './desktopTypes';
+
+export const getDesktopLaunchAtLogin = async (): Promise<LaunchAtLoginStatus | null> => {
+  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+    return null;
+  }
+
+  try {
+    const result = await invokeDesktop<LaunchAtLoginStatus>('desktop_get_launch_at_login');
+    if (!result || typeof result.supported !== 'boolean' || typeof result.enabled !== 'boolean') {
+      return null;
+    }
+    return result;
+  } catch (error) {
+    console.warn('Failed to get launch at login status', error);
+    return null;
+  }
+};
+
+export const setDesktopLaunchAtLogin = async (enabled: boolean): Promise<LaunchAtLoginStatus | null> => {
+  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+    return null;
+  }
+
+  try {
+    const result = await invokeDesktop<LaunchAtLoginStatus>('desktop_set_launch_at_login', { enabled });
+    if (!result || typeof result.supported !== 'boolean' || typeof result.enabled !== 'boolean') {
+      return null;
+    }
+    return result;
+  } catch (error) {
+    console.warn('Failed to set launch at login status', error);
+    return null;
+  }
+};
+
+export const getDesktopMinimizeToTray = async (): Promise<MinimizeToTrayStatus | null> => {
+  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+    return null;
+  }
+
+  try {
+    const result = await invokeDesktop<MinimizeToTrayStatus>('desktop_get_minimize_to_tray');
+    if (!result || typeof result.supported !== 'boolean' || typeof result.enabled !== 'boolean') {
+      return null;
+    }
+    return result;
+  } catch (error) {
+    console.warn('Failed to get minimize to tray status', error);
+    return null;
+  }
+};
+
+export const setDesktopMinimizeToTray = async (enabled: boolean): Promise<MinimizeToTrayStatus | null> => {
+  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+    return null;
+  }
+
+  try {
+    const result = await invokeDesktop<MinimizeToTrayStatus>('desktop_set_minimize_to_tray', { enabled });
+    if (!result || typeof result.supported !== 'boolean' || typeof result.enabled !== 'boolean') {
+      return null;
+    }
+    return result;
+  } catch (error) {
+    console.warn('Failed to set minimize to tray status', error);
+    return null;
+  }
+};
+
+export const getDesktopKeepAwake = async (): Promise<KeepAwakeStatus | null> => {
+  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+    return null;
+  }
+
+  try {
+    const result = await invokeDesktop<KeepAwakeStatus>('desktop_get_keep_awake');
+    if (!result || typeof result.supported !== 'boolean' || typeof result.enabled !== 'boolean' || typeof result.active !== 'boolean') {
+      return null;
+    }
+    return result;
+  } catch (error) {
+    console.warn('Failed to get keep awake status', error);
+    return null;
+  }
+};
+
+export const setDesktopKeepAwake = async (enabled: boolean): Promise<KeepAwakeStatus | null> => {
+  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+    return null;
+  }
+
+  try {
+    const result = await invokeDesktop<KeepAwakeStatus>('desktop_set_keep_awake', { enabled });
+    if (!result || typeof result.supported !== 'boolean' || typeof result.enabled !== 'boolean' || typeof result.active !== 'boolean') {
+      return null;
+    }
+    return result;
+  } catch (error) {
+    console.warn('Failed to set keep awake status', error);
+    return null;
+  }
+};
+
+export const canRequestNativeDirectoryAccess = (): boolean => (
+  isDesktopShell() && hasDesktopInvoke() && isDesktopLocalOriginActive()
+);
+
+export const getDesktopHomeDirectory = async (): Promise<string | null> => {
+  if (typeof window !== 'undefined') {
+    const embedded = window.__PICHAMBER_HOME__;
+    if (embedded && embedded.length > 0) {
+      return embedded;
+    }
+  }
+
+  return null;
+};
+
+export const requestDirectoryAccess = async (
+  directoryPath: string
+): Promise<{ success: boolean; path?: string; projectId?: string; error?: string }> => {
+  if (canRequestNativeDirectoryAccess()) {
+    try {
+      const selected = await getDesktopBridge()?.openDialog?.({
+        directory: true,
+        multiple: false,
+        title: 'Select Working Directory',
+        ...(directoryPath ? { defaultPath: directoryPath } : {}),
+      });
+      if (!selected || typeof selected !== 'string') {
+        return { success: false, error: 'Directory selection cancelled' };
+      }
+      return { success: true, path: selected };
+    } catch (error) {
+      console.warn('Failed to request directory access', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  return { success: false, error: 'Native directory picker not available' };
+};
+
+const isDesktopFileGrantResult = (
+  value: unknown
+): value is { path?: unknown; outsideFileGrant?: unknown } => (
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+);
+
+export const requestFileAccess = async (
+  options?: { filters?: Array<{ name: string; extensions: string[] }>; defaultPath?: string }
+): Promise<{ success: boolean; path?: string; outsideFileGrant?: string; error?: string }> => {
+  if (hasDesktopInvoke() && isDesktopLocalOriginActive()) {
+    try {
+      const selected = await getDesktopBridge()?.openDialog?.({
+        directory: false,
+        multiple: false,
+        title: 'Select File',
+        returnGrant: true,
+        ...(options?.filters ? { filters: options.filters } : {}),
+        ...(options?.defaultPath ? { defaultPath: options.defaultPath } : {}),
+      });
+      if (!selected) {
+        return { success: false, error: 'File selection cancelled' };
+      }
+      if (typeof selected === 'string') {
+        return { success: true, path: selected };
+      }
+      if (!isDesktopFileGrantResult(selected)) {
+        return { success: false, error: 'File selection cancelled' };
+      }
+      const path = typeof selected.path === 'string' ? selected.path : '';
+      if (!path) {
+        return { success: false, error: 'File selection cancelled' };
+      }
+      return {
+        success: true,
+        path,
+        outsideFileGrant: typeof selected.outsideFileGrant === 'string' ? selected.outsideFileGrant : undefined,
+      };
+    } catch (error) {
+      console.warn('Failed to request file access', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  return { success: false, error: 'Native file picker not available' };
+};
+
+export const requestExistingFileAccess = async (
+  path: string
+): Promise<{ success: boolean; path?: string; outsideFileGrant?: string; error?: string }> => {
+  const targetPath = typeof path === 'string' ? path.trim() : '';
+  if (!targetPath) {
+    return { success: false, error: 'Path is required' };
+  }
+  if (!hasDesktopInvoke() || !isDesktopLocalOriginActive()) {
+    return { success: false, error: 'Native file access not available' };
+  }
+
+  try {
+    const selected = await getDesktopBridge()?.grantFileAccess?.(targetPath);
+    if (!isDesktopFileGrantResult(selected)) {
+      return { success: false, error: 'File access was not granted' };
+    }
+    const grantedPath = typeof selected.path === 'string' ? selected.path : '';
+    const outsideFileGrant = typeof selected.outsideFileGrant === 'string' ? selected.outsideFileGrant : '';
+    if (!grantedPath || !outsideFileGrant) {
+      return { success: false, error: 'File access was not granted' };
+    }
+    return { success: true, path: grantedPath, outsideFileGrant };
+  } catch (error) {
+    console.warn('Failed to request existing file access', error);
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+};
+
+export const startAccessingDirectory = async (
+  directoryPath: string
+): Promise<{ success: boolean; error?: string }> => {
+  void directoryPath;
+  return { success: true };
+};
+
+export const stopAccessingDirectory = async (
+  directoryPath: string
+): Promise<{ success: boolean; error?: string }> => {
+  void directoryPath;
+  return { success: true };
+};
+
+export const checkForDesktopUpdates = async (): Promise<UpdateInfo | null> => {
+  if (!hasDesktopInvoke()) {
+    return null;
+  }
+
+  const info = await invokeDesktop<UpdateInfo>('desktop_check_for_updates');
+  return info as UpdateInfo;
+};
+
+export const downloadDesktopUpdate = async (
+  onProgress?: (progress: UpdateProgress) => void
+): Promise<boolean> => {
+  if (!hasDesktopInvoke()) {
+    return false;
+  }
+
+  const bridge = getDesktopBridge();
+  let unlisten: null | (() => void | Promise<void>) = null;
+  let downloaded = 0;
+  let total: number | undefined;
+
+  try {
+    if (typeof onProgress === 'function' && bridge?.listen) {
+      unlisten = await bridge.listen('pichamber:update-progress', (evt) => {
+        const payload = evt?.payload;
+        if (!payload || typeof payload !== 'object') return;
+        const data = payload as { event?: unknown; data?: unknown };
+        const eventName = typeof data.event === 'string' ? data.event : null;
+        const eventData = data.data && typeof data.data === 'object' ? (data.data as Record<string, unknown>) : null;
+
+        if (eventName === 'Started') {
+          downloaded = 0;
+          total = typeof eventData?.contentLength === 'number' ? (eventData.contentLength as number) : undefined;
+          onProgress({ downloaded, total });
+          return;
+        }
+
+        if (eventName === 'Progress') {
+          const d = eventData?.downloaded;
+          const t = eventData?.total;
+          if (typeof d === 'number') downloaded = d;
+          if (typeof t === 'number') total = t;
+          onProgress({ downloaded, total });
+          return;
+        }
+
+        if (eventName === 'Finished') {
+          onProgress({ downloaded, total });
+        }
+      });
+    }
+
+    await invokeDesktop('desktop_download_and_install_update');
+    return true;
+  } catch (error) {
+    throw error instanceof Error ? error : new Error(String(error));
+  } finally {
+    if (unlisten) {
+      try {
+        const result = unlisten();
+        if (result instanceof Promise) {
+          await result;
+        }
+      } catch {
+        // ignored
+      }
+    }
+  }
+};
+
+export const restartDesktopApp = async (): Promise<boolean> => {
+  if (!hasDesktopInvoke()) {
+    return false;
+  }
+
+  try {
+    await invokeDesktop('desktop_restart');
+    return true;
+  } catch (error) {
+    console.warn('Failed to restart desktop app', error);
+    return false;
+  }
+};
+
+export const restartToApplyUpdate = async (): Promise<boolean> => {
+  if (!hasDesktopInvoke()) {
+    return false;
+  }
+
+  return restartDesktopApp();
+};
+
+export const getDesktopLanAddress = async (): Promise<string | null> => {
+  if (!hasDesktopInvoke() || !isDesktopLocalOriginActive()) {
+    return null;
+  }
+
+  try {
+    const result = await invokeDesktop<string>('desktop_get_lan_address');
+    return typeof result === 'string' && result.trim().length > 0 ? result.trim() : null;
+  } catch (error) {
+    console.warn('Failed to get desktop LAN address', error);
+    return null;
+  }
+};
+
+export const openDesktopPath = async (path: string, app?: string | null): Promise<boolean> => {
+  if (!hasDesktopInvoke() || !isDesktopLocalOriginActive()) {
+    return false;
+  }
+
+  const trimmed = path?.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  try {
+    await invokeDesktop('desktop_open_path', {
+      path: trimmed,
+      app: typeof app === 'string' && app.trim().length > 0 ? app.trim() : undefined,
+    });
+    return true;
+  } catch (error) {
+    console.warn('Failed to open path', error);
+    return false;
+  }
+};
+
+export const revealDesktopPath = async (path: string): Promise<boolean> => {
+  if (!hasDesktopInvoke() || !isDesktopLocalOriginActive()) {
+    return false;
+  }
+
+  const trimmed = path?.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  try {
+    await invokeDesktop('desktop_reveal_path', {
+      path: trimmed,
+    });
+    return true;
+  } catch {
+    return openDesktopPath(trimmed);
+  }
+};
+
+export const saveDesktopMarkdownFile = async (
+  defaultFileName: string,
+  content: string,
+): Promise<string | null> => {
+  if (!hasDesktopInvoke() || !isDesktopLocalOriginActive()) {
+    return null;
+  }
+
+  const trimmedFileName = defaultFileName?.trim();
+  if (!trimmedFileName) {
+    return null;
+  }
+
+  try {
+    const result = await invokeDesktop<string>('desktop_save_markdown_file', {
+      defaultFileName: trimmedFileName,
+      content,
+    });
+    return typeof result === 'string' && result.trim().length > 0 ? result : null;
+  } catch (error) {
+    console.warn('Failed to save markdown file', error);
+    return null;
+  }
+};
+
+export const openDesktopProjectInApp = async (
+  projectPath: string,
+  appId: string,
+  appName: string,
+): Promise<boolean> => {
+  if (!hasDesktopInvoke() || !isDesktopLocalOriginActive()) {
+    return false;
+  }
+
+  const trimmedProjectPath = projectPath?.trim();
+  const trimmedAppId = appId?.trim();
+  const trimmedAppName = appName?.trim();
+
+  if (!trimmedProjectPath || !trimmedAppId || !trimmedAppName) {
+    return false;
+  }
+
+  try {
+    await invokeDesktop('desktop_open_in_app', {
+      projectPath: trimmedProjectPath,
+      appId: trimmedAppId,
+      appName: trimmedAppName,
+    });
+    return true;
+  } catch (error) {
+    console.warn('Failed to open project in app', error);
+    return false;
+  }
+};
+
+export const openDesktopFileInApp = async (
+  filePath: string,
+  appId: string,
+  appName: string,
+): Promise<boolean> => {
+  if (!hasDesktopInvoke() || !isDesktopLocalOriginActive()) {
+    return false;
+  }
+
+  const trimmedFilePath = filePath?.trim();
+  const trimmedAppId = appId?.trim();
+  const trimmedAppName = appName?.trim();
+
+  if (!trimmedFilePath || !trimmedAppId || !trimmedAppName) {
+    return false;
+  }
+
+  try {
+    await invokeDesktop('desktop_open_file_in_app', {
+      filePath: trimmedFilePath,
+      appId: trimmedAppId,
+      appName: trimmedAppName,
+    });
+    return true;
+  } catch (error) {
+    console.warn('Failed to open file in app', error);
+    return false;
+  }
+};
+
+export const fetchDesktopInstalledApps = async (
+  apps: string[],
+  force?: boolean
+): Promise<FetchDesktopInstalledAppsResult> => {
+  if (!hasDesktopInvoke() || !isDesktopLocalOriginActive()) {
+    return { apps: [], success: false, hasCache: false, isCacheStale: false };
+  }
+
+  const candidate = Array.isArray(apps) ? apps.filter((value) => typeof value === 'string') : [];
+  if (candidate.length === 0) {
+    return { apps: [], success: true, hasCache: false, isCacheStale: false };
+  }
+
+  try {
+    const result = await invokeDesktop<unknown>('desktop_get_installed_apps', {
+      apps: candidate,
+      force: force === true ? true : undefined,
+    });
+    if (!result || typeof result !== 'object') {
+      return { apps: [], success: false, hasCache: false, isCacheStale: false };
+    }
+    const payload = result as { apps?: unknown; hasCache?: unknown; isCacheStale?: unknown; supported?: unknown };
+    if (payload.supported === false) {
+      return { apps: [], success: true, hasCache: false, isCacheStale: false };
+    }
+    if (!Array.isArray(payload.apps)) {
+      return { apps: [], success: false, hasCache: false, isCacheStale: false };
+    }
+    const installedApps = payload.apps
+      .filter((entry) => entry && typeof entry === 'object')
+      .map((entry) => {
+        const record = entry as { name?: unknown; iconDataUrl?: unknown };
+        return {
+          name: typeof record.name === 'string' ? record.name : '',
+          iconDataUrl: typeof record.iconDataUrl === 'string' ? record.iconDataUrl : null,
+        };
+      })
+      .filter((entry) => entry.name.length > 0);
+    return {
+      apps: installedApps,
+      success: true,
+      hasCache: payload.hasCache === true,
+      isCacheStale: payload.isCacheStale === true,
+    };
+  } catch (error) {
+    console.warn('Failed to fetch installed apps', error);
+    return { apps: [], success: false, hasCache: false, isCacheStale: false };
+  }
+};

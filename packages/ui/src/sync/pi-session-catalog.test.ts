@@ -4,6 +4,7 @@ import { getPiSessionStore, PiSessionStore } from '@/apps/pi-session-store';
 import { PiRequestError, piClient } from '@/lib/pi/client';
 import type { PiSessionEvent } from '@/lib/pi/protocol';
 import { useNotificationStore } from '@/sync/notification-store';
+import { useConfigStore } from '@/stores/useConfigStore';
 import { resetSessionOrdering } from '@/sync/session-ordering';
 import {
   applyDirectoryListToCatalog,
@@ -644,6 +645,84 @@ describe('PiSessionStore catalog', () => {
       expect(afterRemove).toBeFalsy();
       expect(store.getState().catalog.byDirectory.get('/repo-a')).not.toContain(createdId);
     } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('new-session prompt avoids settings and empty-transcript round trips when selection is explicit', async () => {
+    const calls: string[] = [];
+    let createdThinking: unknown;
+    const previousConfig = useConfigStore.getState();
+    const stubs = stubDaemons({
+      listSessions: async () => ({ sessions: [listItem('seed', '/repo-a', { updatedAt: 1 })] }),
+      getSession: async (id) => {
+        calls.push(`getSession:${id}`);
+        return {
+          session: { id, directory: '/repo-a', createdAt: 0, updatedAt: 0 },
+          lastSequence: 0,
+          messages: [],
+        };
+      },
+      getSettings: async () => {
+        calls.push('getSettings');
+        return {
+          pi: { global: {}, project: { trusted: true } },
+          pichamber: { version: 1 },
+        };
+      },
+      createSession: async (input) => {
+        calls.push('createSession');
+        const createInput = input as { cwd?: string; model?: unknown; thinking?: unknown };
+        createdThinking = createInput.thinking;
+        return {
+          session: {
+            id: 'created-fast-path',
+            directory: createInput.cwd ?? '/repo-a',
+            title: 'New chat',
+            createdAt: 1,
+            updatedAt: 1,
+            parentId: null,
+            model: createInput.model as { providerId: string; modelId: string },
+            thinking: createInput.thinking as 'high',
+          },
+          lastSequence: 0,
+          messages: [],
+        };
+      },
+      sendPrompt: async () => {
+        calls.push('sendPrompt');
+        return { accepted: true, messageId: 'message-1' };
+      },
+    });
+
+    useConfigStore.setState({
+      isInitialized: true,
+      settingsDefaultThinking: undefined,
+      settingsDefaultThinkingByModel: { 'anthropic/opus': 'high' },
+    });
+    const store = new PiSessionStore();
+    try {
+      await store.start({ directory: '/repo-a' });
+      await tickMicrotasks();
+      calls.length = 0;
+
+      const sessionId = await store.create('New chat', {
+        model: { providerId: 'anthropic', modelId: 'opus' },
+        select: false,
+      });
+      await store.prompt(sessionId, 'hello', 'prompt', undefined, {
+        knownEmptyTranscript: true,
+      });
+
+      expect(calls).toEqual(['createSession', 'sendPrompt']);
+      expect(createdThinking).toBe('high');
+    } finally {
+      useConfigStore.setState({
+        isInitialized: previousConfig.isInitialized,
+        settingsDefaultThinking: previousConfig.settingsDefaultThinking,
+        settingsDefaultThinkingByModel: previousConfig.settingsDefaultThinkingByModel,
+      });
       stubs.restore();
       store.dispose();
     }

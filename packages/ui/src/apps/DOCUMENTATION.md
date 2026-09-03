@@ -66,11 +66,26 @@
 
 - **Touch-action**: chat containers (`chatMainRef`, `mainInteractiveRef`, drawer drawers) use `pan-x pan-y` (previously `pan-y`) so horizontal descendants can scroll natively; `preventDefault` is only called after horizontal intent is locked.
 
+## Shared Mobile Files and Changes Ownership
+
+- Dedicated mobile no longer owns parallel Files or Changes controllers. `MobileWorkspaceDrawer` lazy-loads the shared `FilesView` and `GitView` entrypoints instead.
+- Files uses `FilesView chrome="mobile" mode="editor-only"`. `components/views/files/MobileFilesChrome.tsx` owns the mobile list/header presentation. Shared directory loading and polling live in `useFilesTree`; search request policy for both `FilesView` and `SidebarFilesTree` lives in `useFilesViewSearch`; file mutations for both surfaces live in `useFileOperations`. `loadFileDocument` owns file-kind classification plus text normalization. `useFileEditorSave` owns guarded writes, line-ending serialization, manual-save status, and autosave timing. `useDirtyFileNavigation` owns the single pending selection, close, or main-tab intent while the unsaved-changes modal is active. `useFileViewerModes` owns per-file preview choices, preference propagation, and the Draw.io preview/save lifecycle. `useFileEditorNavigation` coordinates deferred file selection, editor mounting, focus requests, and line jumps. `useFileStatReconciliation` polls authoritative metadata without overwriting dirty drafts or treating stat failures as missing files. `FilesView` composes those modules with selection, stale-load rejection, tabs, and editor presentation. Mobile path helpers live beside that chrome in `components/views/files/mobileFilesPaths.ts`.
+- Changes uses `GitView chrome="mobile"`. `components/views/git/MobileGitChrome.tsx` owns the mobile list/detail route and presentation; `GitView` owns authoritative status, remotes, index mutation queue/rollback, revert, commit, sync, and diff prefetch. The drawer passes `isActive={open && tab === 'changes'}` so hidden Changes work stays gated.
+- Mobile commit/sync behavior stays visually scoped to the mobile surface: desktop commit-and-push fireworks are not triggered by `chrome="mobile"`.
+- The Files consolidation is not a startup-performance claim. Opening the mobile Files tab currently loads the full `FilesView` module, including editor/preview dependencies. A later split should move editor-heavy implementation behind an on-demand boundary so browsing a directory does not pay that cost before a file is opened.
+
+## Runtime Git Ownership
+
+- UI feature code consumes the injected `RuntimeAPIs.git` contract directly. The old `lib/gitApi.ts` forwarding layer was removed because it duplicated the runtime-vs-HTTP decision for every method. React surfaces resolve Git through `useRuntimeAPIs()`; non-React callers that can run before a provider exists keep a narrow `gitApiHttp` fallback at the call site.
+- `git/gitStatusPredicates.ts` and `git/gitChangeDescriptors.ts` define the shared staged, working, and new-file classification and change descriptors used across `GitView`, `ChangeRow`, and `DiffView`; untracked `?` entries remain working changes rather than staged changes.
+- Diff presentation is modularized under `components/views/diff/`: scope filtering (`ChangeScopeSelector`), file list selection (`FileList`), diff presentation (`InlineDiffViewer`, `InlineImageDiffViewer`), per-file staging/revert controls (`FileDiffActions`), and stacked entry orchestration (`MultiFileDiffEntry`) isolate diff rendering concerns from `DiffView`.
+- Optional runtime capabilities such as commit-file diff and credential discovery fall back only for that capability; they do not reintroduce a broad compatibility adapter. Types come from `lib/api/types.ts`.
+
 ## Git View Lazy Mount
 
 - `MainLayout` does not mount `GitView` on initial mobile chat startup. It mounts the right-drawer view only when `(mobileRightSidebarOpen || mobileRightDrawerVisible)`; a route-addressable mobile `activeMainTab === 'git'` mounts the full view only when the drawer is closed, so `?tab=git` cannot produce a blank main area.
 
-- Draft/identity state survives drawer unmount via `gitViewSnapshots` (per-directory LRU in `GitView.tsx`).
+- Draft/identity state survives drawer unmount via `gitViewSnapshots` (per-directory LRU in `git/gitViewSnapshots.ts`). Gitmoji selection lives in `git/GitmojiPickerDialog.tsx` with commit prefix parsing in `git/gitmojiMatcher.ts`. Branch integration and commit log/history dialogs live in `git/UpdateBranchDialog.tsx` and `git/GitHistoryDialog.tsx`.
 
 - Hidden `useGitStore` selectors and `isActive`-gated effects do not run while the drawer is closed because the component is not mounted. The `GitView` chunk is not requested during initial mobile startup (verified via Network panel: no `GitView` request before the first right-drawer open).
 

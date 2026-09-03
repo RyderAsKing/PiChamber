@@ -1,548 +1,69 @@
 import React from 'react';
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type {
-  GitStatus,
-  GitBranch,
-  GitLogResponse,
-  GitIdentitySummary,
-} from '@/lib/api/types';
-import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
+import type { GitStatus } from '@/lib/api/types';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import {
+  LOG_STALE_THRESHOLD,
+  REPO_CHECK_STALE_THRESHOLD,
+  STATUS_STALE_THRESHOLD,
+  BRANCHES_STALE_THRESHOLD,
+  IDENTITY_STALE_THRESHOLD,
+  DIFF_PREFETCH_MAX_FILES,
+  DIFF_PREFETCH_FOCUS_MAX_FILES,
+  DIFF_PREFETCH_CONCURRENCY,
+  DIFF_PREFETCH_TIMEOUT_MS,
+  DIFF_PREFETCH_LARGE_FILE_THRESHOLD,
+  DIFF_CACHE_MAX_TOTAL_SIZE_BYTES,
+  type GitStatusFetchMode,
+  type DirectoryGitState,
+  type GitStore,
+  type GitFileDiffResponse,
+  type GitAPI,
+  createEmptyDirectoryState,
+} from './git/gitStoreTypes';
+import {
+  seedDirectoriesFromBranchCache,
+  writeCachedBranches,
+} from './git/gitBranchCache';
+import {
+  diffEntrySize,
+  evictDiffCacheIfNeeded,
+  evictGlobalDiffCachesIfNeeded,
+} from './git/gitDiffCache';
+import {
+  hasStatusChanged,
+  getChangedFilePaths,
+  hasIndexStatusChanged,
+  toStagedStatusFile,
+  toUnstagedStatusFile,
+  isCleanStatusFile,
+} from './git/gitStatusAnalysis';
+import {
+  inFlightStatusFetches,
+  inFlightBranchFetches,
+  inFlightEnsureAllByDirectory,
+  getActiveGitRuntimeKey,
+  resetGitRuntimeGuards,
+  runtimeDirectoryKey,
+  getStatusFetchKey,
+  startRequest,
+  isRequestCurrent,
+  bumpStatusMutationRevision,
+  getDiffFetchGeneration,
+  bumpDiffFetchGeneration,
+  getInFlightDiffs,
+} from './git/gitRequestGuards';
 
-const LOG_STALE_THRESHOLD = 10000;
-const REPO_CHECK_STALE_THRESHOLD = 60_000;
-const STATUS_STALE_THRESHOLD = 5_000;
-const BRANCHES_STALE_THRESHOLD = 30_000;
-const IDENTITY_STALE_THRESHOLD = 60_000;
-const DIFF_PREFETCH_MAX_FILES = 25;
-const DIFF_PREFETCH_FOCUS_MAX_FILES = 40;
-const DIFF_PREFETCH_CONCURRENCY = 2;
-const DIFF_PREFETCH_TIMEOUT_MS = 15000;
-const DIFF_PREFETCH_LARGE_FILE_THRESHOLD = 500; // skip prefetch for files with >500 changed lines
-
-// Diff cache limits to prevent memory bloat with many modified files
-const DIFF_CACHE_MAX_ENTRIES = 30;
-const DIFF_CACHE_MAX_TOTAL_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
-const DIFF_CACHE_MAX_GLOBAL_ENTRIES = 200;
-type GitStatusFetchMode = 'full' | 'light';
-
-interface DirectoryGitState {
-  isGitRepo: boolean | null;
-  status: GitStatus | null;
-  branches: GitBranch | null;
-  log: GitLogResponse | null;
-  identity: GitIdentitySummary | null;
-  diffCache: Map<string, { original: string; modified: string; fetchedAt: number; isBinary?: boolean }>;
-  indexRevision: number;
-  lastRepoCheckAt: number;
-  lastStatusFetch: number;
-  lastStatusChange: number;
-  lastLogFetch: number;
-  lastBranchesFetch: number;
-  lastIdentityFetch: number;
-  logMaxCount: number;
-  isLoadingStatus: boolean;
-  isLoadingLog: boolean;
-  isLoadingBranches: boolean;
-  isLoadingIdentity: boolean;
-}
-
-interface GitStore {
-  runtimeKey: string;
-  directories: Map<string, DirectoryGitState>;
-
-  activeDirectory: string | null;
-
-  setActiveDirectory: (directory: string | null) => void;
-  getDirectoryState: (directory: string) => DirectoryGitState | null;
-
-  fetchStatus: (directory: string, git: GitAPI, options?: { silent?: boolean; mode?: 'light' }) => Promise<boolean>;
-  fetchBranches: (directory: string, git: GitAPI) => Promise<void>;
-  fetchLog: (directory: string, git: GitAPI, maxCount?: number) => Promise<void>;
-  fetchIdentity: (directory: string, git: GitAPI) => Promise<void>;
-  fetchAll: (directory: string, git: GitAPI, options?: { force?: boolean; silentIfCached?: boolean }) => Promise<void>;
-
-  ensureStatus: (directory: string, git: GitAPI) => Promise<void>;
-  ensureAll: (directory: string, git: GitAPI) => Promise<void>;
-  moveStatusPathsOptimistically: (directory: string, paths: string[], direction: 'stage' | 'unstage') => GitStatus | null;
-  restoreStatus: (directory: string, status: GitStatus | null) => void;
-  bumpIndexRevision: (directory: string) => void;
-
-  getDiff: (directory: string, filePath: string) => { original: string; modified: string; fetchedAt: number; isBinary?: boolean } | null;
-  setDiff: (directory: string, filePath: string, diff: { original: string; modified: string; isBinary?: boolean }, expectedRuntimeKey?: string) => void;
-  clearDiffCache: (directory: string, filePaths?: string[]) => void;
-  fetchAllDiffs: (directory: string, git: GitAPI) => Promise<void>;
-  prefetchDiffs: (directory: string, git: GitAPI, filePaths: string[], options?: { maxFiles?: number }) => Promise<void>;
-
-  setLogMaxCount: (directory: string, maxCount: number) => void;
-
-  refresh: (git: GitAPI, options?: { force?: boolean }) => Promise<void>;
-  resetForRuntimeSwitch: (runtimeKey: string) => void;
-}
-
-interface GitFileDiffResponse {
-  original: string;
-  modified: string;
-  path: string;
-  isBinary?: boolean;
-}
-
-interface GitAPI {
-  checkIsGitRepository: (directory: string) => Promise<boolean>;
-  getGitStatus: (directory: string, options?: { mode?: 'light' }) => Promise<GitStatus>;
-  getGitBranches: (directory: string) => Promise<GitBranch>;
-  getGitLog: (directory: string, options?: { maxCount?: number }) => Promise<GitLogResponse>;
-  getCurrentGitIdentity: (directory: string) => Promise<GitIdentitySummary | null>;
-  getGitFileDiff: (directory: string, options: { path: string }) => Promise<GitFileDiffResponse>;
-}
-
-const inFlightDiffFetchesByDirectory = new Map<string, Set<string>>();
-const diffFetchGenerationByDirectory = new Map<string, number>();
-const inFlightStatusFetches = new Map<string, Promise<boolean>>();
-const inFlightBranchFetches = new Map<string, Promise<void>>();
-const inFlightEnsureAllByDirectory = new Map<string, Promise<void>>();
-const requestGenerationByChannel = new Map<string, number>();
-const statusMutationRevisionByDirectory = new Map<string, number>();
-let gitRuntimeGeneration = 0;
-let activeGitRuntimeKey = getRuntimeKey();
-
-const runtimeDirectoryKey = (runtimeKey: string, directory: string) => JSON.stringify([runtimeKey, directory]);
-const getStatusFetchKey = (runtimeKey: string, directory: string, mode: GitStatusFetchMode): string =>
-  JSON.stringify([runtimeKey, directory, mode]);
-const channelKey = (runtimeKey: string, directory: string, channel: string) =>
-  JSON.stringify([runtimeKey, directory, channel]);
-
-type GitRequestToken = {
-  runtimeKey: string;
-  runtimeGeneration: number;
-  channelKey: string;
-  requestGeneration: number;
-  statusMutationRevision?: number;
+export type {
+  DirectoryGitState,
+  GitStore,
+  GitFileDiffResponse,
+  GitAPI,
+  GitStatusFetchMode,
 };
 
-const startRequest = (directory: string, channel: string, includeStatusMutation = false): GitRequestToken => {
-  const runtimeKey = getRuntimeKey();
-  const key = channelKey(runtimeKey, directory, channel);
-  const requestGeneration = (requestGenerationByChannel.get(key) ?? 0) + 1;
-  requestGenerationByChannel.set(key, requestGeneration);
-  return {
-    runtimeKey,
-    runtimeGeneration: gitRuntimeGeneration,
-    channelKey: key,
-    requestGeneration,
-    ...(includeStatusMutation
-      ? { statusMutationRevision: statusMutationRevisionByDirectory.get(runtimeDirectoryKey(runtimeKey, directory)) ?? 0 }
-      : {}),
-  };
-};
-
-const isRequestCurrent = (token: GitRequestToken, directory: string): boolean => (
-  token.runtimeKey === getRuntimeKey()
-  && token.runtimeKey === activeGitRuntimeKey
-  && token.runtimeGeneration === gitRuntimeGeneration
-  && requestGenerationByChannel.get(token.channelKey) === token.requestGeneration
-  && (token.statusMutationRevision === undefined
-    || token.statusMutationRevision === (statusMutationRevisionByDirectory.get(runtimeDirectoryKey(token.runtimeKey, directory)) ?? 0))
-);
-
-const bumpStatusMutationRevision = (runtimeKey: string, directory: string): void => {
-  const key = runtimeDirectoryKey(runtimeKey, directory);
-  statusMutationRevisionByDirectory.set(key, (statusMutationRevisionByDirectory.get(key) ?? 0) + 1);
-};
-
-const getDiffFetchGeneration = (directory: string): number =>
-  diffFetchGenerationByDirectory.get(runtimeDirectoryKey(getRuntimeKey(), directory)) ?? 0;
-
-const bumpDiffFetchGeneration = (directory: string): number => {
-  const next = getDiffFetchGeneration(directory) + 1;
-  diffFetchGenerationByDirectory.set(runtimeDirectoryKey(getRuntimeKey(), directory), next);
-  return next;
-};
-
-const getInFlightDiffs = (directory: string): Set<string> => {
-  const key = runtimeDirectoryKey(getRuntimeKey(), directory);
-  const existing = inFlightDiffFetchesByDirectory.get(key);
-  if (existing) {
-    return existing;
-  }
-  const created = new Set<string>();
-  inFlightDiffFetchesByDirectory.set(key, created);
-  return created;
-};
-
-const createEmptyDirectoryState = (): DirectoryGitState => ({
-  isGitRepo: null,
-  status: null,
-  branches: null,
-  log: null,
-  identity: null,
-  diffCache: new Map(),
-  indexRevision: 0,
-  lastRepoCheckAt: 0,
-  lastStatusFetch: 0,
-  lastStatusChange: 0,
-  lastLogFetch: 0,
-  lastBranchesFetch: 0,
-  lastIdentityFetch: 0,
-  logMaxCount: 25,
-  isLoadingStatus: false,
-  isLoadingLog: false,
-  isLoadingBranches: false,
-  isLoadingIdentity: false,
-});
-
-// ---------------------------------------------------------------------------
-// Persisted branch cache (stale-while-revalidate)
-//
-// `git branch` is slow on cold start and the draft branch selector above the
-// composer is gated behind it — it's the slowest-loading composer element.
-// Cache the per-directory branch list to localStorage and seed the store on
-// init so the selector paints instantly from the last-known branches; a stale
-// refresh runs in the background (see ChatInput's draft-branch effect). Only the
-// branch list is cached — never status/log/diff.
-// ---------------------------------------------------------------------------
-const GIT_BRANCH_CACHE_KEY = 'oc.gitBranchCache';
-const GIT_BRANCH_CACHE_V2_KEY = 'oc.gitBranchCache.v2';
-const MAX_BRANCH_CACHE_RUNTIMES = 8;
-const MAX_BRANCH_CACHE_DIRECTORIES = 50;
-type BranchCacheEnvelope = {
-  version: 2;
-  legacyClaimed: boolean;
-  runtimes: Record<string, { updatedAt: number; directories: Record<string, { branches: GitBranch; updatedAt: number }> }>;
-};
-
-const emptyBranchCache = (): BranchCacheEnvelope => ({ version: 2, legacyClaimed: false, runtimes: {} });
-
-const readBranchCacheEnvelope = (runtimeKey: string): BranchCacheEnvelope => {
-  try {
-    const storage = getDeferredSafeStorage();
-    const raw = storage.getItem(GIT_BRANCH_CACHE_V2_KEY);
-    const parsed = raw ? JSON.parse(raw) as Partial<BranchCacheEnvelope> : emptyBranchCache();
-    const envelope: BranchCacheEnvelope = parsed?.version === 2 && parsed.runtimes && typeof parsed.runtimes === 'object'
-      ? { version: 2, legacyClaimed: Boolean(parsed.legacyClaimed), runtimes: parsed.runtimes }
-      : emptyBranchCache();
-    if (!envelope.legacyClaimed) {
-      const legacyRaw = storage.getItem(GIT_BRANCH_CACHE_KEY);
-      if (legacyRaw) {
-        const legacy = JSON.parse(legacyRaw) as Record<string, GitBranch>;
-        const directories: BranchCacheEnvelope['runtimes'][string]['directories'] = {};
-        for (const [directory, branches] of Object.entries(legacy ?? {})) {
-          if (directory && branches && Array.isArray(branches.all)) directories[directory] = { branches, updatedAt: 0 };
-        }
-        if (Object.keys(directories).length > 0) envelope.runtimes[runtimeKey] = { updatedAt: 0, directories };
-      }
-      envelope.legacyClaimed = true;
-      const serialized = JSON.stringify(envelope);
-      storage.setItem(GIT_BRANCH_CACHE_V2_KEY, serialized);
-      if (storage.getItem(GIT_BRANCH_CACHE_V2_KEY) === serialized) storage.removeItem(GIT_BRANCH_CACHE_KEY);
-    }
-    return envelope;
-  } catch {
-    return emptyBranchCache();
-  }
-};
-
-const writeCachedBranches = (runtimeKey: string, directory: string, branches: GitBranch): void => {
-  if (!directory || !branches) return;
-  try {
-    const envelope = readBranchCacheEnvelope(runtimeKey);
-    const now = Date.now();
-    const current = envelope.runtimes[runtimeKey]?.directories ?? {};
-    const directories = { ...current, [directory]: { branches, updatedAt: now } };
-    const boundedDirectories = Object.fromEntries(
-      Object.entries(directories).sort(([, left], [, right]) => right.updatedAt - left.updatedAt).slice(0, MAX_BRANCH_CACHE_DIRECTORIES),
-    );
-    envelope.runtimes[runtimeKey] = { updatedAt: now, directories: boundedDirectories };
-    envelope.runtimes = Object.fromEntries(
-      Object.entries(envelope.runtimes).sort(([, left], [, right]) => right.updatedAt - left.updatedAt).slice(0, MAX_BRANCH_CACHE_RUNTIMES),
-    );
-    getDeferredSafeStorage().setItem(GIT_BRANCH_CACHE_V2_KEY, JSON.stringify(envelope));
-  } catch {
-    // quota / serialization — ignore; live fetch still refreshes the store
-  }
-};
-
-const seedDirectoriesFromBranchCache = (runtimeKey: string): Map<string, DirectoryGitState> => {
-  const directories = new Map<string, DirectoryGitState>();
-  const cache = readBranchCacheEnvelope(runtimeKey).runtimes[runtimeKey]?.directories ?? {};
-  for (const [directory, entry] of Object.entries(cache)) {
-    const branches = entry.branches;
-    if (!directory || !branches || !Array.isArray(branches.all)) continue;
-    // A cached branch list implies the directory was a git repo. Seed isGitRepo
-    // so the selector's gate passes immediately; lastBranchesFetch stays 0 so the
-    // ChatInput effect treats it as stale and refreshes in the background.
-    directories.set(directory, { ...createEmptyDirectoryState(), isGitRepo: true, branches });
-  }
-  return directories;
-};
-
-// LRU eviction helper for diff cache
-const evictDiffCacheIfNeeded = (
-  diffCache: Map<string, { original: string; modified: string; fetchedAt: number; isBinary?: boolean }>,
-  maxEntries: number = DIFF_CACHE_MAX_ENTRIES,
-  maxTotalSize: number = DIFF_CACHE_MAX_TOTAL_SIZE_BYTES
-): Map<string, { original: string; modified: string; fetchedAt: number; isBinary?: boolean }> => {
-  // Calculate total size
-  let totalSize = 0;
-  for (const entry of diffCache.values()) {
-    totalSize += new TextEncoder().encode(entry.original ?? '').byteLength
-      + new TextEncoder().encode(entry.modified ?? '').byteLength;
-  }
-
-  // If within limits, return as-is
-  if (diffCache.size <= maxEntries && totalSize <= maxTotalSize) {
-    return diffCache;
-  }
-
-  // Sort entries by fetchedAt (oldest first) for LRU eviction
-  const entries = Array.from(diffCache.entries())
-    .sort((a, b) => a[1].fetchedAt - b[1].fetchedAt);
-
-  const newCache = new Map<string, { original: string; modified: string; fetchedAt: number; isBinary?: boolean }>();
-  let newTotalSize = 0;
-
-  // Keep entries from newest to oldest until limits are reached
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const [path, entry] = entries[i];
-    const entrySize = new TextEncoder().encode(entry.original ?? '').byteLength
-      + new TextEncoder().encode(entry.modified ?? '').byteLength;
-
-    if (newCache.size >= maxEntries) break;
-    if (newTotalSize + entrySize > maxTotalSize) continue;
-
-    newCache.set(path, entry);
-    newTotalSize += entrySize;
-  }
-
-  return newCache;
-};
-
-const diffEntrySize = (entry: { original: string; modified: string }): number => {
-  const encoder = new TextEncoder();
-  return encoder.encode(entry.original ?? '').byteLength + encoder.encode(entry.modified ?? '').byteLength;
-};
-
-const evictGlobalDiffCachesIfNeeded = (directories: Map<string, DirectoryGitState>): Map<string, DirectoryGitState> => {
-  const entries: Array<{ directory: string; path: string; fetchedAt: number; size: number }> = [];
-  let totalSize = 0;
-  for (const [directory, state] of directories) {
-    for (const [path, entry] of state.diffCache) {
-      const size = diffEntrySize(entry);
-      entries.push({ directory, path, fetchedAt: entry.fetchedAt, size });
-      totalSize += size;
-    }
-  }
-  if (entries.length <= DIFF_CACHE_MAX_GLOBAL_ENTRIES && totalSize <= DIFF_CACHE_MAX_TOTAL_SIZE_BYTES) return directories;
-
-  const next = new Map(directories);
-  entries.sort((left, right) => left.fetchedAt - right.fetchedAt);
-  let count = entries.length;
-  for (const entry of entries) {
-    if (count <= DIFF_CACHE_MAX_GLOBAL_ENTRIES && totalSize <= DIFF_CACHE_MAX_TOTAL_SIZE_BYTES) break;
-    const state = next.get(entry.directory);
-    if (!state?.diffCache.has(entry.path)) continue;
-    const diffCache = new Map(state.diffCache);
-    diffCache.delete(entry.path);
-    next.set(entry.directory, { ...state, diffCache });
-    count -= 1;
-    totalSize -= entry.size;
-  }
-  return next;
-};
-
-const haveDiffStatsChanged = (
-  previous?: GitStatus['diffStats'],
-  next?: GitStatus['diffStats']
-): boolean => {
-  if (!previous && !next) return false;
-  if (!previous || !next) return true;
-
-  const paths = new Set([...Object.keys(previous), ...Object.keys(next)]);
-  for (const path of paths) {
-    const prevEntry = previous[path];
-    const nextEntry = next[path];
-
-    if (!prevEntry && !nextEntry) continue;
-    if (!prevEntry || !nextEntry) return true;
-    if (
-      prevEntry.insertions !== nextEntry.insertions ||
-      prevEntry.deletions !== nextEntry.deletions
-    ) {
-      return true;
-    }
-  }
-
-  return false;
-};
-
-const haveRemoteComparisonChanged = (
-  previous?: GitStatus['upstreamComparison'],
-  next?: GitStatus['upstreamComparison']
-): boolean => {
-  if (!previous && !next) return false;
-  if (!previous || !next) return true;
-
-  return (
-    previous.remote !== next.remote
-    || previous.branch !== next.branch
-    || previous.ahead !== next.ahead
-    || previous.behind !== next.behind
-  );
-};
-
-const hasStatusChanged = (oldStatus: GitStatus | null, newStatus: GitStatus | null): boolean => {
-  if (!oldStatus && !newStatus) return false;
-  if (!oldStatus || !newStatus) return true;
-
-  const oldFiles = oldStatus.files ?? [];
-  const newFiles = newStatus.files ?? [];
-
-  if (oldFiles.length !== newFiles.length) return true;
-  if (oldStatus.ahead !== newStatus.ahead) return true;
-  if (oldStatus.behind !== newStatus.behind) return true;
-  if (oldStatus.current !== newStatus.current) return true;
-  if (oldStatus.tracking !== newStatus.tracking) return true;
-  if (oldStatus.isClean !== newStatus.isClean) return true;
-  if (
-    newStatus.upstreamComparison !== undefined
-    && haveRemoteComparisonChanged(oldStatus.upstreamComparison, newStatus.upstreamComparison)
-  ) {
-    return true;
-  }
-
-  const oldPaths = new Set(oldFiles.map(f => `${f.path}:${f.index}:${f.working_dir}`));
-  for (const file of newFiles) {
-    if (!oldPaths.has(`${file.path}:${file.index}:${file.working_dir}`)) {
-      return true;
-    }
-  }
-
-  // Skip diffStats comparison when light mode omits them (undefined)
-  if (newStatus.diffStats !== undefined && haveDiffStatsChanged(oldStatus.diffStats, newStatus.diffStats)) return true;
-
-  return false;
-};
-
-const getChangedFilePaths = (oldStatus: GitStatus | null, newStatus: GitStatus | null): Set<string> => {
-  const changed = new Set<string>();
-  if (!newStatus) return changed;
-
-  const oldFiles = oldStatus?.files ?? [];
-  const newFiles = newStatus.files ?? [];
-
-  const oldFileMap = new Map(oldFiles.map((f) => [f.path, f] as const));
-  const newFileMap = new Map(newFiles.map((f) => [f.path, f] as const));
-
-  const allFilePaths = new Set<string>([...oldFileMap.keys(), ...newFileMap.keys()]);
-  for (const filePath of allFilePaths) {
-    const oldFile = oldFileMap.get(filePath);
-    const newFile = newFileMap.get(filePath);
-
-    // Added/removed/renamed
-    if (!oldFile || !newFile) {
-      changed.add(filePath);
-      continue;
-    }
-
-    // Index/worktree state changed (indicates actual content/state changed)
-    if (oldFile.index !== newFile.index || oldFile.working_dir !== newFile.working_dir) {
-      changed.add(filePath);
-      continue;
-    }
-  }
-
-  // Only compare diffStats when light mode provides them (non-undefined)
-  if (newStatus.diffStats !== undefined) {
-    const oldStats = oldStatus?.diffStats ?? {};
-    const newStats = newStatus.diffStats ?? {};
-    const allStatPaths = new Set<string>([...Object.keys(oldStats), ...Object.keys(newStats)]);
-
-    for (const filePath of allStatPaths) {
-      const oldEntry = oldStats[filePath];
-      const newEntry = newStats[filePath];
-
-      if (!oldEntry || !newEntry) {
-        changed.add(filePath);
-        continue;
-      }
-
-      if (oldEntry.insertions !== newEntry.insertions || oldEntry.deletions !== newEntry.deletions) {
-        changed.add(filePath);
-      }
-    }
-  }
-
-  return changed;
-};
-
-const hasIndexStatusChanged = (oldStatus: GitStatus | null, newStatus: GitStatus | null): boolean => {
-  if (!oldStatus && !newStatus) return false;
-  if (!oldStatus || !newStatus) return true;
-
-  const oldFiles = oldStatus.files ?? [];
-  const newFiles = newStatus.files ?? [];
-  const normalizeIndexStatus = (value?: string | null): string => {
-    const trimmed = value?.trim() ?? '';
-    return trimmed === '?' ? '' : trimmed;
-  };
-
-  const oldIndexByPath = new Map(oldFiles.map((file) => [file.path, normalizeIndexStatus(file.index)] as const));
-  const newIndexByPath = new Map(newFiles.map((file) => [file.path, normalizeIndexStatus(file.index)] as const));
-  const paths = new Set<string>([...oldIndexByPath.keys(), ...newIndexByPath.keys()]);
-
-  for (const path of paths) {
-    if ((oldIndexByPath.get(path) ?? '') !== (newIndexByPath.get(path) ?? '')) {
-      return true;
-    }
-  }
-
-  return false;
-};
-
-const isBlankStatusCode = (value?: string | null): boolean => !value || value.trim().length === 0;
-const isConflictStatusCode = (value?: string | null): boolean => (value || '').trim() === 'U';
-
-const toStagedStatusFile = (file: GitStatus['files'][number]): GitStatus['files'][number] => {
-  const index = (file.index || '').trim();
-  const workingDir = (file.working_dir || '').trim();
-
-  if (isConflictStatusCode(index) || isConflictStatusCode(workingDir)) {
-    return file;
-  }
-
-  const nextIndex = index === '?' || workingDir === '?'
-    ? 'A'
-    : index || workingDir || ' ';
-
-  return {
-    ...file,
-    index: nextIndex,
-    working_dir: ' ',
-  };
-};
-
-const toUnstagedStatusFile = (file: GitStatus['files'][number]): GitStatus['files'][number] => {
-  const index = (file.index || '').trim();
-  const workingDir = (file.working_dir || '').trim();
-
-  if (isConflictStatusCode(index) || isConflictStatusCode(workingDir)) {
-    return file;
-  }
-
-  const nextWorkingDir = workingDir || (index === 'A' || index === '?' ? '?' : index) || ' ';
-
-  return {
-    ...file,
-    index: ' ',
-    working_dir: nextWorkingDir,
-  };
-};
-
-const isCleanStatusFile = (file: GitStatus['files'][number]): boolean =>
-  isBlankStatusCode(file.index) && isBlankStatusCode(file.working_dir);
-
-const initialGitRuntimeKey = activeGitRuntimeKey;
+const initialGitRuntimeKey = getActiveGitRuntimeKey();
 
 export const useGitStore = create<GitStore>()(
   devtools(
@@ -552,15 +73,7 @@ export const useGitStore = create<GitStore>()(
       activeDirectory: null,
 
       resetForRuntimeSwitch: (runtimeKey) => {
-        gitRuntimeGeneration += 1;
-        activeGitRuntimeKey = runtimeKey;
-        requestGenerationByChannel.clear();
-        statusMutationRevisionByDirectory.clear();
-        inFlightStatusFetches.clear();
-        inFlightBranchFetches.clear();
-        inFlightEnsureAllByDirectory.clear();
-        inFlightDiffFetchesByDirectory.clear();
-        diffFetchGenerationByDirectory.clear();
+        resetGitRuntimeGuards(runtimeKey);
         set({ runtimeKey, directories: seedDirectoriesFromBranchCache(runtimeKey), activeDirectory: null });
       },
 

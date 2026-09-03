@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const mobileAppSource = readFileSync(join(__dirname, 'MobileApp.tsx'), 'utf8');
+const mobileAppSource = `${readFileSync(join(__dirname, 'MobileApp.tsx'), 'utf8')}\n${readFileSync(join(__dirname, 'MobileShell.tsx'), 'utf8')}`;
 const sessionsSheetSource = readFileSync(join(__dirname, 'MobileSessionsSheet.tsx'), 'utf8');
 const workspaceDrawerSource = readFileSync(join(__dirname, 'MobileWorkspaceDrawer.tsx'), 'utf8');
 const titlebarControlsSource = readFileSync(join(__dirname, '../components/layout/TitlebarLeftControls.tsx'), 'utf8');

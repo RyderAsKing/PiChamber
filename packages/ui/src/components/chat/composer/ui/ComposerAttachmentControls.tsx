@@ -20,14 +20,14 @@ type ComposerAttachmentControlsProps = {
     footerIconButtonClass: string;
     iconSizeClass: string;
     handlePickLocalFiles: () => void;
-    openIssuePicker: () => void;
-    openPrPicker: () => void;
     onOpenSettings?: () => void;
     onMenuOpenChange?: (open: boolean) => void;
     /** Mobile: open the attachment bottom sheet instead of the dropdown menu. */
     onOpenMobileSheet?: () => void;
     /** Hide the + attach control (mobile keeps model/variant in this row instead). */
     hideAddButton?: boolean;
+    /** Disable all controls while a send is in flight. */
+    disabled?: boolean;
 };
 
 export const ComposerAttachmentControls = React.memo(function ComposerAttachmentControls(props: ComposerAttachmentControlsProps) {
@@ -36,10 +36,9 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
         footerIconButtonClass,
         iconSizeClass,
         handlePickLocalFiles,
-        openIssuePicker,
-        openPrPicker,
         onOpenSettings,
         hideAddButton = false,
+        disabled = false,
     } = props;
 
     if (hideAddButton && !onOpenSettings) {
@@ -55,6 +54,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                         type="button"
                         className={footerIconButtonClass}
                         onClick={props.onOpenMobileSheet}
+                        disabled={disabled}
                         // Keep the tap from dismissing the keyboard. On Android's
                         // resizes-content viewport the keyboard-close relayout
                         // moves this button mid-tap and the click never lands.
@@ -77,6 +77,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                                 className={footerIconButtonClass}
                                 title={"Add attachment"}
                                 aria-label={"Add attachment"}
+                                disabled={disabled}
                             >
                                 <Icon name="add-circle" className={cn(iconSizeClass, 'text-current')} />
                             </button>
@@ -89,22 +90,6 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                             >
                                 <Icon name="attachment-2"/>
                                 {"Attach files"}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                onSelect={() => {
-                                    requestAnimationFrame(openIssuePicker);
-                                }}
-                            >
-                                <Icon name="github"/>
-                                {"Link GitHub Issue"}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                onSelect={() => {
-                                    requestAnimationFrame(openPrPicker);
-                                }}
-                            >
-                                <Icon name="git-pull-request"/>
-                                {"Link GitHub PR"}
                             </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
@@ -119,6 +104,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                     className={footerIconButtonClass}
                     title={"Model and agent settings"}
                     aria-label={"Model and agent settings"}
+                    disabled={disabled}
                 >
                     <Icon name="ai-agent" className={cn(iconSizeClass, 'text-current')} />
                 </button>
@@ -132,4 +118,5 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
     && prev.onMenuOpenChange === next.onMenuOpenChange
     && prev.onOpenMobileSheet === next.onOpenMobileSheet
     && prev.hideAddButton === next.hideAddButton
+    && prev.disabled === next.disabled
 ));

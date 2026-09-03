@@ -5,19 +5,10 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui';
 import { Icon } from "@/components/icon/Icon";
-import { useDesktopSshStore } from '@/stores/useDesktopSshStore';
-import { isDesktopShell } from '@/lib/desktop';
 import {
   getProjectActionsState,
   saveProjectActionsState,
@@ -25,19 +16,15 @@ import {
   type ProjectRef,
 } from '@/lib/pichamberConfig';
 import {
-  buildProjectActionDesktopForwardOptions,
   PROJECT_ACTION_ICON_MAP,
   PROJECT_ACTION_ICONS,
   PROJECT_ACTIONS_UPDATED_EVENT,
 } from '@/lib/projectActions';
-import {
-  PROJECT_SETTINGS_CONTROL_WIDTH,
-  ProjectSettingsSubsection,
-} from '@/components/sections/projects/ProjectSettingsSubsection';
+import { ProjectSettingsSubsection } from '@/components/sections/projects/ProjectSettingsSubsection';
+import { SETTINGS_CONTROL_CLUSTER_CLASS } from '@/components/sections/shared/SettingsSection';
 import {
   SETTINGS_FIELDS_STACK_CLASS,
   SETTINGS_GROUP_TITLE_CLASS,
-  SETTINGS_SELECT_SIZE,
   SettingsCheckboxRow,
   SettingsStackedField,
 } from '@/components/sections/shared/SettingsSection';
@@ -70,22 +57,11 @@ interface ProjectActionsSectionProps {
 }
 
 export const ProjectActionsSection: React.FC<ProjectActionsSectionProps> = ({ projectRef }) => {
-  const isDesktopShellApp = React.useMemo(() => isDesktopShell(), []);
-  const desktopSshInstances = useDesktopSshStore((state) => state.instances);
-  const loadDesktopSsh = useDesktopSshStore((state) => state.load);
-
   const [actions, setActions] = React.useState<EditableProjectAction[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
   const [initialSnapshot, setInitialSnapshot] = React.useState<string | null>(null);
   const [savedActionIds, setSavedActionIds] = React.useState<Set<string>>(new Set());
   const isSavingRef = React.useRef(false);
-
-  React.useEffect(() => {
-    if (!isDesktopShellApp) {
-      return;
-    }
-    void loadDesktopSsh().catch(() => undefined);
-  }, [isDesktopShellApp, loadDesktopSsh]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -118,13 +94,6 @@ export const ProjectActionsSection: React.FC<ProjectActionsSectionProps> = ({ pr
       cancelled = true;
     };
   }, [projectRef]);
-
-  const desktopForwardOptions = React.useMemo(() => {
-    if (!isDesktopShellApp) {
-      return [];
-    }
-    return buildProjectActionDesktopForwardOptions(desktopSshInstances);
-  }, [desktopSshInstances, isDesktopShellApp]);
 
   const persistPlan = React.useMemo(
     () => getPersistableProjectActions(actions, savedActionIds),
@@ -214,7 +183,7 @@ export const ProjectActionsSection: React.FC<ProjectActionsSectionProps> = ({ pr
       ) : actions.length === 0 ? (
         <p className="typography-meta text-muted-foreground">{"No actions configured yet."}</p>
       ) : (
-        <div className={cn('space-y-6', PROJECT_SETTINGS_CONTROL_WIDTH)}>
+        <div className={cn('space-y-6', SETTINGS_CONTROL_CLUSTER_CLASS)}>
           {actions.map((action, index) => {
             const selectedIconKey = (action.icon as keyof typeof PROJECT_ACTION_ICON_MAP) || 'play';
             const selectedIconName = PROJECT_ACTION_ICON_MAP[selectedIconKey] || 'play';
@@ -304,7 +273,7 @@ export const ProjectActionsSection: React.FC<ProjectActionsSectionProps> = ({ pr
                   checked={action.autoOpenUrl === true}
                   onChange={(checked) => updateAction(action.id, (current) => ({
                     ...current,
-                    ...(checked ? { autoOpenUrl: true } : { autoOpenUrl: undefined, openUrl: undefined, desktopOpenSshForward: undefined }),
+                    ...(checked ? { autoOpenUrl: true } : { autoOpenUrl: undefined, openUrl: undefined }),
                   }))}
                   label={"Auto-open URL"}
                   info={"Opens a URL from command output, or a custom URL if you set one."}
@@ -329,40 +298,6 @@ export const ProjectActionsSection: React.FC<ProjectActionsSectionProps> = ({ pr
                       />
                     </SettingsStackedField>
 
-                    {isDesktopShellApp ? (
-                      <SettingsStackedField
-                        label={"Desktop SSH forward"}
-                        controlClassName="w-full max-w-none"
-                      >
-                        {desktopForwardOptions.length > 0 ? (
-                          <Select
-                            value={
-                              action.desktopOpenSshForward && desktopForwardOptions.some((entry) => entry.id === action.desktopOpenSshForward)
-                                ? action.desktopOpenSshForward
-                                : '__none__'
-                            }
-                            onValueChange={(value) => {
-                              updateAction(action.id, (current) => ({
-                                ...current,
-                                ...(value === '__none__' ? { desktopOpenSshForward: undefined } : { desktopOpenSshForward: value }),
-                              }));
-                            }}
-                          >
-                            <SelectTrigger size={SETTINGS_SELECT_SIZE} className="w-full">
-                              <SelectValue placeholder={"Use output/manual URL"} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__none__">{"Use output/manual URL"}</SelectItem>
-                              {desktopForwardOptions.map((entry) => (
-                                <SelectItem key={entry.id} value={entry.id}>{entry.label}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <p className="typography-meta text-muted-foreground">{"No enabled local SSH forwards available."}</p>
-                        )}
-                      </SettingsStackedField>
-                    ) : null}
                   </>
                 ) : null}
               </div>

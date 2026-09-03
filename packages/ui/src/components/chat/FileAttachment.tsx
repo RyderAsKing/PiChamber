@@ -7,7 +7,9 @@ import { cn } from '@/lib/utils';
 import { openExternalUrl } from '@/lib/url';
 import { isDrawioFile } from '@/lib/toolHelpers';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { AttachmentPreviewTooltipContent, attachmentPreviewTooltipContentClassName } from './AttachmentPreviewTooltip';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
+import { UploadProgressIcon } from './UploadProgressIcon';
 import { Icon } from "@/components/icon/Icon";
 import { Button } from '@/components/ui/button';
 import { useDeviceInfo } from '@/lib/device';
@@ -128,6 +130,12 @@ const DraftAttachmentCard = memo(({
           ? 'Attachment ready'
           : 'Server attachment ready';
   const progress = state?.status === 'uploading' ? state.progress : null;
+  const isUploading = state?.status === 'uploading' || state?.status === 'preparing';
+  const uploadError = state?.status === 'failed'
+    ? state.error
+    : isExpired
+      ? 'Upload expired.'
+      : null;
   const openPreview = () => {
     if (!onShowPopup || !imageUrl) return;
     onShowPopup({
@@ -148,71 +156,76 @@ const DraftAttachmentCard = memo(({
 
   return (
     <article className={cn(
-      'group relative flex-none overflow-hidden rounded-xl border bg-[var(--surface-elevated)]',
-      isImage ? 'w-40' : 'w-56',
-      state?.status === 'failed' || isExpired ? 'border-[var(--status-error)]' : 'border-border/60',
+      'group relative min-w-0 overflow-hidden rounded-xl border w-full',
+      uploadError
+        ? 'border-[var(--status-error)]/50 bg-[var(--status-error-background)]/40'
+        : 'border-border/60 bg-[var(--surface-elevated)]',
     )}>
       <span className="sr-only" aria-live="polite">{stateLabel}</span>
-      {isImage ? (
-        <div
-          role={imageUrl && onShowPopup ? 'button' : undefined}
-          tabIndex={imageUrl && onShowPopup ? 0 : undefined}
-          onClick={openPreview}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              openPreview();
-            }
-          }}
-          className="relative aspect-[8/5] bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-          aria-label={imageUrl ? `Preview ${file.filename}` : undefined}
-        >
-          {imageUrl ? (
-            <img src={imageUrl} alt={file.filename} className="h-full w-full object-cover" loading="lazy" />
-          ) : (
-            <div className="flex h-full items-center justify-center text-muted-foreground">
-              <Icon name="file-image" className="size-7" />
-            </div>
-          )}
-          {state?.status === 'uploading' || state?.status === 'preparing' ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-background/70 typography-meta text-foreground">
-              {state.status === 'preparing' ? 'Preparing…' : progress === null ? 'Uploading…' : `${progress}%`}
-            </div>
-          ) : null}
-        </div>
-      ) : (
-        <div className="flex min-h-16 items-center gap-2 px-3 py-2 pr-8">
-          <FileTypeIcon filePath={file.filename} extension={extension} className="size-6 shrink-0" />
-          <div className="min-w-0 flex-1">
-            <p className="truncate typography-ui-label text-foreground" title={file.filename}>{file.filename}</p>
-            <p className="typography-meta text-muted-foreground">
-              {[extension.toUpperCase(), size].filter(Boolean).join(' · ')}
-            </p>
-            {state?.status === 'preparing' ? <p className="typography-meta text-muted-foreground">Preparing…</p> : null}
-            {state?.status === 'uploading' ? <p className="typography-meta text-muted-foreground">{progress === null ? 'Uploading…' : `Uploading ${progress}%`}</p> : null}
-          </div>
-        </div>
-      )}
 
-      {state?.status === 'uploading' && progress !== null ? (
-        <div
-          role="progressbar"
-          aria-label={`Uploading ${file.filename}`}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={progress}
-          className="absolute inset-x-0 bottom-0 h-1 bg-muted"
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div
+            role={imageUrl && onShowPopup ? 'button' : undefined}
+            tabIndex={imageUrl && onShowPopup ? 0 : undefined}
+            onClick={openPreview}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openPreview();
+              }
+            }}
+            className={cn(
+              'flex min-h-14 items-center gap-2.5 px-3 py-2',
+              uploadError ? 'pr-14' : 'pr-8',
+              imageUrl && onShowPopup && 'cursor-pointer select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+            )}
+            aria-label={imageUrl ? `Preview ${file.filename}` : undefined}
+          >
+            {isUploading ? (
+              <UploadProgressIcon filename={file.filename} progress={progress} />
+            ) : (
+              <FileTypeIcon filePath={file.filename} extension={extension} className="size-6 shrink-0" />
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="truncate typography-ui-label text-foreground" title={file.filename}>{file.filename}</p>
+              <p className="typography-meta text-muted-foreground">
+                {[extension.toUpperCase(), size].filter(Boolean).join(' · ')}
+              </p>
+            </div>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent
+          side="top"
+          className={cn(imageUrl && !uploadError ? attachmentPreviewTooltipContentClassName : undefined)}
         >
-          <div className="h-full bg-primary" style={{ width: `${progress}%` }} />
-        </div>
+          {uploadError ? (
+            <p>{uploadError}</p>
+          ) : (
+            <AttachmentPreviewTooltipContent
+              imageUrl={imageUrl || undefined}
+              filename={file.filename}
+              metaLine={imageUrl ? [extension.toUpperCase(), size].filter(Boolean).join(' · ') : size}
+            />
+          )}
+        </TooltipContent>
+      </Tooltip>
+
+      {isUploading ? (
+        <span aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden rounded-xl">
+          <span className="attachment-upload-shimmer absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-foreground/10 to-transparent" />
+        </span>
       ) : null}
 
       <Button
         variant="ghost"
         size="xs"
-        onClick={onRemove}
+        onClick={(event) => {
+          event.stopPropagation();
+          onRemove();
+        }}
         className={cn(
-          'absolute right-1 top-1 size-6 px-0 bg-[var(--surface-elevated)]/90',
+          'absolute right-1 top-1 size-6 px-0 bg-[var(--surface-elevated)]/90 z-10',
           alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
         )}
         aria-label={`Remove ${file.filename}`}
@@ -221,16 +234,23 @@ const DraftAttachmentCard = memo(({
         <Icon name="close" className="size-3.5" />
       </Button>
 
-      {state?.status === 'failed' || isExpired ? (
-        <div className="flex items-start justify-between gap-2 border-t border-[var(--status-error)]/30 bg-[var(--status-error-background)] px-2 py-1.5">
-          <p className="min-w-0 flex-1 typography-meta text-[var(--status-error-foreground)]" title={state?.status === 'failed' ? state.error : 'Upload expired.'}>{state?.status === 'failed' ? state.error : 'Upload expired.'}</p>
-          <Button variant="outline" size="xs" onClick={onRetry}>Retry</Button>
-        </div>
-      ) : isImage ? (
-        <div className="px-2 py-1.5">
-          <p className="truncate typography-meta text-foreground" title={file.filename}>{file.filename}</p>
-          {size ? <p className="typography-micro text-muted-foreground">{size}</p> : null}
-        </div>
+      {uploadError ? (
+        <Button
+          variant="ghost"
+          size="xs"
+          onClick={(event) => {
+            event.stopPropagation();
+            onRetry();
+          }}
+          className={cn(
+            'absolute right-8 top-1 size-6 px-0 bg-[var(--surface-elevated)]/90 z-10',
+            alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
+          )}
+          aria-label={`Retry upload of ${file.filename}`}
+          title="Retry upload"
+        >
+          <Icon name="refresh" className="size-3.5" />
+        </Button>
       ) : null}
     </article>
   );
@@ -240,9 +260,17 @@ DraftAttachmentCard.displayName = 'DraftAttachmentCard';
 
 interface AttachedFilesListProps {
   onShowPopup?: (content: ToolPopupContent) => void;
+  className?: string;
+  isInline?: boolean;
+  isMobile?: boolean;
 }
 
-export const AttachedFilesList = memo(({ onShowPopup }: AttachedFilesListProps) => {
+export const AttachedFilesList = memo(({
+  onShowPopup,
+  className,
+  isInline = false,
+  isMobile = false,
+}: AttachedFilesListProps) => {
   const attachedFiles = useInputStore((state) => state.attachedFiles);
   const removeAttachedFile = useInputStore((state) => state.removeAttachedFile);
   const retryAttachmentUpload = useInputStore((state) => state.retryAttachmentUpload);
@@ -269,20 +297,26 @@ export const AttachedFilesList = memo(({ onShowPopup }: AttachedFilesListProps) 
   const imageIndexById = new Map(galleryEntries.map((entry, index) => [entry.file.id, index]));
 
   return (
-    <div className="w-full overflow-x-auto px-3 pb-2 pt-2 scrollbar-thin" data-no-drawer-swipe="true">
-      <div className="flex w-max gap-2 sm:w-full sm:flex-wrap">
-        {attachedFiles.map((file) => (
-          <DraftAttachmentCard
-            key={file.id}
-            file={file}
-            onRemove={() => removeAttachedFile(file.id)}
-            onRetry={() => retryAttachmentUpload(file.id)}
-            onShowPopup={onShowPopup}
-            gallery={imageGallery}
-            galleryIndex={imageIndexById.get(file.id) ?? 0}
-          />
-        ))}
-      </div>
+    <div
+      className={cn(
+        // Fixed column count: a lone card takes one column, never the row.
+        'grid w-full gap-2 grid-cols-2 sm:grid-cols-3',
+        isInline ? 'px-1.5 pt-1.5 pb-1' : isMobile ? 'px-3 pt-2.5 pb-1.5' : 'px-3 pt-3 pb-1.5',
+        className,
+      )}
+      data-no-drawer-swipe="true"
+    >
+      {attachedFiles.map((file) => (
+        <DraftAttachmentCard
+          key={file.id}
+          file={file}
+          onRemove={() => removeAttachedFile(file.id)}
+          onRetry={() => retryAttachmentUpload(file.id)}
+          onShowPopup={onShowPopup}
+          gallery={imageGallery}
+          galleryIndex={imageIndexById.get(file.id) ?? 0}
+        />
+      ))}
     </div>
   );
 });

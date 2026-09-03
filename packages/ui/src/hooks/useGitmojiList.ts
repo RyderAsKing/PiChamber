@@ -1,6 +1,6 @@
 import React from 'react';
 
-type GitmojiEntry = {
+export type GitmojiEntry = {
   emoji: string;
   code: string;
   description: string;

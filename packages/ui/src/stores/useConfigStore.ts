@@ -1,1086 +1,58 @@
-/* eslint-disable */
-// @ts-nocheck
 import { create } from "zustand";
-import type { StoreApi, UseBoundStore } from "zustand";
 import { devtools, persist } from "zustand/middleware";
-import type { Provider, Agent, Config } from "@/lib/chat/types";
-import { piClient } from "@/lib/pi/client";
-import { configuredProviders } from "@/lib/pi/configured-providers";
-import { scopeMatches, subscribeToConfigChanges } from "@/lib/configSync";
+import type { ModelMetadata } from "@/types";
 import { createDeferredSafeJSONStorage } from "./utils/safeStorage";
-import { isPrimaryMode } from "@/components/chat/mobileControlsUtils";
 import { useSessionUIStore } from "@/sync/session-ui-store";
 import { useSelectionStore } from "@/sync/selection-store";
-import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry";
 import { updateDesktopSettings } from "@/lib/persistence";
 import { useDirectoryStore } from "@/stores/useDirectoryStore";
 import { useProjectsStore } from "@/stores/useProjectsStore";
-import { buildAvailableWorktreesByProject, useWorktreeStore } from "@/stores/useWorktreeStore";
 import { resolveProjectForSessionDirectory } from "@/lib/projectResolution";
 import { streamDebugEnabled } from "@/stores/utils/streamDebug";
-import { parseModelIdentifier } from "@/lib/modelIdentifier";
-import { configurableThinkingLevels, cycleThinkingLevel, parsePiThinkingLevel } from "@/lib/pi/thinking";
-import { runtimeFetch } from "@/lib/runtime-fetch";
+import { configurableThinkingLevels, cycleThinkingLevel } from "@/lib/pi/thinking";
+import { ensureModelMetadataLoaded, invalidateModelMetadataLoad, resolveModelMetadata } from "./config/modelMetadata";
+import { fetchPiChamberDefaults } from "./config/defaults";
+import {
+    fromDirectoryKey,
+    getFallbackProjectDirectory,
+    resolveConfigDirectory,
+    resolveInitialDirectoryKey,
+    toConfigDirectoryKey,
+    toDirectoryKey,
+} from "./config/directoryScope";
+import {
+    ADD_PROVIDER_SENTINEL,
+    asConfigAgent,
+    hasProviderModel,
+    normalizeOptionalString,
+    parseModelString,
+    preserveAddProviderSelection,
+    resolveDefaultAgentModelSelection,
+    resolveGitGenerationModelSelection,
+    resolveProviderModelSelection,
+    resolveSelectionWithManualGuard,
+    resolveThinkingVariant,
+    sanitizePersistedSelectedProviderId,
+} from "./config/selection";
+import {
+    type ConfigStore,
+    type DirectoryScopedConfig,
+    createEmptyDirectoryScopedConfig,
+    hydrateActiveDirectorySnapshot,
+    _providersLoadedAt,
+    _agentsLoadedAt,
+    isConfigFresh,
+    PROJECT_CONFIG_PREWARM_DELAY_MS,
+} from "./config/configTypes";
+import { checkPiHealth, probePiHealth } from "./config/configConnection";
+import { setupConfigStoreSubscribers } from "./config/configSubscribers";
+import { fetchAndProcessProviders } from "./config/configLoaders";
 import { markStartupTrace, measureStartupTrace } from "@/lib/startupTrace";
-import { normalizePath } from "@/lib/pathNormalization";
-import { getSyncConfig, subscribeToSyncConfigChanges } from "@/sync/sync-refs";
-import { getRuntimeKey } from "@/lib/runtime-switch";
+import { getSyncConfig } from "@/sync/sync-refs";
 
-const MODELS_DEV_API_URL = "https://models.dev/api.json";
-
-// Sentinel selectedProviderId used by the providers UI while the "Add provider"
-// form is open. It is intentionally not a real provider id and must not be
-// persisted as a stable provider selection.
-const ADD_PROVIDER_SENTINEL = "__add_provider__";
-const GIT_UTILITY_PROVIDER_ID = "zen";
-const GIT_UTILITY_PREFERRED_MODEL_ID = "big-pickle";
-const PROVIDER_CONFIG_REFRESH_CONCURRENCY = 4;
-
-interface PiChamberDefaults {
-    defaultModel?: string;
-    defaultVariant?: string;
-    defaultThinking?: string;
-    defaultThinkingByModel?: Record<string, string>;
-    autoCreateWorktree?: boolean;
-    gitmojiEnabled?: boolean;
-    defaultFileViewerPreview?: boolean;
-    zenModel?: string;
-    messageStreamTransport?: 'auto' | 'ws' | 'sse';
-}
-
-const parseSidecarThinkingByModel = (value: unknown): Record<string, string> | undefined => {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-    const result: Record<string, string> = {};
-    for (const [key, level] of Object.entries(value)) {
-        if (!parseModelIdentifier(key)) continue;
-        const parsed = parsePiThinkingLevel(level);
-        if (!parsed) continue;
-        result[key] = parsed;
-    }
-    return result;
-};
-
-const loadSidecarDefaults = async (): Promise<{
-    ok: false;
-} | {
-    ok: true;
-    defaultModel?: string;
-    defaultThinking?: string;
-    defaultThinkingByModel?: Record<string, string>;
-}> => {
-    try {
-        const response = await runtimeFetch('/api/pi/settings', {
-            method: 'GET',
-            headers: { Accept: 'application/json' },
-        });
-        if (!response.ok) {
-            return { ok: false };
-        }
-        const data = await response.json();
-        const pichamber = data?.pichamber;
-        const model = pichamber?.defaultModel;
-        let defaultModel: string | undefined;
-        if (model && typeof model.providerId === 'string' && typeof model.modelId === 'string') {
-            const providerId = model.providerId.trim();
-            const modelId = model.modelId.trim();
-            if (providerId && modelId) defaultModel = `${providerId}/${modelId}`;
-        }
-        return {
-            ok: true,
-            defaultModel,
-            defaultThinking: parsePiThinkingLevel(pichamber?.defaultThinking) ?? undefined,
-            defaultThinkingByModel: parseSidecarThinkingByModel(pichamber?.defaultThinkingByModel),
-        };
-    } catch {
-        return { ok: false };
-    }
-};
-
-const fetchPiChamberDefaults = async (): Promise<PiChamberDefaults> => {
-    markStartupTrace('config.defaults:start');
-    const started = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    const finish = (source: string, result: PiChamberDefaults) => {
-        const ended = typeof performance !== 'undefined' ? performance.now() : Date.now();
-        markStartupTrace('config.defaults:end', {
-            source,
-            durationMs: Math.round(ended - started),
-            hasDefaultModel: Boolean(result.defaultModel),
-        });
-        return result;
-    };
-    try {
-        const sidecarDefaults = await loadSidecarDefaults();
-        const withSidecarModel = (source: string, result: PiChamberDefaults): PiChamberDefaults => {
-            if (!sidecarDefaults.ok) {
-                return finish(source, result);
-            }
-            return finish(source, {
-                ...result,
-                defaultModel: sidecarDefaults.defaultModel,
-                defaultThinking: sidecarDefaults.defaultThinking,
-                defaultThinkingByModel: sidecarDefaults.defaultThinkingByModel,
-            });
-        };
-
-        // 1. Runtime settings API (desktop/embedded surfaces)
-        const runtimeSettings = getRegisteredRuntimeAPIs()?.settings;
-        if (runtimeSettings) {
-            try {
-                const result = await runtimeSettings.load();
-                const data = result?.settings;
-                if (data) {
-                    const defaultModel = typeof data?.defaultModel === 'string' ? data.defaultModel.trim() : '';
-                    const defaultVariant = typeof data?.defaultVariant === 'string' ? data.defaultVariant.trim() : '';
-                    const gitmojiEnabled = typeof data?.gitmojiEnabled === 'boolean' ? data.gitmojiEnabled : undefined;
-                    const defaultFileViewerPreview = typeof data?.defaultFileViewerPreview === 'boolean' ? data.defaultFileViewerPreview : undefined;
-                    const zenModel = typeof data?.zenModel === 'string' ? data.zenModel.trim() : '';
-                    const messageStreamTransport =
-                        data?.messageStreamTransport === 'ws' || data?.messageStreamTransport === 'sse' || data?.messageStreamTransport === 'auto'
-                            ? data.messageStreamTransport
-                            : undefined;
-
-                    return withSidecarModel('runtime-settings', {
-                        defaultModel: defaultModel.length > 0 ? defaultModel : undefined,
-                        defaultVariant: defaultVariant.length > 0 ? defaultVariant : undefined,
-                        autoCreateWorktree: typeof data?.autoCreateWorktree === 'boolean' ? data.autoCreateWorktree : undefined,
-                        gitmojiEnabled,
-                        defaultFileViewerPreview,
-                        zenModel: zenModel.length > 0 ? zenModel : undefined,
-                        messageStreamTransport,
-                    });
-                }
-            } catch {
-                // Fall through to fetch
-            }
-        }
-
-        // 2. Fetch API (Web/server)
-        const response = await runtimeFetch('/api/pi/ui-settings', {
-            method: 'GET',
-            headers: { Accept: 'application/json' },
-        });
-        if (!response.ok) {
-            return withSidecarModel('settings-route-not-ok', {});
-        }
-        const data = await response.json();
-        const defaultModel = typeof data?.defaultModel === 'string' ? data.defaultModel.trim() : '';
-        const defaultVariant = typeof data?.defaultVariant === 'string' ? data.defaultVariant.trim() : '';
-        const gitmojiEnabled = typeof data?.gitmojiEnabled === 'boolean' ? data.gitmojiEnabled : undefined;
-        const defaultFileViewerPreview = typeof data?.defaultFileViewerPreview === 'boolean' ? data.defaultFileViewerPreview : undefined;
-        const zenModel = typeof data?.zenModel === 'string' ? data.zenModel.trim() : '';
-        const messageStreamTransport =
-            data?.messageStreamTransport === 'ws' || data?.messageStreamTransport === 'sse' || data?.messageStreamTransport === 'auto'
-                ? data.messageStreamTransport
-                : undefined;
-
-        return withSidecarModel('settings-route', {
-            defaultModel: defaultModel.length > 0 ? defaultModel : undefined,
-            defaultVariant: defaultVariant.length > 0 ? defaultVariant : undefined,
-            autoCreateWorktree: typeof data?.autoCreateWorktree === 'boolean' ? data.autoCreateWorktree : undefined,
-            gitmojiEnabled,
-            defaultFileViewerPreview,
-            zenModel: zenModel.length > 0 ? zenModel : undefined,
-            messageStreamTransport,
-        });
-    } catch (error) {
-        markStartupTrace('config.defaults:error', { error: error instanceof Error ? error.message : String(error) });
-        return finish('error', {});
-    }
-};
-
-const parseModelString = (modelString: string): { providerId: string; modelId: string } | null => {
-    return parseModelIdentifier(modelString);
-};
-
-const normalizeProviderId = (value: string) => value?.toLowerCase?.() ?? '';
-
-type ProviderModel = Provider["models"][string];
-type ProviderWithModelList = Omit<Provider, "models"> & { models: ProviderModel[] };
-
-type GitModelSelection = { providerId: string; modelId: string };
-type ProviderModelSelection = { providerId: string; modelId: string; variant?: string } | null;
-
-const sanitizePersistedSelectedProviderId = (providerId: string | undefined): string => (
-    providerId === ADD_PROVIDER_SENTINEL ? "" : (providerId ?? "")
-);
-
-const preserveAddProviderSelection = (currentSelectedProviderId: string | undefined, nextProviderId: string): string => (
-    currentSelectedProviderId === ADD_PROVIDER_SENTINEL ? ADD_PROVIDER_SENTINEL : nextProviderId
-);
-
-const normalizeOptionalString = (value: unknown): string | undefined => {
-    if (typeof value !== "string") {
-        return undefined;
-    }
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-};
-
-const hasProviderModel = (
-    providers: ProviderWithModelList[],
-    providerId: string,
-    modelId: string
-): boolean => {
-    const provider = providers.find((item) => item.id === providerId);
-    if (!provider) {
-        return false;
-    }
-    return provider.models.some((model) => model.id === modelId);
-};
-
-const resolveProviderModelSelection = ({
-    providers,
-    currentProviderId,
-    currentModelId,
-    currentVariant,
-    settingsDefaultModel,
-    settingsDefaultVariant,
-}: {
-    providers: ProviderWithModelList[];
-    currentProviderId?: string;
-    currentModelId?: string;
-    currentVariant?: string;
-    settingsDefaultModel?: string;
-    settingsDefaultVariant?: string;
-}): ProviderModelSelection => {
-    const resolveVariant = (providerId: string, modelId: string, variant?: string): string | undefined => {
-        if (!variant) {
-            return undefined;
-        }
-
-        const model = providers
-            .find((provider) => provider.id === providerId)
-            ?.models.find((entry) => entry.id === modelId);
-
-        return configurableThinkingLevels(model).includes(variant) ? variant : undefined;
-    };
-
-    if (currentProviderId && currentModelId && hasProviderModel(providers, currentProviderId, currentModelId)) {
-        return {
-            providerId: currentProviderId,
-            modelId: currentModelId,
-            variant: resolveVariant(currentProviderId, currentModelId, currentVariant),
-        };
-    }
-
-    if (settingsDefaultModel) {
-        const parsed = parseModelString(settingsDefaultModel);
-        if (parsed && hasProviderModel(providers, parsed.providerId, parsed.modelId)) {
-            return {
-                providerId: parsed.providerId,
-                modelId: parsed.modelId,
-                variant: resolveVariant(parsed.providerId, parsed.modelId, settingsDefaultVariant),
-            };
-        }
-    }
-
-    const firstProvider = providers.find((p) => p.authenticated && p.models.length > 0) || providers.find((p) => p.models.length > 0) || providers[0];
-    const firstModel = firstProvider?.models[0];
-    if (firstProvider && firstModel) {
-        return { providerId: firstProvider.id, modelId: firstModel.id };
-    }
-
-    return null;
-};
-
-type DefaultAgentModelSelection = {
-    agentName: string | undefined;
-    providerId?: string;
-    modelId?: string;
-    variant?: string;
-};
-
-// Shared default-selection cascade used both at startup (loadAgents) and when opening a
-// fresh draft (applyDefaultModelAgentSelection), so the two paths stay identical.
-//
-//   Agent: settings.defaultAgent → Pi default_agent → build → first primary → first
-//   Model: project.defaultModel → settings.defaultModel → resolved agent's pinned model+variant → Pi config.model
-//          → Pi/big-pickle → first
-//
-// The Pi default_agent / default model (config fields on the Pi server) are honored
-// only when our own settings have no valid default. Pi itself resolves a model the same way:
-// an agent's pinned model wins, otherwise the global `model` config applies — so we check the
-// agent's model before runtimeDefaultModel. When the agent supplies the model, its `variant` is
-// carried through too (if the model actually exposes that variant).
-const resolveDefaultAgentModelSelection = ({
-    agents,
-    providers,
-    projectDefaultModel,
-    settingsDefaultModel,
-    settingsDefaultVariant,
-    runtimeDefaultAgent,
-    runtimeDefaultModel,
-}: {
-    agents: Agent[];
-    providers: ProviderWithModelList[];
-    projectDefaultModel?: string;
-    settingsDefaultModel?: string;
-    settingsDefaultVariant?: string;
-    runtimeDefaultAgent?: string;
-    runtimeDefaultModel?: string;
-}): DefaultAgentModelSelection => {
-    if (agents.length === 0) {
-        return { agentName: undefined };
-    }
-
-    const resolveVariant = (providerId: string, modelId: string, variant?: string): string | undefined => {
-        if (!variant) {
-            return undefined;
-        }
-        const model = providers
-            .find((provider) => provider.id === providerId)
-            ?.models.find((entry) => entry.id === modelId);
-        return configurableThinkingLevels(model).includes(variant) ? variant : undefined;
-    };
-
-    // --- Agent cascade ---
-    const primaryAgents = agents.filter((agent) => isPrimaryMode(agent.mode));
-
-    let resolvedAgent: Agent | undefined;
-    if (runtimeDefaultAgent) {
-        const candidate = agents.find((agent) => agent.name === runtimeDefaultAgent);
-        // Pi requires the default agent to be a visible primary agent.
-        if (candidate && isPrimaryMode(candidate.mode) && candidate.hidden !== true) {
-            resolvedAgent = candidate;
-        }
-    }
-    if (!resolvedAgent) {
-        resolvedAgent = primaryAgents.find((agent) => agent.name === "build") || primaryAgents[0] || agents[0];
-    }
-    if (!resolvedAgent) {
-        return { agentName: undefined };
-    }
-
-    // --- Model cascade ---
-    let providerId: string | undefined;
-    let modelId: string | undefined;
-    let variant: string | undefined;
-
-    const effectiveDefaultModel = projectDefaultModel || settingsDefaultModel;
-
-    if (effectiveDefaultModel) {
-        const parsed = parseModelString(effectiveDefaultModel);
-        if (parsed && hasProviderModel(providers, parsed.providerId, parsed.modelId)) {
-            providerId = parsed.providerId;
-            modelId = parsed.modelId;
-            variant = resolveVariant(providerId, modelId, projectDefaultModel ? undefined : settingsDefaultVariant);
-        }
-    }
-
-    if (!providerId
-        && resolvedAgent.model?.providerID
-        && resolvedAgent.model?.modelID
-        && hasProviderModel(providers, resolvedAgent.model.providerID, resolvedAgent.model.modelID)) {
-        providerId = resolvedAgent.model.providerID;
-        modelId = resolvedAgent.model.modelID;
-        variant = resolveVariant(providerId, modelId, resolvedAgent.variant);
-    }
-
-    // Pi's global default model — used when neither our settings nor the agent pin a model.
-    if (!providerId && runtimeDefaultModel) {
-        const parsed = parseModelString(runtimeDefaultModel);
-        if (parsed && hasProviderModel(providers, parsed.providerId, parsed.modelId)) {
-            providerId = parsed.providerId;
-            modelId = parsed.modelId;
-        }
-    }
-
-    if (!providerId) {
-        const firstProvider = providers.find((p) => p.authenticated && p.models.length > 0) || providers.find((p) => p.models.length > 0) || providers[0];
-        const firstModel = firstProvider?.models[0];
-        if (firstProvider && firstModel) {
-            providerId = firstProvider.id;
-            modelId = firstModel.id;
-        }
-    }
-
-    return { agentName: resolvedAgent.name, providerId, modelId, variant };
-};
-
-const resolveGitGenerationModelSelection = ({
-    providers,
-    settingsZenModel,
-}: {
-    providers: ProviderWithModelList[];
-    settingsZenModel?: string;
-}): GitModelSelection | null => {
-    const zenModel = normalizeOptionalString(settingsZenModel);
-
-    if (!Array.isArray(providers) || providers.length === 0) {
-        if (zenModel) {
-            return { providerId: GIT_UTILITY_PROVIDER_ID, modelId: zenModel };
-        }
-        return null;
-    }
-
-    if (zenModel && hasProviderModel(providers, GIT_UTILITY_PROVIDER_ID, zenModel)) {
-        return { providerId: GIT_UTILITY_PROVIDER_ID, modelId: zenModel };
-    }
-
-    if (hasProviderModel(providers, GIT_UTILITY_PROVIDER_ID, GIT_UTILITY_PREFERRED_MODEL_ID)) {
-        return { providerId: GIT_UTILITY_PROVIDER_ID, modelId: GIT_UTILITY_PREFERRED_MODEL_ID };
-    }
-
-    const zenProvider = providers.find((provider) => provider.id === GIT_UTILITY_PROVIDER_ID);
-    if (zenProvider?.models.length) {
-        const randomIndex = Math.floor(Math.random() * zenProvider.models.length);
-        const randomModelId = normalizeOptionalString(zenProvider.models[randomIndex]?.id);
-        if (randomModelId) {
-            return { providerId: GIT_UTILITY_PROVIDER_ID, modelId: randomModelId };
-        }
-    }
-
-    return null;
-};
-
-interface ModelsDevModelEntry {
-    id?: string;
-    name?: string;
-    tool_call?: boolean;
-    reasoning?: boolean;
-    temperature?: boolean;
-    attachment?: boolean;
-    structured_output?: boolean;
-    modalities?: {
-        input?: string[];
-        output?: string[];
-    };
-    cost?: {
-        input?: number;
-        output?: number;
-        cache_read?: number;
-        cache_write?: number;
-    };
-    limit?: {
-        context?: number;
-        output?: number;
-    };
-    knowledge?: string;
-    release_date?: string;
-    last_updated?: string;
-}
-
-interface ModelsDevProviderEntry {
-    id?: string;
-    models?: Record<string, ModelsDevModelEntry | undefined>;
-}
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-    typeof value === "object" && value !== null;
-
-const isStringArray = (value: unknown): value is string[] =>
-    Array.isArray(value) && value.every((item) => typeof item === "string");
-
-const isModelsDevModelEntry = (value: unknown): value is ModelsDevModelEntry => {
-    if (!isRecord(value)) {
-        return false;
-    }
-    const candidate = value as ModelsDevModelEntry;
-    if (candidate.modalities) {
-        const { input, output } = candidate.modalities;
-        if (input && !isStringArray(input)) {
-            return false;
-        }
-        if (output && !isStringArray(output)) {
-            return false;
-        }
-    }
-    return true;
-};
-
-const isModelsDevProviderEntry = (value: unknown): value is ModelsDevProviderEntry => {
-    if (!isRecord(value)) {
-        return false;
-    }
-    const candidate = value as ModelsDevProviderEntry;
-    return candidate.models === undefined || isRecord(candidate.models);
-};
-
-const buildModelMetadataKey = (providerId: string, modelId: string) => {
-    const normalizedProvider = normalizeProviderId(providerId);
-    if (!normalizedProvider || !modelId) {
-        return '';
-    }
-    return `${normalizedProvider}/${modelId}`;
-};
-
-const mapModalities = (cap: { text: boolean; audio: boolean; image: boolean; video: boolean; pdf: boolean } | undefined): string[] => {
-    if (!cap) return [];
-    const result: string[] = [];
-    if (cap.text) result.push('text');
-    if (cap.audio) result.push('audio');
-    if (cap.image) result.push('image');
-    if (cap.video) result.push('video');
-    if (cap.pdf) result.push('pdf');
-    return result;
-};
-
-const deriveModelMetadata = (providerId: string, model: ProviderModel): ModelMetadata => ({
-    id: model.id,
-    providerId,
-    name: model.name,
-    tool_call: model.capabilities?.toolcall,
-    reasoning: model.capabilities?.reasoning,
-    temperature: model.capabilities?.temperature,
-    attachment: model.capabilities?.attachment,
-    modalities: model.capabilities ? {
-        input: mapModalities(model.capabilities.input),
-        output: mapModalities(model.capabilities.output),
-    } : undefined,
-    cost: model.cost ? {
-        input: model.cost.input,
-        output: model.cost.output,
-        cache_read: model.cost.cache?.read,
-        cache_write: model.cost.cache?.write,
-    } : undefined,
-    limit: model.limit,
-    release_date: model.release_date,
-});
-
-const transformModelsDevResponse = (payload: unknown): Map<string, ModelMetadata> => {
-    const metadataMap = new Map<string, ModelMetadata>();
-
-    if (!isRecord(payload)) {
-        return metadataMap;
-    }
-
-    for (const [providerKey, providerValue] of Object.entries(payload)) {
-        if (!isModelsDevProviderEntry(providerValue)) {
-            continue;
-        }
-
-        const providerId = typeof providerValue.id === 'string' && providerValue.id.length > 0 ? providerValue.id : providerKey;
-        const models = providerValue.models;
-        if (!models || !isRecord(models)) {
-            continue;
-        }
-
-        for (const [modelKey, modelValue] of Object.entries(models)) {
-            if (!isModelsDevModelEntry(modelValue)) {
-                continue;
-            }
-
-            const resolvedModelId =
-                typeof modelKey === 'string' && modelKey.length > 0
-                    ? modelKey
-                    : modelValue.id;
-
-            if (!resolvedModelId || typeof resolvedModelId !== 'string' || resolvedModelId.length === 0) {
-                continue;
-            }
-
-            const metadata: ModelMetadata = {
-                id: typeof modelValue.id === 'string' && modelValue.id.length > 0 ? modelValue.id : resolvedModelId,
-                providerId,
-                name: typeof modelValue.name === 'string' ? modelValue.name : undefined,
-                tool_call: typeof modelValue.tool_call === 'boolean' ? modelValue.tool_call : undefined,
-                reasoning: typeof modelValue.reasoning === 'boolean' ? modelValue.reasoning : undefined,
-                temperature: typeof modelValue.temperature === 'boolean' ? modelValue.temperature : undefined,
-                attachment: typeof modelValue.attachment === 'boolean' ? modelValue.attachment : undefined,
-                structured_output:
-                    typeof modelValue.structured_output === 'boolean' ? modelValue.structured_output : undefined,
-                modalities: modelValue.modalities
-                    ? {
-                          input: isStringArray(modelValue.modalities.input) ? modelValue.modalities.input : undefined,
-                          output: isStringArray(modelValue.modalities.output) ? modelValue.modalities.output : undefined,
-                      }
-                    : undefined,
-                cost: modelValue.cost,
-                limit: modelValue.limit,
-                knowledge: typeof modelValue.knowledge === 'string' ? modelValue.knowledge : undefined,
-                release_date: typeof modelValue.release_date === 'string' ? modelValue.release_date : undefined,
-                last_updated: typeof modelValue.last_updated === 'string' ? modelValue.last_updated : undefined,
-            };
-
-            const key = buildModelMetadataKey(providerId, resolvedModelId);
-            if (key) {
-                metadataMap.set(key, metadata);
-            }
-        }
-    }
-
-    return metadataMap;
-};
-
-const fetchModelsDevMetadata = async (): Promise<Map<string, ModelMetadata>> => {
-    if (typeof fetch !== 'function') {
-        return new Map();
-    }
-
-    const sources = [MODELS_DEV_API_URL];
-
-    for (const source of sources) {
-        const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
-        const timeout = controller ? setTimeout(() => controller.abort(), 8000) : undefined;
-
-        try {
-            const isAbsoluteUrl = /^https?:\/\//i.test(source);
-            const requestInit: RequestInit = {
-                signal: controller?.signal,
-                headers: {
-                    Accept: 'application/json',
-                },
-                cache: 'no-store',
-            };
-
-            if (isAbsoluteUrl) {
-                requestInit.mode = 'cors';
-            } else {
-                requestInit.credentials = 'same-origin';
-            }
-
-            const response = isAbsoluteUrl
-                ? await fetch(source, requestInit)
-                : await runtimeFetch(source, requestInit);
-
-            if (!response.ok) {
-                throw new Error(`Metadata request to ${source} returned status ${response.status}`);
-            }
-
-            const data = await response.json();
-            return transformModelsDevResponse(data);
-        } catch (error: unknown) {
-            if ((error as Error)?.name === 'AbortError') {
-                console.warn(`Model metadata request aborted (${source})`);
-            } else {
-                console.warn(`Failed to fetch model metadata from ${source}:`, error);
-            }
-        } finally {
-            if (timeout) {
-                clearTimeout(timeout);
-            }
-        }
-    }
-
-    return new Map();
-};
-
-let modelsMetadataInFlight: Promise<Map<string, ModelMetadata>> | null = null;
-
-const ensureModelsMetadataFetch = (
-    getModelsMetadata: () => Map<string, ModelMetadata>,
-    setModelsMetadata: (metadata: Map<string, ModelMetadata>) => void,
-) => {
-    const existing = getModelsMetadata();
-    if (existing.size > 0) {
-        return;
-    }
-
-    if (modelsMetadataInFlight) {
-        return;
-    }
-
-    markStartupTrace('modelsMetadata:queued');
-    modelsMetadataInFlight = measureStartupTrace('modelsMetadata', fetchModelsDevMetadata)
-        .then((metadata) => {
-            if (metadata.size > 0) {
-                markStartupTrace('modelsMetadata:set', { entries: metadata.size });
-                setModelsMetadata(metadata);
-            }
-            return metadata;
-        })
-        .catch(() => new Map<string, ModelMetadata>())
-        .finally(() => {
-            modelsMetadataInFlight = null;
-        });
-};
+export type { ConfigStore, DirectoryScopedConfig };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const CONNECTION_PROBE_TIMEOUT_MS = 800;
-
-const checkPiHealth = async (): Promise<boolean> => {
-    const health = await piClient.health({ runtimeKey: getRuntimeKey() });
-    return health.state === 'ready';
-};
-
-const probePiHealth = async (timeoutMs = CONNECTION_PROBE_TIMEOUT_MS): Promise<boolean> => {
-    return Promise.race([
-        checkPiHealth().catch(() => false),
-        sleep(Math.max(1, timeoutMs)).then(() => false),
-    ]);
-};
-
-const DIRECTORY_KEY_GLOBAL = "__global__";
-
-const toDirectoryKey = (directory: string | null | undefined): string => {
-    const trimmed = typeof directory === 'string' ? directory.trim() : '';
-    return trimmed.length > 0 ? trimmed : DIRECTORY_KEY_GLOBAL;
-};
-
-const fromDirectoryKey = (key: string): string | null => (key === DIRECTORY_KEY_GLOBAL ? null : key);
-
-const resolveInitialDirectoryKey = (): string => {
-    if (typeof window === 'undefined') {
-        return DIRECTORY_KEY_GLOBAL;
-    }
-
-    return toConfigDirectoryKey(useDirectoryStore.getState().currentDirectory);
-};
-
-// Persisted worktree→project mapping. The runtime `useWorktreeStore` topology
-// is populated by async Git discovery and isn't
-// ready when initializeApp runs on startup — so without this, a worktree's first
-// config load can't resolve to its project and duplicates the project's load.
-// We cache resolved mappings to localStorage so subsequent launches resolve the
-// project synchronously at init time. worktree→project is effectively immutable,
-// so a cached entry is safe to trust.
-const WORKTREE_PROJECT_MAP_KEY = 'oc.worktreeProjectMap.v2';
-const LEGACY_WORKTREE_PROJECT_MAP_KEY = 'oc.worktreeProjectMap';
-const MAX_WORKTREE_PROJECT_RUNTIME_MAPS = 8;
-type WorktreeProjectMapEnvelope = {
-    version: 2;
-    legacyClaimed: boolean;
-    runtimes: Record<string, { updatedAt: number; entries: Record<string, string> }>;
-};
-const _worktreeProjectMaps = new Map<string, Record<string, string>>();
-const readWorktreeProjectEnvelope = (): WorktreeProjectMapEnvelope => {
-    try {
-        const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(WORKTREE_PROJECT_MAP_KEY) : null;
-        if (!raw) return { version: 2, legacyClaimed: false, runtimes: {} };
-        const parsed = JSON.parse(raw) as Partial<WorktreeProjectMapEnvelope>;
-        if (parsed.version !== 2 || !parsed.runtimes || typeof parsed.runtimes !== 'object') {
-            return { version: 2, legacyClaimed: false, runtimes: {} };
-        }
-        return { version: 2, legacyClaimed: parsed.legacyClaimed === true, runtimes: parsed.runtimes };
-    } catch {
-        return { version: 2, legacyClaimed: false, runtimes: {} };
-    }
-};
-const writeWorktreeProjectEnvelope = (envelope: WorktreeProjectMapEnvelope): void => {
-    const runtimes = Object.fromEntries(
-        Object.entries(envelope.runtimes)
-            .sort(([, left], [, right]) => right.updatedAt - left.updatedAt)
-            .slice(0, MAX_WORKTREE_PROJECT_RUNTIME_MAPS),
-    );
-    localStorage.setItem(WORKTREE_PROJECT_MAP_KEY, JSON.stringify({ ...envelope, runtimes }));
-};
-const getWorktreeProjectMap = (): Record<string, string> => {
-    const runtimeKey = getRuntimeKey() || 'default';
-    const existing = _worktreeProjectMaps.get(runtimeKey);
-    if (existing) return existing;
-    const envelope = readWorktreeProjectEnvelope();
-    let map = envelope.runtimes[runtimeKey]?.entries ?? null;
-    if (!map && !envelope.legacyClaimed) {
-        try {
-            const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(LEGACY_WORKTREE_PROJECT_MAP_KEY) : null;
-            map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
-            envelope.legacyClaimed = true;
-            envelope.runtimes[runtimeKey] = { updatedAt: Date.now(), entries: map };
-            writeWorktreeProjectEnvelope(envelope);
-            localStorage.removeItem(LEGACY_WORKTREE_PROJECT_MAP_KEY);
-        } catch {
-            map = {};
-        }
-    }
-    const result = map ?? {};
-    _worktreeProjectMaps.set(runtimeKey, result);
-    return result;
-};
-const rememberWorktreeProject = (worktree: string, project: string): void => {
-    if (!worktree || !project || worktree === project) return;
-    const map = getWorktreeProjectMap();
-    if (map[worktree] === project) return;
-    map[worktree] = project;
-    try {
-        const runtimeKey = getRuntimeKey() || 'default';
-        const envelope = readWorktreeProjectEnvelope();
-        envelope.legacyClaimed = true;
-        envelope.runtimes[runtimeKey] = { updatedAt: Date.now(), entries: map };
-        writeWorktreeProjectEnvelope(envelope);
-        localStorage.removeItem(LEGACY_WORKTREE_PROJECT_MAP_KEY);
-    } catch {
-        // localStorage quota exceeded — ignore; live resolution still works.
-    }
-};
-
-const normalizeConfigPath = (value: string | null | undefined): string | null => {
-    const result = normalizePath(value);
-    if (result === null) return null;
-    return result || '/';
-};
-
-const getKnownProjectDirectories = (): string[] => {
-    try {
-        return useProjectsStore.getState().projects
-            .map((project) => normalizeConfigPath(project.path))
-            .filter((path): path is string => Boolean(path));
-    } catch {
-        return [];
-    }
-};
-
-const getFallbackProjectDirectory = (): string | null => {
-    try {
-        const { projects, activeProjectId } = useProjectsStore.getState();
-        const active = activeProjectId
-            ? projects.find((project) => project.id === activeProjectId)
-            : null;
-        return normalizeConfigPath(active?.path ?? projects[0]?.path ?? null);
-    } catch {
-        return null;
-    }
-};
-
-/**
- * Map a directory to its CONFIG scope. Providers/agents/defaults are defined at
- * the PROJECT level (Pi.json), so a worktree must inherit its parent
- * project's config instead of maintaining — and re-fetching — its own
- * per-worktree snapshot. Returns the owning project's path when the directory is
- * a known worktree, else the directory unchanged.
- */
-const resolveConfigDirectory = (directory: string | null | undefined): string | null => {
-    const dir = normalizeConfigPath(directory);
-    const projects = getKnownProjectDirectories();
-    if (!dir) return null;
-    if (projects.includes(dir)) return dir;
-
-    // 1. Persisted mapping — resolves synchronously when the async worktree
-    //    discovery has not populated the runtime map yet.
-    const cached = normalizeConfigPath(getWorktreeProjectMap()[dir]);
-    if (cached) return cached;
-    // 2. Live resolution via projects + discovered worktree map; cache the hit.
-    try {
-        const registeredProjects = useProjectsStore.getState().projects;
-        const project = resolveProjectForSessionDirectory(
-            registeredProjects,
-            buildAvailableWorktreesByProject(registeredProjects, useWorktreeStore.getState()),
-            dir,
-        );
-        const projectPath = normalizeConfigPath(project?.path ?? null);
-        if (projectPath && projectPath !== dir) {
-            rememberWorktreeProject(dir, projectPath);
-            return projectPath;
-        }
-    } catch {
-        return null;
-    }
-    return null;
-};
-
-const toConfigDirectoryKey = (directory: string | null | undefined): string =>
-    toDirectoryKey(resolveConfigDirectory(directory));
-
-// Runtime freshness tracking (NOT persisted) for the stale-while-revalidate
-// background refresh, keyed by config-directory key. Prevents re-fetching
-// project-scoped providers/agents we just loaded — e.g. initializeApp loading a
-// project, then activateDirectory firing for the same project moments later.
-const _providersLoadedAt = new Map<string, number>();
-const _agentsLoadedAt = new Map<string, number>();
-const CONFIG_REFRESH_TTL_MS = 30_000;
-const PROJECT_CONFIG_PREWARM_DELAY_MS = 1_000;
-const isConfigFresh = (loadedAt: Map<string, number>, key: string): boolean => {
-    const at = loadedAt.get(key);
-    return typeof at === 'number' && Date.now() - at < CONFIG_REFRESH_TTL_MS;
-};
-
-interface DirectoryScopedConfig {
-
-    providers: ProviderWithModelList[];
-    agents: Agent[];
-    currentProviderId: string;
-    currentModelId: string;
-    currentVariant?: string | undefined;
-    currentAgentName: string | undefined;
-    selectedProviderId: string;
-    agentModelSelections: { [agentName: string]: { providerId: string; modelId: string } };
-    defaultProviders: { [key: string]: string };
-    runtimeDefaultAgent?: string;
-    runtimeDefaultModel?: string;
-    selectionSource?: "auto" | "manual";
-}
-
-/**
- * Lift the active directory's cached provider/agent snapshot into the top-level
- * fields the pickers read (`providers`, `agents`, selections), so a cold start
- * paints instantly from persisted data. Falls back to whatever top-level data
- * was persisted; handles legacy persisted blobs that only stored directoryScoped.
- */
-const hydrateActiveDirectorySnapshot = <T extends Partial<ConfigStore>>(merged: T): T => {
-    const directoryScoped = merged.directoryScoped;
-    const activeKey = merged.activeDirectoryKey;
-    if (!directoryScoped || !activeKey) return merged;
-    const snapshot = directoryScoped[activeKey];
-    if (!snapshot) return merged;
-
-    const next: Partial<ConfigStore> = { ...merged };
-    if ((!merged.providers || merged.providers.length === 0) && snapshot.providers?.length) {
-        next.providers = snapshot.providers;
-    }
-    if ((!merged.agents || merged.agents.length === 0) && snapshot.agents?.length) {
-        next.agents = snapshot.agents;
-    }
-    if (!merged.defaultProviders || Object.keys(merged.defaultProviders).length === 0) {
-        if (snapshot.defaultProviders && Object.keys(snapshot.defaultProviders).length > 0) {
-            next.defaultProviders = snapshot.defaultProviders;
-        }
-    }
-    if (snapshot.runtimeDefaultAgent !== undefined) {
-        next.runtimeDefaultAgent = snapshot.runtimeDefaultAgent;
-    }
-    if (snapshot.runtimeDefaultModel !== undefined) {
-        next.runtimeDefaultModel = snapshot.runtimeDefaultModel;
-    }
-    if (snapshot.selectionSource) {
-        next.selectionSource = snapshot.selectionSource;
-    }
-    return next as T;
-};
-
-const createEmptyDirectoryScopedConfig = (
-    providers: ProviderWithModelList[] = [],
-    agents: Agent[] = [],
-): DirectoryScopedConfig => ({
-    providers,
-    agents,
-    currentProviderId: "",
-    currentModelId: "",
-    currentVariant: undefined,
-    currentAgentName: undefined,
-    selectedProviderId: "",
-    agentModelSelections: {},
-    defaultProviders: {},
-    runtimeDefaultAgent: undefined,
-    runtimeDefaultModel: undefined,
-    selectionSource: "auto",
-});
-
-const hasValidVariant = (
-    providers: ProviderWithModelList[],
-    providerId: string,
-    modelId: string,
-    variant: string | undefined,
-): boolean => {
-    if (!variant) return true;
-    const model = providers
-        .find((provider) => provider.id === providerId)
-        ?.models.find((entry) => entry.id === modelId);
-    return configurableThinkingLevels(model).includes(variant);
-};
-
-const resolveSelectionWithManualGuard = ({
-    agents,
-    providers,
-    currentAgentName,
-    currentProviderId,
-    currentModelId,
-    currentVariant,
-    selectionSource,
-    resolvedAgentName,
-    resolvedProviderId,
-    resolvedModelId,
-    resolvedVariant,
-}: {
-    agents: Agent[];
-    providers: ProviderWithModelList[];
-    currentAgentName: string | undefined;
-    currentProviderId: string;
-    currentModelId: string;
-    currentVariant: string | undefined;
-    selectionSource: "auto" | "manual";
-    resolvedAgentName: string | undefined;
-    resolvedProviderId: string | undefined;
-    resolvedModelId: string | undefined;
-    resolvedVariant: string | undefined;
-}) => {
-    const manualAgentName = currentAgentName && agents.some((agent) => agent.name === currentAgentName)
-        ? currentAgentName
-        : undefined;
-    const manualModelValid = !!currentProviderId
-        && !!currentModelId
-        && hasProviderModel(providers, currentProviderId, currentModelId)
-        && hasValidVariant(providers, currentProviderId, currentModelId, currentVariant);
-    const preserveManual = selectionSource === "manual" && (!!manualAgentName || manualModelValid);
-
-    return {
-        agentName: preserveManual ? (manualAgentName ?? resolvedAgentName) : resolvedAgentName,
-        providerId: preserveManual && manualModelValid ? currentProviderId : resolvedProviderId,
-        modelId: preserveManual && manualModelValid ? currentModelId : resolvedModelId,
-        variant: preserveManual && manualModelValid ? currentVariant : resolvedVariant,
-        selectionSource: preserveManual ? "manual" as const : "auto" as const,
-    };
-};
-
-interface ConfigStore {
-
-    activeDirectoryKey: string;
-    directoryScoped: Record<string, DirectoryScopedConfig>;
-
-    providers: ProviderWithModelList[];
-    agents: Agent[];
-    currentProviderId: string;
-    currentModelId: string;
-    currentVariant: string | undefined;
-    currentAgentName: string | undefined;
-    selectedProviderId: string;
-    agentModelSelections: { [agentName: string]: { providerId: string; modelId: string } };
-    defaultProviders: { [key: string]: string };
-    selectionSource: "auto" | "manual";
-    isConnected: boolean;
-    hasEverConnected: boolean;
-    connectionPhase: "connecting" | "connected" | "reconnecting";
-    lastDisconnectReason: string | null;
-    isInitialized: boolean;
-    modelsMetadata: Map<string, ModelMetadata>;
-    // PiChamber settings-based defaults (take precedence over agent preferences)
-    settingsDefaultModel: string | undefined; // format: "provider/model"
-    settingsDefaultVariant: string | undefined;
-    settingsDefaultThinking: string | undefined;
-    settingsDefaultThinkingByModel: Record<string, string>;
-    // Pi server's own `default_agent` config field (name of a primary agent), used as a
-    // fallback when our own settingsDefaultAgent is unset. Sourced from sync config.
-    runtimeDefaultAgent: string | undefined;
-    // Pi server's own global `model` config field ("provider/model"), used as a fallback
-    // when neither our settingsDefaultModel nor the resolved agent pins a model.
-    runtimeDefaultModel: string | undefined;
-    settingsAutoCreateWorktree: boolean;
-    settingsGitmojiEnabled: boolean;
-    settingsDefaultFileViewerPreview: boolean;
-    settingsZenModel: string | undefined;
-
-    activateDirectory: (directory: string | null | undefined) => Promise<void>;
-
-    loadProviders: (options?: { directory?: string | null; source?: string }) => Promise<void>;
-    loadAgents: (options?: { directory?: string | null; source?: string }) => Promise<boolean>;
-    invalidateModelMetadataCache: () => void;
-    invalidateProviderCache: (directory?: string | null) => void;
-    setProvider: (providerId: string) => void;
-    setModel: (modelId: string) => void;
-    setCurrentVariant: (variant: string | undefined) => void;
-    cycleCurrentVariant: () => void;
-    getCurrentModelVariants: () => string[];
-    setAgent: (agentName: string | undefined) => void;
-    applyDefaultModelAgentSelection: (options?: { projectDefaultModel?: string }) => void;
-    applyRuntimeConfigDefaults: (directory?: string | null, source?: string, config?: Config) => void;
-    setSelectedProvider: (providerId: string) => void;
-    setSettingsDefaultModel: (model: string | undefined) => void;
-    setSettingsDefaultVariant: (variant: string | undefined) => void;
-    setSettingsDefaultThinking: (thinking: string | undefined) => void;
-    setSettingsDefaultThinkingByModel: (map: Record<string, string>) => void;
-    setSettingsDefaultAgent: (agent: string | undefined) => void;
-    setSettingsAutoCreateWorktree: (enabled: boolean) => void;
-    setSettingsGitmojiEnabled: (enabled: boolean) => void;
-    setSettingsDefaultFileViewerPreview: (enabled: boolean) => void;
-    setSettingsZenModel: (model: string | undefined) => void;
-    getResolvedGitGenerationModel: () => { providerId: string; modelId: string } | null;
-    saveAgentModelSelection: (agentName: string, providerId: string, modelId: string) => void;
-    getAgentModelSelection: (agentName: string) => { providerId: string; modelId: string } | null;
-    probeConnection: (options?: { timeoutMs?: number }) => Promise<boolean>;
-    checkConnection: () => Promise<boolean>;
-    initializeApp: () => Promise<void>;
-    prewarmProjectConfigs: (initialDirectory?: string | null) => Promise<void>;
-    getCurrentProvider: () => ProviderWithModelList | undefined;
-    getCurrentModel: () => ProviderModel | undefined;
-    getCurrentAgent: () => Agent | undefined;
-    getModelMetadata: (providerId: string, modelId: string) => ModelMetadata | undefined;
-    // Returns only visible agents (excludes hidden internal agents like title, compaction, summary)
-    getVisibleAgents: () => Agent[];
-}
-
-declare global {
-    interface Window {
-        __zustand_config_store__?: UseBoundStore<StoreApi<ConfigStore>>;
-    }
-}
 
 // In-flight dedup: prevent concurrent duplicate loadProviders/loadAgents calls for the same directory
 const _inFlightProviders = new Map<string, Promise<void>>();
@@ -1123,10 +95,6 @@ export const useConfigStore = create<ConfigStore>()(
                 settingsZenModel: undefined,
 
                 activateDirectory: async (directory) => {
-                    // Resolve the worktree to its owning project up-front so the
-                    // active key + snapshot key always match and stay project-scoped.
-                    // Everything below operates on this key unchanged; the Pi session
-                    // working directory is tracked separately by the directory store.
                     const configDirectory = resolveConfigDirectory(directory);
                     if (!configDirectory) {
                         markStartupTrace('activateDirectory:skippedUnknownDirectory', { directory });
@@ -1178,10 +146,6 @@ export const useConfigStore = create<ConfigStore>()(
                         return;
                     }
 
-                    // Stale-while-revalidate: when a cached snapshot already
-                    // populated the pickers, refresh in the background so the UI
-                    // stays instant but never shows stale provider/agent data for
-                    // longer than one fetch. Only block when there is nothing to show.
                     if (snapshotHadProviders) {
                         if (isConfigFresh(_providersLoadedAt, directoryKey)) {
                             markStartupTrace('activateDirectory:providersFresh', { directoryKey });
@@ -1258,8 +222,6 @@ export const useConfigStore = create<ConfigStore>()(
 
                 loadProviders: async (options) => {
                     const requestedDirectory = options?.directory ?? fromDirectoryKey(get().activeDirectoryKey);
-                    // Providers are project-scoped: resolve a worktree to its project
-                    // so it reuses one shared snapshot instead of its own.
                     const configDirectory = resolveConfigDirectory(requestedDirectory);
                     if (!configDirectory) {
                         markStartupTrace('loadProviders:skippedUnknownDirectory', { requestedDirectory, source: options?.source ?? 'unknown' });
@@ -1270,7 +232,6 @@ export const useConfigStore = create<ConfigStore>()(
                     const source = options?.source ?? 'unknown';
                     markStartupTrace('loadProviders:called', { directoryKey, source, requestedDirectory, effectiveDirectory });
 
-                    // Dedup: if a load is already in-flight for this directory, reuse it
                     const existing = _inFlightProviders.get(directoryKey);
                     if (existing) {
                         markStartupTrace('loadProviders:deduped', { directoryKey, source, requestedDirectory, effectiveDirectory });
@@ -1287,47 +248,17 @@ export const useConfigStore = create<ConfigStore>()(
 
                     for (let attempt = 0; attempt < 3; attempt++) {
                         try {
-                            ensureModelsMetadataFetch(
+                            ensureModelMetadataLoaded(
                                 () => get().modelsMetadata,
                                 (metadata) => set({ modelsMetadata: metadata }),
                             );
                             const apiResult = await measureStartupTrace(
                                 'loadProviders:api',
-                                async () => {
-                                    const response = await piClient.listProviders({ runtimeKey: getRuntimeKey() });
-                                    const providers = configuredProviders(response.providers).map((provider) => ({
-                                        id: provider.id,
-                                        name: provider.label ?? provider.id,
-                                        authenticated: provider.authenticated === true,
-                                        models: Object.fromEntries(provider.models.map((model) => [model.id, {
-                                            id: model.id,
-                                            name: model.label ?? model.id,
-                                            providerID: model.providerId,
-                                            reasoning: model.supportsThinking === true,
-                                            ...(Number.isSafeInteger(model.contextWindow) ? { limit: { context: model.contextWindow } } : {}),
-                                            ...(Array.isArray(model.thinkingLevels) && model.thinkingLevels.length > 0 ? { thinkingLevels: model.thinkingLevels } : {}),
-                                        }])),
-                                    }));
-                                    return {
-                                        providers,
-                                        default: response.default
-                                            ? { [response.default.providerId]: response.default.modelId }
-                                            : {},
-                                    };
-                                },
+                                async () => fetchAndProcessProviders(),
                                 { directoryKey, source, requestedDirectory, effectiveDirectory, attempt: attempt + 1 },
                             );
-                            const providers = Array.isArray(apiResult?.providers) ? apiResult.providers : [];
-                            const defaults = apiResult?.default || {};
-
-                            const processedProviders: ProviderWithModelList[] = providers.map((provider) => {
-                                const modelRecord = provider.models ?? {};
-                                const models: ProviderModel[] = Object.keys(modelRecord).map((modelId) => modelRecord[modelId]);
-                                return {
-                                    ...provider,
-                                    models,
-                                };
-                            });
+                            const processedProviders = apiResult?.providers ?? [];
+                            const defaults = apiResult?.defaults ?? {};
 
                             set((state) => {
                                 const baseSnapshot: DirectoryScopedConfig = state.directoryScoped[directoryKey] ?? {
@@ -1361,8 +292,6 @@ export const useConfigStore = create<ConfigStore>()(
                                 const currentSelectedProviderId = state.activeDirectoryKey === directoryKey
                                     ? state.selectedProviderId
                                     : baseSnapshot.selectedProviderId;
-                                // Preserve the add-provider sentinel so a background refresh does not
-                                // navigate the user out of the in-progress add-provider form (issue #1765).
                                 const selectedProviderId = currentSelectedProviderId === ADD_PROVIDER_SENTINEL
                                     || processedProviders.some((provider) => provider.id === currentSelectedProviderId)
                                     ? currentSelectedProviderId
@@ -1468,9 +397,7 @@ export const useConfigStore = create<ConfigStore>()(
                                     const settingsProvider = previousProviders.find((p) => p.id === parsed.providerId);
                                     if (settingsProvider?.models.some((m) => m.id === parsed.modelId)) {
                                         const model = settingsProvider.models.find((m) => m.id === parsed.modelId);
-                                        const currentVariant = state.settingsDefaultVariant && configurableThinkingLevels(model).includes(state.settingsDefaultVariant)
-                                            ? state.settingsDefaultVariant
-                                            : undefined;
+                                        const currentVariant = resolveThinkingVariant(model, state.settingsDefaultVariant);
 
                                         nextState.currentProviderId = parsed.providerId;
                                         nextState.currentModelId = parsed.modelId;
@@ -1497,14 +424,14 @@ export const useConfigStore = create<ConfigStore>()(
                 setProvider: (providerId: string) => {
                     const { providers } = get();
                     const provider = providers.find((p) => p.id === providerId);
- 
+
                     if (!provider) {
                         return;
                     }
- 
+
                     const firstModel = provider.models[0];
                     const newModelId = firstModel?.id || "";
- 
+
                     set((state) => {
                         const directoryKey = state.activeDirectoryKey;
                         const baseSnapshot: DirectoryScopedConfig = state.directoryScoped[directoryKey] ?? {
@@ -1554,13 +481,13 @@ export const useConfigStore = create<ConfigStore>()(
                             agentModelSelections: state.agentModelSelections,
                             defaultProviders: state.defaultProviders,
                         };
- 
+
                         const nextSnapshot: DirectoryScopedConfig = {
                             ...baseSnapshot,
                             currentModelId: modelId,
                             selectionSource: "manual",
                         };
- 
+
                         return {
                             currentModelId: modelId,
                             selectionSource: "manual",
@@ -1614,7 +541,7 @@ export const useConfigStore = create<ConfigStore>()(
                     const next = cycleThinkingLevel(get().getCurrentModelVariants(), get().currentVariant, 1);
                     get().setCurrentVariant(next);
                 },
- 
+
                 setSelectedProvider: (providerId: string) => {
                     set((state) => {
                         const directoryKey = state.activeDirectoryKey;
@@ -1689,8 +616,6 @@ export const useConfigStore = create<ConfigStore>()(
 
                 loadAgents: async (options) => {
                     const requestedDirectory = options?.directory ?? fromDirectoryKey(get().activeDirectoryKey);
-                    // Agents are project-scoped: resolve a worktree to its project
-                    // so it reuses one shared snapshot instead of its own.
                     const configDirectory = resolveConfigDirectory(requestedDirectory);
                     if (!configDirectory) {
                         markStartupTrace('loadAgents:skippedUnknownDirectory', { requestedDirectory, source: options?.source ?? 'unknown' });
@@ -1701,7 +626,6 @@ export const useConfigStore = create<ConfigStore>()(
                     const source = options?.source ?? 'unknown';
                     markStartupTrace('loadAgents:called', { directoryKey, source, requestedDirectory, effectiveDirectory });
 
-                    // Dedup: if a load is already in-flight for this directory, reuse it
                     const existing = _inFlightAgents.get(directoryKey);
                     if (existing) {
                         markStartupTrace('loadAgents:deduped', { directoryKey, source, requestedDirectory, effectiveDirectory });
@@ -1717,25 +641,13 @@ export const useConfigStore = create<ConfigStore>()(
 
                     for (let attempt = 0; attempt < 3; attempt++) {
                         try {
-                            // Fetch agents and PiChamber settings in parallel. Pi config
-                            // comes from sync state if it is already available; it must not block
-                            // the agent refresh path.
                             const configDirectoryPath = fromDirectoryKey(directoryKey);
                             const initialSyncedRuntimeConfig = getSyncConfig(requestedDirectory ?? undefined)
                                 ?? getSyncConfig(configDirectoryPath ?? undefined);
                             if (initialSyncedRuntimeConfig) {
                                 markStartupTrace('loadAgents:syncConfigHit', { directoryKey, source });
                             }
-                            const [agents, openChamberDefaults] = await Promise.all([
-                                measureStartupTrace(
-                                    'loadAgents:api',
-                                    async () => [],
-                                    { directoryKey, source, requestedDirectory, effectiveDirectory, attempt: attempt + 1 },
-                                ),
-                                fetchPiChamberDefaults(),
-                            ]);
-
-                            const safeAgents = Array.isArray(agents) ? agents : [];
+                            const openChamberDefaults = await fetchPiChamberDefaults();
 
                             const providerLoad = _inFlightProviders.get(directoryKey);
                             if (providerLoad) {
@@ -1756,24 +668,16 @@ export const useConfigStore = create<ConfigStore>()(
                             const providers = get().activeDirectoryKey === directoryKey
                                 ? get().providers
                                 : (get().directoryScoped[directoryKey]?.providers ?? []);
-
                             const existingZenModel = normalizeOptionalString(get().settingsZenModel);
-
                             const defaultZenModel = normalizeOptionalString(openChamberDefaults.zenModel);
-
-                            const resolvedExistingGitSelection = resolveGitGenerationModelSelection({
+                            const resolvedGitSelection = resolveGitGenerationModelSelection({
                                 providers,
                                 settingsZenModel: existingZenModel,
-                            });
-
-                            const resolvedDefaultGitSelection = resolveGitGenerationModelSelection({
+                            }) ?? resolveGitGenerationModelSelection({
                                 providers,
                                 settingsZenModel: defaultZenModel,
                             });
-
-                            const resolvedGitSelection = resolvedExistingGitSelection || resolvedDefaultGitSelection;
-                            const resolvedGitModelId = resolvedGitSelection?.modelId;
-                            const resolvedZenModel = resolvedGitModelId || defaultZenModel || existingZenModel;
+                            const resolvedZenModel = resolvedGitSelection?.modelId || defaultZenModel || existingZenModel;
 
                             set((state) => {
                                 const baseSnapshot: DirectoryScopedConfig = state.directoryScoped[directoryKey] ?? {
@@ -1792,15 +696,14 @@ export const useConfigStore = create<ConfigStore>()(
                                 const runtimeDefaultModel = hasLatestSyncedRuntimeConfig
                                     ? latestSyncedRuntimeDefaultModel
                                     : baseSnapshot.runtimeDefaultModel ?? (state.activeDirectoryKey === directoryKey ? state.runtimeDefaultModel : undefined);
-
                                 const nextSnapshot: DirectoryScopedConfig = {
                                     ...baseSnapshot,
                                     providers,
-                                    agents: safeAgents,
+                                    agents: [],
+                                    currentAgentName: undefined,
                                     runtimeDefaultAgent,
                                     runtimeDefaultModel,
                                 };
-
                                 const nextState: Partial<ConfigStore> = {
                                     settingsDefaultModel: openChamberDefaults.defaultModel,
                                     settingsDefaultVariant: openChamberDefaults.defaultVariant,
@@ -1815,203 +718,21 @@ export const useConfigStore = create<ConfigStore>()(
                                         [directoryKey]: nextSnapshot,
                                     },
                                 };
-
                                 if (state.activeDirectoryKey === directoryKey) {
-                                    nextState.agents = safeAgents;
+                                    nextState.agents = [];
+                                    nextState.currentAgentName = undefined;
                                     nextState.runtimeDefaultAgent = runtimeDefaultAgent;
                                     nextState.runtimeDefaultModel = runtimeDefaultModel;
                                 }
-
                                 return nextState;
                             });
 
-                            const latestConfigState = get();
-                            const latestSnapshot = latestConfigState.directoryScoped[directoryKey];
-                            const runtimeDefaultAgent = latestSnapshot?.runtimeDefaultAgent
-                                ?? (latestConfigState.activeDirectoryKey === directoryKey ? latestConfigState.runtimeDefaultAgent : undefined);
-                            const runtimeDefaultModel = latestSnapshot?.runtimeDefaultModel
-                                ?? (latestConfigState.activeDirectoryKey === directoryKey ? latestConfigState.runtimeDefaultModel : undefined);
-
-                            const shouldPersistResolvedZenModel =
-                                !!resolvedZenModel &&
-                                resolvedZenModel !== defaultZenModel;
-
-                            if (shouldPersistResolvedZenModel && resolvedZenModel) {
+                            if (resolvedZenModel && resolvedZenModel !== defaultZenModel) {
                                 updateDesktopSettings({
                                     zenModel: resolvedZenModel,
                                     gitProviderId: '',
                                     gitModelId: '',
-                                }).catch(() => {
-                                    // Ignore errors - best effort cleanup
-                                });
-                            }
-
-                            if (safeAgents.length === 0) {
-                                set((state) => {
-                                    const baseSnapshot: DirectoryScopedConfig = state.directoryScoped[directoryKey] ?? {
-                                        providers,
-                                        agents: [],
-                            currentProviderId: "",
-                            currentModelId: "",
-                            currentVariant: undefined,
-                            currentAgentName: undefined,
-                                        selectedProviderId: "",
-                                        agentModelSelections: {},
-                                        defaultProviders: {},
-                                    };
-
-                                    const nextSnapshot: DirectoryScopedConfig = {
-                                        ...baseSnapshot,
-                                        providers,
-                                        agents: [],
-                                        currentAgentName: undefined,
-                                    };
-
-                                    const nextState: Partial<ConfigStore> = {
-                                        directoryScoped: {
-                                            ...state.directoryScoped,
-                                            [directoryKey]: nextSnapshot,
-                                        },
-                                    };
-
-                                    if (state.activeDirectoryKey === directoryKey) {
-                                        nextState.currentAgentName = undefined;
-                                    }
-
-                                    return nextState;
-                                });
-
-                                const loaderEnded = typeof performance !== 'undefined' ? performance.now() : Date.now();
-                                markStartupTrace('loadAgents:end', {
-                                    directoryKey,
-                                    source,
-                                    requestedDirectory,
-                                    effectiveDirectory,
-                                    durationMs: Math.round(loaderEnded - loaderStarted),
-                                    agents: safeAgents.length,
-                                });
-                                _agentsLoadedAt.set(directoryKey, Date.now());
-                                return true;
-                            }
-
-                            // Helper to validate model exists in providers
-                            const validateModel = (providerId: string, modelId: string): boolean => {
-                                const provider = providers.find((p) => p.id === providerId);
-                                if (!provider) return false;
-                                return provider.models.some((m) => m.id === modelId);
-                            };
-
-                            // Detect invalid PiChamber settings so we can clear them from storage.
-                            // This is independent of resolution: even though the cascade below falls
-                            // back gracefully, stale settings pointing at removed models/variants
-                            // should be cleaned up.
-                            const invalidSettings: { defaultModel?: string; defaultVariant?: string } = {};
-                            if (openChamberDefaults.defaultModel) {
-                                const parsed = parseModelString(openChamberDefaults.defaultModel);
-                                if (!parsed || !validateModel(parsed.providerId, parsed.modelId)) {
-                                    invalidSettings.defaultModel = '';
-                                } else if (openChamberDefaults.defaultVariant) {
-                                    const provider = providers.find((p) => p.id === parsed.providerId);
-                                    const model = provider?.models.find((m) => m.id === parsed.modelId);
-                                    if (!configurableThinkingLevels(model).includes(openChamberDefaults.defaultVariant)) {
-                                        invalidSettings.defaultVariant = '';
-                                    }
-                                }
-                            }
-
-                            // Resolve agent + model via the shared cascade:
-                            //   Pi default_agent → build → first primary → first
-                            //   settings.defaultModel → resolved agent's model+variant → Pi/big-pickle → first
-                            const resolvedDefault = resolveDefaultAgentModelSelection({
-                                agents: safeAgents,
-                                providers,
-                                settingsDefaultModel: openChamberDefaults.defaultModel,
-                                settingsDefaultVariant: openChamberDefaults.defaultVariant,
-                                runtimeDefaultAgent,
-                                runtimeDefaultModel,
-                            });
-                            const resolvedAgentName = resolvedDefault.agentName ?? safeAgents[0].name;
-                            const resolvedProviderId = resolvedDefault.providerId;
-                            const resolvedModelId = resolvedDefault.modelId;
-                            const resolvedVariant = resolvedDefault.variant;
-
-                            set((state) => {
-                                const baseSnapshot: DirectoryScopedConfig = state.directoryScoped[directoryKey] ?? {
-                                    providers,
-                                    agents: safeAgents,
-                                    currentProviderId: "",
-                                    currentModelId: "",
-                                    currentAgentName: undefined,
-                                    selectedProviderId: "",
-                                    agentModelSelections: {},
-                                    defaultProviders: {},
-                                };
-                                const isActive = state.activeDirectoryKey === directoryKey;
-                                const currentAgentName = isActive ? state.currentAgentName : baseSnapshot.currentAgentName;
-                                const currentProviderId = isActive ? state.currentProviderId : baseSnapshot.currentProviderId;
-                                const currentModelId = isActive ? state.currentModelId : baseSnapshot.currentModelId;
-                                const currentVariant = isActive ? state.currentVariant : baseSnapshot.currentVariant;
-                                const selectionSource = isActive ? state.selectionSource : (baseSnapshot.selectionSource ?? "auto");
-                                const nextSelection = resolveSelectionWithManualGuard({
-                                    agents: safeAgents,
-                                    providers,
-                                    currentAgentName,
-                                    currentProviderId,
-                                    currentModelId,
-                                    currentVariant,
-                                    selectionSource,
-                                    resolvedAgentName,
-                                    resolvedProviderId,
-                                    resolvedModelId,
-                                    resolvedVariant,
-                                });
-
-                                const nextSnapshot: DirectoryScopedConfig = {
-                                    ...baseSnapshot,
-                                    providers,
-                                    agents: safeAgents,
-                                    currentAgentName: nextSelection.agentName,
-                                    currentProviderId: nextSelection.providerId ?? baseSnapshot.currentProviderId,
-                                    currentModelId: nextSelection.modelId ?? baseSnapshot.currentModelId,
-                                    currentVariant: nextSelection.variant,
-                                    runtimeDefaultAgent,
-                                    runtimeDefaultModel,
-                                    selectionSource: nextSelection.selectionSource,
-                                };
-
-                                const nextState: Partial<ConfigStore> = {
-                                    directoryScoped: {
-                                        ...state.directoryScoped,
-                                        [directoryKey]: nextSnapshot,
-                                    },
-                                };
-
-                                if (isActive) {
-                                    nextState.currentAgentName = nextSelection.agentName;
-                                    nextState.runtimeDefaultAgent = runtimeDefaultAgent;
-                                    nextState.runtimeDefaultModel = runtimeDefaultModel;
-                                    if (nextSelection.providerId && nextSelection.modelId) {
-                                        nextState.currentProviderId = nextSelection.providerId;
-                                        nextState.currentModelId = nextSelection.modelId;
-                                        nextState.currentVariant = nextSelection.variant;
-                                    }
-                                    nextState.selectionSource = nextSelection.selectionSource;
-                                }
-
-                                return nextState;
-                            });
-
-                            // Clear invalid settings from storage (best-effort cleanup)
-                            if (Object.keys(invalidSettings).length > 0) {
-                                // Also clear from store state
-                                 set({
-                                     settingsDefaultModel: invalidSettings.defaultModel !== undefined ? undefined : get().settingsDefaultModel,
-                                     settingsDefaultVariant: invalidSettings.defaultVariant !== undefined ? undefined : get().settingsDefaultVariant,
-                                     settingsDefaultAgent: invalidSettings.defaultAgent !== undefined ? undefined : get().settingsDefaultAgent,
-                                 });
-                                updateDesktopSettings(invalidSettings).catch(() => {
-                                    // Ignore errors - best effort cleanup
-                                });
+                                }).catch(() => {});
                             }
 
                             const loaderEnded = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -2021,7 +742,7 @@ export const useConfigStore = create<ConfigStore>()(
                                 requestedDirectory,
                                 effectiveDirectory,
                                 durationMs: Math.round(loaderEnded - loaderStarted),
-                                agents: safeAgents.length,
+                                agents: 0,
                             });
                             _agentsLoadedAt.set(directoryKey, Date.now());
                             return true;
@@ -2093,7 +814,7 @@ export const useConfigStore = create<ConfigStore>()(
                 },
 
                 invalidateModelMetadataCache: () => {
-                    modelsMetadataInFlight = null;
+                    invalidateModelMetadataLoad();
                     set({ modelsMetadata: new Map<string, ModelMetadata>() });
                 },
 
@@ -2114,6 +835,7 @@ export const useConfigStore = create<ConfigStore>()(
                             agents: state.agents,
                             currentProviderId: state.currentProviderId,
                             currentModelId: state.currentModelId,
+                            currentVariant: state.currentVariant,
                             currentAgentName: state.currentAgentName,
                             selectedProviderId: state.selectedProviderId,
                             agentModelSelections: state.agentModelSelections,
@@ -2214,21 +936,15 @@ export const useConfigStore = create<ConfigStore>()(
                                 : undefined;
 
                             for (const candidate of [savedVariant, agentVariant, settingsDefaultVariant]) {
-                                if (candidate && thinkingLevels.includes(candidate)) {
-                                    return candidate;
-                                }
+                                const resolved = resolveThinkingVariant(model, candidate);
+                                if (resolved) return resolved;
                             }
 
                             return undefined;
                         };
 
-                        const agent = agents.find((candidate) => candidate.name === agentName);
+                        const agent = asConfigAgent(agents.find((candidate) => candidate.name === agentName));
 
-                        // Prefer a session-level manual override for this agent over the
-                        // agent's configured default. Re-applying setAgent after subtask
-                        // completion / rematerialization must not clobber the override
-                        // (issue #2404). Explicit agent-picker switches still force the
-                        // agent default via ModelControls' shouldPreferAgentModel path.
                         if (currentSessionId) {
                             const existingAgentModel = useSelectionStore.getState().getAgentModelForSession(currentSessionId, agentName);
                             if (existingAgentModel && hasProviderModel(providers, existingAgentModel.providerId, existingAgentModel.modelId)) {
@@ -2244,7 +960,6 @@ export const useConfigStore = create<ConfigStore>()(
                             }
                         }
 
-                        // No session override — use the agent's configured/pinned model.
                         const agentModelSelection = agent?.model;
                         if (agentModelSelection?.providerID && agentModelSelection?.modelID) {
                             const { providerID, modelID } = agentModelSelection;
@@ -2257,7 +972,6 @@ export const useConfigStore = create<ConfigStore>()(
                             }
                         }
 
-                        // If the agent has no preferred model, use settings default.
                         if (settingsDefaultModel) {
                             const parsed = parseModelString(settingsDefaultModel);
                             if (parsed) {
@@ -2268,16 +982,9 @@ export const useConfigStore = create<ConfigStore>()(
                                 }
                             }
                         }
-
-                        // Otherwise keep the current valid model selection unchanged.
                     }
                 },
 
-                // Re-applies the same priority cascade used at app startup (see loadAgents):
-                //   agent: settings.defaultAgent → build → first primary → first agent
-                //   model: project.defaultModel → settings.defaultModel → agent's preferred model → Pi/big-pickle → first
-                // Used when entering a fresh draft session so model/agent reset to defaults
-                // instead of sticking to the previously open session's selection.
                 applyDefaultModelAgentSelection: (options) => {
                     const {
                         agents,
@@ -2521,7 +1228,7 @@ export const useConfigStore = create<ConfigStore>()(
                  setSettingsDefaultThinkingByModel: (map: Record<string, string>) => {
                      set({ settingsDefaultThinkingByModel: map });
                  },
- 
+
                 setSettingsAutoCreateWorktree: (enabled: boolean) => {
                     set({ settingsAutoCreateWorktree: enabled });
                 },
@@ -2545,8 +1252,6 @@ export const useConfigStore = create<ConfigStore>()(
                         settingsZenModel: state.settingsZenModel,
                     });
                 },
-
-
 
                 probeConnection: async (options?: { timeoutMs?: number }) => {
                     const isHealthy = await probePiHealth(options?.timeoutMs);
@@ -2642,7 +1347,6 @@ export const useConfigStore = create<ConfigStore>()(
 
                             if (!isConnected) {
                                 if (debug) console.log("Server not connected");
-                                // checkConnection already set lastDisconnectReason; do not overwrite.
                                 set({
                                     isConnected: false,
                                     connectionPhase: get().hasEverConnected ? "reconnecting" : "connecting",
@@ -2653,16 +1357,6 @@ export const useConfigStore = create<ConfigStore>()(
                             if (debug) console.log("Initializing app...");
                             markStartupTrace('initApp:skipped', { reason: 'checkConnection already verified health' });
 
-                            // Stale-while-revalidate: do NOT invalidate the hydrated
-                            // provider snapshot here. The pickers keep showing the
-                            // last-known providers/agents while loadProviders/loadAgents
-                            // below fetch fresh data and overwrite on success. Clearing
-                            // first would blank the UI for the duration of the fetch.
-
-                            // Config (providers/agents/defaults) lives at the PROJECT level. If the
-                            // app starts on a worktree directory, load config under the owning
-                            // project's key so the initial draft — which activates the project — finds
-                            // a ready snapshot instead of triggering a second provider/agent load.
                             const initialDirectory = useDirectoryStore.getState().currentDirectory
                                 ?? fromDirectoryKey(get().activeDirectoryKey);
                             const resolvedProject = resolveProjectForSessionDirectory(
@@ -2791,27 +1485,11 @@ export const useConfigStore = create<ConfigStore>()(
                     return agents.find((a) => a.name === currentAgentName);
                 },
                 getModelMetadata: (providerId: string, modelId: string) => {
-                    const key = buildModelMetadataKey(providerId, modelId);
-                    if (!key) {
-                        return undefined;
-                    }
                     const { modelsMetadata, providers } = get();
-                    const cached = modelsMetadata.get(key);
-                    if (cached) {
-                        return cached;
-                    }
-
-                    // Fallback: derive metadata from provider model data (covers custom providers not in models.dev)
-                    const provider = providers.find((p) => p.id === providerId);
-                    if (!provider) {
-                        return undefined;
-                    }
-                    const model = provider.models.find((m) => m.id === modelId);
-                    if (!model) {
-                        return undefined;
-                    }
-
-                    return deriveModelMetadata(providerId, model);
+                    const model = providers
+                        .find((provider) => provider.id === providerId)
+                        ?.models.find((candidate) => candidate.id === modelId);
+                    return resolveModelMetadata(modelsMetadata, providerId, modelId, model);
                 },
                 getVisibleAgents: () => {
                     const { agents } = get();
@@ -2828,11 +1506,6 @@ export const useConfigStore = create<ConfigStore>()(
                             ? (persistedState as Partial<ConfigStore>)
                             : {}),
                     }),
-                // Stale-while-revalidate: persist the last-known provider/agent
-                // snapshots so the model/agent pickers paint instantly on cold
-                // start. Freshness is guaranteed by the background refresh in
-                // initializeApp() / activateDirectory() (which overwrite these on
-                // success) and by the provider/agent config-change subscriptions.
                 partialize: (state) => ({
                     activeDirectoryKey: state.activeDirectoryKey,
                     directoryScoped: Object.fromEntries(
@@ -2867,75 +1540,4 @@ export const useConfigStore = create<ConfigStore>()(
     ),
 );
 
-if (typeof window !== "undefined") {
-    window.__zustand_config_store__ = useConfigStore;
-}
-
-const refreshKnownProviderDirectories = async (source: string): Promise<void> => {
-    const state = useConfigStore.getState();
-    const directoryKeys = Array.from(new Set([
-        state.activeDirectoryKey,
-        ...Object.keys(state.directoryScoped),
-    ])).filter((key) => key.length > 0);
-
-    state.invalidateProviderCache();
-
-    let nextIndex = 0;
-    const workerCount = Math.min(PROVIDER_CONFIG_REFRESH_CONCURRENCY, directoryKeys.length);
-    const workers = Array.from({ length: workerCount }, async () => {
-        while (nextIndex < directoryKeys.length) {
-            const directoryKey = directoryKeys[nextIndex];
-            nextIndex += 1;
-            await useConfigStore.getState().loadProviders({
-                directory: fromDirectoryKey(directoryKey),
-                source,
-            });
-        }
-    });
-
-    await Promise.all(workers);
-};
-
-let unsubscribeConfigStoreChanges: (() => void) | null = null;
-
-if (!unsubscribeConfigStoreChanges) {
-    unsubscribeConfigStoreChanges = subscribeToConfigChanges(async (event) => {
-            const tasks: Promise<void>[] = [];
-
-        if (scopeMatches(event, "agents")) {
-            const { loadAgents } = useConfigStore.getState();
-            tasks.push(loadAgents({ source: 'configChange:agents' }).then(() => {}));
-        }
-
-        if (scopeMatches(event, "providers")) {
-            tasks.push(refreshKnownProviderDirectories('configChange:providers'));
-        }
-
-        if (tasks.length > 0) {
-            await Promise.all(tasks);
-        }
-    });
-}
-
-let unsubscribeConfigStoreDirectoryChanges: (() => void) | null = null;
-
-let unsubscribeConfigStoreSyncConfigChanges: (() => void) | null = null;
-
-if (!unsubscribeConfigStoreSyncConfigChanges) {
-    unsubscribeConfigStoreSyncConfigChanges = subscribeToSyncConfigChanges((directory, config) => {
-        useConfigStore.getState().applyRuntimeConfigDefaults(directory, 'syncConfig', config);
-    });
-}
-
-if (typeof window !== "undefined" && !unsubscribeConfigStoreDirectoryChanges) {
-    unsubscribeConfigStoreDirectoryChanges = useDirectoryStore.subscribe((state, prevState) => {
-        const nextKey = toDirectoryKey(state.currentDirectory);
-        const prevKey = toDirectoryKey(prevState.currentDirectory);
-        if (nextKey === prevKey) {
-            return;
-        }
-
-        markStartupTrace('directoryStore:changed', { previous: prevKey, next: nextKey });
-        void useConfigStore.getState().activateDirectory(state.currentDirectory);
-    });
-}
+setupConfigStoreSubscribers(useConfigStore);

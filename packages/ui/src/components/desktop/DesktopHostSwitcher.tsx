@@ -40,16 +40,6 @@ import { scheduleDesktopHostCandidateRefresh } from '@/lib/desktopRelayRestore';
 import { adoptRelayTunnel } from '@/lib/relay/runtime-tunnel';
 import { createRelayTunnelClient } from '@/lib/relay/tunnel-client';
 import { subscribeRuntimeEndpointChanged, switchRuntimeEndpoint } from '@/lib/runtime-switch';
-import {
-  desktopSshConnect,
-  desktopSshDisconnect,
-  desktopSshInstancesGet,
-  desktopSshStatus,
-  type DesktopSshInstanceStatus,
-} from '@/lib/desktopSsh';
-
-const SSH_CONNECT_TIMEOUT_MS = 90_000;
-const SSH_CONNECT_CANCELLED_ERROR = 'SSH connection cancelled';
 
 type HostStatus = {
   status: HostProbeResult['status'];
@@ -125,90 +115,6 @@ const statusLabel = (status: HostDisplayStatus): string => {
   return 'Unknown';
 };
 
-const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
-
-const sshPhaseLabel = (phase: DesktopSshInstanceStatus['phase'] | undefined): string => {
-  switch (phase) {
-    case 'ready':
-      return 'Ready';
-    case 'error':
-      return 'Error';
-    case 'degraded':
-      return 'Reconnecting';
-    case 'config_resolved':
-      return 'Resolving config';
-    case 'auth_check':
-      return 'Checking auth';
-    case 'master_connecting':
-      return 'Connecting SSH';
-    case 'remote_probe':
-      return 'Probing remote';
-    case 'installing':
-      return 'Installing';
-    case 'updating':
-      return 'Updating';
-    case 'server_detecting':
-      return 'Detecting server';
-    case 'server_starting':
-      return 'Starting server';
-    case 'forwarding':
-      return 'Forwarding ports';
-    default:
-      return 'Idle';
-  }
-};
-
-const sshPhaseToHostStatus = (
-  phase: DesktopSshInstanceStatus['phase'] | undefined,
-): HostProbeResult['status'] | null => {
-  if (!phase || phase === 'idle') return null;
-  if (phase === 'ready') return 'ok';
-  if (phase === 'error') return 'unreachable';
-  return 'auth';
-};
-
-const getSshStatusById = async (): Promise<Record<string, DesktopSshInstanceStatus>> => {
-  const statuses = await desktopSshStatus().catch(() => []);
-  const next: Record<string, DesktopSshInstanceStatus> = {};
-  for (const status of statuses) {
-    next[status.id] = status;
-  }
-  return next;
-};
-
-const waitForSshReady = async (
-  id: string,
-  timeoutMs: number,
-  onUpdate: (status: DesktopSshInstanceStatus) => void,
-  shouldCancel?: () => boolean,
-): Promise<DesktopSshInstanceStatus> => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (shouldCancel?.()) {
-      throw new Error(SSH_CONNECT_CANCELLED_ERROR);
-    }
-
-    const statuses = await desktopSshStatus(id).catch(() => []);
-    const status = statuses.find((item) => item.id === id);
-    if (status) {
-      onUpdate(status);
-      if (status.phase === 'ready') {
-        return status;
-      }
-      if (status.phase === 'error') {
-        throw new Error(status.detail || 'SSH connection failed');
-      }
-    }
-    await sleep(700);
-  }
-
-  if (shouldCancel?.()) {
-    throw new Error(SSH_CONNECT_CANCELLED_ERROR);
-  }
-
-  throw new Error('Timed out waiting for SSH connection');
-};
-
 type DesktopHostSwitcherDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -235,23 +141,6 @@ export function DesktopHostSwitcherDialog({
   const [isProbing, setIsProbing] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
   const [switchingHostId, setSwitchingHostId] = React.useState<string | null>(null);
-  const [sshHostIds, setSshHostIds] = React.useState<Record<string, true>>({});
-  const [sshStatusesById, setSshStatusesById] = React.useState<Record<string, DesktopSshInstanceStatus>>({});
-  const [sshSwitchModal, setSshSwitchModal] = React.useState<{
-    open: boolean;
-    hostId: string | null;
-    hostLabel: string;
-    phase: DesktopSshInstanceStatus['phase'] | 'idle';
-    detail: string | null;
-    error: string | null;
-  }>({
-    open: false,
-    hostId: null,
-    hostLabel: '',
-    phase: 'idle',
-    detail: null,
-    error: null,
-  });
   const [error, setError] = React.useState<string>('');
   const [localOrigin, setLocalOrigin] = React.useState<string>(() => getLocalDesktopOrigin());
 
@@ -260,7 +149,6 @@ export function DesktopHostSwitcherDialog({
   const [editUrl, setEditUrl] = React.useState('');
 
   const [runtimeEndpointEpoch, setRuntimeEndpointEpoch] = React.useState(0);
-  const sshSwitchTokenRef = React.useRef(0);
 
   const allHosts = React.useMemo(() => {
     const local = buildLocalDesktopHost(localOrigin);
@@ -311,28 +199,16 @@ export function DesktopHostSwitcherDialog({
     setIsLoading(true);
     setError('');
     try {
-      const [cfg, sshCfg, sshStatusMap] = await Promise.all([
-        desktopHostsGet(),
-        desktopSshInstancesGet().catch(() => ({ instances: [] })),
-        getSshStatusById(),
-      ]);
+      const cfg = await desktopHostsGet();
       if (cfg.localOrigin) {
         setLocalOrigin(cfg.localOrigin);
       }
-      const nextSshHostIds: Record<string, true> = {};
-      for (const instance of sshCfg.instances) {
-        nextSshHostIds[instance.id] = true;
-      }
       setConfigHosts(cfg.hosts || []);
       setDefaultHostId(cfg.defaultHostId ?? null);
-      setSshHostIds(nextSshHostIds);
-      setSshStatusesById(sshStatusMap);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
       setConfigHosts([]);
       setDefaultHostId(null);
-      setSshHostIds({});
-      setSshStatusesById({});
     } finally {
       setIsLoading(false);
     }
@@ -384,7 +260,6 @@ export function DesktopHostSwitcherDialog({
       setEditLabel('');
       setEditUrl('');
       setSwitchingHostId(null);
-      setSshSwitchModal({ open: false, hostId: null, hostLabel: '', phase: 'idle', detail: null, error: null });
       setError('');
       return;
     }
@@ -395,32 +270,6 @@ export function DesktopHostSwitcherDialog({
     if (!open) return;
     void probeAll(allHosts);
   }, [open, allHosts, probeAll]);
-
-  React.useEffect(() => {
-    if (!open || !isDesktopShell()) {
-      return;
-    }
-    let cancelled = false;
-    const run = async () => {
-      const statuses = await getSshStatusById();
-      if (!cancelled) {
-        setSshStatusesById(statuses);
-      }
-    };
-    void run();
-    const interval = window.setInterval(() => {
-      // Skip polling when tab is hidden to reduce background work
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
-        return;
-      }
-      void run();
-    }, 1_500);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [open]);
 
   const handleSwitch = React.useCallback(async (host: DesktopHost) => {
     // Relay legs ride the E2EE tunnel activated in-renderer via
@@ -508,92 +357,6 @@ export function DesktopHostSwitcherDialog({
       return;
     }
 
-    const isSshHost = Boolean(sshHostIds[host.id]);
-
-    if (host.id !== LOCAL_HOST_ID && isSshHost && isDesktopShell()) {
-      let existingStatus = sshStatusesById[host.id];
-      const latestStatus = await desktopSshStatus(host.id)
-        .then((items) => items.find((item) => item.id === host.id) || null)
-        .catch(() => null);
-      if (latestStatus) {
-        existingStatus = latestStatus;
-        setSshStatusesById((prev) => ({
-          ...prev,
-          [host.id]: latestStatus,
-        }));
-      }
-
-      const existingUrl = normalizeHostUrl(existingStatus?.localUrl || host.url || '');
-      if (existingStatus?.phase === 'ready' && existingUrl) {
-        const target = toNavigationUrl(existingUrl);
-        onHostSwitched?.();
-        window.location.assign(target);
-        return;
-      }
-
-      setSwitchingHostId(host.id);
-      const switchToken = sshSwitchTokenRef.current + 1;
-      sshSwitchTokenRef.current = switchToken;
-      setSshSwitchModal({
-        open: true,
-        hostId: host.id,
-        hostLabel: redactSensitiveUrl(host.label),
-        phase: 'master_connecting',
-        detail: null,
-        error: null,
-      });
-      try {
-        await desktopSshConnect(host.id);
-        if (switchToken !== sshSwitchTokenRef.current) {
-          return;
-        }
-
-        const readyStatus = await waitForSshReady(host.id, SSH_CONNECT_TIMEOUT_MS, (status) => {
-          setSshStatusesById((prev) => ({
-            ...prev,
-            [status.id]: status,
-          }));
-          setSshSwitchModal((prev) => ({
-            ...prev,
-            phase: status.phase,
-            detail: status.detail || null,
-          }));
-        }, () => switchToken !== sshSwitchTokenRef.current);
-
-        if (switchToken !== sshSwitchTokenRef.current) {
-          return;
-        }
-
-        const targetOrigin = normalizeHostUrl(readyStatus.localUrl || '') || origin;
-        const target = toNavigationUrl(targetOrigin);
-        onHostSwitched?.();
-        window.location.assign(target);
-        return;
-      } catch (err) {
-        if (switchToken !== sshSwitchTokenRef.current) {
-          return;
-        }
-
-        const message = err instanceof Error ? err.message : String(err);
-        if (message === SSH_CONNECT_CANCELLED_ERROR) {
-          return;
-        }
-
-        setSshSwitchModal((prev) => ({
-          ...prev,
-          error: message,
-        }));
-        toast.error(`SSH instance \\"${redactSensitiveUrl(host.label)}\\" failed to connect`, {
-          description: message,
-        });
-        return;
-      } finally {
-        if (switchToken === sshSwitchTokenRef.current) {
-          setSwitchingHostId(null);
-        }
-      }
-    }
-
     if (host.id !== LOCAL_HOST_ID && isDesktopShell()) {
       setSwitchingHostId(host.id);
       const probe = await desktopHostProbe(origin, { clientToken: host.clientToken || null, requestHeaders: host.requestHeaders || null }).catch((): HostProbeResult => ({ status: 'unreachable', latencyMs: 0 }));
@@ -617,7 +380,7 @@ export function DesktopHostSwitcherDialog({
     } catch {
       window.location.href = target;
     }
-  }, [localOrigin, onHostSwitched, sshHostIds, sshStatusesById, statusById]);
+  }, [localOrigin, onHostSwitched, statusById]);
 
   const cancelEdit = React.useCallback(() => {
     setEditingId(null);
@@ -674,82 +437,6 @@ export function DesktopHostSwitcherDialog({
     const target = toNavigationUrl(origin);
     desktopOpenNewWindowAtUrl(target, { clientToken: host.clientToken || null, requestHeaders: host.requestHeaders || null }).catch(reportFailure);
   }, [localOrigin]);
-
-  const switchToLocal = React.useCallback(async () => {
-    sshSwitchTokenRef.current += 1;
-    setSwitchingHostId(null);
-    setSshSwitchModal((prev) => ({
-      ...prev,
-      open: false,
-      hostId: null,
-      error: null,
-      detail: null,
-      phase: 'idle',
-    }));
-    const localTarget = toNavigationUrl(localOrigin);
-    if (isElectronShell()) {
-      const clientToken = await getLocalClientToken();
-      switchRuntimeEndpoint({ apiBaseUrl: localOrigin, clientToken: clientToken || null, runtimeKey: 'local' });
-      onHostSwitched?.();
-      return;
-    }
-    onHostSwitched?.();
-    window.location.assign(localTarget);
-  }, [localOrigin, onHostSwitched]);
-
-  const cancelSshSwitch = React.useCallback(async () => {
-    const hostId = sshSwitchModal.hostId || switchingHostId;
-    sshSwitchTokenRef.current += 1;
-    setSwitchingHostId(null);
-    setSshSwitchModal({
-      open: false,
-      hostId: null,
-      hostLabel: '',
-      phase: 'idle',
-      detail: null,
-      error: null,
-    });
-
-    if (!hostId || hostId === LOCAL_HOST_ID || !isDesktopShell()) {
-      return;
-    }
-
-    await desktopSshDisconnect(hostId).catch(() => {});
-  }, [sshSwitchModal.hostId, switchingHostId]);
-
-  const retrySshSwitch = React.useCallback(() => {
-    const hostId = sshSwitchModal.hostId;
-    if (!hostId) return;
-    const host = allHosts.find((item) => item.id === hostId);
-    if (!host) return;
-    void handleSwitch(host);
-  }, [allHosts, handleSwitch, sshSwitchModal.hostId]);
-
-  const connectSshHostInPlace = React.useCallback(async (host: DesktopHost) => {
-    if (!isDesktopShell()) return;
-    setSwitchingHostId(host.id);
-    try {
-      await desktopSshConnect(host.id);
-      const readyStatus = await waitForSshReady(host.id, SSH_CONNECT_TIMEOUT_MS, (status) => {
-        setSshStatusesById((prev) => ({
-          ...prev,
-          [status.id]: status,
-        }));
-      });
-      if (readyStatus.phase === 'ready') {
-        toast.success(`SSH instance \\"${redactSensitiveUrl(host.label)}\\" connected`);
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (message !== SSH_CONNECT_CANCELLED_ERROR) {
-        toast.error(`SSH instance \\"${redactSensitiveUrl(host.label)}\\" failed to connect`, {
-          description: message,
-        });
-      }
-    } finally {
-      setSwitchingHostId(null);
-    }
-  }, []);
 
   if (!isDesktopShell()) {
     return null;
@@ -834,18 +521,14 @@ export function DesktopHostSwitcherDialog({
             ) : (
               allHosts.map((host) => {
                 const isLocal = host.id === LOCAL_HOST_ID;
-                const isSsh = Boolean(sshHostIds[host.id]);
                 const isActive = host.id === current.id;
                 const isDefault = (defaultHostId || LOCAL_HOST_ID) === host.id;
                 const status = statusById[host.id] || null;
-                const sshStatus = sshStatusesById[host.id] || null;
                 // While a probe runs, keep showing the last known result (quiet
                 // refresh); only fall back to "Checking" when there has never
                 // been one. "Unknown" is never shown — an unprobed host is by
                 // definition being checked.
-                const statusKind: HostDisplayStatus = isSsh
-                  ? sshPhaseToHostStatus(sshStatus?.phase)
-                  : (status?.status ?? 'checking');
+                const statusKind: HostDisplayStatus = status?.status ?? 'checking';
                 const isEditing = editingId === host.id;
                 const effectiveUrl = isLocal ? localOrigin : (normalizeHostUrl(host.url) || host.url);
                 const displayLabel = host.id === LOCAL_HOST_ID
@@ -892,18 +575,13 @@ export function DesktopHostSwitcherDialog({
                               {"Current"}
                             </span>
                           )}
-                          {isSsh && (
-                            <span className="typography-micro flex-shrink-0 px-1 rounded leading-none pb-px text-[var(--status-info)] bg-[var(--status-info)]/10">
-                              SSH
-                            </span>
-                          )}
                         </div>
                         <div className={cn('typography-micro truncate', statusTextClass(statusKind))}>
-                          {isSsh ? sshPhaseLabel(sshStatus?.phase) : statusLabel(statusKind)}
-                          {!isSsh && statusKind === 'ok' && typeof status?.latencyMs === 'number'
+                          {statusLabel(statusKind)}
+                          {statusKind === 'ok' && typeof status?.latencyMs === 'number'
                             ? ` · ${Math.max(0, Math.round(status.latencyMs))}ms ping`
                             : ''}
-                          {!isSsh && status?.via === 'relay' ? ` · ${"Relay"}` : ''}
+                          {status?.via === 'relay' ? ` · ${"Relay"}` : ''}
                         </div>
                         <div className="typography-micro text-muted-foreground/70 truncate font-mono">
                           {displayUrl}
@@ -912,29 +590,7 @@ export function DesktopHostSwitcherDialog({
                     </button>
 
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      {isSsh && !isLocal && (
-                        (sshStatus?.phase === 'idle' || !sshStatus?.phase) ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-8 px-2.5"
-                            disabled={switchingHostId === host.id}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void connectSshHostInPlace(host);
-                            }}
-                          >
-                            {switchingHostId === host.id ? <Icon name="loader-4" className="h-3.5 w-3.5 animate-spin" /> : <Icon name="plug-2" className="h-3.5 w-3.5" />}
-                            {"Connect"}
-                          </Button>
-                        ) : (
-                          <div
-                            className="h-8 w-8 opacity-0 pointer-events-none"
-                            aria-hidden="true"
-                          />
-                        )
-                      )}
+
 
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -1042,77 +698,20 @@ export function DesktopHostSwitcherDialog({
     </>
   );
 
-  const sshSwitchDialog = (
-    <Dialog
-      open={sshSwitchModal.open}
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen && switchingHostId) {
-          void cancelSshSwitch();
-          return;
-        }
-        setSshSwitchModal((prev) => ({
-          ...prev,
-          open: nextOpen,
-          ...(nextOpen ? {} : { hostId: null, error: null, detail: null, phase: 'idle' as const }),
-        }));
-      }}
-    >
-      <DialogContent className="w-[min(28rem,calc(100vw-2rem))] max-w-none">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Icon name="loader-4" className={cn('h-4 w-4', !sshSwitchModal.error && 'animate-spin')} />
-            {`Connecting to ${sshSwitchModal.hostLabel || 'SSH instance'}`}
-          </DialogTitle>
-          <DialogDescription>
-            {sshSwitchModal.error
-              ? sshSwitchModal.error
-              : sshSwitchModal.detail || sshPhaseLabel(sshSwitchModal.phase)}
-          </DialogDescription>
-        </DialogHeader>
-        {sshSwitchModal.error ? (
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => void switchToLocal()}
-            >
-              {"Switch to Local"}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={retrySshSwitch}
-              disabled={!sshSwitchModal.hostId}
-            >
-              {"Retry"}
-            </Button>
-          </div>
-        ) : null}
-      </DialogContent>
-    </Dialog>
-  );
-
   if (embedded) {
     return (
-      <>
-        <div className="w-full max-h-[70vh] flex flex-col overflow-hidden gap-2">
-          {content}
-        </div>
-        {sshSwitchDialog}
-      </>
+      <div className="w-full max-h-[70vh] flex flex-col overflow-hidden gap-2">
+        {content}
+      </div>
     );
   }
 
   return (
-    <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="w-[min(42rem,calc(100vw-2rem))] max-w-none max-h-[70vh] flex flex-col overflow-hidden gap-3">
-          {content}
-        </DialogContent>
-      </Dialog>
-      {sshSwitchDialog}
-    </>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(42rem,calc(100vw-2rem))] max-w-none max-h-[70vh] flex flex-col overflow-hidden gap-3">
+        {content}
+      </DialogContent>
+    </Dialog>
   );
 }
 

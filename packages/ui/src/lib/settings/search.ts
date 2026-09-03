@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import type { SettingsPageSlug, SettingsRuntimeContext } from './metadata';
 import { getSettingsPageMeta } from './metadata';
 
@@ -12,7 +10,7 @@ interface SettingsSearchItem {
   isAvailable?: (ctx: SettingsSearchAvailabilityContext) => boolean;
 }
 
-export interface SettingsSearchResult extends SettingsSearchItem {
+export interface SettingsSearchResult extends Omit<SettingsSearchItem, 'description'> {
   title: string;
   description: string | null;
   pageTitle: string;
@@ -578,24 +576,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'skills.installed',
     title: "Skills",
     keywords: ['skills', 'agent skills', 'project resources'],
-  },
-  {
-    id: 'magic-prompts.visible-prompt',
-    page: 'magic-prompts',
-    title: "Visible Prompt",
-    keywords: ['prompt text', 'user message', 'template'],
-  },
-  {
-    id: 'magic-prompts.instructions',
-    page: 'magic-prompts',
-    title: "Instructions",
-    keywords: ['hidden prompt', 'instructions', 'template'],
-  },
-  {
-    id: 'magic-prompts.reset-overrides',
-    page: 'magic-prompts',
-    title: "Reset All Overrides",
-    keywords: ['reset', 'default prompts', 'overrides'],
   },
   {
     id: 'shortcuts.keyboard-shortcuts',

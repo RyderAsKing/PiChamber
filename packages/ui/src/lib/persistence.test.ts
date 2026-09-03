@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 
 import type { RuntimeAPIs, SettingsPayload } from '@/lib/api/types';
@@ -170,9 +168,7 @@ describe('updateDesktopSettings', () => {
       return {};
     });
 
-    const update = updateDesktopSettings({
-      skillCatalogs: [{ id: 'custom:test', label: 'Test', source: 'owner/repo' }],
-    });
+    const update = updateDesktopSettings({ themeId: 'test-theme' });
     update.then(() => {
       updateResolved = true;
     }).catch(() => {

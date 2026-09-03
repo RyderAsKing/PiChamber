@@ -4,19 +4,20 @@ import { piListItemToUiSession } from '@/lib/chat/pi-to-renderable';
 import type { Config, Message, Session } from '@/lib/chat/types';
 import type { PiSessionListItem } from '@/lib/pi/protocol';
 import { listLiveSessionRecordsFromCatalog, listUiSessionsFromCatalog } from './pi-session-catalog';
+import type { State } from './types';
 
 export function setSyncRefs() {}
-export function getDirectoryState(...args: unknown[]) {
+export function getDirectoryState(...args: unknown[]): Pick<State, 'session_status' | 'message'> | undefined {
   void args;
-  return undefined as undefined | {
-    session_status?: Record<string, unknown>;
-    [key: string]: unknown;
-  };
-}
-export function getSyncConfig(): Config | undefined {
   return undefined;
 }
-export function subscribeToSyncConfigChanges() {
+export function getSyncConfig(_directory?: string): Config | undefined {
+  void _directory;
+  return undefined;
+}
+type SyncConfigListener = (directory: string, config: Config) => void;
+export function subscribeToSyncConfigChanges(_listener?: SyncConfigListener) {
+  void _listener;
   return () => {};
 }
 export function emitSyncConfigChanged() {}

@@ -1,5 +1,4 @@
 /* eslint-disable */
-// @ts-nocheck
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import type { Agent } from '@/lib/chat/types';
 
@@ -308,7 +307,7 @@ describe('useConfigStore provider persistence', () => {
     currentFetchDirectory = DIRECTORY;
     // Note: syncConfigListeners intentionally persists across tests — the
     // store subscribes once at module load and must stay subscribed.
-    setSyncRefs({} as never, { children: new Map(), getState: () => undefined } as never, DIRECTORY);
+    setSyncRefs();
     useSelectionStore.setState({
       sessionModelSelections: new Map(),
       sessionAgentSelections: new Map(),
