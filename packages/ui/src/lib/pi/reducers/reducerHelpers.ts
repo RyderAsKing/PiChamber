@@ -193,6 +193,26 @@ export const ensureMessage = (
     ...(payload.thinkingLevel ? { thinkingLevel: payload.thinkingLevel } : {}),
   };
   session.messages.set(payload.messageId, message);
+  if (payload.role === 'user' && payload.files?.length) {
+    const order: string[] = [];
+    for (const file of payload.files) {
+      const part: PiReducerMessagePart = {
+        id: file.id,
+        index: file.index,
+        type: 'file',
+        text: '',
+        streaming: false,
+        file: {
+          ...(file.mime ? { mime: file.mime } : {}),
+          ...(file.filename ? { filename: file.filename } : {}),
+          ...(file.url ? { url: file.url } : {}),
+        },
+      };
+      session.parts.set(part.id, part);
+      order.push(part.id);
+    }
+    session.partOrder.set(message.id, order);
+  }
   return message;
 };
 

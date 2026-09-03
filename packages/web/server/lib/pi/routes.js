@@ -195,6 +195,16 @@ const sanitizeNavigation = (value) => {
   };
 };
 
+const projectFilePart = (part) => {
+  // Optional fields degrade instead of failing the whole message. The daemon
+  // only emits inline data URLs; never pass a filesystem or remote URL on.
+  const file = {};
+  if (typeof part.mime === 'string' && part.mime.length > 0 && part.mime.length <= 200) file.mime = part.mime.slice(0, 200);
+  if (typeof part.filename === 'string' && part.filename.length > 0 && part.filename.length <= 2048) file.filename = part.filename.slice(0, 2048);
+  if (typeof part.url === 'string' && part.url.length > 0 && part.url.length <= 8000000 && part.url.startsWith('data:')) file.url = part.url;
+  return { type: 'file', id: part.id, index: part.index, ...file };
+};
+
 const projectSessionDetail = (value) => {
   if (!value || typeof value !== 'object' || !Array.isArray(value.messages) || !Number.isSafeInteger(value.lastSequence)) throw protocolMismatch();
   const messages = value.messages.map((item) => {
@@ -240,6 +250,7 @@ const projectSessionDetail = (value) => {
           state: ['pending', 'running', 'completed', 'error', 'cancelled'].includes(part.state) ? part.state : 'completed',
         };
       }
+      if (part.type === 'file') return projectFilePart(part);
       throw protocolMismatch();
     });
     return { message: projected, parts };
@@ -535,7 +546,15 @@ export const projectEventFrame = (frame) => {
       return { ...common, payload: { title } };
     }
     case 'session.tree.updated': return { ...common, payload: {} };
-    case 'assistant.message.start': return { ...common, payload: { messageId: frame.payload.messageId, role: frame.payload.role, startedAt: frame.payload.startedAt, ...(typeof frame.payload.parentId === 'string' ? { parentId: frame.payload.parentId } : {}), ...(typeof frame.payload.text === 'string' ? { text: frame.payload.text } : {}), ...(frame.payload.model ? { model: frame.payload.model } : {}) } };
+    case 'assistant.message.start': {
+      const files = frame.payload.role === 'user' && Array.isArray(frame.payload.files)
+        ? frame.payload.files
+          .filter((part) => part && part.type === 'file' && typeof part.id === 'string' && Number.isSafeInteger(part.index))
+          .slice(0, 32)
+          .map(projectFilePart)
+        : [];
+      return { ...common, payload: { messageId: frame.payload.messageId, role: frame.payload.role, startedAt: frame.payload.startedAt, ...(typeof frame.payload.parentId === 'string' ? { parentId: frame.payload.parentId } : {}), ...(typeof frame.payload.text === 'string' ? { text: frame.payload.text } : {}), ...(files.length > 0 ? { files } : {}), ...(frame.payload.model ? { model: frame.payload.model } : {}) } };
+    }
     case 'assistant.message.delta':
     case 'assistant.thinking.delta': return { ...common, payload: { messageId: frame.payload.messageId, contentIndex: frame.payload.contentIndex, delta: frame.payload.delta, ...(typeof frame.payload.partId === 'string' ? { partId: frame.payload.partId } : {}) } };
     case 'assistant.message.end': return {

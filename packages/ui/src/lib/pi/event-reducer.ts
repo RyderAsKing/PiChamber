@@ -212,6 +212,10 @@ export const applyPiEvent = (
       session.lifecycle = session.retry ? 'retry' : 'busy';
       session.messages = new Map(session.messages);
       session.streamingMessages = new Set(session.streamingMessages);
+      if (event.payload.files?.length) {
+        forkPartsForWrite(session);
+        session.partOrder = new Map(session.partOrder);
+      }
       reduceMessageStart(session, event.directory, event.payload);
       if (event.payload.role === 'assistant') session.streamingMessages.add(event.payload.messageId);
       markMutation(session, event.payload.messageId, 'structure');

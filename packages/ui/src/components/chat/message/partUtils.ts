@@ -1,4 +1,5 @@
 import type { Part } from '@/lib/chat/types';
+import { isShellActionPart, isSubtaskPart } from './userAuxiliaryPartsModel';
 
 type PartWithText = Part & { text?: string; content?: string; value?: string };
 
@@ -19,12 +20,25 @@ export const extractTextContent = (part: Part): string => {
     return partWithText.content || partWithText.value || '';
 };
 
-export const isEmptyTextPart = (part: Part): boolean => {
+const isEmptyTextPart = (part: Part): boolean => {
     if (part.type !== 'text') {
         return false;
     }
     const text = extractTextContent(part);
     return !text || text.trim().length === 0;
+};
+
+/**
+ * True for parts that render inside the user bubble itself (text, subtasks,
+ * shell actions). File parts render in the message footer below the bubble,
+ * so ChatMessage uses this to skip the bubble box for attachment-only
+ * messages instead of leaving an empty pill.
+ */
+export const isUserBubbleContentPart = (part: Part): boolean => {
+    if (part.type === 'text') {
+        return !isEmptyTextPart(part);
+    }
+    return isSubtaskPart(part) || isShellActionPart(part);
 };
 
 export const filterRenderableAssistantParts = (parts: Part[]): Part[] => parts.filter((part) => {

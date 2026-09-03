@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import express from 'express';
 
-import { registerPiRuntimeRoutes } from './routes.js';
+import { projectEventFrame, registerPiRuntimeRoutes } from './routes.js';
 
 const listen = (app) => new Promise((resolve, reject) => {
   const server = app.listen(0, '127.0.0.1', () => resolve(server));
@@ -24,6 +24,36 @@ const close = (server) => new Promise((resolve, reject) => {
 
 describe('Pi runtime route', () => {
   let server;
+
+  it('projects prompt-time files on a live user message start', () => {
+    expect(projectEventFrame({
+      protocolVersion: 1,
+      kind: 'event',
+      event: 'assistant.message.start',
+      sequence: 4,
+      payload: {
+        sessionId: 'pi-session-files',
+        directory: '/workspace',
+        messageId: 'user-1',
+        role: 'user',
+        text: 'look',
+        startedAt: 2,
+        files: [
+          { type: 'file', id: 'user-1:file:0', index: 0, mime: 'image/png', filename: 'image.png' },
+          { type: 'file', id: 'bad', index: 1, mime: `x/${'y'.repeat(300)}`, filename: 'bad.png', url: 'file:///private/path' },
+        ],
+      },
+    })).toMatchObject({
+      name: 'assistant.message.start',
+      payload: {
+        messageId: 'user-1',
+        files: [
+          { type: 'file', id: 'user-1:file:0', index: 0, mime: 'image/png', filename: 'image.png' },
+          { type: 'file', id: 'bad', index: 1, filename: 'bad.png' },
+        ],
+      },
+    });
+  });
 
   afterEach(async () => {
     await close(server);
@@ -595,6 +625,56 @@ describe('Pi runtime route', () => {
     for (const call of calls.filter((call) => call.command?.startsWith('sessions.') && call.command !== 'sessions.list')) {
       expect(call.payload.sessionId).toBe('pi-session-7');
     }
+  });
+
+  it('projects daemon file parts for image and attachment history instead of failing the session open', async () => {
+    const detail = {
+      session: { id: 'pi-session-files', directory: '/workspace', createdAt: 1, updatedAt: 2 },
+      messages: [{
+        message: { id: 'entry-1', sessionId: 'pi-session-files', directory: '/workspace', role: 'user', text: 'look', createdAt: 2 },
+        parts: [
+          { type: 'file', id: 'entry-1:image:1', index: 1, mime: 'image/png', url: 'data:image/png;base64,AAA', filename: 'image.png' },
+          { type: 'file', id: 'entry-1:attachment:0', index: 0, filename: 'notes.zip' },
+          // Degraded, never fatal: oversized/non-data URLs and oversized mime are stripped.
+          { type: 'file', id: 'entry-1:image:9', index: 9, mime: 'image/png', url: `data:image/png;base64,${'A'.repeat(9000000)}`, filename: 'huge.png' },
+          { type: 'file', id: 'entry-1:image:10', index: 10, mime: 'image/png', url: 'https://example.test/image.png', filename: 'remote.png' },
+          { type: 'file', id: 'entry-1:image:11', index: 11, mime: `x/${'y'.repeat(300)}`, filename: 'bad-mime.png' },
+        ],
+      }],
+      lastSequence: 3,
+      isStreaming: false,
+      lifecycle: 'idle',
+    };
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      request: async (command) => {
+        if (command === 'sessions.open') return detail;
+        return {};
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, archiveStore: { read: async () => ({}) } });
+    server = await listen(app);
+
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions/pi-session-files`);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      session: { id: 'pi-session-files', directory: '/workspace', createdAt: 1, updatedAt: 2 },
+      messages: [{
+        message: { id: 'entry-1', sessionId: 'pi-session-files', directory: '/workspace', role: 'user', text: 'look', createdAt: 2 },
+        parts: [
+          { type: 'file', id: 'entry-1:image:1', index: 1, mime: 'image/png', url: 'data:image/png;base64,AAA', filename: 'image.png' },
+          { type: 'file', id: 'entry-1:attachment:0', index: 0, filename: 'notes.zip' },
+          { type: 'file', id: 'entry-1:image:9', index: 9, mime: 'image/png', filename: 'huge.png' },
+          { type: 'file', id: 'entry-1:image:10', index: 10, mime: 'image/png', filename: 'remote.png' },
+          { type: 'file', id: 'entry-1:image:11', index: 11, filename: 'bad-mime.png' },
+        ],
+      }],
+      lastSequence: 3,
+      isStreaming: false,
+      lifecycle: 'idle',
+    });
   });
 
   it('rejects unauthenticated requests before the Pi adapters run', async () => {

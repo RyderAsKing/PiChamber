@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 
 import type { AnimationHandlers, ContentChangeReason } from '@/hooks/useChatAutoFollow';
 import MessageBody from './message/MessageBody';
+import { isUserBubbleContentPart } from './message/partUtils';
 import type { AgentMentionInfo } from './message/types';
 import type { StreamPhase } from './message/types';
 import { deriveMessageRole } from './message/messageRole';
@@ -145,6 +146,10 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   );
 
   const displayParts = visibleParts;
+
+  // Attachments render in the footer below the bubble, so a message with
+  // files but no text skips the bubble box instead of leaving an empty pill.
+  const hasUserBubbleContent = isUser && displayParts.some(isUserBubbleContentPart);
 
   const assistantTextParts = React.useMemo(() => {
     if (isUser) {
@@ -462,23 +467,27 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                 respectReducedMotion
               >
                 <div className={cn('relative flex justify-end', !isMobile ? 'group/user-shell' : undefined)}>
-                  <div className={cn('max-w-[85%]', showStickyInlineHoverRow ? 'pb-5' : undefined)}>
-                    <div
-                      style={{
-                        backgroundColor: 'var(--chat-user-message-bg)',
-                        borderRadius: userMessageRadius,
-                        borderBottomRightRadius: 'var(--radius-sm)',
-                      }}
-                      className={cn(
-                        'px-5 py-3 shadow-none border border-primary/5',
-                        !isMobile && 'pb-4',
-                      )}
-                    >
-                      <MessageBody
-                        {...userMessageBodyProps}
-                        userActionsMode={useExternalUserActionsRow ? 'external-content' : 'inline'}
-                      />
-                    </div>
+                  <div className={cn('max-w-[85%]', showStickyInlineHoverRow && hasUserBubbleContent ? 'pb-5' : undefined)}>
+                    {hasUserBubbleContent ? (
+                      <div
+                        style={{
+                          backgroundColor: 'var(--chat-user-message-bg)',
+                          borderRadius: userMessageRadius,
+                          borderBottomRightRadius: 'var(--radius-sm)',
+                        }}
+                        className={cn(
+                          'px-5 py-3 shadow-none border border-primary/5',
+                          !isMobile && 'pb-4',
+                        )}
+                      >
+                        <MessageBody
+                          {...userMessageBodyProps}
+                          userActionsMode={useExternalUserActionsRow ? 'external-content' : 'inline'}
+                        />
+                      </div>
+                    ) : useExternalUserActionsRow ? null : (
+                      <MessageBody {...userMessageBodyProps} userActionsMode="external-actions" />
+                    )}
                     {useExternalUserActionsRow ? (
                       <MessageBody {...userMessageBodyProps} userActionsMode="external-actions" />
                     ) : null}

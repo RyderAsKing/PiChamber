@@ -131,9 +131,9 @@ and the send path reading the same grammar.
 
 ## Draft attachments
 
-Picker, drop, and paste add cards before preparation completes. The composer renders one attachment strip inside the card: it wraps on wider layouts and scrolls horizontally on narrow layouts. Each card reads its own `preparing`, `uploading`, `ready`, or `failed` state from `input-store.ts`. Upload progress is determinate when the runtime transport reports a byte count. Failed and expired uploads stay visible with Retry and Remove actions.
+Picker, drop, and paste add cards before preparation completes. The composer renders one attachment strip inside the card as a grid that fills the composer width with up to three columns (two on narrow layouts); a lone card takes a single column. Each card reads its own `preparing`, `uploading`, `ready`, or `failed` state from `input-store.ts`. Upload progress is determinate when the runtime transport reports a byte count. Failed and expired uploads stay visible with Retry and Remove actions.
 
-Send and Queue require every draft attachment to be ready. The handlers repeat that check so keyboard submission cannot bypass it. Queueing detaches the cards without deleting their server uploads. Prompt dispatch keeps cards in place until Pi accepts the prompt; failure leaves them available for another attempt. Sent-message attachments use `MessageFilesDisplay` and do not share the draft-card lifecycle.
+Send and Queue require every draft attachment to be ready. The handlers repeat that check so keyboard submission cannot bypass it. Queueing detaches the cards without deleting their server uploads. Prompt dispatch keeps cards in place until Pi accepts the prompt; failure leaves them available for another attempt. The sent text follows the same rule: it stays visible until dispatch settles, then clears on success (only if the composer still shows exactly what was sent and still belongs to that draft) and stays for editing on failure. Sent-message attachments use `MessageFilesDisplay` and do not share the draft-card lifecycle.
 
 ## Dictation
 

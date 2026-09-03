@@ -1,11 +1,19 @@
 import { describe, expect, test } from 'bun:test';
 import type { Message, Part } from '@/lib/chat/types';
 
-import { areOptionalNeighborMessagesEqual, areOptionalRenderRelevantMessagesEqual } from './renderCompare';
+import { areOptionalNeighborMessagesEqual, areOptionalRenderRelevantMessagesEqual, areRenderRelevantPartsEqual } from './renderCompare';
 
 const record = (id: string, role: 'user' | 'assistant', text: string) => ({
   info: { id, role, sessionID: 's1', time: { created: 1 } } as Message,
   parts: [{ id: `${id}:text`, type: 'text', text } as Part],
+});
+
+describe('areRenderRelevantPartsEqual', () => {
+  test('invalidates a file part when its renderable metadata arrives', () => {
+    const pending = [{ id: 'f1', type: 'file', filename: 'image.png', mime: 'image/png' } as Part];
+    const hydrated = [{ ...pending[0], url: 'data:image/png;base64,AAA' } as Part];
+    expect(areRenderRelevantPartsEqual(pending, hydrated)).toBe(false);
+  });
 });
 
 describe('areOptionalNeighborMessagesEqual', () => {

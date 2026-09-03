@@ -96,6 +96,17 @@ export const areRenderRelevantPartsEqual = (left: Part[], right: Part[]): boolea
       return false;
     }
 
+    if (leftPart.type === 'file') {
+      const leftFile = leftPart as { filename?: unknown; mime?: unknown; url?: unknown; size?: unknown };
+      const rightFile = rightPart as { filename?: unknown; mime?: unknown; url?: unknown; size?: unknown };
+      if (leftFile.filename !== rightFile.filename
+        || leftFile.mime !== rightFile.mime
+        || leftFile.url !== rightFile.url
+        || leftFile.size !== rightFile.size) {
+        return false;
+      }
+    }
+
     if (leftPart.type === 'text' || leftPart.type === 'reasoning') {
       if (readPartText(leftPart) !== readPartText(rightPart)) {
         return false;

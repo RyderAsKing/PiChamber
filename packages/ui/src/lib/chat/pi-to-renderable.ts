@@ -55,6 +55,16 @@ export const mapPart = (
       type: 'file',
       filename: part.attachment?.name,
       mime: part.attachment?.mime,
+      size: part.attachment?.size,
+    };
+  }
+  if (part.type === 'file') {
+    return {
+      id: part.id,
+      type: 'file',
+      filename: part.file?.filename,
+      mime: part.file?.mime,
+      url: part.file?.url,
     };
   }
   if (part.type === 'tool') {

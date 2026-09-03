@@ -21,6 +21,7 @@ import { useSnippetsStore } from '@/stores/useSnippetsStore';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import {
     createChatDraftIdentity,
+    getChatDraftIdentityKey,
     readChatDraft,
     writeChatDraft,
     type ChatDraftIdentity,
@@ -585,6 +586,19 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         onDraftRestored: () => composerRef.current?.selectAll(),
     });
 
+    // Attachments follow the draft identity like text: switching sessions
+    // stashes the outgoing files and restores the incoming session's, so
+    // unsent images never leak into another conversation. Mounts (including
+    // StrictMode remounts) adopt the current identity without moving files.
+    const prevAttachmentsIdentityKeyRef = React.useRef<string | undefined>(undefined);
+    React.useEffect(() => {
+        const nextKey = chatDraftIdentity ? getChatDraftIdentityKey(chatDraftIdentity) : '';
+        const prevKey = prevAttachmentsIdentityKeyRef.current;
+        prevAttachmentsIdentityKeyRef.current = nextKey;
+        if (prevKey === undefined || prevKey === nextKey) return;
+        useInputStore.getState().swapAttachmentsDraft(prevKey, nextKey);
+    }, [chatDraftIdentity]);
+
     // Focus textarea when new session draft is opened
     const prevNewSessionDraftOpenRef = React.useRef(newSessionDraftOpen);
     React.useEffect(() => {
@@ -876,20 +890,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             useSessionUIStore.getState().newSessionDraft === draftAtSend
             && useSessionUIStore.getState().currentSessionId === null
         );
-        if (!queuedOnly) {
-            // Always consume the captured draft. If navigation happened while
-            // the worktree was being created, leave the newly selected
-            // session's composer alone. Text is cleared optimistically while
-            // queued messages and attachments stay put until prompt dispatch
-            // succeeds (cleared in the success handler).
-            persistDraftImmediately(chatDraftIdentity, '');
-            if (capturedWorktreeDraftIsCurrent) {
-                setMessage('');
-                confirmedMentionsRef.current.clear();
-                messageHistory.reset();
-                // Attachments stay visible until prompt dispatch succeeds.
-                setExpandedInput(false);
-            }
+        if (!queuedOnly && capturedWorktreeDraftIsCurrent) {
+            // The composer keeps showing the sent text and attachments until
+            // prompt dispatch settles: success clears both (see below) and
+            // failure keeps both for retry. Only navigation state collapses.
+            messageHistory.reset();
+            setExpandedInput(false);
         }
 
         if (isMobile && capturedWorktreeDraftIsCurrent) {
@@ -919,7 +925,15 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     }
                 },
             });
-            if (handled) return;
+            if (handled) {
+                // A consumed local command still clears the composer.
+                if (capturedWorktreeDraftIsCurrent) {
+                    persistDraftImmediately(chatDraftIdentity, '');
+                    setMessage('');
+                    confirmedMentionsRef.current.clear();
+                }
+                return;
+            }
         }
 
         const currentSessionDirectory = capturedTarget?.directory ?? currentDirectory;
@@ -982,6 +996,26 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 clearQueue(capturedTarget);
             }
             if (composerAttachmentIds.length > 0) detachAttachedFiles(composerAttachmentIds);
+            if (!queuedOnly && capturedWorktreeDraftIsCurrent) {
+                // Clear the captured draft after acceptance. If the user typed
+                // ahead in the same composer, persist that new text instead;
+                // switching sessions must not clear the newly visible draft.
+                const sentDraftKey = chatDraftIdentity ? getChatDraftIdentityKey(chatDraftIdentity) : '';
+                const liveDraftIdentity = currentChatDraftIdentityRef.current;
+                const liveDraftKey = liveDraftIdentity ? getChatDraftIdentityKey(liveDraftIdentity) : '';
+                const currentInput = composerRef.current?.getValue() ?? messageRef.current;
+                const composerStillHasSentText = !currentInput || currentInput === inputSnapshot.message;
+                if (sentDraftKey === liveDraftKey) {
+                    persistDraftImmediately(chatDraftIdentity, composerStillHasSentText ? '' : currentInput);
+                    if (composerStillHasSentText) {
+                        setMessage('');
+                        confirmedMentionsRef.current.clear();
+                        messageHistory.reset();
+                    }
+                } else {
+                    persistDraftImmediately(chatDraftIdentity, '');
+                }
+            }
         }).catch((error: unknown) => {
             const rawMessage =
                 error instanceof Error
@@ -1655,8 +1689,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         />
                     ) : (
                     <div className={cn("overflow-hidden", isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
-                        <div className={cn('relative z-10 flex flex-wrap items-center gap-1', isInlineComposer ? 'px-0' : 'px-3 pt-1')}>
-                            <AttachedFilesList onShowPopup={handleShowAttachmentPreview} />
+                        <div className="relative z-10">
+                            <AttachedFilesList
+                                onShowPopup={handleShowAttachmentPreview}
+                                isInline={isInlineComposer}
+                                isMobile={isMobile}
+                            />
                         </div>
                         <div
                             className={cn("relative overflow-hidden", isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}
@@ -1710,10 +1748,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                     isComposerExpanded
                                         ? cn('h-full min-h-0', isMobile ? 'py-2.5' : 'py-4')
                                         : isMobile
-                                            ? 'py-2.5'
+                                            ? (attachedFiles.length > 0 ? 'pt-1 pb-2.5' : 'py-2.5')
                                             : isInlineComposer
                                                 ? undefined
-                                                : 'pt-3 pb-2',
+                                                : (attachedFiles.length > 0 ? 'pt-1.5 pb-2' : 'pt-3 pb-2'),
                                     inputMode === 'shell' ? 'font-mono' : 'typography-markdown md:typography-ui-label',
                                 )}
                             />

@@ -40,33 +40,16 @@ const streamBlob = (
   });
 };
 
-const supportsStreamingRequestBodies = (): boolean => {
-  if (getActiveRelayTunnel()) return true;
-  try {
-    let duplexRead = false;
-    const init = {
-      method: 'POST',
-      body: new ReadableStream<Uint8Array>(),
-      get duplex() {
-        duplexRead = true;
-        return 'half' as const;
-      },
-    };
-    const request = new Request('https://pichamber.invalid/upload-probe', init as RequestInit & { duplex: 'half' });
-    return duplexRead && !request.headers.has('Content-Type');
-  } catch {
-    return false;
-  }
-};
-
 /** Upload raw bytes through the active runtime transport, including relay mode. */
 export const runtimeUpload = async (
   path: string,
   file: Blob,
   options: RuntimeUploadOptions,
 ): Promise<Response> => {
-  const streaming = supportsStreamingRequestBodies();
-  if (!streaming) options.onProgress?.({ loaded: 0, total: 0 });
+  const isRelay = Boolean(getActiveRelayTunnel());
+  if (!isRelay) {
+    options.onProgress?.({ loaded: 0, total: file.size });
+  }
   const request = {
     method: 'POST',
     headers: {
@@ -75,10 +58,15 @@ export const runtimeUpload = async (
       'X-PiChamber-Filename': encodeURIComponent(options.filename),
       'X-PiChamber-Mime': options.mime,
     },
-    body: streaming ? streamBlob(file, options.signal, options.onProgress) : file,
+    body: isRelay ? streamBlob(file, options.signal, options.onProgress) : file,
     signal: options.signal,
-    // Chromium requires this for streaming request bodies. The relay ignores it.
-    ...(streaming ? { duplex: 'half' as const } : {}),
+    // ReadableStream request bodies require duplex:'half' in Chromium (supported in relay mode).
+    // Direct native fetch uses Blob directly to avoid ERR_ALPN_NEGOTIATION_FAILED on HTTP/1.1.
+    ...(isRelay ? { duplex: 'half' as const } : {}),
   } as RequestInit & { duplex?: 'half' };
-  return runtimeFetch(path, request);
+  const response = await runtimeFetch(path, request);
+  if (!isRelay && response.ok) {
+    options.onProgress?.({ loaded: file.size, total: file.size });
+  }
+  return response;
 };

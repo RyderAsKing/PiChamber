@@ -156,4 +156,80 @@ describe("input-store attachment lifecycle", () => {
     useInputStore.getState().removeAttachedFile(files[1].id)
     expect(useInputStore.getState().attachedFiles).toEqual([])
   })
+
+  test("prepares and uploads a zip file on first attempt without failing", async () => {
+    const zipBytes = zipSync({ "test.txt": strToU8("hello in zip") })
+    const zipFile = new File([zipBytes], "archive.zip", { type: "application/zip" })
+    expect(await useInputStore.getState().addAttachedFile(zipFile)).toBe(true)
+    await waitFor(() => useInputStore.getState().attachedFiles[0]?.uploadState?.status === "ready")
+
+    const attachment = useInputStore.getState().attachedFiles[0]
+    expect(attachment.filename).toBe("archive.zip")
+    expect(attachment.mimeType).toBe("application/zip")
+    expect(attachment.uploadState?.status).toBe("ready")
+  })
+})
+
+describe("input-store per-draft attachment slots", () => {
+  const seedServerFile = (filename: string) => {
+    useInputStore.getState().addRestoredAttachment({ url: `file:///${filename}`, mimeType: "text/plain", filename })
+    const files = useInputStore.getState().attachedFiles
+    return files[files.length - 1].id
+  }
+
+  beforeEach(() => {
+    useInputStore.setState({ attachedFiles: [], stashedAttachmentsByDraft: {} })
+  })
+
+  afterEach(() => {
+    useInputStore.setState({ attachedFiles: [], stashedAttachmentsByDraft: {} })
+  })
+
+  test("switching drafts stashes outgoing files and restores the incoming session's", () => {
+    seedServerFile("a.txt")
+    useInputStore.getState().swapAttachmentsDraft("draft-a", "draft-b")
+    expect(useInputStore.getState().attachedFiles).toEqual([])
+    seedServerFile("b.txt")
+    useInputStore.getState().swapAttachmentsDraft("draft-b", "draft-a")
+    expect(useInputStore.getState().attachedFiles.map((file) => file.filename)).toEqual(["a.txt"])
+  })
+
+  test("swapping to the same draft key is a no-op", () => {
+    seedServerFile("a.txt")
+    useInputStore.getState().swapAttachmentsDraft("draft-a", "draft-a")
+    expect(useInputStore.getState().attachedFiles.map((file) => file.filename)).toEqual(["a.txt"])
+    expect(useInputStore.getState().stashedAttachmentsByDraft).toEqual({})
+  })
+
+  test("detaching clears sent ids from the visible list and every stash", () => {
+    const currentId = seedServerFile("current.txt")
+    useInputStore.getState().swapAttachmentsDraft("draft-a", "draft-b")
+    const stashedId = seedServerFile("stashed.txt")
+    useInputStore.getState().swapAttachmentsDraft("draft-b", "draft-a")
+    // A send that resolves after a draft switch still clears its own files.
+    useInputStore.getState().detachAttachedFiles([stashedId, currentId, "missing-id"])
+    expect(useInputStore.getState().attachedFiles).toEqual([])
+    expect(useInputStore.getState().stashedAttachmentsByDraft).toEqual({})
+  })
+
+  test("session cleanup drops only that session's stash", () => {
+    seedServerFile("a.txt")
+    useInputStore.getState().swapAttachmentsDraft(JSON.stringify(["rk", "/dir", "s1"]), "other")
+    seedServerFile("b.txt")
+    useInputStore.getState().swapAttachmentsDraft("other", JSON.stringify(["rk", "/dir", "s2"]))
+    useInputStore.getState().clearStashedAttachmentsForSession({ runtimeKey: "rk", directory: "/dir", sessionId: "s1" })
+    const stashed = useInputStore.getState().stashedAttachmentsByDraft
+    expect(Object.keys(stashed)).toEqual(["other"])
+  })
+
+  test("empty draft switches do not evict a real attachment stash", () => {
+    seedServerFile("keep.txt")
+    useInputStore.getState().swapAttachmentsDraft("draft-with-file", "empty-0")
+    for (let index = 0; index < 15; index += 1) {
+      useInputStore.getState().swapAttachmentsDraft(`empty-${index}`, `empty-${index + 1}`)
+    }
+    useInputStore.getState().swapAttachmentsDraft("empty-15", "draft-with-file")
+    expect(useInputStore.getState().attachedFiles.map((file) => file.filename)).toEqual(["keep.txt"])
+    expect(Object.keys(useInputStore.getState().stashedAttachmentsByDraft)).toHaveLength(0)
+  })
 })

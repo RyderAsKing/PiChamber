@@ -1,10 +1,10 @@
 import React from 'react';
 import type { Part } from '@/lib/chat/types';
 import UserTextPart from './parts/UserTextPart';
-import { MessageFilesDisplay } from '../FileAttachment';
+import { UserMessageAttachments, type MessageFilePart } from './UserMessageAttachments';
 import type { ToolPopupContent, AgentMentionInfo } from './types';
 import { cn } from '@/lib/utils';
-import { isEmptyTextPart, extractTextContent } from './partUtils';
+import { extractTextContent, isUserBubbleContentPart } from './partUtils';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useUIStore } from '@/stores/useUIStore';
@@ -57,18 +57,18 @@ export const UserMessageBody = React.memo(function UserMessageBody({
   const copyHintTimeoutRef = React.useRef<number | null>(null);
 
   const userContentParts = React.useMemo(() => {
-    return parts.filter((part) => {
-      if (part.type === 'text') {
-        return !isEmptyTextPart(part);
-      }
-      if (isSubtaskPart(part)) {
-        return true;
-      }
-      if (isShellActionPart(part)) {
-        return true;
-      }
-      return false;
-    });
+    return parts.filter(isUserBubbleContentPart);
+  }, [parts]);
+
+  const attachedFiles = React.useMemo(() => {
+    return parts.filter(
+      (part): part is MessageFilePart =>
+        part.type === 'file' && Boolean(
+          (part as MessageFilePart).filename
+          || (part as MessageFilePart).mime
+          || (part as MessageFilePart).url,
+        ),
+    );
   }, [parts]);
 
   const mentionToken = agentMention?.token;
@@ -142,6 +142,9 @@ export const UserMessageBody = React.memo(function UserMessageBody({
   }, [messageCreatedAt, timeFormatPreference]);
 
   const useInFlowUserActions = isMobile || alwaysShowActions;
+  // Footer row below the bubble, mirroring the assistant turn footer:
+  // attachments stay always visible while the timestamp and action buttons
+  // keep their existing hover-reveal behavior.
   const actionsBlock = showUserActions ? (
     <div
       className={cn(
@@ -150,16 +153,17 @@ export const UserMessageBody = React.memo(function UserMessageBody({
           ? userActionsMode === 'inline'
             ? 'mt-2 mb-1 flex items-center justify-end'
             : stickyUserHeaderEnabled
-            ? 'flex h-9 items-start justify-end pt-0'
-            : 'flex h-11 items-start justify-end pt-0'
+            ? 'flex min-h-9 items-start justify-end pt-0'
+            : 'flex min-h-11 items-start justify-end pt-0'
           : userActionsMode === 'inline'
           ? 'absolute top-full left-0 right-0 z-10 pt-5'
-          : 'flex h-8 items-start justify-end pt-2'
+          : 'flex min-h-8 items-start justify-end pt-2'
       )}
     >
-      <div
-        className={cn(
-          'flex items-center justify-end gap-1',
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <div
+          className={cn(
+            'flex items-center justify-start gap-1',
           isMobile
             ? userActionsMode === 'inline'
               ? 'translate-x-5'
@@ -230,6 +234,10 @@ export const UserMessageBody = React.memo(function UserMessageBody({
             <TooltipContent sideOffset={6}>{'Copy message'}</TooltipContent>
           </Tooltip>
         )}
+        </div>
+        {attachedFiles.length > 0 ? (
+          <UserMessageAttachments files={attachedFiles} onShowPopup={onShowPopup} />
+        ) : null}
       </div>
     </div>
   ) : null;
@@ -298,7 +306,6 @@ export const UserMessageBody = React.memo(function UserMessageBody({
           );
         })}
       </div>
-      <MessageFilesDisplay files={parts} onShowPopup={onShowPopup} compact />
       {actionsBlock}
     </div>
   );

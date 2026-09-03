@@ -197,6 +197,9 @@ const cancelFiles = (files: readonly AttachedFile[], deleteRemote: boolean): voi
   for (const file of files) cancelAttachment(file, deleteRemote)
 }
 
+/** Stash bound: entries hold File handles and data URLs, unlike text drafts. */
+const MAX_STASHED_ATTACHMENT_DRAFTS = 10
+
 export type SyntheticContextPart = {
   text: string
   attachments?: AttachedFile[]
@@ -210,6 +213,12 @@ export type InputState = {
   pendingSyntheticParts: SyntheticContextPart[] | null
   pendingPresetSubmit: { text: string; type: "command" | "skill" } | null
   attachedFiles: AttachedFile[]
+  /**
+   * Attachments stashed per chat-draft key (runtime, directory, session).
+   * Switching sessions swaps the visible `attachedFiles` like the text
+   * draft swap; stashes are memory-only (File handles cannot persist).
+   */
+  stashedAttachmentsByDraft: Record<string, AttachedFile[]>
 
   setPendingInputText: (text: string | null, mode?: "replace" | "append" | "append-inline") => void
   consumePendingInputText: () => { text: string; mode: "replace" | "append" | "append-inline" } | null
@@ -223,6 +232,12 @@ export type InputState = {
   retryAttachmentUpload: (id: string) => void
   removeAttachedFile: (id: string) => void
   detachAttachedFiles: (ids: readonly string[]) => void
+  clearStashedAttachmentsForSession: (identity: { runtimeKey: string; directory: string; sessionId: string }) => void
+  /**
+   * Stash the visible attachments under `prevKey` and restore `nextKey`'s.
+   * Uploads keep running against the moved objects; nothing is cancelled.
+   */
+  swapAttachmentsDraft: (prevKey: string, nextKey: string) => void
   setAttachedFiles: (files: AttachedFile[]) => void
   clearAttachedFiles: () => void
   addRestoredAttachment: (file: { url: string; mimeType: string; filename: string }) => void
@@ -235,6 +250,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
   pendingSyntheticParts: null,
   pendingPresetSubmit: null,
   attachedFiles: [],
+  stashedAttachmentsByDraft: {},
 
   setPendingInputText: (text, mode = "replace") => set({ pendingInputText: text, pendingInputMode: mode }),
   consumePendingInputText: () => {
@@ -371,9 +387,65 @@ export const useInputStore = create<InputState>()((set, get) => ({
 
   detachAttachedFiles: (ids) => {
     const idSet = new Set(ids)
+    // Ids are globally unique, so a send that resolves after a draft switch
+    // still clears its own files: sweep the visible list and every stash.
+    // Stashed uploads are left running; only the visible detach cancels.
     const removed = get().attachedFiles.filter((file) => idSet.has(file.id))
     cancelFiles(removed, false)
-    set((state) => ({ attachedFiles: state.attachedFiles.filter((file) => !idSet.has(file.id)) }))
+    const stashed = get().stashedAttachmentsByDraft
+    let nextStashed = stashed
+    if (stashed) {
+      nextStashed = {}
+      for (const [key, files] of Object.entries(stashed)) {
+        const kept = files.filter((file) => !idSet.has(file.id))
+        if (kept.length > 0) nextStashed[key] = kept
+      }
+    }
+    set((state) => ({
+      attachedFiles: state.attachedFiles.filter((file) => !idSet.has(file.id)),
+      stashedAttachmentsByDraft: nextStashed,
+    }))
+  },
+
+  swapAttachmentsDraft: (prevKey, nextKey) => {
+    if (prevKey === nextKey) return
+    const stashed = get().stashedAttachmentsByDraft ?? {}
+    const current = get().attachedFiles
+    const restored = stashed[nextKey] ?? []
+    // Refresh recency, then bound the stash: entries hold File handles and
+    // data URLs, so unlike text drafts this stays small.
+    const nextStashed: Record<string, AttachedFile[]> = {}
+    for (const [key, files] of Object.entries(stashed)) {
+      if (key !== prevKey && key !== nextKey) nextStashed[key] = files
+    }
+    if (current.length > 0) nextStashed[prevKey] = current
+    const keys = Object.keys(nextStashed)
+    for (const key of keys.slice(0, Math.max(0, keys.length - MAX_STASHED_ATTACHMENT_DRAFTS))) {
+      cancelFiles(nextStashed[key] ?? [], true)
+      delete nextStashed[key]
+    }
+    set({ attachedFiles: restored, stashedAttachmentsByDraft: nextStashed })
+  },
+
+  clearStashedAttachmentsForSession: (identity) => {
+    const stashed = get().stashedAttachmentsByDraft
+    if (!stashed) return
+    const nextStashed: Record<string, AttachedFile[]> = {}
+    for (const [key, files] of Object.entries(stashed)) {
+      let matches = false
+      try {
+        const parsed = JSON.parse(key) as Partial<[string, string, string | null]>
+        matches = Array.isArray(parsed)
+          && parsed[0] === identity.runtimeKey
+          && parsed[1] === identity.directory
+          && parsed[2] === identity.sessionId
+      } catch {
+        matches = false
+      }
+      if (matches) cancelFiles(files, true)
+      else nextStashed[key] = files
+    }
+    set({ stashedAttachmentsByDraft: nextStashed })
   },
 
   setAttachedFiles: (files) => {
@@ -411,11 +483,19 @@ export const useInputStore = create<InputState>()((set, get) => ({
 
 subscribeRuntimeEndpointWillChange(() => {
   attachmentReadGeneration += 1
+  const markRuntimeChanged = (files: AttachedFile[]): AttachedFile[] => files.map((file): AttachedFile => file.source === "local"
+    ? { ...file, uploadState: { status: "failed", error: "The runtime changed. Retry the upload." } satisfies AttachmentUploadState }
+    : file)
   const files = useInputStore.getState().attachedFiles
   cancelFiles(files, false)
+  const stashed = useInputStore.getState().stashedAttachmentsByDraft ?? {}
+  const nextStashed: Record<string, AttachedFile[]> = {}
+  for (const [key, stashedFiles] of Object.entries(stashed)) {
+    cancelFiles(stashedFiles, false)
+    nextStashed[key] = markRuntimeChanged(stashedFiles)
+  }
   useInputStore.setState({
-    attachedFiles: files.map((file): AttachedFile => file.source === "local"
-      ? { ...file, uploadState: { status: "failed", error: "The runtime changed. Retry the upload." } satisfies AttachmentUploadState }
-      : file),
+    attachedFiles: markRuntimeChanged(files),
+    stashedAttachmentsByDraft: nextStashed,
   })
 })

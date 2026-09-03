@@ -18,7 +18,7 @@ import type {
 export interface PiReducerMessagePart {
   id: string;
   index: number;
-  type: 'text' | 'thinking' | 'tool' | 'attachment';
+  type: 'text' | 'thinking' | 'tool' | 'attachment' | 'file';
   /** Text content for text/thinking parts (assembled from deltas). */
   text: string;
   /** Set while the part is still accepting deltas. */
@@ -40,6 +40,12 @@ export interface PiReducerMessagePart {
   };
   /** For attachment parts. */
   attachment?: PiAttachment;
+  /** For file parts (historical images and attachment names). */
+  file?: {
+    mime?: string;
+    filename?: string;
+    url?: string;
+  };
 }
 
 export interface PiReducerMessage {
@@ -159,6 +165,7 @@ export interface PiProjectedMessagePart {
   streaming: boolean;
   tool?: PiReducerMessagePart['tool'];
   attachment?: PiAttachment;
+  file?: PiReducerMessagePart['file'];
 }
 
 export interface PiProjectedMessage {

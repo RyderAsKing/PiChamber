@@ -43,6 +43,7 @@ export const projectReducerPart = (part: PiReducerMessagePart): PiProjectedMessa
     streaming: part.streaming,
     ...(part.tool ? { tool: part.tool } : {}),
     ...(part.attachment ? { attachment: part.attachment } : {}),
+    ...(part.file ? { file: part.file } : {}),
   };
   projectedPartsByReducerPart.set(part, projected);
   return projected;
@@ -277,7 +278,7 @@ export const hydrateSessionFromDetail = (
       parts: Array<{
         id: string;
         index: number;
-        type: 'text' | 'thinking' | 'tool' | 'attachment';
+        type: 'text' | 'thinking' | 'tool' | 'attachment' | 'file';
         text?: string;
         toolCallId?: string;
         name?: string;
@@ -290,6 +291,9 @@ export const hydrateSessionFromDetail = (
         startedAt?: number;
         endedAt?: number;
         attachment?: PiAttachment;
+        mime?: string;
+        filename?: string;
+        url?: string;
       }>;
     }>;
   },
@@ -374,6 +378,15 @@ export const hydrateSessionFromDetail = (
             }
           : {}),
         ...(part.type === 'attachment' && part.attachment ? { attachment: part.attachment } : {}),
+        ...(part.type === 'file'
+          ? {
+              file: {
+                ...(typeof part.mime === 'string' ? { mime: part.mime } : {}),
+                ...(typeof part.filename === 'string' ? { filename: part.filename } : {}),
+                ...(typeof part.url === 'string' ? { url: part.url } : {}),
+              },
+            }
+          : {}),
       };
       session.parts.set(part.id, reducerPart);
       partOrder.push(part.id);

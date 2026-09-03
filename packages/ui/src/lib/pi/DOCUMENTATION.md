@@ -362,6 +362,6 @@ the previous session selection. Slash commands, the Pi TUI, and other tabs
 still mutate the live session immediately; the composer adopts those
 authoritative changes. Existing session thinking stays until the user sends
 a new selection or an external command changes it.
-Composer attachments are uploaded before prompt dispatch and the returned opaque identifiers are forwarded with that captured send. Attachment uploads return opaque identifiers; their temporary paths cross only
+Composer attachments are uploaded before prompt dispatch and the returned opaque identifiers are forwarded with that captured send. Because Pi's live user start can precede the branch-readable transcript entry, that start also carries bounded filename and MIME metadata as `file` parts. The reducer renders those parts immediately and later hydration replaces them with the authoritative persisted projection. Attachment uploads return opaque identifiers; their temporary paths cross only
 the private daemon IPC and are redacted from public transcript/event output.
 The browser never receives a path, endpoint, credential, or daemon identity.

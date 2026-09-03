@@ -6,6 +6,11 @@ const ACCEPTED_ATTACHMENT_TYPES = [
   "image/heic",
   "image/heif",
   "application/pdf",
+  "application/zip",
+  "application/x-zip-compressed",
+  "application/gzip",
+  "application/x-tar",
+  "application/x-7z-compressed",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -103,6 +108,12 @@ const ACCEPTED_ATTACHMENT_TYPES = [
   ".yaml",
   ".yml",
   ".zig",
+  ".zip",
+  ".7z",
+  ".gz",
+  ".rar",
+  ".tar",
+  ".tgz",
   ".zsh",
 ] as const
 
@@ -196,7 +207,7 @@ const inspectTextContent = async (file: File): Promise<"text/plain" | undefined>
 
 const attachmentMime = (
   file: File,
-): PiAttachmentMimeType | Promise<"text/plain" | undefined> | undefined => {
+): string | Promise<string> => {
   const type = declaredMimeOf(file)
   const supportedMime = SUPPORTED_BINARY_MIMES.get(type)
   if (supportedMime) return supportedMime
@@ -209,7 +220,7 @@ const attachmentMime = (
     return "text/plain"
   }
 
-  return inspectTextContent(file)
+  return inspectTextContent(file).then((textMime) => textMime || type || "application/octet-stream")
 }
 
 const sourceText = (source: unknown): string => {

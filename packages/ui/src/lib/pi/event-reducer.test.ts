@@ -57,6 +57,31 @@ describe("applyPiEvent", () => {
     expect(state.bySession.get("sess-1")?.lifecycle).toBe("busy")
   })
 
+  test("renders prompt-time files on the live user message before hydration", () => {
+    const state = applyPiEvent(createReducerState(), baseEvent("assistant.message.start", 1, {
+      messageId: "user-sess-1-1",
+      role: "user",
+      text: "look",
+      startedAt: 1_000,
+      files: [{
+        type: "file",
+        id: "user-sess-1-1:file:0",
+        index: 0,
+        mime: "image/png",
+        filename: "image.png",
+      }],
+    })).state
+    const session = state.bySession.get("sess-1") as PiReducerSessionState
+    const records = piProjectedToRecords(projectSession(session))
+    expect(records[0]?.parts.find((part) => part.type === "file")).toEqual({
+      id: "user-sess-1-1:file:0",
+      type: "file",
+      mime: "image/png",
+      filename: "image.png",
+      url: undefined,
+    })
+  })
+
   test("preserves the user-message parent for an assistant turn", () => {
     const state = applyPiEvent(createReducerState(), assistantStart()).state
     expect(state.bySession.get("sess-1")?.messages.get("m1")?.parentId).toBe("u1")
@@ -428,6 +453,26 @@ describe("hydrateSessionFromDetail", () => {
     })
     const session = state.bySession.get("sess-1") as PiReducerSessionState
     expect(session.parts.get("p1")?.tool?.state).toBe("completed")
+  })
+
+  test("preserves hydrated file parts for image and attachment history", () => {
+    const { state } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 0,
+      messages: [{
+        message: {
+          id: "m1", sessionId: "sess-1", directory: "/work", role: "user",
+          text: "look", createdAt: 1_000,
+        },
+        parts: [
+          { id: "m1:image:1", index: 1, type: "file", mime: "image/png", filename: "image.png", url: "data:image/png;base64,AAA" },
+          { id: "m1:attachment:0", index: 0, type: "file", filename: "notes.zip" },
+        ],
+      }],
+    })
+    const session = state.bySession.get("sess-1") as PiReducerSessionState
+    expect(session.parts.get("m1:image:1")?.file).toEqual({ mime: "image/png", filename: "image.png", url: "data:image/png;base64,AAA" })
+    expect(session.parts.get("m1:attachment:0")?.file).toEqual({ filename: "notes.zip" })
   })
 
   test("restores retry metadata from an in-flight getSession", () => {

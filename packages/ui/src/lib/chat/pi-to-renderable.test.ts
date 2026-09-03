@@ -63,6 +63,23 @@ describe('pi-to-renderable', () => {
     });
   });
 
+  test('maps Pi file parts to file parts preserving image sources', () => {
+    expect(mapPart({ id: 'f1', type: 'file', text: '', streaming: false, file: { mime: 'image/png', filename: 'image.png', url: 'data:image/png;base64,AAA' } })).toEqual({
+      id: 'f1',
+      type: 'file',
+      filename: 'image.png',
+      mime: 'image/png',
+      url: 'data:image/png;base64,AAA',
+    });
+    expect(mapPart({ id: 'f2', type: 'file', text: '', streaming: false, file: { filename: 'notes.zip' } })).toEqual({
+      id: 'f2',
+      type: 'file',
+      filename: 'notes.zip',
+      mime: undefined,
+      url: undefined,
+    });
+  });
+
   test('falls back to message thinking and text when parts list is empty', () => {
     const message: PiProjectedMessage = {
       id: 'msg_fallback',

@@ -1,6 +1,7 @@
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { clearChatDraft, createChatDraftIdentity } from '@/lib/chatDraftPersistence';
 import { createMessageQueueTarget, useMessageQueueStore } from '@/stores/messageQueueStore';
+import { useInputStore } from '@/sync/input-store';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 
@@ -17,4 +18,5 @@ export const cleanupPersistedSessionState = (identity: {
   useSessionPinnedStore.getState().clearPinnedSession(identity.runtimeKey, identity.directory, identity.sessionId);
   const chatDraftIdentity = createChatDraftIdentity(identity.runtimeKey, identity.directory, identity.sessionId);
   if (chatDraftIdentity) clearChatDraft(chatDraftIdentity, true);
+  useInputStore.getState().clearStashedAttachmentsForSession(identity);
 };
