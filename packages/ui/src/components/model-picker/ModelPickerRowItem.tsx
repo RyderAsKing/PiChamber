@@ -44,20 +44,6 @@ export const ModelPickerRowHighlight: React.FC<{
   return <>{children(isHighlighted)}</>;
 });
 
-export const ModelPickerFooter: React.FC<{
-  store: IndexSelectionStore;
-  flatModelList: ModelPickerEntry[];
-  footerContent?: React.ReactNode | ((activeEntry: ModelPickerEntry | undefined) => React.ReactNode);
-  fallback: React.ReactNode;
-}> = ({ store, flatModelList, footerContent, fallback }) => {
-  const [selectedIndex, setSelectedIndex] = React.useState(() => store.getSnapshot());
-
-  React.useEffect(() => store.subscribe(() => setSelectedIndex(store.getSnapshot())), [store]);
-
-  const activeEntry = flatModelList[selectedIndex];
-  return <>{typeof footerContent === 'function' ? footerContent(activeEntry) : (footerContent ?? fallback)}</>;
-};
-
 export type SortableFavoriteHandleProps = {
   attributes: ReturnType<typeof useSortable>['attributes'];
   listeners: ReturnType<typeof useSortable>['listeners'];
@@ -90,33 +76,6 @@ export const SortableFavoriteModelRow: React.FC<{
       className={cn(isDragging && 'opacity-60')}
     >
       {children({ attributes, listeners, setActivatorNodeRef, isDragging })}
-    </div>
-  );
-};
-
-export const SortableProviderSection: React.FC<{
-  id: string;
-  disabled?: boolean;
-  children: (dragHandleProps: SortableFavoriteHandleProps) => React.ReactNode;
-}> = ({ id, disabled = false, children }) => {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    setActivatorNodeRef,
-    transform,
-    transition,
-  } = useSortable({ id, disabled });
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={{
-        transform: DndCSS.Translate.toString(transform),
-        transition,
-      }}
-    >
-      {children({ attributes, listeners, setActivatorNodeRef, isDragging: false })}
     </div>
   );
 };

@@ -179,7 +179,6 @@ interface UIStore {
 
   favoriteModels: Array<{ providerID: string; modelID: string }>;
   hiddenModels: Array<{ providerID: string; modelID: string }>;
-  providerOrder: string[];
   collapsedModelProviders: string[];
   recentModels: Array<{ providerID: string; modelID: string }>;
   recentAgents: string[];
@@ -329,7 +328,6 @@ interface UIStore {
     overProviderID: string,
     overModelID: string,
   ) => void;
-  setProviderOrder: (orderedProviderIDs: string[]) => void;
   toggleHiddenModel: (providerID: string, modelID: string) => void;
   isHiddenModel: (providerID: string, modelID: string) => boolean;
   hideAllModels: (providerID: string, modelIDs: string[]) => void;
@@ -456,7 +454,6 @@ export const useUIStore = create<UIStore>()(
         mobileKeyboardMode: getStoredMobileKeyboardMode(),
         favoriteModels: [],
         hiddenModels: [],
-        providerOrder: [],
         collapsedModelProviders: [],
         recentModels: [],
         recentAgents: [],
@@ -1305,17 +1302,6 @@ export const useUIStore = create<UIStore>()(
           });
         },
 
-        setProviderOrder: (orderedProviderIDs) => {
-          set((state) => {
-            const next = orderedProviderIDs.filter((id) => typeof id === 'string' && id.length > 0);
-            const current = state.providerOrder;
-            if (current.length === next.length && current.every((id, index) => id === next[index])) {
-              return state;
-            }
-            return { providerOrder: next };
-          });
-        },
-
         toggleHiddenModel: (providerID, modelID) => {
           set((state) => {
             const exists = state.hiddenModels.some(
@@ -1855,7 +1841,6 @@ export const useUIStore = create<UIStore>()(
           cornerRadius: state.cornerRadius,
           favoriteModels: state.favoriteModels,
           hiddenModels: state.hiddenModels,
-          providerOrder: state.providerOrder,
           collapsedModelProviders: state.collapsedModelProviders,
           recentModels: state.recentModels,
           recentAgents: state.recentAgents,

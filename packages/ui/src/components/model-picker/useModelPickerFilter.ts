@@ -16,7 +16,6 @@ export interface UseModelPickerFilterOptions {
   hiddenModels?: HiddenModel[];
   allowedProviderIds?: string[];
   isModelAllowed?: (providerID: string, modelID: string) => boolean;
-  providerOrder?: string[];
   stickyHeaders?: boolean;
   scrollRef: React.MutableRefObject<HTMLElement | null>;
   collapsedSections: Set<string>;
@@ -30,14 +29,11 @@ export function useModelPickerFilter({
   hiddenModels = [],
   allowedProviderIds,
   isModelAllowed,
-  providerOrder,
   stickyHeaders = true,
   scrollRef,
   collapsedSections,
 }: UseModelPickerFilterOptions) {
-  const sectionHeaderSentinelRefs = React.useRef<Map<string, HTMLDivElement | null>>(new Map());
   const stickyFadeSizeRef = React.useRef(0);
-  const [stuckSectionHeaders, setStuckSectionHeaders] = React.useState<Set<string>>(new Set());
 
   const allowedProviderSet = React.useMemo(() => {
     if (!allowedProviderIds) return null;
@@ -89,19 +85,9 @@ export function useModelPickerFilter({
     [allowedProviderSet, isHidden, isModelAllowed, matchesQuery, providerById, recentModels]
   );
 
-  const orderedProviders = React.useMemo(() => {
-    if (!providerOrder || providerOrder.length === 0) return providers;
-    const rank = new Map(providerOrder.map((id, index) => [id, index] as const));
-    const ranked = providers
-      .filter((provider) => rank.has(provider.id))
-      .sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
-    const unranked = providers.filter((provider) => !rank.has(provider.id));
-    return [...ranked, ...unranked];
-  }, [providerOrder, providers]);
-
   const filteredProviders = React.useMemo(
     () =>
-      orderedProviders
+      providers
         .filter((provider) => !allowedProviderSet || allowedProviderSet.has(provider.id))
         .map((provider) => {
           const models = Array.isArray(provider.models) ? provider.models : [];
@@ -114,7 +100,7 @@ export function useModelPickerFilter({
           return { ...provider, models: filteredModels };
         })
         .filter((provider) => provider.models.length > 0),
-    [allowedProviderSet, isHidden, isModelAllowed, matchesQuery, orderedProviders]
+    [allowedProviderSet, isHidden, isModelAllowed, matchesQuery, providers]
   );
 
   const visibleSectionKeys = React.useMemo(
@@ -125,40 +111,6 @@ export function useModelPickerFilter({
     ],
     [filteredFavorites.length, filteredProviders, filteredRecents.length]
   );
-
-  React.useEffect(() => {
-    if (!stickyHeaders || !scrollRef.current) {
-      setStuckSectionHeaders((previous) => (previous.size === 0 ? previous : new Set()));
-      return;
-    }
-
-    const root = scrollRef.current;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        setStuckSectionHeaders((previous) => {
-          const next = new Set(previous);
-          let changed = false;
-          for (const entry of entries) {
-            const sectionKey = (entry.target as HTMLElement).dataset.modelSectionKey;
-            if (!sectionKey) continue;
-            const rootTop = entry.rootBounds?.top ?? root.getBoundingClientRect().top;
-            const isAboveScroller = !entry.isIntersecting && entry.boundingClientRect.top < rootTop;
-            if (next.has(sectionKey) === isAboveScroller) continue;
-            changed = true;
-            if (isAboveScroller) next.add(sectionKey);
-            else next.delete(sectionKey);
-          }
-          return changed ? next : previous;
-        });
-      },
-      { root, threshold: 0 }
-    );
-
-    sectionHeaderSentinelRefs.current.forEach((element) => {
-      if (element) observer.observe(element);
-    });
-    return () => observer.disconnect();
-  }, [scrollRef, stickyHeaders, visibleSectionKeys]);
 
   const syncStickyFade = React.useCallback((scroller: HTMLElement) => {
     const hasTopScroll = scroller.scrollTop > 1;
@@ -216,13 +168,10 @@ export function useModelPickerFilter({
     providerById,
     filteredFavorites,
     filteredRecents,
-    orderedProviders,
     filteredProviders,
     visibleSectionKeys,
     flatModelList,
     favoriteLookup,
-    stuckSectionHeaders,
-    sectionHeaderSentinelRefs,
     syncStickyFade,
     blockStickyFadeInteraction,
   };

@@ -16,7 +16,6 @@ const MODEL_PICKER_LABELS = {
   noResults: 'No models found',
   favorites: 'Favorites',
   recent: 'Recent',
-  keyboardHint: '↑↓ navigate',
   favorite: 'Favorite',
   unfavorite: 'Unfavorite',
   capabilities: 'Capabilities',
@@ -52,8 +51,6 @@ export const SettingsModelPicker: React.FC<SettingsModelPickerProps> = ({
   const providers = useConfigStore((state) => state.providers);
   const modelsMetadata = useConfigStore((state) => state.modelsMetadata);
   const hiddenModels = useUIStore((state) => state.hiddenModels);
-  const providerOrder = useUIStore((state) => state.providerOrder);
-  const setProviderOrder = useUIStore((state) => state.setProviderOrder);
   const isFavoriteModel = useUIStore((state) => state.isFavoriteModel);
   const toggleFavoriteModel = useUIStore((state) => state.toggleFavoriteModel);
   const reorderFavoriteModel = useUIStore((state) => state.reorderFavoriteModel);
@@ -148,9 +145,6 @@ export const SettingsModelPicker: React.FC<SettingsModelPickerProps> = ({
           )}
           reorderFavoriteAriaLabel="Reorder favorite"
           reorderFavoriteTitle="Drag to reorder favorite"
-          providerOrder={providerOrder}
-          onReorderProvider={setProviderOrder}
-          reorderProviderTitle="Drag to reorder provider"
         />
       </DropdownMenuContent>
     </DropdownMenu>

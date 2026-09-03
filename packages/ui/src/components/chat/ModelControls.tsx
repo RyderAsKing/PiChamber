@@ -112,8 +112,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
 
     const toggleFavoriteModel = useUIStore((state) => state.toggleFavoriteModel);
     const reorderFavoriteModel = useUIStore((state) => state.reorderFavoriteModel);
-    const providerOrder = useUIStore((state) => state.providerOrder);
-    const setProviderOrder = useUIStore((state) => state.setProviderOrder);
     const isFavoriteModel = useUIStore((state) => state.isFavoriteModel);
     const addRecentModel = useUIStore((state) => state.addRecentModel);
     const addRecentEffort = useUIStore((state) => state.addRecentEffort);
@@ -1102,7 +1100,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             noResults: "No models found",
             favorites: "Favorites",
             recent: "Recent",
-            keyboardHint: "↑↓ navigate",
             favorite: "Favorite",
             unfavorite: "Unfavorite",
             capabilities: "Capabilities",
@@ -1234,22 +1231,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                 )}
                                 reorderFavoriteAriaLabel={"Reorder favorite"}
                                 reorderFavoriteTitle={"Drag to reorder favorite"}
-                                providerOrder={providerOrder}
-                                onReorderProvider={setProviderOrder}
-                                reorderProviderTitle={"Drag to reorder provider"}
-                                footerContent={(activeEntry) => {
-                                    const activeHasThinkingVariants = activeEntry
-                                        ? getModelVariantOptions(activeEntry.providerID, activeEntry.modelID).length > 0
-                                        : false;
-
-                                    return (
-                                        <div className="flex items-center gap-x-2 whitespace-nowrap overflow-hidden">
-                                            <span>{"↑↓ navigate"}</span>
-                                            <span>{`${'Tab'} switch agent`}</span>
-                                            {activeHasThinkingVariants ? <span>{"←→ thinking"}</span> : null}
-                                        </div>
-                                    );
-                                }}
                                 tooltipsEnabled={isModelSelectorOpen}
                                 onEscape={() => setModelSelectorOpen(false)}
                             />
