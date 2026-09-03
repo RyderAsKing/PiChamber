@@ -252,7 +252,7 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
         onClick={() => onOpenChange((currentOpen) => !currentOpen)}
         style={{ touchAction: 'manipulation' }}
       >
-        <ContextProgressIcon percentage={contextDisplay?.percentage ?? 0} />
+        <ContextProgressIcon percentage={contextDisplay?.percentage ?? 0} size={20} className="size-5 -rotate-90" />
       </button>
       <SessionMetadataOverlay
         open={open}

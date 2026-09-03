@@ -6,7 +6,6 @@ import { useMobileAppActions } from '@/apps/mobileAppContext';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useTabletLayout } from '@/lib/device';
 import { Icon } from "@/components/icon/Icon";
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
     type ChangedFileEntry,
@@ -100,23 +99,27 @@ export const PendingChangesBar: React.FC<{ align?: 'start' | 'end' }> = React.me
     const labelHead = fileCount === 1
         ? `${fileCount} file`
         : `${fileCount} files`;
+    const mobileLabel = fileCount === 1 ? "1 change" : `${fileCount} changes`;
     const changesTriggerContent = (
         <>
             <Icon
-                name={isMobile ? 'file-list-2' : 'git-branch'}
+                name="git-branch"
                 className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
             />
-            <span className={cn(
-                'min-w-0 shrink-0 text-foreground',
-                isMobile ? 'typography-micro' : 'typography-ui-label',
-            )}>
-                {labelHead}
-            </span>
-            {!isMobile ? (
-                <span className="status-row__changed-label min-w-0 typography-ui-label text-foreground truncate">
-                    {"changed"}
+            {isMobile ? (
+                <span className="min-w-0 shrink-0 text-foreground typography-ui-label">
+                    {mobileLabel}
                 </span>
-            ) : null}
+            ) : (
+                <>
+                    <span className="min-w-0 shrink-0 text-foreground typography-ui-label">
+                        {labelHead}
+                    </span>
+                    <span className="status-row__changed-label min-w-0 typography-ui-label text-foreground truncate">
+                        {"changed"}
+                    </span>
+                </>
+            )}
             <span className="inline-flex shrink-0 items-baseline gap-1 text-[0.75rem] tabular-nums">
                 {totalAdded > 0 ? <span style={{ color: 'var(--status-success)' }}>+{totalAdded}</span> : null}
                 {totalRemoved > 0 ? <span style={{ color: 'var(--status-error)' }}>-{totalRemoved}</span> : null}
@@ -131,26 +134,14 @@ export const PendingChangesBar: React.FC<{ align?: 'start' | 'end' }> = React.me
 
     return (
         <div className="relative" ref={popoverRef}>
-            {isMobile ? (
-                <Button
-                    variant="chip"
-                    size="xs"
-                    className="max-w-full"
-                    onClick={() => setIsExpanded((value) => !value)}
-                    aria-expanded={isExpanded}
-                >
-                    {changesTriggerContent}
-                </Button>
-            ) : (
-                <button
-                    type="button"
-                    className="flex min-w-0 max-w-full items-center gap-1 text-left text-muted-foreground"
-                    onClick={() => setIsExpanded((value) => !value)}
-                    aria-expanded={isExpanded}
-                >
-                    {changesTriggerContent}
-                </button>
-            )}
+            <button
+                type="button"
+                className="flex min-w-0 max-w-full items-center gap-1 text-left text-muted-foreground"
+                onClick={() => setIsExpanded((value) => !value)}
+                aria-expanded={isExpanded}
+            >
+                {changesTriggerContent}
+            </button>
             {isExpanded && (
                 <div
                     style={{

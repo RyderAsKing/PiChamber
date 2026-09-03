@@ -180,7 +180,7 @@ export const MobileWorkspaceDrawer = React.memo(function MobileWorkspaceDrawer({
                 : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
             )}
           >
-            <Icon name={item.icon} className="size-4 shrink-0" />
+            <Icon name={item.icon} className="size-5 shrink-0" />
             <span className="truncate">{item.label}</span>
           </button>
         );
@@ -190,15 +190,15 @@ export const MobileWorkspaceDrawer = React.memo(function MobileWorkspaceDrawer({
 
   const body = (
     <>
-      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 px-2">
+      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-1 px-2">
         {tabs}
         <button
           type="button"
           onClick={handleClose}
           aria-label="Close workspace panel"
-          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+          className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
         >
-          <Icon name="close" className="size-4" />
+          <Icon name="close" className="size-5" />
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">

@@ -951,9 +951,9 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const desktopHeaderActionButtonClass =
     'inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md leading-none text-foreground hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed';
   const mobileHeaderActionButtonClass =
-    'flex size-9 shrink-0 items-center justify-center rounded-full leading-none text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed';
+    'flex size-10 shrink-0 items-center justify-center rounded-full leading-none text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed';
   const headerActionButtonClass = mobileVariant ? mobileHeaderActionButtonClass : desktopHeaderActionButtonClass;
-  const headerActionIconClass = mobileVariant ? 'size-4' : 'h-4.5 w-4.5';
+  const headerActionIconClass = mobileVariant ? 'size-5' : 'h-4.5 w-4.5';
 
   const renderSessionNode = useStableRenderCallback(
     (

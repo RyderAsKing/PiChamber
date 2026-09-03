@@ -86,7 +86,7 @@ export const MobileHeader: React.FC<{
             ref={titleRef}
             type="button"
             className={cn(
-              'flex min-w-0 items-center rounded-lg px-2 py-1.5 text-left transition-colors active:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+              'flex h-10 min-w-0 items-center rounded-lg px-2 py-1.5 text-left transition-colors active:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
               compactTitle ? 'shrink' : 'flex-1',
             )}
             aria-label={"Open session switcher"}

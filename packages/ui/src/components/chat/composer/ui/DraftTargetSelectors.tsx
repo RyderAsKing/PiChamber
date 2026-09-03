@@ -299,7 +299,7 @@ export function MobileDraftTargetTriggers(
                     </button>
                 ) : showBranchSelector ? (
                     <div
-                        className={`inline-flex h-7 min-w-0 items-center gap-1 px-1.5 typography-micro text-muted-foreground ${showProjectSelector ? 'ml-auto max-w-[54%] shrink' : 'flex-1'}`}
+                        className={`inline-flex h-7 min-w-0 items-center gap-1 px-1.5 typography-micro text-muted-foreground ${showProjectSelector ? 'ml-auto max-w-[54%] shrink' : 'min-w-0 flex-1'}`}
                         title={selectedBranchLabel ?? undefined}
                     >
                         <Icon name="git-branch" className="h-3 w-3 shrink-0" />
@@ -308,10 +308,10 @@ export function MobileDraftTargetTriggers(
                         <BranchCopyButton branchName={selectedBranchName} />
                     </div>
                 ) : null}
+                {!showProjectSelector && endAccessory ? (
+                    <div className={`min-w-0 shrink-0 ${showBranchSelector ? '' : 'ml-auto'}`}>{endAccessory}</div>
+                ) : null}
             </div>
-            {!showProjectSelector && endAccessory ? (
-                <div className="flex w-full justify-end px-1.5">{endAccessory}</div>
-            ) : null}
         </div>
     );
 }

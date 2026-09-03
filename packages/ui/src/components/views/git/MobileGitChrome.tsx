@@ -329,11 +329,11 @@ const MobileDiffDetail: React.FC<{
       <header className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-1 px-2 text-foreground">
         <button
           type="button"
-          className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           aria-label="Back"
           onClick={onBack}
         >
-          <Icon name="arrow-left" className="size-4" />
+          <Icon name="arrow-left" className="size-5" />
         </button>
         <div className="min-w-0 flex-1 px-2">
           <h2 className="truncate typography-ui-label text-foreground">{path}</h2>

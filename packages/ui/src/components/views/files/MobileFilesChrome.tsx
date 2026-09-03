@@ -93,12 +93,12 @@ export const MobileFilesChrome: React.FC<MobileFilesChromeProps> = ({
         <header className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-1 px-2 text-foreground">
           <button
             type="button"
-            className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             aria-label="Back"
             onClick={onBackFromEditor}
             style={{ touchAction: 'manipulation' }}
           >
-            <Icon name="arrow-left" className="size-4" />
+            <Icon name="arrow-left" className="size-5" />
           </button>
           <div className="min-w-0 flex-1">
             <h2 className="truncate typography-ui-label text-foreground">{getNameFromPath(editorPath)}</h2>
@@ -120,23 +120,23 @@ export const MobileFilesChrome: React.FC<MobileFilesChromeProps> = ({
         {onClose ? (
           <button
             type="button"
-            className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             aria-label="Close"
             onClick={onClose}
             style={{ touchAction: 'manipulation' }}
           >
-            <Icon name="close" className="size-4" />
+            <Icon name="close" className="size-5" />
           </button>
         ) : null}
         {canGoBack && parentDirectory ? (
           <button
             type="button"
-            className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             aria-label={`Back to ${getNameFromPath(parentDirectory)}`}
             onClick={() => onOpenDirectory(parentDirectory)}
             style={{ touchAction: 'manipulation' }}
           >
-            <Icon name="arrow-left" className="size-4" />
+            <Icon name="arrow-left" className="size-5" />
           </button>
         ) : null}
         <div className="min-w-0 flex-1 px-1">
@@ -144,12 +144,12 @@ export const MobileFilesChrome: React.FC<MobileFilesChromeProps> = ({
         </div>
         <button
           type="button"
-          className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           aria-label="Refresh files"
           onClick={onRefresh}
           style={{ touchAction: 'manipulation' }}
         >
-          <Icon name="refresh" className={cn('size-4', refreshing && 'animate-spin')} />
+          <Icon name="refresh" className={cn('size-5', refreshing && 'animate-spin')} />
         </button>
       </header>
 
