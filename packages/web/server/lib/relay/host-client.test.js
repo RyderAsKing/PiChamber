@@ -187,18 +187,46 @@ const runScriptedClient = async ({ relayUrl, serverId, hostEncPubJwk }) => {
   let channel = null;
   const responseChunks = [];
   let responseStatus = null;
+  let gotReady = false;
+  let settled = false;
+  let timeoutTimer = null;
   let resolveDone;
-  const done = new Promise((resolve) => {
+  let rejectDone;
+  const done = new Promise((resolve, reject) => {
     resolveDone = resolve;
+    rejectDone = reject;
   });
+  const fail = (message) => {
+    if (settled) return;
+    settled = true;
+    if (timeoutTimer) clearTimeout(timeoutTimer);
+    try { ws.close(); } catch {}
+    rejectDone(new Error(message));
+  };
+  timeoutTimer = setTimeout(() => {
+    fail(
+      `scripted relay client timed out (gotReady=${gotReady} status=${responseStatus} chunks=${responseChunks.length})`,
+    );
+  }, 10000);
+  if (typeof timeoutTimer.unref === 'function') timeoutTimer.unref();
 
   ws.on('open', async () => {
-    ws.send(JSON.stringify({
-      t: 'hello',
-      v: RELAY_PROTOCOL_VERSION,
-      clientPubJwk: await exportPublicKeyJwk(ephemeral.publicKey),
-      nonce: bytesToBase64Url(nonce),
-    }));
+    try {
+      ws.send(JSON.stringify({
+        t: 'hello',
+        v: RELAY_PROTOCOL_VERSION,
+        clientPubJwk: await exportPublicKeyJwk(ephemeral.publicKey),
+        nonce: bytesToBase64Url(nonce),
+      }));
+    } catch (error) {
+      fail(`scripted client hello failed: ${error?.message ?? error}`);
+    }
+  });
+  ws.on('error', (error) => {
+    fail(`scripted client socket error: ${error?.message ?? error}`);
+  });
+  ws.on('close', () => {
+    fail(`scripted client socket closed before StreamEnd (gotReady=${gotReady} status=${responseStatus})`);
   });
 
   // Serialize message handling: an async ws handler runs per-message tasks
@@ -206,9 +234,11 @@ const runScriptedClient = async ({ relayUrl, serverId, hostEncPubJwk }) => {
   // strict counter ordering (the production tunnel client chains decrypts).
   let processing = Promise.resolve();
   const handleMessage = async (data, isBinary) => {
+    if (settled) return;
     if (!isBinary) {
       const msg = JSON.parse(data.toString('utf8'));
       if (msg.t === 'ready') {
+        gotReady = true;
         const keys = await deriveSessionKeys(ephemeral.privateKey, hostPub, nonce);
         channel = {
           encryptor: createFrameEncryptor(keys.clientToHost),
@@ -241,12 +271,19 @@ const runScriptedClient = async ({ relayUrl, serverId, hostEncPubJwk }) => {
         body.set(c, off);
         off += c.length;
       }
-      resolveDone({ status: responseStatus, body: JSON.parse(new TextDecoder().decode(body)) });
-      ws.close();
+      settled = true;
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      const value = { status: responseStatus, body: JSON.parse(new TextDecoder().decode(body)) };
+      try { ws.close(); } catch {}
+      resolveDone(value);
     }
   };
   ws.on('message', (data, isBinary) => {
-    processing = processing.then(() => handleMessage(data, isBinary));
+    processing = processing
+      .then(() => handleMessage(data, isBinary))
+      .catch((error) => {
+        fail(`scripted client message handling failed: ${error?.message ?? error}`);
+      });
   });
 
   return done;
@@ -282,8 +319,21 @@ describe('relay host-client integration', () => {
       logger: { warn: () => {} },
     });
 
-    if (host.status?.state === 'connected') resolveConnected?.();
-    await connected;
+    if (host.getStatus?.()?.state === 'connected') resolveConnected?.();
+    let connectedTimer;
+    const connectedTimeout = new Promise((_, reject) => {
+      connectedTimer = setTimeout(() => {
+        reject(new Error(
+          `relay host control socket did not connect (state=${host.getStatus?.()?.state ?? 'unknown'} lastError=${host.getStatus?.()?.lastError ?? 'none'})`,
+        ));
+      }, 5000);
+      if (typeof connectedTimer.unref === 'function') connectedTimer.unref();
+    });
+    try {
+      await Promise.race([connected, connectedTimeout]);
+    } finally {
+      clearTimeout(connectedTimer);
+    }
 
     const result = await runScriptedClient({
       relayUrl: relay.wsUrl,
