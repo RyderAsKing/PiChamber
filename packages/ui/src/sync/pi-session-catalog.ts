@@ -510,6 +510,7 @@ export const liveSessionRecordToUiSession = (record: LiveSessionRecord): Session
     directory: record.directory,
     parentID: record.parentId,
     title: record.title,
+    ...(typeof record.messageCount === 'number' ? { messageCount: record.messageCount } : {}),
     time: {
       created: record.createdAt,
       updated: record.updatedAt,

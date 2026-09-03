@@ -81,6 +81,31 @@ export const ExtensionStatusStrip: React.FC<{ sessionId?: string | null }> = ({ 
   );
 };
 
+/**
+ * IDs of extension notices already surfaced as toasts in this tab.
+ *
+ * Module scope (not a per-instance ref) is load-bearing: chat branches
+ * unmount/remount this component as a session moves between loading, working,
+ * and settled-empty views. A notice that arrived while the working branch was
+ * mounted must still be "shown" when the settled branch mounts, and a notice
+ * that arrived while no branch was mounted must toast on the next mount
+ * rather than being seeded away as historical. Reconnect replays can re-toast
+ * a recent notice after a reload; that references a real event and is cheaper
+ * than swallowing routine command confirmations. Bounded so long-lived tabs
+ * cannot grow it without limit.
+ */
+const shownExtensionNoticeIds = new Set<string>();
+const MAX_SHOWN_EXTENSION_NOTICE_IDS = 200;
+
+const markExtensionNoticeShown = (id: string): void => {
+  shownExtensionNoticeIds.add(id);
+  while (shownExtensionNoticeIds.size > MAX_SHOWN_EXTENSION_NOTICE_IDS) {
+    const oldest = shownExtensionNoticeIds.values().next().value;
+    if (oldest === undefined) break;
+    shownExtensionNoticeIds.delete(oldest);
+  }
+};
+
 /** Fire-and-forget ctx.ui.notify calls surface as transient toasts. */
 export const ExtensionNoticeToasts: React.FC<{ sessionId?: string | null }> = ({ sessionId }) => {
   const selectedSessionId = usePiSessionSnapshot((state) => state.selectedSessionId);
@@ -95,18 +120,10 @@ export const ExtensionNoticeToasts: React.FC<{ sessionId?: string | null }> = ({
     `session:${activeSessionId ?? ''}`,
   );
 
-  const shownIds = React.useRef<Set<string>>(new Set());
-
-  // Seed the ref with what is already present on first sight of a session so
-  // reconnect replays do not re-toast historical notices.
-  if (shownIds.current.size === 0) {
-    for (const notice of notices) shownIds.current.add(notice.id);
-  }
-
   React.useEffect(() => {
     for (const notice of notices) {
-      if (shownIds.current.has(notice.id)) continue;
-      shownIds.current.add(notice.id);
+      if (shownExtensionNoticeIds.has(notice.id)) continue;
+      markExtensionNoticeShown(notice.id);
       const message = stripAnsi(notice.message || 'Extension notification');
       if (notice.level === 'error') toast.error(message);
       else if (notice.level === 'warning') toast.warning(message);
