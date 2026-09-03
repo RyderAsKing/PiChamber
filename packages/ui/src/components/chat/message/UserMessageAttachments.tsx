@@ -58,7 +58,7 @@ const resolveDisplayName = (file: MessageFilePart): string => {
   return extractFilename(file.filename || file.url);
 };
 
-export interface UserMessageAttachmentsProps {
+interface UserMessageAttachmentsProps {
   files: MessageFilePart[];
   onShowPopup?: (content: ToolPopupContent) => void;
   className?: string;
