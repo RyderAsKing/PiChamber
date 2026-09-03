@@ -282,6 +282,7 @@ describe('relay host-client integration', () => {
       logger: { warn: () => {} },
     });
 
+    if (host.status?.state === 'connected') resolveConnected?.();
     await connected;
 
     const result = await runScriptedClient({
