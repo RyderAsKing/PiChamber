@@ -20,6 +20,13 @@ export const ToolRevealOnMount: React.FC<ToolRevealOnMountProps> = ({
 }) => {
     const rootRef = React.useRef<HTMLDivElement | null>(null);
 
+    // Class-based arrival (opacity-only `oc-step-in`): observable in markup,
+    // applied at first paint so the row never flashes visible, and immune to
+    // WAAPI throttling. The wipe path below keeps its WAAPI sweep.
+    const stepInClassName = animate && !wipe
+        ? (className ? `oc-step-in ${className}` : 'oc-step-in')
+        : className;
+
     const clearRevealStyles = React.useCallback((target: HTMLElement | null) => {
         if (!target) {
             return;
@@ -39,6 +46,12 @@ export const ToolRevealOnMount: React.FC<ToolRevealOnMountProps> = ({
 
     React.useLayoutEffect(() => {
         const el = rootRef.current;
+
+        // The CSS step-in class owns this path; a WAAPI duplicate would fight it.
+        if (animate && !wipe) {
+            clearRevealStyles(el);
+            return;
+        }
 
         if (!animate) {
             clearRevealStyles(el);
@@ -118,7 +131,7 @@ export const ToolRevealOnMount: React.FC<ToolRevealOnMountProps> = ({
     }, [animate, clearRevealStyles, delayMs, wipe]);
 
     return (
-        <div ref={rootRef} className={className}>
+        <div ref={rootRef} className={stepInClassName}>
             {children}
         </div>
     );

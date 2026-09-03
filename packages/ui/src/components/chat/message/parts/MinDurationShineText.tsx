@@ -81,8 +81,11 @@ export const MinDurationShineText: React.FC<MinDurationShineTextProps> = ({
 
     return (
         <span
-            className={cn('transition-opacity duration-200', isBusy && 'opacity-70', className)}
-            style={style}
+            // Running verbs shimmer exactly like the agent working label
+            // (`oc-shimmer-verb`). The shimmer needs transparent text, so the
+            // caller's verb color is overridden while busy and restored after.
+            className={cn('transition-opacity duration-200', isBusy && 'oc-shimmer-verb', className)}
+            style={isBusy ? { ...style, color: 'transparent' } : style}
             title={title}
         >
             {children}

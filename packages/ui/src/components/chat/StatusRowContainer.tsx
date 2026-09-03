@@ -3,6 +3,7 @@ import React from 'react';
 import { useAssistantStatus } from '@/hooks/useAssistantStatus';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { useSessionActivityStartedAt } from '@/sync/session-activity-timing';
 import { getProviderModelDisplayName } from '@/lib/modelDisplay';
 import { StatusRow } from './StatusRow';
 
@@ -22,6 +23,10 @@ export const StatusRowContainer: React.FC = React.memo(() => {
         }, [currentSessionId]),
     );
     const { activeModel, working } = useAssistantStatus();
+    // Authoritative turn start: pins the working elapsed counter to the real
+    // origin (same contract as the tool-call timers) instead of the row's
+    // mount time. Leaf subscription — changes once per turn, never per tick.
+    const turnStartedAt = useSessionActivityStartedAt(currentSessionId ?? '');
     const currentAgentName = useConfigStore((state) => state.currentAgentName);
     const providers = useConfigStore((state) => state.providers);
 
@@ -51,6 +56,7 @@ export const StatusRowContainer: React.FC = React.memo(() => {
             agentName={currentAgentName}
             modelName={modelDisplayName}
             providerId={activeModel?.providerId ?? null}
+            turnStartedAt={turnStartedAt}
         />
     );
 });

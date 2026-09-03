@@ -87,8 +87,9 @@ const TaskSummaryEntryRow = React.memo(({
     const status = entry.state?.status;
     const displayName = getToolMetadata(toolName).displayName;
 
+    // wipe={false}: opacity + transform only (compositor-friendly).
     return (
-        <ToolRevealOnMount animate={animateTailText} wipe>
+        <ToolRevealOnMount animate={animateTailText} wipe={false}>
             {/* Single-line rows everywhere: the old mobile break-words mode
                 wrapped long shell commands into a hanging column and floated
                 the icon to the top of the block. Errors still wrap — they must
@@ -97,7 +98,7 @@ const TaskSummaryEntryRow = React.memo(({
                 <span className="flex-shrink-0 text-foreground/80">{getToolIcon(toolName)}</span>
                 <span
                     className="typography-meta text-foreground/80 flex-shrink-0"
-                    style={{ color: 'var(--tools-title)' }}
+                    style={{ color: 'var(--tools-description)' }}
                     title={displayName}
                 >
                     {displayName}
@@ -155,7 +156,7 @@ const TaskSummaryEntriesList = React.memo(({
     const visibleStartIndex = entries.length - visibleEntries.length;
 
     return (
-        <ToolScrollableSection maxHeightClass={isExpanded ? 'max-h-[40vh]' : 'max-h-56'} disableHorizontal>
+        <ToolScrollableSection maxHeightClass={isExpanded ? 'max-h-[40vh]' : 'max-h-[min(17.5rem,45vh)]'} disableHorizontal>
             <div className="w-full min-w-0 space-y-1">
                 {hiddenCount > 0 ? (
                     <div className="typography-micro text-muted-foreground/70">+{hiddenCount} more…</div>
@@ -232,7 +233,7 @@ export const TaskToolSummary: React.FC<{
         <div
             className={cn(
                 'relative pr-2 pb-2 pt-2 space-y-2 pl-[1.4375rem]',
-                'before:absolute before:left-[0.4375rem] before:w-px before:bg-border/80 before:content-[""]',
+                'before:absolute before:left-[0.4375rem] before:w-px before:bg-[var(--tools-border)] before:content-[""]',
                 'before:top-[-0.25rem] before:bottom-0'
             )}
         >

@@ -430,7 +430,7 @@ const StaticToolRowInner: React.FC<{
             // same 36px floor the [role="button"] expandable/reasoning rows get,
             // so static and expandable rows have identical rhythm.
             className={cn(
-                'oc-static-tool-row flex w-full items-center gap-x-1.5 pr-2 pl-px py-1.5 rounded-xl min-w-0'
+                'oc-static-tool-row flex w-full items-center gap-x-1.5 pr-2 pl-px py-1 min-w-0'
             )}
         >
             <div className="inline-flex h-5 items-center flex-shrink-0" style={{ color: 'var(--tools-icon)' }}>
@@ -440,7 +440,7 @@ const StaticToolRowInner: React.FC<{
                 active={hasRunningActivity}
                 minDurationMs={1000}
                 className={cn(TOOL_ROW_TITLE_CLASS, 'inline-flex items-center flex-shrink-0 opacity-85')}
-                style={{ color: 'var(--tools-title)' }}
+                style={{ color: 'var(--tools-description)' }}
                 title={displayName}
             >
                 {displayName}
@@ -455,7 +455,7 @@ const StaticToolRowInner: React.FC<{
                             event.stopPropagation();
                             handleFileClick(entry.path, entry.offset);
                         }}
-                        className={cn('inline-flex !min-h-0 items-center justify-start gap-1 min-w-0 flex-1 text-left hover:opacity-90', TOOL_ROW_DESCRIPTION_CLASS)}
+                        className={cn('inline-flex !min-h-0 items-center justify-start gap-1 min-w-0 flex-1 text-left hover:text-[var(--status-info)] hover:opacity-90', TOOL_ROW_DESCRIPTION_CLASS)}
                         style={{ color: 'var(--tools-description)' }}
                         title={entry.offset ? `${entry.displayPath}:${entry.offset}` : entry.displayPath}
                     >

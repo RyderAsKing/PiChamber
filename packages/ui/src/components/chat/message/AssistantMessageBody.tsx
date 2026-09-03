@@ -268,7 +268,10 @@ export const AssistantMessageBody = React.memo(
           if (isExpandableTool(toolName)) {
             rendered.push(
               <FadeInOnReveal key={`tool-${toolPart.id}`}>
-                <ToolRevealOnMount animate={animatedToolIdsLookup.has(toolPart.id)} wipe>
+                {/* wipe={false}: opacity + transform only (compositor-friendly).
+                    New steps stay opacity-only; the mask wipe would animate
+                    mask-position every frame. */}
+                <ToolRevealOnMount animate={animatedToolIdsLookup.has(toolPart.id)} wipe={false}>
                   <ToolPart
                     part={toolPart}
                     isExpanded={expandedTools.has(toolPart.id)}
@@ -288,7 +291,7 @@ export const AssistantMessageBody = React.memo(
 
           rendered.push(
             <FadeInOnReveal key={`static-tools-${toolPart.id}`}>
-              <ToolRevealOnMount animate={animatedToolIdsLookup.has(toolPart.id)} wipe>
+              <ToolRevealOnMount animate={animatedToolIdsLookup.has(toolPart.id)} wipe={false}>
                 <StaticToolRow
                   toolName={toolName}
                   activities={[

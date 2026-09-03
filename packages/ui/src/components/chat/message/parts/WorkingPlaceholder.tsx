@@ -12,9 +12,9 @@ interface WorkingPlaceholderProps {
   agentName?: string;
   modelName?: string | null;
   providerId?: string | null;
+  /** Authoritative turn start (unix ms) — pins the elapsed counter. */
+  startedAt?: number | null;
 }
-
-const STATUS_DISPLAY_TIME_MS = 1200;
 
 const EPOCH_SECONDS_THRESHOLD = 1_000_000_000;
 const EPOCH_MILLISECONDS_THRESHOLD = 1_000_000_000_000;
@@ -64,6 +64,7 @@ export function WorkingPlaceholder({
   retryInfo,
   modelName,
   providerId,
+  startedAt = null,
 }: WorkingPlaceholderProps) {
   
   const { src: providerLogoSrc, onError: handleProviderLogoError, hasLogo: hasProviderLogo } = useProviderLogo(providerId ?? null);
@@ -75,10 +76,6 @@ export function WorkingPlaceholder({
   const displayedPermissionRef = React.useRef(displayedPermission);
   displayedTextRef.current = displayedText;
   displayedPermissionRef.current = displayedPermission;
-
-  const statusShownAtRef = React.useRef<number>(0);
-  const queuedStatusRef = React.useRef<{ text: string; permission: boolean } | null>(null);
-  const processQueueTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Countdown state for retry mode
   const [retryCountdown, setRetryCountdown] = React.useState<number | null>(null);
@@ -102,39 +99,13 @@ export function WorkingPlaceholder({
     return () => clearInterval(id);
   }, [retryInfo?.next, retryInfo?.attempt]);
 
-  const clearTimers = React.useCallback(() => {
-    if (processQueueTimerRef.current) {
-      clearTimeout(processQueueTimerRef.current);
-      processQueueTimerRef.current = null;
-    }
-  }, []);
-
   const showStatus = React.useCallback((text: string, permission: boolean) => {
-    clearTimers();
-    queuedStatusRef.current = null;
     setDisplayedText(text);
     setDisplayedPermission(permission);
-    statusShownAtRef.current = Date.now();
-  }, [clearTimers]);
-
-  const scheduleQueueProcess = React.useCallback(() => {
-    if (processQueueTimerRef.current) return;
-    const elapsed = Date.now() - statusShownAtRef.current;
-    const remaining = Math.max(0, STATUS_DISPLAY_TIME_MS - elapsed);
-    processQueueTimerRef.current = setTimeout(() => {
-      processQueueTimerRef.current = null;
-
-      const queued = queuedStatusRef.current;
-      if (queued) {
-        showStatus(queued.text, queued.permission);
-      }
-    }, remaining);
-  }, [showStatus]);
+  }, []);
 
   React.useEffect(() => {
     if (!isWorking) {
-      clearTimers();
-      queuedStatusRef.current = null;
       setDisplayedText(null);
       setDisplayedPermission(false);
       return;
@@ -142,8 +113,6 @@ export function WorkingPlaceholder({
 
     // Retry state has its own display — skip the normal queue
     if (retryInfo) {
-      clearTimers();
-      queuedStatusRef.current = null;
       return;
     }
 
@@ -164,31 +133,22 @@ export function WorkingPlaceholder({
       return;
     }
 
-    // Ignore generic churn.
+    // Generic filler never interrupts a real phase, but real phase changes
+    // track live (1s tool boundaries used to trail one tool behind the
+    // min-display hold).
     if (incomingGeneric) {
       return;
     }
 
-    const elapsed = Date.now() - statusShownAtRef.current;
-    if (elapsed >= STATUS_DISPLAY_TIME_MS) {
-      showStatus(incomingText, incomingPermission);
-      return;
-    }
-
-    queuedStatusRef.current = { text: incomingText, permission: incomingPermission };
-    scheduleQueueProcess();
+    showStatus(incomingText, incomingPermission);
   }, [
     isWorking,
     statusText,
     isGenericStatus,
     isWaitingForPermission,
     retryInfo,
-    clearTimers,
     showStatus,
-    scheduleQueueProcess,
   ]);
-
-  React.useEffect(() => () => clearTimers(), [clearTimers]);
 
   if (!isWorking) {
     return null;
@@ -244,7 +204,7 @@ export function WorkingPlaceholder({
             onError={handleProviderLogoError}
           />
         ) : null}
-        <AgentThinkingLoader text={label} variant="inline" animationType="spinner" className="min-w-0" />
+        <AgentThinkingLoader text={label} variant="inline" animationType="spinner" startedAt={startedAt} className="min-w-0" />
       </span>
     </div>
   );
