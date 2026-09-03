@@ -1632,7 +1632,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         inputMode === 'shell'
                             ? 'focus-within:ring-[color:color-mix(in_srgb,var(--status-info)_45%,transparent)]'
                             : 'focus-within:ring-primary/30',
-                        isDragging && "ring-2 ring-primary ring-offset-2"
                     )}
                     style={{
                         borderRadius: chatInputRadius,
@@ -1651,6 +1650,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                             isInternalDrag={isInternalDrag}
                             iconButtonBaseClass={iconButtonBaseClass}
                             iconSizeClass={iconSizeClass}
+                            radius={chatInputRadius}
                             onPickLocalFiles={handlePickLocalFiles}
                         />
                     )}

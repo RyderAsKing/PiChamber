@@ -7,6 +7,7 @@ export interface ComposerDragOverlayProps {
   isInternalDrag: boolean;
   iconButtonBaseClass: string;
   iconSizeClass: string;
+  radius: string;
   onPickLocalFiles: () => void;
 }
 
@@ -14,10 +15,14 @@ export const ComposerDragOverlay: React.FC<ComposerDragOverlayProps> = ({
   isInternalDrag,
   iconButtonBaseClass,
   iconSizeClass,
+  radius,
   onPickLocalFiles,
 }) => {
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/90 rounded-xl">
+    <div
+      className="absolute -inset-px z-50 flex items-center justify-center border border-border/80 bg-[var(--surface-subtle)]/90"
+      style={{ borderRadius: radius }}
+    >
       <div className="text-center">
         <div className="inline-flex justify-center">
           <button
