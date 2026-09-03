@@ -12,6 +12,12 @@ never written through desktop settings.
 Turn it on from Settings → General → Diagnostics, or with `?perf=1` /
 `?perf=0`. The query param is applied once per page load.
 
+## Interaction
+
+Drag the HUD by its header to move it anywhere within the viewport. The position
+is kept while the HUD remains mounted and resets to the top-right corner when it
+is remounted; it is not persisted.
+
 When the HUD is on, the existing stream, sync, and session-load counter
 systems also record. Their independent localStorage flags still work for CLI
 captures without mounting the overlay.

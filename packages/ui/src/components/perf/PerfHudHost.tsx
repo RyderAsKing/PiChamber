@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
 import { copyTextToClipboard } from '@/lib/clipboard';
+import { cn } from '@/lib/utils';
 import {
   applyPerfHudQueryParamOnce,
   isPerfHudEnabled,
@@ -65,8 +66,60 @@ const formatCounters = (snapshot: PerfHudSnapshot): string => {
   return rows.length > 0 ? rows.join('\n') : 'no counters yet';
 };
 
+const PERF_HUD_EDGE_MARGIN_PX = 8;
+
+type PerfHudPosition = {
+  left: number;
+  top: number;
+};
+
+type PerfHudDrag = PerfHudPosition & {
+  pointerId: number;
+  offsetX: number;
+  offsetY: number;
+  originLeft: number;
+  originTop: number;
+  width: number;
+  height: number;
+};
+
+const clampPerfHudPosition = (
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+): PerfHudPosition => {
+  if (typeof window === 'undefined') return { left, top };
+
+  const viewport = window.visualViewport;
+  const viewportLeft = viewport?.offsetLeft ?? 0;
+  const viewportTop = viewport?.offsetTop ?? 0;
+  const viewportWidth = viewport?.width || window.innerWidth;
+  const viewportHeight = viewport?.height || window.innerHeight;
+  const minLeft = viewportLeft + PERF_HUD_EDGE_MARGIN_PX;
+  const minTop = viewportTop + PERF_HUD_EDGE_MARGIN_PX;
+  const maxLeft = Math.max(minLeft, viewportLeft + viewportWidth - width - PERF_HUD_EDGE_MARGIN_PX);
+  const maxTop = Math.max(minTop, viewportTop + viewportHeight - height - PERF_HUD_EDGE_MARGIN_PX);
+
+  return {
+    left: Math.round(Math.min(Math.max(left, minLeft), maxLeft)),
+    top: Math.round(Math.min(Math.max(top, minTop), maxTop)),
+  };
+};
+
+const applyPerfHudPosition = (panel: HTMLElement, position: PerfHudPosition): void => {
+  panel.style.left = `${position.left}px`;
+  panel.style.top = `${position.top}px`;
+  panel.style.right = 'auto';
+  panel.style.transform = 'none';
+};
+
 const PerfHudPanel: React.FC = () => {
   const [collapsed, setCollapsed] = React.useState(false);
+  const [position, setPosition] = React.useState<PerfHudPosition | null>(null);
+  const [isDragging, setIsDragging] = React.useState(false);
+  const panelRef = React.useRef<HTMLElement>(null);
+  const dragRef = React.useRef<PerfHudDrag | null>(null);
   const fpsRef = React.useRef<HTMLSpanElement>(null);
   const lastRef = React.useRef<HTMLSpanElement>(null);
   const p95Ref = React.useRef<HTMLSpanElement>(null);
@@ -76,6 +129,136 @@ const PerfHudPanel: React.FC = () => {
   const snapshotRef = React.useRef(latestSnapshot);
 
   const runtimeRef = React.useRef<ReturnType<typeof startPerfHudRuntime> | null>(null);
+
+  const constrainPosition = React.useCallback((currentPosition: PerfHudPosition): void => {
+    const panel = panelRef.current;
+    if (!panel || dragRef.current) return;
+
+    const rect = panel.getBoundingClientRect();
+    const nextPosition = clampPerfHudPosition(
+      currentPosition.left,
+      currentPosition.top,
+      rect.width,
+      rect.height,
+    );
+    if (
+      nextPosition.left === currentPosition.left &&
+      nextPosition.top === currentPosition.top
+    ) {
+      return;
+    }
+
+    applyPerfHudPosition(panel, nextPosition);
+    setPosition(nextPosition);
+  }, []);
+
+  React.useLayoutEffect(() => {
+    if (position) constrainPosition(position);
+  }, [collapsed, constrainPosition, position]);
+
+  React.useEffect(() => {
+    if (!position || typeof window === 'undefined') return;
+
+    const handleViewportResize = (): void => {
+      constrainPosition(position);
+    };
+    const viewport = window.visualViewport;
+    window.addEventListener('resize', handleViewportResize);
+    viewport?.addEventListener('resize', handleViewportResize);
+    return () => {
+      window.removeEventListener('resize', handleViewportResize);
+      viewport?.removeEventListener('resize', handleViewportResize);
+    };
+  }, [constrainPosition, position]);
+
+  const handlePointerDown = React.useCallback((event: React.PointerEvent<HTMLDivElement>): void => {
+    if (event.button !== 0 || dragRef.current) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const rect = panel.getBoundingClientRect();
+    dragRef.current = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      originLeft: rect.left,
+      originTop: rect.top,
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+    };
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // ignore
+    }
+    setIsDragging(true);
+    event.preventDefault();
+  }, []);
+
+  const handlePointerMove = React.useCallback((event: React.PointerEvent<HTMLDivElement>): void => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    const nextPosition = clampPerfHudPosition(
+      event.clientX - drag.offsetX,
+      event.clientY - drag.offsetY,
+      drag.width,
+      drag.height,
+    );
+    if (nextPosition.left === drag.left && nextPosition.top === drag.top) return;
+
+    drag.left = nextPosition.left;
+    drag.top = nextPosition.top;
+    panelRef.current?.style.setProperty(
+      'transform',
+      `translate3d(${nextPosition.left - drag.originLeft}px, ${nextPosition.top - drag.originTop}px, 0)`,
+    );
+    if (event.cancelable) event.preventDefault();
+  }, []);
+
+  const finishPointer = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>, cancelled: boolean): void => {
+      const drag = dragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+
+      const panel = panelRef.current;
+      const rect = panel?.getBoundingClientRect();
+      const finalPosition = cancelled
+        ? { left: drag.originLeft, top: drag.originTop }
+        : clampPerfHudPosition(
+            event.clientX - drag.offsetX,
+            event.clientY - drag.offsetY,
+            rect?.width ?? drag.width,
+            rect?.height ?? drag.height,
+          );
+      dragRef.current = null;
+      if (panel) {
+        if (cancelled) {
+          panel.style.transform = 'none';
+        } else {
+          applyPerfHudPosition(panel, finalPosition);
+        }
+      }
+      setIsDragging(false);
+      if (!cancelled) setPosition(finalPosition);
+      try {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+      } catch {
+        // ignore
+      }
+    },
+    [],
+  );
+
+  React.useEffect(() => {
+    return () => {
+      dragRef.current = null;
+    };
+  }, []);
 
   React.useEffect(() => {
     const paint = (snapshot: PerfHudSnapshot): void => {
@@ -113,16 +296,40 @@ const PerfHudPanel: React.FC = () => {
 
   return (
     <aside
+      ref={panelRef}
       role="complementary"
       aria-label="Performance overlay"
       className="pointer-events-auto fixed z-[300] w-[18.5rem] max-w-[calc(100vw-1.5rem)] rounded-lg border border-border bg-[var(--surface-elevated)] text-foreground [contain:layout_style]"
       style={{
-        top: 'calc(0.5rem + env(safe-area-inset-top, 0px))',
-        right: 'calc(0.5rem + env(safe-area-inset-right, 0px))',
+        ...(position
+          ? {
+              left: `${position.left}px`,
+              top: `${position.top}px`,
+              right: 'auto',
+            }
+          : {
+              top: 'calc(0.5rem + env(safe-area-inset-top, 0px))',
+              right: 'calc(0.5rem + env(safe-area-inset-right, 0px))',
+            }),
+        transform: 'none',
       }}
     >
       <div className="flex items-center gap-1 px-2 py-1">
-        <p className="min-w-0 flex-1 typography-micro font-medium">Performance</p>
+        <div
+          className={cn(
+            'flex min-w-0 flex-1 cursor-grab touch-none select-none items-center gap-1',
+            isDragging ? 'cursor-grabbing' : 'active:cursor-grabbing',
+          )}
+          title="Drag to move performance overlay"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={(event) => finishPointer(event, false)}
+          onPointerCancel={(event) => finishPointer(event, true)}
+          onLostPointerCapture={(event) => finishPointer(event, true)}
+        >
+          <Icon name="draggable" className="size-3.5 text-muted-foreground" />
+          <p className="min-w-0 flex-1 typography-micro font-medium">Performance</p>
+        </div>
         <Button
           variant="ghost"
           size="xs"
