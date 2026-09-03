@@ -4,6 +4,9 @@ import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
+import { toast } from '@/components/ui';
+import { useTransientValue } from '@/hooks/useTransientValue';
+import { copyTextToClipboard } from '@/lib/clipboard';
 import {
     Select,
     SelectContent,
@@ -116,6 +119,41 @@ const BranchValue = ({ label, startFrom = false }: { label: string | null; start
     );
 };
 
+function BranchCopyButton({ branchName }: { branchName: string | null }) {
+    const { value: copied, show } = useTransientValue(false, 2000);
+    const handleCopy = React.useCallback(async (event: React.MouseEvent<HTMLButtonElement>) => {
+        event.stopPropagation();
+        event.preventDefault();
+        if (!branchName) return;
+        const result = await copyTextToClipboard(branchName);
+        if (result.ok) {
+            show(true);
+        } else {
+            toast.error('Failed to copy');
+        }
+    }, [branchName, show]);
+    if (!branchName) return null;
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+                    aria-label="Copy branch name"
+                    onClick={(event) => { void handleCopy(event); }}
+                >
+                    {copied
+                        ? <Icon name="check" className="size-3.5 text-[color:var(--status-success)]" />
+                        : <Icon name="file-copy" className="size-3.5" />}
+                </Button>
+            </TooltipTrigger>
+            <TooltipContent sideOffset={6}>{copied ? 'Copied' : 'Copy branch name'}</TooltipContent>
+        </Tooltip>
+    );
+}
+
 /** Desktop project selector and branch target. Existing sessions render a read-only branch label. */
 export function DraftTargetSelectors(props: DraftTargetProps) {
     const {
@@ -184,8 +222,9 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
                         </SelectContent>
                     </Select>
                 ) : showBranchSelector ? (
-                    <div className="inline-flex h-7 min-w-0 max-w-[20rem] items-center px-1.5 typography-micro text-muted-foreground">
+                    <div className="inline-flex h-7 min-w-0 max-w-[20rem] items-center gap-0.5 px-1.5 typography-micro text-muted-foreground">
                         <BranchValue label={selectedBranchLabel} startFrom={worktreeMode} />
+                        <BranchCopyButton branchName={selectedBranchName} />
                     </div>
                 ) : null}
 
@@ -202,11 +241,12 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
 export function MobileDraftTargetTriggers(
     props: Pick<
         DraftTargetProps,
-        'selectedProject' | 'selectedBranchLabel' | 'branchInteractive' | 'showBranchSelector' | 'showProjectSelector' | 'showWorktreeSelector' | 'worktreeMode' | 'onWorktreeModeChange' | 'endAccessory' | 'theme'
+        'selectedProject' | 'selectedBranchName' | 'selectedBranchLabel' | 'branchInteractive' | 'showBranchSelector' | 'showProjectSelector' | 'showWorktreeSelector' | 'worktreeMode' | 'onWorktreeModeChange' | 'endAccessory' | 'theme'
     > & { onOpenPicker: (picker: 'project' | 'branch') => void },
 ) {
     const {
         selectedProject,
+        selectedBranchName,
         selectedBranchLabel,
         branchInteractive,
         showBranchSelector,
@@ -265,6 +305,7 @@ export function MobileDraftTargetTriggers(
                         <Icon name="git-branch" className="h-3 w-3 shrink-0" />
                         {worktreeMode && displayBranchLabel ? <span className="shrink-0 text-muted-foreground/70">from</span> : null}
                         <span className="truncate">{displayBranchLabel ?? 'Branch'}</span>
+                        <BranchCopyButton branchName={selectedBranchName} />
                     </div>
                 ) : null}
             </div>

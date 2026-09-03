@@ -1596,6 +1596,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     >
                     <MobileDraftTargetTriggers
                         selectedProject={selectedDraftProject}
+                        selectedBranchName={selectedBranchName}
                         selectedBranchLabel={selectedDraftBranchLabel}
                         branchInteractive={newSessionDraftOpen}
                         showBranchSelector={shouldShowDraftBranchSelector}
