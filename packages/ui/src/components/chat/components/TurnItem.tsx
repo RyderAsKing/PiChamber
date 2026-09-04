@@ -134,6 +134,10 @@ const TurnItem: React.FC<TurnItemProps> = ({
     }, [onActivityContentChange]);
 
     const shouldShowWorkingHeader = turn.assistantMessages.length > 0 || showWorkingStatus;
+    const activityPartIds = React.useMemo(
+        () => new Set(turn.activityParts.map((activity) => activity.id)),
+        [turn.activityParts],
+    );
 
     return (
         <section
@@ -179,6 +183,7 @@ const TurnItem: React.FC<TurnItemProps> = ({
                 assistantMessages={turn.assistantMessages}
                 renderMessage={renderMessage}
                 deferEarlierMessages={deferEarlierAssistantMessages}
+                activityPartIds={activityPartIds}
             />
         </section>
     );

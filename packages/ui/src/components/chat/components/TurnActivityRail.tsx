@@ -361,7 +361,7 @@ const TurnActivityRail: React.FC<{
                                 style={{ backgroundColor: 'var(--tools-border)' }}
                             />
                             <div className="relative min-h-0 overflow-hidden">
-                                {visibleActivity.hiddenToolCount > 0 ? (
+                                {isExpanded && visibleActivity.hiddenToolCount > 0 ? (
                                     <Button
                                         type="button"
                                         variant="ghost"

@@ -4,13 +4,36 @@ import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
 import { subscribeToTurnAssistantRevealRequests } from '../lib/turns/turnAssistantReveal';
 import type { ChatMessageEntry } from '../lib/turns/types';
+import { getAssistantError } from '../message/chatMessageTextContent';
+import {
+    filterAssistantFinalParts,
+    filterRenderableAssistantParts,
+    filterVisibleParts,
+} from '../message/partUtils';
 
 interface TurnAssistantBlockProps {
     turnId: string;
     assistantMessages: ChatMessageEntry[];
     renderMessage: (message: ChatMessageEntry) => React.ReactNode;
     deferEarlierMessages: boolean;
+    /** Activity part ids projected to the turn rail. The response block mounts
+     * only records with final response content; activity records are owned by
+     * TurnActivityRail. */
+    activityPartIds: ReadonlySet<string>;
 }
+
+const hasFinalResponseContent = (
+    message: ChatMessageEntry,
+    activityPartIds: ReadonlySet<string>,
+): boolean => {
+    const errorText = getAssistantError(message.info)?.text;
+    if (typeof errorText === 'string' && errorText.trim().length > 0) {
+        return true;
+    }
+    const visibleParts = filterVisibleParts(message.parts);
+    const finalParts = filterAssistantFinalParts(visibleParts, activityPartIds, message.info.id);
+    return filterRenderableAssistantParts(finalParts).length > 0;
+};
 
 const INITIAL_ASSISTANT_MESSAGE_COUNT = 32;
 const ASSISTANT_MESSAGE_REVEAL_BATCH = 32;
@@ -25,18 +48,27 @@ const TurnAssistantBlock: React.FC<TurnAssistantBlockProps> = ({
     assistantMessages,
     renderMessage,
     deferEarlierMessages,
+    activityPartIds,
 }) => {
     const [revealedCount, setRevealedCount] = React.useState(INITIAL_ASSISTANT_MESSAGE_COUNT);
+    const firstMessage = assistantMessages[0];
+    const finalResponseMessages = React.useMemo(
+        () => assistantMessages.filter((message) => hasFinalResponseContent(message, activityPartIds)),
+        [activityPartIds, assistantMessages],
+    );
+    const finalTailMessages = React.useMemo(
+        () => finalResponseMessages.filter((message) => message !== firstMessage),
+        [finalResponseMessages, firstMessage],
+    );
     const shouldDefer = deferEarlierMessages
-        && assistantMessages.length > INITIAL_ASSISTANT_MESSAGE_COUNT;
-    const effectiveRevealedCount = shouldDefer
-        ? Math.min(revealedCount, assistantMessages.length)
-        : assistantMessages.length;
-    const visibleTailCount = Math.max(0, effectiveRevealedCount - 1);
-    const visibleStart = shouldDefer
-        ? Math.max(1, assistantMessages.length - visibleTailCount)
-        : 0;
-    const hiddenCount = visibleStart > 0 ? visibleStart - 1 : 0;
+        && finalResponseMessages.length > INITIAL_ASSISTANT_MESSAGE_COUNT;
+    const visibleTailCount = shouldDefer
+        ? Math.max(0, revealedCount - 1)
+        : finalTailMessages.length;
+    const visibleTail = visibleTailCount >= finalTailMessages.length
+        ? finalTailMessages
+        : finalTailMessages.slice(-visibleTailCount);
+    const hiddenFinalCount = finalTailMessages.length - visibleTail.length;
 
     React.useEffect(() => {
         setRevealedCount(INITIAL_ASSISTANT_MESSAGE_COUNT);
@@ -45,27 +77,29 @@ const TurnAssistantBlock: React.FC<TurnAssistantBlockProps> = ({
     // Timeline and search navigation use MessageList's imperative handle. Keep
     // that behavior working even when their target is behind this local gate.
     React.useEffect(() => subscribeToTurnAssistantRevealRequests(turnId, (messageId) => {
-        const messageIndex = assistantMessages.findIndex((message) => message.info.id === messageId);
-        if (messageIndex < 0) return false;
-        if (!shouldDefer || messageIndex === 0 || messageIndex >= visibleStart) return true;
+        if (firstMessage?.info.id === messageId) return true;
+        const finalIndex = finalTailMessages.findIndex((message) => message.info.id === messageId);
+        if (finalIndex < 0) return false;
+        const visibleStart = finalTailMessages.length - visibleTail.length;
+        if (!shouldDefer || finalIndex >= visibleStart) return true;
 
         setRevealedCount((current) => Math.max(
             current,
-            assistantMessages.length - messageIndex + 1,
+            finalTailMessages.length - finalIndex + 1,
         ));
         return true;
-    }), [assistantMessages, shouldDefer, turnId, visibleStart]);
+    }), [finalTailMessages, firstMessage, shouldDefer, turnId, visibleTail.length]);
 
     const loadEarlier = React.useCallback(() => {
         setRevealedCount((current) => Math.min(
-            assistantMessages.length,
+            finalTailMessages.length + 1,
             current + ASSISTANT_MESSAGE_REVEAL_BATCH,
         ));
-    }, [assistantMessages.length]);
+    }, [finalTailMessages.length]);
 
     const loadAll = React.useCallback(() => {
-        setRevealedCount(assistantMessages.length);
-    }, [assistantMessages.length]);
+        setRevealedCount(finalTailMessages.length + 1);
+    }, [finalTailMessages.length]);
 
     const renderSlot = React.useCallback((message: ChatMessageEntry) => (
         <AssistantSlot
@@ -75,17 +109,16 @@ const TurnAssistantBlock: React.FC<TurnAssistantBlockProps> = ({
         />
     ), [renderMessage]);
 
-    if (!shouldDefer || hiddenCount === 0) {
+    if (!shouldDefer || hiddenFinalCount === 0) {
         return (
             <div className="relative z-0">
-                {assistantMessages.map(renderSlot)}
+                {firstMessage ? renderSlot(firstMessage) : null}
+                {finalTailMessages.map(renderSlot)}
             </div>
         );
     }
 
-    const firstMessage = assistantMessages[0];
-    const visibleTail = assistantMessages.slice(visibleStart);
-    const showLoadAll = hiddenCount > ASSISTANT_MESSAGE_REVEAL_BATCH;
+    const showLoadAll = hiddenFinalCount > ASSISTANT_MESSAGE_REVEAL_BATCH;
 
     return (
         <div className="relative z-0">

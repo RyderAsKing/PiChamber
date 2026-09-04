@@ -81,4 +81,18 @@ describe('TurnActivityRail', () => {
         expect(markup).not.toContain('tool calls');
         expect(markup).not.toContain('data-tool-call-group');
     });
+
+    test('hides the earlier-activity control while the rail is collapsed', () => {
+        const activities = Array.from({ length: 41 }, (_, index) => makeReadActivity(index));
+        const markup = renderToStaticMarkup(
+            <TurnActivityRail
+                turn={makeTurn(activities)}
+                isExpanded={false}
+                isLiveTurn={false}
+            />,
+        );
+
+        expect(markup).toContain('data-turn-activity-expanded="false"');
+        expect(markup).not.toContain('Load earlier activity');
+    });
 });
