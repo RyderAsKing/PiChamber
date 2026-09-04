@@ -36,9 +36,20 @@ class FakeSession {
   constructor() {
     this.sessionId = 'sess-1';
     this.isStreaming = false;
+    this.isCompacting = false;
     this.listeners = new Set();
+    this.reloadCount = 0;
+    this.reloadError = null;
+    this.promptImpl = async () => {};
   }
   subscribe(l) { this.listeners.add(l); return () => this.listeners.delete(l); }
+  emit(event) { for (const listener of this.listeners) listener(event); }
+  async reload() {
+    this.reloadCount += 1;
+    if (this.reloadError) throw this.reloadError;
+  }
+  prompt(...args) { return this.promptImpl(...args); }
+  async sendUserMessage() {}
   async dispose() {}
 }
 
@@ -105,18 +116,25 @@ describe('prompt template daemon operations', () => {
     await mkdir(cwd, { recursive: true });
     const sess = session ?? new FakeSession();
     const baseLoader = loader;
+    const runtimeState = { createCount: 0, disposeCount: 0 };
     daemon = createSessionDaemon({
       endpoint, credential, cwd, agentDir,
       createRuntime: async (opts) => {
+        runtimeState.createCount += 1;
         const dir = typeof opts?.cwd === "string" && opts.cwd.length > 0 ? opts.cwd : cwd;
         const runtimeLoader = baseLoader ?? makeLoader(agentDir, () => dir);
-        return { cwd: dir, session: sess, services: { resourceLoader: runtimeLoader }, async dispose() {} };
+        return {
+          cwd: dir,
+          session: sess,
+          services: { resourceLoader: runtimeLoader },
+          async dispose() { runtimeState.disposeCount += 1; },
+        };
       },
     });
     await daemon.start();
     const request = (command, payload = {}) =>
       requestSessionDaemon({ endpoint, credential, command, payload });
-    return { root, endpoint, agentDir, cwd, session: sess, request };
+    return { root, endpoint, agentDir, cwd, session: sess, runtimeState, request };
   };
 
   it('creates, reads, updates, renames, and deletes a global prompt', async () => {
@@ -283,14 +301,63 @@ describe('prompt template daemon operations', () => {
     expect(after.prompts.some((p) => p.name === 'renamed')).toBe(false);
   });
 
-  it('blocks mutations while streaming', async () => {
+  it('persists mutations while streaming and reloads without disposing after settlement', async () => {
     const session = new FakeSession();
     const ctx = await startDaemon({ session });
     await ctx.request('resources.list', { directory: ctx.cwd });
     session.isStreaming = true;
-    await expect(ctx.request('resources.prompts.create', {
-      name: 'blocked', description: 'Blocked', content: 'x', location: 'global', directory: ctx.cwd,
-    })).rejects.toMatchObject({ code: 'SESSION_BUSY' });
+    const created = await ctx.request('resources.prompts.create', {
+      name: 'during-run', description: 'During run', content: 'x', location: 'global', directory: ctx.cwd,
+    });
+    expect(created.prompts.some((prompt) => prompt.name === 'during-run')).toBe(true);
+    expect(session.reloadCount).toBe(0);
+    expect(ctx.runtimeState).toEqual({ createCount: 1, disposeCount: 0 });
+
+    session.isStreaming = false;
+    session.emit({ type: 'agent_settled' });
+    await expect.poll(() => session.reloadCount).toBe(1);
+    expect(ctx.runtimeState).toEqual({ createCount: 1, disposeCount: 0 });
+  });
+
+  it('reloads idle prompt resources in place without replacing the runtime', async () => {
+    const ctx = await startDaemon();
+    await ctx.request('resources.list', { directory: ctx.cwd });
+    await ctx.request('resources.prompts.create', {
+      name: 'stable', description: 'Stable', content: 'x', location: 'global', directory: ctx.cwd,
+    });
+    expect(ctx.session.reloadCount).toBe(1);
+    expect(ctx.runtimeState).toEqual({ createCount: 1, disposeCount: 0 });
+  });
+
+  it('defers reload while a non-streaming slash command is still executing', async () => {
+    const session = new FakeSession();
+    let finishPrompt;
+    session.promptImpl = () => new Promise((resolve) => { finishPrompt = resolve; });
+    const ctx = await startDaemon({ session });
+    await ctx.request('resources.list', { directory: ctx.cwd });
+    await ctx.request('sessions.prompt', { sessionId: session.sessionId, text: '/hold', directory: ctx.cwd });
+
+    const created = await ctx.request('resources.prompts.create', {
+      name: 'after-command', description: 'After command', content: 'x', location: 'global', directory: ctx.cwd,
+    });
+    expect(created.prompts.some((prompt) => prompt.name === 'after-command')).toBe(true);
+    expect(session.reloadCount).toBe(0);
+
+    finishPrompt();
+    await expect.poll(() => session.reloadCount).toBe(1);
+    expect(ctx.runtimeState).toEqual({ createCount: 1, disposeCount: 0 });
+  });
+
+  it('reports the committed prompt even when runtime reload fails', async () => {
+    const ctx = await startDaemon();
+    await ctx.request('resources.list', { directory: ctx.cwd });
+    ctx.session.reloadError = new Error('reload failed');
+    const created = await ctx.request('resources.prompts.create', {
+      name: 'committed', description: 'Committed', content: 'x', location: 'global', directory: ctx.cwd,
+    });
+    expect(created.prompts.some((prompt) => prompt.name === 'committed')).toBe(true);
+    await expect(readFile(join(ctx.agentDir, 'prompts', 'committed.md'), 'utf8')).resolves.toContain('x');
+    expect(ctx.runtimeState).toEqual({ createCount: 1, disposeCount: 0 });
   });
 
   it('keeps package prompts read-only', async () => {

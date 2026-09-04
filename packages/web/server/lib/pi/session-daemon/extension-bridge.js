@@ -278,6 +278,18 @@ export const createExtensionBridge = ({
     strikethrough: (text) => text,
   };
 
+  const reloadSession = async (session) => {
+    clearExtensionState(session.sessionId);
+    const providerObserver = session.modelRuntime?.[PROVIDER_OBSERVER];
+    if (providerObserver) providerObserver.suppress = true;
+    try {
+      await session.reload();
+    } finally {
+      if (providerObserver) providerObserver.suppress = false;
+    }
+    publishCatalogChange(session.sessionId, { providers: true, resources: true, commands: true });
+  };
+
   const buildExtensionBindings = (session) => {
     installMutationObservers(session);
     return {
@@ -310,17 +322,7 @@ export const createExtensionBridge = ({
           if (!owner) throw new Error('Session runtime is no longer available.');
           return owner.switchSession(sessionPath, switchOptions);
         },
-        reload: async () => {
-          clearExtensionState(session.sessionId);
-          const providerObserver = session.modelRuntime?.[PROVIDER_OBSERVER];
-          if (providerObserver) providerObserver.suppress = true;
-          try {
-            await session.reload();
-          } finally {
-            if (providerObserver) providerObserver.suppress = false;
-          }
-          publishCatalogChange(session.sessionId, { providers: true, resources: true, commands: true });
-        },
+        reload: () => reloadSession(session),
       },
       shutdownHandler: () => requestSessionShutdown?.(session.sessionId),
       onError: (error) => {
@@ -483,6 +485,7 @@ export const createExtensionBridge = ({
     mirrorExtensionApp,
     mirrorExtensionPanel,
     publishExtensionCustomMessage,
+    reloadSession,
     resolveExtensionDialog,
   };
 };
