@@ -240,7 +240,7 @@ const renderReadFilePath = (displayPath: string, animate = true) => {
     const displayDir = hasAbsoluteRoot ? dir.slice(1) : dir;
 
     return (
-        <span className={cn('min-w-0 inline-flex max-w-full flex-1 items-baseline overflow-hidden', TOOL_ROW_DESCRIPTION_CLASS)} title={displayPath}>
+        <span className={cn('min-w-0 inline-flex max-w-full flex-1 items-center overflow-hidden', TOOL_ROW_DESCRIPTION_CLASS)} title={displayPath}>
             {hasAbsoluteRoot ? <span className="flex-shrink-0" style={{ color: 'var(--tools-description)' }}>/</span> : null}
             <span
                 className="min-w-0 shrink truncate whitespace-nowrap"
@@ -539,7 +539,7 @@ const StaticToolRowInner: React.FC<{
                             event.stopPropagation();
                             openSkillSettings(entry.name, mobileActions);
                         }}
-                        className={cn('!min-h-0 min-w-0 flex-1 truncate whitespace-nowrap text-left hover:opacity-90', TOOL_ROW_DESCRIPTION_CLASS)}
+                        className={cn('inline-flex !min-h-0 h-5 min-w-0 flex-1 items-center truncate whitespace-nowrap text-left hover:opacity-90', TOOL_ROW_DESCRIPTION_CLASS)}
                         style={{ color: 'var(--tools-description)' }}
                         title={`Open ${entry.name} in Settings`}
                         aria-label={`Open ${entry.name} skill in Settings`}
