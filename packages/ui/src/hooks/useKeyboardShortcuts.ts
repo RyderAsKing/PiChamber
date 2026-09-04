@@ -28,6 +28,12 @@ import { getPiSessionStore } from '@/apps/pi-session-store';
 import { triggerPromptText } from '@/lib/pi/command-triggers';
 import { focusChatInput } from '@/components/chat/composer/editor/dom';
 import type { CommandTrigger } from '@/lib/pi/command-triggers';
+import type { ShortcutCombo } from '@/lib/shortcuts';
+
+export const shouldHandleModelSelectorShortcut = (
+  event: KeyboardEvent,
+  shortcut: ShortcutCombo,
+): boolean => !event.repeat && eventMatchesShortcut(event, shortcut);
 
 /** Run a command trigger through the normal authenticated prompt path. */
 const fireCommandTrigger = (trigger: CommandTrigger): void => {
@@ -452,7 +458,7 @@ export const useKeyboardShortcuts = () => {
       }
 
       // Cmd/Ctrl+Shift+M: Open model selector (same conditions as double-ESC: chat tab, no overlays)
-      if (eventMatchesShortcut(e, combo('open_model_selector'))) {
+      if (shouldHandleModelSelectorShortcut(e, combo('open_model_selector'))) {
         const {
           isSettingsDialogOpen,
           isCommandPaletteOpen,
