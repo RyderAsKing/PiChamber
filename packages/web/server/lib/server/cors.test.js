@@ -16,8 +16,10 @@ describe('packaged UI CORS', () => {
     expect(resolveAllowedCorsHeaders('x-pichamber-directory,authorization')).toBe('x-pichamber-directory,authorization');
     expect(resolveAllowedCorsHeaders('x-pichamber-directory')).toBe('x-pichamber-directory');
     expect(resolveAllowedCorsHeaders('x-pichamber-filename')).toBe('x-pichamber-filename');
+    expect(resolveAllowedCorsHeaders('x-pichamber-mime')).toBe('x-pichamber-mime');
+    expect(resolveAllowedCorsHeaders('x-pichamber-filename,x-pichamber-mime')).toBe('x-pichamber-filename,x-pichamber-mime');
     expect(resolveAllowedCorsHeaders('x-evil')).toBe(
-      'Content-Type,Authorization,Accept,X-Requested-With,Cache-Control,x-pichamber-directory,x-pichamber-filename',
+      'Content-Type,Authorization,Accept,X-Requested-With,Cache-Control,x-pichamber-directory,x-pichamber-filename,x-pichamber-mime',
     );
   });
 
@@ -28,11 +30,11 @@ describe('packaged UI CORS', () => {
       method: 'OPTIONS',
       headers: {
         origin: 'pichamber-ui://app',
-        'access-control-request-headers': 'x-pichamber-directory,x-pichamber-filename,authorization',
+        'access-control-request-headers': 'x-pichamber-directory,x-pichamber-filename,x-pichamber-mime,authorization',
       },
     }, res);
     expect(ended).toBe(true);
     expect(headers['Access-Control-Allow-Origin']).toBe('pichamber-ui://app');
-    expect(headers['Access-Control-Allow-Headers']).toBe('x-pichamber-directory,x-pichamber-filename,authorization');
+    expect(headers['Access-Control-Allow-Headers']).toBe('x-pichamber-directory,x-pichamber-filename,x-pichamber-mime,authorization');
   });
 });
