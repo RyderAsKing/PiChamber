@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-04
+
+Turn activity timeline, authoritative live status, and attachment upload fix release.
+
+- **Unified turn activity timeline.** Assistant turns now project reasoning, progress text, and tools through one chronological disclosure rail (`TurnActivityRail`, `TurnWorkingHeader`, `turnActivityModel`, `turnActivityDisclosure`, `useTurnToolsState`) with a one-line working header (live status while running, `Worked for <duration>` when settled) and batched tool reveal that preserves per-message expansion caches. Assistant message body, reasoning, and text parts align with the rail without rebuilding settled siblings during streams.
+- **Live activity status is authoritative.** `useAssistantStatus` derives working/thinking/tool phrases from live channels (streaming assistant message, Pi snapshot, session activity timing) instead of persisted history, with normalized tool-name mapping (dotted/suffixed names plus expanded edit/search/fetch/task phrases) and authoritative start time. Temporary fallbacks clear when live state arrives; fetch failure never masquerades as idle.
+- **Running-tool shimmer scoped to live verbs (#81).** Reintroduces `oc-shimmer-verb` with CSS-owned transparent fill reusing `AgentThinkingLoader` gradient stops/keyframes, a reduced-motion static dim fallback, and settled rows on static dim — without restarting sweeps on streaming remounts or touching footer gating (`MinDurationShineText`, `index.css`).
+- **Refined tool presentation.** Compact static rows (`StaticToolRow`) for navigation tools plus refined expandable `ToolPart` headers, task summaries, and shared row typography; docs updated (`parts/DOCUMENTATION.md`).
+- **macOS/Windows build fix.** Renames case-colliding `ChatSurfaceContext.tsx` to `chatSurfaceProvider.tsx` and updates imports so case-insensitive checkouts build.
+- **Attachment uploads unblocked on desktop/mobile.** CORS preflight now allows `x-pichamber-mime` for `POST /api/pi/attachments`, fixing image uploads from `pichamber-ui://app`, `capacitor://localhost`, and loopback HMR (`cors.js`).
+
 ## [0.8.0] - 2026-09-03
 
 Snippets, prompt templates, command catalog, streaming polish, and architecture consolidation release.
