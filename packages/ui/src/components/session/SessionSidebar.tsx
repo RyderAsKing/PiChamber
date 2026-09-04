@@ -24,6 +24,7 @@ import { useGitStore, useGitAllBranches, useGitRepoStatusMap } from '@/stores/us
 import { buildAvailableWorktreesByProject, useWorktreeStore } from '@/stores/useWorktreeStore';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
+import { useSidebarSpaceStore } from '@/stores/useSidebarSpaceStore';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useArchivedAutoFolders } from './sidebar/hooks/useArchivedAutoFolders';
 import { useGroupOrdering } from './sidebar/hooks/useGroupOrdering';
@@ -143,8 +144,8 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const [expandedParents, setExpandedParents] = React.useState<Set<string>>(new Set());
   const safeStorage = React.useMemo(() => getDeferredSafeStorage(), []);
   const [collapsedProjects, setCollapsedProjects] = React.useState<Set<string>>(new Set());
-  const [selectedSpaceId, setSelectedSpaceId] = React.useState<string | null>(null);
-  const [selectedWorktreePath, setSelectedWorktreePath] = React.useState<string | null>(null);
+  const selectedSpaceId = useSidebarSpaceStore((state) => state.selectedSpaceId);
+  const selectedWorktreePath = useSidebarSpaceStore((state) => state.selectedWorktreePath);
 
   const [projectRepoStatus, setProjectRepoStatus] = React.useState<Map<string, boolean | null>>(new Map());
   const [visibleSessionCountByGroup, setVisibleSessionCountByGroup] = React.useState<Map<string, number>>(new Map());
@@ -326,15 +327,14 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     if (!selectedSpaceId) return;
     const project = projects.find((candidate) => candidate.id === selectedSpaceId);
     if (!project) {
-      setSelectedSpaceId(null);
-      setSelectedWorktreePath(null);
+      useSidebarSpaceStore.getState().clearSpaceSelection();
       return;
     }
     if (!selectedWorktreePath) return;
     const stillAvailable = (availableWorktreesByProject.get(normalizePath(project.path) ?? project.path) ?? [])
       .some((worktree) => normalizePath(worktree.path) === normalizePath(selectedWorktreePath));
     if (!stillAvailable) {
-      setSelectedWorktreePath(null);
+      useSidebarSpaceStore.getState().clearSelectedWorktree();
       toast.warning('The selected worktree is no longer available. Showing the project checkout instead.');
     }
   }, [availableWorktreesByProject, projects, selectedSpaceId, selectedWorktreePath]);
@@ -952,8 +952,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   });
 
   const handleSelectProject = React.useCallback((id: string | null) => {
-    setSelectedSpaceId(id);
-    setSelectedWorktreePath(null);
+    useSidebarSpaceStore.getState().selectSpace(id);
     if (!id) return;
     setActiveProjectIdOnly(id);
     const section = projectSections.find((candidate) => candidate.project.id === id);
@@ -1385,8 +1384,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
           worktreeErrorsByProject={worktreeErrorsByProject}
           onSelectProject={handleSelectProject}
           onSelectWorktree={(projectId, worktreePath) => {
-            setSelectedSpaceId(projectId);
-            setSelectedWorktreePath(worktreePath);
+            useSidebarSpaceStore.getState().selectWorktree(projectId, worktreePath);
             setActiveProjectIdOnly(projectId);
             const section = projectSections.find((candidate) => candidate.project.id === projectId);
             const group = section?.groups.find((candidate) => normalizePath(candidate.directory) === normalizePath(worktreePath));
