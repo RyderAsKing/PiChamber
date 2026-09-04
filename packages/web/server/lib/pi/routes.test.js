@@ -627,6 +627,45 @@ describe('Pi runtime route', () => {
     }
   });
 
+  it('verifies archive membership against the owning directory', async () => {
+    const calls = [];
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        if (command === 'sessions.list') {
+          if (payload?.directory === '/other') {
+            return { sessions: [{ session: { id: 'foreign-1', directory: '/other', createdAt: 1, updatedAt: 2 }, updatedAt: 2 }] };
+          }
+          return { sessions: [{ session: { id: 'focused-1', directory: '/focused', createdAt: 1, updatedAt: 2 }, updatedAt: 2 }] };
+        }
+        return {};
+      },
+    };
+    const archiveSets = [];
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, {
+      getPiSessionDaemonRuntime: () => runtime,
+      archiveStore: { read: async () => ({}), set: async (...args) => archiveSets.push(args) },
+    });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi/sessions/foreign-1/archive`;
+
+    // Owning directory succeeds and forwards that directory to the daemon list.
+    expect((await fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived: true, directory: '/other' }) })).status).toBe(204);
+    expect(archiveSets).toEqual([['foreign-1', true]]);
+    expect(calls).toContainEqual({ command: 'sessions.list', payload: { directory: '/other' } });
+
+    // Wrong directory fails membership without writing the sidecar.
+    calls.length = 0;
+    archiveSets.length = 0;
+    const wrong = await fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived: true, directory: '/focused' }) });
+    expect(wrong.status).not.toBe(204);
+    expect(archiveSets).toEqual([]);
+    expect(calls).toContainEqual({ command: 'sessions.list', payload: { directory: '/focused' } });
+  });
+
   it('projects daemon file parts for image and attachment history instead of failing the session open', async () => {
     const detail = {
       session: { id: 'pi-session-files', directory: '/workspace', createdAt: 1, updatedAt: 2 },

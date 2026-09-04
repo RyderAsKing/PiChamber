@@ -257,7 +257,7 @@ VS Code does not run the server permission-auto-accept runtime. The extension ho
     - archive
     - delete
     - move to another worktree directory
-   - retention cleanup batch archive/delete
+   - retention cleanup batch archive/delete (threads each session's owning directory via `resolveGlobalSessionDirectory`, the catalog, then the focused slice — never the focused directory alone, so cross-folder cleanup verifies membership against the correct daemon listing)
 
 This keeps cold/global lists responsive without requiring a refetch after every change.
 

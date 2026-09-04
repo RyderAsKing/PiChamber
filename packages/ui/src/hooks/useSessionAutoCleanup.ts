@@ -23,7 +23,7 @@ type BuildAutoDeleteCandidatesOptions = {
   now?: number;
 };
 
-const buildAutoDeleteCandidates = ({
+export const buildAutoDeleteCandidates = ({
   sessions,
   currentSessionId,
   cutoffDays,
@@ -158,9 +158,9 @@ export const useSessionAutoCleanup = (enabledOrOptions?: boolean | CleanupOption
 
           try {
             if (sessionRetentionAction === 'archive') {
-              await getPiSessionStore().archive(id, true);
+              await getPiSessionStore().archive(id, true, directory);
             } else {
-              await getPiSessionStore().remove(id);
+              await getPiSessionStore().remove(id, directory);
             }
             completedIds.push(id);
           } catch {

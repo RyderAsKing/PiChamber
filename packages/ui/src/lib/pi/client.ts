@@ -308,7 +308,11 @@ export class PiService {
     try {
       await jsonRequest<undefined, undefined>(
         `/api/pi/sessions/${encodeURIComponent(input.sessionId)}`,
-        { method: 'DELETE', ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+        {
+          method: 'DELETE',
+          ...(scope?.directory ? { query: { directory: scope.directory } } : {}),
+          ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+        },
       );
       return true;
     } catch (error) {

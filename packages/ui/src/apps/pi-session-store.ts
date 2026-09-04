@@ -1058,8 +1058,13 @@ export class PiSessionStore {
     if (catalogChanged) topics.push(TOPIC_CATALOG);
     this.emit(topics);
   }
-  async archive(sessionId: string, archived: boolean) {
-    const sessionDir = this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory;
+  private resolveSessionDirectory(sessionId: string, explicitDirectory?: string): string | undefined {
+    return explicitDirectory
+      ?? this.state.catalog.byId.get(sessionId)?.directory
+      ?? this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory;
+  }
+  async archive(sessionId: string, archived: boolean, directory?: string) {
+    const sessionDir = this.resolveSessionDirectory(sessionId, directory);
     await piClient.archiveSession({ sessionId, archived }, this.scope(sessionDir));
     const now = Date.now();
     const nextCatalog = applyArchiveChange(this.state.catalog, sessionId, archived, now);
@@ -1073,9 +1078,10 @@ export class PiSessionStore {
     if (catalogChanged) topics.push(TOPIC_CATALOG);
     this.emit(topics);
   }
-  async remove(sessionId: string) {
+  async remove(sessionId: string, directory?: string) {
     const expected = this.runtimeGeneration;
-    await piClient.deleteSession({ sessionId, ignoreMissing: true }, this.scope());
+    const sessionDir = this.resolveSessionDirectory(sessionId, directory);
+    await piClient.deleteSession({ sessionId, ignoreMissing: true }, sessionDir ? this.scope(sessionDir) : this.scope());
     if (expected !== this.runtimeGeneration) return;
     removeSessionActivityTiming(sessionId);
     removeSessionOrdering(sessionId);
