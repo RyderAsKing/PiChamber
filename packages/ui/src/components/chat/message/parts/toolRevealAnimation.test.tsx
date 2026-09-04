@@ -48,16 +48,42 @@ describe('tool arrival animation', () => {
     expect(idle).not.toContain('oc-step-in');
   });
 
-  test('running verbs use a bounded opacity transition, settled verbs stay static', () => {
+  test('running verbs shimmer like the working animation, settled verbs stay static', () => {
     const running = renderToStaticMarkup(
       <MinDurationShineText active={true}>Read</MinDurationShineText>,
     );
-    expect(running).toContain('opacity-70');
-    expect(running).not.toContain('oc-shimmer-verb');
+    expect(running).toContain('oc-shimmer-verb');
+    expect(running).not.toContain('opacity-70');
+    // CSS owns the transparent fill — no inline transparent that could
+    // outlive the gradient (reduced-motion) or flash invisible on remount.
+    expect(running).not.toContain('color:transparent');
     const settled = renderToStaticMarkup(
       <MinDurationShineText active={false}>Read</MinDurationShineText>,
     );
     expect(settled).not.toContain('oc-shimmer-verb');
+  });
+
+  test('remount continuity: same running tool keeps the shimmer without flashing invisible', () => {
+    const runningProps = {
+      active: true as const,
+      style: { color: 'color-mix(in srgb, var(--tools-title) 72%, var(--tools-description))' } as React.CSSProperties,
+    };
+    const first = renderToStaticMarkup(
+      <MinDurationShineText {...runningProps}>Read</MinDurationShineText>,
+    );
+    const second = renderToStaticMarkup(
+      <MinDurationShineText {...runningProps}>Read</MinDurationShineText>,
+    );
+    // Both paints carry the shimmer class in render (no effect-delayed
+    // flash), drop the caller's inline title color so the gradient shows,
+    // and never inline transparent text that could stick without the gradient.
+    for (const markup of [first, second]) {
+      expect(markup).toContain('oc-shimmer-verb');
+      expect(markup).not.toContain('color-mix');
+      expect(markup).not.toContain('color:transparent');
+      expect(markup).not.toContain('opacity-70');
+    }
+    expect(second).toBe(first);
   });
 });
 
@@ -69,14 +95,14 @@ describe('thinking block arrival', () => {
     isStreaming,
   } as const);
 
-  test('live thinking fades in and dims its title', () => {
+  test('live thinking fades in and shimmers its title', () => {
     const markup = renderToStaticMarkup(
       <ReasoningTimelineBlock {...block(true)} />,
     );
     expect(markup).toContain('oc-step-in');
-    expect(markup).toContain('opacity-70');
-    expect(markup).toContain('color:color-mix(in srgb, var(--tools-title) 72%, var(--tools-description))');
-    expect(markup).not.toContain('oc-shimmer-verb');
+    expect(markup).toContain('oc-shimmer-verb');
+    expect(markup).not.toContain('opacity-70');
+    expect(markup).not.toContain('color:transparent');
   });
 
   test('settled thinking mounts statically with a dimmed title', () => {
