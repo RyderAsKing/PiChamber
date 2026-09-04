@@ -23,6 +23,7 @@ import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { toast } from '@/components/ui';
 import { cycleComposerThinking } from '@/lib/pi/apply-composer-thinking';
 import { addSelectionToChat } from '@/lib/addSelectionToChat';
+import { cycleDraftFolder, cycleSessionFolder } from '@/lib/folderCycle';
 import { hasOpenDropdown } from './keyboard-shortcut-dom';
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { triggerPromptText } from '@/lib/pi/command-triggers';
@@ -54,22 +55,10 @@ export const useKeyboardShortcuts = () => {
   const currentShortcutDirectory = useDirectoryStore((s) => s.currentDirectory);
   const effectiveDirectory = useEffectiveDirectory();
 
-  // The terminal lives in the context panel; these mirror the rail behavior.
+  // The terminal lives in the context panel; this mirrors the rail behavior.
   const toggleTerminalSurface = React.useCallback(() => {
     if (!currentShortcutDirectory) return;
     useUIStore.getState().openContextSurface(normalizeContextPanelDirectoryKey(currentShortcutDirectory), 'terminal');
-  }, [currentShortcutDirectory]);
-
-  const toggleTerminalSurfaceExpanded = React.useCallback(() => {
-    if (!currentShortcutDirectory) return;
-    const key = normalizeContextPanelDirectoryKey(currentShortcutDirectory);
-    const state = useUIStore.getState();
-    const panel = state.contextPanelByDirectory[key];
-    const activeMode = panel?.isOpen ? panel.tabs.find((tab) => tab.id === panel.activeTabId)?.mode : null;
-    if (activeMode !== 'terminal') {
-      state.openContextSurface(key, 'terminal');
-    }
-    state.toggleContextPanelExpanded(key);
   }, [currentShortcutDirectory]);
   const isMobile = useUIStore((s) => s.isMobile);
   const setSessionSwitcherOpen = useUIStore((s) => s.setSessionSwitcherOpen);
@@ -77,7 +66,6 @@ export const useKeyboardShortcuts = () => {
   const setSettingsDialogOpen = useUIStore((s) => s.setSettingsDialogOpen);
   const setModelSelectorOpen = useUIStore((s) => s.setModelSelectorOpen);
   const setTimelineDialogOpen = useUIStore((s) => s.setTimelineDialogOpen);
-  const togglePromptNavigatorPanel = useUIStore((s) => s.togglePromptNavigatorPanel);
   const setPromptNavigatorPanelOpen = useUIStore((s) => s.setPromptNavigatorPanelOpen);
   const shortcutOverrides = useUIStore((s) => s.shortcutOverrides);
   const currentDirectory = useDirectoryStore((s) => s.currentDirectory);
@@ -135,17 +123,6 @@ export const useKeyboardShortcuts = () => {
         e.preventDefault();
         e.stopPropagation();
         toggleTerminalSurface();
-        return;
-      }
-
-      if (eventMatchesShortcut(e, combo('toggle_terminal_expanded'))) {
-        const { isMobile } = useUIStore.getState();
-        if (isMobile) {
-          return;
-        }
-        e.preventDefault();
-        e.stopPropagation();
-        toggleTerminalSurfaceExpanded();
         return;
       }
     };
@@ -254,38 +231,6 @@ export const useKeyboardShortcuts = () => {
         return;
       }
 
-      if (eventMatchesShortcut(e, combo('toggle_prompt_navigator'))) {
-        const {
-          activeMainTab,
-          promptNavigatorEnabled,
-          isSettingsDialogOpen,
-          isCommandPaletteOpen,
-          isHelpDialogOpen,
-          isSessionSwitcherOpen,
-          isTimelineDialogOpen,
-          isImagePreviewOpen,
-        } = useUIStore.getState();
-
-        if (!promptNavigatorEnabled || isMobile || activeMainTab !== 'chat') {
-          return;
-        }
-
-        const hasOverlay = isSettingsDialogOpen
-          || isCommandPaletteOpen
-          || isHelpDialogOpen
-          || isSessionSwitcherOpen
-          || isTimelineDialogOpen
-          || isImagePreviewOpen;
-
-        if (hasOverlay) {
-          return;
-        }
-
-        e.preventDefault();
-        togglePromptNavigatorPanel();
-        return;
-      }
-
       if (eventMatchesShortcut(e, combo('open_help'))) {
         e.preventDefault();
         toggleHelpDialog();
@@ -365,10 +310,25 @@ export const useKeyboardShortcuts = () => {
         return;
       }
 
+      if (eventMatchesShortcut(e, combo('cycle_session_folder'))) {
+        if (!cycleSessionFolder()) {
+          return;
+        }
+        e.preventDefault();
+        return;
+      }
 
-      // Legacy right-sidebar shortcuts now target the context surfaces that
-      // replaced the sidebar's tabs.
-      if (eventMatchesShortcut(e, combo('toggle_right_sidebar'))) {
+      if (eventMatchesShortcut(e, combo('cycle_draft_folder'))) {
+        if (!cycleDraftFolder()) {
+          return;
+        }
+        e.preventDefault();
+        return;
+      }
+
+
+      // Single right-sidebar shortcut: open the context panel.
+      if (eventMatchesShortcut(e, combo('open_right_sidebar'))) {
         const state = useUIStore.getState();
         if (state.isMobile || !currentDirectory) {
           return;
@@ -377,32 +337,13 @@ export const useKeyboardShortcuts = () => {
         const directory = normalizeContextPanelDirectoryKey(currentDirectory);
         const panelState = state.contextPanelByDirectory[directory];
         if (panelState?.isOpen) {
-          state.closeContextPanel(directory);
-        } else if (panelState?.activeTabId) {
+          return;
+        }
+        if (panelState?.activeTabId) {
           state.setActiveContextPanelTab(directory, panelState.activeTabId);
         } else {
           state.openContextSurface(directory, 'git');
         }
-        return;
-      }
-
-      if (eventMatchesShortcut(e, combo('open_right_sidebar_git'))) {
-        const state = useUIStore.getState();
-        if (state.isMobile || !currentDirectory) {
-          return;
-        }
-        e.preventDefault();
-        state.openContextSurface(normalizeContextPanelDirectoryKey(currentDirectory), 'git');
-        return;
-      }
-
-      if (eventMatchesShortcut(e, combo('open_right_sidebar_files'))) {
-        const state = useUIStore.getState();
-        if (state.isMobile || !currentDirectory) {
-          return;
-        }
-        e.preventDefault();
-        state.openContextSurface(normalizeContextPanelDirectoryKey(currentDirectory), 'file');
         return;
       }
 
@@ -413,16 +354,6 @@ export const useKeyboardShortcuts = () => {
         }
         e.preventDefault();
         toggleTerminalSurface();
-        return;
-      }
-
-      if (eventMatchesShortcut(e, combo('toggle_terminal_expanded'))) {
-        const { isMobile } = useUIStore.getState();
-        if (isMobile) {
-          return;
-        }
-        e.preventDefault();
-        toggleTerminalSurfaceExpanded();
         return;
       }
 
@@ -621,14 +552,12 @@ export const useKeyboardShortcuts = () => {
     toggleHelpDialog,
     toggleSidebar,
     toggleTerminalSurface,
-    toggleTerminalSurfaceExpanded,
     isMobile,
     setSessionSwitcherOpen,
     setActiveMainTab,
     setSettingsDialogOpen,
     setModelSelectorOpen,
     setTimelineDialogOpen,
-    togglePromptNavigatorPanel,
     setPromptNavigatorPanelOpen,
     setThemeMode,
     sessionPhase,

@@ -32,7 +32,6 @@ import { ensurePierreThemeRegistered } from '@/lib/shiki/appThemeRegistry';
 import { getDefaultTheme } from '@/lib/theme/themes';
 import { isBrowserClientRuntime, openDesktopFileInApp, openDesktopPath } from '@/lib/desktop';
 import { useOpenInAppsStore } from '@/stores/useOpenInAppsStore';
-import { eventMatchesShortcut, getEffectiveShortcutCombo } from '@/lib/shortcuts';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { MobileFilesChrome } from './files/MobileFilesChrome';
 import { Dialogs } from './files/FilesViewDialogs';
@@ -348,7 +347,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   }, [root, selectedFile?.path]);
 
   // File navigation/editor state
-  const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
   const fileEditorKeymap = useUIStore((state) => state.fileEditorKeymap);
   const settingsDefaultFileViewerPreview = useConfigStore((state) => state.settingsDefaultFileViewerPreview);
   const settingsExpandedEditorToolbar = useUIStore((state) => state.expandedEditorToolbar);
@@ -1014,43 +1012,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
       document.removeEventListener('selectionchange', runNudge);
     };
   }, [editorViewRef, isMobile, nudgeEditorSelectionAboveKeyboard]);
-
-  React.useEffect(() => {
-    if (!canEdit || textViewMode !== 'edit' || isMobile) {
-      return;
-    }
-
-    const goToLineCombo = getEffectiveShortcutCombo('open_go_to_line', shortcutOverrides);
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as Element | null;
-      if (target?.closest('[role="dialog"]')) {
-        return;
-      }
-
-      const isEditorTarget = Boolean(target?.closest('.cm-editor'));
-      const isTypingTarget = Boolean(
-        target?.closest('input, textarea, [contenteditable="true"], [role="textbox"]')
-      );
-      if (isTypingTarget && !isEditorTarget) {
-        return;
-      }
-
-      const activeElement = document.activeElement as Element | null;
-      const editorHasFocus = Boolean(activeElement?.closest('.cm-editor'));
-      if (!editorHasFocus) {
-        return;
-      }
-
-      if (eventMatchesShortcut(event, goToLineCombo)) {
-        event.preventDefault();
-        setIsGoToLineOpen(true);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canEdit, isMobile, shortcutOverrides, textViewMode]);
 
   const editorFontSize = useUIStore((state) => state.editorFontSize);
 
