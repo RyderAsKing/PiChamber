@@ -18,6 +18,7 @@ interface WorkingPlaceholderProps {
 
 const EPOCH_SECONDS_THRESHOLD = 1_000_000_000;
 const EPOCH_MILLISECONDS_THRESHOLD = 1_000_000_000_000;
+const DEFAULT_WORKING_STATUS = 'thinking';
 
 const toRetryTargetTimestamp = (next: number): number => {
   if (next >= EPOCH_MILLISECONDS_THRESHOLD) {
@@ -113,6 +114,7 @@ export function WorkingPlaceholder({
         role="status"
         aria-live="polite"
         aria-label={`${retryText}...`}
+        data-agent-thinking-row="true"
       >
         <AgentThinkingLoader text={retryText} variant="inline" showElapsed={false} className="min-w-0" />
       </div>
@@ -125,10 +127,20 @@ export function WorkingPlaceholder({
 
   // Render real phase changes in the same pass as their props. The previous
   // effect-backed mirror left one stale or empty frame between tool calls and
-  // caused an extra render for every phase change. Generic filler still keeps
-  // the latest useful status until another real phase arrives.
-  if (incomingText && (!incomingGeneric || displayedStatusRef.current === null)) {
+  // caused an extra render for every phase change. Generic filler keeps the
+  // latest useful status after a real phase, while the first generic frame
+  // starts with the stable default instead of exposing a random filler phrase.
+  if (displayedStatusRef.current === null) {
+    displayedStatusRef.current = {
+      text: incomingGeneric ? DEFAULT_WORKING_STATUS : (incomingText ?? DEFAULT_WORKING_STATUS),
+      permission: incomingPermission,
+    };
+  } else if (incomingText && (!incomingGeneric || incomingPermission)) {
     displayedStatusRef.current = { text: incomingText, permission: incomingPermission };
+  } else if (incomingGeneric && displayedStatusRef.current.permission) {
+    // Permission is a blocking state, not a useful phase to retain after the
+    // reply arrives. Return to the default until Pi reports the next phase.
+    displayedStatusRef.current = { text: DEFAULT_WORKING_STATUS, permission: false };
   }
 
   const displayedStatus = displayedStatusRef.current;
@@ -147,6 +159,7 @@ export function WorkingPlaceholder({
       role="status"
       aria-live={displayedStatus.permission ? 'assertive' : 'polite'}
       aria-label={label}
+      data-agent-thinking-row="true"
       data-waiting={displayedStatus.permission ? 'true' : undefined}
     >
       <span className="typography-markdown inline-flex min-w-0 items-center gap-1.5 leading-5">
@@ -162,7 +175,14 @@ export function WorkingPlaceholder({
             onError={handleProviderLogoError}
           />
         ) : null}
-        <AgentThinkingLoader text={label} variant="inline" animationType="spinner" startedAt={startedAt} className="min-w-0" />
+        <AgentThinkingLoader
+          text={label}
+          variant="inline"
+          animationType="spinner"
+          animateText
+          startedAt={startedAt}
+          className="min-w-0"
+        />
       </span>
     </div>
   );

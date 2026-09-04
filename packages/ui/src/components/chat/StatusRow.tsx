@@ -306,7 +306,10 @@ export const StatusRow: React.FC<StatusRowProps> = ({
             </div>
           ) : showAssistantStatus && shouldRenderPlaceholder ? (
             <WorkingPlaceholder
-              key={currentSessionId ?? "no-session"}
+              // A new turn may begin without an idle render between queued
+              // prompts. Include the authoritative start so its label returns
+              // to Thinking instead of carrying the previous turn's phase.
+              key={`${currentSessionId ?? "no-session"}:${turnStartedAt ?? "no-start"}`}
               isWorking={isWorking}
               statusText={statusText}
               isGenericStatus={isGenericStatus}

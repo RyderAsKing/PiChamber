@@ -253,9 +253,15 @@ export const ChatViewport = React.memo(
                 directory={directory}
               />
 
-              <div className="mb-3">
-                <StatusRowContainer />
-              </div>
+              {/* A session can become busy before its first user/assistant
+                  record is materialized. Keep the initial Thinking row visible
+                  in that short transcript-less window. Normal turns own the row
+                  in TurnItem so it sits directly below the user prompt. */}
+              {turnIds.length === 0 && sessionIsWorking ? (
+                <div className="mb-3">
+                  <StatusRowContainer />
+                </div>
+              ) : null}
 
               <div
                 className="flex-shrink-0"

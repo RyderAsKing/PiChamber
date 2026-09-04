@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test';
-import type { Message } from '@/lib/chat/types';
+import type { Message, Part } from '@/lib/chat/types';
+import type { PiReducerMessagePart } from '@/lib/pi/event-reducer';
 
-import { getActiveAssistantContext } from './useAssistantStatus';
+import {
+    getActiveAssistantContext,
+    getAssistantActivityStatus,
+    getPiAssistantActivityStatus,
+} from './useAssistantStatus';
 
 const userMessage = (id: string, providerID: string, modelID: string): Message => ({
     id,
@@ -18,6 +23,60 @@ const assistantMessage = (id: string, parentID: string): Message => ({
     parentID,
     time: { created: 2 },
 } as Message);
+
+describe('getAssistantActivityStatus', () => {
+    test('maps namespaced Pi tools to stable activity categories', () => {
+        const runningTool = (tool: string): Part => ({
+            id: `tool-${tool}`,
+            type: 'tool',
+            tool,
+            state: { status: 'running' },
+        } as Part);
+
+        expect(getAssistantActivityStatus([runningTool('functions.read')], 'turn-1').statusText).toBe('reading files');
+        expect(getAssistantActivityStatus([runningTool('bash')], 'turn-1').statusText).toBe('executing commands');
+        expect(getAssistantActivityStatus([runningTool('apply_patch')], 'turn-1').statusText).toBe('editing files');
+    });
+
+    test('reports thinking and final-response composition from live parts', () => {
+        const reasoning = { id: 'reasoning-1', type: 'reasoning', text: 'Checking' } as Part;
+        const text = { id: 'text-1', type: 'text', text: 'Answer' } as Part;
+
+        expect(getAssistantActivityStatus([reasoning], 'turn-1').statusText).toBe('thinking');
+        expect(getAssistantActivityStatus([text], 'turn-1').statusText).toBe('writing response');
+    });
+
+    test('prefers the authoritative running Pi tool over settled thinking', () => {
+        const parts = new Map<string, PiReducerMessagePart>([
+            ['thinking', {
+                id: 'thinking', index: 0, type: 'thinking', text: 'Planning', streaming: false,
+            }],
+            ['tool', {
+                id: 'tool', index: 1, type: 'tool', text: '', streaming: true,
+                tool: { toolCallId: 'call-1', name: 'functions.read', state: 'running' },
+            }],
+        ]);
+
+        expect(getPiAssistantActivityStatus(parts, ['thinking', 'tool'], 'turn-1')).toEqual({
+            activePartType: 'tool',
+            activeToolName: 'read',
+            statusText: 'reading files',
+            isGenericStatus: false,
+        });
+
+        parts.set('tool', {
+            ...parts.get('tool')!,
+            streaming: false,
+            tool: { ...parts.get('tool')!.tool!, state: 'completed' },
+        });
+        parts.set('text', {
+            id: 'text', index: 2, type: 'text', text: 'Final answer', streaming: true,
+        });
+
+        expect(getPiAssistantActivityStatus(parts, ['thinking', 'tool', 'text'], 'turn-1').statusText)
+            .toBe('writing response');
+    });
+});
 
 describe('getActiveAssistantContext', () => {
     test('uses the active assistant parent model instead of the latest user selection', () => {

@@ -1049,19 +1049,19 @@ html:not(.dark) .chat-scroll {
   white-space: normal;
 }
 
-/* Tool cards (code size) and reasoning (meta size, dimmed) are intentionally
-   compact — keep their paragraphs tight, matching prior behavior. */
+/* Tool cards keep compact paragraph spacing, while their readable Markdown
+   content uses the same size as assistant prose. Reasoning stays dimmed. */
 .markdown-content.markdown-tool p,
 .markdown-content.markdown-reasoning p {
   margin-bottom: 0;
 }
 
-/* Tool markdown should render at code size to match tool card typography. */
+/* Tool Markdown prose is readable at the assistant content size. */
 .markdown-content.markdown-tool {
-  font-size: var(--text-code) !important;
+  font-size: var(--text-markdown) !important;
 }
 
-/* Reasoning markdown renders at meta size, dimmed. */
+/* Reasoning markdown renders at readable markdown size, dimmed. */
 .markdown-content.markdown-reasoning {
   font-size: var(--text-markdown);
   color: var(--surface-muted-foreground);
@@ -1115,9 +1115,10 @@ html:not(.dark) .chat-scroll {
   font-style: inherit !important;
 }
 
+/* Embedded tool code remains compact even when surrounding Markdown is readable. */
 .markdown-content.markdown-tool code,
 .markdown-content.markdown-tool pre {
-  font-size: inherit !important;
+  font-size: var(--text-code) !important;
 }
 
 /* Streamdown headers: keep proportional but not oversized */
@@ -1749,6 +1750,26 @@ input[aria-label="Terminal input"] {
   animation: oc-step-in 180ms ease-out both;
 }
 
+/* Live agent status labels enter on phase changes without animating layout. The
+   label element is keyed by its text, so this runs on the first paint of a new
+   phase rather than after an effect-driven stale frame. */
+@keyframes agent-thinking-label-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.agent-thinking-label-enter {
+  animation:
+    agent-thinking-label-in 180ms ease-out both,
+    shimmer-text 1.4s linear infinite;
+}
+
 /* Running tool verb shimmer: the SAME treatment as the agent working
    animation (`AgentThinkingLoader` label) — gradient sweep via the accepted
    `shimmer-text` keyframes with semantic tokens, so all "working" shimmer
@@ -1893,10 +1914,14 @@ input[aria-label="Terminal input"] {
 
   .pixel-loader-label {
     animation: none !important;
+    background-image: none !important;
+    color: var(--muted-foreground) !important;
   }
 
   .message-footer-enter,
-  .oc-step-in {
+  .oc-step-in,
+  .agent-thinking-label-enter,
+  .agent-thinking-label-enter.pixel-loader-label {
     animation: none;
   }
 

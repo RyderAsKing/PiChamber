@@ -1,9 +1,12 @@
 import React from 'react';
 import type { Message, Part, TextPart, ToolPart } from '@/lib/chat/types';
+import type { PiReducerMessagePart } from '@/lib/pi/event-reducer';
 
 import type { MessageStreamPhase } from '@/stores/types/sessionTypes';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useDirectorySync, useSessionMessages, useSessionPermissions, useSessionQuestions, useSessionStatus } from '@/sync/sync-context';
+import { useSessionMessages, useSessionPermissions, useSessionQuestions, useSessionStatus } from '@/sync/sync-context';
+import { usePiSessionSnapshot } from '@/sync/pi-session-context';
+import { selectStreamingAssistantMessageId } from '@/sync/suspend-live-tail-records';
 import { isFullySyntheticMessage } from '@/lib/messages/synthetic';
 import { useCurrentSessionActivity } from './useSessionActivity';
 
@@ -74,27 +77,60 @@ const DEFAULT_WORKING: WorkingSummary = {
     retryInfo: null,
 };
 
-const EMPTY_PARTS: Part[] = [];
+const EMPTY_PI_PARTS = new Map<string, PiReducerMessagePart>();
 const STATUS_SIGNATURE_SEPARATOR = '\u0000';
-const EDITING_TOOLS = new Set(['edit', 'write', 'multiedit', 'apply_patch']);
+const EDITING_TOOLS = new Set([
+    'apply_patch',
+    'create',
+    'edit',
+    'file_write',
+    'multiedit',
+    'str_replace',
+    'str_replace_based_edit_tool',
+    'write',
+]);
 const TOOL_STATUS_PHRASES: Record<string, string> = {
-    read: 'reading file',
-    write: 'writing file',
-    edit: 'editing file',
+    read: 'reading files',
+    view: 'reading files',
+    file_read: 'reading files',
+    cat: 'reading files',
+    write: 'editing files',
+    create: 'editing files',
+    file_write: 'editing files',
+    edit: 'editing files',
     multiedit: 'editing files',
-    apply_patch: 'applying patch',
-    bash: 'running command',
-    grep: 'searching content',
-    glob: 'finding files',
-    list: 'listing directory',
-    task: 'delegating task',
-    webfetch: 'fetching URL',
-    websearch: 'searching web',
-    codesearch: 'web code search',
-    todowrite: 'updating todos',
-    todoread: 'reading todos',
-    skill: 'learning skill',
-    question: 'asking question',
+    apply_patch: 'editing files',
+    str_replace: 'editing files',
+    str_replace_based_edit_tool: 'editing files',
+    bash: 'executing commands',
+    shell: 'executing commands',
+    cmd: 'executing commands',
+    terminal: 'executing commands',
+    grep: 'searching code',
+    search: 'searching code',
+    find: 'searching files',
+    ripgrep: 'searching code',
+    glob: 'searching files',
+    list: 'listing files',
+    ls: 'listing files',
+    dir: 'listing files',
+    list_files: 'listing files',
+    task: 'delegating work',
+    subagent: 'delegating work',
+    webfetch: 'fetching a URL',
+    fetch: 'fetching a URL',
+    websearch: 'searching the web',
+    web_search: 'searching the web',
+    search_web: 'searching the web',
+    codesearch: 'searching code',
+    todowrite: 'updating tasks',
+    todoread: 'reviewing tasks',
+    skill: 'loading a skill',
+    question: 'waiting for input',
+    lsp: 'inspecting code',
+    structuredoutput: 'formatting the response',
+    structured_output: 'formatting the response',
+    pichamber: 'working in PiChamber',
     plan_enter: 'switching to planning',
     plan_exit: 'switching to building',
 };
@@ -122,8 +158,16 @@ type ParsedStatusResult = {
     isGenericStatus: boolean;
 };
 
+const normalizeStatusToolName = (toolName: string): string => {
+    const trimmed = toolName.trim().toLowerCase().replace(/:\d+$/, '');
+    if (!trimmed.includes('.')) return trimmed;
+    const segments = trimmed.split('.').filter(Boolean);
+    return segments[segments.length - 1] ?? trimmed;
+};
+
 const getToolStatusPhrase = (toolName: string): string => {
-    return TOOL_STATUS_PHRASES[toolName] ?? `using ${toolName}`;
+    const normalized = normalizeStatusToolName(toolName);
+    return TOOL_STATUS_PHRASES[normalized] ?? `using ${normalized.replaceAll('_', ' ')}`;
 };
 
 const hashString = (value: string): number => {
@@ -140,7 +184,7 @@ const getStableWorkingPhrase = (key: string): string => {
 
 const isToolPart = (part: Part): part is ToolPart => part.type === 'tool';
 
-const createParsedStatus = (parts: Part[], genericKey: string): ParsedStatusResult => {
+export const getAssistantActivityStatus = (parts: Part[], genericKey: string): ParsedStatusResult => {
     let activePartType: ParsedStatusResult['activePartType'] = undefined;
     let activeToolName: string | undefined = undefined;
 
@@ -162,7 +206,7 @@ const createParsedStatus = (parts: Part[], genericKey: string): ParsedStatusResu
                     if (!isToolPart(part)) break;
                     const toolStatus = part.state?.status;
                     if ((toolStatus === 'running' || toolStatus === 'pending') && !activePartType) {
-                        const toolName = getToolDisplayName(part);
+                        const toolName = normalizeStatusToolName(getToolDisplayName(part));
                         if (EDITING_TOOLS.has(toolName)) {
                             activePartType = 'editing';
                             activeToolName = toolName;
@@ -192,14 +236,61 @@ const createParsedStatus = (parts: Part[], genericKey: string): ParsedStatusResu
 
     const isGenericStatus = activePartType === undefined;
     const statusText = (() => {
-        if (activePartType === 'editing') return activeToolName === 'multiedit' ? getToolStatusPhrase(activeToolName) : 'editing file';
+        if (activePartType === 'editing' && activeToolName) return getToolStatusPhrase(activeToolName);
         if (activePartType === 'tool' && activeToolName) return getToolStatusPhrase(activeToolName);
         if (activePartType === 'reasoning') return 'thinking';
-        if (activePartType === 'text') return 'composing';
+        if (activePartType === 'text') return 'writing response';
         return getStableWorkingPhrase(genericKey);
     })();
 
     return { activePartType, activeToolName, statusText, isGenericStatus };
+};
+
+export const getPiAssistantActivityStatus = (
+    parts: Pick<ReadonlyMap<string, PiReducerMessagePart>, 'get'>,
+    partOrder: readonly string[],
+    genericKey: string,
+): ParsedStatusResult => {
+    for (let index = partOrder.length - 1; index >= 0; index -= 1) {
+        const partId = partOrder[index];
+        const part = partId ? parts.get(partId) : undefined;
+        if (!part) continue;
+
+        if (part.type === 'tool' && (part.tool?.state === 'running' || part.tool?.state === 'pending')) {
+            const activeToolName = normalizeStatusToolName(part.tool.name);
+            return {
+                activePartType: EDITING_TOOLS.has(activeToolName) ? 'editing' : 'tool',
+                activeToolName,
+                statusText: getToolStatusPhrase(activeToolName),
+                isGenericStatus: false,
+            };
+        }
+
+        if (part.type === 'thinking' && part.streaming) {
+            return {
+                activePartType: 'reasoning',
+                activeToolName: undefined,
+                statusText: 'thinking',
+                isGenericStatus: false,
+            };
+        }
+
+        if (part.type === 'text' && part.streaming && part.text.trim().length > 0) {
+            return {
+                activePartType: 'text',
+                activeToolName: undefined,
+                statusText: 'writing response',
+                isGenericStatus: false,
+            };
+        }
+    }
+
+    return {
+        activePartType: undefined,
+        activeToolName: undefined,
+        statusText: getStableWorkingPhrase(genericKey),
+        isGenericStatus: true,
+    };
 };
 
 const encodeParsedStatus = (status: ParsedStatusResult): string => {
@@ -315,13 +406,26 @@ export function useAssistantStatus(): AssistantStatusSnapshot {
     );
     const lastAssistantId = activeAssistant.assistantId;
 
-    const lastAssistantStatusSignature = useDirectorySync(
+    const lastAssistantStatusSignature = usePiSessionSnapshot(
         React.useCallback((state) => {
             const genericKey = `${currentSessionId ?? ''}:${lastAssistantId ?? ''}`;
-            const parts = lastAssistantId ? (state.part[lastAssistantId] ?? EMPTY_PARTS) : EMPTY_PARTS;
-            return encodeParsedStatus(createParsedStatus(parts, genericKey));
+            const session = currentSessionId
+                ? state.reducer.bySession.get(currentSessionId)
+                : undefined;
+            // Transcript records intentionally freeze their live tail. Always
+            // prefer the reducer's authoritative streaming assistant so a new
+            // thinking/tool part does not wait for that frozen record to publish.
+            const statusAssistantId = selectStreamingAssistantMessageId(session) ?? lastAssistantId;
+            const partOrder = statusAssistantId
+                ? (session?.partOrder.get(statusAssistantId) ?? [])
+                : [];
+            const parsedStatus = session
+                ? getPiAssistantActivityStatus(session.parts, partOrder, genericKey)
+                : getPiAssistantActivityStatus(EMPTY_PI_PARTS, [], genericKey);
+            return encodeParsedStatus(parsedStatus);
         }, [currentSessionId, lastAssistantId]),
-        currentSessionDirectory ?? undefined,
+        undefined,
+        currentSessionId ? `session:${currentSessionId}` : 'chrome',
     );
 
     const sessionPermissionRequests = useSessionPermissions(currentSessionId ?? '', currentSessionDirectory ?? undefined);

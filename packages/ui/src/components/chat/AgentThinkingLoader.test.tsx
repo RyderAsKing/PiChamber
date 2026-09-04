@@ -36,4 +36,12 @@ describe('AgentThinkingLoader elapsed origin', () => {
     expect(markup).toContain('truncate');
     expect(markup).toContain('whitespace-nowrap');
   });
+
+  test('animates a live phase label without changing the loader identity', () => {
+    const markup = renderToStaticMarkup(
+      <AgentThinkingLoader text="Claude is reading file" animateText />,
+    );
+    expect(markup).toContain('agent-thinking-label-enter');
+    expect(markup).toContain('pixel-loader-label');
+  });
 });

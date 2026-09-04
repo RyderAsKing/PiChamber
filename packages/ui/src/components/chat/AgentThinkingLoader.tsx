@@ -12,8 +12,8 @@ import { cn } from '@/lib/utils';
  * Paired with a shimmering label and a live elapsed timer
  * in mono tabular figures when text is present. Sidebar rows
  * pass text={null} so they render the compact grid only with
- * no timer or re-renders. Reduced motion freezes the grid to
- * its dim state; the timer still ticks.
+ * no timer or re-renders. Reduced motion freezes the grid and label to
+ * their static dim state; the timer still ticks.
  *
  * NOTE: the label shimmer animates background-position, which
  * is non-composited (see theme-system animation contract).
@@ -86,6 +86,8 @@ export interface AgentThinkingLoaderProps {
   showText?: boolean;
   /** Show the live elapsed timer next to the label. Defaults to true when text is shown. */
   showElapsed?: boolean;
+  /** Animate the label when a live phase replaces it. */
+  animateText?: boolean;
   /**
    * Authoritative turn start (unix ms, local clock — see
    * `useSessionActivityStartedAt`). Pins the elapsed counter so remounts
@@ -101,6 +103,7 @@ export const AgentThinkingLoader: React.FC<AgentThinkingLoaderProps> = ({
   variant = 'inline',
   showText = true,
   showElapsed = true,
+  animateText = false,
   startedAt = null,
 }) => {
   const hasText = showText && text != null && text !== '';
@@ -110,12 +113,16 @@ export const AgentThinkingLoader: React.FC<AgentThinkingLoaderProps> = ({
 
   const labelEl = hasText ? (
     <span
-      className="pixel-loader-label min-w-0 truncate whitespace-nowrap bg-clip-text typography-markdown font-medium text-transparent"
+      key={animateText ? text : undefined}
+      className={cn(
+        'pixel-loader-label min-w-0 truncate whitespace-nowrap bg-clip-text typography-markdown font-medium text-transparent',
+        animateText && 'agent-thinking-label-enter',
+      )}
       style={{
         backgroundImage:
           'linear-gradient(90deg, var(--muted-foreground) 35%, var(--foreground) 50%, var(--muted-foreground) 65%)',
         backgroundSize: '200% 100%',
-        animation: 'shimmer-text 1.4s linear infinite',
+        animation: animateText ? undefined : 'shimmer-text 1.4s linear infinite',
       }}
     >
       {text}
