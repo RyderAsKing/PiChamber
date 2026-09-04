@@ -323,7 +323,7 @@ export function useProjectActionsRunner({
           ]);
           const devServer = await detectDevServerCommand(normalizedDirectory, actionsState.actions, scripts);
           if (!devServer) {
-            throw new Error("No dev server command found. Configure a project action or add a \\\"dev\\\" script to package.json.");
+            throw new Error("No dev server command found. Configure a project action or add a \"dev\" script to package.json.");
           }
           return {
             id: AUTO_DISCOVER_ACTION_ID,

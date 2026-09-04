@@ -463,7 +463,7 @@ export const GitIdentityEditorDialog: React.FC<GitIdentityEditorDialogProps> = (
           <DialogHeader>
             <DialogTitle>{"Delete Profile"}</DialogTitle>
             <DialogDescription>
-              {`Are you sure you want to delete \\"${selectedProfile?.name || name}\\"?`}
+              {`Are you sure you want to delete "${selectedProfile?.name || name}"?`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

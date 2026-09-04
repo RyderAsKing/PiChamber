@@ -107,7 +107,7 @@ export const GitPage: React.FC = () => {
     setIsDeletePending(true);
     const success = await deleteProfile(deleteDialogProfile.id);
     if (success) {
-      toast.success(`Profile \\"${deleteDialogProfile.name}\\" deleted`);
+      toast.success(`Profile "${deleteDialogProfile.name}" deleted`);
       setDeleteDialogProfile(null);
     } else {
       toast.error("Failed to delete profile");
@@ -205,7 +205,7 @@ export const GitPage: React.FC = () => {
           <DialogHeader>
             <DialogTitle>{"Delete Profile"}</DialogTitle>
             <DialogDescription>
-              {`Are you sure you want to delete \\"${deleteDialogProfile?.name ?? ''}\\"?`}
+              {`Are you sure you want to delete "${deleteDialogProfile?.name ?? ''}"?`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
