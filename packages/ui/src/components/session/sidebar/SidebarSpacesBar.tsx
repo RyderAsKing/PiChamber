@@ -259,7 +259,7 @@ const SortableFolderRow: React.FC<{
             ) : null}
             {worktreeError ? (
               <span title={worktreeError} aria-label="Worktree discovery failed">
-                <Icon name="error-warning" className="size-4 text-[var(--status-warning-foreground)]" />
+                <Icon name="error-warning" className="size-4 text-[var(--status-warning)]" />
               </span>
             ) : null}
             {hasWorktrees ? <Icon name={isExpanded ? 'arrow-down-s' : 'arrow-right-s'} className="size-4 text-muted-foreground" /> : null}

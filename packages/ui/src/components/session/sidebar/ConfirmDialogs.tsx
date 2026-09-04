@@ -246,8 +246,9 @@ export function WorktreeCloseConfirmDialog(props: {
         </DialogHeader>
 
         {statusCheckFailed ? (
-          <div role="alert" className="rounded-md bg-[var(--status-error-background)] p-3 typography-ui-label text-[var(--status-error-foreground)]">
-            {"Unable to check this worktree's status. Refresh and try again."}
+          <div role="alert" className="flex items-start gap-2 rounded-lg border border-[var(--status-error-border)] bg-[var(--status-error-background)] p-3">
+            <Icon name="alert" className="mt-0.5 size-4 shrink-0 text-[var(--status-error)]" />
+            <p className="typography-ui-label text-foreground">{"Unable to check this worktree's status. Refresh and try again."}</p>
           </div>
         ) : status === null ? (
           <p className="typography-ui-label text-muted-foreground" aria-live="polite">
@@ -256,17 +257,21 @@ export function WorktreeCloseConfirmDialog(props: {
         ) : null}
 
         {value?.hasActiveSession ? (
-          <div role="alert" className="rounded-md bg-[var(--status-warning-background)] p-3 typography-ui-label text-[var(--status-warning-foreground)]">
-            {"Stop the active session before closing this worktree."}
+          <div role="alert" className="flex items-start gap-2 rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-background)] p-3">
+            <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]" />
+            <p className="typography-ui-label text-foreground">{"Stop the active session before closing this worktree."}</p>
           </div>
         ) : null}
 
         {isDirty ? (
-          <div className="space-y-3 rounded-md bg-[var(--status-warning-background)] p-3 text-[var(--status-warning-foreground)]">
-            <p className="typography-ui-label">
-              {"This worktree has uncommitted changes. They will be permanently removed."}
-            </p>
-            <label className="flex items-start gap-2 typography-ui-label">
+          <div className="space-y-3 rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-background)] p-3">
+            <div className="flex items-start gap-2">
+              <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]" />
+              <p className="typography-ui-label text-foreground">
+                {"This worktree has uncommitted changes. They will be permanently removed."}
+              </p>
+            </div>
+            <label className="flex items-start gap-2 pl-6 typography-ui-label text-foreground">
               <Checkbox
                 checked={discardChangesConfirmed}
                 onChange={setDiscardChangesConfirmed}
@@ -286,11 +291,14 @@ export function WorktreeCloseConfirmDialog(props: {
                 : `This worktree has ${status?.ahead} unpushed commits. ${branchRetentionMessage}`}
             </p>
             {isDetachedWithUnpublishedCommits ? (
-              <div className="space-y-3 rounded-md bg-[var(--status-warning-background)] p-3 text-[var(--status-warning-foreground)]">
-                <p className="typography-ui-label">
-                  {"Because this worktree is detached, its unpushed commits may be lost."}
-                </p>
-                <label className="flex items-start gap-2 typography-ui-label">
+              <div className="space-y-3 rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-background)] p-3">
+                <div className="flex items-start gap-2">
+                  <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]" />
+                  <p className="typography-ui-label text-foreground">
+                    {"Because this worktree is detached, its unpushed commits may be lost."}
+                  </p>
+                </div>
+                <label className="flex items-start gap-2 pl-6 typography-ui-label text-foreground">
                   <Checkbox
                     checked={discardChangesConfirmed}
                     onChange={setDiscardChangesConfirmed}
