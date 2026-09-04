@@ -7,7 +7,7 @@ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Icon } from '@/components/icon/Icon';
 import { MarkdownRenderer } from '../../MarkdownRenderer';
 import { MinDurationShineText } from './MinDurationShineText';
-import { TOOL_NORMAL_TITLE_STYLE, TOOL_ROW_DESCRIPTION_CLASS, TOOL_ROW_TITLE_CLASS } from './toolPartStyles';
+import { TOOL_NORMAL_TITLE_STYLE } from './toolPartStyles';
 import { useStreamingTextThrottle } from '../../hooks/useStreamingTextThrottle';
 import type { StreamPhase } from '../types';
 
@@ -421,15 +421,13 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
                 aria-controls={contentId}
                 aria-label={toggleAriaLabel}
                 className={cn(
-                    'group/tool flex gap-1.5 pr-2 pl-px py-1 cursor-pointer items-center',
+                    'group/tool flex items-center gap-1.5 py-1 pr-2 pl-px cursor-pointer',
                 )}
                 onClick={handleToggle}
                 onKeyDown={handleKeyDown}
             >
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                    {/* h-5 matches the tool/static icon column so all row
-                        types share one rhythm (see ToolPart). */}
-                    <div className="relative h-5 w-3.5 flex-shrink-0 cursor-pointer">
+                <div className="flex h-5 items-center gap-1.5 flex-shrink-0">
+                    <div className="relative flex h-5 w-3.5 items-center justify-center">
                         <div
                             className={cn(
                                 'absolute inset-0 flex items-center justify-center transition-opacity',
@@ -454,27 +452,23 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
 
                     <MinDurationShineText
                         active={isStreaming}
-                        className={cn('flex items-center', TOOL_ROW_TITLE_CLASS)}
+                        className={cn('flex h-5 items-center typography-markdown font-medium text-[length:var(--text-markdown)] leading-none tracking-normal')}
                         style={TOOL_NORMAL_TITLE_STYLE}
                         title={variant === 'justification' ? 'Justification' : 'Thinking'}
                     >
-                        <span>{(variant === 'justification' ? "Justification" : "Thinking")}</span>
+                        {variant === 'justification' ? 'Justification' : 'Thinking'}
                     </MinDurationShineText>
                 </div>
 
-                <div className={cn('flex items-center gap-1 flex-1 min-w-0', TOOL_ROW_DESCRIPTION_CLASS)} style={{ color: 'var(--tools-description)' }}>
-                    {!isExpanded && summary ? (
-                        <span
-                            className={cn('min-w-0 truncate', TOOL_ROW_DESCRIPTION_CLASS)}
-                            style={{ color: 'var(--tools-description)', opacity: 0.8 }}
-                            title={summary}
-                        >
-                            {summary}
-                        </span>
-                    ) : (
-                        <span className="min-w-0 flex-1" />
-                    )}
-                </div>
+                {!isExpanded && summary ? (
+                    <span
+                        className={cn('flex h-5 flex-1 items-center min-w-0 truncate typography-code font-mono text-[length:var(--text-markdown)] leading-none tracking-normal')}
+                        style={{ color: 'var(--tools-description)', opacity: 0.8 }}
+                        title={summary}
+                    >
+                        {summary}
+                    </span>
+                ) : null}
             </div>
 
             {shouldRenderExpandedContent ? (
