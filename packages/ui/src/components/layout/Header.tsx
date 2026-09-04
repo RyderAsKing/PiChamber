@@ -74,6 +74,7 @@ import {
 } from './header/HeaderIconActionButton';
 import { DesktopGitHubControl } from './header/DesktopGitHubControl';
 import { DesktopServicesMenu } from './header/DesktopServicesMenu';
+import { BackgroundTasksMenu } from '@/components/worktree/BackgroundTasksMenu';
 import { HeaderRetentionDialog } from './header/HeaderRetentionDialog';
 import { formatCompactHeaderLabel, formatTime, normalize } from './header/headerHelpers';
 
@@ -1234,6 +1235,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex-1" />
 
         <div className="flex shrink-0 items-center gap-1">
+          <BackgroundTasksMenu />
           {projectActionsContext ? (
             <ProjectActionsButton
               projectRef={projectActionsContext.projectRef}

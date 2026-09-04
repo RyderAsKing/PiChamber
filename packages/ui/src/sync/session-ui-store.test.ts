@@ -8,6 +8,7 @@ import {
   useSessionUIStore,
 } from './session-ui-store';
 import { clearAllRevertNavigations, setRevertNavigation } from './revert-navigation-store';
+import { isNewSessionDraftSendPending } from './session-ui-draft-helpers';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 
@@ -37,8 +38,9 @@ afterEach(() => {
     createSession: originalCreateSession,
     currentSessionId: null,
     currentSessionDirectory: null,
-    isSendingNewSession: false,
+    sendingNewSessionDraftId: null,
     newSessionDraft: {
+      id: null,
       open: false,
       directoryOverride: null,
       parentID: null,
@@ -489,29 +491,42 @@ describe('routeMessage', () => {
   });
 });
 
-describe('isSendingNewSession', () => {
-  test('toggles without disturbing selection or draft state', () => {
-    const { openNewSessionDraft, setSendingNewSession } = useSessionUIStore.getState();
+describe('sendingNewSessionDraftId', () => {
+  test('tracks only the draft that owns the in-flight send', () => {
+    const { openNewSessionDraft, setSendingNewSessionDraftId } = useSessionUIStore.getState();
     openNewSessionDraft({
       selectedProjectId: 'proj-1',
       directoryOverride: '/workspace/proj-1',
     });
+    const draftId = useSessionUIStore.getState().newSessionDraft.id;
 
-    expect(useSessionUIStore.getState().isSendingNewSession).toBe(false);
-    setSendingNewSession(true);
-    expect(useSessionUIStore.getState().isSendingNewSession).toBe(true);
-    // Toggling the flag must not close the draft or select a session.
+    expect(draftId).not.toBeNull();
+    expect(useSessionUIStore.getState().sendingNewSessionDraftId).toBeNull();
+    setSendingNewSessionDraftId(draftId);
+    expect(useSessionUIStore.getState().sendingNewSessionDraftId).toBe(draftId);
     expect(useSessionUIStore.getState().newSessionDraft.open).toBe(true);
     expect(useSessionUIStore.getState().currentSessionId).toBe(null);
-    setSendingNewSession(false);
-    expect(useSessionUIStore.getState().isSendingNewSession).toBe(false);
-    expect(useSessionUIStore.getState().newSessionDraft.open).toBe(true);
+    expect(isNewSessionDraftSendPending(
+      useSessionUIStore.getState().newSessionDraft,
+      useSessionUIStore.getState().currentSessionId,
+      useSessionUIStore.getState().sendingNewSessionDraftId,
+    )).toBe(true);
+
+    useSessionUIStore.getState().setCurrentSession('session-other', '/workspace/other');
+    openNewSessionDraft({ directoryOverride: '/workspace/proj-1' });
+    expect(useSessionUIStore.getState().newSessionDraft.id).not.toBe(draftId);
+    expect(useSessionUIStore.getState().sendingNewSessionDraftId).toBe(draftId);
+    expect(isNewSessionDraftSendPending(
+      useSessionUIStore.getState().newSessionDraft,
+      useSessionUIStore.getState().currentSessionId,
+      useSessionUIStore.getState().sendingNewSessionDraftId,
+    )).toBe(false);
   });
 
-  test('restoreForRuntimeSwitch clears a stale in-flight flag', () => {
-    useSessionUIStore.getState().setSendingNewSession(true);
-    expect(useSessionUIStore.getState().isSendingNewSession).toBe(true);
+  test('restoreForRuntimeSwitch clears a stale in-flight owner', () => {
+    useSessionUIStore.getState().setSendingNewSessionDraftId('draft-old');
+    expect(useSessionUIStore.getState().sendingNewSessionDraftId).toBe('draft-old');
     useSessionUIStore.getState().restoreForRuntimeSwitch();
-    expect(useSessionUIStore.getState().isSendingNewSession).toBe(false);
+    expect(useSessionUIStore.getState().sendingNewSessionDraftId).toBeNull();
   });
 });

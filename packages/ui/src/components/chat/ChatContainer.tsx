@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils';
 
 // New sync system imports
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { isNewSessionDraftSendPending } from '@/sync/session-ui-draft-helpers';
 import {
     useSessionStreamingMessageId,
     usePiConnectionState,
@@ -71,7 +72,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     const openNewSessionDraft = useSessionUIStore((s) => s.openNewSessionDraft);
     const setCurrentSession = useSessionUIStore((s) => s.setCurrentSession);
     const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
-    const isSendingNewSession = useSessionUIStore((s) => s.isSendingNewSession);
+    const sendingNewSessionDraftId = useSessionUIStore((s) => s.sendingNewSessionDraftId);
+    const isSendingNewSession = isNewSessionDraftSendPending(
+        newSessionDraft,
+        currentSessionId,
+        sendingNewSessionDraftId,
+    );
 
     // Sync actions
     const sync = useSync();

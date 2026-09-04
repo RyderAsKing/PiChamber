@@ -10,6 +10,7 @@ import {
   type QueuedMessage,
 } from "@/stores/messageQueueStore";
 import { useSessionUIStore } from "@/sync/session-ui-store";
+import { isNewSessionDraftSendPending } from "@/sync/session-ui-draft-helpers";
 import { usePiSessionSnapshot } from "@/sync/pi-session-context";
 import { getPiSessionStore } from "@/apps/pi-session-store";
 import { useSelectionStore } from "@/sync/selection-store";
@@ -147,7 +148,6 @@ import { ComposerAutocompletePopups } from "./composer/ui/ComposerAutocompletePo
 import { ComposerFooter } from "./composer/ui/ComposerFooter";
 import { RevertedMessageDock } from "./composer/ui/RevertedMessageDock";
 import { ComposerDragOverlay } from "./composer/ui/ComposerDragOverlay";
-import { DraftWorktreeCreationBanner } from "./composer/ui/DraftWorktreeCreationBanner";
 import { MobileAttachmentSheet } from "./composer/ui/MobileAttachmentSheet";
 import { ComposerVoiceButton } from "./composer/ui/ComposerVoiceButton";
 import {
@@ -374,7 +374,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   );
   const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
   const newSessionDraftOpen = Boolean(newSessionDraft?.open);
-  const isSendingNewSession = useSessionUIStore((s) => s.isSendingNewSession);
+  const sendingNewSessionDraftId = useSessionUIStore((s) => s.sendingNewSessionDraftId);
+  const isSendingNewSession = isNewSessionDraftSendPending(
+    newSessionDraft,
+    currentSessionId,
+    sendingNewSessionDraftId,
+  );
   const openNewSessionDraft = useSessionUIStore((s) => s.openNewSessionDraft);
   const abortPromptSessionId = useSessionUIStore((s) => s.abortPromptSessionId);
   const clearAbortPrompt = useSessionUIStore((s) => s.clearAbortPrompt);
@@ -471,6 +476,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     },
   );
   const draftWorktreeCreation = useDraftWorktreeCreation({
+    taskId: newSessionDraft?.id,
     intent: newSessionDraft?.worktreeIntent,
   });
   const [isNarrowComposer, setIsNarrowComposer] = React.useState(false);
@@ -1037,15 +1043,42 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
       !queuedOnly &&
       !queuedMessageId &&
       draftAtSend?.open === true;
+    const submittedDraftIsCurrent = (): boolean =>
+      useSessionUIStore.getState().newSessionDraft.id === draftAtSend.id
+      && useSessionUIStore.getState().currentSessionId === null;
+    const draftCommand = inputMode === "normal"
+      ? parseSlashCommand(inputSnapshot.message)
+      : null;
+    const commandStopsBeforeMaterialization = draftCommand?.name === "compact";
+    const startsWorktreeTask = Boolean(
+      isNewSessionSend
+      && draftAtSend.worktreeIntent
+      && !commandStopsBeforeMaterialization,
+    );
+    const confirmedMentionsAtSend = startsWorktreeTask
+      ? new Set(confirmedMentionsRef.current)
+      : null;
     if (isNewSessionSend) {
-      // Anti-spam: a second send while the first is still materializing
-      // the session would create a duplicate session.
-      if (useSessionUIStore.getState().isSendingNewSession) return;
+      // Anti-spam is scoped to this draft. A background worktree task must
+      // not lock an existing session or a newer New session draft.
+      if (
+        draftAtSend.id
+        && useSessionUIStore.getState().sendingNewSessionDraftId === draftAtSend.id
+      ) return;
       // Set synchronously before the first await so the composer locks
       // and shows pending feedback on the next paint instead of after
       // seconds of pre-send network work (worktree/branch preflight,
       // response-style fetch, snippet expansion, materialization).
-      useSessionUIStore.getState().setSendingNewSession(true);
+      useSessionUIStore.getState().setSendingNewSessionDraftId(draftAtSend.id);
+      if (startsWorktreeTask) {
+        // Transfer the prompt to the background task synchronously. Navigation
+        // can now open a fresh draft without the submitted text being stashed
+        // and restored under the generic new-session identity.
+        messageRef.current = "";
+        setMessage("");
+        confirmedMentionsRef.current.clear();
+        persistDraftImmediately(chatDraftIdentity, "");
+      }
       // Yield so the locked/shimmer state paints before blocking awaits.
       await new Promise<void>((resolve) => {
         let settled = false;
@@ -1065,12 +1098,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
       });
     }
     try {
-      const draftCommand =
-        inputMode === "normal"
-          ? parseSlashCommand(inputSnapshot.message)
-          : null;
-      const commandStopsBeforeMaterialization =
-        draftCommand?.name === "compact";
       const worktreeIntent =
         !capturedTarget &&
         !options?.queuedOnly &&
@@ -1082,11 +1109,36 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
       let worktreeCreationReceipt =
         draftWorktreeCreation.getReceipt(worktreeIntent);
       if (worktreeIntent && !worktreeCreationReceipt) {
-        worktreeCreationReceipt = await draftWorktreeCreation.request({
+        const worktreeRequest = draftWorktreeCreation.request({
           intent: worktreeIntent,
           prompt: inputSnapshot.message,
         });
-        if (!worktreeCreationReceipt) return;
+        // The worktree builds in Background tasks while the composer resets
+        // to a fresh draft, so the user can keep creating sessions. The
+        // captured draft, prompt, and send configuration travel with the
+        // background task and materialize on setup-ready without stealing
+        // the current view.
+        toast.info('Worktree queued', draftAtSend.id ? { id: `worktree-queued:${draftAtSend.id}` } : undefined);
+        useSessionUIStore.getState().openNewSessionDraft();
+        useUIStore.getState().setActiveMainTab('chat');
+        worktreeCreationReceipt = await worktreeRequest;
+        if (!worktreeCreationReceipt) {
+          if (submittedDraftIsCurrent()) {
+            messageRef.current = inputSnapshot.message;
+            confirmedMentionsRef.current = confirmedMentionsAtSend ?? new Set();
+            setMessage(inputSnapshot.message);
+            writeChatDraft(
+              chatDraftIdentity,
+              inputSnapshot.message,
+              confirmedMentionsAtSend ?? [],
+            );
+          } else {
+            toast.error('Worktree creation failed', {
+              description: 'Your prompt was not sent.',
+            });
+          }
+          return;
+        }
       }
 
       const branchIntent =
@@ -1183,11 +1235,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
       if (outgoing.isEmpty) return;
 
-      const capturedWorktreeDraftIsCurrent =
+      const capturedDraftIsCurrent = (): boolean =>
         !worktreeCreationReceipt ||
-        (useSessionUIStore.getState().newSessionDraft === draftAtSend &&
-          useSessionUIStore.getState().currentSessionId === null);
-      if (!queuedOnly && capturedWorktreeDraftIsCurrent) {
+        submittedDraftIsCurrent();
+      if (!queuedOnly && capturedDraftIsCurrent()) {
         // The composer keeps showing the sent text and attachments until
         // prompt dispatch settles: success clears both (see below) and
         // failure keeps both for retry. Only navigation state collapses.
@@ -1195,7 +1246,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         setExpandedInput(false);
       }
 
-      if (isMobile && capturedWorktreeDraftIsCurrent) {
+      if (isMobile && capturedDraftIsCurrent()) {
         composerRef.current?.blur();
       }
 
@@ -1227,7 +1278,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         });
         if (handled) {
           // A consumed local command still clears the composer.
-          if (capturedWorktreeDraftIsCurrent) {
+          if (capturedDraftIsCurrent()) {
             persistDraftImmediately(chatDraftIdentity, "");
             setMessage("");
             confirmedMentionsRef.current.clear();
@@ -1317,7 +1368,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
       await sendPromise
         .then(() => {
-          draftWorktreeCreation.clearReceipt();
           if (capturedTarget && queuedMessageId) {
             removeFromQueue(capturedTarget, queuedMessageId);
           } else if (capturedTarget && hasQueuedMessages) {
@@ -1325,7 +1375,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
           }
           if (composerAttachmentIds.length > 0)
             detachAttachedFiles(composerAttachmentIds);
-          if (!queuedOnly && capturedWorktreeDraftIsCurrent) {
+          if (!queuedOnly && capturedDraftIsCurrent()) {
             // Clear the captured draft after acceptance. If the user typed
             // ahead in the same composer, persist that new text instead;
             // switching sessions must not clear the newly visible draft.
@@ -1369,7 +1419,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
           const currentInput =
             composerRef.current?.getValue() ?? messageRef.current;
           if (
-            newSessionDraftOpen &&
+            submittedDraftIsCurrent() &&
             inputSnapshot.message &&
             (!currentInput || currentInput === inputSnapshot.message)
           ) {
@@ -1424,8 +1474,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
           );
         });
     } finally {
-      if (isNewSessionSend) {
-        useSessionUIStore.getState().setSendingNewSession(false);
+      if (
+        isNewSessionSend
+        && useSessionUIStore.getState().sendingNewSessionDraftId === draftAtSend.id
+      ) {
+        useSessionUIStore.getState().setSendingNewSessionDraftId(null);
       }
     }
 
@@ -2131,10 +2184,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
               />
             </div>
           ) : null}
-          <DraftWorktreeCreationBanner
-            state={draftWorktreeCreation.state}
-            onDismissFailed={() => draftWorktreeCreation.dismissFailed()}
-          />
           <div
             className={cn(
               !isMobile && "contents",

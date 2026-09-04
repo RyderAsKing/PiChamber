@@ -133,6 +133,12 @@ export {
   draftBranchCheckoutReceiptMatches,
 }
 
+let newSessionDraftSequence = 0
+const createNewSessionDraftId = (): string => {
+  newSessionDraftSequence += 1
+  return `draft-${Date.now()}-${newSessionDraftSequence}`
+}
+
 export async function materializeOpenDraftSession(selection: {
   providerID: string
   modelID: string
@@ -159,7 +165,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   abortControllers: new Map(),
   isLoading: false,
   lastLoadedDirectory: null,
-  isSendingNewSession: false,
+  sendingNewSessionDraftId: null,
   pendingChangesBarDismissed: new Map(),
 
   // ---------------------------------------------------------------------------
@@ -278,7 +284,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       abortPromptSessionId: null,
       abortPromptExpiresAt: null,
       error: null,
-      isSendingNewSession: false,
+      sendingNewSessionDraftId: null,
       sessionAbortFlags: new Map(),
       pendingChangesBarDismissed: new Map(),
     })
@@ -354,6 +360,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     persistDraftTarget({ projectId: draftSelectedProjectId, directory })
 
     const nextDraft: NewSessionDraftState = {
+      id: createNewSessionDraftId(),
       open: true,
       selectedProjectId: draftSelectedProjectId,
       directoryOverride: directory,
@@ -434,6 +441,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       return
     }
     const nextDraft: NewSessionDraftState = {
+        id: null,
         open: false,
         selectedProjectId: null,
         directoryOverride: null,
@@ -533,8 +541,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
 
   clearError: () => set({ error: null }),
 
-  setSendingNewSession: (value) => {
-    if (get().isSendingNewSession !== value) set({ isSendingNewSession: value })
+  setSendingNewSessionDraftId: (draftId) => {
+    if (get().sendingNewSessionDraftId !== draftId) set({ sendingNewSessionDraftId: draftId })
   },
 
   markSessionAsPiChamberCreated: (sessionId) =>

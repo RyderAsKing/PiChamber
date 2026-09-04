@@ -170,7 +170,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
 
   if (props.sharedSessionsOnly) {
     return (
-      <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant && 'pb-20')}>
+      <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant && 'pb-32')}>
         <div className="space-y-1 px-3">
         {props.topContent}
         {!props.hasSharedSessions ? (props.hasSessionSearchQuery ? props.searchEmptyState : props.emptyState) : null}
@@ -181,11 +181,11 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
 
   const hasAllFoldersOnlySection = props.isAllFoldersView && Boolean(props.allFoldersOnlySection);
   if (props.projectSections.length === 0 && !hasAllFoldersOnlySection) {
-    return <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant && 'pb-20')}><div className="space-y-1 px-3">{props.topContent}{props.emptyState}</div></ScrollableOverlay>;
+    return <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant && 'pb-32')}><div className="space-y-1 px-3">{props.topContent}{props.emptyState}</div></ScrollableOverlay>;
   }
 
   if (props.sectionsForRender.length === 0 && !hasAllFoldersOnlySection) {
-    return <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant && 'pb-20')}><div className="space-y-1 px-3">{props.searchEmptyState}</div></ScrollableOverlay>;
+    return <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant && 'pb-32')}><div className="space-y-1 px-3">{props.searchEmptyState}</div></ScrollableOverlay>;
   }
 
   return (
@@ -201,7 +201,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
       hideTopScrollShadow
       scrollShadowSize={96}
       outerClassName="flex-1 min-h-0"
-      className={cn('oc-sidebar-scroller pt-2 pb-1 [overflow-anchor:none]', props.mobileVariant && 'pb-20')}
+      className={cn('oc-sidebar-scroller pt-2 pb-1 [overflow-anchor:none]', props.mobileVariant && 'pb-32')}
     >
       <div className="space-y-1 px-3">
       {props.topContent}

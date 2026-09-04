@@ -21,12 +21,24 @@ import {
 } from './session-ui-types';
 
 export const DEFAULT_DRAFT: NewSessionDraftState = {
+  id: null,
   open: false,
   directoryOverride: null,
   branchIntent: null,
   worktreeIntent: null,
   parentID: null,
 };
+
+export const isNewSessionDraftSendPending = (
+  draft: NewSessionDraftState,
+  currentSessionId: string | null,
+  sendingDraftId: string | null,
+): boolean => Boolean(
+  draft.open
+  && draft.id
+  && draft.id === sendingDraftId
+  && currentSessionId === null,
+);
 
 export const resolveDirectoryKey = (session: Session): string | null => {
   const sessionRecord = session as Session & {
