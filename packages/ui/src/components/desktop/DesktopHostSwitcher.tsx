@@ -343,7 +343,7 @@ export function DesktopHostSwitcherDialog({
       setStatusById((prev) => ({ ...prev, [host.id]: finalStatus }));
 
       if (!transport) {
-        toast.error(`Instance \\"${redactSensitiveUrl(host.label)}\\" is unreachable`);
+        toast.error(`Instance "${redactSensitiveUrl(host.label)}" is unreachable`);
         setSwitchingHostId(null);
         return;
       }
@@ -366,7 +366,7 @@ export function DesktopHostSwitcherDialog({
       }));
 
       if (isBlockedHostStatus(probe.status)) {
-        toast.error(`Instance \\"${redactSensitiveUrl(host.label)}\\" is unreachable`);
+        toast.error(`Instance "${redactSensitiveUrl(host.label)}" is unreachable`);
         setSwitchingHostId(null);
         return;
       }

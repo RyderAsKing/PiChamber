@@ -79,14 +79,14 @@ export function SessionDeleteConfirmDialog(props: {
             {value && value.descendantCount > 0
               ? value.archivedBucket
                 ? value.descendantCount === 1
-                  ? `\\"${sessionDisplayTitle(value.session)}\\" and its ${value.descendantCount} sub-task will be permanently deleted.`
-                  : `\\"${sessionDisplayTitle(value.session)}\\" and its ${value.descendantCount} sub-tasks will be permanently deleted.`
+                  ? `"${sessionDisplayTitle(value.session)}" and its ${value.descendantCount} sub-task will be permanently deleted.`
+                  : `"${sessionDisplayTitle(value.session)}" and its ${value.descendantCount} sub-tasks will be permanently deleted.`
                 : value.descendantCount === 1
-                  ? `\\"${sessionDisplayTitle(value.session)}\\" and its ${value.descendantCount} sub-task will be archived.`
-                  : `\\"${sessionDisplayTitle(value.session)}\\" and its ${value.descendantCount} sub-tasks will be archived.`
+                  ? `"${sessionDisplayTitle(value.session)}" and its ${value.descendantCount} sub-task will be archived.`
+                  : `"${sessionDisplayTitle(value.session)}" and its ${value.descendantCount} sub-tasks will be archived.`
               : value?.archivedBucket
-                ? `\\"${value?.session ? sessionDisplayTitle(value.session) : "Untitled Session"}\\" will be permanently deleted.`
-                : `\\"${value?.session ? sessionDisplayTitle(value.session) : "Untitled Session"}\\" will be archived.`}
+                ? `"${value?.session ? sessionDisplayTitle(value.session) : "Untitled Session"}" will be permanently deleted.`
+                : `"${value?.session ? sessionDisplayTitle(value.session) : "Untitled Session"}" will be archived.`}
           </DialogDescription>
         </DialogHeader>
         <SessionMutationDialogFooter
@@ -334,10 +334,10 @@ export function FolderDeleteConfirmDialog(props: {
             {value && (value.subFolderCount > 0 || value.sessionCount > 0)
               ? value.subFolderCount > 0
                 ? value.subFolderCount === 1
-                  ? `\\"${value.folderName}\\" will be deleted along with ${value.subFolderCount} sub-folder. Sessions inside will not be deleted.`
-                  : `\\"${value.folderName}\\" will be deleted along with ${value.subFolderCount} sub-folders. Sessions inside will not be deleted.`
-                : `\\"${value.folderName}\\" will be deleted. Sessions inside will not be deleted.`
-              : `\\"${value?.folderName ?? ''}\\" will be permanently deleted.`}
+                  ? `"${value.folderName}" will be deleted along with ${value.subFolderCount} sub-folder. Sessions inside will not be deleted.`
+                  : `"${value.folderName}" will be deleted along with ${value.subFolderCount} sub-folders. Sessions inside will not be deleted.`
+                : `"${value.folderName}" will be deleted. Sessions inside will not be deleted.`
+              : `"${value?.folderName ?? ''}" will be permanently deleted.`}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
