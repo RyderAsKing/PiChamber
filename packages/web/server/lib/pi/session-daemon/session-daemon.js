@@ -5,7 +5,7 @@ import { createReadStream, existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
-import { basename, dirname, isAbsolute, join, relative } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { hasTrustRequiringProjectResources } from '@earendil-works/pi-coding-agent';
 import { StringDecoder } from 'node:string_decoder';
 import {
@@ -205,6 +205,13 @@ export function createSessionDaemon({
   const activeRunStartedAt = new Map();
   const sendGenerationBySession = new Map();
   const settledSendGenerationBySession = new Map();
+  // Pi's reload() is identity-preserving but is not safe during a turn,
+  // compaction, or an extension command. Prompt writes mark affected busy
+  // runtimes dirty and reload them at the next safe lifecycle edge.
+  const activeSessionInputs = new Map();
+  const pendingResourceReloads = new Set();
+  const resourceReloadsByRuntime = new Map();
+  let resourceReloadQueue = Promise.resolve();
   // Pi emits each user message start before its persisted entry is readable.
   // Keep prompt metadata in send order so queued follow-ups cannot attach the
   // next prompt's files to an earlier user message.
@@ -388,6 +395,7 @@ export function createSessionDaemon({
     mirrorExtensionApp,
     mirrorExtensionPanel,
     publishExtensionCustomMessage,
+    reloadSession,
     resolveExtensionDialog,
   } = extensionBridge;
 
@@ -497,6 +505,10 @@ export function createSessionDaemon({
 
   const disposeRuntime = async () => {
     clearIdleDisposal();
+    activeSessionInputs.clear();
+    pendingResourceReloads.clear();
+    await resourceReloadQueue.catch(() => {});
+    resourceReloadsByRuntime.clear();
     clearExtensionState(undefined);
     if (runtimeRegistry) {
       const hadTrackedRuntime = runtimeRegistry.size > 0;
@@ -537,6 +549,77 @@ export function createSessionDaemon({
     return runtimeStartPromise;
   };
 
+  const beginSessionInput = (targetRuntime) => {
+    activeSessionInputs.set(targetRuntime, (activeSessionInputs.get(targetRuntime) ?? 0) + 1);
+  };
+
+  const endSessionInput = (targetRuntime) => {
+    const remaining = (activeSessionInputs.get(targetRuntime) ?? 0) - 1;
+    if (remaining > 0) activeSessionInputs.set(targetRuntime, remaining);
+    else activeSessionInputs.delete(targetRuntime);
+  };
+
+  const isRuntimeReloadSafe = (targetRuntime) => {
+    const session = targetRuntime?.session;
+    return Boolean(
+      session?.sessionId
+      && session.isStreaming !== true
+      && session.isCompacting !== true
+      && !activeSessionInputs.has(targetRuntime)
+    );
+  };
+
+  const reloadRuntimeResources = (targetRuntime) => {
+    const existing = resourceReloadsByRuntime.get(targetRuntime);
+    if (existing) return existing;
+    clearIdleDisposal(targetRuntime.session?.sessionId);
+    const task = resourceReloadQueue.then(async () => {
+      if (!pendingResourceReloads.has(targetRuntime) || !isRuntimeReloadSafe(targetRuntime)) return false;
+      await reloadSession(targetRuntime.session);
+      skillReadClassifierByRuntime.delete(targetRuntime);
+      return true;
+    });
+    resourceReloadQueue = task.catch(() => {});
+    const tracked = task.finally(() => {
+      resourceReloadsByRuntime.delete(targetRuntime);
+    });
+    resourceReloadsByRuntime.set(targetRuntime, tracked);
+    return tracked;
+  };
+
+  const flushPendingResourceReload = async (targetRuntime) => {
+    if (!pendingResourceReloads.has(targetRuntime) || !isRuntimeReloadSafe(targetRuntime)) return false;
+    try {
+      const reloaded = await reloadRuntimeResources(targetRuntime);
+      if (!reloaded) return false;
+      pendingResourceReloads.delete(targetRuntime);
+      return true;
+    } catch {
+      publish('extension.error', {
+        source: '<runtime>',
+        event: 'reload',
+        message: 'Pi resources could not be reloaded.',
+      }, targetRuntime.session?.sessionId, targetRuntime.cwd);
+      return false;
+    }
+  };
+
+  const refreshAffectedPromptRuntimes = async (locations, targetDir) => {
+    const affectsGlobal = locations.includes('global');
+    const candidates = new Set(
+      affectsGlobal
+        ? (runtimeRegistry?.listAll?.() ?? [])
+        : (runtimeRegistry?.listByDirectory?.(targetDir) ?? [])
+    );
+    if (runtime && (affectsGlobal || resolve(runtime.cwd || activeDirectory || cwd) === resolve(targetDir))) {
+      candidates.add(runtime);
+    }
+    await Promise.all([...candidates].map(async (targetRuntime) => {
+      pendingResourceReloads.add(targetRuntime);
+      await flushPendingResourceReload(targetRuntime);
+    }));
+  };
+
   const disposeIdleSessionRuntime = async (sessionId) => {
     if (disposingSessionIds.has(sessionId)) return;
     const targetRuntime = runtimeRegistry?.findBySessionId(sessionId);
@@ -544,9 +627,18 @@ export function createSessionDaemon({
       shutdownRequestedBySession.delete(sessionId);
       return;
     }
-    if (targetRuntime.session?.isStreaming || targetRuntime.session?.isCompacting) return;
+    if (
+      targetRuntime.session?.isStreaming
+      || targetRuntime.session?.isCompacting
+      || activeSessionInputs.has(targetRuntime)
+      || pendingResourceReloads.has(targetRuntime)
+      || resourceReloadsByRuntime.has(targetRuntime)
+    ) return;
     disposingSessionIds.add(sessionId);
     clearIdleDisposal(sessionId);
+    activeSessionInputs.delete(targetRuntime);
+    pendingResourceReloads.delete(targetRuntime);
+    resourceReloadsByRuntime.delete(targetRuntime);
     try {
       if (targetRuntime === runtime) rememberRuntimeSession();
       clearExtensionState(sessionId);
@@ -1561,6 +1653,14 @@ export function createSessionDaemon({
     return 'path';
   };
 
+  const promptResourcesFromLoader = (loader) => loader.getPrompts().prompts.map((prompt) => ({
+    id: resourceId('prompt', prompt.filePath),
+    kind: 'prompt', name: prompt.name, ...(prompt.description ? { description: prompt.description } : {}),
+    location: resourceLocation(prompt.sourceInfo), content: prompt.content,
+    editable: prompt.sourceInfo?.origin === 'top-level' && ['user', 'project'].includes(prompt.sourceInfo?.scope),
+    filePath: prompt.filePath,
+  }));
+
   const resourceCatalog = async (requestedDirectory) => {
     const targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : (activeDirectory || cwd);
     const activeRuntime = await ensureRuntime(targetDir);
@@ -1584,13 +1684,7 @@ export function createSessionDaemon({
         filePath: skill.filePath,
       };
     }));
-    const prompts = loader.getPrompts().prompts.map((prompt) => ({
-      id: resourceId('prompt', prompt.filePath),
-      kind: 'prompt', name: prompt.name, ...(prompt.description ? { description: prompt.description } : {}),
-      location: resourceLocation(prompt.sourceInfo), content: prompt.content,
-      editable: prompt.sourceInfo?.origin === 'top-level' && ['user', 'project'].includes(prompt.sourceInfo?.scope),
-      filePath: prompt.filePath,
-    }));
+    const prompts = promptResourcesFromLoader(loader);
     const agents = loader.getAgentsFiles().agentsFiles.map((agent) => ({
       id: resourceId('agents', agent.path), kind: 'agents', name: basename(agent.path),
       location: agent.path.startsWith(agentDir) ? 'global' : 'project', content: agent.content, editable: true, filePath: agent.path,
@@ -1611,8 +1705,35 @@ export function createSessionDaemon({
     agents: catalog.agents.map(({ filePath, ...resource }) => resource),
   });
 
+  // A busy session keeps its current Pi resource loader until its turn settles.
+  // Mutation responses still need to reflect the committed file immediately,
+  // so replace only editable top-level prompts from a fresh standalone loader.
+  // Package/path/extension-contributed resources remain owned by the live session.
+  const resourcesAfterPromptMutation = async (targetDir) => {
+    const current = await resourceCatalog(targetDir);
+    servicesCache.delete(targetDir);
+    const freshServices = await getServices(targetDir);
+    const freshEditable = promptResourcesFromLoader(freshServices.resourceLoader)
+      .filter((prompt) => prompt.editable === true);
+    return publicResources({
+      ...current,
+      prompts: [
+        ...current.prompts.filter((prompt) => prompt.editable !== true),
+        ...freshEditable,
+      ],
+    });
+  };
+
+  const finishPromptMutation = async (locations, targetDir) => {
+    servicesCache.delete(targetDir);
+    await refreshAffectedPromptRuntimes([...new Set(locations)], targetDir);
+    return resourcesAfterPromptMutation(targetDir);
+  };
+
   const requireIdleResourceMutation = () => {
-    if (runtime?.session?.isStreaming) throw new SessionDaemonProtocolError('SESSION_BUSY', 'Resources cannot change during an active session.');
+    if (runtime?.session?.isStreaming || runtime?.session?.isCompacting) {
+      throw new SessionDaemonProtocolError('SESSION_BUSY', 'Resources cannot change during an active session.');
+    }
   };
 
   let resourceMutation = Promise.resolve();
@@ -1663,11 +1784,11 @@ export function createSessionDaemon({
     if (!payload || typeof payload.resourceId !== 'string' || typeof payload.content !== 'string' || payload.content.length > 200_000) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi resource update is invalid.');
     }
-    requireIdleResourceMutation();
     const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
     const catalog = await resourceCatalog(targetDir);
     const resource = [...catalog.prompts, ...catalog.agents].find((item) => item.id === payload.resourceId && item.editable === true);
     if (!resource?.filePath) throw new SessionDaemonProtocolError('RESOURCE_NOT_FOUND', 'The requested Pi resource is not editable.');
+    if (resource.kind !== 'prompt') requireIdleResourceMutation();
     let content = payload.content;
     if (resource.kind === 'prompt') {
       const previous = await readFile(resource.filePath, 'utf8').catch((error) => error?.code === 'ENOENT' ? '' : Promise.reject(error));
@@ -1675,6 +1796,7 @@ export function createSessionDaemon({
       content = `${frontmatter}${content}`;
     }
     await writeResourceFile(resource.filePath, content);
+    if (resource.kind === 'prompt') return finishPromptMutation([resource.location], targetDir);
     return refreshResources(targetDir);
   };
 
@@ -1684,7 +1806,6 @@ export function createSessionDaemon({
       || !/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(payload.name)) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template is invalid.');
     }
-    requireIdleResourceMutation();
     if (payload.location === 'project' && !payload.directory) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'Project prompt templates require an explicit directory.');
     }
@@ -1699,12 +1820,11 @@ export function createSessionDaemon({
       if (error?.code !== 'ENOENT') throw error;
     }
     await writeNewResourceFile(filePath, `---\ndescription: ${JSON.stringify(payload.description)}\n---\n${payload.content}`);
-    return refreshResources(targetDir);
+    return finishPromptMutation([payload.location], targetDir);
   });
 
   const deletePrompt = (payload) => transactResourceMutation(async () => {
     if (!payload || typeof payload.resourceId !== 'string') throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template is invalid.');
-    requireIdleResourceMutation();
     const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
     const catalog = await resourceCatalog(targetDir);
     const resource = catalog.prompts.find((item) => item.id === payload.resourceId && item.editable === true);
@@ -1722,7 +1842,7 @@ export function createSessionDaemon({
       if (trust !== true) throw new SessionDaemonProtocolError('PROJECT_UNTRUSTED', 'The project is not trusted.');
     }
     await rm(resource.filePath);
-    return refreshResources(targetDir);
+    return finishPromptMutation([resource.location], targetDir);
   });
 
   const PROMPT_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
@@ -1781,7 +1901,6 @@ export function createSessionDaemon({
     if (hasLocation && payload.location !== 'global' && payload.location !== 'project') {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template location is invalid.');
     }
-    requireIdleResourceMutation();
     const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
     const catalog = await resourceCatalog(targetDir);
     const resource = catalog.prompts.find((item) => item.id === payload.resourceId && item.editable === true);
@@ -1818,7 +1937,7 @@ export function createSessionDaemon({
     const nextFileContent = `${nextFrontmatter}${nextBody}`;
     if (!needsNewFile) {
       await writeResourceFile(resource.filePath, nextFileContent);
-      return refreshResources(targetDir);
+      return finishPromptMutation([sourceLocation], targetDir);
     }
     if (!PROMPT_NAME_PATTERN.test(destName)) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template name is invalid.');
@@ -1826,7 +1945,7 @@ export function createSessionDaemon({
     const destPath = join(destLocation === 'global' ? agentDir : join(targetDir, '.pi'), 'prompts', `${destName}.md`);
     if (destPath === resource.filePath) {
       await writeResourceFile(resource.filePath, nextFileContent);
-      return refreshResources(targetDir);
+      return finishPromptMutation([sourceLocation], targetDir);
     }
     try {
       await readFile(destPath, 'utf8');
@@ -1841,7 +1960,7 @@ export function createSessionDaemon({
       await rm(destPath, { force: true }).catch(() => {});
       throw error;
     }
-    return refreshResources(targetDir);
+    return finishPromptMutation([sourceLocation, destLocation], targetDir);
   });
 
   const setSessionModel = async (activeRuntime, model) => {
@@ -2123,12 +2242,15 @@ export function createSessionDaemon({
     }
     if (payload.thinking !== undefined) validateThinking(payload.thinking);
     const activeRuntime = await activateSession(payload.sessionId, payload.directory);
+    await flushPendingResourceReload(activeRuntime);
     // After a provider stream dies, Pi can report idle while the UI still
     // retries as steer/follow-up. Start a new turn instead of rejecting.
     const deliverAs = delivery && activeRuntime.session.isStreaming ? delivery : undefined;
     if (!deliverAs && activeRuntime.session.isStreaming) {
       throw new SessionDaemonProtocolError('SESSION_BUSY', 'The Pi session already has an active run.');
     }
+    beginSessionInput(activeRuntime);
+    try {
     if (payload.model !== undefined) {
       await setSessionModel(activeRuntime, payload.model);
       publishSessionModel(activeRuntime.session, payload.sessionId, activeRuntime.cwd);
@@ -2236,8 +2358,20 @@ export function createSessionDaemon({
         return;
       }
       Promise.resolve(activeRuntime.session.abort()).catch(() => {});
+    }).finally(() => {
+      endSessionInput(activeRuntime);
+      void flushPendingResourceReload(activeRuntime).then((reloaded) => {
+        if (reloaded && !shutdownRequestedBySession.has(payload.sessionId)) {
+          scheduleIdleDisposal(payload.sessionId);
+        }
+      });
     });
     return { accepted: true, messageId };
+    } catch (error) {
+      endSessionInput(activeRuntime);
+      void flushPendingResourceReload(activeRuntime);
+      throw error;
+    }
   };
 
   const treeForSession = async (sessionId, requestedDirectory) => {
@@ -2287,6 +2421,8 @@ export function createSessionDaemon({
   };
 
   const publishSessionEvent = (sessionId, event, directory = activeDirectory || cwd) => {
+    const owningRuntime = runtimeRegistry?.get({ cwd: directory, sessionId })
+      || (runtime?.session?.sessionId === sessionId ? runtime : undefined);
     switch (event.type) {
       case 'message_start': {
         if (event.message?.role === 'user') {
@@ -2514,7 +2650,11 @@ export function createSessionDaemon({
         latestAssistantMessageIds.delete(sessionId);
         toolInputBySession.delete(sessionId);
         publish('session.lifecycle', { state: 'idle', serverNow: Date.now() }, sessionId, directory);
-        if (!completeRequestedShutdown(sessionId)) scheduleIdleDisposal(sessionId);
+        if (!completeRequestedShutdown(sessionId)) {
+          void flushPendingResourceReload(owningRuntime).then(() => {
+            if (!shutdownRequestedBySession.has(sessionId)) scheduleIdleDisposal(sessionId);
+          });
+        }
         break;
       case 'session_info_changed': {
         const title = typeof event.name === 'string' ? event.name.trim() : '';
@@ -2581,7 +2721,9 @@ export function createSessionDaemon({
         };
         compactionStateBySession.set(sessionId, compaction);
         publish('session.compaction', compaction, sessionId, directory);
-        if (!event.willRetry) scheduleIdleDisposal(sessionId);
+        if (!event.willRetry) {
+          void flushPendingResourceReload(owningRuntime).then(() => scheduleIdleDisposal(sessionId));
+        }
         break;
       }
       default:
