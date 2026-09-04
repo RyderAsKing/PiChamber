@@ -13,7 +13,13 @@ const createAssistantMessages = (count: number): ChatMessageEntry[] => (
             role: 'assistant',
             time: { created: index },
         } as Message,
-        parts: [],
+        parts: [
+            {
+                id: `assistant-${index}-part-0-text`,
+                type: 'text',
+                text: 'final answer',
+            },
+        ] as unknown as ChatMessageEntry['parts'],
     }))
 );
 
@@ -24,6 +30,55 @@ const renderAssistantBlock = (count: number, deferEarlierMessages: boolean) => {
             turnId="turn-1"
             assistantMessages={createAssistantMessages(count)}
             deferEarlierMessages={deferEarlierMessages}
+            activityPartIds={new Set()}
+            renderMessage={(message) => {
+                renderedMessages += 1;
+                return <div data-message={message.info.id} />;
+            }}
+        />,
+    );
+
+    return { markup, renderedMessages };
+};
+
+const makeToolMessage = (index: number): ChatMessageEntry => ({
+    info: {
+        id: `assistant-${index}`,
+        role: 'assistant',
+        time: { created: index },
+    } as Message,
+    parts: [
+        {
+            id: `assistant-${index}-part-0-tool`,
+            type: 'tool',
+            tool: 'read',
+        },
+    ] as unknown as ChatMessageEntry['parts'],
+});
+
+const makeTextMessage = (index: number, text = 'final answer'): ChatMessageEntry => ({
+    info: {
+        id: `assistant-${index}`,
+        role: 'assistant',
+        time: { created: index },
+    } as Message,
+    parts: [
+        {
+            id: `assistant-${index}-part-0-text`,
+            type: 'text',
+            text,
+        },
+    ] as unknown as ChatMessageEntry['parts'],
+});
+
+const renderCustomBlock = (messages: ChatMessageEntry[], activityPartIds: ReadonlySet<string>) => {
+    let renderedMessages = 0;
+    const markup = renderToStaticMarkup(
+        <TurnAssistantBlock
+            turnId="turn-1"
+            assistantMessages={messages}
+            deferEarlierMessages
+            activityPartIds={activityPartIds}
             renderMessage={(message) => {
                 renderedMessages += 1;
                 return <div data-message={message.info.id} />;
@@ -62,5 +117,65 @@ describe('TurnAssistantBlock large settled turns', () => {
         expect(atBoundary.markup).not.toContain('Load earlier response');
         expect(above.renderedMessages).toBe(32);
         expect(above.markup).toContain('Load earlier response');
+    });
+});
+
+describe('TurnAssistantBlock activity-aware gating', () => {
+    test('does not gate tool-only turns that render null behind hideAssistantActivity', () => {
+        const messages = Array.from({ length: 50 }, (_, index) => makeToolMessage(index));
+        const result = renderCustomBlock(messages, new Set());
+
+        expect(result.renderedMessages).toBe(1);
+        expect(result.markup).not.toContain('Load earlier response');
+        expect(result.markup).not.toContain('Load full response');
+    });
+
+    test('does not gate progress text projected to the activity rail', () => {
+        const messages = Array.from({ length: 40 }, (_, index) => ({
+            info: {
+                id: `assistant-${index}`,
+                role: 'assistant',
+                time: { created: index },
+            } as Message,
+            parts: [
+                {
+                    id: `assistant-${index}-part-0-text`,
+                    type: 'text',
+                    text: 'progress update',
+                },
+            ] as unknown as ChatMessageEntry['parts'],
+        }));
+        messages.push(makeTextMessage(40));
+        const activityPartIds = new Set(
+            Array.from({ length: 40 }, (_, index) => `assistant-${index}-part-0-text`),
+        );
+        const result = renderCustomBlock(messages, activityPartIds);
+
+        expect(result.renderedMessages).toBe(2);
+        expect(result.markup).not.toContain('Load earlier response');
+    });
+
+    test('still gates turns with more than 32 final response messages', () => {
+        const messages = Array.from({ length: 40 }, (_, index) => makeTextMessage(index));
+        const result = renderCustomBlock(messages, new Set());
+
+        expect(result.renderedMessages).toBe(32);
+        expect(result.markup).toContain('Load earlier response');
+        expect(result.markup).toContain('data-message="assistant-0"');
+        expect(result.markup).toContain('data-message="assistant-39"');
+    });
+
+    test('bounds mixed turns by final responses rather than raw activity records', () => {
+        const messages = Array.from({ length: 40 }, (_, finalIndex) => [
+            makeTextMessage(finalIndex * 11),
+            ...Array.from({ length: 10 }, (_, toolIndex) => makeToolMessage(finalIndex * 11 + toolIndex + 1)),
+        ]).flat();
+        const result = renderCustomBlock(messages, new Set());
+
+        expect(result.renderedMessages).toBe(32);
+        expect(result.markup).toContain('Load earlier response');
+        expect(result.markup).toContain('data-message="assistant-0"');
+        expect(result.markup).not.toContain('data-message="assistant-1"');
+        expect(result.markup).toContain('data-message="assistant-429"');
     });
 });
