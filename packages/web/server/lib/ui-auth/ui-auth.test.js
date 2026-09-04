@@ -228,6 +228,33 @@ describe('ui auth client credential seam', () => {
     }
   });
 
+  it('keeps terminal and dictation URL tokens valid across a server restart', async () => {
+    const createUiAuth = await loadCreateUiAuth();
+    const clientAuthController = {
+      authenticateBearerToken: async (token) => token === 'client-token' ? { ok: true, clientId: 'device-1' } : null,
+    };
+    const beforeRestart = createUiAuth({ password: 'secret', clientAuthController });
+    const mintRes = createResponse();
+    await beforeRestart.handleUrlAuthToken({
+      method: 'POST',
+      path: '/auth/url-token',
+      headers: { authorization: 'Bearer client-token', accept: 'application/json' },
+    }, mintRes);
+    beforeRestart.dispose();
+
+    const afterRestart = createUiAuth({ password: 'secret', clientAuthController });
+    for (const path of ['/api/terminal/ws', '/api/stt/ws']) {
+      const websocketReq = {
+        method: 'GET',
+        path,
+        url: `${path}?oc_url_token=${encodeURIComponent(mintRes.body.token)}`,
+        headers: { connection: 'Upgrade', upgrade: 'websocket' },
+      };
+      expect(await afterRestart.ensureSessionToken(websocketReq, createResponse())).toBe('client:device-1');
+    }
+    afterRestart.dispose();
+  });
+
   it('issues desktop client tokens with the UI session expiry', async () => {
     const createUiAuth = await loadCreateUiAuth();
     let createClientInput = null;

@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { promisify } from 'util';
-import { SignJWT, jwtVerify } from 'jose';
+import { EncryptJWT, jwtDecrypt, SignJWT, jwtVerify } from 'jose';
 import fs from 'fs';
 import path from 'path';
 import { resolvePiChamberDataDir, resolvePiChamberDataPath } from '../pichamber-data-dir.js';
@@ -399,40 +399,39 @@ export const createUiAuth = ({
   requireClientAuth = false,
 } = {}) => {
   const normalizedPassword = normalizePassword(password);
-  const urlAuthTokens = new Map();
+  let jwtSecret = getOrCreateJwtSecret();
 
-  const sweepUrlAuthTokens = () => {
-    const now = Date.now();
-    for (const [token, entry] of urlAuthTokens.entries()) {
-      if (!entry || entry.expiresAt <= now) {
-        urlAuthTokens.delete(token);
-      }
-    }
-  };
+  const getUrlAuthEncryptionKey = () => crypto.createHash('sha256').update(jwtSecret).digest();
 
-  const issueUrlAuthTokenForSession = (sessionToken) => {
-    sweepUrlAuthTokens();
-    const token = `${URL_AUTH_TOKEN_PREFIX}${crypto.randomBytes(24).toString('base64url')}`;
+  const issueUrlAuthTokenForSession = async (sessionToken) => {
     const expiresAt = Date.now() + URL_AUTH_TOKEN_TTL_MS;
-    urlAuthTokens.set(token, { sessionToken, expiresAt });
-    return { token, expiresAt };
+    const encryptedToken = await new EncryptJWT({ type: 'url-auth', sessionToken })
+      .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
+      .setIssuedAt()
+      .setExpirationTime(Math.floor(expiresAt / 1000))
+      .encrypt(getUrlAuthEncryptionKey());
+    return { token: `${URL_AUTH_TOKEN_PREFIX}${encryptedToken}`, expiresAt };
   };
 
-  const authenticateUrlAuthToken = (req) => {
+  const authenticateUrlAuthToken = async (req) => {
     if (!canUseUrlAuthTokenForRequest(req)) return null;
     const token = getUrlAuthTokenFromRequest(req);
     if (!token || !token.startsWith(URL_AUTH_TOKEN_PREFIX)) return null;
-    const entry = urlAuthTokens.get(token);
-    if (!entry || entry.expiresAt <= Date.now()) {
-      urlAuthTokens.delete(token);
+    try {
+      const { payload } = await jwtDecrypt(token.slice(URL_AUTH_TOKEN_PREFIX.length), getUrlAuthEncryptionKey(), {
+        keyManagementAlgorithms: ['dir'],
+        contentEncryptionAlgorithms: ['A256GCM'],
+      });
+      if (payload.type !== 'url-auth' || typeof payload.sessionToken !== 'string' || !payload.sessionToken) return null;
+      return { ok: true, sessionToken: payload.sessionToken };
+    } catch {
       return null;
     }
-    return { ok: true, sessionToken: entry.sessionToken || 'url:authenticated' };
   };
 
   const authenticateClientRequest = async (req, { allowUrlToken = true } = {}) => {
     if (allowUrlToken) {
-      const urlAuth = authenticateUrlAuthToken(req);
+      const urlAuth = await authenticateUrlAuthToken(req);
       if (urlAuth) return urlAuth;
     }
     const token = getBearerTokenFromRequest(req);
@@ -554,14 +553,14 @@ export const createUiAuth = ({
         const clientAuth = await authenticateClientRequest(req, { allowUrlToken: false });
         if (clientAuth) {
           res.setHeader('Cache-Control', 'no-store');
-          return res.json(issueUrlAuthTokenForSession(clientSessionToken(clientAuth)));
+          return res.json(await issueUrlAuthTokenForSession(clientSessionToken(clientAuth)));
         }
         if (requireClientAuth) {
           return res.status(401).json({ error: 'Client authentication required', locked: true, clientAuthRequired: true });
         }
         const sessionToken = await ensureSessionToken(req, res);
         res.setHeader('Cache-Control', 'no-store');
-        return res.json(issueUrlAuthTokenForSession(sessionToken));
+        return res.json(await issueUrlAuthTokenForSession(sessionToken));
       },
       handlePasskeyStatus: (_req, res) => {
         res.json({ enabled: false, hasPasskeys: false, passkeyCount: 0, rpID: null });
@@ -600,7 +599,6 @@ export const createUiAuth = ({
 
   const salt = crypto.randomBytes(16);
   const expectedHash = crypto.scryptSync(normalizedPassword, salt, 64);
-  let jwtSecret = getOrCreateJwtSecret();
   let passwordBinding = crypto.createHmac('sha256', jwtSecret).update(normalizedPassword).digest('hex');
   const resolveSessionTtlMs = (trustDevice) => (trustDevice ? TRUSTED_DEVICE_SESSION_TTL_MS : sessionTtlMs);
   let passkeyController = createUiPasskeys({
@@ -620,7 +618,6 @@ export const createUiAuth = ({
   const rotateJwtSecret = () => {
     const nextSecret = crypto.randomBytes(32).toString('hex');
     jwtSecret = persistJwtSecret(nextSecret);
-    urlAuthTokens.clear();
     rebuildPasskeyController();
   };
 
@@ -793,7 +790,7 @@ export const createUiAuth = ({
       return respondUnauthorized(req, res);
     }
     res.setHeader('Cache-Control', 'no-store');
-    return res.json(issueUrlAuthTokenForSession(sessionToken));
+    return res.json(await issueUrlAuthTokenForSession(sessionToken));
   };
 
   const handleSessionCreate = async (req, res) => {
