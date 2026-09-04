@@ -4,6 +4,7 @@ import type { Session } from '@/lib/chat/types';
 import { toast } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
+import { BackgroundTasksMenu } from '@/components/worktree/BackgroundTasksMenu';
 import { useDeviceInfo } from '@/lib/device';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { formatDirectoryName, cn } from '@/lib/utils';
@@ -1451,7 +1452,8 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
           bar owns the bottom edge. The tablet sidebar keeps the SidebarNav
           control instead (mobileVariant is false there). */}
       {mobileVariant && !(selectionModeEnabled && hasSelection) ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-sidebar via-sidebar/85 to-transparent px-4 pb-[calc(0.75rem+var(--oc-safe-area-bottom,0px))] pt-10">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col gap-2 bg-gradient-to-t from-sidebar via-sidebar/85 to-transparent px-4 pb-[calc(0.75rem+var(--oc-safe-area-bottom,0px))] pt-10">
+          <BackgroundTasksMenu variant="mobile" />
           <Button
             type="button"
             variant="default"

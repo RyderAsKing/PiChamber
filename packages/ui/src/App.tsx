@@ -11,7 +11,7 @@ import { useAppFontEffects } from '@/apps/useAppFontEffects';
 import { PiSessionProvider } from '@/sync/pi-session-context';
 import { FireworksProvider } from '@/contexts/FireworksContext';
 import { PerfHudHost } from '@/components/perf/PerfHudHost';
-import { GlobalWorktreeCreationBanner } from '@/components/worktree/GlobalWorktreeCreationBanner';
+import { WorktreeCreationToasts } from '@/components/worktree/WorktreeCreationToasts';
 import { useRouter } from '@/hooks/useRouter';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { syncDesktopSettings } from '@/lib/persistence';
@@ -26,7 +26,7 @@ const AppInner: React.FC = () => {
       <SyncAppEffects embeddedBackgroundWorkEnabled />
       <WindowTitleEffect />
       <MainLayout />
-      <GlobalWorktreeCreationBanner />
+      <WorktreeCreationToasts />
       <Toaster />
       <PerfHudHost />
     </FireworksProvider>

@@ -143,6 +143,7 @@ const PiSessionBootstrapBridge: React.FC = () => {
       const draftUpdate = ui.newSessionDraft?.open
         ? {
             newSessionDraft: {
+              id: null,
               open: false as const,
               selectedProjectId: null,
               directoryOverride: null,

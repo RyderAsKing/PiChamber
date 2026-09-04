@@ -14,16 +14,15 @@ import type {
   DraftWorktreeIntent,
 } from '@/sync/session-ui-store';
 
-export type { DraftWorktreeCreationState } from '@/stores/useWorktreeCreationStore';
-
 export function useDraftWorktreeCreation(input: {
+  taskId: string | null | undefined;
   intent: DraftWorktreeIntent | null | undefined;
 }) {
-  const { intent } = input;
+  const { taskId, intent } = input;
   const { git } = useRuntimeAPIs();
   const refreshProject = useWorktreeStore((state) => state.refreshProject);
 
-  const entryKey = getWorktreeCreationKey(intent);
+  const entryKey = taskId ?? getWorktreeCreationKey(intent);
   const storeEntry = useWorktreeCreationStore(
     React.useCallback((state) => (entryKey ? state.entries.get(entryKey) ?? null : null), [entryKey]),
   );
@@ -37,6 +36,7 @@ export function useDraftWorktreeCreation(input: {
     if (!git) return null;
     try {
       const receipt = await useWorktreeCreationStore.getState().request({
+        taskId: taskId ?? undefined,
         intent: params.intent,
         prompt: params.prompt,
         git,
@@ -48,34 +48,22 @@ export function useDraftWorktreeCreation(input: {
       if (error instanceof Error && error.message === WORKTREE_CREATION_SUPERSEDED) return null;
       return null;
     }
-  }, [git, refreshProject]);
+  }, [git, refreshProject, taskId]);
 
   const getReceipt = React.useCallback(
     (candidate: DraftWorktreeIntent | null | undefined): DraftWorktreeCreationReceipt | null => {
-      const entry = useWorktreeCreationStore.getState().getEntry(candidate);
+      const entry = entryKey
+        ? useWorktreeCreationStore.getState().getEntryByKey(entryKey)
+        : useWorktreeCreationStore.getState().getEntry(candidate);
       if (!entry?.receipt || !candidate) return null;
       return worktreeCreationIntentMatches(candidate, entry.receipt) ? entry.receipt : null;
     },
-    [],
+    [entryKey],
   );
-
-  const clearReceipt = React.useCallback((): void => {
-    const key = getWorktreeCreationKey(intent);
-    if (!key) return;
-    useWorktreeCreationStore.getState().clearReceipt(key);
-  }, [intent]);
-
-  const dismissFailed = React.useCallback((): void => {
-    const key = getWorktreeCreationKey(intent);
-    if (!key) return;
-    useWorktreeCreationStore.getState().dismissFailed(key);
-  }, [intent]);
 
   return {
     state,
     request,
     getReceipt,
-    clearReceipt,
-    dismissFailed,
   };
 }

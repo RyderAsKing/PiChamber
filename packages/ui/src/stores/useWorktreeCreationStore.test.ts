@@ -50,11 +50,13 @@ const git = (overrides: Partial<GitAPI> = {}): GitAPI => ({
 } as GitAPI);
 
 const request = (overrides: {
+  taskId?: string;
   intent?: DraftWorktreeIntent;
   git?: GitAPI;
   refreshProject?: (projectRoot: string, git: GitAPI) => Promise<unknown>;
 } = {}) =>
   useWorktreeCreationStore.getState().request({
+    taskId: overrides.taskId,
     intent: overrides.intent ?? intent(),
     prompt: 'named tree',
     git: overrides.git ?? git(),
@@ -116,6 +118,41 @@ describe('useWorktreeCreationStore', () => {
     expect(left).toEqual(right);
   });
 
+  test('tracks separate draft tasks for the same worktree intent', async () => {
+    let creates = 0;
+    const api = git({
+      createGitWorktree: async () => {
+        creates += 1;
+        return created({
+          path: `/worktrees/named-tree-${creates}`,
+          branch: `pichamber/named-tree-${creates}`,
+        });
+      },
+    });
+
+    await Promise.all([
+      request({ taskId: 'draft-1', git: api }),
+      request({ taskId: 'draft-2', git: api }),
+    ]);
+
+    expect(creates).toBe(2);
+    expect(useWorktreeCreationStore.getState().getEntryByKey('draft-1')?.receipt?.path).toBe('/worktrees/named-tree-1');
+    expect(useWorktreeCreationStore.getState().getEntryByKey('draft-2')?.receipt?.path).toBe('/worktrees/named-tree-2');
+  });
+
+  test('marks a completed task notification once without removing its receipt', async () => {
+    await request({ taskId: 'draft-notification' });
+    const before = useWorktreeCreationStore.getState().getEntryByKey('draft-notification');
+    expect(before?.notificationSent).toBe(false);
+
+    useWorktreeCreationStore.getState().markNotificationSent('draft-notification');
+    useWorktreeCreationStore.getState().markNotificationSent('draft-notification');
+
+    const after = useWorktreeCreationStore.getState().getEntryByKey('draft-notification');
+    expect(after?.notificationSent).toBe(true);
+    expect(after?.receipt?.path).toBe('/worktrees/named-tree');
+  });
+
   test('keeps the receipt when project refresh fails after setup-ready', async () => {
     const receipt = await request({
       refreshProject: async () => {
@@ -167,6 +204,29 @@ describe('useWorktreeCreationStore', () => {
     finishCreate?.(created());
     const receipt = await pendingRequest;
     expect(receipt.path).toBe('/worktrees/named-tree');
+    expect(useWorktreeCreationStore.getState().entries.size).toBe(0);
+  });
+
+  test('does not recreate an active task when a bootstrap poll finishes after a runtime switch', async () => {
+    let resolvePoll: ((status: GitWorktreeBootstrapStatus) => void) | undefined;
+    let pollStarted = false;
+    const api = git({
+      getGitWorktreeBootstrapStatus: () => {
+        pollStarted = true;
+        return new Promise<GitWorktreeBootstrapStatus>((resolve) => {
+          resolvePoll = resolve;
+        });
+      },
+    });
+
+    const pendingRequest = request({ taskId: 'draft-stale-poll', git: api });
+    while (!pollStarted) await new Promise((resolve) => setTimeout(resolve, 0));
+
+    runtimeKey = 'runtime-b';
+    useWorktreeCreationStore.getState().resetForRuntimeSwitch(runtimeKey);
+    resolvePoll?.(pending('git-ready'));
+
+    await pendingRequest;
     expect(useWorktreeCreationStore.getState().entries.size).toBe(0);
   });
 

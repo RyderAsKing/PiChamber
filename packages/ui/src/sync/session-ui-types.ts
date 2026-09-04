@@ -60,6 +60,7 @@ export type AssistantMessageSessionExecution = {
 };
 
 export type NewSessionDraftState = {
+  id: string | null;
   open: boolean;
   selectedProjectId?: string | null;
   directoryOverride: string | null;
@@ -100,14 +101,9 @@ export type SessionUIState = {
   abortControllers: Map<string, AbortController>;
   isLoading: boolean;
   lastLoadedDirectory: string | null;
-  /**
-   * True while a new-session draft send is in flight (pre-send checks,
-   * materialization, and first prompt). Lets the composer lock its controls
-   * and show pending feedback the moment send starts instead of waiting for
-   * the first network round-trip to settle.
-   */
-  isSendingNewSession: boolean;
-  setSendingNewSession: (value: boolean) => void;
+  /** The draft whose first send is in flight. Other drafts and existing sessions remain interactive. */
+  sendingNewSessionDraftId: string | null;
+  setSendingNewSessionDraftId: (draftId: string | null) => void;
 
   // Non-Git mode: dismissed signature hash per session, hides bar until new turn arrives
   pendingChangesBarDismissed: Map<string, string>;

@@ -26,13 +26,12 @@ export type WorktreeCreationState = {
   error?: string;
 };
 
-export type DraftWorktreeCreationState = WorktreeCreationState;
-
 export type WorktreeCreationEntry = {
   key: string;
   intent: DraftWorktreeIntent;
   state: WorktreeCreationState | null;
   receipt: DraftWorktreeCreationReceipt | null;
+  notificationSent: boolean;
   path?: string | null;
   branch?: string | null;
   startedAt: number;
@@ -40,6 +39,7 @@ export type WorktreeCreationEntry = {
 };
 
 type WorktreeCreationRequestParams = {
+  taskId?: string;
   intent: DraftWorktreeIntent;
   prompt: string;
   git: GitAPI;
@@ -53,9 +53,8 @@ type WorktreeCreationStore = {
   getEntry: (intent: DraftWorktreeIntent | null | undefined) => WorktreeCreationEntry | null;
   getEntryByKey: (key: string) => WorktreeCreationEntry | null;
   getActiveEntries: () => WorktreeCreationEntry[];
-  getCompletedEntries: () => WorktreeCreationEntry[];
   clearEntry: (key: string) => void;
-  clearReceipt: (key: string) => void;
+  markNotificationSent: (key: string) => void;
   dismissFailed: (key: string) => void;
   resetForRuntimeSwitch: (runtimeKey: string) => void;
   request: (params: WorktreeCreationRequestParams) => Promise<DraftWorktreeCreationReceipt>;
@@ -127,6 +126,7 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
         intent,
         state,
         receipt: null,
+        notificationSent: false,
         startedAt: now,
         updatedAt: now,
       };
@@ -145,6 +145,7 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
       intent,
       state: null,
       receipt,
+      notificationSent: existing?.notificationSent ?? false,
       path: path ?? receipt.path,
       branch: branch ?? receipt.branch,
       startedAt: existing?.startedAt ?? now,
@@ -162,7 +163,7 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
   const runRequest = async (params: WorktreeCreationRequestParams): Promise<DraftWorktreeCreationReceipt> => {
     const { intent, prompt, git, refreshProject } = params;
     const pollIntervalMs = params.pollIntervalMs ?? BOOTSTRAP_POLL_MS;
-    const key = intentKey(intent);
+    const key = params.taskId ?? intentKey(intent);
     const generation = (generations.get(key) ?? 0) + 1;
     generations.set(key, generation);
 
@@ -218,6 +219,7 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
 
       let bootstrap = created.bootstrapStatus;
       while (bootstrap.status === 'pending') {
+        if (isStale()) return receipt;
         setEntryState(
           key,
           intent,
@@ -276,14 +278,6 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
       return result;
     },
 
-    getCompletedEntries: () => {
-      const result: WorktreeCreationEntry[] = [];
-      for (const entry of get().entries.values()) {
-        if (entry.receipt) result.push(entry);
-      }
-      return result;
-    },
-
     clearEntry: (key) => {
       set((state) => {
         if (!state.entries.has(key)) return state;
@@ -294,15 +288,10 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
       });
     },
 
-    clearReceipt: (key) => {
-      set((state) => {
-        const entry = state.entries.get(key);
-        if (!entry?.receipt) return state;
-        const entries = new Map(state.entries);
-        const updated = { ...entry, receipt: null, updatedAt: Date.now() };
-        if (!updated.state) entries.delete(key);
-        else entries.set(key, updated);
-        return { entries };
+    markNotificationSent: (key) => {
+      patchEntry(set, key, (existing, now) => {
+        if (!existing || existing.notificationSent) return existing ?? null;
+        return { ...existing, notificationSent: true, updatedAt: now };
       });
     },
 
@@ -324,7 +313,7 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
     },
 
     request: (params) => {
-      const key = intentKey(params.intent);
+      const key = params.taskId ?? intentKey(params.intent);
       const existing = inFlight.get(key);
       if (existing) return existing;
 

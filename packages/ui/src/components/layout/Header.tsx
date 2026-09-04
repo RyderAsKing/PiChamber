@@ -74,6 +74,7 @@ import {
 } from './header/HeaderIconActionButton';
 import { DesktopGitHubControl } from './header/DesktopGitHubControl';
 import { DesktopServicesMenu } from './header/DesktopServicesMenu';
+import { BackgroundTasksMenu } from '@/components/worktree/BackgroundTasksMenu';
 import { HeaderRetentionDialog } from './header/HeaderRetentionDialog';
 import { formatCompactHeaderLabel, formatTime, normalize } from './header/headerHelpers';
 
@@ -1034,6 +1035,7 @@ export const Header: React.FC<HeaderProps> = ({
   const desktopSidebarActions = (
     <>
       <OpenInAppButton directory={actionDirectory} className="mr-1" />
+      <BackgroundTasksMenu />
       {/* Instances only exist in the desktop app. On web the menu was left
           holding a single dev-only shutdown action, which is not a reason to
           keep a dropdown in the header. */}

@@ -10,7 +10,7 @@ import { registerRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import { PerfHudHost } from '@/components/perf/PerfHudHost';
-import { GlobalWorktreeCreationBanner } from '@/components/worktree/GlobalWorktreeCreationBanner';
+import { WorktreeCreationToasts } from '@/components/worktree/WorktreeCreationToasts';
 import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
 import { useRouter } from '@/hooks/useRouter';
 import { DeferredUpdatePolling } from '@/hooks/useUpdatePolling';
@@ -570,7 +570,7 @@ export function MobileApp({ apis }: MobileAppProps) {
                   setConnectionEpoch((value) => value + 1);
                 }} />
                 <SessionDialogs />
-                <GlobalWorktreeCreationBanner />
+                <WorktreeCreationToasts />
                 <Toaster position="top-center" offset="calc(var(--oc-safe-area-top, 0px) + 16px)" />
                 <PerfHudHost />
               </div>
