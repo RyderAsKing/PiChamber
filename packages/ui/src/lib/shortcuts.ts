@@ -116,13 +116,6 @@ export function keyToShortcutToken(key: string): string {
 
 const SHORTCUT_ACTIONS: ReadonlyArray<ShortcutAction> = [
   {
-    id: 'open_go_to_line',
-    defaultCombo: 'alt+g',
-    label: 'Go to line (files editor)',
-    description: 'Open go to line in the files editor',
-    customizable: true,
-  },
-  {
     id: 'open_command_palette',
     defaultCombo: 'mod+p',
     label: 'Open command palette',
@@ -151,19 +144,6 @@ const SHORTCUT_ACTIONS: ReadonlyArray<ShortcutAction> = [
     customizable: true,
   },
   {
-    id: 'toggle_terminal_expanded',
-    defaultCombo: 'mod+shift+j',
-    label: 'Toggle terminal expanded',
-    description: 'Toggle terminal expanded or collapsed',
-    customizable: true,
-  },
-  {
-    id: 'toggle_files',
-    defaultCombo: 'mod+shift+f',
-    label: 'Toggle files',
-    description: 'Toggle the files panel',
-  },
-  {
     id: 'add_selection_to_chat',
     defaultCombo: 'mod+l',
     label: 'Add selection to chat',
@@ -185,31 +165,24 @@ const SHORTCUT_ACTIONS: ReadonlyArray<ShortcutAction> = [
     customizable: true,
   },
   {
-    id: 'toggle_prompt_navigator',
-    defaultCombo: 'mod+alt+p',
-    label: 'Toggle prompt navigator',
-    description: 'Show or hide the prompt navigator panel in chat',
-    customizable: true,
-  },
-  {
-    id: 'toggle_right_sidebar',
+    id: 'open_right_sidebar',
     defaultCombo: 'mod+b',
-    label: 'Toggle right sidebar',
-    description: 'Toggle the right sidebar',
+    label: 'Open right sidebar',
+    description: 'Open the right sidebar',
     customizable: true,
   },
   {
-    id: 'open_right_sidebar_git',
-    defaultCombo: 'mod+shift+g',
-    label: 'Open right sidebar Git tab',
-    description: 'Open right sidebar and select Git',
-    customizable: true,
-  },
-  {
-    id: 'open_right_sidebar_files',
+    id: 'cycle_session_folder',
     defaultCombo: 'mod+shift+f',
-    label: 'Open right sidebar Files tab',
-    description: 'Open right sidebar and select Files',
+    label: 'Cycle session folder',
+    description: 'Switch to the next session folder',
+    customizable: true,
+  },
+  {
+    id: 'cycle_draft_folder',
+    defaultCombo: 'mod+shift+d',
+    label: 'Cycle draft folder',
+    description: 'Change the folder for the new session draft',
     customizable: true,
   },
   {
@@ -257,13 +230,6 @@ const SHORTCUT_ACTIONS: ReadonlyArray<ShortcutAction> = [
     defaultCombo: 'mod+shift+s',
     label: 'Toggle services menu',
     description: 'Open or close the services menu',
-    customizable: true,
-  },
-  {
-    id: 'cycle_services_tab',
-    defaultCombo: 'mod+shift+[',
-    label: 'Cycle services tab',
-    description: 'Cycle through tabs in the services menu',
     customizable: true,
   },
   {

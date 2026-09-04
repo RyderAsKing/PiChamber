@@ -107,9 +107,21 @@ export const HelpDialog: React.FC = () => {
         },
         { id: 'focus_input', descriptionKey: "Focus Chat Input", icon: "text", keys: '' },
         {
-          id: 'toggle_prompt_navigator',
-          descriptionKey: "Toggle Prompt Navigator",
-          icon: "list-unordered",
+          id: 'cycle_session_folder',
+          descriptionKey: "Cycle session folder",
+          icon: "folder-open",
+          keys: '',
+        },
+        {
+          id: 'cycle_draft_folder',
+          descriptionKey: "Cycle draft folder",
+          icon: "folder-3",
+          keys: '',
+        },
+        {
+          id: 'open_timeline_dialog',
+          descriptionKey: "Open conversation timeline",
+          icon: "history",
           keys: '',
         },
         {
@@ -124,32 +136,14 @@ export const HelpDialog: React.FC = () => {
       categoryKey: "Panels",
       items: [
         {
-          id: 'toggle_right_sidebar',
-          descriptionKey: 'helpDialog.item.toggleRightSidebar',
-          icon: "layout-right",
-          keys: '',
-        },
-        {
-          id: 'open_right_sidebar_git',
-          descriptionKey: 'helpDialog.item.openRightSidebarGitTab',
-          icon: "git-branch",
-          keys: '',
-        },
-        {
-          id: 'open_right_sidebar_files',
-          descriptionKey: 'helpDialog.item.openRightSidebarFilesTab',
+          id: 'open_right_sidebar',
+          descriptionKey: "Open right sidebar",
           icon: "layout-right",
           keys: '',
         },
         {
           id: 'toggle_terminal',
           descriptionKey: 'helpDialog.item.toggleTerminalDock',
-          icon: "window",
-          keys: '',
-        },
-        {
-          id: 'toggle_terminal_expanded',
-          descriptionKey: 'helpDialog.item.toggleTerminalExpanded',
           icon: "window",
           keys: '',
         },
@@ -176,12 +170,6 @@ export const HelpDialog: React.FC = () => {
           keys: '',
         },
         {
-          id: 'cycle_services_tab',
-          descriptionKey: 'helpDialog.item.cycleServicesTab',
-          icon: "stack",
-          keys: '',
-        },
-        {
           id: 'open_settings',
           descriptionKey: "Open Settings",
           icon: "settings-3",
@@ -193,7 +181,7 @@ export const HelpDialog: React.FC = () => {
 
   return (
       <Dialog open={isHelpDialogOpen} onOpenChange={setHelpDialogOpen}>
-      <DialogContent className="max-w-2xl w-[min(42rem,calc(100vw-1.5rem))] max-h-[calc(100dvh-2rem)] flex flex-col overflow-hidden">
+      <DialogContent className="w-[92vw] max-w-[1120px] h-[84vh] max-h-[900px] flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Icon name="command" className="h-5 w-5" />
@@ -205,9 +193,9 @@ export const HelpDialog: React.FC = () => {
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto mt-3 pr-1">
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 md:gap-x-10">
             {shortcuts.map((section) => (
-              <div key={section.categoryKey}>
+              <div key={section.categoryKey} className="min-w-0 break-inside-avoid">
                 <h3 className="typography-meta font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                   {section.categoryKey}
                 </h3>
@@ -251,26 +239,6 @@ export const HelpDialog: React.FC = () => {
                 </div>
               </div>
             ))}
-          </div>
-
-          <div className="mt-4 p-2 bg-muted/30 rounded-xl">
-            <div className="flex items-start gap-2">
-              <Icon name="question" className="h-3.5 w-3.5 text-muted-foreground mt-0.5" />
-              <div className="typography-meta text-muted-foreground">
-                <p className="font-medium mb-1">{"Pro Tips:"}</p>
-                <ul className="space-y-0.5 typography-meta">
-                  <li>
-                    • {`Use Command Palette (${renderShortcut('open_command_palette', `${mod} P`, shortcutOverrides)}) to quickly access all actions`}
-                  </li>
-                  <li>
-                    • {"The 5 most recent sessions appear in the Command Palette"}
-                  </li>
-                  <li>
-                    • {"Theme cycling remembers your preference across sessions"}
-                  </li>
-                </ul>
-              </div>
-            </div>
           </div>
         </div>
       </DialogContent>

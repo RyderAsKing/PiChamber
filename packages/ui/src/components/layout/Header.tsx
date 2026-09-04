@@ -919,15 +919,6 @@ export const Header: React.FC<HeaderProps> = ({
     }
   }, [activeMainTab, isMobile, setActiveMainTab]);
 
-  // Desktop keeps instances only.
-  const servicesTabs = React.useMemo(() => {
-    const base: Array<{ value: 'instance'; label: string; icon: React.ReactNode }> = [];
-    if (isDesktopApp) {
-      base.push({ value: 'instance', label: "Instance", icon: <Icon name="server" className="h-3.5 w-3.5" /> });
-    }
-    return base;
-  }, [isDesktopApp]);
-
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (hasModifier(e) && !e.shiftKey && !e.altKey) {
@@ -960,18 +951,6 @@ export const Header: React.FC<HeaderProps> = ({
         }
         return;
       }
-
-      // The desktop menu holds one destination now, so this shortcut opens it
-      // rather than cycling. The binding is kept: it is user-configurable and
-      // silently dropping it would break existing setups.
-      const cycleServicesCombo = getEffectiveShortcutCombo('cycle_services_tab', shortcutOverrides);
-      if (eventMatchesShortcut(e, cycleServicesCombo)) {
-        e.preventDefault();
-        if (servicesTabs.length === 0) return;
-        setIsDesktopServicesOpen(true);
-        void refreshCurrentInstanceLabel();
-        return;
-      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -979,7 +958,6 @@ export const Header: React.FC<HeaderProps> = ({
   }, [
     shortcutOverrides,
     isDesktopServicesOpen,
-    servicesTabs,
     refreshCurrentInstanceLabel,
   ]);
 
