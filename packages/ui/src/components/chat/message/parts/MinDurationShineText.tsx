@@ -79,10 +79,31 @@ export const MinDurationShineText: React.FC<MinDurationShineTextProps> = ({
         };
     }, [active, minDurationMs, isBusy]);
 
+    // While busy the shimmer class owns the text fill (transparent +
+    // background-clip:text gradient, same as the AgentThinkingLoader label).
+    // The caller's inline title color is dropped so it cannot cover the
+    // gradient — and so the reduced-motion static fallback stays visible.
+    // Settled rows keep their inline dimmed color untouched.
+    const busyStyle = React.useMemo(() => {
+        if (!isBusy) {
+            return style;
+        }
+        if (!style) {
+            return undefined;
+        }
+        const rest = { ...style };
+        delete rest.color;
+        return rest;
+    }, [isBusy, style]);
+
     return (
         <span
-            className={cn('transition-opacity duration-200', isBusy && 'opacity-70', className)}
-            style={style}
+            // Running verbs shimmer exactly like the agent working label
+            // (`oc-shimmer-verb`). Applied in render so the first paint
+            // already carries it (no flash-visible frame); the busy cap
+            // above bounds the infinite sweep like the single status line.
+            className={cn('transition-opacity duration-200', isBusy && 'oc-shimmer-verb', className)}
+            style={busyStyle}
             title={title}
         >
             {children}
