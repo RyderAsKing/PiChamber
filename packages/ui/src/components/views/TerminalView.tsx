@@ -1,13 +1,13 @@
 import React from 'react';
 
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { EMPTY_TERMINAL_BUFFER, useTerminalStore } from '@/stores/useTerminalStore';
+import { useTerminalStore } from '@/stores/useTerminalStore';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useFontPreferences } from '@/hooks/useFontPreferences';
 import { CODE_FONT_OPTION_MAP, DEFAULT_MONO_FONT } from '@/lib/fontOptions';
 import { convertThemeToXterm } from '@/lib/terminalTheme';
-import { TerminalViewport } from '@/components/terminal/TerminalViewport';
+import { TerminalTabPane } from './terminal/TerminalTabPane';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/useUIStore';
 import { Button } from '@/components/ui/button';
@@ -96,8 +96,14 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
 
   const terminalSessionId = activeTab?.terminalSessionId ?? null;
   const terminalLifecycle = activeTab?.lifecycle ?? 'idle';
-  const bufferChunks = useTerminalStore((s) =>
-    effectiveDirectory && activeTabId ? s.getBuffer(effectiveDirectory, activeTabId).chunks : EMPTY_TERMINAL_BUFFER.chunks,
+  const streamTabs = React.useMemo(
+    () =>
+      (directoryTerminalState?.tabs ?? []).map((tab) => ({
+        id: tab.id,
+        terminalSessionId: tab.terminalSessionId,
+        label: tab.label,
+      })),
+    [directoryTerminalState?.tabs],
   );
   const isConnecting = activeTab?.isConnecting ?? false;
   const previewUrl = activeTab?.previewUrl ?? null;
@@ -124,7 +130,6 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
     lastViewportSizeRef,
     directoryRef,
     activeTabIdRef,
-    disconnectStream,
     resetTerminalPreviewScan,
     startStream,
   } = useTerminalSessionStream({
@@ -140,6 +145,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
     terminalAppearanceRef,
     enableTabs,
     hasActiveContext,
+    tabs: streamTabs,
     focusTerminalWhenWindowActive: () => {
       if (!useTouchTerminalInput && typeof document !== 'undefined' && document.hasFocus()) {
         terminalControllerRef.current?.focus();
@@ -152,7 +158,6 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
     terminalControllerRef,
     focusTerminalWhenWindowActive,
     handleViewportInput,
-    handleViewportResize,
     handleModifierToggle,
     handleMobileKeyPress,
   } = useTerminalInputHandling({
@@ -180,7 +185,6 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
       directoryRef,
       activeTabIdRef,
       terminalIdRef,
-      disconnectStream,
       resetTerminalPreviewScan,
       startStream,
       setConnectionError,
@@ -225,7 +229,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
   }, [monoFont]);
 
   const xtermTheme = React.useMemo(() => convertThemeToXterm(currentTheme), [currentTheme]);
-  const terminalViewportKey = `${effectiveDirectory ?? 'no-dir'}::${activeTabId ?? 'no-tab'}`;
+  const activeViewportKey = `${effectiveDirectory ?? 'no-dir'}::${activeTabId ?? 'no-tab'}`;
 
   React.useEffect(() => {
     if (!isTerminalVisible || useTouchTerminalInput) {
@@ -250,7 +254,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
       };
     }
     fitOnce();
-  }, [focusTerminalWhenWindowActive, isTerminalVisible, useTouchTerminalInput, terminalControllerRef, terminalViewportKey, terminalSessionId]);
+  }, [focusTerminalWhenWindowActive, isTerminalVisible, useTouchTerminalInput, terminalControllerRef, activeViewportKey, terminalSessionId]);
 
   React.useEffect(() => {
     if (!isTerminalVisible || !useTouchTerminalInput) return;
@@ -267,7 +271,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
       window.removeEventListener('oc:keyboard-settled', handleKeyboardSettled);
       if (fitFrame !== null) window.cancelAnimationFrame(fitFrame);
     };
-  }, [isTerminalVisible, terminalControllerRef, terminalViewportKey, useTouchTerminalInput]);
+  }, [isTerminalVisible, terminalControllerRef, activeViewportKey, useTouchTerminalInput]);
 
   if (!hasActiveContext) {
     return (
@@ -380,24 +384,30 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
 
       <div className="relative flex-1 overflow-hidden" style={{ backgroundColor: xtermTheme.background }}>
         <div className="h-full w-full box-border pl-4 pr-1.5 pt-3 pb-4">
-          {shouldRenderViewport ? (
-            <TerminalViewport
-              key={terminalViewportKey}
-              ref={(controller) => {
-                terminalControllerRef.current = controller;
-              }}
-              sessionKey={terminalViewportKey}
-              chunks={bufferChunks}
-              onInput={handleViewportInput}
-              onResize={handleViewportResize}
-              theme={xtermTheme}
-              fontFamily={resolvedFontStack}
-              fontSize={terminalFontSize}
-              enableTouchScroll={useTouchTerminalInput}
-              autoFocus={isTerminalVisible}
-              isVisible={isTerminalVisible}
-            />
-          ) : null}
+          {shouldRenderViewport && effectiveDirectory && directoryTerminalState
+            ? directoryTerminalState.tabs.map((tab) => {
+                const paneActive = tab.id === activeTabId;
+                return (
+                  <TerminalTabPane
+                    key={tab.id}
+                    directory={effectiveDirectory}
+                    tabId={tab.id}
+                    sessionId={tab.terminalSessionId}
+                    sessionKey={`${effectiveDirectory}::${tab.id}`}
+                    isActive={paneActive}
+                    isTerminalVisible={isTerminalVisible}
+                    terminal={terminal}
+                    theme={xtermTheme}
+                    fontFamily={resolvedFontStack}
+                    fontSize={terminalFontSize}
+                    enableTouchScroll={useTouchTerminalInput}
+                    lastViewportSizeRef={lastViewportSizeRef}
+                    onInput={handleViewportInput}
+                    controllerRef={terminalControllerRef}
+                  />
+                );
+              })
+            : null}
         </div>
         {!isReconnectPending && connectionError && (
           <div className="absolute inset-x-0 bottom-0 bg-[var(--status-error-background)] px-3 py-2 text-xs text-[var(--status-error-foreground)] flex items-center justify-between gap-2">

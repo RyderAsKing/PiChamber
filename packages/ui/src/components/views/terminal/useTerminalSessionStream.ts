@@ -3,6 +3,12 @@ import { useTerminalStore } from '@/stores/useTerminalStore';
 import type { TerminalStreamEvent, TerminalAPI, TerminalError, TerminalShell } from '@/lib/api/types';
 import { TerminalPreviewScanner, FALLBACK_TERMINAL_SIZE } from './terminalStreamHelpers';
 
+type TabIdentity = {
+  id: string;
+  terminalSessionId: string | null;
+  label: string;
+};
+
 export function useTerminalSessionStream({
   terminal,
   effectiveDirectory,
@@ -17,6 +23,7 @@ export function useTerminalSessionStream({
   enableTabs,
   hasActiveContext,
   focusTerminalWhenWindowActive,
+  tabs,
 }: {
   terminal: TerminalAPI;
   effectiveDirectory: string | null;
@@ -31,6 +38,7 @@ export function useTerminalSessionStream({
   enableTabs: boolean;
   hasActiveContext: boolean;
   focusTerminalWhenWindowActive: () => void;
+  tabs: TabIdentity[];
 }) {
   const ensureDirectory = useTerminalStore((s) => s.ensureDirectory);
   const setTabSessionId = useTerminalStore((s) => s.setTabSessionId);
@@ -44,17 +52,18 @@ export function useTerminalSessionStream({
   const [isFatalError, setIsFatalError] = React.useState(false);
   const [isReconnectPending, setIsReconnectPending] = React.useState(false);
 
-  const streamCleanupRef = React.useRef<(() => void) | null>(null);
+  const subscriptionsRef = React.useRef(new Map<string, () => void>());
   const activeTerminalIdRef = React.useRef<string | null>(null);
   const activeTabIdRef = React.useRef<string | null>(activeTabId);
   const terminalIdRef = React.useRef<string | null>(terminalSessionId);
   const directoryRef = React.useRef<string | null>(effectiveDirectory);
   const lastViewportSizeRef = React.useRef<{ cols: number; rows: number } | null>(null);
   const pendingTerminalCreatesRef = React.useRef(new Set<string>());
-  const previewScannerRef = React.useRef(new TerminalPreviewScanner());
+  const previewScannersRef = React.useRef(new Map<string, TerminalPreviewScanner>());
 
   const resetTerminalPreviewScan = React.useCallback(() => {
-    previewScannerRef.current.reset();
+    const tabId = activeTabIdRef.current;
+    if (tabId) previewScannersRef.current.get(tabId)?.reset();
   }, []);
 
   React.useEffect(() => {
@@ -68,16 +77,21 @@ export function useTerminalSessionStream({
 
   React.useEffect(() => {
     activeTabIdRef.current = activeTabId;
-    resetTerminalPreviewScan();
-  }, [activeTabId, resetTerminalPreviewScan]);
+  }, [activeTabId]);
 
   React.useEffect(() => {
     directoryRef.current = effectiveDirectory;
   }, [effectiveDirectory]);
 
   const disconnectStream = React.useCallback(() => {
-    streamCleanupRef.current?.();
-    streamCleanupRef.current = null;
+    for (const unsubscribe of subscriptionsRef.current.values()) {
+      try {
+        unsubscribe();
+      } catch {
+        /* ignored */
+      }
+    }
+    subscriptionsRef.current.clear();
     activeTerminalIdRef.current = null;
     setIsReconnectPending(false);
   }, []);
@@ -92,33 +106,40 @@ export function useTerminalSessionStream({
 
   const scanTerminalPreviewOutput = React.useCallback(
     (directory: string, tabId: string, data: string) => {
-      previewScannerRef.current.scan(directory, tabId, data, setTabPreviewUrl);
+      let scanner = previewScannersRef.current.get(tabId);
+      if (!scanner) {
+        scanner = new TerminalPreviewScanner();
+        previewScannersRef.current.set(tabId, scanner);
+      }
+      scanner.scan(directory, tabId, data, setTabPreviewUrl);
     },
     [setTabPreviewUrl],
   );
 
   const startStream = React.useCallback(
     (directory: string, tabId: string, terminalId: string) => {
-      if (activeTerminalIdRef.current === terminalId) {
+      if (subscriptionsRef.current.has(terminalId)) {
+        activeTerminalIdRef.current = terminalId;
         return;
       }
 
-      disconnectStream();
-      activeTerminalIdRef.current = terminalId;
-
       const subscription = terminal.connect(terminalId, {
         onEvent: (event: TerminalStreamEvent) => {
-          if (activeTerminalIdRef.current !== terminalId) {
-            return;
-          }
+          if (directoryRef.current !== directory) return;
 
           switch (event.type) {
             case 'snapshot': {
-              setConnecting(directory, tabId, false);
-              setConnectionError(null);
-              setIsFatalError(false);
-              setIsReconnectPending(false);
-              focusTerminalWhenWindowActive();
+              const isActive =
+                activeTabIdRef.current === tabId && terminalIdRef.current === terminalId;
+              if (isActive) {
+                setConnecting(directory, tabId, false);
+                setConnectionError(null);
+                setIsFatalError(false);
+                setIsReconnectPending(false);
+                focusTerminalWhenWindowActive();
+              } else {
+                setConnecting(directory, tabId, false);
+              }
 
               replaceBuffer(directory, tabId, event.data ?? '', event.sequence ?? 0);
               scanTerminalPreviewOutput(directory, tabId, event.data ?? '');
@@ -127,9 +148,11 @@ export function useTerminalSessionStream({
             }
             case 'reconnecting': {
               void event;
-              setConnectionError(null);
-              setIsFatalError(false);
-              setIsReconnectPending(true);
+              if (activeTabIdRef.current === tabId) {
+                setConnectionError(null);
+                setIsFatalError(false);
+                setIsReconnectPending(true);
+              }
               break;
             }
             case 'data': {
@@ -155,59 +178,60 @@ export function useTerminalSessionStream({
                 }]\\r\\n`,
               );
               setTabLifecycle(directory, tabId, 'exited');
-              setConnecting(directory, tabId, false);
-              setConnectionError(isActionTab ? null : 'Terminal session ended');
-              setIsFatalError(false);
-              setIsReconnectPending(false);
-              disconnectStream();
+              if (activeTabIdRef.current === tabId) {
+                setConnecting(directory, tabId, false);
+                setConnectionError(isActionTab ? null : 'Terminal session ended');
+                setIsFatalError(false);
+                setIsReconnectPending(false);
+              }
               break;
             }
           }
         },
         onError: (error: TerminalError, fatal?: boolean) => {
-          if (activeTerminalIdRef.current !== terminalId) {
-            return;
-          }
+          if (directoryRef.current !== directory) return;
+          const isActive = activeTabIdRef.current === tabId;
 
           if (!fatal) {
-            setConnectionError(null);
-            setIsFatalError(false);
+            if (isActive) {
+              setConnectionError(null);
+              setIsFatalError(false);
+            }
             return;
           }
 
-          setIsReconnectPending(false);
           if (error.code === 'SESSION_NOT_FOUND') {
             const currentTab = useTerminalStore
               .getState()
               .getDirectoryState(directory)
               ?.tabs.find((tab) => tab.id === tabId);
             if (!currentTab?.label?.startsWith('Action:')) {
-              setConnectionError(null);
-              setIsFatalError(false);
-              setConnecting(directory, tabId, false);
+              if (isActive) {
+                setConnectionError(null);
+                setIsFatalError(false);
+                setConnecting(directory, tabId, false);
+                setIsReconnectPending(false);
+              }
               setTabSessionId(directory, tabId, null);
               setTabLifecycle(directory, tabId, 'idle');
-              disconnectStream();
               return;
             }
           }
+          if (!isActive) return;
+          setIsReconnectPending(false);
           setConnectionError(`Connection failed: ${error.message}`);
           setIsFatalError(true);
           setConnecting(directory, tabId, false);
           setTabLifecycle(directory, tabId, 'exited');
           setTabSessionId(directory, tabId, null);
-          disconnectStream();
         },
       });
 
-      streamCleanupRef.current = () => {
-        subscription.close();
-        activeTerminalIdRef.current = null;
-      };
+      subscriptionsRef.current.set(terminalId, () => subscription.close());
+      activeTerminalIdRef.current = terminalId;
     },
     [
       appendToBuffer,
-      disconnectStream,
       focusTerminalWhenWindowActive,
       replaceBuffer,
       scanTerminalPreviewOutput,
@@ -217,6 +241,33 @@ export function useTerminalSessionStream({
       terminal,
     ],
   );
+
+  const tabsKey = React.useMemo(
+    () => tabs.map((tab) => `${tab.id}:${tab.terminalSessionId ?? ''}`).join(','),
+    [tabs],
+  );
+
+  React.useEffect(() => {
+    if (!terminalHydrated || !hasOpenedTerminalViewport || !effectiveDirectory) return;
+    const directory = effectiveDirectory;
+    const wanted = new Set<string>();
+    for (const tab of tabs) {
+      if (tab.terminalSessionId) {
+        wanted.add(tab.terminalSessionId);
+        startStream(directory, tab.id, tab.terminalSessionId);
+      }
+    }
+    for (const [sessionId, unsubscribe] of subscriptionsRef.current) {
+      if (!wanted.has(sessionId)) {
+        try {
+          unsubscribe();
+        } catch {
+          /* ignored */
+        }
+        subscriptionsRef.current.delete(sessionId);
+      }
+    }
+  }, [tabsKey, tabs, effectiveDirectory, terminalHydrated, hasOpenedTerminalViewport, startStream]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -229,7 +280,6 @@ export function useTerminalSessionStream({
       setConnectionError(
         hasActiveContext ? 'No working directory available for terminal.' : 'Select a session to open the terminal.',
       );
-      disconnectStream();
       return;
     }
 
@@ -257,13 +307,13 @@ export function useTerminalSessionStream({
 
       const tab = state.tabs.find((t) => t.id === tabId) ?? state.tabs[0];
       const terminalId = tab?.terminalSessionId ?? null;
-      const terminalLifecycle = tab?.lifecycle ?? 'idle';
+      const tabLifecycle = tab?.lifecycle ?? 'idle';
       const isActionTab = Boolean(tab?.label?.startsWith('Action:'));
       const buffer = useTerminalStore.getState().getBuffer(directory, tabId);
       const hasBufferedOutput = buffer.byteLength > 0 || buffer.chunks.length > 0;
 
       if (!terminalId) {
-        if (terminalLifecycle === 'exited') {
+        if (tabLifecycle === 'exited') {
           setConnecting(directory, tabId, false);
           return;
         }
@@ -296,9 +346,6 @@ export function useTerminalSessionStream({
             ...terminalAppearanceRef.current,
           });
 
-          const stillActive =
-            !cancelled && directoryRef.current === directory && activeTabIdRef.current === tabId;
-
           const owningTab = useTerminalStore
             .getState()
             .getDirectoryState(directory)
@@ -313,7 +360,6 @@ export function useTerminalSessionStream({
           }
 
           setTabSessionId(directory, tabId, session.sessionId);
-          if (!stillActive) return;
 
           const viewportSize = lastViewportSizeRef.current;
           if (
@@ -344,17 +390,13 @@ export function useTerminalSessionStream({
       }
 
       if (!terminalId || cancelled) return;
-
       terminalIdRef.current = terminalId;
-      startStream(directory, tabId, terminalId);
     };
 
     void ensureSession();
 
     return () => {
       cancelled = true;
-      terminalIdRef.current = null;
-      disconnectStream();
     };
   }, [
     hasActiveContext,
@@ -369,8 +411,6 @@ export function useTerminalSessionStream({
     setConnecting,
     setTabLifecycle,
     setTabSessionId,
-    startStream,
-    disconnectStream,
     terminal,
     terminalLoginShell,
     terminalShell,

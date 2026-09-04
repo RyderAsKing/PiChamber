@@ -1605,7 +1605,7 @@ textarea[data-terminal-hidden-input="true"]::placeholder {
   color: transparent !important;
 }
 
-/* Hide browser/system caret for Ghostty's own input surfaces.
+/* Hide browser/system caret for the terminal input surface.
    Terminal cursor is rendered by the canvas renderer. */
 .terminal-viewport-container[contenteditable="true"][aria-label="Terminal input"],
 .terminal-viewport-container [contenteditable="true"][aria-label="Terminal input"] {
@@ -1619,7 +1619,7 @@ input[aria-label="Terminal input"] {
   outline: none !important;
 }
 
-/* When touch terminal input uses the portaled overlay, keep Ghostty's
+/* When touch terminal input uses the portaled overlay, keep the terminal
    internal editable surfaces fully non-painting to avoid duplicate cursors. */
 .terminal-viewport-container[data-hidden-input-overlay-active="true"] textarea:not([data-terminal-hidden-input="true"]),
 .terminal-viewport-container[data-hidden-input-overlay-active="true"] input:not([data-terminal-hidden-input="true"]),

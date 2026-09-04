@@ -15,7 +15,6 @@ export function useTerminalTabsManager({
   directoryRef,
   activeTabIdRef,
   terminalIdRef,
-  disconnectStream,
   resetTerminalPreviewScan,
   startStream,
   setConnectionError,
@@ -33,7 +32,6 @@ export function useTerminalTabsManager({
   directoryRef: React.MutableRefObject<string | null>;
   activeTabIdRef: React.MutableRefObject<string | null>;
   terminalIdRef: React.MutableRefObject<string | null>;
-  disconnectStream: () => void;
   resetTerminalPreviewScan: () => void;
   startStream: (directory: string, tabId: string, terminalId: string) => void;
   setConnectionError: React.Dispatch<React.SetStateAction<string | null>>;
@@ -65,7 +63,6 @@ export function useTerminalTabsManager({
     setIsFatalError(false);
     setIsReconnectPending(false);
 
-    disconnectStream();
     resetTerminalPreviewScan();
 
     try {
@@ -110,7 +107,6 @@ export function useTerminalTabsManager({
     activeTabId,
     activeTabIdRef,
     directoryRef,
-    disconnectStream,
     effectiveDirectory,
     enableTabs,
     isRestarting,
@@ -140,29 +136,27 @@ export function useTerminalTabsManager({
     setConnectionError(null);
     setIsFatalError(false);
     setIsReconnectPending(false);
-    disconnectStream();
-  }, [createTab, disconnectStream, effectiveDirectory, setActiveTab, setConnectionError, setIsFatalError, setIsReconnectPending]);
+  }, [createTab, effectiveDirectory, setActiveTab, setConnectionError, setIsFatalError, setIsReconnectPending]);
 
   const handleSelectTab = React.useCallback(
     (tabId: string) => {
       if (!effectiveDirectory) return;
+      // Keep background subscriptions alive so hidden renderers stay in sync.
+      // Switching tabs only changes visibility, never disconnects the PTY stream.
       setActiveTab(effectiveDirectory, tabId);
       setConnectionError(null);
       setIsFatalError(false);
       setIsReconnectPending(false);
-      disconnectStream();
     },
-    [disconnectStream, effectiveDirectory, setActiveTab, setConnectionError, setIsFatalError, setIsReconnectPending],
+    [effectiveDirectory, setActiveTab, setConnectionError, setIsFatalError, setIsReconnectPending],
   );
 
   const handleCloseTab = React.useCallback(
     (tabId: string) => {
       if (!effectiveDirectory) return;
 
-      if (tabId === activeTabId) {
-        disconnectStream();
-      }
-
+      // The directory stream effect unsubscribes once the tab leaves the store.
+      // No explicit disconnect is needed here.
       setConnectionError(null);
       setIsFatalError(false);
       setIsReconnectPending(false);
@@ -177,7 +171,7 @@ export function useTerminalTabsManager({
         setConnectionError(error instanceof Error ? error.message : 'Terminal session ended'),
       );
     },
-    [activeTabId, closeTab, disconnectStream, effectiveDirectory, setConnectionError, setIsFatalError, setIsReconnectPending, terminal],
+    [closeTab, effectiveDirectory, setConnectionError, setIsFatalError, setIsReconnectPending, terminal],
   );
 
   return {
