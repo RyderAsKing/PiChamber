@@ -140,6 +140,23 @@ describe("PiService", () => {
     expect(await client.deleteSession({ sessionId: "s1" })).toBe(true)
   })
 
+  test("deleteSession forwards owning directory as query", async () => {
+    installFetchMock(() => new Response(null, { status: 204 }))
+    const client = new PiService()
+    expect(await client.deleteSession({ sessionId: "s1" }, { directory: "/other" })).toBe(true)
+    expect(recordedCalls()[0].url).toBe("/api/pi/sessions/s1?directory=%2Fother")
+  })
+
+  test("archiveSession sends owning directory in body", async () => {
+    installFetchMock((call) => {
+      expect(call.url).toBe("/api/pi/sessions/s1/archive")
+      expect(JSON.parse(call.init?.body as string)).toEqual({ sessionId: "s1", archived: true, directory: "/other" })
+      return new Response(null, { status: 204 })
+    })
+    const client = new PiService()
+    await client.archiveSession({ sessionId: "s1", archived: true }, { directory: "/other" })
+  })
+
   test("listSessions retries transient 503 DAEMON_UNAVAILABLE and succeeds on second attempt", async () => {
     let attempt = 0;
     installFetchMock(() => {
