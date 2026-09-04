@@ -172,7 +172,6 @@ const runScriptedClient = async ({ relayUrl, serverId, hostEncPubJwk }) => {
   url.searchParams.set('role', 'client');
   url.searchParams.set('serverId', serverId);
   url.searchParams.set('connectionId', connectionId);
-  const ws = new WebSocket(url.toString());
 
   const hostPub = await globalThis.crypto.subtle.importKey(
     'jwk',
@@ -183,6 +182,9 @@ const runScriptedClient = async ({ relayUrl, serverId, hostEncPubJwk }) => {
   );
   const ephemeral = await generateEcdhKeyPair();
   const nonce = generateHandshakeNonce();
+  // Finish async setup before dialing so the loopback socket cannot emit its
+  // one-shot open event before the scripted client attaches its listener.
+  const ws = new WebSocket(url.toString());
 
   let channel = null;
   const responseChunks = [];
