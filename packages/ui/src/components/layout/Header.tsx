@@ -592,6 +592,13 @@ export const Header: React.FC<HeaderProps> = ({
     return normalize(openDirectory || activeProject?.path || '');
   }, [activeProject?.path, openDirectory]);
 
+  const copyCurrentWorkingDirectory = React.useCallback(() => {
+    if (!actionDirectory) return;
+    void copyTextToClipboard(actionDirectory).then((result) => {
+      toast[result.ok ? 'success' : 'error']((result.ok ? "Working directory copied" : "Failed to copy working directory"));
+    }).catch(() => toast.error("Failed to copy working directory"));
+  }, [actionDirectory]);
+
   const activeProjectRef = React.useMemo(() => {
     if (!activeProject) {
       return null;
@@ -1214,6 +1221,7 @@ export const Header: React.FC<HeaderProps> = ({
                   <DropdownMenuContent align="end" className="min-w-[190px]">
                     <DropdownMenuItem onClick={() => { pendingHeaderRenameRef.current = true; }}><Icon name="pencil-ai" className="mr-2 size-4" />{"Rename"}</DropdownMenuItem>
                     <DropdownMenuItem onClick={copyCurrentSessionId}><Icon name="file-copy" className="mr-2 size-4" />{"Copy session ID"}</DropdownMenuItem>
+                    <DropdownMenuItem onClick={copyCurrentWorkingDirectory} disabled={!actionDirectory}><Icon name="folder" className="mr-2 size-4" />{"Copy working directory"}</DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => void exportCurrentSession()}><Icon name="download" className="mr-2 size-4" />{"Export Markdown"}</DropdownMenuItem>
                     <DropdownMenuSeparator />
