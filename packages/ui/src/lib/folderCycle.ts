@@ -4,6 +4,7 @@ import { normalizePath } from '@/lib/pathNormalization';
 import { resolveProjectForSessionDirectory } from '@/lib/projectResolution';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useSidebarSpaceStore } from '@/stores/useSidebarSpaceStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { buildAvailableWorktreesByProject, useWorktreeStore } from '@/stores/useWorktreeStore';
 import { getSyncSessions } from '@/sync/sync-refs';
@@ -61,6 +62,10 @@ export function cycleSessionFolder(): boolean {
   }
 
   projectsState.setActiveProjectIdOnly(nextId);
+  // The left folder rail is a view filter, not derived state: selecting a
+  // session never moves it, so folder navigation must move it explicitly —
+  // exactly like clicking the folder in the rail does.
+  useSidebarSpaceStore.getState().selectSpace(nextId);
   useUIStore.getState().closeMainSurfaces();
 
   const worktrees = buildAvailableWorktreesByProject(projects, useWorktreeStore.getState());
@@ -143,6 +148,7 @@ export function cycleDraftFolder(): boolean {
 
   if (projectsState.activeProjectId !== next.ownerProjectId) {
     projectsState.setActiveProjectIdOnly(next.ownerProjectId);
+    useSidebarSpaceStore.getState().selectSpace(next.ownerProjectId);
   }
   sessionUI.setNewSessionDraftTarget({
     projectId: next.ownerProjectId,
