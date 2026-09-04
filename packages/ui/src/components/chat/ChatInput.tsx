@@ -1109,10 +1109,19 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
       let worktreeCreationReceipt =
         draftWorktreeCreation.getReceipt(worktreeIntent);
       if (worktreeIntent && !worktreeCreationReceipt) {
-        worktreeCreationReceipt = await draftWorktreeCreation.request({
+        const worktreeRequest = draftWorktreeCreation.request({
           intent: worktreeIntent,
           prompt: inputSnapshot.message,
         });
+        // The worktree builds in Background tasks while the composer resets
+        // to a fresh draft, so the user can keep creating sessions. The
+        // captured draft, prompt, and send configuration travel with the
+        // background task and materialize on setup-ready without stealing
+        // the current view.
+        toast.info('Worktree queued', draftAtSend.id ? { id: `worktree-queued:${draftAtSend.id}` } : undefined);
+        useSessionUIStore.getState().openNewSessionDraft();
+        useUIStore.getState().setActiveMainTab('chat');
+        worktreeCreationReceipt = await worktreeRequest;
         if (!worktreeCreationReceipt) {
           if (submittedDraftIsCurrent()) {
             messageRef.current = inputSnapshot.message;
@@ -1123,6 +1132,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
               inputSnapshot.message,
               confirmedMentionsAtSend ?? [],
             );
+          } else {
+            toast.error('Worktree creation failed', {
+              description: 'Your prompt was not sent.',
+            });
           }
           return;
         }

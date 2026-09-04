@@ -1035,7 +1035,6 @@ export const Header: React.FC<HeaderProps> = ({
   const desktopSidebarActions = (
     <>
       <OpenInAppButton directory={actionDirectory} className="mr-1" />
-      <BackgroundTasksMenu />
       {/* Instances only exist in the desktop app. On web the menu was left
           holding a single dev-only shutdown action, which is not a reason to
           keep a dropdown in the header. */}
@@ -1236,6 +1235,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex-1" />
 
         <div className="flex shrink-0 items-center gap-1">
+          <BackgroundTasksMenu />
           {projectActionsContext ? (
             <ProjectActionsButton
               projectRef={projectActionsContext.projectRef}

@@ -25,7 +25,6 @@ export const BackgroundTasksMenu: React.FC<{ variant?: 'desktop' | 'mobile' }> =
     [entriesMap],
   );
   const activeCount = entries.filter((entry) => entry.state && entry.state.phase !== 'failed').length;
-  const failedCount = entries.filter((entry) => entry.state?.phase === 'failed').length;
 
   const cancelClose = React.useCallback(() => {
     if (!closeTimerRef.current) return;
@@ -39,7 +38,7 @@ export const BackgroundTasksMenu: React.FC<{ variant?: 'desktop' | 'mobile' }> =
 
   React.useEffect(() => () => cancelClose(), [cancelClose]);
 
-  if (variant === 'mobile' && entries.length === 0) return null;
+  if (entries.length === 0) return null;
 
   const openWorktree = (entry: WorktreeCreationEntry): void => {
     const receipt = entry.receipt;
@@ -69,9 +68,7 @@ export const BackgroundTasksMenu: React.FC<{ variant?: 'desktop' | 'mobile' }> =
               : 'pointer-events-auto inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-border bg-sidebar px-3 typography-ui-label font-medium text-foreground shadow-lg hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
             variant === 'desktop' && 'relative w-auto px-2.5',
           )}
-          aria-label={entries.length > 0
-            ? `Background tasks, ${entries.length} total, ${activeCount} active`
-            : 'Background tasks'}
+          aria-label="Background tasks"
           onPointerEnter={(event) => {
             if (event.pointerType !== 'mouse') return;
             cancelClose();
@@ -87,18 +84,6 @@ export const BackgroundTasksMenu: React.FC<{ variant?: 'desktop' | 'mobile' }> =
             <Icon name="task" className="size-[18px]" />
           )}
           <span>Background tasks</span>
-          {entries.length > 0 ? (
-            <span
-              className={cn(
-                'rounded-full px-1.5 typography-micro',
-                failedCount > 0 && activeCount === 0
-                  ? 'bg-[var(--status-error-background)] text-[var(--status-error-foreground)]'
-                  : 'bg-[var(--status-info-background)] text-[var(--status-info-foreground)]',
-              )}
-            >
-              {entries.length}
-            </span>
-          ) : null}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -114,15 +99,11 @@ export const BackgroundTasksMenu: React.FC<{ variant?: 'desktop' | 'mobile' }> =
             {activeCount === 1 ? '1 worktree is being created' : `${activeCount} worktrees are being created`}
           </p>
         </div>
-        {entries.length === 0 ? (
-          <p className="px-3 py-5 text-center typography-meta text-muted-foreground">No background tasks</p>
-        ) : (
-          <div className="divide-y divide-border">
-            {entries.map((entry) => (
-              <BackgroundTaskRow key={entry.key} entry={entry} onOpen={() => openWorktree(entry)} />
-            ))}
-          </div>
-        )}
+        <div className="divide-y divide-border">
+          {entries.map((entry) => (
+            <BackgroundTaskRow key={entry.key} entry={entry} onOpen={() => openWorktree(entry)} />
+          ))}
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   );
