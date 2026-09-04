@@ -116,6 +116,19 @@ describe('thinking block arrival', () => {
 });
 
 describe('working footer stability between tools', () => {
+  test('starts with a stable thinking label when live status has no concrete phase', () => {
+    const markup = renderToStaticMarkup(
+      <WorkingPlaceholder
+        isWorking
+        statusText={null}
+        isGenericStatus
+      />,
+    );
+
+    expect(markup).toContain('Thinking');
+    expect(markup).toContain('agent-thinking-label-enter');
+  });
+
   test('renders the current tool phase without an effect-delayed empty frame', () => {
     const markup = renderToStaticMarkup(
       <WorkingPlaceholder
@@ -178,7 +191,7 @@ describe('footer stability across sends', () => {
   });
 });
 
-describe('assistant turn footer across tool batches', () => {
+describe('assistant turn activity rows', () => {
   const mkTool = (id: string, status: string) => ({
     id,
     type: 'tool',
@@ -216,6 +229,26 @@ describe('assistant turn footer across tool batches', () => {
     ...(ctxWorking as unknown as Record<string, unknown>),
     isWorking: false,
   } as never;
+
+  test('renders tool parts without grouped count labels', () => {
+    const markup = renderToStaticMarkup(
+      <AssistantMessageBody
+        {...base}
+        parts={[
+          mkTool('tp1', 'completed'),
+          mkTool('tp2', 'completed'),
+          { id: 'tx', type: 'text', text: 'The next step is ready.' },
+          mkTool('tp3', 'completed'),
+          mkTool('tp4', 'completed'),
+        ] as never}
+        turnGroupingContext={ctxWorking}
+      />,
+    );
+
+    expect(markup).not.toContain('data-tool-call-group="true"');
+    expect(markup).not.toContain('tool calls');
+    expect(markup).not.toContain('tool call');
+  });
 
   test('no footer mounts while the turn is working, however many batches land', () => {
     const one = renderToStaticMarkup(

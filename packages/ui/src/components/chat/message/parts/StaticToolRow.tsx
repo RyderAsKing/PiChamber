@@ -21,6 +21,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import type { TurnActivityRecord as TurnActivityPart } from '../../lib/turns/types';
 import { areRenderRelevantActivityListsEqual } from '../renderCompare';
 import { MinDurationShineText } from './MinDurationShineText';
+import { useDurationTickerNow } from '@/hooks/useDurationTicker';
 import { getToolSkillName } from './skillToolPresentation';
 import { TOOL_NORMAL_TITLE_STYLE, TOOL_ROW_DESCRIPTION_CLASS, TOOL_ROW_TITLE_CLASS } from './toolPartStyles';
 import { getToolIcon } from './toolPresentation';
@@ -60,6 +61,21 @@ const isActivityRunning = (activity: TurnActivityPart): boolean => {
         return true;
     }
     return typeof activity.endedAt !== 'number';
+};
+
+const getActivityTime = (activity: TurnActivityPart): { start?: number; end?: number } => {
+    const part = activity.part as ToolPartType;
+    const stateTime = part.state?.time;
+    return {
+        start: typeof stateTime?.start === 'number' ? stateTime.start : undefined,
+        end: typeof stateTime?.end === 'number' ? stateTime.end : activity.endedAt,
+    };
+};
+
+const formatActivityDuration = (start: number, end?: number, now: number = Date.now()): string => {
+    const seconds = Math.max(0, (end ?? now) - start) / 1000;
+    const displaySeconds = seconds < 0.05 && typeof end === 'number' ? 0.1 : seconds;
+    return `${displaySeconds.toFixed(1)}s`;
 };
 
 /**
@@ -324,6 +340,22 @@ const StaticToolRowInner: React.FC<{
     const mobileActions = useMobileAppActions();
     const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
     const hasRunningActivity = React.useMemo(() => activities.some((activity) => isActivityRunning(activity)), [activities]);
+    const timedActivity = React.useMemo(() => {
+        for (const activity of activities) {
+            const time = getActivityTime(activity);
+            if (typeof time.start === 'number') {
+                return { activity, time };
+            }
+        }
+        return null;
+    }, [activities]);
+    const durationNow = useDurationTickerNow(
+        Boolean(timedActivity && hasRunningActivity && typeof timedActivity.time.end !== 'number'),
+        250,
+    );
+    const durationLabel = timedActivity
+        ? formatActivityDuration(timedActivity.time.start!, timedActivity.time.end, durationNow)
+        : null;
 
     const descriptions = React.useMemo(() => {
         const descs: string[] = [];
@@ -524,6 +556,14 @@ const StaticToolRowInner: React.FC<{
                 >
                     {descriptions.join(' ')}
                 </Text>
+            ) : null}
+            {durationLabel ? (
+                <span
+                    className={cn('flex-shrink-0 tabular-nums text-muted-foreground/80', TOOL_ROW_DESCRIPTION_CLASS)}
+                    aria-label="Tool duration"
+                >
+                    {durationLabel}
+                </span>
             ) : null}
         </div>
     );

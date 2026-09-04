@@ -8,8 +8,9 @@ Use this doc when you ask an agent to change tool/header/description behavior.
 
 - Message parts are rendered from `MessageBody.tsx`.
 - `MessageBody.tsx` owns message-level orchestration only. User subtask/shell rendering lives in `../UserAuxiliaryParts.tsx` with pure classification in `../userAuxiliaryPartsModel.ts`; assistant copy/fork/revert/save-image controls live in `../AssistantMessageActionButtons.tsx`.
-- There are two tool rendering paths:
-  - **Static grouped tools** -> `StaticToolRow.tsx`
+- Turn activity is projected once by `components/TurnActivityRail.tsx`, which keeps reasoning, progress text, and tools in one chronological disclosure rail across all assistant records.
+- Tool rendering has two presentation layers inside that rail:
+  - **Static tools** -> `StaticToolRow.tsx`
   - **Expandable tools** -> `ToolPart.tsx`
 - Shared tool icon mapping is centralized in `toolPresentation.tsx` (`getToolIcon`).
 
@@ -49,6 +50,9 @@ Use this doc when you ask an agent to change tool/header/description behavior.
 - `ReasoningPart.tsx`
   - Thinking block UI (`ReasoningTimelineBlock`), summary + optional duration.
 
+- `../useTurnToolsState.ts`
+  - Owns tool disclosure state for the turn-level rail while preserving the per-message expansion caches.
+
 - `JustificationBlock.tsx`
   - Justification block wrapper over `ReasoningTimelineBlock`.
 
@@ -60,6 +64,7 @@ Use this doc when you ask an agent to change tool/header/description behavior.
   CSS into any runtime surface.
 - `read` and the legacy explicit `skill` tool are **static navigation tools** and render via `StaticToolRow`. Pi loads skills through `read`; when the daemon attaches authoritative `metadata.pichamber.skill`, that read renders as a one-line Skill row and opens the discovered skill in Settings instead of opening `SKILL.md` as a file.
 - Every other tool, including search/fetch, OpenCode built-ins, custom tools, plugins, and MCP tools, is **expandable** and renders through `ToolPart`.
+- Tool rows are not grouped under count labels. Each activity keeps its stable part identity, individual disclosure state, metadata, duration, output, and lifecycle in the turn-level rail.
 - The managed `pichamber` plugin tool uses the expandable path and hides its broad protocol input. The plugin supplies the selected action's human description as the native tool title; the UI renders that metadata without owning an action map. The full versioned result envelope renders through the same neutral JSON summary/tree/raw views as other tools, without a tool-specific output card.
 - `ToolPart` defers expanded content after a user toggle, preventing large tool input/output payloads from mounting during the initial chat render. Settled historical tools whose output or patch exceeds the render-record budget arrive as `state.deferredBody` stubs; expanding hydrates the canonical reducer part through `useSessionReducerPart` instead of keeping full bodies in every transcript record. Task child transcripts are requested only while the Task is active or expanded; a settled collapsed Task uses its persisted metadata/output and does no child-session work.
 - The message list folds settled history turns older than the most recent two behind a centered **Load older history** control. That control reveals the two turns immediately above the visible window; **Load all history** restores every folded turn. Neither action changes the session log. A settled turn with more than 32 assistant records initially mounts the response header and its newest 31 records. **Load earlier response** reveals 32 more records and **Load full response** mounts the rest. Active streaming turns remain complete so incoming tool and text records never land behind the gate. Tool bodies stay deferred until expanded. During a stream, token updates patch only the live assistant record when part membership is unchanged; sibling messages and turn activity keep their previous identities so they do not rebuild with the growing text.
@@ -68,7 +73,8 @@ Use this doc when you ask an agent to change tool/header/description behavior.
 - Running bash output falls back to `state.metadata.output` until canonical `state.output` arrives. Live output keeps at most 16 lines in the DOM (DeepSeek's terminal card cap) inside a compact viewport; it follows new output until the user scrolls up, then resumes following when the user returns to the bottom. Live output appends or replaces rewritten snapshots as plain text without worker highlighting; finalized output normalizes ANSI terminal controls with a bounded synthetic-cell budget, bypasses the throttle, and receives the normal one-time highlighted rendering.
 - Thinking blocks show duration when timing is available (`ReasoningPart.tsx`).
 - The last assistant message in a settled turn renders a footer in `MessageBody.tsx` (model name, optional thinking variant, duration, timestamp). It stays hidden while that assistant is in the live reducer `streamingMessages` set or while an explicit `SessionRetry` notice represents the active retry. Catalog or generic session `busy` after the stream ends must not keep the last-turn footer unmounted; older turns already skipped that heuristic because they are not the latest turn. Its entry animation runs only when the same mounted message transitions from working to settled. Historical mounts, session switches, and earlier footers exposed by a new send remain static.
-- The active working row renders each real phase in the same React pass rather than mirroring the phase through effect-driven state. Generic between-step status retains the latest useful phase, and the label stays on one line so tool-name changes cannot alter the row height.
+- Each assistant turn keeps a one-line working header immediately below its user prompt. The live latest turn reads its active message directly from the reducer `streamingMessages` set rather than waiting for the intentionally frozen transcript tail, then renders each real phase in the same React pass rather than mirroring it through effect-driven state. A first generic frame uses `Thinking`, generic between-step status retains the latest useful phase, and live phase labels enter without changing the row height. Settled turns retain the header as `Worked for <duration>`. A chevron is present only when the turn has disclosed activity, and reopening it restores the process rail. The composer keeps its separate `StatusRow` for task/abort accessories.
+- `TurnActivityRail.tsx` mounts only the latest 40 tool activities initially and reveals earlier batches on demand. A rail that has never been opened remains unmounted; after its first opening, closing hides but retains the lightweight rows so reopening does not remount settled tools or replay arrival work. Individual tool bodies remain unmounted while collapsed. Memoized per-tool row boundaries and stable event callbacks isolate disclosure and popup updates to the affected tool. Stable tool IDs drive arrival transitions; activity order remains authoritative across assistant records.
 - Thinking blocks auto-expand while their own part is streaming, inside a `max-h-80` pane that scrolls internally (plain text, not markdown). They collapse as soon as that part's `streaming` flag clears (the next text or tool part starts). **Collapsed by Default** off keeps a one-line header during stream and after unless the user expands it. Markdown mounts only after the part settles.
 
 ## "I want to change description for Perplexity" (example recipe)

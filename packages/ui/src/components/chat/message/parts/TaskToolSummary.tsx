@@ -12,7 +12,11 @@ import type { ToolPopupContent } from '../types';
 import { ToolRevealOnMount } from './ToolRevealOnMount';
 import { getToolIcon } from './toolPresentation';
 import { normalizeToolName } from './toolRenderUtils';
-import { TOOL_NORMAL_TITLE_STYLE } from './toolPartStyles';
+import {
+    TOOL_NORMAL_TITLE_STYLE,
+    TOOL_ROW_DESCRIPTION_CLASS,
+    TOOL_ROW_TITLE_CLASS,
+} from './toolPartStyles';
 import {
     getTaskSummaryEntryRenderSignature,
     getTaskSummaryLabel,
@@ -97,7 +101,7 @@ const TaskSummaryEntryRow = React.memo(({
             <div className={cn('flex gap-2 min-w-0 w-full', status === 'error' && isMobile ? 'items-start' : 'items-center')}>
                 <span className="flex-shrink-0 text-foreground/80">{getToolIcon(toolName)}</span>
                 <span
-                    className="typography-meta text-foreground/80 flex-shrink-0"
+                    className={cn(TOOL_ROW_TITLE_CLASS, 'text-foreground/80 flex-shrink-0')}
                     style={TOOL_NORMAL_TITLE_STYLE}
                     title={displayName}
                 >
@@ -109,7 +113,8 @@ const TaskSummaryEntryRow = React.memo(({
                     ) : (
                         status === 'error' ? (
                             <span className={cn(
-                                'typography-meta flex-1 min-w-0 text-[var(--status-error)]',
+                                TOOL_ROW_DESCRIPTION_CLASS,
+                                'flex-1 min-w-0 text-[var(--status-error)]',
                                 isMobile ? 'whitespace-normal break-words' : 'truncate',
                             )}>
                                 {label}
@@ -117,7 +122,7 @@ const TaskSummaryEntryRow = React.memo(({
                         ) : (
                             <Text
                                 variant={animateTailText ? 'generate-effect' : 'static'}
-                                className="typography-meta flex-1 min-w-0 truncate text-muted-foreground/70"
+                                className={cn(TOOL_ROW_DESCRIPTION_CLASS, 'flex-1 min-w-0 truncate text-muted-foreground/70')}
                                 style={{ color: 'var(--tools-description)' }}
                                 title={label}
                             >

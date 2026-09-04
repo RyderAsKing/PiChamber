@@ -422,6 +422,7 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
         }
         return null;
     }, [descriptionPath, normalizedPartTool, stateWithData, input]);
+    const hasToolContext = Boolean(justificationText || description || diffStats || writeLineCount);
     const runtime = React.useContext(RuntimeAPIContext);
 
     const openApplyPatchFile = (file: Record<string, unknown>, event: React.MouseEvent<HTMLButtonElement>) => {
@@ -495,7 +496,7 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
             <div
                 className={cn(
                     // Live rows, not cards: tight single-line rows.
-                    'group/tool flex gap-1.5 pr-2 pl-px py-1',
+                    'group/tool flex gap-1.5 rounded-md pr-2 pl-px py-1 transition-colors hover:bg-[var(--interactive-hover)]',
                     isMultiFileApplyPatch ? 'flex-wrap items-start cursor-pointer' : 'items-center cursor-pointer',
                 )}
                 onClick={isMultiFileApplyPatch ? () => onToggle(part.id) : handleMainClick}
@@ -544,6 +545,15 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
                                 openDiffLabel={"Open file diff"}
                                 onFileClick={runtime?.editor ? openApplyPatchFile : undefined}
                             />
+                            {typeof effectiveTimeStart === 'number' ? (
+                                <span className={cn('ml-auto flex-shrink-0 tabular-nums text-muted-foreground/80', TOOL_ROW_DESCRIPTION_CLASS)} aria-label="Tool duration">
+                                    <LiveDuration
+                                        start={effectiveTimeStart}
+                                        end={typeof effectiveTimeEnd === 'number' ? effectiveTimeEnd : undefined}
+                                        active={Boolean(isActive && typeof effectiveTimeEnd !== 'number')}
+                                    />
+                                </span>
+                            ) : null}
                         </>
                     ) : (
                         <>
@@ -585,8 +595,8 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
                                     {displayName}
                                 </MinDurationShineText>
                             </div>
-                            {normalizedPartTool === 'bash' && typeof effectiveTimeStart === 'number' ? (
-                                <span className={cn('flex-shrink-0 tabular-nums text-muted-foreground/80', TOOL_ROW_DESCRIPTION_CLASS)}>
+                            {typeof effectiveTimeStart === 'number' ? (
+                                <span className={cn('flex-shrink-0 tabular-nums text-muted-foreground/80', TOOL_ROW_DESCRIPTION_CLASS)} aria-label="Tool duration">
                                     <LiveDuration
                                         start={effectiveTimeStart}
                                         end={typeof effectiveTimeEnd === 'number' ? effectiveTimeEnd : undefined}
@@ -599,7 +609,14 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
                 </div>
 
                 {!isMultiFileApplyPatch && (
-                    <div className={cn('flex items-center gap-1 flex-1 min-w-0', TOOL_ROW_DESCRIPTION_CLASS)} style={{ color: 'var(--tools-description)' }}>
+                    <div
+                        className={cn(
+                            'flex items-center gap-1 flex-1 min-w-0',
+                            TOOL_ROW_DESCRIPTION_CLASS,
+                            hasToolContext && 'rounded-md bg-[var(--surface-subtle)] px-1.5 py-0.5',
+                        )}
+                        style={{ color: 'var(--tools-description)' }}
+                    >
                         <div className="flex items-center gap-1 flex-1 min-w-0">
                             {justificationText && (
                                 <span

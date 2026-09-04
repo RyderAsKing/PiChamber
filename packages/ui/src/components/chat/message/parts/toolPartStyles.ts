@@ -3,10 +3,13 @@ import type { CSSProperties } from 'react';
 import { toolDisplayStyles } from '@/lib/typography';
 import { cn } from '@/lib/utils';
 
-const TOOL_ROW_TEXT_CLASS = '!text-[length:var(--text-meta)] !leading-5 sm:!leading-6 tracking-normal';
-export const TOOL_ROW_TITLE_CLASS = cn('typography-meta font-medium', TOOL_ROW_TEXT_CLASS);
+// Tool rows mix 15px sans titles with 13px mono metadata. Keep both on the
+// same 20px line box so flex centering does not pull descriptions or timers
+// toward the top beside a taller desktop title line.
+const TOOL_ROW_TEXT_CLASS = '!text-[length:var(--text-markdown)] !leading-5 tracking-normal';
+export const TOOL_ROW_TITLE_CLASS = cn('typography-markdown font-medium', TOOL_ROW_TEXT_CLASS);
 // Tool target: mono 13px leading-5.
-// Verb stays sans meta (14px); target uses semantic code size (13px).
+// Action stays sans markdown (15px); target uses semantic code size (13px).
 export const TOOL_ROW_DESCRIPTION_CLASS = cn('typography-code font-mono', '!text-[length:var(--text-code)] !leading-5 tracking-normal');
 
 export const TOOL_COLLAPSED_CUSTOM_STYLE: CSSProperties = {
