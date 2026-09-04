@@ -126,6 +126,8 @@ type ReasoningTimelineBlockProps = {
     defaultExpanded?: boolean;
     /** When true (default), live thinking auto-opens then folds when the part settles. When false, stays a one-line header unless the user expands it. */
     collapseByDefault?: boolean;
+    /** The turn rail already supplies the shared vertical line and indent. */
+    withinActivityRail?: boolean;
 };
 
 type ExpansionState = {
@@ -141,6 +143,7 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
     isStreaming = false,
     actions,
     defaultExpanded,
+    withinActivityRail = false,
     collapseByDefault = true,
 }) => {
     const canAutoExpand = Boolean(collapseByDefault && isStreaming);
@@ -486,18 +489,23 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
                     }}
                 >
                     <div
-                        className="relative ml-2 pl-3 pb-1 pt-0.5"
+                        className={cn(
+                            'relative pt-0.5',
+                            withinActivityRail ? 'pl-0 pb-0' : 'ml-2 pl-3 pb-1',
+                        )}
                         style={{
                             opacity: isExpanded ? 1 : 0,
                             transform: isExpanded ? 'translateY(0)' : 'translateY(-4px)',
                             transition: 'opacity 180ms ease-out, transform 180ms ease-out',
                         }}
                     >
-                        <span
-                            aria-hidden="true"
-                            className="pointer-events-none absolute left-0 top-0 bottom-0 w-px"
-                            style={{ backgroundColor: 'var(--tools-border)' }}
-                        />
+                        {!withinActivityRail ? (
+                            <span
+                                aria-hidden="true"
+                                className="pointer-events-none absolute bottom-0 left-0 top-0 w-px"
+                                style={{ backgroundColor: 'var(--tools-border)' }}
+                            />
+                        ) : null}
                         <ScrollableOverlay
                             ref={innerScrollRef}
                             as="div"
@@ -524,6 +532,7 @@ type ReasoningPartProps = {
     messageId: string;
     streamPhase?: StreamPhase;
     collapseByDefault?: boolean;
+    withinActivityRail?: boolean;
 };
 
 const ReasoningPart = React.memo(({
@@ -532,6 +541,7 @@ const ReasoningPart = React.memo(({
     messageId,
     streamPhase,
     collapseByDefault = true,
+    withinActivityRail = false,
 }: ReasoningPartProps) => {
     const partWithText = part as PartWithText;
     const rawText = partWithText.text || partWithText.content || '';
@@ -562,6 +572,7 @@ const ReasoningPart = React.memo(({
             time={time}
             isStreaming={isStreaming}
             collapseByDefault={collapseByDefault}
+            withinActivityRail={withinActivityRail}
         />
     );
 });

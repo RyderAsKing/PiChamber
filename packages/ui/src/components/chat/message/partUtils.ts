@@ -49,6 +49,25 @@ export const filterRenderableAssistantParts = (parts: Part[]): Part[] => parts.f
 });
 
 /**
+ * Remove turn-progress parts from an assistant message whose final response is
+ * rendered separately from the shared activity rail.
+ */
+export const filterAssistantFinalParts = (
+    parts: Part[],
+    activityPartIds: ReadonlySet<string>,
+    messageId: string,
+): Part[] => parts.filter((part, index) => {
+    if (part.type === 'tool' || part.type === 'reasoning') {
+        return false;
+    }
+    if (part.type !== 'text') {
+        return true;
+    }
+    const partId = part.id ?? `${messageId}-part-${index}-${part.type}`;
+    return !activityPartIds.has(partId);
+});
+
+/**
  * True when an assistant message has anything worth mounting: renderable
  * parts (non-empty text, reasoning, tools, files) or an error notice.
  * An `assistant.message.start` row arrives with no parts and stays empty

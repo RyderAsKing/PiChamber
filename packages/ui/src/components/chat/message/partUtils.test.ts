@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { Part } from '@/lib/chat/types';
-import { filterRenderableAssistantParts, hasRenderableAssistantContent } from './partUtils';
+import {
+  filterAssistantFinalParts,
+  filterRenderableAssistantParts,
+  hasRenderableAssistantContent,
+} from './partUtils';
 
 describe('filterRenderableAssistantParts', () => {
   test('retains every terminal tool regardless of count or terminal timestamp', () => {
@@ -18,6 +22,20 @@ describe('filterRenderableAssistantParts', () => {
     }));
 
     expect(filterRenderableAssistantParts(tools)).toEqual(tools);
+  });
+});
+
+describe('filterAssistantFinalParts', () => {
+  test('keeps final text and files while moving progress parts to the rail', () => {
+    const parts = [
+      { id: 'progress', type: 'text', text: 'checking first' },
+      { id: 'tool-1', type: 'tool', tool: 'read' },
+      { id: 'reasoning-1', type: 'reasoning', text: 'thinking' },
+      { id: 'answer', type: 'text', text: 'done' },
+      { id: 'file-1', type: 'file', filename: 'result.txt' },
+    ] as Part[];
+
+    expect(filterAssistantFinalParts(parts, new Set(['progress', 'tool-1', 'reasoning-1']), 'm1').map((part) => part.id)).toEqual(['answer', 'file-1']);
   });
 });
 

@@ -91,10 +91,22 @@ export const projectTurnActivity = (input: ProjectActivityInput): ProjectActivit
 
     const taskMessageById = new Map<string, string>();
     const taskOrder: string[] = [];
+    const summarySourceMessageIndex = input.summarySourceMessageId
+        ? input.assistantMessages.findIndex((message) => message.info.id === input.summarySourceMessageId)
+        : -1;
+    const summarySourcePartIndex = summarySourceMessageIndex >= 0 && input.summarySourcePartId
+        ? input.assistantMessages[summarySourceMessageIndex]?.parts.findIndex((part, partIndex) => (
+            (part.id ?? `${input.assistantMessages[summarySourceMessageIndex]?.info.id}-part-${partIndex}-${part.type}`)
+            === input.summarySourcePartId
+        )) ?? -1
+        : -1;
+    const turnHasNonTextActivity = input.assistantMessages.some((message) => (
+        message.parts.some((part) => part.type === 'tool' || part.type === 'reasoning')
+    ));
     const partsByAfterTool = new Map<string | null, TurnActivityRecord[]>();
     let currentAfterToolPartId: string | null = null;
 
-    input.assistantMessages.forEach((message) => {
+    input.assistantMessages.forEach((message, messageIndex) => {
         const finish = getMessageFinish(message);
         const messageHasTool = message.parts.some((part) => part.type === 'tool');
         const messageIsCompactionSummary = isCompactionSummaryMessage(message);
@@ -125,6 +137,13 @@ export const projectTurnActivity = (input: ProjectActivityInput): ProjectActivit
                 && (finish === 'stop' || typeof finish !== 'string')
                 && input.summarySourceMessageId === message.info.id
                 && input.summarySourcePartId === partId;
+            const isBeforeSummaryText = summarySourceMessageIndex >= 0
+                && (
+                    messageIndex < summarySourceMessageIndex
+                    || (messageIndex === summarySourceMessageIndex
+                        && summarySourcePartIndex >= 0
+                        && partIndex < summarySourcePartIndex)
+                );
 
             let kind: TurnActivityRecord['kind'] | null = null;
             if (isTool) {
@@ -141,7 +160,12 @@ export const projectTurnActivity = (input: ProjectActivityInput): ProjectActivit
                     messageIsCompactionSummary
                     || (
                         !isConfirmedSummaryText
-                        && (messageHasTool || (typeof finish === 'string' && finish !== 'stop'))
+                        && (
+                            messageHasTool
+                            || (typeof finish === 'string' && finish !== 'stop')
+                            || turnHasNonTextActivity
+                            || isBeforeSummaryText
+                        )
                     )
                 )
             ) {

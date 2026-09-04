@@ -13,7 +13,12 @@ import { isUserBubbleContentPart } from './message/partUtils';
 import type { AgentMentionInfo } from './message/types';
 import type { StreamPhase } from './message/types';
 import { deriveMessageRole } from './message/messageRole';
-import { filterVisibleParts, hasRenderableAssistantContent, normalizeParts } from './message/partUtils';
+import {
+  filterAssistantFinalParts,
+  filterVisibleParts,
+  hasRenderableAssistantContent,
+  normalizeParts,
+} from './message/partUtils';
 import { normalizeUserDisplayParts } from './message/normalizeUserDisplayParts';
 import { isHiddenUserMessage } from './message/hiddenUserMessage';
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
@@ -53,6 +58,7 @@ interface ChatMessageProps {
   assistantHeaderMessageId?: string;
   isInActiveTurn?: boolean;
   activeStreamingPhase?: StreamPhase | null;
+  hideAssistantActivity?: boolean;
   animateUserOnMount?: boolean;
   onUserAnimationConsumed?: (messageId: string) => void;
 }
@@ -67,6 +73,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   assistantHeaderMessageId,
   isInActiveTurn = false,
   activeStreamingPhase = null,
+  hideAssistantActivity = false,
   animateUserOnMount = false,
   onUserAnimationConsumed,
 }) => {
@@ -145,7 +152,21 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     [normalizedParts, showReasoningTraces],
   );
 
-  const displayParts = visibleParts;
+  const activityPartIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    for (const activity of turnGroupingContext?.activityParts ?? []) {
+      ids.add(activity.id);
+    }
+    return ids;
+  }, [turnGroupingContext?.activityParts]);
+
+  const displayParts = React.useMemo(() => {
+    if (isUser || !hideAssistantActivity) {
+      return visibleParts;
+    }
+
+    return filterAssistantFinalParts(visibleParts, activityPartIds, message.info.id);
+  }, [activityPartIds, hideAssistantActivity, isUser, message.info.id, visibleParts]);
 
   // Attachments render in the footer below the bubble, so a message with
   // files but no text skips the bubble box instead of leaving an empty pill.
@@ -155,8 +176,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     if (isUser) {
       return [];
     }
-    return visibleParts.filter((part) => part.type === 'text');
-  }, [isUser, visibleParts]);
+    return displayParts.filter((part) => part.type === 'text');
+  }, [displayParts, isUser]);
 
   const toolParts = React.useMemo(() => {
     if (isUser) {
@@ -185,8 +206,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     handlePopupChange,
   } = useChatMessageToolsState({
     message,
-    toolParts,
-    turnActivityToolParts,
+    toolParts: hideAssistantActivity ? [] : toolParts,
+    turnActivityToolParts: hideAssistantActivity ? [] : turnActivityToolParts,
     showExpandedBashTools,
     showExpandedEditTools,
   });
@@ -281,8 +302,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     if (isUser) {
       return false;
     }
-    return visibleParts.some((part) => part.type === 'reasoning');
-  }, [isUser, visibleParts]);
+    return displayParts.some((part) => part.type === 'reasoning');
+  }, [displayParts, isUser]);
 
   const { allowAnimation, hasAnnouncedAuxiliaryScrollRef } = useChatMessageAnimation({
     message,
@@ -375,8 +396,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     if (isUser) {
       return false;
     }
-    return !hasRenderableAssistantContent(visibleParts, assistantErrorText);
-  }, [assistantErrorText, isUser, visibleParts]);
+    return !hasRenderableAssistantContent(displayParts, assistantErrorText);
+  }, [assistantErrorText, displayParts, isUser]);
 
   const handleCopyMessage = React.useCallback(async () => {
     let result;
@@ -412,7 +433,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   }
 
   const assistantTopPaddingClass =
-    !isUser && shouldShowHeader && !previousIsHiddenUserMessage
+    !isUser && shouldShowHeader && !hideAssistantActivity && !previousIsHiddenUserMessage
       ? stickyUserHeader
         ? isMobile
           ? 'pt-4'
@@ -507,7 +528,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
               <MessageBody
                 sessionId={message.info.sessionID}
                 messageId={message.info.id}
-                parts={visibleParts}
+                parts={displayParts}
                 isUser={isUser}
                 isMessageCompleted={isMessageCompleted}
                 isLatestMessage={!nextMessage}
@@ -541,6 +562,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                 footerAgentName={headerAgentName}
                 footerVariant={headerVariant}
                 isDarkTheme={isDarkTheme}
+                hideAssistantActivity={hideAssistantActivity}
               />
             </div>
           )}
@@ -569,6 +591,7 @@ export default React.memo(ChatMessage, (prev, next) => {
     ) &&
     prev.isInActiveTurn === next.isInActiveTurn &&
     prev.activeStreamingPhase === next.activeStreamingPhase &&
+    prev.hideAssistantActivity === next.hideAssistantActivity &&
     prev.assistantHeaderMessageId === next.assistantHeaderMessageId &&
     prev.animateUserOnMount === next.animateUserOnMount &&
     prev.onUserAnimationConsumed === next.onUserAnimationConsumed &&

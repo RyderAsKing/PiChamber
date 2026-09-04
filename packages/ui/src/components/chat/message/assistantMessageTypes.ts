@@ -28,6 +28,8 @@ export interface MessageBodyProps {
   onContentChange?: (reason?: ContentChangeReason, messageId?: string) => void;
 
   shouldShowHeader?: boolean;
+  /** Turn-level activity is rendered by the shared process rail. */
+  hideAssistantActivity?: boolean;
   hasTextContent?: boolean;
   onCopyMessage?: () => void | boolean | Promise<void | boolean>;
   copiedMessage?: boolean;

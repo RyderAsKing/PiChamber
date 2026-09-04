@@ -6,6 +6,7 @@ import type { ContentChangeReason } from '@/hooks/useChatAutoFollow';
 import { useStreamingTextThrottle } from '../../hooks/useStreamingTextThrottle';
 import { resolveAssistantDisplayText, shouldRenderAssistantText } from './assistantTextVisibility';
 import { streamPerfCount, streamPerfObserve } from '@/stores/utils/streamDebug';
+import { cn } from '@/lib/utils';
 
 type PartWithText = Part & { text?: string; content?: string; value?: string; time?: { start?: number; end?: number } };
 
@@ -16,6 +17,7 @@ interface AssistantTextPartProps {
     streamPhase: StreamPhase;
     onContentChange?: (reason?: ContentChangeReason, messageId?: string) => void;
     onShowPopup?: (content: ToolPopupContent) => void;
+    withinActivityRail?: boolean;
 }
 
 const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
@@ -23,6 +25,7 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
     messageId,
     streamPhase,
     onShowPopup,
+    withinActivityRail = false,
 }) => {
     // Use part directly from props — parent provides the latest version from the store.
     // No store subscription here to avoid re-render cascade from unrelated delta events.
@@ -75,7 +78,10 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
         <div
             // Prose rhythm: 12px top / 4px bottom padding (horizontal rhythm
             // lives on the chat column here, so only vertical spacing applies).
-            className="group/assistant-text relative w-full min-w-0 break-words pt-3 pb-1"
+            className={cn(
+                'group/assistant-text relative w-full min-w-0 break-words',
+                withinActivityRail ? 'py-1' : 'pt-3 pb-1',
+            )}
             key={part.id || `${messageId}-text`}
         >
             <MarkdownRenderer

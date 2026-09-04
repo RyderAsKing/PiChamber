@@ -620,7 +620,7 @@ const StreamingTailContent: React.FC<{
     const liveEntry = React.useMemo(() => buildLiveStreamingEntry(entry, {
         activeStreamingMessageId,
         liveParts,
-        showTextJustificationActivity: false,
+        showTextJustificationActivity: true,
         showTurnChangedFiles,
         mergeHiddenUserTurns: true,
     }), [activeStreamingMessageId, entry, liveParts, showTurnChangedFiles]);
@@ -808,7 +808,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
 
     const { projection, staticTurns, streamingTurn } = useTurnRecords(displayMessages, {
         sessionKey,
-        showTextJustificationActivity: false,
+        showTextJustificationActivity: true,
         showTurnChangedFiles,
     });
     const hasUngroupedStaticEntries = projection.ungroupedMessageIds.size > 0;

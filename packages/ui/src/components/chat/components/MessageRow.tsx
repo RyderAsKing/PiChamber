@@ -20,6 +20,7 @@ export interface MessageRowProps {
   assistantHeaderMessageId?: string;
   isInActiveTurn?: boolean;
   activeStreamingPhase?: StreamPhase | null;
+  hideAssistantActivity?: boolean;
   animateUserOnMount?: boolean;
   onUserAnimationConsumed?: (messageId: string) => void;
   onContentChange: (reason?: ContentChangeReason) => void;
@@ -36,6 +37,7 @@ export const MessageRow = React.memo<MessageRowProps>(
     assistantHeaderMessageId,
     isInActiveTurn,
     activeStreamingPhase,
+    hideAssistantActivity,
     animateUserOnMount,
     onUserAnimationConsumed,
     onContentChange,
@@ -80,6 +82,7 @@ export const MessageRow = React.memo<MessageRowProps>(
         assistantHeaderMessageId={assistantHeaderMessageId}
         isInActiveTurn={isInActiveTurn}
         activeStreamingPhase={activeStreamingPhase}
+        hideAssistantActivity={hideAssistantActivity}
       />
     );
   },
@@ -104,6 +107,7 @@ export const MessageRow = React.memo<MessageRowProps>(
       prev.assistantHeaderMessageId === next.assistantHeaderMessageId &&
       prev.isInActiveTurn === next.isInActiveTurn &&
       prev.activeStreamingPhase === next.activeStreamingPhase &&
+      prev.hideAssistantActivity === next.hideAssistantActivity &&
       prev.animationHandlers?.onChunk === next.animationHandlers?.onChunk &&
       prev.animationHandlers?.onComplete === next.animationHandlers?.onComplete &&
       prev.animationHandlers?.onStreamingCandidate ===

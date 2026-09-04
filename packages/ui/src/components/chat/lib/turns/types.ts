@@ -128,6 +128,4 @@ export interface TurnGroupingContext {
     userMessageVariant?: string;
     /** True only while this assistant is in the live `streamingMessages` set. Catalog busy is not enough. */
     isWorking: boolean;
-    isGroupExpanded?: boolean;
-    toggleGroup?: () => void;
 }

@@ -17,7 +17,7 @@ export interface TurnBlockProps {
   turn: TurnRecord;
   isLastTurn: boolean;
   nextEntryFirstMessage?: ChatMessageEntry;
-  /** Catalog busy is still passed through, but last-turn `isWorking` follows the live stream id. */
+  /** Live session activity keeps a latest turn visible before its first assistant record arrives. */
   sessionIsWorking: boolean;
   onMessageContentChange: (reason?: ContentChangeReason) => void;
   getAnimationHandlers: (messageId: string) => AnimationHandlers;
@@ -34,6 +34,7 @@ export const TurnBlock = React.memo(
     turn,
     isLastTurn,
     nextEntryFirstMessage,
+    sessionIsWorking,
     onMessageContentChange,
     getAnimationHandlers,
     scrollToBottom,
@@ -89,6 +90,15 @@ export const TurnBlock = React.memo(
 
     const visibleActivityParts = turn.activityParts;
     const visibleActivitySegments = turn.activitySegments;
+    const activityPartsByMessageId = React.useMemo(() => {
+      const byMessageId = new Map<string, typeof visibleActivityParts>();
+      for (const activity of visibleActivityParts) {
+        const messageParts = byMessageId.get(activity.messageId) ?? [];
+        messageParts.push(activity);
+        byMessageId.set(activity.messageId, messageParts);
+      }
+      return byMessageId;
+    }, [visibleActivityParts]);
 
     const turnGroupingContextBase = React.useMemo(() => {
       const userCreatedAt = (turn.userMessage.info.time as { created?: number } | undefined)
@@ -139,6 +149,7 @@ export const TurnBlock = React.memo(
         const isActivityOwner =
           Boolean(activityOwnerMessageId) && message.info.id === activityOwnerMessageId;
         const shouldAttachFullTurnContext = isActivityOwner || isFirstAssistant || isLastAssistant;
+        const messageActivityParts = activityPartsByMessageId.get(message.info.id) ?? [];
         const assistantHeaderMessageId =
           visibleAssistantMessages[0]?.info.id ?? turn.headerMessageId;
 
@@ -179,7 +190,7 @@ export const TurnBlock = React.memo(
                     userMessageCreatedAt: turnGroupingContextBase.userMessageCreatedAt,
                     userMessageVariant: turnGroupingContextBase.userMessageVariant,
                   }
-                : {}),
+                : { activityParts: messageActivityParts }),
             } satisfies TurnGroupingContext)
           : undefined;
 
@@ -203,6 +214,7 @@ export const TurnBlock = React.memo(
             onContentChange={onMessageContentChange}
             animationHandlers={getAnimationHandlers(message.info.id)}
             scrollToBottom={scrollToBottom}
+            hideAssistantActivity={isAssistantMessage}
           />
         );
       },
@@ -226,6 +238,7 @@ export const TurnBlock = React.memo(
         visibleAssistantMessages,
         visibleAssistantIds,
         activityOwnerMessageId,
+        activityPartsByMessageId,
         shouldAnimateUserMessage,
         onUserAnimationConsumed,
       ],
@@ -242,6 +255,10 @@ export const TurnBlock = React.memo(
         stickyUserHeader={stickyUserHeader && !userMessageHidden}
         renderMessage={renderMessage}
         deferEarlierAssistantMessages={deferEarlierAssistantMessages}
+        showWorkingStatus={isLastTurn && (sessionIsWorking || turnIsInActiveStream)}
+        activeStreamingMessageId={activeStreamingMessageId}
+        activeStreamingPhase={activeStreamingPhase}
+        onActivityContentChange={onMessageContentChange}
       />
     );
   },

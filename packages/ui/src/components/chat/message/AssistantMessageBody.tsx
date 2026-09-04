@@ -62,6 +62,7 @@ export const AssistantMessageBody = React.memo(
     onAuxiliaryContentComplete,
     showReasoningTraces = false,
     turnGroupingContext,
+    hideAssistantActivity = false,
     errorMessage,
     errorVariant = 'error',
     footerProviderID,
@@ -87,6 +88,15 @@ export const AssistantMessageBody = React.memo(
     const visibleParts = React.useMemo(() => {
       return filterRenderableAssistantParts(parts);
     }, [parts]);
+    const activityTextPartIds = React.useMemo(() => {
+      const ids = new Set<string>();
+      for (const activity of turnGroupingContext?.activityParts ?? []) {
+        if (activity.kind === 'justification') {
+          ids.add(activity.id);
+        }
+      }
+      return ids;
+    }, [turnGroupingContext?.activityParts]);
 
     const isMiniChatSurface = chatSurfaceMode === 'mini-chat';
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
@@ -181,11 +191,15 @@ export const AssistantMessageBody = React.memo(
         if (!part || part.type !== 'text') {
           continue;
         }
+        const partId = part.id ?? `${messageId}-part-${index}-${part.type}`;
+        if (hideAssistantActivity && activityTextPartIds.has(partId)) {
+          continue;
+        }
         lastIndex = index;
       }
 
       return lastIndex;
-    }, [shouldShowStandaloneMessageActions, visibleParts]);
+    }, [activityTextPartIds, hideAssistantActivity, messageId, shouldShowStandaloneMessageActions, visibleParts]);
 
     const shouldRenderStandaloneActionsAfterContent =
       shouldShowStandaloneMessageActions && lastRenderableTextPartIndex < 0;
@@ -198,6 +212,11 @@ export const AssistantMessageBody = React.memo(
         const part = visibleParts[i];
 
         if (part.type === 'text') {
+          const partId = part.id ?? `${messageId}-part-${i}-${part.type}`;
+          if (hideAssistantActivity && activityTextPartIds.has(partId)) {
+            i++;
+            continue;
+          }
           rendered.push(
             <div
               key={`assistant-text-${messageId}-${i}`}
@@ -232,6 +251,10 @@ export const AssistantMessageBody = React.memo(
         }
 
         if (part.type === 'reasoning') {
+          if (hideAssistantActivity) {
+            i++;
+            continue;
+          }
           if (showReasoningTraces) {
             if (!collapsibleThinkingBlocks) {
               rendered.push(
@@ -263,51 +286,67 @@ export const AssistantMessageBody = React.memo(
         }
 
         if (part.type === 'tool') {
-          const toolPart = part as ToolPartType;
-          const toolName = toolPart.tool?.toLowerCase() ?? '';
-
-          if (isExpandableTool(toolName)) {
-            rendered.push(
-              <FadeInOnReveal key={`tool-${toolPart.id}`}>
-                <ToolRevealOnMount animate={animatedToolIdsLookup.has(toolPart.id)}>
-                  <ToolPart
-                    part={toolPart}
-                    isExpanded={expandedTools.has(toolPart.id)}
-                    onToggle={onToggleTool}
-                    isMobile={isMobile}
-                    alwaysShowActions={alwaysShowMessageActions}
-                    onContentChange={onContentChange}
-                    onShowPopup={onShowPopup}
-                    animateTailText={animatedToolIdsLookup.has(toolPart.id)}
-                  />
-                </ToolRevealOnMount>
-              </FadeInOnReveal>,
-            );
+          if (hideAssistantActivity) {
             i++;
             continue;
           }
+          const toolRun: ToolPartType[] = [];
+          let runIndex = i;
+          while (runIndex < visibleParts.length) {
+            const runPart = visibleParts[runIndex];
+            if (!runPart || runPart.type !== 'tool') {
+              break;
+            }
+            toolRun.push(runPart as ToolPartType);
+            runIndex += 1;
+          }
 
-          rendered.push(
-            <FadeInOnReveal key={`static-tools-${toolPart.id}`}>
-              <ToolRevealOnMount animate={animatedToolIdsLookup.has(toolPart.id)}>
-                <StaticToolRow
-                  toolName={toolName}
-                  activities={[
-                    {
-                      id: toolPart.id,
-                      turnId: '',
-                      messageId,
-                      partIndex: 0,
-                      part: toolPart,
-                      kind: 'tool' as const,
-                    },
-                  ]}
-                  animateTailText={animatedToolIdsLookup.has(toolPart.id)}
-                />
-              </ToolRevealOnMount>
-            </FadeInOnReveal>,
-          );
-          i++;
+          const toolNodes = toolRun.map((toolPart) => {
+            const toolName = toolPart.tool?.toLowerCase() ?? '';
+
+            if (isExpandableTool(toolName)) {
+              return (
+                <FadeInOnReveal key={`tool-${toolPart.id}`}>
+                  <ToolRevealOnMount animate={animatedToolIdsLookup.has(toolPart.id)}>
+                    <ToolPart
+                      part={toolPart}
+                      isExpanded={expandedTools.has(toolPart.id)}
+                      onToggle={onToggleTool}
+                      isMobile={isMobile}
+                      alwaysShowActions={alwaysShowMessageActions}
+                      onContentChange={onContentChange}
+                      onShowPopup={onShowPopup}
+                      animateTailText={animatedToolIdsLookup.has(toolPart.id)}
+                    />
+                  </ToolRevealOnMount>
+                </FadeInOnReveal>
+              );
+            }
+
+            return (
+              <FadeInOnReveal key={`static-tools-${toolPart.id}`}>
+                <ToolRevealOnMount animate={animatedToolIdsLookup.has(toolPart.id)}>
+                  <StaticToolRow
+                    toolName={toolName}
+                    activities={[
+                      {
+                        id: toolPart.id,
+                        turnId: '',
+                        messageId,
+                        partIndex: 0,
+                        part: toolPart,
+                        kind: 'tool' as const,
+                      },
+                    ]}
+                    animateTailText={animatedToolIdsLookup.has(toolPart.id)}
+                  />
+                </ToolRevealOnMount>
+              </FadeInOnReveal>
+            );
+          });
+
+          rendered.push(...toolNodes);
+          i = runIndex;
           continue;
         }
 
@@ -321,6 +360,8 @@ export const AssistantMessageBody = React.memo(
       collapsibleThinkingBlocks,
       collapseThinkingByDefault,
       expandedTools,
+      activityTextPartIds,
+      hideAssistantActivity,
       isMobile,
       lastRenderableTextPartIndex,
       messageId,
@@ -379,7 +420,7 @@ export const AssistantMessageBody = React.memo(
       >
         <TextSelectionMenu containerRef={messageContentRef} />
         <div>
-          <div className="message-content-text leading-relaxed overflow-hidden text-foreground/90 [&_p:last-child]:mb-0 [&_ul:last-child]:mb-0 [&_ol:last-child]:mb-0">
+          <div className="message-content-text space-y-2 leading-relaxed overflow-hidden text-foreground/90 [&_p:last-child]:mb-0 [&_ul:last-child]:mb-0 [&_ol:last-child]:mb-0">
             {renderedParts}
             {showErrorMessage && (
               <FadeInOnReveal key="assistant-error">
