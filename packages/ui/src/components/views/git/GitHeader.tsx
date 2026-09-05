@@ -281,7 +281,23 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
           <TooltipContent sideOffset={8}>{"History"}</TooltipContent>
         </Tooltip>
       ) : null}
-      {onOpenGraph || onOpenStashes || onOpenUpdateBranch || onOpenReintegrateCommits ? (
+      {onOpenGraph ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 px-0"
+              aria-label={"Graph"}
+              onClick={onOpenGraph}
+            >
+              <Icon name="git-branch" className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent sideOffset={8}>{"Graph"}</TooltipContent>
+        </Tooltip>
+      ) : null}
+      {onOpenStashes || onOpenUpdateBranch || onOpenReintegrateCommits ? (
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -299,12 +315,6 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
             <TooltipContent sideOffset={8}>{"Repository views"}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end">
-            {onOpenGraph ? (
-              <DropdownMenuItem onSelect={onOpenGraph}>
-                <Icon name="git-branch" className="size-4" />
-                {"Graph"}
-              </DropdownMenuItem>
-            ) : null}
             {onOpenStashes ? (
               <DropdownMenuItem onSelect={onOpenStashes}>
                 <Icon name="archive-stack" className="size-4" />
