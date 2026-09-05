@@ -86,7 +86,8 @@ const clearLocalRuntimeUrlAuthToken = (): void => {
   localRuntimeUrlAuthGeneration += 1;
 };
 
-export const clearRuntimeUrlAuthToken = (): void => {
+export const clearRuntimeUrlAuthToken = (expectedToken?: string): void => {
+  if (expectedToken !== undefined && normalizeBearerToken(expectedToken) !== runtimeUrlAuthToken) return;
   runtimeUrlAuthToken = '';
   runtimeUrlAuthTokenExpiresAt = 0;
   clearLocalRuntimeUrlAuthToken();

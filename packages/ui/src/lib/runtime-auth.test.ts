@@ -4,11 +4,13 @@ import {
   clearRuntimeAuthCredentialProvider,
   clearRuntimeUrlAuthToken,
   getRuntimeBearerTokenSync,
+  getRuntimeUrlAuthTokenSync,
   refreshRuntimeUrlAuthToken,
   refreshLocalRuntimeUrlAuthToken,
   getLocalRuntimeUrlAuthTokenSync,
   setRuntimeAuthCredentialProvider,
   setRuntimeBearerToken,
+  setRuntimeUrlAuthToken,
   setRuntimeExtraHeaders,
 } from './runtime-auth';
 
@@ -145,6 +147,19 @@ describe('runtime auth headers', () => {
       clearRuntimeUrlAuthToken();
       setRuntimeExtraHeaders(null);
       clearRuntimeAuthCredentialProvider();
+    }
+  });
+
+  test('does not let a stale connection clear a newer URL auth token', () => {
+    try {
+      setRuntimeUrlAuthToken('older-token', Date.now() + 60_000);
+      setRuntimeUrlAuthToken('newer-token', Date.now() + 60_000);
+
+      clearRuntimeUrlAuthToken('older-token');
+
+      expect(getRuntimeUrlAuthTokenSync()).toBe('newer-token');
+    } finally {
+      clearRuntimeUrlAuthToken();
     }
   });
 

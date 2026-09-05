@@ -138,6 +138,19 @@ describe('createRuntimeUrlResolver', () => {
     }
   });
 
+  test('uses the token reserved for a WebSocket even when the shared token changes', () => {
+    setRuntimeUrlAuthToken('newer-shared-token', Date.now() + 60_000);
+    try {
+      const urls = createRuntimeUrlResolver({ apiBaseUrl: 'https://api.example' });
+
+      expect(urls.websocket('/api/terminal/ws', undefined, 'connection-token')).toBe(
+        'wss://api.example/api/terminal/ws?oc_url_token=connection-token',
+      );
+    } finally {
+      setRuntimeUrlAuthToken(null, null);
+    }
+  });
+
   test('replaces existing short-lived URL auth query on relative authenticated URLs', () => {
     setRuntimeUrlAuthToken('oc_url_secret', Date.now() + 60_000);
     try {

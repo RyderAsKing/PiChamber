@@ -64,9 +64,9 @@ const trimProjection = (value: string): string => {
 };
 
 type TerminalTransportDependencies = {
-  refreshAuth: () => Promise<unknown>;
-  openSocket: () => RelayTunnelWebSocket;
-  clearUrlAuthToken?: () => void;
+  refreshAuth: () => Promise<string>;
+  openSocket: (urlAuthToken: string) => RelayTunnelWebSocket;
+  clearUrlAuthToken?: (expectedToken?: string) => void;
 };
 
 export class TerminalTransport {
@@ -84,7 +84,7 @@ export class TerminalTransport {
 
   constructor(private readonly dependencies: TerminalTransportDependencies = {
     refreshAuth: refreshRuntimeUrlAuthToken,
-    openSocket: () => openRuntimeWebSocket(getRuntimeUrlResolver().websocket('/api/terminal/ws')),
+    openSocket: (urlAuthToken) => openRuntimeWebSocket(getRuntimeUrlResolver().websocket('/api/terminal/ws', undefined, urlAuthToken)),
     clearUrlAuthToken: clearRuntimeUrlAuthToken,
   }) {}
 
@@ -172,7 +172,7 @@ export class TerminalTransport {
     }
     const generation = this.generation;
     const opening = (async () => {
-      await this.dependencies.refreshAuth();
+      const urlAuthToken = await this.dependencies.refreshAuth();
       if (generation !== this.generation || this.disposed) throw new Error('Terminal runtime changed');
       await new Promise<void>((resolve, reject) => {
         let settled = false;
@@ -188,7 +188,7 @@ export class TerminalTransport {
         const invalidatePreOpenAuth = () => {
           if (authInvalidated || opened || !isCurrentSocket()) return;
           authInvalidated = true;
-          this.dependencies.clearUrlAuthToken?.();
+          this.dependencies.clearUrlAuthToken?.(urlAuthToken);
         };
         const finish = (error?: Error) => {
           if (settled) return;
@@ -203,7 +203,7 @@ export class TerminalTransport {
           finish(new Error('Terminal connection timed out'));
         }, 10_000);
         try {
-          const socket = this.dependencies.openSocket();
+          const socket = this.dependencies.openSocket(urlAuthToken);
           pendingSocket = socket;
           socket.binaryType = 'arraybuffer';
           this.socket = socket;
