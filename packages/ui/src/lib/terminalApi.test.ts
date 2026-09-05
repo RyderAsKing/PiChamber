@@ -95,11 +95,11 @@ describe('terminal transport', () => {
 
   test('invalidates URL auth when the current socket closes before opening', async () => {
     const socket = new FakeSocket();
-    let cleared = 0;
+    const cleared: string[] = [];
     const transport = new TerminalTransport({
-      refreshAuth: async () => '',
+      refreshAuth: async () => 'connection-token',
       openSocket: () => socket,
-      clearUrlAuthToken: () => { cleared += 1; },
+      clearUrlAuthToken: (expectedToken) => { cleared.push(expectedToken ?? ''); },
     });
 
     const unsubscribe = transport.subscribe('term-1', { onEvent: () => {} });
@@ -107,25 +107,25 @@ describe('terminal transport', () => {
     socket.close();
     await tick();
 
-    expect(cleared).toBe(1);
+    expect(cleared).toEqual(['connection-token']);
     unsubscribe();
     transport.dispose();
   });
 
   test('invalidates URL auth before retrying a pre-open socket error', async () => {
     const socket = new FakeSocket();
-    let cleared = 0;
+    const cleared: string[] = [];
     const transport = new TerminalTransport({
-      refreshAuth: async () => '',
+      refreshAuth: async () => 'connection-token',
       openSocket: () => socket,
-      clearUrlAuthToken: () => { cleared += 1; },
+      clearUrlAuthToken: (expectedToken) => { cleared.push(expectedToken ?? ''); },
     });
 
     const unsubscribe = transport.subscribe('term-1', { onEvent: () => {} });
     await tick();
     socket.onerror?.();
 
-    expect(cleared).toBe(1);
+    expect(cleared).toEqual(['connection-token']);
     unsubscribe();
     transport.dispose();
   });
@@ -287,7 +287,7 @@ describe('terminal transport', () => {
     const sockets: FakeSocket[] = [];
     let authCalls = 0;
     const transport = new TerminalTransport({
-      refreshAuth: async () => { authCalls += 1; },
+      refreshAuth: async () => { authCalls += 1; return 'connection-token'; },
       openSocket: () => { const socket = new FakeSocket(); sockets.push(socket); return socket; },
     });
 
@@ -348,7 +348,7 @@ describe('terminal transport', () => {
     const sockets: FakeSocket[] = [];
     let authCalls = 0;
     const transport = new TerminalTransport({
-      refreshAuth: async () => { authCalls += 1; await tick(); },
+      refreshAuth: async () => { authCalls += 1; await tick(); return 'connection-token'; },
       openSocket: () => {
         const socket = new FakeSocket();
         sockets.push(socket);

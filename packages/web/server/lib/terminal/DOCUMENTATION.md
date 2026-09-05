@@ -10,7 +10,7 @@
 
 - `attach` registers a connection for one terminal. One socket may attach to many terminals.
 - Every attach and reconnect begins with an authoritative `snapshot` containing bounded history and the current sequence.
-- A current socket that closes or errors before its initial `open` invalidates its URL-scoped auth token before retrying, so retries mint a fresh token instead of backing off against a rejected upgrade. Hidden or offline clients wait 60 seconds and wake promptly on visibility/online recovery.
+- A current socket that closes or errors before its initial `open` invalidates only the URL-scoped auth token used for that connection before retrying. A stale failure cannot clear a newer shared token minted for terminal, dictation, or events. Hidden or offline clients wait 60 seconds and wake promptly on visibility/online recovery.
 - `output`, `exit`, and `restarted` carry monotonically increasing per-terminal sequences. Output carries raw live bytes plus replay-safe bytes with terminal query exchanges removed.
 - Attach registers before capturing the snapshot, buffers concurrent events, drops events represented by the snapshot sequence, then enters live delivery.
 - `write` always includes the terminal ID; sockets never have mutable single-terminal binding state.

@@ -19,7 +19,7 @@ This module owns final-only composer dictation for web, Electron, hosted mobile,
 - `DELETE /api/stt/models/:modelId`
 - `WS /api/stt/ws`
 
-All routes use the existing `/api` authentication middleware. The WebSocket path is in both the URL-token and private-relay allowlists. Shared UI opens it through `openRuntimeWebSocket` after minting URL auth.
+All routes use the existing `/api` authentication middleware. The WebSocket path is in both the URL-token and private-relay allowlists. Shared UI opens it through `openRuntimeWebSocket` with the token returned by that connection's URL-auth mint. A failed older connection cannot clear a newer shared token.
 
 Remote URL and API-key values live in `<PiChamber data>/stt/config.json` with owner-only permissions where the platform supports them. Status responses redact API keys. WebSocket start frames carry only a stored provider configuration ID. They never accept a URL or credential.
 

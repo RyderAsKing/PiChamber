@@ -17,7 +17,7 @@ export interface RuntimeUrlResolver {
   health(query?: RuntimeUrlQuery): string;
   rawFile(path: string, options?: { download?: boolean; allowOutsideWorkspace?: boolean; outsideFileGrant?: string }): string;
   sse(path: string, query?: RuntimeUrlQuery): string;
-  websocket(path: string, query?: RuntimeUrlQuery): string;
+  websocket(path: string, query?: RuntimeUrlQuery, urlAuthToken?: string): string;
 }
 
 const ABSOLUTE_URL_PATTERN = /^[a-z][a-z\d+.-]*:\/\//i;
@@ -87,8 +87,8 @@ const buildHttpUrl = (baseUrl: string, path: string, query?: RuntimeUrlQuery): s
   return url.toString();
 };
 
-const withUrlAuth = (urlValue: string): string => {
-  const token = getRuntimeUrlAuthTokenSync();
+const withUrlAuth = (urlValue: string, explicitToken?: string): string => {
+  const token = explicitToken === undefined ? getRuntimeUrlAuthTokenSync() : explicitToken;
   if (!token) return urlValue;
 
   const url = ABSOLUTE_URL_PATTERN.test(urlValue)
@@ -135,8 +135,8 @@ export const createRuntimeUrlResolver = (config: RuntimeUrlConfig = {}): Runtime
       const target = withUrlAuth(realtime(path, query));
       return target;
     },
-    websocket: (path, query) => {
-      const target = toWebSocketUrl(withUrlAuth(realtime(path, query)), config);
+    websocket: (path, query, urlAuthToken) => {
+      const target = toWebSocketUrl(withUrlAuth(realtime(path, query), urlAuthToken), config);
       return target;
     },
   };

@@ -87,9 +87,9 @@ export class DictationClient {
     const generation = ++this.generation;
     if (this.failures > 0) this.onState(this.finishing ? 'transcribing' : 'reconnecting');
     try {
-      await refreshRuntimeUrlAuthToken();
+      const urlAuthToken = await refreshRuntimeUrlAuthToken();
       if (this.cancelled || generation !== this.generation) return;
-      const socket = openRuntimeWebSocket(getRuntimeUrlResolver().websocket('/api/stt/ws'));
+      const socket = openRuntimeWebSocket(getRuntimeUrlResolver().websocket('/api/stt/ws', undefined, urlAuthToken));
       socket.binaryType = 'arraybuffer';
       this.socket = socket;
       let opened = false;
@@ -129,7 +129,7 @@ export class DictationClient {
         if (this.socket !== socket) return;
         this.socket = null;
         this.socketStarted = false;
-        if (!opened) clearRuntimeUrlAuthToken();
+        if (!opened) clearRuntimeUrlAuthToken(urlAuthToken);
         if (!this.cancelled) this.scheduleReconnect();
       };
     } catch (error) {

@@ -44,11 +44,12 @@ const resolveStreamQuery = (query: { fromSequence?: number; sessionId?: string }
 const resolveStreamUrl = (
   transport: 'ws' | 'sse',
   query: { fromSequence?: number; sessionId?: string },
+  urlAuthToken?: string,
 ): string => {
   const resolver = getRuntimeUrlResolver();
   const params = resolveStreamQuery(query);
   return transport === 'ws'
-    ? resolver.websocket('/api/pi/events', params)
+    ? resolver.websocket('/api/pi/events', params, urlAuthToken)
     : resolver.sse('/api/pi/events', params);
 };
 
@@ -470,9 +471,10 @@ export const createPiEventStream = (
     const connectionId = generation + 1;
     generation = connectionId;
 
+    let urlAuthToken: string | undefined;
     if (mode === 'ws') {
       try {
-        await refreshRuntimeUrlAuthToken();
+        urlAuthToken = await refreshRuntimeUrlAuthToken();
       } catch {
         if (connectionId !== generation || disposed || signal.aborted) return;
         if (options.transport !== 'ws') {
@@ -510,7 +512,7 @@ export const createPiEventStream = (
     const url = resolveStreamUrl(mode, {
       fromSequence: lastSequence,
       ...(options.sessionId ? { sessionId: options.sessionId } : {}),
-    });
+    }, urlAuthToken);
     const onReady = () => markReady(connectionId);
     const onEvent = (event: PiSessionEvent) => handleEvent(event, connectionId);
     const onDisconnect = (reason: string) => handleDisconnect(reason, connectionId);
