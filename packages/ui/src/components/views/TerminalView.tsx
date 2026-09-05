@@ -23,9 +23,11 @@ import { useTerminalTabsManager } from './terminal/useTerminalTabsManager';
 
 type TerminalViewProps = {
   visible?: boolean;
+  /** Main-view host only: shows a close button that exits the full-page terminal overlay. */
+  onCloseView?: () => void;
 };
 
-export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
+export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView }) => {
   const { terminal, runtime } = useRuntimeAPIs();
   const { currentTheme } = useThemeSystem();
   const terminalAppearanceRef = React.useRef<{
@@ -353,6 +355,19 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
               >
                 <Icon name="restart" className="h-4 w-4" />
               </Button>
+              {onCloseView ? (
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  className="h-7 w-7 p-0"
+                  onClick={onCloseView}
+                  title={'Close terminal view'}
+                  aria-label={'Close terminal view'}
+                >
+                  <Icon name="close" className="h-4 w-4" />
+                </Button>
+              ) : null}
               {previewUrl ? (
                 <Button
                   type="button"
