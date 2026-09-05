@@ -121,7 +121,7 @@ export function useDirectoryCloneAndAdd({
             toast.error('Enter a repository URL before cloning.');
             return;
           }
-          const response = await runtimeFetch('/api/git/clone', {
+          const response = await runtimeFetch('/api/fs/clone', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

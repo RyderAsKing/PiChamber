@@ -200,6 +200,26 @@ const registerMkdir = (fsPromises) => {
   return getRoute('POST', '/api/fs/mkdir');
 };
 
+const registerClone = ({ fsPromises, spawn }) => {
+  const { app, getRoute } = createRouteRegistry();
+  registerFsRoutes(app, {
+    os: { homedir: () => '/home/user' },
+    path: path.posix,
+    fsPromises: {
+      realpath: async (targetPath) => targetPath,
+      ...fsPromises,
+    },
+    spawn,
+    crypto: { randomUUID: () => 'job-0' },
+    normalizeDirectoryPath: (p) => p,
+    resolveProjectDirectory: async () => ({ directory: '/repo' }),
+    buildAugmentedPath: () => '/usr/bin',
+    resolveGitBinaryForSpawn: () => 'git',
+    pichamberUserConfigRoot: '/home/user/.config',
+  });
+  return getRoute('POST', '/api/fs/clone');
+};
+
 const registerReveal = ({ fsPromises, spawn, platform = 'linux' }) => {
   const { app, getRoute } = createRouteRegistry();
   registerFsRoutes(app, {
@@ -246,6 +266,12 @@ const callRaw = async (handler, query) => {
 };
 
 const callMkdir = async (handler, body) => {
+  const res = createMockResponse();
+  await handler({ body }, res);
+  return res;
+};
+
+const callClone = async (handler, body) => {
   const res = createMockResponse();
   await handler({ body }, res);
   return res;
@@ -455,6 +481,54 @@ describe('fs read', () => {
     expect(fsPromises.readFile).toHaveBeenCalledTimes(4);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('Read retry exhausted for /repo/file.txt'));
     warn.mockRestore();
+  });
+});
+
+describe('fs clone', () => {
+  it('clones into a new destination through the registered route', async () => {
+    const notFound = () => Promise.reject(Object.assign(new Error('not found'), { code: 'ENOENT' }));
+    const fsPromises = {
+      stat: vi.fn(notFound),
+      access: vi.fn(notFound),
+      mkdir: vi.fn(async () => undefined),
+    };
+    const { spawn } = createSpawn();
+    const handler = registerClone({ fsPromises, spawn });
+
+    const res = await callClone(handler, {
+      remoteUrl: 'https://github.com/example/repository.git',
+      destinationPath: '/home/user/projects/repository',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      success: true,
+      path: '/home/user/projects/repository',
+      output: '',
+    });
+    expect(fsPromises.mkdir).toHaveBeenCalledWith('/home/user/projects', { recursive: true });
+    expect(spawn).toHaveBeenCalledWith(
+      'git',
+      ['clone', '--', 'https://github.com/example/repository.git', 'repository'],
+      expect.objectContaining({
+        cwd: '/home/user/projects',
+        env: expect.objectContaining({ GIT_TERMINAL_PROMPT: '0' }),
+      }),
+    );
+  });
+
+  it('rejects a clone request without a repository URL', async () => {
+    const { spawn } = createSpawn();
+    const handler = registerClone({
+      fsPromises: { stat: vi.fn(), access: vi.fn(), mkdir: vi.fn() },
+      spawn,
+    });
+
+    const res = await callClone(handler, { destinationPath: '/home/user/projects/repository' });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({ error: 'Repository URL is required' });
+    expect(spawn).not.toHaveBeenCalled();
   });
 });
 
