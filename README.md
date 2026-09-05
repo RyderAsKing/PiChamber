@@ -42,8 +42,13 @@ PiChamber stays focused on the parts around the agent:
 
 ```bash
 bun add -g @pi-chamber/web
-pichamber serve --ui-password be-creative-here
+pichamber serve
 ```
+
+In an interactive terminal, `pichamber serve` walks through access, port,
+authentication, content, and process mode, then shows a review before starting.
+For scripts or non-interactive shells, pass the setup flags explicitly, such as
+`pichamber serve --port 3000 --ui-password "choose-a-strong-password"`.
 
 Not using Bun? See the [install docs](packages/docs/content/docs/install.mdx) for npm, pnpm, yarn, and `bunx`/`npx` options.
 

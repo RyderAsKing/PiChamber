@@ -236,9 +236,6 @@ secrets, `NPM_TOKEN`, Android signing secrets, iOS provisioning and App Store
 Connect secrets, and `PICHAMBER_WEBSITE_REPO_TOKEN`. Never put their values in a
 commit or issue.
 
-See [`docs/PUBLIC_RELEASE.md`](docs/PUBLIC_RELEASE.md) for launch announcement
-drafts.
-
 ## Community and support
 
 - Report reproducible bugs with the [bug report template](https://github.com/RyderAsKing/PiChamber/issues/new?template=bug_report.yml).

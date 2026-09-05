@@ -7,14 +7,24 @@ Check the server state:
 
 ```sh
 pichamber status
-pichamber logs
+pichamber logs --no-follow
 ```
+
+`pichamber logs` follows the latest instance by default. Use `--port <port>`
+to select an instance, `--lines <count>` to change the tail size, or `--all`
+to inspect every running instance. Use `--quiet` for raw log lines and
+`--json --no-follow` for machine-readable output.
 
 If the browser reports that Pi is unavailable, verify that the server host can read its Pi agent directory and that the server process has permission to create its local daemon socket. A daemon failure is reported explicitly; it is not an empty session list.
 
-Stop and restart the host if the daemon cannot recover:
+Stop and restart the host if the daemon cannot recover. `pichamber stop` asks
+before stopping multiple instances in an interactive terminal. Use
+`pichamber stop --force` to skip that confirmation, then start the server again:
 
 ```sh
-pichamber stop
-pichamber serve --ui-password "choose-a-strong-password"
+pichamber stop --force
+pichamber serve
 ```
+
+For a scripted restart, use `pichamber restart --port <port>` with the port
+explicitly selected.

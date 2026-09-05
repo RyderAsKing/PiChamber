@@ -12,6 +12,7 @@
       "label": "Run PiChamber",
       "items": [
         { "label": "Connect devices", "link": "/connect-devices/" },
+        { "label": "CLI guide", "link": "/cli/" },
         { "label": "Environment", "link": "/environment/" },
         { "label": "Pi extensions", "link": "/extensions/" },
         { "label": "Security", "link": "/security/" },

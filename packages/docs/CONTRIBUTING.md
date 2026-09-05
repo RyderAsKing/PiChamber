@@ -35,9 +35,12 @@ removed-runtime pages into a new locale.
 Example:
 
 ```mdx
-1. Run `pichamber serve --ui-password "choose-a-strong-password"`.
-2. Open the URL printed by the command.
+1. Run `pichamber serve` in an interactive terminal.
+2. Review the setup choices and confirm.
+3. Open the URL printed by the command.
 
+For non-interactive examples, pass the setup flags explicitly, for example
+`pichamber serve --port 3000 --ui-password "choose-a-strong-password"`.
 You should see the PiChamber session list. If it opens, the server is ready.
 ```
 

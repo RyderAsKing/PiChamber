@@ -5,19 +5,35 @@ PiChamber's web server and browser UI for the Pi coding-agent runtime.
 ## Run
 
 ```bash
-pichamber serve --port 3000
+pichamber serve
 ```
 
-The server starts warming the local Pi session daemon as soon as HTTP is listening, serves the browser UI, and exposes authenticated Pi routes under `/api/pi/*`. HTTP readiness does not wait for Pi provider/model initialization; early Pi requests share the supervisor's in-flight startup.
+In an interactive terminal, `pichamber serve` guides you through access, port,
+authentication, browser UI versus API-only content, and background versus
+foreground process mode. It shows a review before starting. The server starts
+warming the local Pi session daemon as soon as HTTP is listening, serves the
+browser UI, and exposes authenticated Pi routes under `/api/pi/*`. HTTP
+readiness does not wait for Pi provider/model initialization; early Pi requests
+share the supervisor's in-flight startup.
+
+For scripts and non-interactive shells, pass the setup flags explicitly:
 
 ```bash
-pichamber serve --port 8080
-pichamber serve --lan --ui-password <password>
+pichamber serve --port 3000 --ui-password <password>
+pichamber serve --port 8080 --lan --ui-password <password>
+pichamber serve --port 3000 --api-only --ui-password <password>
 pichamber connect-url --port 3000 --qr
-pichamber stop
+pichamber stop --port 3000
 ```
 
+`--quiet` and `--json` never prompt. Use `pichamber stop --force` when a broad
+stop should skip confirmation, and `pichamber logs --no-follow` for a one-time
+log tail. Use `pichamber update --yes` to update without the interactive review.
+
 Use `--api-only` for a host intended to be paired from a PiChamber desktop or mobile client. LAN-bound servers require a UI password unless the explicit unsafe-development override is set.
+
+See the [CLI guide](../docs/content/docs/cli.mdx) for guided startup, updates,
+tunnels, logs, pairing, and machine-readable output.
 
 ## Runtime contract
 

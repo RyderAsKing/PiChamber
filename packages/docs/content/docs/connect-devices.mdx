@@ -9,6 +9,11 @@ On the server, create a one-time pairing link:
 pichamber connect-url --qr
 ```
 
+If no server is running on the selected port, `connect-url` starts one before
+creating the link. Use `--port <port>` to select a running instance,
+`--server https://host.example.com` when the public URL differs from the local
+bind address, or `--relay` to include the private relay as a fallback.
+
 Open or scan the link from the device you want to connect. Pairing grants that device access to the server's workspace, so use it only for devices you control. Revoke access from the server when a device is no longer trusted.
 
 Remote PiChamber clients operate on the server's filesystem and use the server's Pi configuration and credentials.

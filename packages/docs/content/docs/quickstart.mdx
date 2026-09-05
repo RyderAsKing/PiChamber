@@ -6,16 +6,27 @@ description: Start an authenticated PiChamber server and open its browser UI.
 Start a local server:
 
 ```sh
-pichamber serve --ui-password "choose-a-strong-password"
+pichamber serve
+```
+
+In an interactive terminal, PiChamber asks where to listen, which port and
+password to use, whether to serve the browser UI, and whether to run in the
+background. Review the choices and confirm. For a script or non-interactive
+shell, provide the values yourself:
+
+```sh
+pichamber serve --port 3000 --ui-password "choose-a-strong-password"
 ```
 
 Open the URL printed by the command. The server starts its private Pi session
 daemon and loads the Pi configuration and sessions belonging to that host.
 
-Use `--lan` only on a trusted network. Always set `--ui-password` when the
-server can be reached by another device. To pair a phone or another browser,
-run `pichamber connect-url --qr` on the server and scan the one-time link.
+Use the **Local network** choice or `--lan` only on a trusted network. Always
+set `--ui-password` when the server can be reached by another device. To pair a
+phone or another browser, run `pichamber connect-url --qr` on the server and
+scan the one-time link.
 
 You should land on the PiChamber session list and be able to start a new Pi
 session. If the browser reports that Pi is unavailable, see
-[Troubleshooting](/troubleshooting/).
+[Troubleshooting](/troubleshooting/). For the full set of guided and scripted
+commands, see the [CLI guide](/cli/).

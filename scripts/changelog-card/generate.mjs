@@ -13,7 +13,7 @@
 //
 // Options:
 //   --out <path>   output PNG (default: ./changelog-<title>.png in cwd)
-//   --bg <path>    background plate (default: docs/references/text_plate.png)
+//   --bg <path>    background plate (required)
 //
 // The sentence wraps automatically; the version + sentence block is
 // bottom-anchored over a readability scrim so the glowing plate stays visible.
@@ -112,9 +112,9 @@ function scrimSvg(w, h) {
 
 async function main() {
   const { title, sentence, opt } = parseArgs(process.argv.slice(2));
-  if (!title || !sentence) {
+  if (!title || !sentence || !opt.bg) {
     console.error(
-      'Usage: generate.mjs "<title>" "<sentence>" [--out file.png] [--bg plate.png]\n' +
+      'Usage: generate.mjs "<title>" "<sentence>" --bg plate.png [--out file.png]\n' +
         'Wrap a phrase in *asterisks* to highlight it.'
     );
     process.exit(1);
@@ -123,9 +123,7 @@ async function main() {
   await ensureFonts();
   const { default: sharp } = await import('sharp');
 
-  const bgPath = opt.bg
-    ? path.resolve(process.cwd(), opt.bg)
-    : path.join(repoRoot, 'docs', 'references', 'text_plate.png');
+  const bgPath = path.resolve(process.cwd(), opt.bg);
   if (!(await exists(bgPath))) throw new Error(`Background not found: ${bgPath}`);
 
   const bg = sharp(await readFile(bgPath));
