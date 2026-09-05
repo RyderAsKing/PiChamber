@@ -139,8 +139,9 @@ describe('update command', () => {
       });
 
       try {
-        await updateCommand({ json: true });
+        const result = await updateCommand({ json: true });
         const payload = JSON.parse(output.join(''));
+        expect(result).toMatchObject({ exitCode: 1 });
         expect(payload).toMatchObject({ status: 'warning', restartedCount: 1 });
         expect(payload.restartResults).toEqual([
           expect.objectContaining({ port: 3001, restartedPort: 3001, ok: true }),

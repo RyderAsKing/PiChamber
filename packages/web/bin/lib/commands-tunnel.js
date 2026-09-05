@@ -181,10 +181,15 @@ async function resolveTargetInstance({
         explicitPort: true,
         host: options.host,
         uiPassword: options.uiPassword,
+        explicitUiPassword: options.explicitUiPassword === true,
         apiOnly: options.apiOnly,
+        foreground: false,
+        json: false,
+        quiet: true,
         suppressUnsafePortWarning: true,
         suppressUiPasswordWarning: true,
         suppressStartupSummary: true,
+        suppressQuietOutput: true,
       });
       running = await discoverRunningInstances();
       const started = running.find((entry) => entry.port === options.port);
@@ -219,9 +224,13 @@ async function resolveTargetInstance({
       const startedPort = await serveCommand({
         ...options,
         explicitPort: false,
+        foreground: false,
+        json: false,
+        quiet: true,
         suppressUnsafePortWarning: true,
         suppressUiPasswordWarning: true,
         suppressStartupSummary: true,
+        suppressQuietOutput: true,
       });
       running = await discoverRunningInstances();
       const started = running.find((entry) => entry.port === startedPort) || getLatestInstance(running);
@@ -244,8 +253,13 @@ async function resolveTargetInstance({
       const startedPort = await serveCommand({
         ...options,
         explicitPort: false,
+        foreground: false,
+        json: false,
+        quiet: true,
         suppressUnsafePortWarning: true,
         suppressUiPasswordWarning: true,
+        suppressStartupSummary: true,
+        suppressQuietOutput: true,
       });
       running = await discoverRunningInstances();
       const started = running.find((entry) => entry.port === startedPort) || getLatestInstance(running);

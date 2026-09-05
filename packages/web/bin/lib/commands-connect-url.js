@@ -24,6 +24,7 @@ import {
   log as clackLog,
   isJsonMode,
   isQuietMode,
+  canPrompt,
   printJson,
   logStatus,
 } from '../cli-output.js';
@@ -238,8 +239,13 @@ function createConnectUrlCommand({ serveCommand }) {
             port: options.port,
             explicitPort: true,
             host: options.host,
+            lan: options.lan,
             uiPassword: options.uiPassword,
+            explicitUiPassword: options.explicitUiPassword === true,
             apiOnly: options.apiOnly,
+            foreground: false,
+            json: false,
+            quiet: true,
             suppressUnsafePortWarning: true,
             suppressUiPasswordWarning: true,
             suppressStartupSummary: true,
@@ -319,7 +325,9 @@ function createConnectUrlCommand({ serveCommand }) {
       }
     }
     clackLog.info('Scan or paste this link into another PiChamber client. It is single-use and expires.');
-    if (options.qr === true) {
+    // QR art is terminal UI. Keep non-TTY stdout limited to the pairing link so
+    // agents can capture it even when they pass --qr defensively.
+    if (options.qr === true && canPrompt(options)) {
       await displayTunnelQrCode(connectUrl);
     }
     clackOutro('pairing link generated');

@@ -65,7 +65,8 @@ restart.
 Use `--json` for a machine-readable result. The result includes the previous,
 installed, and latest versions, the package manager, restart counts, and any
 version-mismatch or partial-restart warnings. `--quiet` prints one concise
-result line without the review.
+result line without the review. A version mismatch or failed restart also
+returns a non-zero exit code, even when the package manager completed.
 
 ## Manage startup and running instances
 
@@ -169,7 +170,9 @@ pichamber connect-url --relay --name "Laptop"
 ```
 
 Use `--server` when a reverse proxy or tunnel provides the public URL. Use
-`--relay` to include the private relay as a fallback candidate.
+`--relay` to include the private relay as a fallback candidate. `--qr` renders
+QR art only in an interactive terminal; non-interactive output remains the
+pairing link or JSON payload.
 
 Print the installed package version with either command:
 

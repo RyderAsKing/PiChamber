@@ -111,18 +111,23 @@ function resolveToken(options) {
   }
 
   if (options.tokenStdin) {
-    const fd = fs.openSync('/dev/stdin', 'r');
-    try {
-      const buf = Buffer.alloc(65536);
-      const bytesRead = fs.readSync(fd, buf, 0, buf.length, null);
-      const value = buf.slice(0, bytesRead).toString('utf8').trim();
-      if (!value) {
-        throw new Error('No token received from stdin.');
+    const chunks = [];
+    let totalBytes = 0;
+    const buffer = Buffer.alloc(8192);
+    while (true) {
+      const bytesRead = fs.readSync(0, buffer, 0, buffer.length, null);
+      if (bytesRead === 0) break;
+      totalBytes += bytesRead;
+      if (totalBytes > 65536) {
+        throw new Error('Token received from stdin is too large (max 65536 bytes).');
       }
-      return value;
-    } finally {
-      fs.closeSync(fd);
+      chunks.push(Buffer.from(buffer.subarray(0, bytesRead)));
     }
+    const value = Buffer.concat(chunks).toString('utf8').trim();
+    if (!value) {
+      throw new Error('No token received from stdin.');
+    }
+    return value;
   }
 
   if (options.tokenFile) {

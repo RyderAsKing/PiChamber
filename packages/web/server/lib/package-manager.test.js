@@ -390,6 +390,17 @@ describe('CLI update exports', () => {
     expect(typeof executeUpdate).toBe('function');
     expect(typeof resolveTrustedUpdatePackageManager).toBe('function');
   });
+
+  it('does not inherit package-manager output in silent mode', async () => {
+    const { spawnSync } = await import('node:child_process');
+    spawnSync.mockClear();
+
+    expect(executeUpdate('npm', { silent: true })).toEqual({ success: true, exitCode: 0 });
+    expect(spawnSync).toHaveBeenLastCalledWith(
+      expect.stringContaining('@pi-chamber/web@latest'),
+      expect.objectContaining({ shell: true, stdio: 'ignore' }),
+    );
+  });
 });
 
 describe('resolveTrustedUpdatePackageManager', () => {

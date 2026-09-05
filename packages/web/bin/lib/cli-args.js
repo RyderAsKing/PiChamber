@@ -361,10 +361,14 @@ function parseArgs(argv = process.argv.slice(2)) {
       case 'lines': {
         const { value, nextIndex } = consumeValue(i, inlineValue);
         i = nextIndex;
-        const parsed = parseInt(value ?? '', 10);
-        if (Number.isFinite(parsed) && parsed > 0) {
-          options.lines = parsed;
+        if (typeof value !== 'string' || !/^\d+$/.test(value.trim())) {
+          throw new TunnelCliError('Invalid lines value. Provide a positive integer.', EXIT_CODE.USAGE_ERROR);
         }
+        const parsed = Number(value);
+        if (!Number.isSafeInteger(parsed) || parsed < 1) {
+          throw new TunnelCliError('Invalid lines value. Provide a positive integer.', EXIT_CODE.USAGE_ERROR);
+        }
+        options.lines = parsed;
         break;
       }
       case 'limit': {

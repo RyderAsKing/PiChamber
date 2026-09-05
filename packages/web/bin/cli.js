@@ -191,6 +191,13 @@ commands.update = createUpdateCommand({
 });
 
 async function main() {
+  // Seed output mode before parsing so syntax errors such as a missing option
+  // value still honor the strict --json contract.
+  const rawArgs = process.argv.slice(2);
+  activeCommandOptions = {
+    json: rawArgs.some((arg) => arg === '--json' || arg.startsWith('--json=')),
+    quiet: rawArgs.some((arg) => arg === '--quiet' || arg === '-q'),
+  };
   const parsed = parseArgs();
   const { command, explicitCommand, subcommand, tunnelAction, startupAction, options, removedFlagErrors, helpRequested, versionRequested } = parsed;
   if (command === 'serve' && explicitCommand) {
@@ -266,7 +273,10 @@ async function main() {
     process.exit(EXIT_CODE.USAGE_ERROR);
   }
 
-  await commands[command](options);
+  const commandResult = await commands[command](options);
+  if (commandResult && Number.isInteger(commandResult.exitCode)) {
+    process.exitCode = commandResult.exitCode;
+  }
 }
 
 const isCliExecution = isModuleCliExecution(process.argv[1], import.meta.url, fs.realpathSync, 'pichamber');
