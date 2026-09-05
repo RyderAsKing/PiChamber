@@ -21,11 +21,14 @@ interface SyncActionsProps {
   onRemoveRemote?: (remote: GitRemote) => void;
   disabled: boolean;
   removingRemoteName?: string | null;
+  /** Compact chrome for single-row headers: icon plus ahead/behind counts, no text label. */
   iconOnly?: boolean;
   aheadCount?: number;
   behindCount?: number;
   trackingRemoteName?: string;
   hasUncommittedChanges?: boolean;
+  /** Non-tracking upstream target (e.g. "origin/feature"); folded into the tooltip. */
+  upstreamTarget?: string | null;
 }
 
 export const SyncActions: React.FC<SyncActionsProps> = ({
@@ -40,6 +43,8 @@ export const SyncActions: React.FC<SyncActionsProps> = ({
   behindCount = 0,
   trackingRemoteName,
   hasUncommittedChanges = false,
+  iconOnly = false,
+  upstreamTarget = null,
 }) => {
   
   const skipRemoteSelectRef = React.useRef(false);
@@ -57,9 +62,12 @@ export const SyncActions: React.FC<SyncActionsProps> = ({
   const tooltipLabel = blocksRebaseSync
     ? "Commit or stash your changes before syncing"
     : trackingRemote
-    ? hasKnownSyncWork
-      ? `Sync Changes (${behindCount} down, ${aheadCount} up)`
-      : "Sync Changes"
+    ? [
+        hasKnownSyncWork
+          ? `Sync Changes (${behindCount} down, ${aheadCount} up)`
+          : "Sync Changes",
+        upstreamTarget ? `Compared with ${upstreamTarget}` : null,
+      ].filter(Boolean).join('. ')
     : "No remotes configured";
 
   const handleSync = () => {
@@ -89,7 +97,15 @@ export const SyncActions: React.FC<SyncActionsProps> = ({
               ) : (
                 <Icon name="refresh" className="size-4" />
               )}
-              <span className="whitespace-nowrap tabular-nums">{primaryLabel}</span>
+              {iconOnly ? (
+                hasKnownSyncWork ? (
+                  <span className="whitespace-nowrap tabular-nums">
+                    {[behindCount > 0 ? `↓${behindCount}` : null, aheadCount > 0 ? `↑${aheadCount}` : null].filter(Boolean).join(' ')}
+                  </span>
+                ) : null
+              ) : (
+                <span className="whitespace-nowrap tabular-nums">{primaryLabel}</span>
+              )}
             </button>
           </span>
         </TooltipTrigger>

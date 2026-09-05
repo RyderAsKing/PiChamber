@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import {
   Tooltip,
@@ -17,18 +18,55 @@ import { useDiffViewState } from './diff/useDiffViewState';
 
 export type { DiffScope };
 
+export type DiffHeaderScope = Extract<DiffScope, 'all' | 'working' | 'staged' | 'turn' | 'branch'>;
+
+/**
+ * Live toolbar state a host's unified header needs when the inline diff
+ * toolbar is hidden (git-embedded mode). Counts feed the scope picker;
+ * the actions feed the header overflow menu so no view option is lost.
+ */
+export interface DiffHeaderControlsState {
+  turnCount: number;
+  branchCount: number;
+  expandedCount: number;
+  totalCount: number;
+  loadFullFiles: boolean;
+  wrapLines: boolean;
+  layoutMode: 'inline' | 'side-by-side' | null;
+  onExpandOrCollapseAll: () => void;
+  onToggleLoadFullFiles: () => void;
+  onToggleWrapLines: () => void;
+  onToggleLayout: () => void;
+}
+
 interface DiffViewProps {
   hideStackedFileSidebar?: boolean;
   stackedDefaultCollapsedAll?: boolean;
   pinSelectedFileHeaderToTopOnNavigate?: boolean;
   showOpenInEditorAction?: boolean;
   diffScope?: DiffScope;
-  onDiffScopeChange?: (scope: Extract<DiffScope, 'all' | 'working' | 'staged' | 'turn' | 'branch'>) => void;
+  onDiffScopeChange?: (scope: DiffHeaderScope) => void;
   branchBase?: string | null;
   branchHead?: string | null;
   targetFilePath?: string | null;
   /** Render diff content flush with the container edges (no outer padding). */
   flushContent?: boolean;
+  /**
+   * Hide the inline toolbar row. The host renders the scope picker and view
+   * options in its own header and receives live state via
+   * onHeaderControlsStateChange; scope changes that originate inside (pending
+   * file navigation) are mirrored back through onDiffScopeChange.
+   */
+  hideToolbar?: boolean;
+  onHeaderControlsStateChange?: (state: DiffHeaderControlsState) => void;
+  /**
+   * Panel host only: element in the host header that owns the toolbar
+   * controls. When provided, the scope picker plus view actions portal there
+   * instead of rendering the inline toolbar row (terminal/git pattern), so
+   * the panel keeps a single header row. Hosts without panel chrome omit it
+   * and keep the inline row.
+   */
+  toolbarSlot?: HTMLDivElement | null;
 }
 
 export const DiffView: React.FC<DiffViewProps> = ({
@@ -42,6 +80,9 @@ export const DiffView: React.FC<DiffViewProps> = ({
   branchHead = null,
   targetFilePath = null,
   flushContent = false,
+  hideToolbar = false,
+  onHeaderControlsStateChange,
+  toolbarSlot = null,
 }) => {
   const {
     effectiveDirectory,
@@ -92,6 +133,64 @@ export const DiffView: React.FC<DiffViewProps> = ({
     branchHead,
     targetFilePath,
   });
+
+  // Embedded mode (git panel header owns the controls): mirror scope changes
+  // that originate inside — pending-file navigation, target file effects —
+  // back to the host so its picker stays in sync. The parent only writes back
+  // when its own state actually changes, so identical values converge.
+  React.useEffect(() => {
+    if (!hideToolbar) {
+      return;
+    }
+    onDiffScopeChange?.(activeDiffScope);
+  }, [activeDiffScope, hideToolbar, onDiffScopeChange]);
+
+  const handleToggleLoadFullFiles = React.useCallback(() => {
+    setLoadFullFiles((value) => !value);
+  }, [setLoadFullFiles]);
+
+  const handleToggleWrapLines = React.useCallback(() => {
+    setDiffWrapLines(!diffWrapLines);
+  }, [diffWrapLines, setDiffWrapLines]);
+
+  const handleToggleLayout = React.useCallback(() => {
+    handleHeaderLayoutChange(currentLayoutForAllFiles === 'side-by-side' ? 'unified' : 'side-by-side');
+  }, [currentLayoutForAllFiles, handleHeaderLayoutChange]);
+
+  const expandedCount = expandedFiles.size;
+
+  const headerControlsState = React.useMemo<DiffHeaderControlsState>(() => ({
+    turnCount: turnFileCount,
+    branchCount: branchFileCount,
+    expandedCount,
+    totalCount: changedFiles.length,
+    loadFullFiles,
+    wrapLines: diffWrapLines,
+    layoutMode: currentLayoutForAllFiles,
+    onExpandOrCollapseAll: handleExpandOrCollapseAll,
+    onToggleLoadFullFiles: handleToggleLoadFullFiles,
+    onToggleWrapLines: handleToggleWrapLines,
+    onToggleLayout: handleToggleLayout,
+  }), [
+    turnFileCount,
+    branchFileCount,
+    expandedCount,
+    changedFiles.length,
+    loadFullFiles,
+    diffWrapLines,
+    currentLayoutForAllFiles,
+    handleExpandOrCollapseAll,
+    handleToggleLoadFullFiles,
+    handleToggleWrapLines,
+    handleToggleLayout,
+  ]);
+
+  React.useEffect(() => {
+    if (!hideToolbar) {
+      return;
+    }
+    onHeaderControlsStateChange?.(headerControlsState);
+  }, [hideToolbar, headerControlsState, onHeaderControlsStateChange]);
 
   const renderStackedDiffView = () => {
     if (!effectiveDirectory) return null;
@@ -220,9 +319,17 @@ export const DiffView: React.FC<DiffViewProps> = ({
     return renderStackedDiffView();
   };
 
-  return (
-    <div className="flex h-full flex-col overflow-hidden bg-background">
-      <div className="@container/diff-toolbar flex min-w-0 items-center gap-2 px-3 py-2 bg-background">
+  // Single header row: the scope picker plus view actions. Hosts with their
+  // own chrome (ContextPanel) portal this row into their header via
+  // toolbarSlot instead of rendering it inline (terminal/git pattern).
+  const toolbarRow = (
+      <div
+        className={
+          toolbarSlot
+            ? 'flex min-w-0 flex-1 items-center gap-1.5'
+            : '@container/diff-toolbar flex min-w-0 items-center gap-2 px-3 py-2 bg-background'
+        }
+      >
         {(isGitRepo !== false || activeDiffScope === 'turn') &&
         (activeDiffScope === 'all' ||
           activeDiffScope === 'working' ||
@@ -314,6 +421,11 @@ export const DiffView: React.FC<DiffViewProps> = ({
           />
         )}
       </div>
+  );
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden bg-background">
+      {toolbarSlot ? createPortal(toolbarRow, toolbarSlot) : hideToolbar ? null : toolbarRow}
 
       {renderContent()}
     </div>

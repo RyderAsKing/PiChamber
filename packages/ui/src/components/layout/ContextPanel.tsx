@@ -201,6 +201,14 @@ export const ContextPanel: React.FC = () => {
   // header when the terminal surface is active. TerminalView owns the tab
   // state and portals its controls here so the panel keeps a single header.
   const [terminalHeaderSlot, setTerminalHeaderSlot] = React.useState<HTMLDivElement | null>(null);
+  // Slot that hosts the unified git header (branch, identity, scope, sync,
+  // views) when the git surface is active. GitView owns the git state and
+  // portals its single header row here so the panel keeps a single header.
+  const [gitHeaderSlot, setGitHeaderSlot] = React.useState<HTMLDivElement | null>(null);
+  // Slot that hosts the diff toolbar (change-scope picker plus view actions)
+  // when a diff surface is active. DiffView owns the diff state and portals
+  // its toolbar here so the panel keeps a single header.
+  const [diffHeaderSlot, setDiffHeaderSlot] = React.useState<HTMLDivElement | null>(null);
   const startXRef = React.useRef(0);
   const startWidthRef = React.useRef(width);
   const resizingWidthRef = React.useRef<number | null>(null);
@@ -439,7 +447,7 @@ export const ContextPanel: React.FC = () => {
   const activeContent = activeTab?.mode === 'context'
         ? <ContextPanelContent />
         : activeTab?.mode === 'git'
-            ? <React.Suspense fallback={null}><GitView isActive={isOpen} /></React.Suspense>
+            ? <React.Suspense fallback={null}><GitView isActive={isOpen} gitHeaderSlot={activeTab?.mode === 'git' ? gitHeaderSlot : null} /></React.Suspense>
             : activeTab?.mode === 'preview'
                 ? <PreviewPane rawUrl={activeTab.targetPath ?? ''} onNavigate={(url) => openContextPreview(effectiveDirectory, url)} />
                 : (
@@ -473,6 +481,8 @@ export const ContextPanel: React.FC = () => {
 
   const isFileTabActive = activeTab?.mode === 'file';
   const isTerminalPanelActive = activeTab?.mode === 'terminal';
+  const isGitPanelActive = activeTab?.mode === 'git';
+  const isDiffPanelActive = activeTab?.mode === 'diff';
 
   const header = (
     <header className="flex h-10 items-stretch border-b border-border">
@@ -507,6 +517,20 @@ export const ContextPanel: React.FC = () => {
             setTerminalHeaderSlot(node);
           }}
           className="flex min-w-0 flex-1 items-center px-1"
+        />
+      ) : isGitPanelActive ? (
+        <div
+          ref={(node) => {
+            setGitHeaderSlot(node);
+          }}
+          className="flex min-w-0 flex-1 items-center overflow-hidden px-1"
+        />
+      ) : isDiffPanelActive ? (
+        <div
+          ref={(node) => {
+            setDiffHeaderSlot(node);
+          }}
+          className="flex min-w-0 flex-1 items-center overflow-hidden px-1"
         />
       ) : (
         <div className="flex min-w-0 flex-1 items-center gap-1.5 px-3">
@@ -686,6 +710,7 @@ export const ContextPanel: React.FC = () => {
                 onDiffScopeChange={handleDiffScopeChange}
                 targetFilePath={tab.targetPath}
                 flushContent
+                toolbarSlot={isDiffPanelActive ? diffHeaderSlot : null}
               />
             </React.Suspense>
           </div>
