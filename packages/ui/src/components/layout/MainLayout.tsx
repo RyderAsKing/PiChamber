@@ -372,7 +372,7 @@ export const MainLayout: React.FC = () => {
             case 'diff':
                 return <React.Suspense fallback={null}><DiffView /></React.Suspense>;
             case 'terminal':
-                return <TerminalView />;
+                return <TerminalView onCloseView={() => useUIStore.getState().setActiveMainTab('chat')} />;
             case 'files':
                 return <React.Suspense fallback={null}><FilesView /></React.Suspense>;
             case 'diagram':

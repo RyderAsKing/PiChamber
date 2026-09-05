@@ -1,18 +1,18 @@
 import React from 'react';
 
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { EMPTY_TERMINAL_BUFFER, useTerminalStore } from '@/stores/useTerminalStore';
+import { useTerminalStore } from '@/stores/useTerminalStore';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useFontPreferences } from '@/hooks/useFontPreferences';
 import { CODE_FONT_OPTION_MAP, DEFAULT_MONO_FONT } from '@/lib/fontOptions';
 import { convertThemeToXterm } from '@/lib/terminalTheme';
-import { TerminalViewport } from '@/components/terminal/TerminalViewport';
+import { TerminalTabPane } from './terminal/TerminalTabPane';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/useUIStore';
 import { Button } from '@/components/ui/button';
-import { SortableTabsStrip } from '@/components/ui/sortable-tabs-strip';
 import { Icon } from '@/components/icon/Icon';
+import { TerminalTabDropdown } from './terminal/TerminalTabDropdown';
 import { useDeviceInfo } from '@/lib/device';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { PROJECT_ACTION_ICON_MAP, type ProjectActionIconKey } from '@/lib/projectActions';
@@ -20,12 +20,21 @@ import { TerminalQuickKeys } from './terminal/TerminalQuickKeys';
 import { useTerminalSessionStream } from './terminal/useTerminalSessionStream';
 import { useTerminalInputHandling } from './terminal/useTerminalInputHandling';
 import { useTerminalTabsManager } from './terminal/useTerminalTabsManager';
+import { createPortal } from 'react-dom';
 
 type TerminalViewProps = {
   visible?: boolean;
+  /** Main-view host only: shows a close button that exits the full-page terminal overlay. */
+  onCloseView?: () => void;
+  /**
+   * Panel host only: element in the host header that owns the tab
+   * controls. When provided, the dropdown + action buttons portal there
+   * instead of rendering TerminalView's own header row.
+   */
+  terminalHeaderSlot?: HTMLDivElement | null;
 };
 
-export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
+export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView, terminalHeaderSlot }) => {
   const { terminal, runtime } = useRuntimeAPIs();
   const { currentTheme } = useThemeSystem();
   const terminalAppearanceRef = React.useRef<{
@@ -96,8 +105,14 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
 
   const terminalSessionId = activeTab?.terminalSessionId ?? null;
   const terminalLifecycle = activeTab?.lifecycle ?? 'idle';
-  const bufferChunks = useTerminalStore((s) =>
-    effectiveDirectory && activeTabId ? s.getBuffer(effectiveDirectory, activeTabId).chunks : EMPTY_TERMINAL_BUFFER.chunks,
+  const streamTabs = React.useMemo(
+    () =>
+      (directoryTerminalState?.tabs ?? []).map((tab) => ({
+        id: tab.id,
+        terminalSessionId: tab.terminalSessionId,
+        label: tab.label,
+      })),
+    [directoryTerminalState?.tabs],
   );
   const isConnecting = activeTab?.isConnecting ?? false;
   const previewUrl = activeTab?.previewUrl ?? null;
@@ -124,7 +139,6 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
     lastViewportSizeRef,
     directoryRef,
     activeTabIdRef,
-    disconnectStream,
     resetTerminalPreviewScan,
     startStream,
   } = useTerminalSessionStream({
@@ -140,6 +154,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
     terminalAppearanceRef,
     enableTabs,
     hasActiveContext,
+    tabs: streamTabs,
     focusTerminalWhenWindowActive: () => {
       if (!useTouchTerminalInput && typeof document !== 'undefined' && document.hasFocus()) {
         terminalControllerRef.current?.focus();
@@ -152,7 +167,6 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
     terminalControllerRef,
     focusTerminalWhenWindowActive,
     handleViewportInput,
-    handleViewportResize,
     handleModifierToggle,
     handleMobileKeyPress,
   } = useTerminalInputHandling({
@@ -180,7 +194,6 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
       directoryRef,
       activeTabIdRef,
       terminalIdRef,
-      disconnectStream,
       resetTerminalPreviewScan,
       startStream,
       setConnectionError,
@@ -225,7 +238,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
   }, [monoFont]);
 
   const xtermTheme = React.useMemo(() => convertThemeToXterm(currentTheme), [currentTheme]);
-  const terminalViewportKey = `${effectiveDirectory ?? 'no-dir'}::${activeTabId ?? 'no-tab'}`;
+  const activeViewportKey = `${effectiveDirectory ?? 'no-dir'}::${activeTabId ?? 'no-tab'}`;
 
   React.useEffect(() => {
     if (!isTerminalVisible || useTouchTerminalInput) {
@@ -250,7 +263,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
       };
     }
     fitOnce();
-  }, [focusTerminalWhenWindowActive, isTerminalVisible, useTouchTerminalInput, terminalControllerRef, terminalViewportKey, terminalSessionId]);
+  }, [focusTerminalWhenWindowActive, isTerminalVisible, useTouchTerminalInput, terminalControllerRef, activeViewportKey, terminalSessionId]);
 
   React.useEffect(() => {
     if (!isTerminalVisible || !useTouchTerminalInput) return;
@@ -267,7 +280,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
       window.removeEventListener('oc:keyboard-settled', handleKeyboardSettled);
       if (fitFrame !== null) window.cancelAnimationFrame(fitFrame);
     };
-  }, [isTerminalVisible, terminalControllerRef, terminalViewportKey, useTouchTerminalInput]);
+  }, [isTerminalVisible, terminalControllerRef, activeViewportKey, useTouchTerminalInput]);
 
   if (!hasActiveContext) {
     return (
@@ -293,6 +306,67 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
 
   const quickKeysDisabled = !terminalSessionId || isConnecting || isRestarting || isReconnectPending;
   const shouldRenderViewport = hasOpenedTerminalViewport;
+
+  // Single header row: tab dropdown + view actions. Hosts with their own
+  // chrome (ContextPanel) portal these into their header via
+  // terminalHeaderSlot instead of rendering this row.
+  const headerControls =
+    enableTabs && directoryTerminalState ? (
+      <>
+        <div className="min-w-0 flex-1">
+          <TerminalTabDropdown
+            items={terminalTabItems}
+            activeId={activeTabId}
+            onSelect={handleSelectTab}
+            onClose={handleCloseTab}
+            onCreate={handleCreateTab}
+          />
+        </div>
+
+        <Button
+          type="button"
+          size="xs"
+          variant="ghost"
+          className={cn('shrink-0', isTouchTerminal ? 'h-8 w-8 p-0' : 'h-7 w-7 p-0')}
+          onClick={handleCreateTab}
+          title={'New tab'}
+          aria-label={'New tab'}
+        >
+          <Icon name="add" className={`${isTouchTerminal ? 'h-[18px] w-[18px]' : 'h-4 w-4'}`} />
+        </Button>
+
+        <div className="flex shrink-0 items-center gap-1 overflow-visible">
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            className="h-7 w-7 p-0"
+            onClick={() => void handleRestart()}
+            disabled={isRestarting}
+            title={'Restart terminal'}
+            aria-label={'Restart terminal'}
+          >
+            <Icon name="restart" className="h-4 w-4" />
+          </Button>
+          {previewUrl ? (
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              className="h-6 shrink-0 gap-1 px-2"
+              onClick={() => {
+                if (!effectiveDirectory) return;
+                openContextPreview(effectiveDirectory, previewUrl);
+              }}
+              title={'Open preview pane'}
+            >
+              <Icon name="global" className="h-3.5 w-3.5 shrink-0" />
+              <span className="whitespace-nowrap">{'Preview'}</span>
+            </Button>
+          ) : null}
+        </div>
+      </>
+    ) : null;
   const quickKeysControls = (
     <TerminalQuickKeys
       isTouchTerminal={isTouchTerminal}
@@ -311,62 +385,30 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
           isTouchTerminal ? 'px-3 py-1.5' : 'pl-3 pr-1.5 py-1',
         )}
       >
-        {enableTabs && directoryTerminalState ? (
-          <div className="flex items-center gap-2 pl-1 pr-1">
-            <div className={cn('min-w-0 flex-1', isTouchTerminal ? 'h-8' : 'h-7')}>
-              <SortableTabsStrip
-                items={terminalTabItems}
-                activeId={activeTabId}
-                onSelect={handleSelectTab}
-                onClose={handleCloseTab}
-                layoutMode="scrollable"
-                variant="default"
-                className="h-full bg-transparent"
-              />
-            </div>
-
-            <Button
-              type="button"
-              size="xs"
-              variant="ghost"
-              className={cn('shrink-0', isTouchTerminal ? 'h-8 w-8 p-0' : 'h-7 w-7 p-0')}
-              onClick={handleCreateTab}
-              title={'New tab'}
-            >
-              <Icon name="add" className={`${isTouchTerminal ? 'h-[18px] w-[18px]' : 'h-4 w-4'}`} />
-            </Button>
-
-            <div className="flex shrink-0 items-center gap-1 overflow-visible">
-              <Button
-                type="button"
-                size="xs"
-                variant="ghost"
-                className="h-7 w-7 p-0"
-                onClick={() => void handleRestart()}
-                disabled={isRestarting}
-                title={'Restart terminal'}
-                aria-label={'Restart terminal'}
-              >
-                <Icon name="restart" className="h-4 w-4" />
-              </Button>
-              {previewUrl ? (
+        {headerControls ? (
+          terminalHeaderSlot ? (
+            createPortal(
+              <div className="flex min-w-0 flex-1 items-center gap-1.5">{headerControls}</div>,
+              terminalHeaderSlot,
+            )
+          ) : (
+            <div className="flex items-center gap-2 pl-1 pr-1">
+              {headerControls}
+              {onCloseView ? (
                 <Button
                   type="button"
                   size="xs"
-                  variant="outline"
-                  className="h-6 shrink-0 gap-1 px-2"
-                  onClick={() => {
-                    if (!effectiveDirectory) return;
-                    openContextPreview(effectiveDirectory, previewUrl);
-                  }}
-                  title={'Open preview pane'}
+                  variant="ghost"
+                  className="h-7 w-7 shrink-0 p-0"
+                  onClick={onCloseView}
+                  title={'Close terminal view'}
+                  aria-label={'Close terminal view'}
                 >
-                  <Icon name="global" className="h-3.5 w-3.5 shrink-0" />
-                  <span className="whitespace-nowrap">{'Preview'}</span>
+                  <Icon name="close" className="h-4 w-4" />
                 </Button>
               ) : null}
             </div>
-          </div>
+          )
         ) : null}
 
         {!isTouchTerminal && showQuickKeys && enableTabs && directoryTerminalState ? (
@@ -380,24 +422,30 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible }) => {
 
       <div className="relative flex-1 overflow-hidden" style={{ backgroundColor: xtermTheme.background }}>
         <div className="h-full w-full box-border pl-4 pr-1.5 pt-3 pb-4">
-          {shouldRenderViewport ? (
-            <TerminalViewport
-              key={terminalViewportKey}
-              ref={(controller) => {
-                terminalControllerRef.current = controller;
-              }}
-              sessionKey={terminalViewportKey}
-              chunks={bufferChunks}
-              onInput={handleViewportInput}
-              onResize={handleViewportResize}
-              theme={xtermTheme}
-              fontFamily={resolvedFontStack}
-              fontSize={terminalFontSize}
-              enableTouchScroll={useTouchTerminalInput}
-              autoFocus={isTerminalVisible}
-              isVisible={isTerminalVisible}
-            />
-          ) : null}
+          {shouldRenderViewport && effectiveDirectory && directoryTerminalState
+            ? directoryTerminalState.tabs.map((tab) => {
+                const paneActive = tab.id === activeTabId;
+                return (
+                  <TerminalTabPane
+                    key={tab.id}
+                    directory={effectiveDirectory}
+                    tabId={tab.id}
+                    sessionId={tab.terminalSessionId}
+                    sessionKey={`${effectiveDirectory}::${tab.id}`}
+                    isActive={paneActive}
+                    isTerminalVisible={isTerminalVisible}
+                    terminal={terminal}
+                    theme={xtermTheme}
+                    fontFamily={resolvedFontStack}
+                    fontSize={terminalFontSize}
+                    enableTouchScroll={useTouchTerminalInput}
+                    lastViewportSizeRef={lastViewportSizeRef}
+                    onInput={handleViewportInput}
+                    controllerRef={terminalControllerRef}
+                  />
+                );
+              })
+            : null}
         </div>
         {!isReconnectPending && connectionError && (
           <div className="absolute inset-x-0 bottom-0 bg-[var(--status-error-background)] px-3 py-2 text-xs text-[var(--status-error-foreground)] flex items-center justify-between gap-2">

@@ -337,7 +337,7 @@ const AboutDetails: React.FC = () => (
           attribution carried forward from that project.
         </p>
         <p>
-          Thank you to Pierre, the Pi community, Ghostty-web, and every contributor whose work,
+          Thank you to Pierre, the Pi community, xterm.js, and every contributor whose work,
           feedback, and ideas help make this project possible.
         </p>
       </div>

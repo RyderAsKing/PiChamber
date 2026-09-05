@@ -197,6 +197,10 @@ export const ContextPanel: React.FC = () => {
   const isGitRepo = useIsGitRepo(directoryKey || null);
 
   const [isResizing, setIsResizing] = React.useState(false);
+  // Slot that hosts the terminal tab controls (dropdown + actions) in this
+  // header when the terminal surface is active. TerminalView owns the tab
+  // state and portals its controls here so the panel keeps a single header.
+  const [terminalHeaderSlot, setTerminalHeaderSlot] = React.useState<HTMLDivElement | null>(null);
   const startXRef = React.useRef(0);
   const startWidthRef = React.useRef(width);
   const resizingWidthRef = React.useRef<number | null>(null);
@@ -375,7 +379,7 @@ export const ContextPanel: React.FC = () => {
     }
 
     // Terminal owns Escape so the PTY receives it (e.g. Vim Normal mode).
-    // ghostty-web listens in the bubble phase; stopping capture here would
+    // xterm.js listens in the bubble phase; stopping capture here would
     // swallow the key before the terminal ever sees it (issue #2644).
     if (isTerminalEventTarget(event.target)) {
       return;
@@ -468,6 +472,7 @@ export const ContextPanel: React.FC = () => {
   );
 
   const isFileTabActive = activeTab?.mode === 'file';
+  const isTerminalPanelActive = activeTab?.mode === 'terminal';
 
   const header = (
     <header className="flex h-10 items-stretch border-b border-border">
@@ -495,6 +500,13 @@ export const ContextPanel: React.FC = () => {
           }}
           layoutMode="scrollable"
           variant="default"
+        />
+      ) : isTerminalPanelActive ? (
+        <div
+          ref={(node) => {
+            setTerminalHeaderSlot(node);
+          }}
+          className="flex min-w-0 flex-1 items-center px-1"
         />
       ) : (
         <div className="flex min-w-0 flex-1 items-center gap-1.5 px-3">
@@ -680,7 +692,10 @@ export const ContextPanel: React.FC = () => {
         )) : null}
         {hasTerminalTab ? (
           <div className={cn('absolute inset-0', activeTab?.mode === 'terminal' ? 'block' : 'hidden')}>
-            <TerminalView visible={isOpen && activeTab?.mode === 'terminal'} />
+            <TerminalView
+              visible={isOpen && activeTab?.mode === 'terminal'}
+              terminalHeaderSlot={isTerminalPanelActive ? terminalHeaderSlot : null}
+            />
           </div>
         ) : null}
         {isOpen && !isFileTabActive && activeTab?.mode !== 'browser' && activeTab?.mode !== 'diff' && activeTab?.mode !== 'terminal' ? activeContent : null}

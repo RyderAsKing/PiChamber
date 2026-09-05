@@ -1,4 +1,3 @@
-import type { Ghostty } from 'ghostty-web';
 import type { Theme } from '@/types/theme';
 
 export interface TerminalTheme {
@@ -63,14 +62,12 @@ export function convertThemeToXterm(theme: Theme): TerminalTheme {
 }
 
 /**
- * Get terminal options for Ghostty Web terminal
+ * Get terminal options for the xterm.js renderer.
  */
-export function getGhosttyTerminalOptions(
+export function getXtermTerminalOptions(
   fontFamily: string,
   fontSize: number,
   theme: TerminalTheme,
-  ghostty: Ghostty,
-  disableStdin = false
 ) {
   const powerlineFallbacks =
     '"JetBrainsMonoNL Nerd Font", "FiraCode Nerd Font", "Cascadia Code PL", "Fira Code", "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", "Courier New", monospace';
@@ -80,9 +77,12 @@ export function getGhosttyTerminalOptions(
     // TerminalViewport enables blinking only while its input owns focus.
     cursorBlink: false,
     cursorStyle: 'bar' as const,
+    cursorInactiveStyle: 'none' as const,
     fontSize,
     fontFamily: augmentedFontFamily,
     allowTransparency: false,
+    convertEol: true,
+    scrollback: 10_000,
     theme: {
       background: theme.background,
       foreground: theme.foreground,
@@ -90,6 +90,7 @@ export function getGhosttyTerminalOptions(
       cursorAccent: theme.cursorAccent,
       selectionBackground: theme.selectionBackground,
       selectionForeground: theme.selectionForeground,
+      selectionInactiveBackground: theme.selectionInactiveBackground,
       black: theme.black,
       red: theme.red,
       green: theme.green,
@@ -107,8 +108,5 @@ export function getGhosttyTerminalOptions(
       brightCyan: theme.brightCyan,
       brightWhite: theme.brightWhite,
     },
-    scrollback: 10_000,
-    ghostty,
-    disableStdin,
   };
 }
