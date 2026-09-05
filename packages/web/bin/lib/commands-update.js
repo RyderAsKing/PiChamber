@@ -13,6 +13,10 @@ import {
 import {
   intro as clackIntro,
   outro as clackOutro,
+  cancel as clackCancel,
+  confirm,
+  isCancel,
+  canPrompt,
   isJsonMode,
   isQuietMode,
   shouldRenderHumanOutput,
@@ -37,6 +41,9 @@ function createUpdateCommand({
   isInsideSystemdService = () => Boolean(process.env.INVOCATION_ID) || Boolean(process.env.PICHAMBER_SYSTEMD_UNIT),
   isUserStartupServiceActive = defaultIsUserStartupServiceActive,
   restartUserStartupService = defaultRestartUserStartupService,
+  discoverInstances = discoverRunningInstances,
+  requestShutdown = requestServerShutdown,
+  stopProcess = stopInstanceProcess,
 }) {
   return async function updateCommand(options = {}) {
     const showOutput = shouldRenderHumanOutput(options);
@@ -150,10 +157,33 @@ function createUpdateCommand({
       throw new Error(UNOWNED_INSTALL_MESSAGE);
     }
 
-    if (showOutput && !updateSpin) {
-      logStatus('info', `updating ${updateInfo.currentVersion || currentVersion} -> ${updateInfo.version || 'latest'} with ${pm}`);
+    const latestVersion = updateInfo.version || 'latest';
+    const startupServiceActive = isUserStartupServiceActive();
+    const runningInstances = startupServiceActive ? [] : await discoverInstances();
+
+    if (canPrompt(options) && options.yes !== true) {
+      updateSpin?.clear();
+      logStatus('info', 'Review update', [
+        `Version: ${currentVersion} -> ${latestVersion}`,
+        `Package manager: ${pm}`,
+        startupServiceActive
+          ? 'Restart: startup service'
+          : `Restart: ${runningInstances.length} running instance(s)`,
+      ].join('\n'));
+      const approved = await confirm({
+        message: `Install PiChamber ${latestVersion}?`,
+        initialValue: true,
+      });
+      if (isCancel(approved) || approved !== true) {
+        clackCancel('Update cancelled.');
+        return;
+      }
     }
-    updateSpin?.message(`Updating to ${updateInfo.version || 'latest'}...`);
+
+    if (showOutput && !updateSpin) {
+      logStatus('info', `updating ${currentVersion} -> ${latestVersion} with ${pm}`);
+    }
+    updateSpin?.start(`Updating ${currentVersion} -> ${latestVersion}...`);
 
     const result = executeUpdate(pm, { silent: isJsonMode(options) || isQuietMode(options) });
     if (!result.success) {
@@ -164,10 +194,11 @@ function createUpdateCommand({
       throw new Error(`Update failed with exit code ${result.exitCode}`);
     }
 
-    let restartedCount = 0;
+    const installedVersion = getCurrentVersion();
+    const restartResults = [];
     let startupServiceRestarted = false;
 
-    if (isUserStartupServiceActive()) {
+    if (startupServiceActive) {
       updateSpin?.message('Restarting systemd user service...');
       try {
         restartUserStartupService();
@@ -181,59 +212,92 @@ function createUpdateCommand({
         }
         throw new Error(msg);
       }
-    } else {
-      const runningInstances = await discoverRunningInstances();
-      if (runningInstances.length > 0) {
-        updateSpin?.message(`Stopping ${runningInstances.length} running instance(s)...`);
-        for (const instance of runningInstances) {
-          try {
-            const requested = await requestServerShutdown(instance.port, instance.host);
-            await stopInstanceProcess(instance.pid, {
-              shutdownWaitMs: requested ? 5000 : 0,
-              gracefulTimeoutMs: 2500,
-              forceTimeoutMs: 3000,
-            });
-            removePidFile(instance.pidFilePath);
-          } catch {
-          }
+    } else if (runningInstances.length > 0) {
+      updateSpin?.message(`Restarting ${runningInstances.length} running instance(s)...`);
+      for (const instance of runningInstances) {
+        const storedOptions = readInstanceOptions(instance.instanceFilePath) || { port: instance.port };
+        if (storedOptions.launchMode === 'foreground') {
+          restartResults.push({ port: instance.port, ok: false, reason: 'foreground-restart-required' });
+          continue;
         }
-
-        updateSpin?.message(`Restarting ${runningInstances.length} instance(s)...`);
-        for (const instance of runningInstances) {
-          const storedOptions = readInstanceOptions(instance.instanceFilePath) || { port: instance.port };
-          await serveCommand({
+        try {
+          const requested = await requestShutdown(instance.port, instance.host);
+          const stopped = await stopProcess(instance.pid, {
+            shutdownWaitMs: requested ? 5000 : 0,
+            gracefulTimeoutMs: 2500,
+            forceTimeoutMs: 3000,
+          });
+          if (!stopped) {
+            restartResults.push({ port: instance.port, ok: false, reason: 'stop-failed' });
+            continue;
+          }
+          removePidFile(instance.pidFilePath);
+          const restartedPort = await serveCommand({
             port: storedOptions.port || instance.port,
             host: storedOptions.host,
             explicitPort: true,
             uiPassword: storedOptions.uiPassword,
+            apiOnly: storedOptions.apiOnly === true,
             suppressStartupSummary: true,
             suppressUiPasswordWarning: true,
+            suppressQuietOutput: true,
             quiet: true,
           });
+          restartResults.push({ port: instance.port, restartedPort, ok: true });
+        } catch (error) {
+          restartResults.push({
+            port: instance.port,
+            ok: false,
+            reason: error instanceof Error ? error.message : String(error),
+          });
         }
-        restartedCount = runningInstances.length;
       }
     }
 
-    if (showOutput && !updateSpin) {
-      logStatus('success', `updated to ${updateInfo.version || 'latest'}`);
+    const restartedCount = restartResults.filter((entry) => entry.ok).length;
+    const failedRestartCount = restartResults.length - restartedCount;
+    const versionVerified = latestVersion === 'latest' || installedVersion === latestVersion;
+    const messages = [];
+    if (!versionVerified) {
+      messages.push({
+        level: 'warning',
+        code: 'VERSION_MISMATCH',
+        message: `Package manager completed, but this install reports ${installedVersion} instead of ${latestVersion}.`,
+      });
     }
-    updateSpin?.stop(`Updated to ${updateInfo.version || 'latest'}`);
+    if (failedRestartCount > 0) {
+      messages.push({
+        level: 'warning',
+        code: 'RESTART_PARTIAL',
+        message: `${failedRestartCount} running instance(s) require manual restart.`,
+      });
+    }
+
+    updateSpin?.clear();
     if (isJsonMode(options)) {
       printJson({
-        currentVersion,
-        latestVersion: updateInfo.version || 'latest',
-        updated: true,
+        status: messages.length > 0 ? 'warning' : 'ok',
+        previousVersion: currentVersion,
+        currentVersion: installedVersion,
+        latestVersion,
+        versionVerified,
+        updated: installedVersion !== currentVersion || versionVerified,
         packageManager: pm,
         restartedCount,
         startupServiceRestarted,
+        restartResults,
+        messages,
       });
       return;
     }
     if (showOutput) {
-      clackOutro('update complete');
+      logStatus(versionVerified ? 'success' : 'warning', `version ${currentVersion} -> ${installedVersion}`);
+      for (const message of messages) {
+        logStatus('warning', `[${message.code}]`, message.message);
+      }
+      clackOutro(messages.length > 0 ? 'update complete with warnings' : 'update complete');
     } else if (isQuietMode(options)) {
-      process.stdout.write(`updated ${updateInfo.version || 'latest'}\n`);
+      process.stdout.write(`updated ${currentVersion} -> ${installedVersion} restarted:${restartedCount} failed:${failedRestartCount}\n`);
     }
   };
 }

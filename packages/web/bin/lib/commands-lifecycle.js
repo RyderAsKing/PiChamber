@@ -15,6 +15,10 @@ import {
 import {
   intro as clackIntro,
   outro as clackOutro,
+  cancel as clackCancel,
+  confirm,
+  isCancel,
+  canPrompt,
   isJsonMode,
   isQuietMode,
   shouldRenderHumanOutput,
@@ -53,6 +57,16 @@ async function stopCommand(options) {
     }
 
     let runningInstances = await discoverLifecycleInstances(options);
+    if (!options.explicitPort && runningInstances.length > 1 && !options.force && canPrompt(options)) {
+      const approved = await confirm({
+        message: `Stop all ${runningInstances.length} PiChamber instances?`,
+        initialValue: false,
+      });
+      if (isCancel(approved) || approved !== true) {
+        clackCancel('Stop cancelled.');
+        return;
+      }
+    }
     if (options.explicitPort) {
       if (runningInstances.length === 0) {
         const unconfirmedInstance = await discoverUnconfirmedRegistryInstanceOnPort(options.port, options);

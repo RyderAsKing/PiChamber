@@ -316,6 +316,13 @@ describe('cli args', () => {
     expect(parsed.options.lan).toBe(true);
   });
 
+  it('tracks explicit serve commands and update confirmation flags', () => {
+    expect(parseArgs(['serve']).explicitCommand).toBe(true);
+    expect(parseArgs([]).explicitCommand).toBe(false);
+    expect(parseArgs(['update', '--yes']).options.yes).toBe(true);
+    expect(parseArgs(['update', '-y']).options.yes).toBe(true);
+  });
+
   it('supports --hostname as top-level bind alias', () => {
     const parsed = parseArgs(['serve', '--hostname', '0.0.0.0']);
 
@@ -327,6 +334,43 @@ describe('cli args', () => {
 
     expect(parsed.options.hostname).toBe('app.example.com');
     expect(parsed.options.host).toBeUndefined();
+  });
+});
+
+describe('serve command helper', () => {
+  it('collects a reviewed LAN server configuration', async () => {
+    const { collectInteractiveServeOptions } = await import('./lib/commands-serve.js');
+    const answers = ['lan', '8080', 'generate', 'api', 'daemon', true];
+    const prompts = {
+      select: async () => answers.shift(),
+      text: async () => answers.shift(),
+      password: async () => answers.shift(),
+      confirm: async () => answers.shift(),
+      isCancel: () => false,
+      cancel: () => {},
+    };
+
+    const result = await collectInteractiveServeOptions({ port: 3000 }, prompts);
+
+    expect(result).toMatchObject({
+      host: '0.0.0.0',
+      lan: true,
+      port: 8080,
+      explicitPort: true,
+      uiPassword: '',
+      explicitUiPassword: true,
+      apiOnly: true,
+      foreground: false,
+    });
+  });
+
+  it('detects flags that suppress interactive server setup', async () => {
+    const { hasExplicitServeConfiguration } = await import('./lib/commands-serve.js');
+
+    expect(hasExplicitServeConfiguration({ explicitPort: true })).toBe(true);
+    expect(hasExplicitServeConfiguration({ foreground: true })).toBe(true);
+    expect(hasExplicitServeConfiguration({ apiOnly: true })).toBe(true);
+    expect(hasExplicitServeConfiguration({ port: 3000 })).toBe(false);
   });
 });
 

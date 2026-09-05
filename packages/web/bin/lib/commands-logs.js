@@ -5,6 +5,7 @@ import {
   intro as clackIntro,
   outro as clackOutro,
   isJsonMode,
+  isQuietMode,
   shouldRenderHumanOutput,
   printJson,
   logStatus,
@@ -12,7 +13,7 @@ import {
 
 async function logsCommand(options) {
   const showFrames = shouldRenderHumanOutput(options);
-  const shouldPrefixLines = options.all || !showFrames;
+  const shouldPrefixLines = options.all || (!showFrames && !isQuietMode(options));
   let targets = [];
   const running = await discoverRunningInstances();
 
