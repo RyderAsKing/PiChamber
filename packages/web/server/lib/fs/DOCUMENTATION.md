@@ -12,6 +12,7 @@ Own filesystem API behavior for the web server runtime, including workspace-boun
   - Registers all filesystem routes:
     - `GET /api/fs/home`
     - `POST /api/fs/mkdir`
+    - `POST /api/fs/clone`
     - `GET /api/fs/read`
     - `GET /api/fs/raw`
     - `GET /api/fs/serve/:path(*)`
@@ -36,4 +37,5 @@ Own filesystem API behavior for the web server runtime, including workspace-boun
 - Keep filesystem policy (workspace root checks, error mapping, exec timeout behavior) inside this module, not in the composition root.
 - Filesystem `EPERM`/`EACCES` failures use the stable `reason: "os-permission"` response marker. Policy denials such as workspace-boundary or missing-grant failures must not use that marker because a native folder picker cannot remediate them.
 - If adding new `/api/fs/*` endpoints, add them in `routes.js` and extend this document.
-- `GET /api/fs/list` may resolve symlinks with `realpath` to read directory contents, but the response `path` and each entry `path` must stay in the caller's requested path space (`path.join(requestedPath, name)`). Returning real paths breaks file-tree expansion for directories reached through workspace symlinks.
+- `POST /api/fs/clone` clones a repository into the requested destination and can apply a stored Git identity. It returns the cloned path and rejects an existing destination with HTTP 409.
+- `GET /api/fs/list` may resolve symlinks with `realpath` to read directory contents, but the response `path` and each entry `path` must stay in the caller’s requested path space (`path.join(requestedPath, name)`). Returning real paths breaks file-tree expansion for directories reached through workspace symlinks.
