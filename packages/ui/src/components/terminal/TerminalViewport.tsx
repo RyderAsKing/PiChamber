@@ -4,6 +4,14 @@ import type { FitAddon as XtermFitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 
 import { cn } from '@/lib/utils';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
+import { Icon } from '@/components/icon/Icon';
 import type { TerminalTheme } from '@/lib/terminalTheme';
 import { getXtermTerminalOptions } from '@/lib/terminalTheme';
 import {
@@ -140,6 +148,8 @@ const TerminalViewport = React.forwardRef<TerminalController, Props>(
     const rendererReadyRef = React.useRef(false);
     const [ready, setReady] = React.useState(0);
     const [rendererGeneration, setRendererGeneration] = React.useState(0);
+    const [menuOpen, setMenuOpen] = React.useState(false);
+    const [menuHasSelection, setMenuHasSelection] = React.useState(false);
     inputRef.current = onInput;
     resizeRef.current = onResize;
     visibleRef.current = isVisible;
@@ -217,6 +227,48 @@ const TerminalViewport = React.forwardRef<TerminalController, Props>(
       } catch {
         setRendererGeneration((value) => value + 1);
       }
+    }, []);
+
+    // Right-click menu. xterm.js renders to canvas so Chromium (and the
+    // Electron native menu built from its context params) sees no DOM
+    // selection and reports Copy/Paste as disabled. Snapshot the xterm
+    // selection when the menu is requested and drive the shared menu from
+    // it instead. preventDefault suppresses the native menu on every
+    // runtime, including Electron.
+    const handleContextMenu = React.useCallback((event?: React.MouseEvent) => {
+      event?.preventDefault();
+      setMenuHasSelection(hasTerminalSelection(terminalRef.current?.getSelection()));
+      setMenuOpen(true);
+    }, []);
+
+    const handleCopy = React.useCallback((event: React.MouseEvent) => {
+      event.stopPropagation();
+      const terminal = terminalRef.current;
+      const selection = terminal?.getSelection() ?? '';
+      terminal?.focus();
+      if (!hasTerminalSelection(selection)) return;
+      void copyTerminalSelection(selection);
+    }, []);
+
+    const handlePaste = React.useCallback((event: React.MouseEvent) => {
+      event.stopPropagation();
+      const terminal = terminalRef.current;
+      terminal?.focus();
+      void readClipboardText().then((text) => {
+        if (text && terminalRef.current === terminal && terminal) terminal.paste(text);
+      });
+    }, []);
+
+    const handleSelectAll = React.useCallback((event: React.MouseEvent) => {
+      event.stopPropagation();
+      const terminal = terminalRef.current;
+      terminal?.focus();
+      try {
+        terminal?.selectAll();
+      } catch {
+        /* selection unsupported */
+      }
+      setMenuHasSelection(hasTerminalSelection(terminal?.getSelection()));
     }, []);
 
     React.useEffect(() => {
@@ -600,11 +652,31 @@ const TerminalViewport = React.forwardRef<TerminalController, Props>(
     );
 
     return (
-      <div
-        ref={containerRef}
-        data-terminal-owner="main"
-        className={cn('terminal-viewport-container h-full w-full overflow-hidden touch-none', className)}
-      />
+      <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
+        <ContextMenuTrigger
+          render={
+            <div
+              ref={containerRef}
+              data-terminal-owner="main"
+              className={cn(
+                'terminal-viewport-container h-full w-full overflow-hidden touch-none',
+                className,
+              )}
+              onContextMenu={handleContextMenu}
+            />
+          }
+        />
+        <ContextMenuContent className="min-w-[180px]">
+          <ContextMenuItem disabled={!menuHasSelection} onClick={handleCopy}>
+            <Icon name="file-copy" className="mr-2 h-4 w-4" /> {'Copy'}
+          </ContextMenuItem>
+          <ContextMenuItem onClick={handlePaste}>
+            <Icon name="clipboard" className="mr-2 h-4 w-4" /> {'Paste'}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={handleSelectAll}>{'Select All'}</ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     );
   },
 );
