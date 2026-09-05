@@ -10,7 +10,8 @@ Use `serve-sim` to stream and control a booted Apple Simulator from the terminal
 ## PiChamber Defaults
 
 - Mobile package: `packages/mobile`
-- iOS bundle id: `com.pichamber.app` (legacy runtime identifier; preserve until the app-id migration)
+- iOS bundle id: `com.pichamber.app`
+- Android application id: `com.pichamber.app` (`.debug` is appended for debug builds)
 - Headless env wrapper: `packages/mobile/scripts/with-mobile-env.mjs`
 - iOS simulator helper: `packages/mobile/scripts/ios-sim.mjs`
 - Preferred scripts:
@@ -61,7 +62,7 @@ Coordinates are normalized `0..1`, not pixels. Prefer `tap` for simple taps; do 
 
 - macOS host.
 - Xcode installed; use `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` if `xcode-select` points at CommandLineTools.
-- Node 18+.
+- Node 22+ (the workspace minimum).
 - At least one simulator can be booted with `xcrun simctl`.
 
 ## Anti-Patterns

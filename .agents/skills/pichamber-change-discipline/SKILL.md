@@ -11,6 +11,14 @@ Make the smallest complete change and validate at the narrowest level that cover
 
 Identify existing behavior covered by tests or callers; preserve it unless the requested change explicitly replaces it.
 
+## Pi-native boundary
+
+Pi owns sessions, providers, resources, prompts, skills, extensions, and the
+session daemon. PiChamber owns the workspace UI, `/api/pi/*` facade, runtime
+transport, authentication, server lifecycle, relay, and native shells. Keep Pi
+behavior behind `piClient` and the server's Pi routes. Do not rebuild Pi
+semantics in components, stores, or Electron code.
+
 ## Before Editing
 
 1. Read the nearest `DOCUMENTATION.md` and package `README.md` when present.
@@ -29,7 +37,7 @@ When instructions materially conflict, stop and resolve the conflict instead of 
 | Module contract | Exported API/type or documented module invariant | Inspect consumers; update contract tests and owning docs |
 | Cross-workspace contract | Shared UI/runtime/package shape consumed by multiple workspaces | Trace every actual consumer and runtime; validate across workspaces |
 | Persisted or external behavior | Stored settings/data, routes, IDs, files, CLI output | Define compatibility, round-trip, failure, and conversion behavior for existing consumers |
-| Platform/runtime behavior | Electron, VS Code, mobile, relay, native or packaged behavior | Run the relevant runtime/build/integration validation |
+| Platform/runtime behavior | Electron, hosted mobile, Capacitor mobile, relay, native or packaged behavior | Run the relevant runtime/build/integration validation |
 
 Apply every matching category. Do not escalate local work into workspace-wide ritual, and do not treat a type-only export as local merely because it emits no JavaScript.
 
@@ -58,7 +66,7 @@ Before broadening a change, ask:
 
 - Is the new abstraction reused or merely possible to reuse?
 - Is the code in the package that owns the behavior?
-- Does the change alter shared UI contracts across web, desktop, VS Code, or mobile?
+- Does the change alter shared UI contracts across web, desktop, hosted mobile, or Capacitor mobile?
 - Does it change persisted data, IDs, routes, exports, generated files, or package entrypoints?
 - Can failure leave optimistic state, caches, files, or remote state stranded?
 

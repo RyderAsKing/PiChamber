@@ -1,1 +1,11 @@
 blank_issues_enabled: false
+contact_links:
+  - name: Questions and usage help
+    url: https://github.com/RyderAsKing/PiChamber/discussions
+    about: Ask questions and compare setups in GitHub Discussions.
+  - name: Security vulnerability
+    url: https://github.com/RyderAsKing/PiChamber/security
+    about: Read the private reporting instructions. Do not open a public issue.
+  - name: Pi Coding Agent support
+    url: https://pi.dev
+    about: Check Pi's documentation for Pi SDK, provider, and extension questions.

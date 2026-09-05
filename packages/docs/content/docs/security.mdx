@@ -3,6 +3,18 @@ title: Security
 description: Understand PiChamber's single-owner security model.
 ---
 
-A PiChamber server is a single-owner workspace server. Anyone you pair or otherwise authenticate can act on its sessions and server filesystem.
+A PiChamber server is a single-owner workspace server. Any client you pair or
+authenticate can work with its Pi sessions, project files, Git state, and
+server-side tools.
 
-Keep public access disabled unless you have configured a UI password and a trusted network or reverse-proxy boundary. Do not share pairing links or server tokens. PiChamber never returns stored provider credentials to browser clients.
+Keep the server on `127.0.0.1` unless you need remote access. For LAN or
+reverse-proxy access, set a strong UI password and use a trusted HTTPS or
+network boundary. Pair only devices you control, and revoke a client when it is
+no longer trusted.
+
+PiChamber keeps Pi provider credentials and the Pi agent directory on the
+server. Browser clients receive session data needed for the workspace, but not
+stored provider secrets. Do not share pairing links, client tokens, tunnel
+URLs with credentials, or redacted logs that still contain private content.
+
+See the repository [security policy](https://github.com/RyderAsKing/PiChamber/blob/main/SECURITY.md) for private vulnerability reports and the [reverse proxy guide](https://github.com/RyderAsKing/PiChamber/blob/main/docs/REVERSE_PROXY.md) for live-stream requirements.

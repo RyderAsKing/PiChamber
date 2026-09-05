@@ -1,6 +1,6 @@
 # Cloudflare Tunnel Service
 
-PiChamber exposes a PiChamber-hosted Cloudflare Tunnel that lets a browser or mobile client reach a private PiChamber server without opening inbound ports. The server dials outbound to Cloudflare with `cloudflared`; the public hostname then proxies to the local PiChamber HTTP endpoint.
+PiChamber can manage a Cloudflare Tunnel that lets a browser or mobile client reach a private PiChamber server without opening inbound ports. The server dials outbound to Cloudflare with `cloudflared`; the public hostname then proxies to the local PiChamber HTTP endpoint.
 
 ## Modes
 
@@ -64,11 +64,10 @@ The PiChamber `pichamber.service` itself already supports both user (`~/.config/
 - `tunnel-service.test.js` covers validation (missing token/hostname, unsupported mode), status shape, secret redaction, and that `missing_dependency` is reported when `cloudflared` is absent.
 - Integration smoke against a real `cloudflared` binary is manual: install `cloudflared`, run `pichamber serve`, `curl /api/pichamber/tunnel/check`, start a quick tunnel, verify `status.url` appears and `curl -H "Host: $url-host"` reaches the server through the tunnel with `Authorization` still required.
 
-## Cloudflare permissions for API-token flow
+## Cloudflare credentials
 
-If the operator wants PiChamber to create a tunnel automatically (rather than pasting a token), the Cloudflare API token needs:
-
-- `Zone:Read`, `DNS:Edit` on the zone that will host the hostname
-- `Account:Cloudflare Tunnel:Edit` (to create/list tunnels)
-
-PiChamber never asks for the Cloudflare account password. The manual token flow is the default; the API-token flow is an optional convenience that calls `https://api.cloudflare.com/client/v4/accounts/{accountId}/cfd_tunnel` with the scoped token. Secrets are still stored with `0600` and never returned in API responses.
+PiChamber uses a manual Cloudflare tunnel token for `managed-remote` mode and
+an existing `cloudflared` config for `managed-local` mode. It does not ask for a
+Cloudflare account password and does not create tunnels through a Cloudflare
+API-token wizard. Secrets are stored with `0600` and never returned in API
+responses.

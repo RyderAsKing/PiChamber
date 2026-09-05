@@ -1,14 +1,31 @@
 name: Bug report
-description: Report something broken
+description: Report a reproducible problem
 title: "[Bug] "
 labels: [bug]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Please remove passwords, provider keys, pairing links, client tokens, session text, and private file contents from logs and screenshots before posting.
+
   - type: textarea
     id: what
     attributes:
-      label: What's wrong? Maybe some steps to reproduce.
-      description: What happened and what you expected.
-      placeholder: "Expected … but got …"
+      label: What happened?
+      description: Describe what you expected and what happened instead.
+      placeholder: "I expected … but got …"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include the smallest set of steps that shows the problem.
+      placeholder: |
+        1. Start PiChamber with …
+        2. Open …
+        3. Select …
     validations:
       required: true
 
@@ -18,9 +35,12 @@ body:
       label: Where does it happen?
       options:
         - Desktop (macOS)
-        - Desktop Web
-        - Mobile (Web/PWA)
-        - VS Code extension
+        - Desktop (Windows)
+        - Desktop (Linux)
+        - Browser connected to a PiChamber server
+        - Hosted mobile browser
+        - Capacitor mobile app (iOS or Android)
+        - PiChamber server or CLI
         - Not sure
     validations:
       required: true
@@ -28,18 +48,38 @@ body:
   - type: input
     id: version
     attributes:
-      label: Version (if known)
-      placeholder: "e.g. 1.2.3"
+      label: PiChamber version
+      description: Use the app About page or run `pichamber version` for a server install.
+      placeholder: "e.g. 0.9.0"
+
+  - type: input
+    id: pi-version
+    attributes:
+      label: Pi version, if known
+      description: Include this when the problem involves Pi behavior or provider setup.
+      placeholder: "e.g. 0.84.1"
+
+  - type: input
+    id: system
+    attributes:
+      label: OS, device, and browser
+      placeholder: "e.g. macOS 15.6, Apple Silicon, Chrome 140"
+
+  - type: input
+    id: install
+    attributes:
+      label: Installation method
+      placeholder: "e.g. GitHub desktop release, npm global install, Bun global install, Docker"
 
   - type: textarea
     id: screenshots
     attributes:
-      label: Screenshots / recordings (optional)
-      description: "Anything visual that helps."
+      label: Screenshots or recordings
+      description: Add visual evidence when it helps explain the problem.
 
   - type: textarea
     id: logs
     attributes:
-      label: Logs (optional)
-      description: "Paste relevant logs."
+      label: Logs
+      description: Paste relevant redacted logs. Do not include credentials, URLs with tokens, prompts, or private file contents.
       render: shell

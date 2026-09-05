@@ -1,16 +1,33 @@
 # Contributing to PiChamber
 
-> **Not accepting contributions right now.**
->
-> PiChamber is in a very early phase of my port to [pi](https://pi.dev). At this
-> stage, contributions might hurt more than they help — the codebase is changing
-> quickly and much of it is likely to be reworked. If you still want to
-> contribute, you're welcome to, but please be patient: it may take a while for
-> me to get back to you.
+PiChamber is open to contributions. It is a Pi-native workspace with web,
+desktop, hosted-mobile, and Capacitor mobile clients. The Pi SDK owns sessions,
+providers, prompts, skills, extensions, and the session daemon. PiChamber owns
+the workspace UI, server lifecycle, authentication, device connections, relay,
+and native shells.
 
-PiChamber is a community fork of [OpenChamber](https://github.com/openchamber/openchamber). Development setup and contribution guidelines are largely the same as upstream; this guide focuses on the PiChamber-specific changes.
+Please open an issue or discussion before starting a large feature. Small fixes,
+documentation improvements, tests, and platform reports are welcome without a
+proposal.
 
-## Getting Started
+## Prerequisites
+
+- Bun 1.3.14, as declared by the root `package.json`
+- Node.js 22 or newer
+- Git
+- A supported operating system for the package you are changing
+
+You do not need to install a separate Pi CLI for development. The web package
+uses the pinned Pi SDK dependency and the desktop app starts the web server in
+its own Electron process.
+
+Desktop packaging has extra platform requirements. Read
+[`packages/electron/README.md`](./packages/electron/README.md) before packaging.
+Mobile development needs Xcode, CocoaPods, JDK 21, and Android SDK 35. Read
+[`packages/mobile/README.md`](./packages/mobile/README.md) before building a
+native app.
+
+## Get the repository ready
 
 ```bash
 git clone https://github.com/RyderAsKing/PiChamber.git
@@ -18,254 +35,213 @@ cd PiChamber
 bun install
 ```
 
-## Dev Scripts
+Run commands from the repository root unless a section says otherwise.
 
-Run commands from the project root unless a section says otherwise.
+## Development commands
 
 ### Web
 
-| Script | Description | Ports |
-|--------|-------------|-------|
-| `bun run dev` | Default web HMR dev flow. | auto-selected dev ports |
-| `bun run dev:web:full` | Build watcher + Express server. No HMR — manual refresh after changes. | `3001` (server + static) |
-| `bun run dev:web:hmr` | Vite dev server + Express API. **Open the Vite URL for HMR**, not the backend. | `5180` (Vite HMR), `3902` (API) |
-| `bun run start:web` | Start the packaged web server. | `3000` by default |
+| Command | Use | Default endpoint |
+| --- | --- | --- |
+| `bun run dev` | Vite HMR UI plus the API server | UI `5180`, API `3902` |
+| `bun run dev:web:full` | Build watcher plus the static Express server | `3001` |
+| `bun run dev:web:hmr` | The same HMR flow as `dev` | UI `5180`, API `3902` |
+| `bun run start:web` | Start the packaged web server | `3000` |
+| `bun run stop` | Stop a local PiChamber server managed by the CLI | Depends on the instance |
 
-Both are configurable via env vars: `PICHAMBER_PORT`, `PICHAMBER_HMR_UI_PORT`, `PICHAMBER_HMR_API_PORT`.
+Open the UI URL printed by `bun run dev`. The API endpoint is not the HMR
+page. Set `PICHAMBER_HMR_UI_PORT`, `PICHAMBER_HMR_API_PORT`, or
+`PICHAMBER_HMR_HOST` when the defaults do not fit your setup.
 
-### Desktop (Electron)
+Lower-level watchers are also available as `bun run dev:web` for the web build
+and `bun run dev:web:server` for the server. Most contributors should use
+`bun run dev`.
+
+### Desktop
 
 ```bash
-bun run electron:dev          # HMR web UI + Electron shell
-bun run electron:dev:bundled  # Electron shell using built web assets
-bun run electron:build        # Package desktop app for the current platform
+bun run electron:dev
+bun run electron:dev:bundled
+bun run electron:build
 ```
 
-Desktop supports macOS, Windows, and Linux. The build output is written to `packages/electron/dist`.
+`electron:dev` uses the HMR UI. `electron:dev:bundled` uses built web assets.
+`electron:build` packages the current operating system and writes artifacts to
+`packages/electron/dist`.
 
-macOS builds create `dmg` and `zip` files. You need Xcode/build tools for notarized packaging and icon asset work.
+Desktop targets are macOS, Windows, and Linux. macOS produces DMG and ZIP
+artifacts, Windows produces an NSIS installer, and Linux produces an AppImage
+for the native x64 or arm64 host. Unsigned local installers are expected when
+signing credentials are not configured.
 
-Windows builds create an NSIS installer. If signing env vars are not set, the build script makes an unsigned installer.
+### Shared UI
 
-Linux builds produce an AppImage for the native x64 or arm64 host.
-
-For desktop-specific details, see [`packages/electron/README.md`](./packages/electron/README.md).
-
-### Shared UI (`packages/ui`)
-
-No standalone app server. This is a source-level library used by Web and Desktop.
-
-Useful package commands:
+`packages/ui` is a source-level library used by the web and desktop runtimes.
+It has no standalone server.
 
 ```bash
 bun run build:ui
 bun run type-check:ui
 bun run lint:ui
+bun run test:ui
 ```
 
-## Build And Package Commands
+### Mobile
 
-| Command | What it does |
-|---------|--------------|
-| `bun run build` | Build all workspaces |
-| `bun run build:web` | Build only `packages/web` |
-| `bun run build:ui` | Build only `packages/ui` |
-| `bun run build:electron` | Run Electron package build script without full packaging |
-| `bun run electron:build` | Build packaged desktop app for the current OS |
-| `bun run pack:web` | Create a package archive for `@pi-chamber/web` |
-
-## Platform Build Notes
-
-You usually build desktop installers on the target platform.
-
-macOS:
+The Capacitor app connects to an existing PiChamber server. It does not start a
+local Pi daemon on the phone or tablet.
 
 ```bash
-bun run electron:build
-bun run release:test:intel
-bun run release:test:arm
+bun run mobile:build
+bun run mobile:sync
+bun run mobile:build:android:debug
+bun run mobile:build:ios:simulator
+bun run mobile:sim:run
 ```
 
-Windows:
+Use the simulator helpers in the `serve-sim` skill for headless iOS work. The
+mobile package README contains Android device commands and platform setup.
 
-```bash
-bun run electron:build
-```
+### Documentation
 
-Linux x64 and arm64 AppImages are packaged natively on the matching host architecture. Use Bun for dependency installation and packaging orchestration:
-
-```bash
-PICHAMBER_TARGET_ARCH=x64 bun run electron:build
-# On an arm64 host:
-PICHAMBER_TARGET_ARCH=arm64 bun run electron:build
-
-bun run --cwd packages/electron verify:linux-appimage
-```
-
-The final AppImage verifier checks desktop identity and the architecture of Electron and packaged native modules.
-
-## Desktop releases
-
-PiChamber's public GitHub Release path is **Electron desktop** (macOS, Windows, Linux AppImage) plus a signed **Android APK/AAB** on version tags. npm (`@pi-chamber/web`) stays opt-in via the **Release** workflow (`publish_npm`). Store a granular npm **Automation** token as the `NPM_TOKEN` Actions secret; it must be allowed to publish the `pi-chamber` org. iOS TestFlight stays opt-in via the Mobile Release workflow.
-
-To cut a version:
-
-1. Bump workspace versions: `bun run version:bump 0.1.0` (does not bump `packages/mobile`).
-2. Move notes from `CHANGELOG.md` `[Unreleased]` into a `## [0.1.0] - YYYY-MM-DD` section. The release workflow fails if that heading is missing.
-3. Merge the bump to `main`.
-4. Push tag `v0.1.0`, or run the **Release** workflow with `version=0.1.0`. Tag pushes skip npm and skip iOS; they do build and upload the Android APK. To publish `@pi-chamber/web`, dispatch the workflow once with `publish_npm=true` instead of also pushing the tag.
-
-The npm job validates every release manifest against the requested version, publishes the same tarball that it attaches to the GitHub Release, and verifies that tarball against npm's SHA-512 integrity metadata, SHA-1 shasum, and registry download. The draft GitHub Release is published after macOS, Windows, and Linux desktop jobs succeed. The Android APK job runs in parallel and uploads onto the same tag.
-
-macOS signing uses `APPLE_CERTIFICATE` (base64-encoded Developer ID `.p12`) and `APPLE_CERTIFICATE_PASSWORD`. If those secrets are missing or not a readable PKCS#12, CI builds **unsigned** macOS artifacts and skips notarization instead of failing. Gatekeeper will warn until a valid Developer ID is stored:
-
-```bash
-base64 -i DeveloperID.p12 | pbcopy
-```
-
-## Before Submitting
-
-```bash
-bun run type-check   # Must pass
-bun run lint         # Must pass
-bun run build        # Must succeed
-```
-
-For docs-only changes, validation may be enough:
+The source of truth for public docs is
+`packages/docs/content/docs/`. Validate it with:
 
 ```bash
 bun run docs:validate
 ```
 
-## Code Style
+The docs website is maintained in the separate `pichamber-website` repository.
+Do not edit generated website copies in this repository.
 
-- Functional React components only
-- TypeScript strict mode — no `any` without justification
-- Use existing theme colors/typography from `packages/ui/src/lib/theme/` — don't add new ones
-- Components must support light and dark themes
-- Prefer early returns and `if/else`/`switch` over nested ternaries
-- Tailwind v4 for styling; typography via `packages/ui/src/lib/typography.ts`
+## Validation
 
-## Pull Requests
+Use the narrowest checks that cover your change. The common workspace checks
+are:
 
-Pull requests are review handoffs, not just diffs. A reviewer must be able to
-understand the intended behavior, assess the risk, and verify the result
-without reconstructing the contributor's work.
-
-Before opening a pull request:
-
-1. Read [`AGENTS.md`](./AGENTS.md), every project skill matching the character
-   of the change, and the nearest package README and module `DOCUMENTATION.md`.
-2. Keep the change focused. Separate unrelated cleanup or refactors.
-3. Run the validation required by the applicable project guidance, not only
-   the broad commands above.
-4. Complete the pull request template with concrete, current evidence.
-
-### Pull Request Contract
-
-Every pull request must explain:
-
-- **Intent:** the user or maintainer problem being solved and the resulting
-  behavior.
-- **Non-goals:** nearby behavior intentionally left unchanged when the scope
-  could otherwise be ambiguous.
-- **Affected surfaces:** packages, runtimes, persisted/external contracts, and
-  user-visible states affected by the change.
-- **Repository guidance:** the skills and owning documentation that were
-  applicable, why they applied, and how the implementation satisfies their
-  important constraints.
-- **Validation:** exact automated and manual checks performed, their result,
-  and anything that was not verified. A command name without a result is not
-  evidence.
-- **Risk and failure behavior:** meaningful failure, rollback, cleanup,
-  compatibility, security, performance, or cross-runtime considerations.
-
-Do not claim a runtime, platform, relay path, performance characteristic, or
-interaction is correct based only on type-checking or linting. If required
-validation could not be performed, state that explicitly and explain why.
-
-### Visual Evidence
-
-User-visible changes require evidence that lets a reviewer compare the
-behavior before and after the change. Attach screenshots for static states and
-a short recording for motion, gestures, drag-and-drop, focus, or multi-step
-interactions.
-
-Claims about performance, memory, CPU, rendering, startup, or similar empirical
-behavior require relevant before and after measurements.
-
-Choose evidence based on the affected behavior:
-
-- Include before and after states. If a meaningful before state cannot be
-  captured, explain why.
-- Include narrow/mobile and desktop states when shared or responsive UI is
-  affected.
-- Include light and dark states when colors, styling, surfaces, or visual
-  states change.
-- Include relevant loading, empty, error, disabled, long-content, or
-  high-contrast states when the change affects them.
-- For Settings changes, show the relevant narrow and wide settings pane states.
-
-Evidence must represent the current pull request HEAD. After implementation
-changes that can affect the demonstrated behavior, refresh the evidence or
-state why it remains valid. If there is genuinely no user-visible change, say
-so and provide a concrete reason; deleting the evidence section is not an
-exemption.
-
-### Review Enforcement
-
-The automated reviewer performs one unified review of correctness, repository
-guidance compliance, pull request quality, and evidence. It independently
-determines which project skills apply from the character of the current diff,
-reads those skills and their required references, and checks the implementation
-against them.
-
-The reviewer records the exact HEAD it inspected and returns one verdict:
-
-- `PASS`: no blocking correctness, compliance, or evidence issue was found.
-- `NEEDS_EVIDENCE`: no correctness, repository-guidance, or contribution-contract
-  blocker was found, but a required screenshot, interaction recording, or
-  empirical measurement is missing, stale, contradictory, or inadequate.
-- `BLOCKED`: a concrete correctness, security, repository-rule, or contribution
-  contract violation must be fixed.
-- `HUMAN_REVIEW_REQUIRED`: the change affects review policy or another boundary
-  that automation must not approve on its own.
-
-The workflow exposes the current state as exactly one readiness label:
-`review:pending`, `review:ready`, `review:needs-evidence`, `review:blocked`,
-`review:human-required`, or `review:automation-failed`. A new review removes
-the previous readiness label before it starts, and only `review:ready` means
-the pull request is ready to enter the maintainer review queue. Draft pull
-requests have no readiness label.
-
-AI review verdicts are advisory and never fail the pull request check. Readiness
-is communicated only through the `review:*` label and immutable review comment.
-The `automation` job fails only when the workflow itself cannot complete or
-verify a trustworthy result, in which case it applies `review:automation-failed`.
-
-Each completed review creates a new comment tied to its reviewed HEAD so the
-conversation remains chronological. Previous review comments are not rewritten.
-
-## Project Structure
-
-```
-packages/
-  ui/        Shared React components, hooks, stores, and theme system
-  web/       Web server (Express) + frontend (Vite) + CLI
-  electron/  Electron desktop shell
+```bash
+bun run type-check
+bun run lint
+bun run test
+bun run build
 ```
 
-See [AGENTS.md](./AGENTS.md) for detailed architecture reference.
+`bun run test` runs the web, UI, and Electron unit suites. Mobile has package
+scoped type-check and lint scripts, while native builds are validated through
+the mobile workflows or platform tools.
 
-## Not a developer?
+Useful focused commands include:
 
-You can still help (though during this early phase, it may take a while for issues and discussions to get a response):
+```bash
+bun run --cwd packages/web test -- bin/cli.test.js
+bun run --cwd packages/electron test:architecture
+bun run --cwd packages/electron test:updater
+bun run docs:validate
+bun run dead-code
+```
 
-- Report bugs or UX issues — even "this felt confusing" is valuable feedback
-- Test on different devices, browsers, or OS versions
-- Suggest features or improvements via issues
-- Help others in Discord
+`dead-code` is non-blocking. Read its report when you add, delete, rename, or
+change exports. `bun run doctor` checks the React source tree for common issues.
 
-## Questions?
+Before a release, `bun run release:prepare` runs the build, type-check, and lint
+steps. `bun run release:test` exercises the native macOS Electron packaging
+path. Windows and Linux packaging run on their native GitHub Actions runners;
+use the desktop smoke workflow for those targets.
 
-Open an [issue](https://github.com/RyderAsKing/PiChamber/issues) or start a [discussion](https://github.com/RyderAsKing/PiChamber/discussions). For upstream OpenChamber questions, the original project maintains its own community channels.
+## Code and documentation conventions
+
+- Keep Pi behavior behind the Pi client and `/api/pi/*` contracts. Do not
+  recreate Pi session or provider logic in shared UI code.
+- Keep runtime-specific behavior explicit for web, desktop, hosted mobile, and
+  Capacitor mobile.
+- Keep Electron entrypoints and preload bridges thin. Enforce privileged
+  operations in the main process.
+- Use strict TypeScript and avoid `any` without a concrete reason.
+- Reuse the existing semantic theme tokens, shared buttons, and sprite icons.
+- Keep components compatible with light and dark themes.
+- Prefer early returns and focused modules over deep nesting.
+- Do not add dependencies unless the change needs one and the dependency is
+  discussed in the pull request.
+- Update the nearest `DOCUMENTATION.md`, package README, or public docs when a
+  contract or ownership rule changes.
+- Do not add secrets, bearer tokens, pairing credentials, or user session data
+  to source, tests, screenshots, logs, or issues.
+
+Before editing, read [`AGENTS.md`](./AGENTS.md), the nearest package README and
+module documentation, and every matching skill under `.agents/skills/`.
+
+## Pull requests
+
+A pull request should be easy to review without reconstructing the intent from
+the diff.
+
+Before opening one:
+
+1. Keep the change focused. Separate unrelated cleanup.
+2. Read the repository guidance that applies to the changed packages and
+   runtimes.
+3. Run the focused validation plus any broader check required by the affected
+   contract.
+4. Complete [the pull request template](.github/PULL_REQUEST_TEMPLATE.md) with
+   current evidence.
+
+Describe all of the following:
+
+- **Intent:** the problem and the resulting behavior
+- **Non-goals:** nearby behavior intentionally left unchanged
+- **Affected surfaces:** packages, runtimes, persisted data, routes, CLI output,
+  or other external contracts
+- **Repository guidance:** which skills and owning docs applied, and how the
+  change follows them
+- **Validation:** exact commands, results, and anything not verified
+- **Risk and failure behavior:** compatibility, security, cleanup, rollback,
+  performance, and partial-failure behavior where relevant
+
+User-visible changes need current visual evidence. Use screenshots for static
+states and a short recording for motion, focus, gestures, drag-and-drop, or
+multi-step interactions. Include narrow and wide layouts, light and dark themes,
+and loading or error states when they are part of the change. For docs-only or
+non-rendered changes, explain why visual evidence is not applicable.
+
+## Release process
+
+The desktop release workflow builds macOS, Windows, and Linux artifacts. A tag
+also builds the Android release artifact. Publishing `@pi-chamber/web` is
+explicit through the Release workflow, and iOS TestFlight uses the separate
+Mobile Release workflow.
+
+To prepare version `X.Y.Z`:
+
+1. Run `bun run version:bump X.Y.Z`. This updates the root, UI, web, and
+   Electron manifests. It intentionally does not change `packages/mobile`.
+2. Move the notes from `CHANGELOG.md` under `[Unreleased]` into a dated heading
+   exactly named `## [X.Y.Z] - YYYY-MM-DD`.
+3. Run `bun run release:prepare`, `bun run docs:validate`, and the focused
+   release checks for the platforms being published.
+4. Merge the release commit to `main`.
+5. Push `vX.Y.Z`, or dispatch the **Release** workflow with `version=X.Y.Z`.
+
+A tag builds and uploads desktop artifacts and Android artifacts. To publish the
+npm package, dispatch the workflow with `publish_npm=true`. To build Android
+from a manual dispatch, enable `publish_mobile`. The root release workflow does
+not upload iOS; use **Mobile Release** for TestFlight.
+
+The release workflow creates a draft, checks the changelog and package
+versions, verifies updater manifests, and publishes the draft after the desktop
+jobs succeed. Review the draft assets before making the release public.
+
+Release credentials are configured only in GitHub Actions secrets. Depending on
+the artifacts being published, the workflows use Apple signing and notarization
+secrets, `NPM_TOKEN`, Android signing secrets, iOS provisioning and App Store
+Connect secrets, and `PICHAMBER_WEBSITE_REPO_TOKEN`. Never put their values in a
+commit or issue.
+
+See [`docs/PUBLIC_RELEASE.md`](docs/PUBLIC_RELEASE.md) for launch announcement
+drafts.
+
+## Community and support
+
+- Report reproducible bugs with the [bug report template](https://github.com/RyderAsKing/PiChamber/issues/new?template=bug_report.yml).
+- Propose features with the [feature template](https://github.com/RyderAsKing/PiChamber/issues/new?template=feature_request.yml).
+- Ask questions in [GitHub Discussions](https://github.com/RyderAsKing/PiChamber/discussions).
+- Report security issues using [SECURITY.md](./SECURITY.md), not a public issue.

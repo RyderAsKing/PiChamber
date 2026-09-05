@@ -7,7 +7,7 @@ compatibility: pichamber
 
 ## Overview
 
-PiChamber has a private relay: a client (mobile app, browser, another desktop) reaches a user's instance through an PiChamber-hosted relay over an **end-to-end encrypted tunnel**. All of the app's traffic — many HTTP requests, the event stream (SSE), and WebSockets (terminal, dictation) — is multiplexed and encrypted through **one** connection per client.
+PiChamber has a private relay: a client (mobile app, browser, or another desktop) reaches a user's instance through a PiChamber-hosted relay over an **end-to-end encrypted tunnel**. All of the app's traffic — many HTTP requests, the event stream (SSE), and WebSockets (terminal, dictation) — is multiplexed and encrypted through **one** connection per client.
 
 Architecture overview: `packages/web/server/lib/relay/DOCUMENTATION.md`. Code: `packages/ui/src/lib/relay/` (client + shared, TS) and `packages/web/server/lib/relay/` (host, JS).
 
@@ -22,7 +22,7 @@ Architecture overview: `packages/web/server/lib/relay/DOCUMENTATION.md`. Code: `
 
 ## Rules for adding or changing a WebSocket endpoint
 
-Adding a new WS endpoint (or porting one, e.g. the planned terminal port) requires ALL of these, or it breaks over the relay:
+Adding a new WS endpoint or changing an existing one requires ALL of these, or it breaks over the relay:
 
 1. **Open it via `openRuntimeWebSocket`** (`packages/ui/src/lib/relay/runtime-socket.ts`), never `new WebSocket(...)` directly. A raw `new WebSocket` against a runtime URL fails in relay mode (the resolver yields a tunnel-virtual/custom-scheme URL the platform rejects — surfaced as "The string did not match the expected pattern").
 2. **Add the path to BOTH allowlists** (they are separate and both required):

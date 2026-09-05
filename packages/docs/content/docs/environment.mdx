@@ -5,6 +5,4 @@ description: Configure PiChamber server hosting behavior.
 
 PiChamber binds to `127.0.0.1` by default. Use `PICHAMBER_HOST=0.0.0.0` only behind an authentication boundary; set `PICHAMBER_UI_PASSWORD` for network-exposed servers.
 
-> Legacy `PICHAMBER_HOST` / `PICHAMBER_UI_PASSWORD` spellings are still honored.
-
 Pi configuration stays in Pi's normal agent directory, including `auth.json`, `settings.json`, `models.json`, sessions, skills, prompts, and `AGENTS.md`. PiChamber does not copy stored provider credentials into its own settings.

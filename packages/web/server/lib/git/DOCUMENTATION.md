@@ -125,7 +125,7 @@ The following functions are internal helpers used by exported functions:
 Authenticated `GET /api/git/worktrees`, `POST /api/git/worktrees/validate`, `POST /api/git/worktrees`, `DELETE /api/git/worktrees`, and `GET /api/git/worktrees/bootstrap-status` expose worktree discovery and lifecycle operations to the shared web runtime. Electron, hosted mobile, and Capacitor clients use the same server implementation. The delete route requires a registered non-primary worktree and only forces removal when the caller explicitly sends `force: true`; the shared UI obtains confirmation for dirty files and refuses removal while a session is active. The user-facing route never deletes local branches, so unpushed commits remain recoverable.
 
 ### Runtime availability of range diffs
-- `GET /api/git/range-diff` is served by the PiChamber web server, so it is available to web, desktop, and mobile clients. The shared `GitAPI.getGitRangeDiff` is therefore optional: web supplies the HTTP implementation, and VS Code does not implement it because the extension host serves Git through its own bridge rather than these routes. Features built on range diffs (currently the AI diff walkthrough) are not offered in VS Code.
+- `GET /api/git/range-diff` is served by the PiChamber web server, so it is available to web, desktop, hosted mobile, and Capacitor clients. The shared `GitAPI.getGitRangeDiff` is optional because the web runtime supplies the HTTP implementation.
 
 ### Staged and unstaged change handling
 - `status.files` exposes both `index` and `working_dir` codes. Shared UI uses these as separate scopes: staged rows are derived from non-empty `index` statuses, while unstaged rows are derived from `working_dir` statuses and untracked files.

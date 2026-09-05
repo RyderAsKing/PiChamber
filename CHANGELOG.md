@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- **Documentation:** refreshed contributor setup, release guidance, security reporting, reverse-proxy requirements, mobile/runtime docs, and public launch materials for the Pi-native product.
+- **Maintenance:** removed stale OpenChamber-era release tooling and runtime guidance, corrected desktop smoke defaults, and updated project skills to describe the current web, desktop, hosted-mobile, and Capacitor runtimes.
+
 ## [0.9.0] - 2026-09-05
 
 Terminal renderer, guided CLI flows, Git header consolidation, and desktop performance recording release.

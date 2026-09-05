@@ -35,7 +35,7 @@ Windows desktop uses the same Pi SDK as the [Pi CLI](https://pi.dev/docs/latest)
 
 Desktop PNG/ICO/ICNS brand assets, web favicons, and mobile launcher/splash PNGs are generated from the PiChamber SVG mark with `bun run icons:brand`. The macOS 26 `Assets.car` catalog still requires `bun run --cwd packages/electron generate:macos-icon` on a Mac with Xcode.
 
-GitHub Releases for this package are produced by `.github/workflows/release.yml`. Desktop is the default published artifact; npm and mobile jobs stay disabled unless a workflow dispatch explicitly enables them. See `CONTRIBUTING.md` for the version/tag steps.
+GitHub Releases for this package are produced by `.github/workflows/release.yml`. Desktop artifacts are built on every release. Android artifacts are built for version tags and can be enabled on a manual dispatch; npm publication is opt-in, and iOS TestFlight uses the separate Mobile Release workflow. See `CONTRIBUTING.md` for the version and tag steps.
 
 macOS notarized builds need `APPLE_CERTIFICATE` as base64 of a Developer ID Application `.p12`. Missing or unreadable certificates produce unsigned `.dmg`/`.zip` files instead of failing the job.
 

@@ -11,7 +11,7 @@ on:
       ref:
         description: Git ref to build (branch, tag, or sha)
         required: true
-        default: feat/windows-desktop-app
+        default: main
         type: string
       build_macos:
         description: Build signed/notarized macOS Electron artifacts
@@ -199,11 +199,6 @@ jobs:
       - name: Build web assets
         working-directory: packages/electron
         run: bun run build:web-assets
-
-      - name: Prepare bundled OpenCode CLI
-        working-directory: packages/electron
-        shell: bash
-        run: |
 
       - name: Bundle main process
         working-directory: packages/electron

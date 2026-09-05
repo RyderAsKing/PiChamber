@@ -1,22 +1,37 @@
 name: Feature request
-description: Suggest an improvement
+description: Suggest a focused improvement
 title: "[Feature Request] "
 labels: [enhancement]
 body:
   - type: textarea
     id: request
     attributes:
-      label: What should we add/change?
-      description: What you're trying to do + what you'd like to happen.
+      label: What should we add or change?
+      description: Explain what you are trying to do and what outcome you want.
       placeholder: |
-        I'm trying to …
+        I am trying to …
 
-        It would be great if PiChamber …
+        It would help if PiChamber …
+    validations:
+      required: true
+
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Which runtime should this affect?
+      options:
+        - Shared UI and server
+        - Desktop
+        - Browser or hosted mobile
+        - Capacitor mobile
+        - Server or CLI
+        - Documentation
+        - Not sure
     validations:
       required: true
 
   - type: textarea
     id: context
     attributes:
-      label: Extra context (optional)
-      description: Links, screenshots, mockups, constraints, etc.
+      label: Extra context
+      description: Add links, screenshots, mockups, constraints, or alternatives you considered.

@@ -52,5 +52,5 @@ the `openContext*` actions in `useUIStore`.
   remount on switch and must restore themselves from their stores/snapshots
   instead. Git embeds a stacked diff list of changed files, collapsed until
   the user expands a file.
-- Runtime scope: desktop/web `MainLayout` only. VS Code and the dedicated
-  mobile shell have their own layouts and do not consume this registry.
+- Runtime scope: desktop/web `MainLayout` only. The dedicated Capacitor mobile
+  shell has its own layout and does not consume this registry.

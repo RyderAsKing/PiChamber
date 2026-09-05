@@ -9,6 +9,13 @@ Start a local server:
 pichamber serve --ui-password "choose-a-strong-password"
 ```
 
-Open the reported local URL in a browser. The first request starts the private Pi session daemon; PiChamber then loads your normal Pi agent configuration and sessions.
+Open the URL printed by the command. The server starts its private Pi session
+daemon and loads the Pi configuration and sessions belonging to that host.
 
-Use `--lan` only on a trusted network and always set `--ui-password` when exposing the server beyond localhost.
+Use `--lan` only on a trusted network. Always set `--ui-password` when the
+server can be reached by another device. To pair a phone or another browser,
+run `pichamber connect-url --qr` on the server and scan the one-time link.
+
+You should land on the PiChamber session list and be able to start a new Pi
+session. If the browser reports that Pi is unavailable, see
+[Troubleshooting](/troubleshooting/).
