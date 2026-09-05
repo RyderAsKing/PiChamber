@@ -3,6 +3,7 @@ import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { resolvePiChamberDataDir } from '../pichamber-data-dir.js';
+import { withCrossProcessLock } from '../server/cross-process-lock.js';
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_KEY_LENGTH = 2_048;
@@ -57,7 +58,24 @@ export const createPiSessionFoldersStore = ({
 
   const write = async (value) => {
     const snapshot = validateSnapshot(value);
-    const operation = mutation.then(async () => {
+    const operation = mutation.then(async () => withCrossProcessLock(`${file}.lock`, async () => {
+      // Stale snapshots must not silently overwrite newer folders: concurrent
+      // servers share this file and only the lock serializes them.
+      try {
+        const raw = await fs.readFile(file, 'utf8');
+        const current = validateSnapshot(JSON.parse(raw));
+        const sameRevision = current.updatedAt === snapshot.updatedAt;
+        const sameSnapshot = sameRevision && JSON.stringify(current) === JSON.stringify(snapshot);
+        if (current.updatedAt > snapshot.updatedAt || (sameRevision && !sameSnapshot)) {
+          const stale = new Error('SESSION_FOLDERS_STALE');
+          stale.code = 'SESSION_FOLDERS_STALE';
+          throw stale;
+        }
+        if (sameSnapshot) return { exists: true, ...current };
+      } catch (error) {
+        if (error?.code === 'ENOENT') { /* first write wins */ } else if (error?.code === 'SESSION_FOLDERS_STALE') throw error;
+        else throw invalid();
+      }
       const parent = dirname(file);
       await fs.mkdir(parent, { recursive: true, mode: 0o700 });
       const temporary = `${file}.tmp-${process.pid}-${randomUUID()}`;
@@ -65,7 +83,7 @@ export const createPiSessionFoldersStore = ({
       await fs.rename(temporary, file);
       if (process.platform !== 'win32') await fs.chmod(file, 0o600);
       return { exists: true, ...snapshot };
-    });
+    }));
     mutation = operation.catch(() => {});
     return operation;
   };

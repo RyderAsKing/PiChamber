@@ -10,6 +10,7 @@ import {
 import { dirname, isAbsolute, join, normalize } from "node:path";
 
 import { resolvePiChamberDataDir } from "../pichamber-data-dir.js";
+import { withCrossProcessLock } from "../server/cross-process-lock.js";
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_CONTENT_CHARS = 200_000;
@@ -238,7 +239,9 @@ export const createPiSnippetsStore = ({
   };
 
   const transact = (operation) => {
-    const pending = mutation.then(operation);
+    // The in-process chain orders one server; the file lock orders every
+    // server sharing this data directory.
+    const pending = mutation.then(() => withCrossProcessLock(`${file}.lock`, operation));
     mutation = pending.catch(() => {});
     return pending;
   };

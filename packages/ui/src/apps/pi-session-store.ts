@@ -65,6 +65,7 @@ import {
   lifecycleFromEvent,
   asError,
   isInvalidSessionError,
+  isSessionInUseError,
   isSessionRuntimeConflictError,
   delayBeforeRetry,
   initialSessionStoreState,
@@ -82,6 +83,7 @@ export {
   lifecycleFromEvent,
   asError,
   isInvalidSessionError,
+  isSessionInUseError,
   isSessionRuntimeConflictError,
   delayBeforeRetry,
 };
@@ -1685,7 +1687,7 @@ export class PiSessionStore {
           // gone so a stale deep link cannot block the rest of the runtime.
           this.stream = bootstrap.stream;
           ready = true;
-          if (expected === this.runtimeGeneration && isInvalidSessionError(error)) {
+          if (expected === this.runtimeGeneration && (isInvalidSessionError(error) || isSessionInUseError(error))) {
             this.failSessionLoad(sessionId, error);
             return;
           }
@@ -1707,7 +1709,7 @@ export class PiSessionStore {
       ready = true;
     } catch (error) {
       if (expected !== this.runtimeGeneration) return;
-      if (isInvalidSessionError(error)) {
+      if (isInvalidSessionError(error) || isSessionInUseError(error)) {
         this.failSessionLoad(sessionId, error);
         return;
       }

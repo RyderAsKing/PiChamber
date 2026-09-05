@@ -8,6 +8,10 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
 const useDetachedChildren = process.platform === 'darwin' || process.platform === 'linux';
 
+// Development launches use their own daemon namespace so stopping a dev
+// server can never terminate the installed server's daemon.
+process.env.PICHAMBER_SERVER_PROFILE_KIND ??= 'dev';
+
 function run(label, command, args, options = {}) {
   const child = spawn(command, args, {
     cwd: repoRoot,

@@ -52,7 +52,14 @@ export const createTunnelService = ({
   const writeTokenStore = (token, hostname) => {
     try {
       fs.mkdirSync(path.dirname(tokenPath), { recursive: true, mode: 0o700 });
-      fs.writeFileSync(tokenPath, JSON.stringify({ token, hostname }), { mode: 0o600 });
+      // Atomic replace so a concurrent server never reads a torn token.
+      const temporary = `${tokenPath}.tmp-${process.pid}-${Date.now()}`;
+      try {
+        fs.writeFileSync(temporary, JSON.stringify({ token, hostname }), { mode: 0o600 });
+        fs.renameSync(temporary, tokenPath);
+      } catch {
+        try { fs.rmSync(temporary, { force: true }); } catch {}
+      }
     } catch {}
   };
 

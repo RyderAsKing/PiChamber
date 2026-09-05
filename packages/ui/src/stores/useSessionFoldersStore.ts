@@ -52,6 +52,7 @@ const immediateSafeStorage = getSafeStorage();
 let diskWriteTimer: ReturnType<typeof setTimeout> | null = null;
 let diskHydrated = false;
 let diskHydrationInFlight = false;
+let diskRehydrateRequested = false;
 let persistFoldersTimer: ReturnType<typeof setTimeout> | undefined;
 let persistCollapsedTimer: ReturnType<typeof setTimeout> | undefined;
 let pendingFoldersMap: SessionFoldersMap | null = null;
@@ -134,6 +135,14 @@ const schedulePersistToDisk = (foldersMap: SessionFoldersMap, collapsedFolderIds
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+    }).then((response) => {
+      if (response.status !== 409) return;
+      if (runtimeKey !== getRuntimeKey() || generation !== folderRuntimeGeneration) return;
+      // Another server committed the authoritative revision first. Re-read it
+      // instead of leaving this browser on a snapshot the server rejected.
+      diskHydrated = false;
+      diskRehydrateRequested = true;
+      void hydrateSessionFoldersFromDisk();
     }).catch(() => { /* best-effort */ });
   }, DISK_WRITE_DEBOUNCE_MS);
 };
@@ -322,6 +331,7 @@ export const useSessionFoldersStore = create<SessionFoldersStore>()(
         folderMutationRevision = 0;
         diskHydrated = false;
         diskHydrationInFlight = false;
+        diskRehydrateRequested = false;
         if (diskWriteTimer) clearTimeout(diskWriteTimer);
         diskWriteTimer = null;
         set({
@@ -595,10 +605,11 @@ export const useSessionFoldersStore = create<SessionFoldersStore>()(
 );
 
 const hydrateSessionFoldersFromDisk = async (): Promise<void> => {
-  if (diskHydrated || diskHydrationInFlight || typeof window === 'undefined') {
+  if (typeof window === 'undefined' || diskHydrationInFlight || (diskHydrated && !diskRehydrateRequested)) {
     return;
   }
 
+  diskRehydrateRequested = false;
   diskHydrationInFlight = true;
   const runtimeKey = activeFolderRuntimeKey;
   const generation = folderRuntimeGeneration;
@@ -653,6 +664,10 @@ const hydrateSessionFoldersFromDisk = async (): Promise<void> => {
     if (generation === folderRuntimeGeneration && runtimeKey === getRuntimeKey()) {
       diskHydrationInFlight = false;
       if (completed) diskHydrated = true;
+      if (diskRehydrateRequested) {
+        diskHydrated = false;
+        queueMicrotask(() => void hydrateSessionFoldersFromDisk());
+      }
     }
   }
 };

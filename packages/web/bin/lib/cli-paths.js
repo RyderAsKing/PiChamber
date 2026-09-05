@@ -56,6 +56,11 @@ function getLogFilePath(port) {
   return path.join(getLogsDir(), `pichamber-${port}.log`);
 }
 
+function getDaemonLogFilePath(profileKey) {
+  if (typeof profileKey !== 'string' || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(profileKey)) return null;
+  return path.join(getLogsDir(), `pi-daemon-${profileKey}.log`);
+}
+
 function getTunnelProfilesFilePath() {
   return path.join(getDataDir(), TUNNEL_PROFILES_FILE_NAME);
 }
@@ -120,6 +125,7 @@ export {
   readDesktopLocalClientTokenFromSettings,
   ensureLogsDir,
   getLogFilePath,
+  getDaemonLogFilePath,
   getTunnelProfilesFilePath,
   getLegacyCloudflareManagedRemoteFilePath,
   readLastManagedLocalConfigPath,

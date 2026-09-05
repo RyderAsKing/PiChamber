@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { resolvePiChamberDataDir } from '../pichamber-data-dir.js';
+import { withCrossProcessLock } from '../server/cross-process-lock.js';
 import { isPiThinkingLevel } from './thinking-levels.js';
 
 const invalidSettings = () => {
@@ -123,7 +124,7 @@ export const createPiSettingsStore = ({ file = join(resolvePiChamberDataDir(), '
 
   const update = async (patch) => {
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw invalidSettings();
-    const operation = writeChain.then(async () => {
+    const operation = writeChain.then(() => withCrossProcessLock(`${file}.lock`, async () => {
       const current = await read();
       const next = normalize({
         ...current,
@@ -141,7 +142,7 @@ export const createPiSettingsStore = ({ file = join(resolvePiChamberDataDir(), '
       await writeFile(temporary, JSON.stringify(next), { mode: 0o600 });
       await rename(temporary, file);
       return next;
-    });
+    }));
     writeChain = operation.catch(() => {});
     return operation;
   };

@@ -33,7 +33,16 @@ export function saveProfiles(data) {
   ensureStorageDir();
 
   try {
-    fs.writeFileSync(STORAGE_FILE, JSON.stringify(data, null, 2), 'utf8');
+    // Atomic replace so a concurrent server never reads a torn file. Identity
+    // edits remain last-writer-wins across servers.
+    const temporary = `${STORAGE_FILE}.tmp-${process.pid}-${Date.now()}`;
+    try {
+      fs.writeFileSync(temporary, JSON.stringify(data, null, 2), 'utf8');
+      fs.renameSync(temporary, STORAGE_FILE);
+    } catch (error) {
+      try { fs.rmSync(temporary, { force: true }); } catch {}
+      throw error;
+    }
     return true;
   } catch (error) {
     console.error('Failed to save git identity profiles:', error);

@@ -3,6 +3,7 @@ import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { resolvePiChamberDataDir } from '../pichamber-data-dir.js';
+import { withCrossProcessLock } from '../server/cross-process-lock.js';
 
 const MAX_SETTINGS_BYTES = 2 * 1024 * 1024;
 
@@ -47,7 +48,7 @@ export const createPiUiSettingsStore = ({
 
   const write = async (changes) => {
     validateRecord(changes);
-    const operation = mutation.then(async () => {
+    const operation = mutation.then(() => withCrossProcessLock(`${file}.lock`, async () => {
       const current = await read();
       const next = { ...current, ...changes };
       const serialized = `${JSON.stringify(next, null, 2)}\n`;
@@ -59,7 +60,7 @@ export const createPiUiSettingsStore = ({
       await fs.rename(temporary, file);
       if (process.platform !== 'win32') await fs.chmod(file, 0o600);
       return next;
-    });
+    }));
     mutation = operation.catch(() => {});
     return operation;
   };

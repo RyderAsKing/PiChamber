@@ -533,8 +533,14 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 							<div className="mx-auto mb-3 flex size-9 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--status-error)_10%,transparent)] text-[var(--status-error)]">
 								<Icon name="error-warning" className="size-4" />
 							</div>
-							<p className="typography-ui-label font-medium text-foreground">{"Session could not be loaded"}</p>
-							<p className="typography-meta mt-1 text-muted-foreground">{"Check the connection and try loading this session again."}</p>
+							<p className="typography-ui-label font-medium text-foreground">
+								{sessionMessageLoadState.errorCode === 'SESSION_IN_USE' ? "Session is open elsewhere" : "Session could not be loaded"}
+							</p>
+							<p className="typography-meta mt-1 text-muted-foreground">
+								{sessionMessageLoadState.errorCode === 'SESSION_IN_USE'
+									? "Another PiChamber instance is using this session. Close it there, then try again."
+									: "Check the connection and try loading this session again."}
+							</p>
 							<Button variant="outline" size="sm" className="mt-4" onClick={retrySessionLoad}>
 								{"Try again"}
 							</Button>

@@ -354,6 +354,9 @@ async function serveCommand(options) {
       });
 
       const resolvedPort = controller.getPort();
+      const resolvedProfileKey = typeof controller.getDaemonProfileKey === 'function'
+        ? controller.getDaemonProfileKey()
+        : null;
 
       // Write PID / instance files so status, stop, and restart can discover
       // this foreground instance the same way they discover daemon instances.
@@ -366,6 +369,7 @@ async function serveCommand(options) {
         launchMode: 'foreground',
         uiPassword: effectiveUiPassword,
         apiOnly: options.apiOnly === true,
+        ...(typeof resolvedProfileKey === 'string' && resolvedProfileKey.length > 0 ? { profileKey: resolvedProfileKey } : {}),
       }, emitNotice);
 
       if (isQuietMode(options)) {
@@ -455,8 +459,9 @@ async function serveCommand(options) {
     serveSpin?.start(`Starting PiChamber on port ${targetPort === 0 ? 'auto' : targetPort}...`);
 
     let resolvedPort;
+    let resolvedProfileKey = null;
     try {
-      resolvedPort = await new Promise((resolve, reject) => {
+      const ready = await new Promise((resolve, reject) => {
         let settled = false;
         const timeout = setTimeout(() => {
           if (settled) return;
@@ -469,7 +474,7 @@ async function serveCommand(options) {
           if (msg && msg.type === 'pichamber:ready' && typeof msg.port === 'number') {
             settled = true;
             clearTimeout(timeout);
-            resolve(msg.port);
+            resolve(msg);
           }
         });
 
@@ -487,6 +492,8 @@ async function serveCommand(options) {
           reject(new Error(`PiChamber daemon exited before reporting ready${signal ? ` (${signal})` : ` (code ${code ?? 'unknown'})`}`));
         });
       });
+      resolvedPort = ready.port;
+      resolvedProfileKey = typeof ready.profileKey === 'string' && ready.profileKey.length > 0 ? ready.profileKey : null;
     } catch (error) {
       await terminateProcessTree(child.pid, { gracefulTimeoutMs: 1500, forceTimeoutMs: 1500 });
       throw error;
@@ -526,6 +533,7 @@ async function serveCommand(options) {
       launchMode: 'daemon',
       uiPassword: effectiveUiPassword,
       apiOnly: options.apiOnly === true,
+      ...(resolvedProfileKey ? { profileKey: resolvedProfileKey } : {}),
     }, emitNotice);
 
     const serveResult = {

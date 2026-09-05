@@ -30,6 +30,8 @@ import { createMessageEntryAliases } from './message-entry-aliases.js';
 import { resolveEffectiveRetryLimitFromDataDir as resolveEffectiveRetryLimit } from './session-retry-limits.js';
 import { createSkillReadClassifier } from './skill-read-classifier.js';
 import { createSessionRuntimeRegistry } from './runtime-registry.js';
+import { acquireSessionLease, releaseSessionLease } from './session-lease.js';
+import { withCrossProcessLock } from '../../server/cross-process-lock.js';
 import {
   findPiSessionJsonlById,
   getPiSessionDirectory,
@@ -148,6 +150,14 @@ export function createSessionDaemon({
   agentDir = getAgentDir(),
   createRuntime: injectCreateRuntime,
   healthMetadata = {},
+  profileKey,
+  serverInstanceId,
+  serverPid,
+  daemonId,
+  daemonRuntime,
+  buildId,
+  onOwnershipClaim,
+  onShutdown,
   idleTimeoutMs = 5 * 60 * 1_000,
   listSessions = ({ cwd: sessionCwd, agentDir: sessionAgentDir = agentDir }) => listPiSessionJsonlDirectory({
     cwd: sessionCwd,
@@ -165,6 +175,14 @@ export function createSessionDaemon({
     manager.appendSessionInfo(title);
   },
   platform = process.platform,
+  isServerProcessAlive = (pid) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      return error?.code === 'EPERM';
+    }
+  },
 } = {}) {
   if (!isLocalSessionDaemonEndpoint(endpoint, platform)) {
     throw new SessionDaemonProtocolError('INVALID_ENDPOINT', 'The session daemon endpoint must be local.');
@@ -181,6 +199,45 @@ export function createSessionDaemon({
 
   let server;
   let runtime;
+  let ownerServerInstanceId = typeof serverInstanceId === 'string' && serverInstanceId.length > 0 ? serverInstanceId : null;
+  let ownerServerPid = Number.isInteger(serverPid) && serverPid > 0 ? serverPid : null;
+  const leaseOwner = () => {
+    if (typeof profileKey !== 'string' || profileKey.length === 0) return null;
+    if (typeof daemonId !== 'string' || daemonId.length === 0) return null;
+    if (typeof ownerServerInstanceId !== 'string' || ownerServerInstanceId.length === 0) return null;
+    return {
+      profileKey,
+      serverInstanceId: ownerServerInstanceId,
+      daemonId,
+      daemonPid: process.pid,
+    };
+  };
+  // Exclusive cross-daemon ownership of one resident session. The session
+  // stays visible in listings; contention reports SESSION_IN_USE instead of
+  // pretending the session is absent or idle.
+  const acquireResidentLease = async ({ cwd: leaseCwd, sessionId }) => {
+    const owner = leaseOwner();
+    if (!owner || typeof sessionId !== 'string' || sessionId.length === 0) return;
+    let result;
+    try {
+      result = await acquireSessionLease({ agentDir, cwd: leaseCwd, sessionId, owner });
+    } catch (error) {
+      throw new SessionDaemonProtocolError('SESSION_LEASE_UNAVAILABLE', 'The session ownership check is temporarily unavailable.');
+    }
+    if (!result.acquired) {
+      throw new SessionDaemonProtocolError('SESSION_IN_USE', 'Another PiChamber instance is currently using this session.');
+    }
+  };
+  const releaseResidentLease = async ({ cwd: leaseCwd, sessionId }) => {
+    const owner = leaseOwner();
+    if (!owner || typeof sessionId !== 'string' || sessionId.length === 0) return;
+    try {
+      await releaseSessionLease({ agentDir, cwd: leaseCwd, sessionId, owner });
+    } catch {
+      // Lease release is best-effort; a stale lease is reclaimable by the
+      // next owner once this daemon pid is dead.
+    }
+  };
   let runtimeRegistry;
   let runtimeStartPromise;
   let idleDisposeTimer;
@@ -435,6 +492,7 @@ export function createSessionDaemon({
     dormantSession = {
       sessionId,
       sessionFile: runtime.session.sessionManager?.getSessionFile?.(),
+      cwd: runtime.cwd || activeDirectory || cwd,
     };
   };
 
@@ -510,6 +568,19 @@ export function createSessionDaemon({
     await resourceReloadQueue.catch(() => {});
     resourceReloadsByRuntime.clear();
     clearExtensionState(undefined);
+    const leased = [];
+    try {
+      for (const tracked of runtimeRegistry?.listAll?.() ?? []) {
+        if (typeof tracked?.session?.sessionId === 'string') {
+          leased.push({ cwd: tracked.cwd || activeDirectory || cwd, sessionId: tracked.session.sessionId });
+        }
+      }
+    } catch {
+      // Registry enumeration must never block teardown.
+    }
+    if (runtime && typeof runtime.session?.sessionId === 'string') {
+      leased.push({ cwd: runtime.cwd || activeDirectory || cwd, sessionId: runtime.session.sessionId });
+    }
     if (runtimeRegistry) {
       const hadTrackedRuntime = runtimeRegistry.size > 0;
       await runtimeRegistry.disposeAll();
@@ -519,22 +590,39 @@ export function createSessionDaemon({
       await runtime?.dispose?.();
     }
     runtime = undefined;
+    for (const lease of leased) {
+      await releaseResidentLease(lease);
+    }
   };
 
   const startRuntime = async ({ cwd: runtimeCwd = activeDirectory || cwd, sessionFile } = {}) => {
     if (sessionFile) await validatePiSessionJsonlFile(sessionFile);
-    const newRuntime = await createRuntime({ cwd: runtimeCwd, agentDir, ...(sessionFile ? { sessionFile } : {}) });
+    const canonicalRuntimeCwd = sessionFile && dormantSession?.cwd
+      ? dormantSession.cwd
+      : runtimeCwd;
+    if (sessionFile && dormantSession?.sessionId) {
+      await acquireResidentLease({ cwd: canonicalRuntimeCwd, sessionId: dormantSession.sessionId });
+    }
+    let newRuntime;
+    try {
+      newRuntime = await createRuntime({ cwd: canonicalRuntimeCwd, agentDir, ...(sessionFile ? { sessionFile } : {}) });
+    } catch (error) {
+      if (sessionFile && dormantSession?.sessionId) {
+        await releaseResidentLease({ cwd: canonicalRuntimeCwd, sessionId: dormantSession.sessionId });
+      }
+      throw error;
+    }
     if (!newRuntime.cwd) {
-      newRuntime.cwd = runtimeCwd;
+      newRuntime.cwd = canonicalRuntimeCwd;
     }
     if (!runtimeRegistry) {
       runtimeRegistry = createSessionRuntimeRegistry({
         onSessionEvent: ({ cwd: eventCwd, sessionId: eventSessionId }, event) => publishSessionEvent(eventSessionId, event, eventCwd),
       });
     }
-    runtimeRegistry.register(newRuntime, { cwd: runtimeCwd });
+    runtimeRegistry.register(newRuntime, { cwd: canonicalRuntimeCwd });
     runtime = newRuntime;
-    activeDirectory = runtimeCwd;
+    activeDirectory = canonicalRuntimeCwd;
     rememberRuntimeSession();
     return newRuntime;
   };
@@ -643,6 +731,7 @@ export function createSessionDaemon({
       if (targetRuntime === runtime) rememberRuntimeSession();
       clearExtensionState(sessionId);
       await runtimeRegistry.dispose(targetRuntime);
+      await releaseResidentLease({ cwd: targetRuntime.cwd || activeDirectory || cwd, sessionId });
       shutdownRequestedBySession.delete(sessionId);
       compactionStateBySession.delete(sessionId);
       if (targetRuntime === runtime) runtime = undefined;
@@ -892,10 +981,17 @@ export function createSessionDaemon({
       return existingAnywhere;
     }
     const { target, directory } = await findPersistedSession(sessionId, requestedDirectory);
-    const newRuntime = await createRuntime({ cwd: directory, agentDir, sessionFile: target.path });
-    if (!newRuntime.cwd) newRuntime.cwd = directory;
-    if (newRuntime.session?.sessionId !== sessionId && typeof newRuntime.switchSession === 'function') {
-      await newRuntime.switchSession(target.path);
+    await acquireResidentLease({ cwd: directory, sessionId });
+    let newRuntime;
+    try {
+      newRuntime = await createRuntime({ cwd: directory, agentDir, sessionFile: target.path });
+      if (!newRuntime.cwd) newRuntime.cwd = directory;
+      if (newRuntime.session?.sessionId !== sessionId && typeof newRuntime.switchSession === 'function') {
+        await newRuntime.switchSession(target.path);
+      }
+    } catch (error) {
+      await releaseResidentLease({ cwd: directory, sessionId });
+      throw error;
     }
     const raced = runtimeRegistry.findBySessionId(sessionId);
     if (raced) {
@@ -917,6 +1013,7 @@ export function createSessionDaemon({
           return winner;
         }
       }
+      await releaseResidentLease({ cwd: directory, sessionId });
       throw error;
     }
     runtime = newRuntime;
@@ -1232,6 +1329,12 @@ export function createSessionDaemon({
       newRuntime.session.sessionManager.appendSessionInfo(payload.title.trim());
     }
     if (result?.cancelled) throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled session creation.');
+    try {
+      await acquireResidentLease({ cwd: targetCwd, sessionId: newRuntime.session.sessionId });
+    } catch (error) {
+      try { await newRuntime.dispose?.(); } catch { /* the failed create owns nothing */ }
+      throw error;
+    }
     if (payload.model) {
       await setSessionModel(newRuntime, payload.model);
       publishSessionModel(newRuntime.session, newRuntime.session.sessionId, targetCwd);
@@ -1602,36 +1705,42 @@ export function createSessionDaemon({
         throw new SessionDaemonProtocolError('SESSION_BUSY', 'Project trust cannot change during an active session.');
       }
     }
-    const trustStore = createTrustStore(agentDir);
-    if (hasTrust) trustStore.set(targetDir, payload.trust);
-    const trusted = trustStore.get(targetDir) === true;
-    if (payload.scope === 'project' && !trusted && (hasModel || hasThinking)) {
-      throw new SessionDaemonProtocolError('PROJECT_UNTRUSTED', 'The project is not trusted.');
-    }
-    if (hasModel || hasThinking) {
-      const manager = createSettingsManager({ cwd: targetDir, agentDir, projectTrusted: trusted });
-      if (payload.scope === 'global') {
-        if (hasModel) manager.setDefaultModelAndProvider(payload.defaultModel?.providerId, payload.defaultModel?.modelId);
-        if (hasThinking) manager.setDefaultThinkingLevel(payload.defaultThinking ?? undefined);
-      } else {
-        if (hasModel) {
-          manager.updateProjectSettings('defaultProvider', (settings) => {
-            if (payload.defaultModel === null) delete settings.defaultProvider;
-            else settings.defaultProvider = payload.defaultModel.providerId;
-          });
-          manager.updateProjectSettings('defaultModel', (settings) => {
-            if (payload.defaultModel === null) delete settings.defaultModel;
-            else settings.defaultModel = payload.defaultModel.modelId;
+    // Pi settings and trust live under the shared agent directory: read the
+    // current files and commit inside the shared lock so concurrent daemons
+    // cannot interleave read-modify-write cycles.
+    const trusted = await withSharedPiConfigLock(async () => {
+      const trustStore = createTrustStore(agentDir);
+      if (hasTrust) trustStore.set(targetDir, payload.trust);
+      const isTrusted = trustStore.get(targetDir) === true;
+      if (payload.scope === 'project' && !isTrusted && (hasModel || hasThinking)) {
+        throw new SessionDaemonProtocolError('PROJECT_UNTRUSTED', 'The project is not trusted.');
+      }
+      if (hasModel || hasThinking) {
+        const manager = createSettingsManager({ cwd: targetDir, agentDir, projectTrusted: isTrusted });
+        if (payload.scope === 'global') {
+          if (hasModel) manager.setDefaultModelAndProvider(payload.defaultModel?.providerId, payload.defaultModel?.modelId);
+          if (hasThinking) manager.setDefaultThinkingLevel(payload.defaultThinking ?? undefined);
+        } else {
+          if (hasModel) {
+            manager.updateProjectSettings('defaultProvider', (settings) => {
+              if (payload.defaultModel === null) delete settings.defaultProvider;
+              else settings.defaultProvider = payload.defaultModel.providerId;
+            });
+            manager.updateProjectSettings('defaultModel', (settings) => {
+              if (payload.defaultModel === null) delete settings.defaultModel;
+              else settings.defaultModel = payload.defaultModel.modelId;
+            });
+          }
+          if (hasThinking) manager.updateProjectSettings('defaultThinkingLevel', (settings) => {
+            if (payload.defaultThinking === null) delete settings.defaultThinkingLevel;
+            else settings.defaultThinkingLevel = payload.defaultThinking;
           });
         }
-        if (hasThinking) manager.updateProjectSettings('defaultThinkingLevel', (settings) => {
-          if (payload.defaultThinking === null) delete settings.defaultThinkingLevel;
-          else settings.defaultThinkingLevel = payload.defaultThinking;
-        });
+        await manager.flush();
+        if (manager.drainErrors().length > 0) throw new SessionDaemonProtocolError('PI_SETTINGS_INVALID', 'Pi settings could not be written.');
       }
-      await manager.flush();
-      if (manager.drainErrors().length > 0) throw new SessionDaemonProtocolError('PI_SETTINGS_INVALID', 'Pi settings could not be written.');
-    }
+      return isTrusted;
+    });
     if (hasTrust && runtime) {
       await disposeRuntime();
       await ensureRuntime();
@@ -1743,7 +1852,16 @@ export function createSessionDaemon({
     return pending;
   };
 
-  const writeResourceFile = async (filePath, content) => {
+  // Pi prompt and context files live under the shared agent directory (or a
+  // shared project directory), so concurrent daemons serialize here rather
+  // than in-process only. The lock is deliberately coarse: resource edits
+  // are rare user-driven writes, never streaming hot paths.
+  const withSharedPiConfigLock = (operation) => withCrossProcessLock(
+    join(agentDir, '.pichamber', 'locks', 'pi-config.lock'),
+    operation,
+  );
+
+  const writeResourceFile = async (filePath, content) => withSharedPiConfigLock(async () => {
     const temporary = `${filePath}.${randomUUID()}.tmp`;
     await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
     try {
@@ -1753,9 +1871,9 @@ export function createSessionDaemon({
       await rm(temporary, { force: true }).catch(() => {});
       throw error;
     }
-  };
+  });
 
-  const writeNewResourceFile = async (filePath, content) => {
+  const writeNewResourceFile = async (filePath, content) => withSharedPiConfigLock(async () => {
     const temporary = `${filePath}.${randomUUID()}.tmp`;
     await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
     try {
@@ -1769,7 +1887,7 @@ export function createSessionDaemon({
       throw error;
     }
     await rm(temporary, { force: true }).catch(() => {});
-  };
+  });
 
   const refreshResources = async (targetDir) => {
     servicesCache.delete(targetDir || activeDirectory || cwd);
@@ -2404,9 +2522,16 @@ export function createSessionDaemon({
     } else if (!active) {
       const { target, directory } = await findPersistedSession(sessionId, targetDir);
       targetDir = directory;
-      await rm(target.path, { force: false });
+      await acquireResidentLease({ cwd: targetDir, sessionId });
+      try {
+        await rm(target.path, { force: false });
+      } catch (error) {
+        await releaseResidentLease({ cwd: targetDir, sessionId });
+        throw error;
+      }
     }
     messageEntryAliases.clearSession({ cwd: active?.cwd || targetDir, sessionId });
+    await releaseResidentLease({ cwd: active?.cwd || targetDir, sessionId });
     retryStateBySession.delete(sessionId);
     compactionStateBySession.delete(sessionId);
     activeRunStartedAt.delete(sessionId);
@@ -2747,6 +2872,7 @@ export function createSessionDaemon({
             sessionId: getSessionState().sessionId,
             lastSequence: sequence,
             capabilities: [
+              'runtime.claim', 'runtime.shutdown',
               'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.rename', 'sessions.delete',
               'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt',
               'sessions.steer', 'sessions.followUp', 'sessions.abort', 'sessions.setModel',
@@ -2756,9 +2882,66 @@ export function createSessionDaemon({
               'extensions.list', 'extensions.respond',
             ],
             ...(Number.isInteger(healthMetadata.daemonPid) ? { daemonPid: healthMetadata.daemonPid } : {}),
+            ...(typeof profileKey === 'string' && profileKey.length > 0 ? { profileKey } : {}),
+            ...(typeof daemonId === 'string' && daemonId.length > 0 ? { daemonId } : {}),
+            ...(typeof ownerServerInstanceId === 'string' && ownerServerInstanceId.length > 0 ? { serverInstanceId: ownerServerInstanceId } : {}),
+            ...(Number.isInteger(ownerServerPid) && ownerServerPid > 0 ? { serverPid: ownerServerPid } : {}),
+            ...(typeof daemonRuntime === 'string' && daemonRuntime.length > 0 ? { runtime: daemonRuntime } : {}),
+            ...(typeof buildId === 'string' && buildId.length > 0 ? { buildId } : {}),
           },
         });
         return;
+      case 'runtime.claim': {
+        const nextOwner = message.payload?.serverInstanceId;
+        const nextServerPid = message.payload?.serverPid;
+        if (typeof nextOwner !== 'string' || nextOwner.length === 0
+          || !Number.isInteger(nextServerPid) || nextServerPid <= 0) {
+          throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The claiming server instance is invalid.');
+        }
+        if (ownerServerInstanceId !== null && nextOwner !== ownerServerInstanceId
+          && ownerServerPid !== null && isServerProcessAlive(ownerServerPid)) {
+          throw new SessionDaemonProtocolError('OWNERSHIP_CONFLICT', 'The current server still owns this daemon.');
+        }
+        await onOwnershipClaim?.({ serverInstanceId: nextOwner, serverPid: nextServerPid });
+        ownerServerInstanceId = nextOwner;
+        ownerServerPid = nextServerPid;
+        writeFrame(socket, {
+          protocolVersion: PROTOCOL_VERSION,
+          kind: 'response',
+          requestId: message.requestId,
+          result: { claimed: true, serverInstanceId: ownerServerInstanceId, serverPid: ownerServerPid },
+        });
+        return;
+      }
+      case 'runtime.shutdown': {
+        const caller = message.payload?.serverInstanceId;
+        const callerDaemon = message.payload?.daemonId;
+        if (typeof caller !== 'string' || caller.length === 0) {
+          throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The shutting-down server instance is invalid.');
+        }
+        if ((ownerServerInstanceId !== null && caller !== ownerServerInstanceId)
+          || (typeof daemonId === 'string' && daemonId.length > 0 && callerDaemon !== daemonId)) {
+          throw new SessionDaemonProtocolError('OWNERSHIP_MISMATCH', 'The daemon is owned by another server instance.');
+        }
+        writeFrame(socket, {
+          protocolVersion: PROTOCOL_VERSION,
+          kind: 'response',
+          requestId: message.requestId,
+          result: { shutdown: true },
+        });
+        if (typeof onShutdown === 'function') {
+          const shutdownHook = onShutdown;
+          setImmediate(() => {
+            try {
+              shutdownHook();
+            } catch {
+              // Shutdown hooks own their own error handling; the response
+              // has already been delivered.
+            }
+          });
+        }
+        return;
+      }
       case 'projects.list':
         writeFrame(socket, {
           protocolVersion: PROTOCOL_VERSION,
@@ -2971,6 +3154,9 @@ export function createSessionDaemon({
           : requestedId;
         const result = await activeRuntime.fork(entryId, { position: 'at' });
         if (result.cancelled) throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled session creation.');
+        if (typeof activeRuntime.session?.sessionId === 'string') {
+          await acquireResidentLease({ cwd: activeRuntime.cwd, sessionId: activeRuntime.session.sessionId });
+        }
         rememberRuntimeSession();
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: projectActiveSession(activeRuntime, activeRuntime.cwd) });
         return;

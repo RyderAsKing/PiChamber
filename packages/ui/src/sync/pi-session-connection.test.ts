@@ -1659,6 +1659,41 @@ describe('PiSessionStore behaviour parity', () => {
     }
   });
 
+  test('an in-use selected session fails that chat without taking the cluster down', async () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    const stream = { dispose: () => undefined };
+    internal.stream = stream;
+    internal.hydratedSessionIds = new Set(['alive']);
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      connection: 'ready',
+      focusPending: true,
+      selectedSessionId: 'leased',
+      sessions: [{ session: { id: 'alive', directory: '/repo', createdAt: 1, updatedAt: 1 } as never, updatedAt: 1 }],
+      hydratedSessionIds: new Set(['alive']),
+    };
+    const stubs = stubDaemons({
+      getSession: async () => {
+        throw new PiRequestError('SESSION_IN_USE', 'Another PiChamber instance is currently using this session.', 409);
+      },
+    });
+    try {
+      await store.select('leased');
+      const state = store.getState();
+      expect(state.connection).toBe('ready');
+      expect(state.focusPending).toBe(false);
+      expect(internal.stream).toBe(stream);
+      expect(internal.hydratedSessionIds.has('alive')).toBe(true);
+      expect(internal.hydratedSessionIds.has('leased')).toBe(false);
+      expect(state.sessionLoadErrorById.get('leased')?.code).toBe('SESSION_IN_USE');
+    } finally {
+      stubs.restore();
+    }
+    store.dispose();
+  });
+
   test('a missing selected session fails that chat without taking the cluster down', async () => {
     const store = new PiSessionStore();
     const internal = asInternal(store);

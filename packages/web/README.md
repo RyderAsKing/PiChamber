@@ -43,7 +43,7 @@ tunnels, logs, pairing, and machine-readable output.
 - Final-only speech-to-text uses authenticated `/api/stt/*` routes and `/api/stt/ws`. Local model inference runs in a forked worker, while remote provider credentials remain in server configuration.
 - Browser and paired clients authenticate with UI sessions or scoped client credentials.
 - `connect-url` creates a one-time pairing link; credentials are not written to URLs or logs.
-- The server owns the Pi daemon lifecycle and stops its locally managed daemon during shutdown.
+- The server owns its per-profile Pi daemon lifecycle (installed web, development web, and desktop use separate namespaces) and stops only its own daemon during shutdown.
 
 ## Development
 
