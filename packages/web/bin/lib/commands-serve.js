@@ -13,6 +13,13 @@ import { isNetworkExposedBindHost } from '../../server/lib/security/bind-host.js
 import {
   intro as clackIntro,
   outro as clackOutro,
+  cancel as clackCancel,
+  isCancel,
+  select,
+  text,
+  password as passwordPrompt,
+  confirm,
+  canPrompt,
   isJsonMode,
   isQuietMode,
   shouldRenderHumanOutput,
@@ -22,6 +29,145 @@ import {
 } from '../cli-output.js';
 
 const DAEMON_READY_TIMEOUT_MS = 30000;
+const servePromptApi = { select, text, password: passwordPrompt, confirm, isCancel, cancel: clackCancel };
+
+function hasExplicitServeConfiguration(options) {
+  return options.explicitPort === true
+    || options.lan === true
+    || typeof options.host === 'string'
+    || options.explicitUiPassword === true
+    || options.apiOnly === true
+    || options.foreground === true;
+}
+
+async function collectInteractiveServeOptions(options, prompts = servePromptApi) {
+  const ask = async (method, config) => {
+    const answer = await prompts[method](config);
+    if (prompts.isCancel(answer)) {
+      prompts.cancel('Server setup cancelled.');
+      return { cancelled: true };
+    }
+    return { answer };
+  };
+
+  const accessResult = await ask('select', {
+    message: 'Where should PiChamber be accessible?',
+    options: [
+      { value: 'local', label: 'This machine only', hint: 'recommended' },
+      { value: 'lan', label: 'Local network', hint: 'other devices on your LAN or Wi-Fi' },
+      { value: 'custom', label: 'Custom bind address' },
+    ],
+    initialValue: 'local',
+  });
+  if (accessResult.cancelled) return null;
+
+  let host = '127.0.0.1';
+  let lan = false;
+  if (accessResult.answer === 'lan') {
+    host = '0.0.0.0';
+    lan = true;
+  } else if (accessResult.answer === 'custom') {
+    const hostResult = await ask('text', {
+      message: 'Bind address',
+      initialValue: '127.0.0.1',
+      validate: (value) => String(value ?? '').trim() ? undefined : 'Enter a bind address.',
+    });
+    if (hostResult.cancelled) return null;
+    host = String(hostResult.answer).trim();
+  }
+
+  const portResult = await ask('text', {
+    message: 'Port',
+    initialValue: String(options.port),
+    validate: (value) => {
+      const normalized = String(value ?? '').trim();
+      if (!/^\d+$/.test(normalized)) return 'Enter a port from 0 to 65535.';
+      const port = Number(normalized);
+      return port >= 0 && port <= 65535 ? undefined : 'Enter a port from 0 to 65535.';
+    },
+  });
+  if (portResult.cancelled) return null;
+  const port = Number(String(portResult.answer).trim());
+
+  const networkExposed = accessResult.answer !== 'local';
+  const authResult = await ask('select', {
+    message: networkExposed ? 'Choose a required UI password' : 'Protect the UI with a password?',
+    options: [
+      { value: 'enter', label: 'Enter a password' },
+      { value: 'generate', label: 'Generate a secure password' },
+      ...(!networkExposed ? [{ value: 'none', label: 'No password', hint: 'local access only' }] : []),
+    ],
+    initialValue: networkExposed ? 'generate' : 'none',
+  });
+  if (authResult.cancelled) return null;
+
+  let uiPassword;
+  let explicitUiPassword = false;
+  if (authResult.answer === 'enter') {
+    const passwordResult = await ask('password', {
+      message: 'UI password',
+      validate: (value) => String(value ?? '').length ? undefined : 'Enter a password.',
+    });
+    if (passwordResult.cancelled) return null;
+    uiPassword = String(passwordResult.answer);
+    const confirmationResult = await ask('password', {
+      message: 'Confirm UI password',
+      validate: (value) => value === uiPassword ? undefined : 'Passwords do not match.',
+    });
+    if (confirmationResult.cancelled) return null;
+    explicitUiPassword = true;
+  } else if (authResult.answer === 'generate') {
+    uiPassword = '';
+    explicitUiPassword = true;
+  }
+
+  const contentResult = await ask('select', {
+    message: 'What should this server provide?',
+    options: [
+      { value: 'ui', label: 'Browser UI and API', hint: 'recommended' },
+      { value: 'api', label: 'API only', hint: 'for paired clients' },
+    ],
+    initialValue: 'ui',
+  });
+  if (contentResult.cancelled) return null;
+
+  const processResult = await ask('select', {
+    message: 'How should the server run?',
+    options: [
+      { value: 'daemon', label: 'In the background', hint: 'recommended' },
+      { value: 'foreground', label: 'In the foreground', hint: 'for process managers' },
+    ],
+    initialValue: 'daemon',
+  });
+  if (processResult.cancelled) return null;
+
+  logStatus('info', 'Review server', [
+    `Access: ${accessResult.answer === 'local' ? 'this machine only' : host}`,
+    `Port: ${port === 0 ? 'automatic' : port}`,
+    `Authentication: ${authResult.answer === 'none' ? 'disabled' : authResult.answer === 'generate' ? 'generated password' : 'enabled'}`,
+    `Content: ${contentResult.answer === 'api' ? 'API only' : 'browser UI and API'}`,
+    `Process: ${processResult.answer === 'foreground' ? 'foreground' : 'background'}`,
+  ].join('\n'));
+
+  const confirmResult = await ask('confirm', { message: 'Start this server?', initialValue: true });
+  if (confirmResult.cancelled) return null;
+  if (confirmResult.answer !== true) {
+    prompts.cancel('Server setup cancelled.');
+    return null;
+  }
+
+  return {
+    ...options,
+    host,
+    lan,
+    port,
+    explicitPort: true,
+    uiPassword,
+    explicitUiPassword,
+    apiOnly: contentResult.answer === 'api',
+    foreground: processResult.answer === 'foreground',
+  };
+}
 
 function createServeCommand({
   serverPath,
@@ -31,6 +177,15 @@ function createServeCommand({
   setForegroundShutdown,
 }) {
 async function serveCommand(options) {
+    let usedInteractiveSetup = false;
+    if (options.offerInteractiveSetup === true && canPrompt(options) && !hasExplicitServeConfiguration(options)) {
+      clackIntro('PiChamber Server Setup');
+      const resolvedOptions = await collectInteractiveServeOptions(options);
+      if (!resolvedOptions) return;
+      options = resolvedOptions;
+      usedInteractiveSetup = true;
+    }
+
     const showOutput = shouldRenderHumanOutput(options);
     const jsonMessages = [];
     const emitNotice = (notice) => {
@@ -221,6 +376,15 @@ async function serveCommand(options) {
               : `${resolvedPort}\n`
           );
         }
+      } else if (usedInteractiveSetup && showOutput && !options.suppressStartupSummary) {
+        logStatus('success', `port ${resolvedPort} (foreground)`);
+        if (autoGeneratedUiPassword) {
+          logStatus('success', 'UI password', effectiveUiPassword);
+          logStatus('warning', 'save this password', 'it is not shown again');
+        }
+        logStatus('info', `visit: ${buildLocalUrl(resolvedPort, '/')}`);
+        logStatus('info', `logs: pichamber logs -p ${resolvedPort}`);
+        clackOutro('server running; press Ctrl+C to stop');
       } else if (autoGeneratedUiPassword && showOutput && !options.suppressStartupSummary) {
         console.log(`Generated UI password: ${effectiveUiPassword}`);
         console.log('Save this password — it is not shown again.');
@@ -399,7 +563,7 @@ async function serveCommand(options) {
     serveSpin?.clear();
 
     if (!options.suppressStartupSummary && showOutput) {
-      clackIntro('PiChamber Started');
+      if (!usedInteractiveSetup) clackIntro('PiChamber Started');
       logStatus('success', `port ${serveResult.port} (PID: ${serveResult.pid})`);
       if (autoGeneratedUiPassword) {
         logStatus('success', 'UI password', effectiveUiPassword);
@@ -416,4 +580,4 @@ async function serveCommand(options) {
   return serveCommand;
 }
 
-export { createServeCommand };
+export { createServeCommand, collectInteractiveServeOptions, hasExplicitServeConfiguration };

@@ -104,6 +104,7 @@ function parseArgs(argv = process.argv.slice(2)) {
     timeout: undefined,
     lastAssistant: false,
     withStatus: false,
+    yes: false,
   };
 
   const removedFlagErrors = [];
@@ -403,6 +404,10 @@ function parseArgs(argv = process.argv.slice(2)) {
       case 'q':
         options.quiet = true;
         break;
+      case 'yes':
+      case 'y':
+        options.yes = true;
+        break;
       case 'help':
       case 'h':
         helpRequested = true;
@@ -450,6 +455,7 @@ function parseArgs(argv = process.argv.slice(2)) {
     }
   }
 
+  const explicitCommand = positional.length > 0;
   const command = positional[0] || 'serve';
   const subcommand = command === 'tunnel' ? (positional[1] || 'help') : null;
   const tunnelAction = command === 'tunnel' ? (positional[2] || null) : null;
@@ -465,6 +471,7 @@ function parseArgs(argv = process.argv.slice(2)) {
 
   return {
     command,
+    explicitCommand,
     subcommand,
     tunnelAction,
     startupAction,
@@ -483,7 +490,7 @@ USAGE:
   pichamber [COMMAND] [OPTIONS]
 
 COMMANDS:
-  serve          Start the web server (daemon default)
+  serve          Configure and start the web server (guided in interactive terminals)
   stop           Stop running instance(s)
   restart        Stop and start the server
   status         Show server status
@@ -505,6 +512,7 @@ OPTIONS:
   --api-only              Start API routes only, without serving browser UI assets
   --foreground            Run server in foreground (use with systemd/process managers)
   --no-daemon             Alias for --foreground
+  -y, --yes               Confirm update without prompting
   -h, --help              Show help
   -v, --version           Show version
 
@@ -520,7 +528,8 @@ EXAMPLES:
   pichamber                    # Start in daemon mode on default port 3000 (or free port)
   pichamber --port 8080        # Start on port 8080 (daemon)
   pichamber --lan --port 3002  # Start on LAN at 0.0.0.0:3002
-  pichamber serve --foreground # Start in foreground (for systemd Type=simple)
+  pichamber serve              # Walk through interactive server setup
+  pichamber serve --foreground # Start in foreground without setup prompts
   pichamber connect-url --port 3000 --qr
   pichamber connect-url --server https://pichamber.example.com
   pichamber startup enable --lan --port 3002 --ui-password
@@ -719,10 +728,10 @@ _pichamber_tunnel() {
   cur="\${COMP_WORDS[COMP_CWORD]}"
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
-    commands="serve stop restart status tunnel logs update"},{
+  commands="serve stop restart status tunnel startup logs connect-url update version"
   tunnel_commands="help providers ready doctor status start stop profile completion"
   profile_commands="list show add remove"
-  common_flags="--port --foreground --no-daemon --json --all --help --version --plain --quiet"
+  common_flags="--port --host --lan --ui-password --api-only --foreground --no-daemon --json --all --help --version --plain --quiet --yes"
   start_flags="--provider --mode --profile --config --token --token-file --token-stdin --hostname --connect-ttl --session-ttl --qr --no-qr --dry-run --show-secrets"
 
   if [[ \${COMP_CWORD} -eq 1 ]]; then
@@ -772,8 +781,11 @@ _pichamber() {
     'restart:Stop and start the server'
     'status:Show server status'
     'tunnel:Tunnel lifecycle commands'
+    'startup:Manage launch at system startup'
     'logs:Tail PiChamber logs'
+    'connect-url:Generate a client pairing URL'
     'update:Check for and install updates'
+    'version:Show the installed version'
   )
 
   tunnel_commands=(
@@ -834,8 +846,11 @@ complete -c pichamber -n '__fish_use_subcommand' -a 'stop' -d 'Stop running inst
 complete -c pichamber -n '__fish_use_subcommand' -a 'restart' -d 'Stop and start the server'
 complete -c pichamber -n '__fish_use_subcommand' -a 'status' -d 'Show server status'
 complete -c pichamber -n '__fish_use_subcommand' -a 'tunnel' -d 'Tunnel lifecycle commands'
+complete -c pichamber -n '__fish_use_subcommand' -a 'startup' -d 'Manage launch at system startup'
 complete -c pichamber -n '__fish_use_subcommand' -a 'logs' -d 'Tail logs'
+complete -c pichamber -n '__fish_use_subcommand' -a 'connect-url' -d 'Generate a client pairing URL'
 complete -c pichamber -n '__fish_use_subcommand' -a 'update' -d 'Check for updates'
+complete -c pichamber -n '__fish_use_subcommand' -a 'version' -d 'Show installed version'
 
 complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'help' -d 'Show tunnel help'
 complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'providers' -d 'Show providers'

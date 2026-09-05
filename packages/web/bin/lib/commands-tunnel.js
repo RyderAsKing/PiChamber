@@ -1125,6 +1125,9 @@ async function tunnelCommand(options, subcommand, action, deps) {
         return;
       }
       case 'start': {
+        const interactiveWizard = canPrompt(options)
+          && !(typeof options.profile === 'string' && options.profile.trim().length > 0)
+          && !(typeof options.mode === 'string' && options.mode.trim().length > 0);
         let provider = typeof options.provider === 'string' && options.provider.trim().length > 0
           ? options.provider.trim().toLowerCase()
           : '';
@@ -1471,6 +1474,24 @@ async function tunnelCommand(options, subcommand, action, deps) {
             }
             options.port = Number(selectedPort);
             options.explicitPort = true;
+          }
+        }
+
+        if (interactiveWizard) {
+          logStatus('info', 'Review tunnel', [
+            `Provider: ${provider}`,
+            `Mode: ${mode}`,
+            `Target: ${options.explicitPort ? `port ${options.port}` : 'running or auto-started server'}`,
+            `Hostname: ${hostname || 'ephemeral URL'}`,
+            `Profile: ${selectedProfile?.name || 'none'}`,
+          ].join('\n'));
+          const approved = await clackConfirm({
+            message: 'Start this tunnel?',
+            initialValue: true,
+          });
+          if (clackIsCancel(approved) || approved !== true) {
+            clackCancel('Tunnel start cancelled.');
+            return;
           }
         }
 
