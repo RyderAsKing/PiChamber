@@ -16,7 +16,7 @@
 
 PiChamber started as a community fork of [OpenChamber](https://github.com/openchamber/openchamber), but the project has since been substantially rewritten around the Pi SDK. PiChamber owns the workspace, authentication, device connections, and native shells, while Pi owns sessions, providers, prompts, skills, and the session daemon.
 
-Pi keeps its core small. You add the workflow you need with [extensions, skills, prompts, and themes](https://pi.dev). It supports interactive, print, JSON, RPC, and SDK modes, works with 40+ providers plus compatible custom providers, and does not force a plan mode or a fixed agent workflow.
+PiChamber uses the Pi SDK as its agent runtime. It adds the workspace around Pi, including session navigation, live output, project files, authentication, trusted device connections, and native shells. Pi continues to own the agent itself, along with providers, prompts, skills, extensions, and themes.
 
 An independent [Composio evaluation](https://x.com/composio/status/2086814488162972027) compared Pi with several other agent harnesses. Pi had the highest pass rate, lowest median cost, and lowest median completion time in the cited DeepSeek V4 Flash run.
 
