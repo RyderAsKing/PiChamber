@@ -5,8 +5,11 @@ import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useUIStore } from '@/stores/useUIStore';
 import { useMessageQueueStore } from '@/stores/messageQueueStore';
 import {
+    getDesktopProcessPerformanceRecording,
+    isDesktopLocalOriginActive,
     isDesktopShell,
     isWebRuntime,
+    setDesktopProcessPerformanceRecording,
     usesFramelessElectronChrome,
     type DesktopWindowControlsPosition,
     type DesktopWindowControlsStyle,
@@ -160,6 +163,12 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const desktopWindowControlsStyle = useUIStore((state) => state.desktopWindowControlsStyle);
     const setDesktopWindowControlsStyle = useUIStore((state) => state.setDesktopWindowControlsStyle);
     const perfHudEnabled = React.useSyncExternalStore(subscribePerfHudEnabled, isPerfHudEnabled, () => false);
+    const localDesktopDiagnostics = isDesktopShell() && isDesktopLocalOriginActive();
+    const [processRecordingSupported, setProcessRecordingSupported] = React.useState(false);
+    const [processRecordingEnabled, setProcessRecordingEnabled] = React.useState(false);
+    const [processRecordingActive, setProcessRecordingActive] = React.useState(false);
+    const [processRecordingSaving, setProcessRecordingSaving] = React.useState(false);
+    const [processRecordingError, setProcessRecordingError] = React.useState<string | null>(null);
 
     const handleWindowControlsPositionChange = React.useCallback((value: DesktopWindowControlsPosition) => {
         setDesktopWindowControlsPosition(value);
@@ -305,6 +314,75 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
         if (!visibleSettings) return true;
         return visibleSettings.includes(setting);
     };
+
+    const showDiagnostics = shouldShow('perfHud');
+
+    React.useEffect(() => {
+        if (!showDiagnostics || !localDesktopDiagnostics) {
+            setProcessRecordingSupported(false);
+            setProcessRecordingEnabled(false);
+            setProcessRecordingActive(false);
+            setProcessRecordingError(null);
+            return;
+        }
+
+        let cancelled = false;
+        void getDesktopProcessPerformanceRecording().then((status) => {
+            if (cancelled) return;
+            setProcessRecordingSupported(status?.supported === true);
+            setProcessRecordingEnabled(status?.enabled === true);
+            setProcessRecordingActive(status?.active === true);
+            setProcessRecordingError(status?.enabled === true && status.active !== true
+                ? 'Recording could not start. Disable it and try again.'
+                : null);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [localDesktopDiagnostics, showDiagnostics]);
+
+    React.useEffect(() => {
+        if (!showDiagnostics || !localDesktopDiagnostics || !processRecordingEnabled) return;
+
+        let cancelled = false;
+        const timer = window.setInterval(() => {
+            void getDesktopProcessPerformanceRecording().then((status) => {
+                if (cancelled || !status?.supported) return;
+                setProcessRecordingActive(status.active);
+                if (!status.active) {
+                    setProcessRecordingError('Recording stopped after a file write failure. Disable it and try again.');
+                }
+            });
+        }, 10_000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+        };
+    }, [localDesktopDiagnostics, processRecordingEnabled, showDiagnostics]);
+
+    const handleProcessRecordingEnabledChange = React.useCallback(async (enabled: boolean) => {
+        if (!processRecordingSupported || processRecordingSaving) return;
+
+        const previousEnabled = processRecordingEnabled;
+        const previousActive = processRecordingActive;
+        setProcessRecordingEnabled(enabled);
+        setProcessRecordingSaving(true);
+        setProcessRecordingError(null);
+        try {
+            const status = await setDesktopProcessPerformanceRecording(enabled);
+            if (!status?.supported || status.enabled !== enabled || (enabled && !status.active)) {
+                throw new Error('Failed to update process performance recording');
+            }
+            setProcessRecordingEnabled(status.enabled);
+            setProcessRecordingActive(status.active);
+        } catch {
+            setProcessRecordingEnabled(previousEnabled);
+            setProcessRecordingActive(previousActive);
+            setProcessRecordingError('Failed to update process performance recording.');
+        } finally {
+            setProcessRecordingSaving(false);
+        }
+    }, [processRecordingActive, processRecordingEnabled, processRecordingSaving, processRecordingSupported]);
 
     const hasThemeSettings = shouldShow('theme');
     const showWindowControlsPositionSetting = shouldShow('windowControlsPosition') && showWindowControlsPosition;
@@ -697,6 +775,12 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                     <DiagnosticsSection
                         perfHudEnabled={perfHudEnabled}
                         onPerfHudEnabledChange={setPerfHudEnabled}
+                        processRecordingSupported={processRecordingSupported}
+                        processRecordingEnabled={processRecordingEnabled}
+                        processRecordingActive={processRecordingActive}
+                        processRecordingSaving={processRecordingSaving}
+                        processRecordingError={processRecordingError}
+                        onProcessRecordingEnabledChange={handleProcessRecordingEnabledChange}
                     />
                 )}
 

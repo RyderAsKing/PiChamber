@@ -18,6 +18,7 @@ import {
 } from './startup-url-selection.mjs';
 import { sanitizeRuntimeRequestHeaders } from './runtime-request-headers.mjs';
 import { resolveElectronUpdaterVersion } from './app-version.mjs';
+import { createProcessPerformanceRecorder } from './process-performance-recorder.mjs';
 import { assertUpdaterCapability } from './updater-capability.mjs';
 import { checkForDesktopUpdate } from './updater-check.mjs';
 import { resolveUpdaterChannel } from './updater-channel.mjs';
@@ -276,6 +277,26 @@ const state = {
   keepAwakeBlockerId: null,
 };
 
+const processPerformanceRecorder = createProcessPerformanceRecorder({
+  outputDirectory: path.join(app.getPath('userData'), 'performance'),
+  appMetadata: {
+    version: APP_VERSION,
+    platform: process.platform,
+    arch: process.arch,
+    packaged: app.isPackaged,
+  },
+  getProcessMetrics: () => app.getAppMetrics(),
+  getMainMemoryUsage: () => process.memoryUsage(),
+  getWebContentsCount: () => webContents.getAllWebContents().filter((contents) => !contents.isDestroyed()).length,
+  logger: log,
+});
+
+const readProcessPerformanceRecordingStatus = () => ({
+  supported: true,
+  enabled: readSettingsRoot().desktopProcessPerformanceRecordingEnabled === true,
+  active: processPerformanceRecorder.isActive(),
+});
+
 const setDesktopKeepAwakeActive = (enabled) => {
   const currentId = state.keepAwakeBlockerId;
   const isActive = Number.isInteger(currentId) && powerSaveBlocker.isStarted(currentId);
@@ -338,6 +359,7 @@ const shutdownBackgroundServices = () => {
   if (state.backgroundShutdownComplete) return;
   state.backgroundShutdownComplete = true;
   setDesktopKeepAwakeActive(false);
+  processPerformanceRecorder.stop();
   if (state.installingUpdate) return;
   killSidecar();
 };
@@ -3556,6 +3578,30 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
       return { supported: true, enabled, active };
     }
 
+    case 'desktop_get_process_performance_recording': {
+      return readProcessPerformanceRecordingStatus();
+    }
+
+    case 'desktop_set_process_performance_recording': {
+      const enabled = args.enabled === true;
+      await mutateSettingsRoot((root) => {
+        root.desktopProcessPerformanceRecordingEnabled = enabled;
+      });
+
+      if (!enabled) {
+        processPerformanceRecorder.stop();
+        return readProcessPerformanceRecordingStatus();
+      }
+
+      const result = await processPerformanceRecorder.start();
+      if (!result.active) {
+        await mutateSettingsRoot((root) => {
+          root.desktopProcessPerformanceRecordingEnabled = false;
+        });
+      }
+      return readProcessPerformanceRecordingStatus();
+    }
+
     case 'desktop_browser_capture_page': {
       const wcId = Number.isFinite(args.webContentsId) ? Math.trunc(args.webContentsId) : null;
       if (wcId === null || wcId < 0) throw new Error('webContentsId is required');
@@ -4946,6 +4992,9 @@ app.whenReady().then(async () => {
     isBackgroundStart,
     loginItemSettings,
   });
+  if (readSettingsRoot().desktopProcessPerformanceRecordingEnabled === true) {
+    await processPerformanceRecorder.start();
+  }
   nativeTheme.themeSource = readThemeSource();
   registerPackagedUiProtocol();
   setupAutoUpdater();

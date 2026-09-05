@@ -11,6 +11,7 @@ import type {
   KeepAwakeStatus,
   LaunchAtLoginStatus,
   MinimizeToTrayStatus,
+  ProcessPerformanceRecordingStatus,
   UpdateInfo,
   UpdateProgress,
 } from './desktopTypes';
@@ -113,6 +114,40 @@ export const setDesktopKeepAwake = async (enabled: boolean): Promise<KeepAwakeSt
     return result;
   } catch (error) {
     console.warn('Failed to set keep awake status', error);
+    return null;
+  }
+};
+
+export const getDesktopProcessPerformanceRecording = async (): Promise<ProcessPerformanceRecordingStatus | null> => {
+  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+    return null;
+  }
+
+  try {
+    const result = await invokeDesktop<ProcessPerformanceRecordingStatus>('desktop_get_process_performance_recording');
+    if (!result || typeof result.supported !== 'boolean' || typeof result.enabled !== 'boolean' || typeof result.active !== 'boolean') {
+      return null;
+    }
+    return result;
+  } catch (error) {
+    console.warn('Failed to get process performance recording status', error);
+    return null;
+  }
+};
+
+export const setDesktopProcessPerformanceRecording = async (enabled: boolean): Promise<ProcessPerformanceRecordingStatus | null> => {
+  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+    return null;
+  }
+
+  try {
+    const result = await invokeDesktop<ProcessPerformanceRecordingStatus>('desktop_set_process_performance_recording', { enabled });
+    if (!result || typeof result.supported !== 'boolean' || typeof result.enabled !== 'boolean' || typeof result.active !== 'boolean') {
+      return null;
+    }
+    return result;
+  } catch (error) {
+    console.warn('Failed to set process performance recording status', error);
     return null;
   }
 };

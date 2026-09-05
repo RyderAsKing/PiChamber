@@ -193,6 +193,14 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['fps', 'performance', 'hud', 'diagnostics', 'debug', 'jank', 'frame'],
   },
   {
+    id: 'general.process-performance-recording',
+    page: 'general',
+    title: "Record Electron process performance",
+    description: "Record Electron process CPU and memory samples to a local diagnostics file.",
+    keywords: ['performance', 'diagnostics', 'memory', 'cpu', 'electron', 'process', 'recording'],
+    isAvailable: (ctx) => ctx.isDesktopLocalOrigin,
+  },
+  {
     id: 'chat.reasoning-traces',
     page: 'chat',
     title: "Show Reasoning Traces",
