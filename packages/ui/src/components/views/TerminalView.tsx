@@ -11,8 +11,8 @@ import { TerminalTabPane } from './terminal/TerminalTabPane';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/useUIStore';
 import { Button } from '@/components/ui/button';
-import { SortableTabsStrip } from '@/components/ui/sortable-tabs-strip';
 import { Icon } from '@/components/icon/Icon';
+import { TerminalTabDropdown } from './terminal/TerminalTabDropdown';
 import { useDeviceInfo } from '@/lib/device';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { PROJECT_ACTION_ICON_MAP, type ProjectActionIconKey } from '@/lib/projectActions';
@@ -20,14 +20,21 @@ import { TerminalQuickKeys } from './terminal/TerminalQuickKeys';
 import { useTerminalSessionStream } from './terminal/useTerminalSessionStream';
 import { useTerminalInputHandling } from './terminal/useTerminalInputHandling';
 import { useTerminalTabsManager } from './terminal/useTerminalTabsManager';
+import { createPortal } from 'react-dom';
 
 type TerminalViewProps = {
   visible?: boolean;
   /** Main-view host only: shows a close button that exits the full-page terminal overlay. */
   onCloseView?: () => void;
+  /**
+   * Panel host only: element in the host header that owns the tab
+   * controls. When provided, the dropdown + action buttons portal there
+   * instead of rendering TerminalView's own header row.
+   */
+  terminalHeaderSlot?: HTMLDivElement | null;
 };
 
-export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView }) => {
+export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView, terminalHeaderSlot }) => {
   const { terminal, runtime } = useRuntimeAPIs();
   const { currentTheme } = useThemeSystem();
   const terminalAppearanceRef = React.useRef<{
@@ -299,6 +306,67 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView
 
   const quickKeysDisabled = !terminalSessionId || isConnecting || isRestarting || isReconnectPending;
   const shouldRenderViewport = hasOpenedTerminalViewport;
+
+  // Single header row: tab dropdown + view actions. Hosts with their own
+  // chrome (ContextPanel) portal these into their header via
+  // terminalHeaderSlot instead of rendering this row.
+  const headerControls =
+    enableTabs && directoryTerminalState ? (
+      <>
+        <div className="min-w-0 flex-1">
+          <TerminalTabDropdown
+            items={terminalTabItems}
+            activeId={activeTabId}
+            onSelect={handleSelectTab}
+            onClose={handleCloseTab}
+            onCreate={handleCreateTab}
+          />
+        </div>
+
+        <Button
+          type="button"
+          size="xs"
+          variant="ghost"
+          className={cn('shrink-0', isTouchTerminal ? 'h-8 w-8 p-0' : 'h-7 w-7 p-0')}
+          onClick={handleCreateTab}
+          title={'New tab'}
+          aria-label={'New tab'}
+        >
+          <Icon name="add" className={`${isTouchTerminal ? 'h-[18px] w-[18px]' : 'h-4 w-4'}`} />
+        </Button>
+
+        <div className="flex shrink-0 items-center gap-1 overflow-visible">
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            className="h-7 w-7 p-0"
+            onClick={() => void handleRestart()}
+            disabled={isRestarting}
+            title={'Restart terminal'}
+            aria-label={'Restart terminal'}
+          >
+            <Icon name="restart" className="h-4 w-4" />
+          </Button>
+          {previewUrl ? (
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              className="h-6 shrink-0 gap-1 px-2"
+              onClick={() => {
+                if (!effectiveDirectory) return;
+                openContextPreview(effectiveDirectory, previewUrl);
+              }}
+              title={'Open preview pane'}
+            >
+              <Icon name="global" className="h-3.5 w-3.5 shrink-0" />
+              <span className="whitespace-nowrap">{'Preview'}</span>
+            </Button>
+          ) : null}
+        </div>
+      </>
+    ) : null;
   const quickKeysControls = (
     <TerminalQuickKeys
       isTouchTerminal={isTouchTerminal}
@@ -317,50 +385,21 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView
           isTouchTerminal ? 'px-3 py-1.5' : 'pl-3 pr-1.5 py-1',
         )}
       >
-        {enableTabs && directoryTerminalState ? (
-          <div className="flex items-center gap-2 pl-1 pr-1">
-            <div className={cn('min-w-0 flex-1', isTouchTerminal ? 'h-8' : 'h-7')}>
-              <SortableTabsStrip
-                items={terminalTabItems}
-                activeId={activeTabId}
-                onSelect={handleSelectTab}
-                onClose={handleCloseTab}
-                layoutMode="scrollable"
-                variant="default"
-                className="h-full bg-transparent"
-              />
-            </div>
-
-            <Button
-              type="button"
-              size="xs"
-              variant="ghost"
-              className={cn('shrink-0', isTouchTerminal ? 'h-8 w-8 p-0' : 'h-7 w-7 p-0')}
-              onClick={handleCreateTab}
-              title={'New tab'}
-            >
-              <Icon name="add" className={`${isTouchTerminal ? 'h-[18px] w-[18px]' : 'h-4 w-4'}`} />
-            </Button>
-
-            <div className="flex shrink-0 items-center gap-1 overflow-visible">
-              <Button
-                type="button"
-                size="xs"
-                variant="ghost"
-                className="h-7 w-7 p-0"
-                onClick={() => void handleRestart()}
-                disabled={isRestarting}
-                title={'Restart terminal'}
-                aria-label={'Restart terminal'}
-              >
-                <Icon name="restart" className="h-4 w-4" />
-              </Button>
+        {headerControls ? (
+          terminalHeaderSlot ? (
+            createPortal(
+              <div className="flex min-w-0 flex-1 items-center gap-1.5">{headerControls}</div>,
+              terminalHeaderSlot,
+            )
+          ) : (
+            <div className="flex items-center gap-2 pl-1 pr-1">
+              {headerControls}
               {onCloseView ? (
                 <Button
                   type="button"
                   size="xs"
                   variant="ghost"
-                  className="h-7 w-7 p-0"
+                  className="h-7 w-7 shrink-0 p-0"
                   onClick={onCloseView}
                   title={'Close terminal view'}
                   aria-label={'Close terminal view'}
@@ -368,24 +407,8 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView
                   <Icon name="close" className="h-4 w-4" />
                 </Button>
               ) : null}
-              {previewUrl ? (
-                <Button
-                  type="button"
-                  size="xs"
-                  variant="outline"
-                  className="h-6 shrink-0 gap-1 px-2"
-                  onClick={() => {
-                    if (!effectiveDirectory) return;
-                    openContextPreview(effectiveDirectory, previewUrl);
-                  }}
-                  title={'Open preview pane'}
-                >
-                  <Icon name="global" className="h-3.5 w-3.5 shrink-0" />
-                  <span className="whitespace-nowrap">{'Preview'}</span>
-                </Button>
-              ) : null}
             </div>
-          </div>
+          )
         ) : null}
 
         {!isTouchTerminal && showQuickKeys && enableTabs && directoryTerminalState ? (
