@@ -46,6 +46,7 @@ export type DesktopSettings = {
   homeDirectory?: string;
   desktopLanAccessEnabled?: boolean;
   desktopKeepAwakeEnabled?: boolean;
+  desktopProcessPerformanceRecordingEnabled?: boolean;
   desktopMinimizeToTrayEnabled?: boolean;
   desktopMacMenuBarEnabled?: boolean;
   desktopUiPassword?: string;
@@ -205,6 +206,12 @@ export type KeepAwakeStatus = {
 export type MinimizeToTrayStatus = {
   supported: boolean;
   enabled: boolean;
+};
+
+export type ProcessPerformanceRecordingStatus = {
+  supported: boolean;
+  enabled: boolean;
+  active: boolean;
 };
 
 export type InstalledDesktopAppInfo = {

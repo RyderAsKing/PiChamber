@@ -8,6 +8,12 @@ Electron is PiChamber's native desktop shell for macOS, Windows, and Linux.
 
 The preload bridge exposes only desktop-owned capabilities. Main-process handlers enforce every privileged action; remote pages do not receive local filesystem, shell, token, or host privileges.
 
+## Process performance recording
+
+Settings → General → Diagnostics can enable local Electron process recording. The main process samples Electron CPU and memory metrics, its Node heap, and the web-contents count every 10 seconds. It writes newline-delimited JSON under `<userData>/performance` and resumes recording after restart until disabled. Records contain aggregate process data only; they must never include session IDs, paths, URLs, credentials, prompts, filenames, or message content.
+
+`process-performance-recorder.mjs` owns sampling and file output. The renderer may only get or set the enabled state through local-origin-gated desktop IPC.
+
 ## Development
 
 ```bash
