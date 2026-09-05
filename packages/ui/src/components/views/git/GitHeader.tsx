@@ -265,7 +265,23 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
 
   const managementButtons = (
     <div className="flex items-center gap-1 shrink-0">
-      {onOpenHistory || onOpenGraph || onOpenStashes || onOpenUpdateBranch ? (
+      {onOpenHistory ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 px-0"
+              aria-label={"History"}
+              onClick={onOpenHistory}
+            >
+              <Icon name="history" className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent sideOffset={8}>{"History"}</TooltipContent>
+        </Tooltip>
+      ) : null}
+      {onOpenGraph || onOpenStashes || onOpenUpdateBranch || onOpenReintegrateCommits ? (
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -283,12 +299,6 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
             <TooltipContent sideOffset={8}>{"Repository views"}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end">
-            {onOpenHistory ? (
-              <DropdownMenuItem onSelect={onOpenHistory}>
-                <Icon name="history" className="size-4" />
-                {"History"}
-              </DropdownMenuItem>
-            ) : null}
             {onOpenGraph ? (
               <DropdownMenuItem onSelect={onOpenGraph}>
                 <Icon name="git-branch" className="size-4" />
