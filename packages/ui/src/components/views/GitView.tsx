@@ -24,7 +24,8 @@ import { Icon } from "@/components/icon/Icon";
 
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 
-import { GitHeader } from './git/GitHeader';
+import { GitUnifiedHeader } from './git/GitUnifiedHeader';
+import type { DiffHeaderControlsState, DiffHeaderScope } from './DiffView';
 import { GitViewDialogs } from './git/GitViewDialogs';
 import { getGitViewSnapshot, rememberGitViewSnapshot } from './git/gitViewSnapshots';
 import { CommitSection } from './git/CommitSection';
@@ -40,6 +41,7 @@ import { createGitIndexMutationQueue, type GitIndexMutationDirection, type GitIn
 import { MobileGitChrome } from './git/MobileGitChrome';
 import type { GitRemote } from '@/lib/api/types';
 import { cn } from '@/lib/utils';
+import { createPortal } from 'react-dom';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 import { normalizePath } from '@/lib/pathNormalization';
@@ -64,6 +66,12 @@ type GitViewProps = {
   chrome?: 'desktop' | 'mobile';
   initialDiffPath?: string | null;
   initialDiffStaged?: boolean;
+  /**
+   * Panel host only: element in the host header that owns the unified git
+   * controls. When provided, the single header row portals there instead of
+   * rendering GitView's own local header row (terminal pattern).
+   */
+  gitHeaderSlot?: HTMLDivElement | null;
 };
 
 export const GitView: React.FC<GitViewProps> = ({
@@ -71,6 +79,7 @@ export const GitView: React.FC<GitViewProps> = ({
   chrome = 'desktop',
   initialDiffPath = null,
   initialDiffStaged = false,
+  gitHeaderSlot = null,
 }) => {
   const { git } = useRuntimeAPIs();
   const currentDirectory = useEffectiveDirectory();
@@ -1527,6 +1536,82 @@ export const GitView: React.FC<GitViewProps> = ({
     }
   }, [ setConflictFiles, setConflictOperation, setConflictDialogOpen, persistConflictState, currentDirectory, fetchStatus, fetchBranches, fetchLog, logMaxCountLocal, git]);
 
+  // Single header row state: the change-scope picker lives in the unified
+  // header while the embedded DiffView owns the underlying diff data. Scope
+  // follows the same empty/non-empty default the diffScope prop used to
+  // drive; turn/branch counts and view actions arrive from the DiffView via
+  // onHeaderControlsStateChange, and internally-originated scope changes
+  // (pending-file navigation) mirror back through onDiffScopeChange.
+  const [diffScope, setDiffScope] = React.useState<DiffHeaderScope>(() => (changeEntries.length > 0 ? 'all' : 'branch'));
+  const [diffHeaderState, setDiffHeaderState] = React.useState<DiffHeaderControlsState | null>(null);
+  const diffScopeBoundaryKey = `${currentDirectory ?? ''}:${changeEntries.length > 0 ? 'nonempty' : 'empty'}`;
+  const prevDiffScopeBoundaryRef = React.useRef(diffScopeBoundaryKey);
+  React.useEffect(() => {
+    if (prevDiffScopeBoundaryRef.current === diffScopeBoundaryKey) {
+      return;
+    }
+    prevDiffScopeBoundaryRef.current = diffScopeBoundaryKey;
+    setDiffScope(changeEntries.length > 0 ? 'all' : 'branch');
+  }, [changeEntries.length, diffScopeBoundaryKey]);
+
+  const handleDiffScopeChange = React.useCallback((scope: DiffHeaderScope) => {
+    setDiffScope(scope);
+  }, []);
+
+  const handleDiffHeaderStateChange = React.useCallback((state: DiffHeaderControlsState) => {
+    setDiffHeaderState(state);
+  }, []);
+
+  // The one meaningful git header: branch, identity, scope, sync, and every
+  // repository/diff view action. Hosts with panel chrome portal it into
+  // their header slot; all other hosts render it as a single local row.
+  const headerControls = isGitRepo === true && status ? (
+    <GitUnifiedHeader
+      status={status}
+      localBranches={localBranches}
+      remoteBranches={remoteBranches}
+      branchInfo={branches?.branches}
+      syncAction={syncAction}
+      remotes={effectiveRemotes}
+      onFetch={(remote) => handleSyncAction('fetch', remote)}
+      onSync={(remote) => handleSyncAction('sync', remote)}
+      onRemoveRemote={handleRemoveRemote}
+      removingRemoteName={removingRemoteName}
+      onCheckoutBranch={handleCheckoutBranch}
+      onCreateBranch={handleCreateBranch}
+      onRenameBranch={handleRenameBranch}
+      activeIdentityProfile={activeIdentityProfile}
+      availableIdentities={availableIdentities}
+      onSelectIdentity={handleApplyIdentity}
+      isApplyingIdentity={isSettingIdentity}
+      isWorktreeMode={false}
+      upstreamTarget={status.upstreamComparison ? `${status.upstreamComparison.remote}/${status.upstreamComparison.branch}` : null}
+      onOpenHistory={() => setGitLogDialogMode('history')}
+      onOpenGraph={() => setGitLogDialogMode('graph')}
+      onOpenStashes={openStashes}
+      onOpenUpdateBranch={canShowBranchWorkflows ? () => setIsUpdateBranchDialogOpen(true) : undefined}
+      diffScope={diffScope}
+      onDiffScopeChange={handleDiffScopeChange}
+      allCount={changeEntries.length}
+      workingCount={unstagedChangeEntries.length}
+      stagedCount={stagedCount}
+      branchAvailable={branchScopeAvailable}
+      diffHeaderState={diffHeaderState}
+    />
+  ) : null;
+  const headerRow = headerControls ? (
+    gitHeaderSlot ? (
+      createPortal(
+        <div className="flex min-w-0 flex-1 items-center gap-1">{headerControls}</div>,
+        gitHeaderSlot,
+      )
+    ) : (
+      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-2">
+        {headerControls}
+      </div>
+    )
+  ) : null;
+
   if (chrome === 'mobile') {
     return (
       <MobileGitChrome
@@ -1588,6 +1673,7 @@ export const GitView: React.FC<GitViewProps> = ({
             hideStackedFileSidebar
             stackedDefaultCollapsedAll
             flushContent
+            toolbarSlot={gitHeaderSlot}
           />
         </React.Suspense>
       </div>
@@ -1596,32 +1682,7 @@ export const GitView: React.FC<GitViewProps> = ({
 
   return (
     <div className={cn('flex h-full flex-col overflow-hidden')}>
-          <GitHeader
-        status={status}
-        localBranches={localBranches}
-        remoteBranches={remoteBranches}
-        branchInfo={branches?.branches}
-        syncAction={syncAction}
-        remotes={effectiveRemotes}
-        onFetch={(remote) => handleSyncAction('fetch', remote)}
-        onSync={(remote) => handleSyncAction('sync', remote)}
-        onRemoveRemote={handleRemoveRemote}
-        removingRemoteName={removingRemoteName}
-        onCheckoutBranch={handleCheckoutBranch}
-        onCreateBranch={handleCreateBranch}
-        onRenameBranch={handleRenameBranch}
-        activeIdentityProfile={activeIdentityProfile}
-        availableIdentities={availableIdentities}
-        onSelectIdentity={handleApplyIdentity}
-        isApplyingIdentity={isSettingIdentity}
-        isWorktreeMode={false}
-        onOpenHistory={() => setGitLogDialogMode('history')}
-        onOpenGraph={() => setGitLogDialogMode('graph')}
-        onOpenStashes={openStashes}
-        onOpenUpdateBranch={canShowBranchWorkflows ? () => setIsUpdateBranchDialogOpen(true) : undefined}
-        pullRequest={null}
-        prChecks={null}
-      />
+      {headerRow}
 
       {/* In-progress operation banner */}
       {currentDirectory && (
@@ -1646,13 +1707,16 @@ export const GitView: React.FC<GitViewProps> = ({
               <div className="min-h-0 flex-1 overflow-hidden">
                 <React.Suspense fallback={null}>
                   <DiffView
-                    diffScope={changeEntries.length > 0 ? 'all' : 'branch'}
+                    diffScope={diffScope}
+                    onDiffScopeChange={handleDiffScopeChange}
                     branchBase={branchScopeAvailable ? baseBranch : null}
                     branchHead={branchScopeAvailable ? currentBranch : null}
                     showOpenInEditorAction
                     hideStackedFileSidebar
                     stackedDefaultCollapsedAll
                     flushContent
+                    hideToolbar
+                    onHeaderControlsStateChange={handleDiffHeaderStateChange}
                   />
                 </React.Suspense>
               </div>
